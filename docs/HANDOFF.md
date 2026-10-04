@@ -78,7 +78,10 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
 
 ## Next tasks (in order), with brief sketches
 
-1. **CLI: `import notability` and `search`** (Sonnet; cloud OK). Wire
+1. **CLI: `import notability` and `search`** — DONE on branch `feat/cli-import-search`
+   (CLI 0.5.0; `docs/cli.md`; tests in `Tests/CLITests/CLIImportSearchTests.swift` with
+   generated fixtures in `Tests/CLITests/Fixtures`; `--dry-run` imports into a temp copy of the
+   vault; `NoteSummary.recognizedPages` feeds `notes show`). Original sketch: Wire
    `InkImport` into `Sources/InkVaultCLI` as `inkvault import notability
    PATH… --vault V [--notebook N] [--overwrite] [--dry-run] [--no-scale]`
    printing the `ImportReport`; add `inkvault search "term" [--json]` over

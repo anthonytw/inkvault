@@ -9,8 +9,8 @@
 | 0.3 | Render: B-spline evaluation, variable-width outlines, paper, PDF writer, SVG writer | `Sources/InkRender` | golden-file tests; PDF opens in Preview; matches PencilKit interpolation on macOS |
 | 0.4 | CLI: `keys`, `vault init/info/recipients/verify`, `notes`, `export`, `recover`, `compact`, `snapshot` (done, `docs/cli.md`) | `Sources/InkVaultCLI` | end-to-end test: init → write revisions → export PDF → `age -d` recovery |
 | 0.5 | CI: Linux (swift:6.4-noble) + macOS; static Linux CLI artifact; cloud setup script | `.github`, `scripts` | green on PR, binary downloadable |
-| 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`) | `Sources/InkImport` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
-| 0.7 | CLI `search` over page recognition text (title, notebook, tags, recognised words) | `Sources/InkVaultCLI` | end-to-end test: import fixture → search finds a recognised word |
+| 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`); CLI `import notability` (done, `docs/cli.md`) | `Sources/InkImport`, `Sources/InkVaultCLI` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
+| 0.7 | CLI `search` over page recognition text (done, `docs/cli.md`; matching note title, notebook and tags is not implemented) | `Sources/InkVaultCLI` | end-to-end test: import fixture → search finds a recognised word |
 | 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
 
 ## Phase 1 — iPad app

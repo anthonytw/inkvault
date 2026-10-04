@@ -104,10 +104,47 @@ inkvault notes show ID|TITLE
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
-hidden unless `--deleted`. `show` prints the metadata and the revision history
+hidden unless `--deleted`. `show` prints the metadata, how many pages have recognised text (`Text:`; `recognizedPages`
+in `--json`) and the revision history
 (kind, wall time, file name; `-v` adds the app string). A note is named by its
 full id, an id prefix of 4 or more characters, or its exact title
 (case-insensitive); an ambiguous name is an error that lists the candidates.
+
+### Import
+
+```
+inkvault import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
+```
+
+Each `PATH` is a `.note` file, an unzipped `.note` package directory, a folder
+searched recursively for `.note` files, or a zip of `.note` files (Notability's
+backup); see `docs/import-notability.md` for the mapping. One row is printed per
+note (status, title, notebook, strokes written, pages with recognised text,
+source) plus a summary line; `-v` lists what was left behind (typed text, PDFs,
+media, recordings, dashed strokes). A note already in the vault is skipped unless
+`--overwrite`, which replaces its pages. `--notebook` files every note under one
+notebook; `--no-scale` keeps Notability's document units instead of scaling to
+612 pt width. The device id and clock come from `device.json` as for `snapshot`.
+
+`--dry-run` imports into a throwaway copy of the vault with a throwaway device,
+so the report is exact but neither the vault nor `device.json` is touched.
+`--json` emits `summary` and `notes` (with `status` `imported`, `skipped` or
+`failed`, `reason`, `id`, `dropped`, ...). Exit 1 if any note failed, a path
+does not exist, or no `.note` file was found.
+
+### Search
+
+```
+inkvault search TERM
+```
+
+Case-insensitive substring search over every page's recognised text (the
+Notability import, later on-device recognition) in all notes except deleted
+ones. Human output is one row per matching page: note title, page number and a
+snippet. `--json` emits a list of hits with `noteId`, `title`, `notebook`,
+`page` (1-based), `pageId`, `snippet`, `matches`, `engine` and `words`, the
+recognised words containing the term with their `[x, y, w, h]` boxes. No match
+prints `No matches.` (an empty list with `--json`) and exits 0.
 
 ### Export
 

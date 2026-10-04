@@ -46,7 +46,7 @@ let package = Package(
         .executableTarget(
             name: "InkVaultCLI",
             dependencies: [
-                "Age", "InkVault", "InkRender", "InkWebDAV",
+                "Age", "InkVault", "InkRender", "InkImport", "InkWebDAV",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -59,7 +59,7 @@ let package = Package(
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "InkImportTests", dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib"]),
         .testTarget(name: "InkWebDAVTests", dependencies: ["InkWebDAV", "InkVault", "Age"]),
-        .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"]),
+        .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"], exclude: ["Fixtures"]),
     ],
     swiftLanguageModes: [.v6]
 )
