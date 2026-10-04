@@ -1,4 +1,8 @@
 import XCTest
+import Foundation
+#if canImport(FoundationXML)
+import FoundationXML   // XMLParser lives here on Linux
+#endif
 import InkVault
 @testable import InkRender
 
