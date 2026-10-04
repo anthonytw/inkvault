@@ -23,3 +23,11 @@ portability:
 cli:
     swift build -c release --product inkvault
     @echo ".build/release/inkvault"
+
+# Test the iPad app on the newest iPad simulator (needs Xcode)
+app-test:
+    scripts/app.sh test
+
+# Build the app for Mac Catalyst, unsigned (needs Xcode)
+app-catalyst:
+    scripts/app.sh catalyst

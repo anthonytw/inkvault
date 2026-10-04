@@ -89,10 +89,20 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
    `docs/cli.md`, plan rows 0.6/0.7.
 2. **Phase 1, iPad app** (needs Xcode on the Mac or the macOS CI runner;
    Opus for 3a/3c, Sonnet for the rest). Split:
-   - 3a `Apps/InkVault` Xcode project (SwiftUI, iPadOS 26 min, Catalyst on),
-     depends on the local package; CI job on `macos-26` running
-     `xcodebuild test` on a simulator; app targets excluded from the
-     Linux portability guard (they import UIKit/PencilKit by design).
+   - 3a **done** (branch `feat/ipad-app-scaffold`): `Apps/InkVault/InkVault.xcodeproj`,
+     hand-maintained with folder-synchronized groups (no XcodeGen/Tuist),
+     scheme `InkVaultApp`, iPadOS 26, Catalyst on, links the package's
+     `InkVault` + `Age` products. Shell: `AppModel` (`@Observable`,
+     `@MainActor`) opens a vault folder locked, unlocks with a pasted
+     identity or a stored key file's passphrase, loads `Vault.summaries()`
+     off the main actor and filters by sidebar selection (all, notebook,
+     tag, deleted); `RootView` is a three-column `NavigationSplitView`
+     (sidebar, note list, placeholder canvas) with a folder picker and an
+     unlock sheet. Tests: Swift Testing in `InkVaultAppTests` against the
+     fixture vault. Build/run: open the project in Xcode and run on an iPad
+     simulator, or `scripts/app.sh test` / `scripts/app.sh catalyst`
+     (CI job `app`). The folder picker does not persist access yet: 3b adds
+     bookmarks, iCloud, vault creation and a real sidebar.
    - 3b Vault browser: create/open vault (on device, iCloud Drive via
      ubiquity container, any Files-app folder via security-scoped
      bookmark), notebook/tag sidebar, note list from `Vault.summaries()`.
@@ -121,7 +131,7 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
 ## Gotchas collected so far
 
 See `CLAUDE.md § Gotchas` (case-insensitive paths, FoundationXML, static
-link flags, test-output grepping). Also: GitHub's `macos-26` runner has an
+link flags, test-output grepping, the app project). Also: GitHub's `macos-26` runner has an
 older compiler than local Xcode 27, so dense expressions that compile locally
 can time out there; swift-crypto types are not `Sendable` on Linux (store raw
 bytes); `PropertyListSerialization` returns keyed-archiver UIDs as an opaque
