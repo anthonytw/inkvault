@@ -3,8 +3,8 @@ import XCTest
 @testable import InkImport
 
 final class KeyedArchiveTests: XCTestCase {
-    /// A binary archive with real UID objects: on Darwin PropertyListSerialization
-    /// returns opaque CFKeyedArchiverUIDs, on Linux `["CF$UID": n]`. Both must resolve.
+    /// A binary archive with real UID objects: PropertyListSerialization returns
+    /// opaque CFKeyedArchiverUIDs on Darwin and `_NSKeyedArchiverUID`s on Linux.
     func testBinaryArchiveResolvesUIDs() throws {
         var b = KeyedArchiveBuilder()
         let when = Date(timeIntervalSinceReferenceDate: 678_741_683.5)
@@ -38,7 +38,7 @@ final class KeyedArchiveTests: XCTestCase {
         XCTAssertEqual(try archive.field(list[2], "label").string, "hi")
     }
 
-    /// XML plists spell UIDs as `{"CF$UID": n}` dictionaries on every platform.
+    /// XML plists spell UIDs as `{"CF$UID": n}` dictionaries; Foundation turns them into UID objects.
     func testXMLArchiveUIDDictionaries() throws {
         let xml = """
         <?xml version="1.0" encoding="UTF-8"?>

@@ -4,9 +4,9 @@ import Foundation
 ///
 /// `PropertyListSerialization` returns `Any`; this enum is what the importer
 /// works with instead. UIDs (`CF$UID`) arrive differently per platform: on
-/// Darwin as an opaque `CFKeyedArchiverUID` object, on Linux (and in XML
-/// plists everywhere) as a one-key dictionary `["CF$UID": n]`. Both become
-/// `.uid(n)`.
+/// Darwin as an opaque `CFKeyedArchiverUID` object, on Linux as the internal
+/// `_NSKeyedArchiverUID` class, and from hand-built values as a one-key
+/// dictionary `["CF$UID": n]`. All become `.uid(n)`.
 public indirect enum PlistValue: Hashable, Sendable {
     case string(String)
     case int(Int64)
@@ -60,12 +60,22 @@ public indirect enum PlistValue: Hashable, Sendable {
             if let i = n as? NSNumber { return i.intValue }
             return nil
         }
-        // Darwin: an opaque CFKeyedArchiverUID, described as
-        // "<CFKeyedArchiverUID 0x...>{value = 5}".
+        // An opaque UID object: `CFKeyedArchiverUID` on Darwin (described as
+        // "<CFKeyedArchiverUID 0x...>{value = 5}"), `_NSKeyedArchiverUID` in
+        // swift-corelibs-foundation (a stored `value: UInt32`).
         let typeName = String(describing: type(of: value))
-        guard typeName.contains("CFType") || typeName.contains("UID") else { return nil }
+        guard typeName.contains("UID") || typeName.contains("CFType") else { return nil }
+        for child in Mirror(reflecting: value).children where child.label == "value" {
+            switch child.value {
+            case let v as UInt32: return Int(v)
+            case let v as Int: return v
+            case let v as UInt64: return Int(exactly: v)
+            case let v as Int32: return Int(v)
+            default: break
+            }
+        }
         let text = String(describing: value)
-        guard text.contains("CFKeyedArchiverUID"), let r = text.range(of: "value = ") else { return nil }
+        guard let r = text.range(of: "value = ") else { return nil }
         let digits = text[r.upperBound...].prefix { $0.isNumber }
         return Int(digits)
     }
