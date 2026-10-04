@@ -23,7 +23,7 @@ Do not use features newer than Swift 6.0 in `Sources/`.
 
 ## Hard rules
 
-- `Sources/*` and `Tests/*` must build on Linux: Foundation, swift-crypto
+- `Sources/*` and `Tests/*` must build on Linux: Foundation (plus FoundationNetworking in `InkWebDAV` only), swift-crypto
   (`import Crypto`), `CZlib` and swift-argument-parser only. No UIKit,
   AppKit, PencilKit, CoreGraphics, Compression, CommonCrypto, Security.
   Apple-only code goes under `Apps/`. Apple-only *tests* (e.g. comparing
@@ -33,7 +33,8 @@ Do not use features newer than Swift 6.0 in `Sources/`.
 - Crypto: use swift-crypto primitives; never hand-roll a cipher or MAC.
   scrypt and PBKDF2 are the only primitives implemented locally
   (swift-crypto lacks them); they must have RFC test vectors.
-- No network code in `Sources/` (phase 3 WebDAV will be its own target).
+- No network code in `Sources/` except the `InkWebDAV` target (`URLSession`, via
+  `FoundationNetworking` on Linux). `scripts/check-portability.sh` enforces it.
 - Keep the stock-CLI recovery path working:
   `age -d -i key FILE.age | tail -c +38 | gunzip | jq .`
 
@@ -65,7 +66,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   symbols: the default build system omits Foundation's static dependencies.
   Pass them explicitly, as CI does: `-Xlinker -lCoreFoundation -Xlinker
   -l_FoundationICU -Xlinker -l_FoundationCollections -Xlinker
-  -l_FoundationCShims -Xlinker -lswiftSynchronization`. Do not put these in
+  -l_FoundationCShims -Xlinker -lswiftSynchronization -Xlinker -l_CFXMLInterface
+  -Xlinker -l_CFURLSessionInterface -Xlinker -lcurl -Xlinker -lxml2` (the last four for FoundationXML and
+  FoundationNetworking, used by `InkWebDAV`; libcurl and libxml2 stay dynamic). Do not put these in
   `linkerSettings` (they break dynamic builds and `swift test`).
 - `Sources/` must also compile for iOS and Mac Catalyst (the app links it), not
   just macOS and Linux. Some Foundation API is macOS-only:
