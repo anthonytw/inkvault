@@ -83,12 +83,12 @@ final class VaultStoreTests: VaultTestCase {
             try Data("stray".utf8).write(to: s)
         }
 
-        XCTAssertEqual(vault.noteIDs(), [testNote])
-        XCTAssertEqual(vault.revisionNames(of: testNote), log.map(\.name).sorted())
+        XCTAssertEqual(try vault.noteIDs(), [testNote])
+        XCTAssertEqual(try vault.revisionNames(of: testNote), log.map(\.name).sorted())
         for r in log { XCTAssertEqual(try vault.readRevision(noteId: testNote, name: r.name), r) }
-        XCTAssertEqual(vault.nextSeq(noteId: testNote, device: devA), 4)
-        XCTAssertEqual(vault.nextSeq(noteId: testNote, device: devB), 3)
-        XCTAssertEqual(vault.nextSeq(noteId: testNote, device: devC), 1)
+        XCTAssertEqual(try vault.nextSeq(noteId: testNote, device: devA), 4)
+        XCTAssertEqual(try vault.nextSeq(noteId: testNote, device: devB), 3)
+        XCTAssertEqual(try vault.nextSeq(noteId: testNote, device: devC), 1)
 
         let expected = try NoteReducer.reconstruct(log)
         XCTAssertEqual(try vault.reconstruct(noteId: testNote), expected)
@@ -113,11 +113,11 @@ final class VaultStoreTests: VaultTestCase {
         // Compaction: everything covered and old goes; the snapshot stays.
         let deleted = try vault.compact(noteId: testNote, retention: 0, now: wallAt(baseMillis + 100_000))
         XCTAssertEqual(deleted, log.map(\.name).sorted())
-        XCTAssertEqual(vault.revisionNames(of: testNote), [snap.name])
+        XCTAssertEqual(try vault.revisionNames(of: testNote), [snap.name])
         XCTAssertEqual(try vault.reconstruct(noteId: testNote).pages, expected.pages)
         // A device whose files were compacted away continues after its covered seqs.
-        XCTAssertEqual(vault.nextSeq(noteId: testNote, device: devA), 4)
-        XCTAssertEqual(vault.nextSeq(noteId: testNote, device: devC), 2)
+        XCTAssertEqual(try vault.nextSeq(noteId: testNote, device: devA), 4)
+        XCTAssertEqual(try vault.nextSeq(noteId: testNote, device: devC), 2)
 
         for s in strays { XCTAssertTrue(FileManager.default.fileExists(atPath: s.path), "stray kept: \(s.path)") }
     }
@@ -150,11 +150,11 @@ final class VaultStoreTests: VaultTestCase {
         for r in log { try vault.write(r) }
         let locked = try Vault.open(at: vault.url)
         XCTAssertTrue(locked.isLocked)
-        XCTAssertEqual(locked.noteIDs(), [testNote])
-        XCTAssertEqual(locked.revisionNames(of: testNote).count, log.count)
-        XCTAssertEqual(locked.nextSeq(noteId: testNote, device: devA), 4)
+        XCTAssertEqual(try locked.noteIDs(), [testNote])
+        XCTAssertEqual(try locked.revisionNames(of: testNote).count, log.count)
+        XCTAssertEqual(try locked.nextSeq(noteId: testNote, device: devA), 4)
         XCTAssertThrowsError(try locked.readRevision(noteId: testNote, name: log[0].name)) {
-            XCTAssertEqual($0 as? RevisionReadError, .locked)
+            XCTAssertEqual($0 as? VaultError, .locked)
         }
         XCTAssertThrowsError(try locked.write(sampleLog()[0])) { XCTAssertEqual($0 as? VaultError, .locked) }
         XCTAssertThrowsError(try locked.reconstruct(noteId: testNote)) { XCTAssertEqual($0 as? VaultError, .locked) }
@@ -184,7 +184,7 @@ final class VaultStoreTests: VaultTestCase {
         try vault.write(snap)
         let deleted = try vault.compact(noteId: testNote, retention: 0, now: wallAt(baseMillis + 100_000))
         XCTAssertFalse(deleted.contains(log[2].name))
-        XCTAssertTrue(vault.revisionNames(of: testNote).contains(log[2].name))
+        XCTAssertTrue(try vault.revisionNames(of: testNote).contains(log[2].name))
     }
 
     func testVerifyHealthyThenCorruptAndStray() throws {

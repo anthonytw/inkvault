@@ -50,6 +50,31 @@ class VaultTestCase: XCTestCase {
                points: [StrokePoint(x: 1, y: 2, w: 2, h: 2, al: 1.5), StrokePoint(x: 3.25, y: 4, t: 0.016, w: 2, h: 2, al: 1.5)])
     }
 
+    /// Two notes, six files in all.
+    func populate(_ vault: Vault) throws -> [Revision] {
+        let log = sampleLog()
+        let other = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        var extra = log[0]
+        extra.noteId = other
+        for r in log + [extra] { try vault.write(r) }
+        return log + [extra]
+    }
+
+    func assertReadable(_ revs: [Revision], at url: URL, by id: X25519Identity, file: StaticString = #filePath,
+                        line: UInt = #line) throws {
+        let v = try Vault.open(at: url, identities: [id])
+        for r in revs {
+            XCTAssertEqual(try v.readRevision(noteId: r.noteId, name: r.name), r, file: file, line: line)
+        }
+        let report = v.verify()
+        XCTAssertTrue(report.isHealthy, "\(report)", file: file, line: line)
+        XCTAssertFalse(report.rewrapPending, file: file, line: line)
+    }
+
+    func stanzaCounts(_ vault: Vault, _ revs: [Revision]) throws -> [Int] {
+        try revs.map { try AgeFile.parseHeader(Data(contentsOf: fileURL(vault, $0.noteId, $0.name))).header.stanzas.count }
+    }
+
     /// Flips one bit of a file in place (simulating storage damage).
     func flipByte(_ url: URL, at offsetFromEnd: Int) throws {
         var d = try Data(contentsOf: url)

@@ -12,7 +12,11 @@ top of it.
   so output does not depend on the platform. Unframing without the vault
   secret returns the body marked `verified == false`.
 - `Vault`: a `.inkvault` directory plus the identities it was opened with.
-  Opened without identities it is locked and only lists names. Note-store
+  Opened without identities it is locked (`isLocked`) and only lists
+  names. Created with `identities: []` it is write-only: it holds the secret
+  and can write revisions, but `canRead` is false, read paths throw
+  `VaultError.noIdentities`, and `verify()` reports file contents as
+  `notChecked`. Note-store
   methods (`write`, `readRevision`, `reconstruct`, `snapshot`, `compact`,
   `history`, `nextSeq`, `verify`) and identity files (`keys/`, §3.2) are
   extensions on it.
@@ -25,11 +29,14 @@ rewrap journal) goes through one helper:
 1. write the bytes to `.inkvault-tmp-<uuid>` **in the destination directory**
    (same filesystem, so the rename cannot turn into a copy);
 2. `fsync` it;
-3. `rename(2)` it onto the final name.
+3. `rename(2)` it onto the final name;
+4. `fsync` the directory, so the rename itself survives a crash.
 
 A reader or a sync client sees either no file (or the previous version) or
 the complete new one, never a partial file. Temp names start with a dot and
-lack the `.age` suffix, so every listing ignores them (`verify` reports a
+lack the `.age` suffix, so every listing ignores them. Deletions (compaction,
+the journal) also fsync their directory. Filesystems that cannot fsync a
+directory (`EINVAL`, `ENOTSUP`) are accepted (`verify` reports a
 leftover as `unknownFile`; nothing deletes it automatically).
 
 Revisions are write-once: `write` refuses an existing name and a reused
@@ -42,12 +49,25 @@ snapshot's `included`, so a device whose old revisions were compacted away
 does not reissue a `seq` that a snapshot already claims to cover (which
 would make readers drop the new delta).
 
+## Listing errors
+
+A directory that does not exist lists as empty (sync tools drop empty
+directories). Any other listing failure throws `VaultError.io`
+(`noteIDs`, `revisionNames`, `identityFiles`, `nextSeq`, the rewrap) or, in
+`verify()`, becomes an `unlistable` entry that makes the report unhealthy.
+"Could not read" never looks like "nothing there".
+
+`nextSeq(noteId:device:)` throws when a snapshot of the note cannot be read,
+since its coverage is unknown. Callers that already hold all revisions use
+`Vault.nextSeq(from:device:)`, which reads nothing (`snapshot()` does).
+
 ## Recipient changes and resumability (§3.3)
 
 The only in-place rewrite. The procedure is the recommended one of
 `format.md` §3.3.1; this section explains the reasoning. Order of operations:
 
-1. Write `rewrap-journal.json` at the vault root. When the secret rotates
+1. Write `rewrap-journal.json` at the vault root; the atomic write fsyncs
+   the root directory, so the journal is durable before `vault.json` changes. When the secret rotates
    (recipient removed) it holds the **outgoing** vault secret, age-encrypted
    to the new recipient set.
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
@@ -60,11 +80,19 @@ The only in-place rewrite. The procedure is the recommended one of
      first re-tag the unchanged gzip bytes with the new secret, after
      verifying the old tag with the outgoing secret) and replace the file
      atomically.
-4. Delete the journal.
+4. Delete the journal, but only if every file completed. Any failure
+   (unreadable file, tag that verifies under neither secret, ...) keeps the
+   journal and with it the outgoing secret: deleting it would turn a
+   transient I/O error into a permanent tag failure. `pendingRewrap` stays
+   true, the report lists the failures, `resumeRewrap()` retries them, and
+   no new recipient change starts until it completes
+   (`VaultError.rewrapIncomplete`).
 
 If the process dies anywhere, the journal is still there. `Vault.open`
 notices it (`pendingRewrap`), keeps the outgoing secret so files not yet
-rewrapped still verify, and `resumeRewrap()` (or simply repeating the same
+rewrapped still verify (if the journal cannot be read, `open` records why in
+`journalProblem`; `verify()` reports it and such files fail as
+`tagMismatchJournalUnreadable` instead of a plain tag mismatch), and `resumeRewrap()` (or simply repeating the same
 `addRecipient` / `removeRecipient` call) finishes step 3 and 4. Files that
 are already current are skipped, so a run can be repeated any number of
 times.

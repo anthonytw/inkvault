@@ -88,7 +88,8 @@ does not verify is left as it is and reported; it is never re-tagged.
 Implementations SHOULD change recipients as follows, so that an interrupted
 change can be finished by any device holding an identity of the new set:
 
-1. Write `rewrap-journal.json` at the vault root (atomically):
+1. Write `rewrap-journal.json` at the vault root (atomically, and durably
+   before step 2):
 
    ```json
    { "format": "inkvault/1",
@@ -104,7 +105,9 @@ change can be finished by any device holding an identity of the new set:
    otherwise rewrite it as described above, verifying its tag under the
    current secret or, failing that, under `previousVaultSecret`, and replace
    it atomically (temporary file in the same directory, then rename).
-4. Delete `rewrap-journal.json`.
+4. Delete `rewrap-journal.json` once every file is complete. If any file
+   could not be read or verified, keep the journal (it is the only copy of
+   the outgoing secret), report those files, and retry step 3 later.
 
 A file is complete when its age header has exactly one `X25519` stanza per
 current recipient (and no other stanzas) and its tag verifies under the

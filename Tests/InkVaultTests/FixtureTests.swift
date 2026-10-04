@@ -88,8 +88,8 @@ final class FixtureTests: XCTestCase {
         let vault = try Vault.open(at: Self.bundled("sample.inkvault"), identities: [identity])
         XCTAssertEqual(vault.vaultId, SampleFixture.vaultId)
         XCTAssertEqual(vault.recipients.map(\.key), [identity.recipient.string])
-        XCTAssertEqual(vault.noteIDs(), [SampleFixture.lecture, SampleFixture.deleted])
-        XCTAssertEqual(vault.revisionNames(of: SampleFixture.lecture).map(\.kind),
+        XCTAssertEqual(try vault.noteIDs(), [SampleFixture.lecture, SampleFixture.deleted])
+        XCTAssertEqual(try vault.revisionNames(of: SampleFixture.lecture).map(\.kind),
                        [.delta, .delta, .delta, .snapshot, .delta])
 
         let lecture = try vault.reconstruct(noteId: SampleFixture.lecture)
@@ -116,9 +116,9 @@ final class FixtureTests: XCTestCase {
         let fresh = tmp.appendingPathComponent("sample.inkvault")
         try SampleFixture.generate(at: fresh, identity: identity)
         let regenerated = try Vault.open(at: fresh, identities: [identity])
-        for note in vault.noteIDs() {
-            XCTAssertEqual(regenerated.revisionNames(of: note), vault.revisionNames(of: note))
-            for name in vault.revisionNames(of: note) {
+        for note in try vault.noteIDs() {
+            XCTAssertEqual(try regenerated.revisionNames(of: note), try vault.revisionNames(of: note))
+            for name in try vault.revisionNames(of: note) {
                 XCTAssertEqual(try regenerated.readRevision(noteId: note, name: name),
                                try vault.readRevision(noteId: note, name: name), "\(name)")
             }
@@ -128,7 +128,7 @@ final class FixtureTests: XCTestCase {
     func testFixtureIdentityFileOpensWithPassphrase() throws {
         let identity = try IdentityFile.parse(String(contentsOf: Self.bundled("sample.key"), encoding: .utf8))
         let locked = try Vault.open(at: Self.bundled("sample.inkvault"))
-        XCTAssertEqual(locked.identityFiles(), [identity.recipient])
+        XCTAssertEqual(try locked.identityFiles(), [identity.recipient])
         let read = try locked.readIdentityFile(recipient: identity.recipient, passphrase: SampleFixture.passphrase)
         XCTAssertEqual(read.string, identity.string)
     }

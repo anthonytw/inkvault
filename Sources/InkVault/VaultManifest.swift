@@ -11,6 +11,11 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         /// When the recipient was added.
         public var added: Date
 
+        /// - Parameters:
+        ///   - key: Bech32 `age1...` recipient (not validated here; `Vault`
+        ///     validates when reading or writing).
+        ///   - label: free-form display name.
+        ///   - added: when it was added.
         public init(key: String, label: String, added: Date) {
             self.key = key; self.label = label; self.added = added
         }
@@ -27,6 +32,12 @@ public struct VaultManifest: Hashable, Sendable, Codable {
     /// The 32-byte vault secret, age-encrypted (armored) to exactly `recipients`.
     public var vaultSecret: String
 
+    /// Builds a manifest value. No validation happens here; `Vault.create`
+    /// and `Vault.open` enforce format.md §2.
+    ///
+    /// - Parameters:
+    ///   - format: `inkvault/1` unless testing other versions.
+    ///   - vaultSecret: the armored age file holding the 32-byte secret.
     public init(format: String = InkVaultFormat.identifier, vaultId: UUID, created: Date, recipients: [Recipient],
                 vaultSecret: String) {
         self.format = format; self.vaultId = vaultId; self.created = created

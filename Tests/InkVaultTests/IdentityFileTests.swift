@@ -10,7 +10,7 @@ final class IdentityFileTests: VaultTestCase {
         let created = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-04T16:20:00Z"))
         let url = try vault.writeIdentityFile(id, passphrase: "correct horse", workFactor: 15, created: created)
         XCTAssertEqual(url.lastPathComponent, "\(id.recipient.string).key.age")
-        XCTAssertEqual(vault.identityFiles(), [id.recipient])
+        XCTAssertEqual(try vault.identityFiles(), [id.recipient])
 
         // Plaintext is age-keygen style under a single scrypt stanza.
         let data = try Data(contentsOf: url)
@@ -49,7 +49,7 @@ final class IdentityFileTests: VaultTestCase {
                 XCTAssertEqual($0 as? VaultError, .workFactorOutOfRange(wf))
             }
         }
-        XCTAssertEqual(vault.identityFiles(), [])
+        XCTAssertEqual(try vault.identityFiles(), [])
     }
 
     func testWorkFactorAboveCapIsRefused() throws {

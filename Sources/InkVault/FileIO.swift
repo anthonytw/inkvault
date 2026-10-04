@@ -52,6 +52,25 @@ enum FileIO {
             try? fm.removeItem(at: tmp)
             throw VaultError.io("rename to \(url.path): errno \(code)")
         }
+        try syncDirectory(dir)
+    }
+
+    /// Flushes a directory's entries (a rename or unlink in it) to disk with
+    /// `fsync(2)` on the directory. Filesystems that cannot fsync a directory
+    /// (`EINVAL`, `ENOTSUP`) are accepted as is.
+    static func syncDirectory(_ dir: URL) throws {
+        let fd = dir.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY)
+        }
+        guard fd >= 0 else { throw VaultError.io("open \(dir.path) for fsync: errno \(errno)") }
+        defer { _ = close(fd) }
+        if fsync(fd) != 0 {
+            let code = errno
+            guard code == EINVAL || code == ENOTSUP else {
+                throw VaultError.io("fsync \(dir.path): errno \(code)")
+            }
+        }
     }
 
     static func read(_ url: URL) throws -> Data {
@@ -65,9 +84,15 @@ enum FileIO {
         return fm.fileExists(atPath: url.path, isDirectory: &dir) && dir.boolValue
     }
 
-    /// Entry names in `dir`, sorted; empty when it does not exist.
-    static func entries(_ dir: URL) -> [String] {
-        ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
+    /// Entry names in `dir`, sorted. A directory that does not exist is
+    /// empty (sync tools drop empty directories); any other failure to list
+    /// it throws `VaultError.io`, so "could not read" never looks like
+    /// "nothing there".
+    static func entries(_ dir: URL) throws -> [String] {
+        guard fm.fileExists(atPath: dir.path) else { return [] }
+        do { return try fm.contentsOfDirectory(atPath: dir.path).sorted() } catch {
+            throw VaultError.io("list \(dir.path): \(error)")
+        }
     }
 
     static func createDirectory(_ url: URL) throws {
@@ -76,7 +101,9 @@ enum FileIO {
         }
     }
 
+    /// Removes a file and flushes its directory.
     static func remove(_ url: URL) throws {
         do { try fm.removeItem(at: url) } catch { throw VaultError.io("remove \(url.path): \(error)") }
+        try syncDirectory(url.deletingLastPathComponent())
     }
 }

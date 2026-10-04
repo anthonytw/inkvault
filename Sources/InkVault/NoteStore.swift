@@ -27,14 +27,19 @@ public struct LoadedNote: Hashable, Sendable {
 extension Vault {
     /// Note ids: the lowercase-UUID directories under `notes/`, sorted.
     /// Anything else there is ignored.
-    public func noteIDs() -> [UUID] {
-        noteDirectoryNames().compactMap(UUID.init(uuidString:))
+    ///
+    /// - Throws: `VaultError.io` if `notes/` exists but cannot be listed.
+    public func noteIDs() throws -> [UUID] {
+        try noteDirectoryNames().compactMap(UUID.init(uuidString:))
     }
 
     /// Revision file names of a note, sorted by `(hlc, device, seq)`.
-    /// Unknown files and directories are ignored.
-    public func revisionNames(of noteId: UUID) -> [RevisionName] {
-        revisionFileNames(in: noteURL(noteId)).compactMap(RevisionName.init).sorted()
+    /// Unknown files and directories are ignored; a note without a
+    /// directory has none.
+    ///
+    /// - Throws: `VaultError.io` if the note directory cannot be listed.
+    public func revisionNames(of noteId: UUID) throws -> [RevisionName] {
+        try revisionFileNames(in: noteURL(noteId)).compactMap(RevisionName.init).sorted()
     }
 
     func noteURL(_ noteId: UUID) -> URL {
@@ -45,9 +50,10 @@ extension Vault {
     /// gunzips and decodes it, and checks that the content names this note
     /// and file.
     ///
-    /// - Throws: `RevisionReadError`, one case per failing stage.
+    /// - Throws: `VaultError.locked` or `.noIdentities` when the vault cannot
+    ///   read at all; otherwise `RevisionReadError`, one case per failing stage.
     public func readRevision(noteId: UUID, name: RevisionName) throws -> Revision {
-        guard let secret else { throw RevisionReadError.locked }
+        let secret = try requireReadable()
         let note = noteId.uuidString.lowercased()
         let data: Data
         do { data = try FileIO.read(noteURL(noteId).appendingPathComponent(name.filename)) } catch {
@@ -66,6 +72,10 @@ extension Vault {
             unframed = try Self.unframe(plain, note: note, filename: name.filename, secret: secret,
                                         previous: previousSecret)
         } catch BodyFramingError.tagMismatch {
+            if let journalProblem, pendingRewrap {
+                throw RevisionReadError.tagMismatchJournalUnreadable(
+                    "a pending rewrap journal could not be read: \(journalProblem)")
+            }
             throw RevisionReadError.tagMismatch
         } catch {
             throw RevisionReadError.corruptBody("\(error)")
@@ -108,7 +118,7 @@ extension Vault {
         let name = revision.name
         let file = dir.appendingPathComponent(name.filename)
         guard !FileIO.exists(file) else { throw VaultError.alreadyExists(file.path) }
-        if revisionNames(of: revision.noteId).contains(where: { $0.device == name.device && $0.seq == name.seq }) {
+        if try revisionNames(of: revision.noteId).contains(where: { $0.device == name.device && $0.seq == name.seq }) {
             throw VaultError.seqInUse(device: name.device.rawValue, seq: name.seq)
         }
         let json = try InkJSON.encoder().encode(revision)
@@ -119,17 +129,36 @@ extension Vault {
         try FileIO.writeAtomically(encrypted, to: file, replacing: false)
     }
 
-    /// The next `seq` for `device` in this note: one more than the largest
-    /// seen in a file name or covered by any readable snapshot's `included`
-    /// (so a device whose old revisions were compacted away never reuses a
-    /// covered seq). Locked vaults use file names only.
-    public func nextSeq(noteId: UUID, device: DeviceID) -> Int {
-        let names = revisionNames(of: noteId)
+    /// The next `seq` for `device` in this note (format.md §5): one more than
+    /// the largest seen in a file name or covered by any snapshot's
+    /// `included`, so a device whose old revisions were compacted away never
+    /// reuses a covered seq. Decrypts every snapshot of the note; callers that
+    /// already hold all revisions should use `nextSeq(from:device:)`.
+    ///
+    /// - Throws: `VaultError.revision` when a snapshot cannot be read (its
+    ///   coverage is unknown, so no safe seq can be chosen), `.locked` /
+    ///   `.noIdentities` when snapshots exist but the vault cannot read.
+    public func nextSeq(noteId: UUID, device: DeviceID) throws -> Int {
+        let names = try revisionNames(of: noteId)
         var top = names.filter { $0.device == device }.map(\.seq).max() ?? 0
-        if !isLocked {
-            for n in names where n.kind == .snapshot {
-                guard let r = try? readRevision(noteId: noteId, name: n),
-                      case .snapshot(let included, _) = r.body, let e = included.entries[device] else { continue }
+        for n in names where n.kind == .snapshot {
+            let r: Revision
+            do { r = try readRevision(noteId: noteId, name: n) } catch let e as RevisionReadError {
+                throw VaultError.revision(name: n.filename, e)
+            }
+            top = max(top, Self.nextSeq(from: [r], device: device) - 1)
+        }
+        return top + 1
+    }
+
+    /// The next `seq` for `device` given **all** revisions of a note, without
+    /// touching disk: one more than the largest `seq` of `device` among them
+    /// or covered by any snapshot's `included`.
+    public static func nextSeq(from revisions: [Revision], device: DeviceID) -> Int {
+        var top = 0
+        for r in revisions {
+            if r.device == device { top = max(top, r.seq) }
+            if case .snapshot(let included, _) = r.body, let e = included.entries[device] {
                 top = max(top, e.upTo, e.extra.max() ?? 0)
             }
         }
@@ -139,10 +168,10 @@ extension Vault {
     /// Reads every revision of a note, collecting failures instead of
     /// throwing on them.
     public func loadNote(_ noteId: UUID) throws -> LoadedNote {
-        _ = try requireSecret()
+        _ = try requireReadable()
         var revs: [Revision] = []
         var failures: [RevisionName: RevisionReadError] = [:]
-        for n in revisionNames(of: noteId) {
+        for n in try revisionNames(of: noteId) {
             do { revs.append(try readRevision(noteId: noteId, name: n)) } catch let e as RevisionReadError {
                 failures[n] = e
             }
@@ -173,7 +202,7 @@ extension Vault {
     public func snapshot(noteId: UUID, device: DeviceID, clock: inout HybridClock, wall: Date,
                          app: String) throws -> Revision {
         let revs = try strictRevisions(noteId)
-        let seq = nextSeq(noteId: noteId, device: device)
+        let seq = Self.nextSeq(from: revs, device: device)
         let snap = try SnapshotBuilder.makeSnapshot(from: revs, device: device, seq: seq, clock: &clock,
                                                     wall: wall, app: app)
         try write(snap)
@@ -201,13 +230,13 @@ extension Vault {
     /// Every revision of a note with its wall time, oldest first by
     /// `(hlc, device, seq)`. Unreadable revisions are listed with their error.
     public func history(noteId: UUID) throws -> [HistoryEntry] {
-        _ = try requireSecret()
-        return revisionNames(of: noteId).map { n in
+        _ = try requireReadable()
+        return try revisionNames(of: noteId).map { n in
             do {
                 let r = try readRevision(noteId: noteId, name: n)
                 return HistoryEntry(name: n, wall: r.wall, app: r.app, error: nil)
-            } catch {
-                return HistoryEntry(name: n, wall: nil, app: nil, error: error as? RevisionReadError)
+            } catch let e as RevisionReadError {
+                return HistoryEntry(name: n, wall: nil, app: nil, error: e)
             }
         }
     }

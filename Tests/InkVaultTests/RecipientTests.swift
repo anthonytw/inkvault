@@ -4,31 +4,6 @@ import XCTest
 @testable import InkVault
 
 final class RecipientTests: VaultTestCase {
-    /// Two notes, six files in all.
-    func populate(_ vault: Vault) throws -> [Revision] {
-        let log = sampleLog()
-        let other = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
-        var extra = log[0]
-        extra.noteId = other
-        for r in log + [extra] { try vault.write(r) }
-        return log + [extra]
-    }
-
-    func assertReadable(_ revs: [Revision], at url: URL, by id: X25519Identity, file: StaticString = #filePath,
-                        line: UInt = #line) throws {
-        let v = try Vault.open(at: url, identities: [id])
-        for r in revs {
-            XCTAssertEqual(try v.readRevision(noteId: r.noteId, name: r.name), r, file: file, line: line)
-        }
-        let report = v.verify()
-        XCTAssertTrue(report.isHealthy, "\(report)", file: file, line: line)
-        XCTAssertFalse(report.rewrapPending, file: file, line: line)
-    }
-
-    func stanzaCounts(_ vault: Vault, _ revs: [Revision]) throws -> [Int] {
-        try revs.map { try AgeFile.parseHeader(Data(contentsOf: fileURL(vault, $0.noteId, $0.name))).header.stanzas.count }
-    }
-
     func testAddRecipientLetsSecondIdentityRead() throws {
         let a = X25519Identity(), b = X25519Identity()
         var vault = try makeVault(a)
@@ -158,6 +133,24 @@ final class RecipientTests: VaultTestCase {
         XCTAssertEqual(report.failures, ["\(testNote.uuidString.lowercased())/\(planted.filename)": .tagMismatch])
         XCTAssertEqual(report.rewrapped.count, revs.count)
         XCTAssertEqual(try Data(contentsOf: plantedURL), plantedBytes, "planted file untouched")
+
+        // The change is not complete: the journal stays and blocks a new change.
+        XCTAssertFalse(report.isComplete)
+        XCTAssertTrue(vault.pendingRewrap)
+        let c = X25519Identity()
+        XCTAssertThrowsError(try vault.addRecipient(c.recipient, label: "C")) {
+            XCTAssertEqual($0 as? VaultError,
+                           .rewrapIncomplete(["\(testNote.uuidString.lowercased())/\(planted.filename)"]))
+        }
+        // Repeating the same add returns the still-incomplete report.
+        XCTAssertFalse(try vault.addRecipient(b.recipient, label: "B").isComplete)
+        // Once the planted file is dealt with, a retry completes.
+        try FileManager.default.removeItem(at: plantedURL)
+        let done = try vault.resumeRewrap()
+        XCTAssertTrue(done.isComplete)
+        XCTAssertEqual(done.alreadyCurrent.count, revs.count)
+        XCTAssertFalse(vault.pendingRewrap)
+        try assertReadable(revs, at: vault.url, by: b)
     }
 }
 

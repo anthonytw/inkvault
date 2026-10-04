@@ -29,9 +29,16 @@ public enum VaultError: Error, Hashable, Sendable {
     case vaultSecretUndecryptable(String)
     /// `vaultSecret` decrypts but is not 32 bytes.
     case invalidVaultSecret
-    /// The operation needs the vault secret and identities; the vault was
-    /// opened without identities (read-only, names only).
+    /// The operation needs the vault secret; the vault was opened without
+    /// identities (read-only, names only).
     case locked
+    /// The operation reads note files, but the vault holds no identities
+    /// (created write-only: it has the secret but cannot decrypt).
+    case noIdentities
+    /// A recipient change is still unfinished because these files (as
+    /// `<noteId>/<file>`) could not be rewrapped; fix or remove them and call
+    /// `resumeRewrap()` before starting another change.
+    case rewrapIncomplete([String])
     /// Not a lowercase hyphenated UUID note directory name.
     case invalidNoteId(String)
     /// Another revision of this note already uses `(device, seq)`.
@@ -59,10 +66,9 @@ public enum VaultError: Error, Hashable, Sendable {
     case io(String)
 }
 
-/// Why one revision file could not be read, by stage.
+/// Why one revision file could not be read, by stage. (Vault-level
+/// preconditions, such as a locked vault, are `VaultError`s.)
 public enum RevisionReadError: Error, Hashable, Sendable {
-    /// The vault is locked (no identities).
-    case locked
     /// The file could not be read from disk.
     case unreadable(String)
     /// age decryption failed (no matching identity, bad header, corrupt payload).
@@ -70,6 +76,10 @@ public enum RevisionReadError: Error, Hashable, Sendable {
     /// The inner HMAC tag does not match (format.md §4): tampered, replayed
     /// under another note or name, or written under another vault secret.
     case tagMismatch
+    /// The tag does not match the current secret while a recipient change
+    /// is pending whose journal (holding the outgoing secret) could not be
+    /// read; the detail says why. The file may be fine once the journal is.
+    case tagMismatchJournalUnreadable(String)
     /// The plaintext is not a valid framed gzip body.
     case corruptBody(String)
     /// The JSON does not decode as a revision, or names another note or file.
@@ -94,6 +104,9 @@ public struct Vault: Sendable {
     /// During an unfinished secret-rotating rewrap: the secret files not yet
     /// rewrapped are still tagged with.
     private(set) var previousSecret: VaultSecret?
+    /// Why a pending rewrap journal could not be read when the vault was
+    /// opened (nil when there is none, it read fine, or the vault is locked).
+    public private(set) var journalProblem: String?
 
     static let manifestName = "vault.json"
     static let keysName = "keys"
@@ -110,8 +123,12 @@ public struct Vault: Sendable {
     public var recipients: [VaultManifest.Recipient] { manifest.recipients }
     /// `vaultId` from the manifest.
     public var vaultId: UUID { manifest.vaultId }
-    /// True when opened without identities.
+    /// True when opened without identities: no vault secret, names only.
     public var isLocked: Bool { secret == nil }
+    /// True when note files can be decrypted and verified: the vault secret
+    /// is known and at least one identity is held. A vault created with
+    /// `identities: []` is unlocked (it can write) but cannot read.
+    public var canRead: Bool { secret != nil && !identities.isEmpty }
     /// True when a recipient change was interrupted; `resumeRewrap()` (or
     /// repeating the same `addRecipient`/`removeRecipient`) finishes it.
     public var pendingRewrap: Bool { FileIO.exists(journalURL) }
@@ -151,7 +168,8 @@ public struct Vault: Sendable {
         try FileIO.createDirectory(url.appendingPathComponent(keysName))
         try FileIO.createDirectory(url.appendingPathComponent(notesName))
         let written = try writeManifest(manifest, to: manifestURL, replacing: false)
-        return Vault(url: url, manifest: written, identities: identities, secret: secret, previousSecret: nil)
+        return Vault(url: url, manifest: written, identities: identities, secret: secret, previousSecret: nil,
+                     journalProblem: nil)
     }
 
     /// Opens a vault. With identities, decrypts the vault secret using the
@@ -163,12 +181,16 @@ public struct Vault: Sendable {
         let manifestURL = url.appendingPathComponent(manifestName)
         guard FileIO.exists(manifestURL) else { throw VaultError.notAVault(url.path) }
         let manifest = try readManifest(FileIO.read(manifestURL))
-        var vault = Vault(url: url, manifest: manifest, identities: identities, secret: nil, previousSecret: nil)
+        var vault = Vault(url: url, manifest: manifest, identities: identities, secret: nil, previousSecret: nil,
+                          journalProblem: nil)
         guard !identities.isEmpty else { return vault }
         vault.secret = try decryptSecret(manifest.vaultSecret, with: identities)
         if vault.pendingRewrap {
-            // Best effort here; resumeRewrap() reports a bad journal.
-            vault.previousSecret = try? vault.readJournal().previous
+            // Recorded, not thrown: the vault stays usable, verify() and
+            // tag mismatches surface it, and resumeRewrap() throws it.
+            do { vault.previousSecret = try vault.readJournal().previous } catch {
+                vault.journalProblem = "\(error)"
+            }
         }
         return vault
     }
@@ -233,6 +255,13 @@ public struct Vault: Sendable {
         return secret
     }
 
+    /// The secret, for operations that also decrypt note files.
+    func requireReadable() throws -> VaultSecret {
+        let secret = try requireSecret()
+        guard !identities.isEmpty else { throw VaultError.noIdentities }
+        return secret
+    }
+
     // MARK: - Recipients (format.md §3.3)
 
     /// What a recipient change did to the files under `notes/`.
@@ -242,11 +271,15 @@ public struct Vault: Sendable {
         /// Files already encrypted to the current set (and tagged with the
         /// current secret); left untouched.
         public var alreadyCurrent: [String] = []
-        /// Files left untouched because they could not be verified. They
-        /// still need attention; `verify()` reports them too.
+        /// Files left untouched because they could not be read or verified.
+        /// While any remain the journal is kept (`pendingRewrap` stays true)
+        /// and `resumeRewrap()` retries them.
         public var failures: [String: RevisionReadError] = [:]
 
         public init() {}
+
+        /// True when every file is encrypted to the current recipients.
+        public var isComplete: Bool { failures.isEmpty }
 
         mutating func merge(_ o: RewrapReport) {
             rewrapped += o.rewrapped
@@ -286,7 +319,15 @@ public struct Vault: Sendable {
         let key = recipient.string
         var report = RewrapReport()
         let resumed = pendingRewrap
-        if resumed { report = try resumeRewrap(stopAfter: stopAfter) }
+        if resumed {
+            report = try resumeRewrap(stopAfter: stopAfter)
+            guard report.isComplete else {
+                // The earlier change is the one the caller repeated, or one
+                // that must finish first; either way nothing new starts.
+                if manifest.recipients.contains(where: { $0.key == key }) { return report }
+                throw VaultError.rewrapIncomplete(report.failures.keys.sorted())
+            }
+        }
         if manifest.recipients.contains(where: { $0.key == key }) {
             guard resumed else { throw VaultError.duplicateRecipient(key) }
             return report
@@ -302,7 +343,13 @@ public struct Vault: Sendable {
         let key = recipient.string
         var report = RewrapReport()
         let resumed = pendingRewrap
-        if resumed { report = try resumeRewrap(stopAfter: stopAfter) }
+        if resumed {
+            report = try resumeRewrap(stopAfter: stopAfter)
+            guard report.isComplete else {
+                if !manifest.recipients.contains(where: { $0.key == key }) { return report }
+                throw VaultError.rewrapIncomplete(report.failures.keys.sorted())
+            }
+        }
         guard manifest.recipients.contains(where: { $0.key == key }) else {
             guard resumed else { throw VaultError.unknownRecipient(key) }
             return report
@@ -314,22 +361,31 @@ public struct Vault: Sendable {
     }
 
     mutating func resumeRewrap(stopAfter: Int?) throws -> RewrapReport {
-        _ = try requireSecret()
-        guard !identities.isEmpty else { throw VaultError.locked }
+        _ = try requireReadable()
         guard pendingRewrap else { return RewrapReport() }
         previousSecret = try readJournal().previous
+        journalProblem = nil
+        return try finishRewrap(stopAfter: stopAfter)
+    }
+
+    /// Rewraps, then removes the journal only if every file is complete.
+    /// Otherwise the journal (and the outgoing secret in it) stays, so the
+    /// files that failed can still be verified and rewrapped by a retry.
+    mutating func finishRewrap(stopAfter: Int?) throws -> RewrapReport {
         let report = try rewrapNotes(stopAfter: stopAfter)
+        guard report.isComplete else { return report }
         try FileIO.remove(journalURL)
         previousSecret = nil
         return report
     }
 
-    /// Journal first (holding the outgoing secret when rotating), then the
-    /// manifest, then the files, then the journal is removed. See docs/io.md.
+    /// Journal first (holding the outgoing secret when rotating; durable
+    /// before vault.json changes, since the atomic write fsyncs the
+    /// directory), then the manifest, then the files, then the journal is
+    /// removed if every file is complete. See format.md §3.3.1, docs/io.md.
     mutating func changeRecipients(_ next: [VaultManifest.Recipient], rotate: Bool,
                                    stopAfter: Int?) throws -> RewrapReport {
-        let current = try requireSecret()
-        guard !identities.isEmpty else { throw VaultError.locked }
+        let current = try requireReadable()
         let ageNext = try next.map { r in
             do { return try X25519Recipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
         }
@@ -345,10 +401,7 @@ public struct Vault: Sendable {
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
         secret = newSecret
 
-        let report = try rewrapNotes(stopAfter: stopAfter)
-        try FileIO.remove(journalURL)
-        previousSecret = nil
-        return report
+        return try finishRewrap(stopAfter: stopAfter)
     }
 
     struct RewrapJournal: Codable {
@@ -378,9 +431,9 @@ public struct Vault: Sendable {
         let current = try requireSecret()
         let recips = try ageRecipients()
         var report = RewrapReport()
-        for note in noteDirectoryNames() {
+        for note in try noteDirectoryNames() {
             let dir = notesURL.appendingPathComponent(note)
-            for name in revisionFileNames(in: dir) {
+            for name in try revisionFileNames(in: dir) {
                 let path = "\(note)/\(name)"
                 let file = dir.appendingPathComponent(name)
                 let data: Data
@@ -428,8 +481,8 @@ public struct Vault: Sendable {
     // MARK: - Listing helpers
 
     /// Lowercase-UUID directory names under `notes/`, sorted.
-    func noteDirectoryNames() -> [String] {
-        FileIO.entries(notesURL).filter { Self.isNoteDirectoryName($0) && FileIO.isDirectory(notesURL.appendingPathComponent($0)) }
+    func noteDirectoryNames() throws -> [String] {
+        try FileIO.entries(notesURL).filter { Self.isNoteDirectoryName($0) && FileIO.isDirectory(notesURL.appendingPathComponent($0)) }
     }
 
     static func isNoteDirectoryName(_ s: String) -> Bool {
@@ -438,8 +491,8 @@ public struct Vault: Sendable {
     }
 
     /// Canonical revision file names in a note directory (regular files only).
-    func revisionFileNames(in dir: URL) -> [String] {
-        FileIO.entries(dir).filter { n in
+    func revisionFileNames(in dir: URL) throws -> [String] {
+        try FileIO.entries(dir).filter { n in
             guard let r = RevisionName(n), r.filename == n else { return false }
             return !FileIO.isDirectory(dir.appendingPathComponent(n))
         }

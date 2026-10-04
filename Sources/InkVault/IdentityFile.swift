@@ -105,8 +105,10 @@ extension Vault {
     }
 
     /// Recipients that have a passphrase-wrapped identity file in `keys/`.
-    public func identityFiles() -> [X25519Recipient] {
-        FileIO.entries(keysURL).compactMap { n in
+    ///
+    /// - Throws: `VaultError.io` if `keys/` exists but cannot be listed.
+    public func identityFiles() throws -> [X25519Recipient] {
+        try FileIO.entries(keysURL).compactMap { n in
             FileIO.isDirectory(keysURL.appendingPathComponent(n)) ? nil : IdentityFile.recipient(fromFileName: n)
         }
     }
