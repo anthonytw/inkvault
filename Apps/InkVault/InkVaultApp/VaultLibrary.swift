@@ -59,6 +59,9 @@ struct CreatedVault: Sendable {
     /// The new secret key (`AGE-SECRET-KEY-1…`) when one was generated; the
     /// user must save it, nothing else holds it unless a passphrase wrapped it.
     var secretKey: String?
+    /// The recents entry saved for it, whose bookmark carries the access the
+    /// app needs to reopen it; nil when saving it failed.
+    var recentID: UUID?
 }
 
 /// Recent vaults, vault creation, and the places vaults live.
@@ -126,15 +129,18 @@ final class VaultLibrary {
     // MARK: - Recents
 
     /// Records that the vault at `url` was opened. Access to it must be active.
-    func remember(_ url: URL) throws {
+    @discardableResult
+    func remember(_ url: URL) throws -> RecentVault {
         let data = try VaultBookmark.make(for: url)
         let path = url.standardizedFileURL.path
         recents.removeAll { entry in
             (try? VaultBookmark.resolve(entry.bookmark))?.url.standardizedFileURL.path == path
         }
-        recents.insert(RecentVault(id: UUID(), name: Self.displayName(of: url), bookmark: data, lastOpened: Date()), at: 0)
+        let entry = RecentVault(id: UUID(), name: Self.displayName(of: url), bookmark: data, lastOpened: Date())
+        recents.insert(entry, at: 0)
         if recents.count > Self.maxRecents { recents.removeLast(recents.count - Self.maxRecents) }
         save()
+        return entry
     }
 
     /// Resolves a recent entry to a URL, re-saving a stale bookmark. A
@@ -191,10 +197,14 @@ final class VaultLibrary {
         let folder = try Self.folderName(for: request.name)
         let scoped = parent.startAccessingSecurityScopedResource()
         defer { if scoped { parent.stopAccessingSecurityScopedResource() } }
-        let created = try await Task.detached(priority: .userInitiated) {
-            try Self.createVault(request, folder: folder, in: parent)
+        var created = try await Task.detached(priority: .userInitiated) {
+            // In iCloud Drive, a coordinated write so the new folder is uploaded.
+            let target = parent.appendingPathComponent(folder, isDirectory: true)
+            return try CloudVault.coordinatedWrite(CloudVault.isUbiquitous(parent) ? target : nil) {
+                try Self.createVault(request, folder: folder, in: parent)
+            }
         }.value
-        try? remember(created.url)
+        created.recentID = try? remember(created.url).id
         return created
     }
 

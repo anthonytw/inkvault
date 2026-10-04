@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The app entry point: one window per scene, each with its own model.
-/// The library (recent vaults) is shared by every window.
+/// The app entry point. The model and the library (recent vaults) are app
+/// state, shared by every window, so edits from two windows are serialised
+/// by one model and never race on the device clock.
 @main
 struct InkVaultApp: App {
     @State private var model = AppModel()

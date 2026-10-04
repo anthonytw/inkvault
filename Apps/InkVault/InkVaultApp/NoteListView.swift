@@ -64,7 +64,7 @@ struct NoteListView: View {
             NewNoteView(notebook: currentNotebook)
         }
         .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
-            TextField(prompt?.kind == .tag ? "Tag" : "Notebook", text: $promptText)
+            TextField(prompt?.kind == .tag ? "Tag" : "Notebook (School/Math for levels)", text: $promptText)
             Button("OK") {
                 if let p = prompt {
                     let text = promptText
@@ -82,7 +82,7 @@ struct NoteListView: View {
     private var title: String {
         switch model.sidebarSelection ?? .allNotes {
         case .allNotes: return "Notes"
-        case .notebook(let n): return n
+        case .notebook(let n): return NotebookPath.components(n).last ?? n
         case .tag(let t): return "#\(t)"
         case .deleted: return "Recently Deleted"
         }
@@ -115,8 +115,8 @@ struct NoteListView: View {
                 }
             }
             Menu("Move to Notebook", systemImage: "book.closed") {
-                ForEach(model.notebooks.filter { $0 != note.notebook }, id: \.self) { name in
-                    Button(name) { run { try await model.moveNote(note.id, toNotebook: name) } }
+                ForEach(model.notebooks.filter { $0 != NotebookPath.canonical(note.notebook) }, id: \.self) { name in
+                    Button(NotebookPath.components(name).joined(separator: " › ")) { run { try await model.moveNote(note.id, toNotebook: name) } }
                 }
                 Button("New Notebook…") { promptText = ""; prompt = Prompt(kind: .notebook, note: note.id) }
                 if note.notebook != nil {
@@ -140,8 +140,8 @@ private struct NoteRow: View {
                     Text(modified, format: .dateTime.year().month().day())
                 }
                 Text("\(note.pages) page\(note.pages == 1 ? "" : "s")")
-                if let notebook = note.notebook {
-                    Label(notebook, systemImage: "book.closed").labelStyle(.titleAndIcon)
+                if let notebook = NotebookPath.canonical(note.notebook) {
+                    Label(NotebookPath.components(notebook).joined(separator: " › "), systemImage: "book.closed").labelStyle(.titleAndIcon)
                 }
                 if note.problem != nil {
                     Image(systemName: "exclamationmark.triangle")

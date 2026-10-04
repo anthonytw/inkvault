@@ -39,6 +39,11 @@ struct RootView: View {
                 }
             }
         }
+        .overlay {
+            if let progress = model.cloudProgress {
+                CloudProgressView(progress: progress) { model.cancelCloudDownload() }
+            }
+        }
         .sheet(isPresented: $creatingVault) {
             NewVaultView()
         }
@@ -76,6 +81,8 @@ struct RootView: View {
     private func reopen(_ entry: RecentVault, pickOnFailure: Bool = true) async {
         do {
             try await model.open(recent: entry, library: library)
+        } catch is CancellationError {
+            // The user stopped the iCloud download.
         } catch {
             model.errorMessage = "Could not reopen “\(entry.name)”: \(error)"
                 + (pickOnFailure ? "\n\nChoose the vault folder again." : "")

@@ -69,6 +69,14 @@ final class AppModel {
     var sortOrder = NoteSort.modified
     /// True while an edit is being written.
     var isEditing = false
+    /// Serialises edits (`commit`).
+    let editGate = EditGate()
+    /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
+    var cloudProgress: CloudProgress?
+    /// True when the open vault is in iCloud Drive: reads and writes are
+    /// coordinated and reloads fetch new files first.
+    var isCloudVault = false
+    var cloudTask: Task<Bool, any Error>?
 
     /// Where this install keeps its device id and hybrid clock.
     let deviceStateURL: URL
@@ -87,9 +95,15 @@ final class AppModel {
         vaultURL.map { $0.deletingPathExtension().lastPathComponent }
     }
 
-    /// Notebook names in use by live notes, sorted.
+    /// The notebook hierarchy of live notes (names are `/`-separated paths,
+    /// format.md §5.4).
+    var notebookTree: [NotebookNode] {
+        NotebookNode.tree(notes.filter { !$0.deleted }.map(\.notebook))
+    }
+
+    /// Every notebook path in use by live notes, parents included, in tree order.
     var notebooks: [String] {
-        Set(notes.filter { !$0.deleted }.compactMap(\.notebook)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        NotebookNode.flatten(notebookTree)
     }
 
     /// Tags in use by live notes, sorted.
@@ -102,7 +116,7 @@ final class AppModel {
         let inSelection: [NoteSummary]
         switch sidebarSelection ?? .allNotes {
         case .allNotes: inSelection = notes.filter { !$0.deleted }
-        case .notebook(let n): inSelection = notes.filter { !$0.deleted && $0.notebook == n }
+        case .notebook(let n): inSelection = notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
         case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains(t) }
         case .deleted: inSelection = notes.filter(\.deleted)
         }
@@ -143,8 +157,10 @@ final class AppModel {
         close()
         let scoped = url.startAccessingSecurityScopedResource()
         do {
-            let opened = try await Self.offMain { try Vault.open(at: url) }
+            let cloud = try await fetchFromICloud(url)
+            let opened = try await Self.offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             if scoped { scopedURL = url }
+            isCloudVault = cloud
             vault = opened
             vaultURL = url
             phase = .locked
@@ -163,7 +179,10 @@ final class AppModel {
     /// Unlocks the open vault with age identities and loads the note list.
     func unlock(with identities: [any AgeIdentity]) async throws {
         guard let url = vaultURL else { throw ModelError.noVaultOpen }
-        let opened = try await Self.offMain { try Vault.open(at: url, identities: identities) }
+        let coordinate = coordinationURL
+        let opened = try await Self.offMain {
+            try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities) }
+        }
         vault = opened
         phase = .unlocked
         try await reload()
@@ -181,8 +200,9 @@ final class AppModel {
     /// (`keys/<recipient>.key.age`, format.md §3.2).
     func unlock(passphrase: String) async throws {
         guard let locked = vault else { throw ModelError.noVaultOpen }
+        let coordinate = coordinationURL
         let identity: X25519Identity = try await Self.offMain {
-            let stored = try locked.identityFiles()
+            let stored = try CloudVault.coordinatedRead(coordinate) { try locked.identityFiles() }
             guard !stored.isEmpty else { throw ModelError.noStoredKeys }
             for recipient in stored {
                 do { return try locked.readIdentityFile(recipient: recipient, passphrase: passphrase) } catch VaultError.wrongPassphrase {
@@ -199,12 +219,16 @@ final class AppModel {
         guard let vault else { throw ModelError.noVaultOpen }
         isBusy = true
         defer { isBusy = false }
-        notes = try await Self.offMain { try vault.summaries() }
+        if isCloudVault { _ = try await fetchFromICloud(vault.url) }
+        let coordinate = coordinationURL
+        notes = try await Self.offMain { try CloudVault.coordinatedRead(coordinate) { try vault.summaries() } }
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
     }
 
     /// Forgets the vault (and its keys) and releases folder access.
     func close() {
+        cancelCloudDownload()
+        isCloudVault = false
         if let scopedURL { scopedURL.stopAccessingSecurityScopedResource() }
         scopedURL = nil
         vault = nil
@@ -218,7 +242,7 @@ final class AppModel {
 
     /// Runs `body` and records its error for the UI instead of throwing.
     func report(_ body: () async throws -> Void) async {
-        do { try await body() } catch { errorMessage = "\(error)" }
+        do { try await body() } catch is CancellationError {} catch { errorMessage = "\(error)" }
     }
 
     /// Runs blocking vault work (file I/O, decryption) on a background thread.

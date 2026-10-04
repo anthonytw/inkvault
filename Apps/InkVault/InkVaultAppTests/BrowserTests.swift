@@ -149,6 +149,19 @@ struct BrowserTests {
         #expect(VaultLibrary(storeURL: store).recents.isEmpty)
     }
 
+    @Test func newVaultReopensThroughItsOwnBookmarkNotAnotherWithTheSameName() async throws {
+        let library = try Self.library()
+        let model = AppModel(deviceStateURL: try Self.tempDir().appendingPathComponent("device.json"))
+        let first = try await model.createVault(NewVaultRequest(name: "Notes", keySource: .generate, passphrase: nil),
+                                                in: try Self.tempDir(), library: library)
+        let second = try await model.createVault(NewVaultRequest(name: "Notes", keySource: .generate, passphrase: nil),
+                                                 in: try Self.tempDir(), library: library)
+        #expect(first.recentID != nil && second.recentID != nil && first.recentID != second.recentID)
+        #expect(model.vaultURL?.standardizedFileURL.path == second.url.standardizedFileURL.path)
+        #expect(model.phase == .unlocked)
+        #expect(library.recents.map(\.name) == ["Notes", "Notes"])
+    }
+
     @Test func reopensARecentVaultFromItsBookmark() async throws {
         let parent = try Self.tempDir()
         let library = try Self.library()
@@ -227,12 +240,55 @@ struct BrowserTests {
     @Test func editsLeaveExistingRevisionsUntouchedAndAddDeltas() async throws {
         let model = try await Self.unlockedFixtureModel()
         let vault = try #require(model.vault)
-        let before = try vault.revisionNames(of: Self.lecture)
+        let dir = vault.url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())")
+        func files() throws -> [String: Data] {
+            var out: [String: Data] = [:]
+            for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) {
+                out[name] = try Data(contentsOf: dir.appendingPathComponent(name))
+            }
+            return out
+        }
+        let before = try files()
         try await model.addTag("x", to: Self.lecture)
-        let after = try vault.revisionNames(of: Self.lecture)
+        let after = try files()
         #expect(after.count == before.count + 1)
-        #expect(Set(before).isSubset(of: Set(after)))
+        for (name, bytes) in before { #expect(after[name] == bytes, "\(name) changed") }   // write-once
+        let added = try #require(Set(after.keys).subtracting(before.keys).first)
+        #expect(added.hasSuffix(".delta.age"))
         #expect(vault.verify().isHealthy)
+    }
+
+    @Test func concurrentEditsAreSerialisedAndAllLand() async throws {
+        let model = try await Self.unlockedFixtureModel()
+        async let a: Void = model.addTag("one", to: Self.lecture)
+        async let b: Void = model.moveNote(Self.lecture, toNotebook: "Two")
+        async let c: Void = model.addTag("three", to: Self.deleted)
+        _ = try await (a, b, c)
+        #expect(!model.isEditing)
+        try await model.reload()
+        let lecture = try #require(model.notes.first { $0.id == Self.lecture })
+        #expect(lecture.tags.contains("one"))
+        #expect(lecture.notebook == "Two")
+        #expect(model.notes.first { $0.id == Self.deleted }?.tags.contains("three") == true)
+        let vault = try #require(model.vault)
+        // One delta each, with this device's sequence numbers 1 and 2.
+        let device = try DeviceState.loadOrCreate(at: model.deviceStateURL).device
+        let mine = try vault.revisionNames(of: Self.lecture).filter { $0.device == device }
+        #expect(mine.map(\.seq).sorted() == [1, 2])
+        #expect(vault.verify().isHealthy)
+    }
+
+    @Test func editQueuedBeforeCloseIsNotWrittenAfterIt() async throws {
+        let model = try await Self.unlockedFixtureModel()
+        let vault = try #require(model.vault)
+        let before = try vault.revisionNames(of: Self.lecture)
+        await model.editGate.acquire()            // an edit in flight
+        let queued = Task { try await model.addTag("late", to: Self.lecture) }
+        while model.editGate.waiting == 0 { await Task.yield() }
+        model.close()
+        model.editGate.release()
+        await #expect(throws: AppModel.ModelError.noVaultOpen) { try await queued.value }
+        #expect(try vault.revisionNames(of: Self.lecture) == before)
     }
 
     @Test func lockedModelCannotEdit() async throws {

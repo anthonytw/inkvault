@@ -94,3 +94,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   can be typechecked and run on Linux with a scratch package that symlinks the
   files and shims the Apple-only URL bookmark and scoped-resource APIs; SwiftUI
   views cannot, only the CI `app` job builds them.
+- Notebook names are `/`-separated display paths (`format.md` §5.4): use
+  `NotebookPath` / `NotebookNode` (`Sources/InkVault/Notebooks.swift`), never
+  `==` on raw names (`" A//B "` and `A/B` are the same notebook; `A/Bc` is not
+  inside `A/B`).
+- iCloud Drive vaults: evicted files are `.<name>.icloud` placeholders (or
+  dataless files with a "not downloaded" status) that a plain listing skips,
+  so the vault looks empty. The app downloads them first and coordinates
+  reads/writes (`CloudVault.swift`, `docs/io.md` "iCloud Drive"); this is
+  app-only code, `Sources/` stays plain `FileManager`. The simulator has no
+  iCloud: only the pure logic (`CloudScan.swift`) is tested there; the
+  Linux scratch package needs shims for `isUbiquitousItem`,
+  `startDownloadingUbiquitousItem`, `ubiquitousItemDownloading*` resource
+  values and `NSFileCoordinator` as well.

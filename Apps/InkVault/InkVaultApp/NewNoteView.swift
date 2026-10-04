@@ -21,7 +21,7 @@ struct NewNoteView: View {
                 Picker("Paper", selection: $paper) {
                     ForEach(PaperKind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
                 }
-                TextField("Notebook (optional)", text: $notebook)
+                TextField("Notebook (optional; School/Math for levels)", text: $notebook)
                 if let failure { Text(failure).foregroundStyle(.red) }
             }
             .navigationTitle("New Note")

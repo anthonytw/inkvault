@@ -126,8 +126,13 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
      iCloud Drive; the ubiquity container needs the iCloud entitlement
      `com.apple.developer.icloud-container-identifiers` +
      `com.apple.developer.ubiquity-container-identifiers` and a paid team, so
-     `url(forUbiquityContainerIdentifier:)` is not used), and evicted
-     iCloud placeholders are not downloaded before opening; bookmarks on
+     `url(forUbiquityContainerIdentifier:)` is not used); evicted iCloud
+     files are downloaded before reading and on every reload, with progress
+     and cancel (`CloudVault.swift`, `docs/io.md` "iCloud Drive"; untested
+     against real iCloud in CI, the simulator has none). Notebooks are a
+     tree of `/`-separated paths (`format.md` §5.4, `Notebooks.swift`):
+     selecting a folder shows its sub-folders' notes, rename/move rewrites
+     the prefix of every descendant. Bookmarks on
      Catalyst use plain options (`.withSecurityScope` is not in the Catalyst
      SDK) and are untested on a sandboxed Mac build; the "On This Device"
      folder is not exposed in Files (needs `UIFileSharingEnabled` /

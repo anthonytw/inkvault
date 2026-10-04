@@ -267,6 +267,17 @@ the window; of two snapshots with equal `included`, keep at least one.
 - `created` is set once by the first revision and never changes. Readers take
   the earliest of any snapshot's recorded `created` and the `wall` of the
   earliest known revision by `(hlc, device, seq)`.
+- `notebook` is a free string (or `null`: in no notebook). `/` separates
+  the levels of a display hierarchy: `Research/Daily log` is the notebook
+  `Daily log` inside `Research`. For display, grouping and filtering, each
+  segment is trimmed of whitespace and empty segments (leading, trailing or
+  doubled `/`) are dropped, so `" Research//Daily log/ "` names the same
+  notebook; a name with no segment left is no notebook. Writers should store
+  this canonical form but readers must not rely on it. Parent levels exist
+  implicitly (no note needs to be in `Research` itself), and selecting a
+  notebook shows the notes in it and in every notebook below it. Renaming or
+  moving a notebook is one `setMeta` of `notebook` per affected note,
+  replacing the old path prefix; there is no separate notebook object.
 - `paper.kind` ∈ `blank`, `ruled`, `grid`, `dot`. Lengths are points (1/72 in).
 - `pageSize.infinite: true` means the page grows downward; `height` is then
   the current extent.

@@ -31,8 +31,9 @@ extension AppModel {
     /// generated, locked (asking for the key) when only a recipient was given.
     func createVault(_ request: NewVaultRequest, in parent: URL, library: VaultLibrary) async throws -> CreatedVault {
         let created = try await library.create(request, in: parent)
-        // The scope on `parent` ended; reopen through the bookmark `create` saved.
-        if let entry = library.recents.first(where: { $0.name == VaultLibrary.displayName(of: created.url) }),
+        // The scope on `parent` ended; reopen through the bookmark `create` saved
+        // (by id: another recent vault may have the same name).
+        if let entry = library.recents.first(where: { $0.id == created.recentID }),
            let url = try? library.resolve(entry) {
             try await openVault(at: url)
         } else {
@@ -58,11 +59,11 @@ extension AppModel {
     @discardableResult
     func createNote(title: String, paper: Paper, notebook: String?) async throws -> UUID {
         let id = UUID()
-        let notebook = NoteOps.normalizedNotebook(notebook)
+        let notebook = NotebookPath.canonical(notebook)
         try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                                                         paper: paper, notebook: notebook))])
         switch sidebarSelection ?? .allNotes {
-        case .notebook(let n) where n != notebook: sidebarSelection = .allNotes
+        case .notebook(let n) where !NotebookPath.name(notebook, isWithin: n): sidebarSelection = .allNotes
         case .tag, .deleted: sidebarSelection = .allNotes
         default: break
         }
@@ -70,20 +71,29 @@ extension AppModel {
         return id
     }
 
-    /// Sets the notebook of every note (deleted ones too) in `old` to `new`;
-    /// an empty `new` takes them out of any notebook.
+    /// Renames or moves the notebook `old` (a `/`-separated path, format.md
+    /// §5.4) to `new`: every note in it or below it, deleted ones too, gets
+    /// the `old` prefix of its notebook replaced by `new` (one `setMeta` per
+    /// note). An empty `new` takes the notes directly in `old` out of any
+    /// notebook and lifts its sub-notebooks to the top level.
     func renameNotebook(_ old: String, to new: String) async throws {
-        let target = NoteOps.normalizedNotebook(new)
+        guard let old = NotebookPath.canonical(old) else { return }
+        let target = NotebookPath.canonical(new)
         guard target != old else { return }
-        let ids = notes.filter { $0.notebook == old }.map(\.id)
-        try await commit(ids.map { (id: $0, ops: [Op.setMeta(.notebook(target))]) })
-        if sidebarSelection == .notebook(old) {
-            sidebarSelection = target.map(SidebarItem.notebook) ?? .allNotes
+        let edits: [(id: UUID, ops: [Op])] = notes.compactMap { note in
+            guard NotebookPath.name(note.notebook, isWithin: old) else { return nil }
+            let renamed = NotebookPath.renamed(note.notebook, from: old, to: target)
+            return renamed == note.notebook ? nil : (id: note.id, ops: [Op.setMeta(.notebook(renamed))])
+        }
+        try await commit(edits)
+        if case .notebook(let selected)? = sidebarSelection, NotebookPath.name(selected, isWithin: old) {
+            sidebarSelection = NotebookPath.renamed(selected, from: old, to: target).map(SidebarItem.notebook) ?? .allNotes
         }
     }
 
+    /// Puts a note into the notebook path `notebook` (nil or blank: none).
     func moveNote(_ id: UUID, toNotebook notebook: String?) async throws {
-        let target = NoteOps.normalizedNotebook(notebook)
+        let target = NotebookPath.canonical(notebook)
         guard try summary(id).notebook != target else { return }
         try await commit([(id: id, ops: [.setMeta(.notebook(target))])])
     }
@@ -118,18 +128,29 @@ extension AppModel {
     }
 
     /// Writes one delta per entry, one after another, then refreshes just
-    /// those summaries. Edits are serialised so two taps cannot interleave.
+    /// those summaries. Edits are serialised (`editGate`) so two taps cannot
+    /// interleave; the vault is looked up after waiting, so an edit queued
+    /// before the vault closed is not written into it afterwards. In iCloud
+    /// Drive each delta is a coordinated write on its note's folder.
     private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
+        await editGate.acquire()
+        defer { editGate.release() }
         guard let vault else { throw ModelError.noVaultOpen }
-        while isEditing { await Task.yield() }
         isEditing = true
         defer { isEditing = false }
         let stateURL = deviceStateURL
         let batch = edits
         let app = Self.appName
+        let cloud = isCloudVault
         do {
             try await Self.offMain {
-                for edit in batch { try vault.apply(edit.ops, to: edit.id, deviceState: stateURL, app: app) }
+                for edit in batch {
+                    let folder = vault.url.appendingPathComponent("notes", isDirectory: true)
+                        .appendingPathComponent(edit.id.uuidString.lowercased(), isDirectory: true)
+                    try CloudVault.coordinatedWrite(cloud ? folder : nil) {
+                        _ = try vault.apply(edit.ops, to: edit.id, deviceState: stateURL, app: app)
+                    }
+                }
             }
         } catch {
             try? await refresh(batch.map(\.id))   // some deltas may have landed
@@ -141,10 +162,34 @@ extension AppModel {
     /// Re-reads the summaries of `ids` and merges them into `notes`.
     func refresh(_ ids: [UUID]) async throws {
         guard let vault else { throw ModelError.noVaultOpen }
-        let fresh = try await Self.offMain { try ids.map { try vault.summary(of: $0) } }
+        let coordinate = coordinationURL
+        let fresh = try await Self.offMain {
+            try CloudVault.coordinatedRead(coordinate) { try ids.map { try vault.summary(of: $0) } }
+        }
         guard self.vault?.url == vault.url else { return }
         var list = notes.filter { old in !fresh.contains { $0.id == old.id } }
         list += fresh
         notes = list.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
+    }
+}
+
+/// A first-come first-served lock for the main actor: waiters sleep instead
+/// of spinning.
+@MainActor
+final class EditGate {
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// How many callers are waiting in `acquire`.
+    var waiting: Int { waiters.count }
+
+    func acquire() async {
+        guard busy else { busy = true; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Hands the lock to the next waiter, if any.
+    func release() {
+        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
     }
 }

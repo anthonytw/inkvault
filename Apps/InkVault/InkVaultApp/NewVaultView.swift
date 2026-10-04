@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Creates a vault: name, location, and where the key comes from.
 struct NewVaultView: View {
@@ -147,7 +148,11 @@ private struct KeyReceipt: View {
                     .font(.callout.monospaced())
                     .textSelection(.enabled)
                 Button(copied ? "Copied" : "Copy Key", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = created.secretKey
+                    // Local only (no Universal Clipboard to other devices) and
+                    // short-lived: this is the vault's secret key.
+                    UIPasteboard.general.setItems([[UTType.plainText.identifier: created.secretKey ?? ""]],
+                                                  options: [.localOnly: true,
+                                                            .expirationDate: Date().addingTimeInterval(120)])
                     copied = true
                 }
                 ShareLink(item: created.secretKey ?? "", subject: Text("InkVault secret key"))

@@ -29,6 +29,48 @@ revision is written), the clock first observes every readable revision of the
 note so the new ops win LWW, and `seq` comes from `nextSeq`. `NoteOps.newNote`
 builds the ops for a new note (one page plus all metadata fields).
 
+## Notebook paths
+
+`NotebookPath` and `NotebookNode` (`Notebooks.swift`) implement the `/`
+convention of `format.md` §5.4: `components` trims segments and drops empty
+ones, `canonical` joins them back, `name(_:isWithin:)` compares whole
+segments (`A/Bc` is not in `A/B`), `renamed(_:from:to:)` replaces a path
+prefix, and `NotebookNode.tree` builds the sidebar forest with implicit
+parent levels. The app renames or moves a notebook as one `setMeta` of
+`notebook` per affected note (deleted notes included) and writes canonical
+names for new edits; it never rewrites names it does not touch.
+
+## iCloud Drive (app only)
+
+`Sources/` reads a vault with plain `FileManager` calls and stays portable.
+On iPadOS, a file iCloud Drive has not downloaded is only a placeholder: a
+hidden `.<name>.icloud` stand-in (or, with newer File Provider versions, the
+real name with status "not downloaded"). A listing skips the stand-ins, so an
+evicted vault looks empty. The app (`Apps/InkVault/InkVaultApp/CloudVault.swift`,
+`CloudScan.swift`, `AppModel+Cloud.swift`) therefore, when the vault folder is
+ubiquitous (`FileManager.isUbiquitousItem(at:)`):
+
+1. lists `vault.json`, `rewrap-journal.json`, `keys/*.age` and
+   `notes/<id>/*.age`, mapping `.<name>.icloud` to `<name>` (other files are
+   not fetched; unknown files are ignored anyway, §1);
+2. calls `startDownloadingUbiquitousItem(at:)` on the real URL of every file
+   whose `ubiquitousItemDownloadingStatus` is not `.current`;
+3. polls (fresh resource values every 0.4 s) until each file that was only a
+   placeholder is local, showing "Downloading from iCloud… n/m files" with a
+   Cancel button. Files that are local but out of date are requested and
+   not waited for. A download error fails the open with the file name; 90 s
+   without any file completing fails it with a "check that this iPad is
+   online" message. Cancel stops the wait (`CancellationError`, no alert);
+4. reads (`Vault.open`, `summaries`, `summary`, `identityFiles`) inside an
+   `NSFileCoordinator` coordinated read of the vault folder, and writes each
+   edit's delta (`Vault.apply`) inside a coordinated write of its
+   `notes/<id>/` folder (vault creation: of the new vault folder), so iCloud
+   sees and uploads the new revision files.
+
+Every reload (pull to refresh) repeats steps 1–3, so revisions other devices
+synced since appear as placeholders, are fetched, and then read. Vaults
+outside iCloud skip all of this: no scan, no coordination.
+
 ## Atomic writes
 
 Every file the library writes (revisions, `vault.json`, identity files, the
