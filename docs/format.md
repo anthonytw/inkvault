@@ -64,6 +64,8 @@ AGE-SECRET-KEY-1QGFZ...
 `age -d keys/<recipient>.key.age` with the passphrase must work. Writers
 use an scrypt work factor between 15 and 18; readers must accept any work
 factor up to 20, may accept up to 22, and may refuse larger with an error.
+The reader cap exists because scrypt at work factor w needs 2^w × 1 KiB of
+memory (20 → 1 GiB, 22 → 4 GiB), beyond what the iPad target can allocate.
 
 The file is optional. A vault may be used with an identity that is only
 in a device Keychain or supplied externally.

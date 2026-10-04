@@ -74,7 +74,7 @@ final class CCTVTests: XCTestCase {
             default: XCTFail("\(name): unknown header key \(key)")
             }
         }
-        v.file = compressed ? try Inflate.zlib(Data(rest)) : Data(rest)
+        v.file = compressed ? try zlibUncompress(Data(rest)) : Data(rest)
         return v
     }
 
@@ -115,7 +115,7 @@ final class CCTVTests: XCTestCase {
             if Self.hybridOnly.contains(name) {
                 hybridSeen.insert(name)
                 XCTAssertFalse(v.unparsedIdentities.isEmpty, "\(name) is allowlisted but has no PQ identity")
-                XCTAssertThrowsError(try Age.decrypt(v.file, with: v.identities), "\(name): decrypted without PQ support")
+                XCTAssertThrowsError(try AgeFile.decrypt(v.file, with: v.identities), "\(name): decrypted without PQ support")
                 counts["hybrid (unsupported, must fail)", default: 0] += 1
                 continue
             }
@@ -157,12 +157,12 @@ final class CCTVTests: XCTestCase {
 
         var released = Data()
         do {
-            let fileKey = try Age.decrypt(binary: binary, with: v.identities, released: &released)
+            let fileKey = try AgeFile.decrypt(binary: binary, with: v.identities, released: &released)
             XCTAssertNil(expected, "\(name): expected \(v.expect), got success")
             XCTAssertEqual(fileKey.bytes, v.fileKey, "\(name): file key")
             XCTAssertEqual(Data(SHA256.hash(data: released)), v.payloadHash, "\(name): payload hash")
             // Header encode/decode round trip and STREAM re-encryption (README).
-            if let (header, start) = try? Age.parseHeader(binary) {
+            if let (header, start) = try? AgeFile.parseHeader(binary) {
                 let reencoded = try? HeaderCodec.encodeWithoutMAC(header.stanzas)
                     + Array(" \(Base64.encodeRaw(header.mac))\n".utf8)
                 XCTAssertEqual(reencoded.map { Data($0) }, binary.prefix(start), "\(name): header round trip")
@@ -173,7 +173,7 @@ final class CCTVTests: XCTestCase {
                     "\(name): STREAM round trip")
             }
             // The public API (with armor auto-detection) agrees.
-            XCTAssertEqual(try? Age.decrypt(v.file, with: v.identities), released, "\(name): public API")
+            XCTAssertEqual(try? AgeFile.decrypt(v.file, with: v.identities), released, "\(name): public API")
         } catch {
             guard let expected else {
                 return XCTFail("\(name): expected success, got \(error)")
@@ -188,13 +188,13 @@ final class CCTVTests: XCTestCase {
                     "\(name): partial payload hash (\(released.count) bytes released)")
             }
             if v.expect != "header failure", v.expect != "armor failure" {
-                XCTAssertNoThrow(try Age.parseHeader(binary), "\(name): header should parse")
+                XCTAssertNoThrow(try AgeFile.parseHeader(binary), "\(name): header should parse")
             }
             checkPublicAPIFails(v)
         }
     }
 
     func checkPublicAPIFails(_ v: Vector) {
-        XCTAssertThrowsError(try Age.decrypt(v.file, with: v.identities), "\(v.name): public API should fail")
+        XCTAssertThrowsError(try AgeFile.decrypt(v.file, with: v.identities), "\(v.name): public API should fail")
     }
 }

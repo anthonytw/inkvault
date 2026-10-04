@@ -39,7 +39,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
-        .testTarget(name: "AgeTests", dependencies: ["Age"],
+        .testTarget(name: "AgeTests", dependencies: ["Age", "CZlib"],
                     resources: [.copy("Vectors")]),
         .testTarget(name: "InkVaultTests", dependencies: ["InkVault"]),
         .testTarget(name: "InkRenderTests", dependencies: ["InkRender"]),

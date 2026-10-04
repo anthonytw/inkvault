@@ -16,9 +16,9 @@ final class RoundTripTests: XCTestCase {
         for size in Self.sizes {
             let plaintext = random(size)
             for armor in [false, true] {
-                let ct = try Age.encrypt(plaintext, to: [id.recipient], armor: armor)
+                let ct = try AgeFile.encrypt(plaintext, to: [id.recipient], armor: armor)
                 XCTAssertEqual(Armor.isArmored(ct), armor)
-                XCTAssertEqual(try Age.decrypt(ct, with: [id]), plaintext, "size \(size) armor \(armor)")
+                XCTAssertEqual(try AgeFile.decrypt(ct, with: [id]), plaintext, "size \(size) armor \(armor)")
             }
         }
     }
@@ -30,28 +30,28 @@ final class RoundTripTests: XCTestCase {
         for size in Self.sizes {
             let plaintext = random(size)
             for armor in [false, true] {
-                let ct = try Age.encrypt(plaintext, to: [recipient], armor: armor)
-                XCTAssertEqual(try Age.decrypt(ct, with: [identity]), plaintext, "size \(size) armor \(armor)")
+                let ct = try AgeFile.encrypt(plaintext, to: [recipient], armor: armor)
+                XCTAssertEqual(try AgeFile.decrypt(ct, with: [identity]), plaintext, "size \(size) armor \(armor)")
             }
         }
-        let ct = try Age.encrypt(Data("x".utf8), to: [recipient])
-        let (header, _) = try Age.parseHeader(ct)
+        let ct = try AgeFile.encrypt(Data("x".utf8), to: [recipient])
+        let (header, _) = try AgeFile.parseHeader(ct)
         XCTAssertEqual(header.stanzas.count, 1)
         XCTAssertEqual(header.stanzas[0].type, "scrypt")
         XCTAssertEqual(header.stanzas[0].args[1], "10")
-        XCTAssertThrowsError(try Age.decrypt(ct, with: [ScryptIdentity(passphrase: "wrong")])) {
+        XCTAssertThrowsError(try AgeFile.decrypt(ct, with: [ScryptIdentity(passphrase: "wrong")])) {
             XCTAssertEqual($0 as? AgeError, .noMatchingIdentity)
         }
-        XCTAssertThrowsError(try Age.decrypt(ct, with: [ScryptIdentity(passphrase: "correct horse battery staple", maxWorkFactor: 9)])) {
+        XCTAssertThrowsError(try AgeFile.decrypt(ct, with: [ScryptIdentity(passphrase: "correct horse battery staple", maxWorkFactor: 9)])) {
             XCTAssertEqual($0 as? AgeError, .scryptWorkFactor)
         }
     }
 
     func testScryptMustBeAlone() {
         XCTAssertThrowsError(
-            try Age.encrypt(Data(), to: [ScryptRecipient(passphrase: "a", workFactor: 2), X25519Identity().recipient])
+            try AgeFile.encrypt(Data(), to: [ScryptRecipient(passphrase: "a", workFactor: 2), X25519Identity().recipient])
         ) { XCTAssertEqual($0 as? AgeError, .scryptNotAlone) }
-        XCTAssertThrowsError(try Age.encrypt(Data(), to: [ScryptRecipient(passphrase: "a", workFactor: 31)])) {
+        XCTAssertThrowsError(try AgeFile.encrypt(Data(), to: [ScryptRecipient(passphrase: "a", workFactor: 31)])) {
             XCTAssertEqual($0 as? AgeError, .scryptWorkFactor)
         }
     }
@@ -59,59 +59,59 @@ final class RoundTripTests: XCTestCase {
     func testMultipleRecipients() throws {
         let a = X25519Identity(), b = X25519Identity(), c = X25519Identity()
         let plaintext = random(1000)
-        let ct = try Age.encrypt(plaintext, to: [a.recipient, b.recipient])
-        XCTAssertEqual(try Age.parseHeader(ct).header.stanzas.count, 2)
-        XCTAssertEqual(try Age.decrypt(ct, with: [a]), plaintext)
-        XCTAssertEqual(try Age.decrypt(ct, with: [b]), plaintext)
-        XCTAssertEqual(try Age.decrypt(ct, with: [c, b]), plaintext)
+        let ct = try AgeFile.encrypt(plaintext, to: [a.recipient, b.recipient])
+        XCTAssertEqual(try AgeFile.parseHeader(ct).header.stanzas.count, 2)
+        XCTAssertEqual(try AgeFile.decrypt(ct, with: [a]), plaintext)
+        XCTAssertEqual(try AgeFile.decrypt(ct, with: [b]), plaintext)
+        XCTAssertEqual(try AgeFile.decrypt(ct, with: [c, b]), plaintext)
     }
 
     func testWrongIdentity() throws {
-        let ct = try Age.encrypt(Data("hi".utf8), to: [X25519Identity().recipient])
-        XCTAssertThrowsError(try Age.decrypt(ct, with: [X25519Identity()])) {
+        let ct = try AgeFile.encrypt(Data("hi".utf8), to: [X25519Identity().recipient])
+        XCTAssertThrowsError(try AgeFile.decrypt(ct, with: [X25519Identity()])) {
             XCTAssertEqual($0 as? AgeError, .noMatchingIdentity)
         }
-        XCTAssertThrowsError(try Age.decrypt(ct, with: [ScryptIdentity(passphrase: "x")])) {
+        XCTAssertThrowsError(try AgeFile.decrypt(ct, with: [ScryptIdentity(passphrase: "x")])) {
             XCTAssertEqual($0 as? AgeError, .noMatchingIdentity)
         }
-        XCTAssertThrowsError(try Age.encrypt(Data(), to: [])) { XCTAssertEqual($0 as? AgeError, .noRecipients) }
+        XCTAssertThrowsError(try AgeFile.encrypt(Data(), to: [])) { XCTAssertEqual($0 as? AgeError, .noRecipients) }
     }
 
     func testTamperedPayload() throws {
         let id = X25519Identity()
         let plaintext = random(70_000)
-        let ct = try Age.encrypt(plaintext, to: [id.recipient])
-        let start = try Age.parseHeader(ct).payloadStart
+        let ct = try AgeFile.encrypt(plaintext, to: [id.recipient])
+        let start = try AgeFile.parseHeader(ct).payloadStart
 
         // Flip one byte in the second chunk: the first chunk is still released.
         var flipped = ct
         let secondChunk: Int = start + Stream.nonceSize + Stream.encryptedChunkSize
         flipped[secondChunk + 10] ^= 1
         var released = Data()
-        XCTAssertThrowsError(try Age.decrypt(binary: flipped, with: [id], released: &released)) {
+        XCTAssertThrowsError(try AgeFile.decrypt(binary: flipped, with: [id], released: &released)) {
             XCTAssertEqual($0 as? AgeError, .payload)
         }
         XCTAssertEqual(released, plaintext.prefix(65_536))
 
         // Truncate the final chunk.
-        XCTAssertThrowsError(try Age.decrypt(ct.dropLast(1), with: [id])) { XCTAssertEqual($0 as? AgeError, .payload) }
+        XCTAssertThrowsError(try AgeFile.decrypt(ct.dropLast(1), with: [id])) { XCTAssertEqual($0 as? AgeError, .payload) }
         // Drop the final chunk entirely: the file ends after a non-final chunk.
-        XCTAssertThrowsError(try Age.decrypt(ct.prefix(secondChunk), with: [id])) {
+        XCTAssertThrowsError(try AgeFile.decrypt(ct.prefix(secondChunk), with: [id])) {
             XCTAssertEqual($0 as? AgeError, .payload)
         }
         // Trailing data.
-        XCTAssertThrowsError(try Age.decrypt(ct + Data([0]), with: [id])) { XCTAssertEqual($0 as? AgeError, .payload) }
+        XCTAssertThrowsError(try AgeFile.decrypt(ct + Data([0]), with: [id])) { XCTAssertEqual($0 as? AgeError, .payload) }
         // Header tampering is caught by the MAC.
         var header = ct
-        let (h, _) = try Age.parseHeader(ct)
+        let (h, _) = try AgeFile.parseHeader(ct)
         var stanzas = h.stanzas
         stanzas.append(Stanza(type: "grease", args: ["x"], body: Data()))
         var forged = Data(try HeaderCodec.encodeWithoutMAC(stanzas))
         forged += Data(" \(Base64.encodeRaw(h.mac))\n".utf8)
         forged += ct.dropFirst(start)
-        XCTAssertThrowsError(try Age.decrypt(forged, with: [id])) { XCTAssertEqual($0 as? AgeError, .headerMAC) }
+        XCTAssertThrowsError(try AgeFile.decrypt(forged, with: [id])) { XCTAssertEqual($0 as? AgeError, .headerMAC) }
         header[0] = UInt8(ascii: "b")
-        XCTAssertThrowsError(try Age.decrypt(header, with: [id])) { XCTAssertEqual($0 as? AgeError, .headerParse) }
+        XCTAssertThrowsError(try AgeFile.decrypt(header, with: [id])) { XCTAssertEqual($0 as? AgeError, .headerParse) }
     }
 
     func testStanzaBodyWrapping() throws {
@@ -120,7 +120,7 @@ final class RoundTripTests: XCTestCase {
             let s = Stanza(type: "test", args: ["a", "b"], body: random(n))
             var encoded: [UInt8] = try HeaderCodec.encodeWithoutMAC([s])
             encoded += Array(" \(Base64.encodeRaw(Data(count: 32)))\n".utf8)
-            let (h, start) = try Age.parseHeader(Data(encoded))
+            let (h, start) = try AgeFile.parseHeader(Data(encoded))
             XCTAssertEqual(h.stanzas, [s], "body \(n)")
             XCTAssertEqual(start, encoded.count)
             let lines = String(decoding: encoded, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
@@ -137,12 +137,12 @@ final class RoundTripTests: XCTestCase {
                 [Stanza(type: "example.com/grease", args: ["!x~"], body: Data(repeating: 7, count: 100))]
             }
         }
-        let ct = try Age.encrypt(Data("ok".utf8), to: [Grease(), id.recipient])
-        XCTAssertEqual(try Age.decrypt(ct, with: [id]), Data("ok".utf8))
+        let ct = try AgeFile.encrypt(Data("ok".utf8), to: [Grease(), id.recipient])
+        XCTAssertEqual(try AgeFile.decrypt(ct, with: [id]), Data("ok".utf8))
     }
 
     func testArmorFormat() throws {
-        let ct = try Age.encrypt(random(500), to: [X25519Identity().recipient], armor: true)
+        let ct = try AgeFile.encrypt(random(500), to: [X25519Identity().recipient], armor: true)
         let text = String(decoding: ct, as: UTF8.self)
         XCTAssertTrue(text.hasPrefix("-----BEGIN AGE ENCRYPTED FILE-----\n"))
         XCTAssertTrue(text.hasSuffix("\n-----END AGE ENCRYPTED FILE-----\n"))
@@ -168,5 +168,61 @@ final class RoundTripTests: XCTestCase {
         XCTAssertNil(Base64.decodePadded("AA".utf8))
         XCTAssertNil(Base64.decodePadded("A===".utf8))
         XCTAssertNil(Base64.decodePadded("AA=A".utf8))
+    }
+}
+
+final class HeaderRuleTests: XCTestCase {
+    /// A header mixing scrypt with X25519 must be rejected even when an
+    /// X25519 identity (which ignores the scrypt stanza) would match.
+    func testScryptMixedHeaderRejectedForX25519Identity() throws {
+        let id = X25519Identity()
+        let fileKey = FileKey()
+        var stanzas = try id.recipient.wrap(fileKey: fileKey)
+        stanzas += try ScryptRecipient(passphrase: "p", workFactor: 2).wrap(fileKey: fileKey)
+        var file = Data(try HeaderCodec.encodeWithoutMAC(stanzas))
+        let mac = HeaderCodec.mac(fileKey: fileKey, macInput: file)
+        file += Data(" \(Base64.encodeRaw(mac))\n".utf8)
+        let nonce = Data(repeating: 9, count: Stream.nonceSize)
+        file += nonce
+        file += try Stream.encrypt(Data("x".utf8), key: Stream.payloadKey(fileKey: fileKey, nonce: nonce))
+        XCTAssertThrowsError(try AgeFile.decrypt(file, with: [id])) {
+            XCTAssertEqual($0 as? AgeError, .scryptNotAlone)
+        }
+    }
+
+    func testScryptMemoryBudget() throws {
+        let ct = try AgeFile.encrypt(Data("x".utf8), to: [ScryptRecipient(passphrase: "p", workFactor: 10)])
+        // 2^10 KiB = 1 MiB needed.
+        XCTAssertThrowsError(try AgeFile.decrypt(ct, with: [ScryptIdentity(passphrase: "p", maxMemoryBytes: 1 << 19)])) {
+            XCTAssertEqual($0 as? AgeError, .scryptWorkFactor)
+        }
+        XCTAssertEqual(
+            try AgeFile.decrypt(ct, with: [ScryptIdentity(passphrase: "p", maxMemoryBytes: 1 << 20)]), Data("x".utf8))
+        XCTAssertNil(Scrypt.derive(password: [], salt: [], n: 1 << 20, r: 8, p: 1, keyLength: 32, maxMemoryBytes: 1 << 29))
+        XCTAssertEqual(Scrypt.memoryBytes(n: 1 << 20, r: 8), 1 << 30)
+        XCTAssertNil(Scrypt.memoryBytes(n: 1 << 62, r: 8))
+    }
+
+    func testVersionLineErrors() {
+        func parse(_ s: String) -> AgeError? {
+            do {
+                _ = try AgeFile.parseHeader(Data(s.utf8))
+                return nil
+            } catch { return error as? AgeError }
+        }
+        let rest = "-> x\n\n--- " + Base64.encodeRaw(Data(count: 32)) + "\n"
+        XCTAssertNil(parse("age-encryption.org/v1\n" + rest))
+        XCTAssertEqual(parse("age-encryption.org/v1\r\n" + rest), .headerParse)
+        XCTAssertEqual(parse("age-encryption.org/v2\n" + rest), .unsupportedVersion)
+        XCTAssertEqual(parse("age-encryption.org/\n" + rest), .headerParse)
+        XCTAssertEqual(parse("age-encryption.org/v 2\n" + rest), .headerParse)
+        XCTAssertEqual(parse("garbage\n" + rest), .headerParse)
+    }
+
+    func testManyStanzaArgumentsAccepted() throws {
+        let s = Stanza(type: "many", args: (0..<300).map { "a\($0)" }, body: Data())
+        var encoded: [UInt8] = try HeaderCodec.encodeWithoutMAC([s])
+        encoded += Array(" \(Base64.encodeRaw(Data(count: 32)))\n".utf8)
+        XCTAssertEqual(try AgeFile.parseHeader(Data(encoded)).header.stanzas, [s])
     }
 }

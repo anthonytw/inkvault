@@ -84,7 +84,7 @@ final class InteropTests: XCTestCase {
             let plaintext = random(size)
             for armor in [false, true] {
                 // Ours -> age -d.
-                let ct = try Age.encrypt(plaintext, to: [identity.recipient], armor: armor)
+                let ct = try AgeFile.encrypt(plaintext, to: [identity.recipient], armor: armor)
                 let ctFile = tmp.appendingPathComponent("ours-\(size)-\(armor).age")
                 try ct.write(to: ctFile)
                 XCTAssertEqual(try run(age, ["-d", "-i", keyFile.path, ctFile.path]), plaintext, "ours->age \(size) \(armor)")
@@ -95,7 +95,7 @@ final class InteropTests: XCTestCase {
                 let outFile = tmp.appendingPathComponent("theirs-\(size)-\(armor).age")
                 try run(age, ["-r", identity.recipient.string] + (armor ? ["-a"] : []) + ["-o", outFile.path, ptFile.path])
                 let theirs = try Data(contentsOf: outFile)
-                XCTAssertEqual(try Age.decrypt(theirs, with: [identity]), plaintext, "age->ours \(size) \(armor)")
+                XCTAssertEqual(try AgeFile.decrypt(theirs, with: [identity]), plaintext, "age->ours \(size) \(armor)")
             }
         }
     }
@@ -114,7 +114,7 @@ final class InteropTests: XCTestCase {
         let otherRecipient = String(decoding: try run(keygen, ["-y", other.path]), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let plaintext = random(1000)
-        let ct = try Age.encrypt(plaintext, to: [identity.recipient, try X25519Recipient(string: otherRecipient)])
+        let ct = try AgeFile.encrypt(plaintext, to: [identity.recipient, try X25519Recipient(string: otherRecipient)])
         let ctFile = tmp.appendingPathComponent("multi.age")
         try ct.write(to: ctFile)
         XCTAssertEqual(try run(age, ["-d", "-i", keyFile.path, ctFile.path]), plaintext)

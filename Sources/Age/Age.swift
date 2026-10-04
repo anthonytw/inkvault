@@ -13,7 +13,10 @@ public enum AgeVersion {
 }
 
 /// One-shot age encryption and decryption of in-memory buffers.
-public enum Age {
+///
+/// Named `AgeFile`, not `Age`, so it does not shadow the `Age` module and
+/// clients can still write `Age.X25519Identity` to disambiguate.
+public enum AgeFile {
     /// Encrypts `plaintext` to `recipients`.
     ///
     /// - Parameter armor: wrap the result in the PEM-style ASCII armor.
@@ -66,6 +69,11 @@ public enum Age {
         -> FileKey
     {
         let (header, start) = try HeaderCodec.parse(data)
+        // An scrypt stanza must be the only stanza (spec "scrypt recipient
+        // stanza"). Enforced here, not only in ScryptIdentity, so that a
+        // mixed header is rejected whichever identity would match.
+        let hasScrypt: Bool = header.stanzas.contains { (s: Stanza) -> Bool in s.type == "scrypt" }
+        if hasScrypt && header.stanzas.count != 1 { throw AgeError.scryptNotAlone }
         guard !identities.isEmpty else { throw AgeError.noIdentities }
         var fileKey: FileKey?
         for identity in identities {

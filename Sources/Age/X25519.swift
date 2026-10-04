@@ -24,6 +24,10 @@ public struct X25519Recipient: AgeRecipient, Hashable {
         Bech32.encode(hrp: "age", data: [UInt8](publicKey)) ?? ""
     }
 
+    /// Wraps `fileKey` in one `X25519` stanza using a fresh ephemeral key.
+    ///
+    /// - Throws: `AgeError.invalidKey` if this recipient is a low-order
+    ///   point (the shared secret would be all zeros).
     public func wrap(fileKey: FileKey) throws -> [Stanza] {
         let ephemeral = Curve25519.KeyAgreement.PrivateKey()
         let share = ephemeral.publicKey.rawRepresentation
@@ -73,6 +77,13 @@ public struct X25519Identity: AgeIdentity {
         X25519Recipient(publicKey: publicKey)
     }
 
+    /// Tries every `X25519` stanza and returns the first file key that
+    /// decrypts; other stanza types are ignored.
+    ///
+    /// - Returns: nil if no `X25519` stanza is addressed to this identity.
+    /// - Throws: `AgeError.invalidStanza` for a malformed `X25519` stanza
+    ///   (argument count, non-canonical or wrong-length share, body not 32
+    ///   bytes) or a share that yields an all-zero shared secret.
     public func unwrap(stanzas: [Stanza]) throws -> FileKey? {
         for stanza in stanzas where stanza.type == "X25519" {
             if let key = try unwrap(stanza) { return key }

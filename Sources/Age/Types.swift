@@ -15,15 +15,17 @@ public enum AgeError: Error, Equatable, Sendable {
     case invalidStanza
     /// An scrypt stanza appears alongside other stanzas.
     case scryptNotAlone
-    /// The scrypt work factor exceeds the identity's limit (or, when
-    /// encrypting, is outside 1...30).
+    /// The scrypt work factor exceeds the identity's limit or memory budget
+    /// (or, when encrypting, is outside 1...30).
     case scryptWorkFactor
     /// The header MAC does not match.
     case headerMAC
     /// No identity could unwrap any stanza.
     case noMatchingIdentity
-    /// `decrypt` was called with no identities, or `encrypt` with no recipients.
+    /// `decrypt` was called with no identities.
     case noIdentities
+    /// `encrypt` was called with no recipients (or the header to encode has
+    /// no stanzas).
     case noRecipients
     /// The STREAM payload failed to authenticate, was truncated, or has
     /// trailing data.
@@ -55,10 +57,16 @@ public struct FileKey: Sendable {
 
 /// A recipient stanza: `-> type args...` followed by a binary body.
 public struct Stanza: Sendable, Hashable {
+    /// The first argument after `->`, naming the recipient type (for
+    /// example `X25519` or `scrypt`). Must be non-empty VCHAR to encode.
     public var type: String
+    /// The remaining space-separated arguments, each non-empty VCHAR.
     public var args: [String]
+    /// The decoded binary body (written as wrapped, unpadded base64).
     public var body: Data
 
+    /// Creates a stanza. Validity of `type` and `args` is checked when the
+    /// header is encoded (`AgeError.invalidStanzaEncoding`).
     public init(type: String, args: [String], body: Data) {
         self.type = type
         self.args = args

@@ -37,13 +37,26 @@ enum Scrypt {
         return out
     }
 
+    /// The memory scrypt needs for its V table: 128 · r · N bytes, or nil
+    /// on overflow.
+    static func memoryBytes(n: Int, r: Int) -> Int? {
+        let (perBlock, o1) = r.multipliedReportingOverflow(by: 128)
+        let (total, o2) = perBlock.multipliedReportingOverflow(by: n)
+        return o1 || o2 ? nil : total
+    }
+
     /// Derives `keyLength` bytes with scrypt. `n` must be a power of two
-    /// greater than 1; returns nil for invalid parameters.
-    static func derive(password: [UInt8], salt: [UInt8], n: Int, r: Int, p: Int, keyLength: Int) -> [UInt8]? {
+    /// greater than 1. Returns nil for invalid parameters or when the V
+    /// table (`memoryBytes(n:r:)`) would exceed `maxMemoryBytes`, so an
+    /// attacker-chosen work factor cannot force a trapping allocation.
+    static func derive(
+        password: [UInt8], salt: [UInt8], n: Int, r: Int, p: Int, keyLength: Int, maxMemoryBytes: Int = Int.max
+    ) -> [UInt8]? {
         guard n > 1, n & (n - 1) == 0, r > 0, p > 0, keyLength > 0 else { return nil }
-        let (blockWords, o1) = r.multipliedReportingOverflow(by: 32)
-        let (vWords, o2) = blockWords.multipliedReportingOverflow(by: n)
-        guard !o1, !o2, vWords < Int.max / 4, p <= (1 << 30) / max(1, r) else { return nil }
+        guard let memory = memoryBytes(n: n, r: r), memory <= maxMemoryBytes else { return nil }
+        guard p <= (1 << 30) / r else { return nil }
+        let blockWords = 32 * r
+        let vWords = memory / 4
 
         let b = pbkdf2SHA256(password: password, salt: salt, iterations: 1, keyLength: p * 128 * r)
         var words = Self.words(b)

@@ -10,7 +10,6 @@ enum HeaderCodec {
     static let bytesPerLine = 48
     static let maxHeaderBytes = 2 << 20
     static let maxStanzas = 1024
-    static let maxStanzaArgs = 128
 
     // MARK: Encoding
 
@@ -71,27 +70,36 @@ enum HeaderCodec {
 
         // Reads one LF-terminated line; returns it without the LF, or nil at
         // EOF before an LF (every header line must end in LF).
-        func readLine() throws -> ArraySlice<UInt8>? {
+        func readLine() -> ArraySlice<UInt8>? {
+            // `bytes` is already capped at maxHeaderBytes, so a header that
+            // is too long simply runs out of input here.
             guard let nl = bytes[pos...].firstIndex(of: 0x0A) else { return nil }
-            guard nl + 1 <= maxHeaderBytes else { throw AgeError.headerParse }
             let line = bytes[pos..<nl]
             pos = nl + 1
             return line
         }
 
-        guard let first = try readLine() else { throw AgeError.headerParse }
+        guard let first = readLine() else { throw AgeError.headerParse }
         if Array(first) + [0x0A] != intro {
-            if first.starts(with: versionPrefix) { throw AgeError.unsupportedVersion }
+            // A CRLF-mangled file (e.g. PowerShell redirection) is a broken
+            // v1 file, not a different version.
+            if Array(first) == intro.dropLast() + [0x0D] { throw AgeError.headerParse }
+            // Only a well-formed `version = 1*VCHAR` token counts as a
+            // different version.
+            let version = first.dropFirst(versionPrefix.count)
+            if first.starts(with: versionPrefix), !version.isEmpty, version.allSatisfy({ $0 >= 33 && $0 <= 126 }) {
+                throw AgeError.unsupportedVersion
+            }
             throw AgeError.headerParse
         }
 
         func readStanza() throws -> Stanza {
-            guard let line = try readLine(), line.starts(with: "->".utf8) else { throw AgeError.headerParse }
+            guard let line = readLine(), line.starts(with: "->".utf8) else { throw AgeError.headerParse }
             let (prefix, args) = splitArgs(line)
             guard prefix.elementsEqual("->".utf8), let args, !args.isEmpty else { throw AgeError.headerParse }
             var body = [UInt8]()
             while true {
-                guard let bodyLine = try readLine(), let decoded = Base64.decodeRaw(bodyLine) else {
+                guard let bodyLine = readLine(), let decoded = Base64.decodeRaw(bodyLine) else {
                     throw AgeError.headerParse
                 }
                 guard decoded.count <= bytesPerLine else { throw AgeError.headerParse }
@@ -107,7 +115,7 @@ enum HeaderCodec {
             guard pos + 3 <= bytes.count else { throw AgeError.headerParse }
             if bytes[pos..<pos + 3].elementsEqual("---".utf8) {
                 let macStart = pos
-                guard let line = try readLine() else { throw AgeError.headerParse }
+                guard let line = readLine() else { throw AgeError.headerParse }
                 let (prefix, args) = splitArgs(line)
                 guard prefix.elementsEqual("---".utf8), let args, args.count == 1,
                     let mac = Base64.decodeRaw(args[0].utf8), mac.count == 32
@@ -123,13 +131,14 @@ enum HeaderCodec {
 
     /// Splits `prefix arg arg...` on single spaces. `args` is nil when there
     /// is no space, or when any argument is empty or contains bytes outside
-    /// VCHAR (so doubled, leading or trailing spaces are rejected).
+    /// VCHAR (so doubled, leading or trailing spaces are rejected). There is
+    /// no argument-count cap: the 2 MiB header cap bounds the input.
     static func splitArgs(_ line: ArraySlice<UInt8>) -> (ArraySlice<UInt8>, [String]?) {
         guard let sp = line.firstIndex(of: 0x20) else { return (line, nil) }
         let prefix = line[line.startIndex..<sp]
         var args = [String]()
         for part in line[(sp + 1)...].split(separator: 0x20, omittingEmptySubsequences: false) {
-            guard !part.isEmpty, part.allSatisfy({ $0 >= 33 && $0 <= 126 }), args.count <= maxStanzaArgs else {
+            guard !part.isEmpty, part.allSatisfy({ $0 >= 33 && $0 <= 126 }) else {
                 return (line, nil)
             }
             args.append(String(decoding: part, as: UTF8.self))

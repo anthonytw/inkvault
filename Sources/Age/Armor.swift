@@ -79,8 +79,8 @@ enum Armor {
                 try drainTrailing()
                 return Data(out)
             }
-            guard !line.isEmpty, line.count <= 64, !line.contains(0x0A), !line.contains(0x0D),
-                let decoded = Base64.decodePadded(line)
+            // Strict base64 also rejects a stray CR left inside the line.
+            guard !line.isEmpty, line.count <= 64, let decoded = Base64.decodePadded(line)
             else { throw AgeError.armor }
             out += decoded
             if decoded.count < 48 {
