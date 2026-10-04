@@ -4,8 +4,9 @@ import InkVault
 /// Minimal PDF 1.4 writer: vector paths, RGB colour, alpha via `ExtGState`.
 ///
 /// Every note page becomes one PDF page of `pageSize` points; an `infinite`
-/// page is split into pages of `infiniteChunkHeight` (default: page width x
-/// 11 / 8.5, letter aspect, independent of the page's current extent)
+/// page is split into pages of `infiniteChunkHeight`, else the page's
+/// `pageSize.breakHeight`, else page width x 11 / 8.5 (letter aspect),
+/// independent of the page's current extent,
 /// covering the page's full extent. Page content is flipped to PDF's bottom-left
 /// origin with a single leading `1 0 0 -1 0 H cm`, so all geometry stays in
 /// page coordinates. Strokes crossing a chunk boundary are drawn on both pages.

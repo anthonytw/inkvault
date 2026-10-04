@@ -70,6 +70,24 @@ final class PDFWriterTests: XCTestCase {
         XCTAssertTrue(T.contains(d2, "/MediaBox [0 0 200 1000]"))
     }
 
+    func testBreakHeightPaginatesInfinitePage() throws {
+        let tall = T.stroke([T.pt(10, 10), T.pt(20, 1500), T.pt(30, 1800)])
+        let size = PageSize(width: 200, height: 500, infinite: true, breakHeight: 262.5)
+        let note = T.note(pages: [[tall]], meta: T.meta(size: size))
+        // Extent ~1800 / 262.5 -> 7 pages of the recorded break height.
+        let d = try PDFWriter.render(note: note, options: RenderOptions(compress: false))
+        XCTAssertEqual(pageCount(d), 7)
+        XCTAssertTrue(T.contains(d, "/MediaBox [0 0 200 262.5]"))
+        // The render option still wins.
+        var o = RenderOptions(compress: false)
+        o.infiniteChunkHeight = 1000
+        XCTAssertEqual(pageCount(try PDFWriter.render(note: note, options: o)), 2)
+        // A finite page ignores it.
+        var finite = note
+        finite.meta.pageSize = PageSize(width: 200, height: 300, breakHeight: 50)
+        XCTAssertEqual(pageCount(try PDFWriter.render(note: finite, options: RenderOptions(compress: false))), 1)
+    }
+
     func testZeroHeightInfinitePageDoesNotExplode() throws {
         let note = T.note(pages: [[]], meta: T.meta(size: PageSize(width: 612, height: 0, infinite: true)))
         let d = try PDFWriter.render(note: note, options: RenderOptions(compress: false))

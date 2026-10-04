@@ -9,14 +9,18 @@
 | 0.3 | Render: B-spline evaluation, variable-width outlines, paper, PDF writer, SVG writer | `Sources/InkRender` | golden-file tests; PDF opens in Preview; matches PencilKit interpolation on macOS |
 | 0.4 | CLI: `keys`, `vault init/info/recipients/verify`, `notes`, `export`, `recover`, `compact`, `snapshot` (done, `docs/cli.md`) | `Sources/InkVaultCLI` | end-to-end test: init → write revisions → export PDF → `age -d` recovery |
 | 0.5 | CI: Linux (swift:6.4-noble) + macOS; static Linux CLI artifact; cloud setup script | `.github`, `scripts` | green on PR, binary downloadable |
-| 0.6 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
+| 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`) | `Sources/InkImport` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
+| 0.7 | CLI `search` over page recognition text (title, notebook, tags, recognised words) | `Sources/InkVaultCLI` | end-to-end test: import fixture → search finds a recognised word |
+| 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
 
 ## Phase 1 — iPad app
 
 Xcode project under `Apps/`. SwiftUI shell; PencilKit canvas with the system
 tool picker; paper layer; notebook/tag sidebar; autosave to the note log;
 vault location picker (on device, iCloud Drive, Files-app folder); key
-generate/import (AirDrop, QR, paste)/export; PDF share sheet; Face ID unlock.
+generate/import (AirDrop, QR, paste)/export; PDF share sheet; Face ID unlock;
+on-device handwriting recognition (PencilKit, iPadOS 27) writes page
+recognition (`format.md` §5.5); search UI over it.
 
 ## Phase 2 — Mac companion
 
@@ -26,7 +30,9 @@ drop export, bulk export, key management.
 ## Phase 3 — nice to have
 
 History browser and restore; built-in WebDAV client; compaction UI;
-handwriting search via PencilKit recognition (iPadOS 27); PNG export; stroke
+PNG export; page backgrounds (PDF and image attachments: in the reference
+Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
+imported today as ink on blank paper); stroke
 dedupe after concurrent slicing; post-quantum recipient type; read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
 refuses any `format` other than `inkvault/1`).

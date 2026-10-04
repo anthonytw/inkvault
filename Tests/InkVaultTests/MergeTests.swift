@@ -331,6 +331,65 @@ final class MergeTests: XCTestCase {
         XCTAssertEqual(try NoteReducer.reconstruct([snap, lateNew]).pages.first { $0.id == p1 }?.order, "0")
     }
 
+    func testPageRecognitionLWW() throws {
+        func rec(_ text: String) -> Recognition {
+            Recognition(engine: "test-1", text: text, words: [.init(text: text, box: .init(x: 1, y: 2, w: 3, h: 4))])
+        }
+        var log = LogBuilder()
+        let add = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a")), .addPage(Page(id: p2, order: "b"))])
+        // Never set: no recognition and no clock.
+        let plain = try NoteReducer.reconstruct([add])
+        XCTAssertNil(plain.pages[0].recognition)
+        XCTAssertNil(plain.pages[0].recognitionClock)
+
+        let setA = log.delta(devA, 100, [.setPageRecognition(pageId: p1, recognition: rec("one"))])
+        let setB = log.delta(devB, 150, [.setPageRecognition(pageId: p1, recognition: rec("two"))])
+        let setC = log.delta(devC, 120, [.setPageRecognition(pageId: p1, recognition: rec("three"))])
+        let state = try NoteReducer.reconstruct([setC, setB, add, setA])
+        XCTAssertEqual(state.pages[0].recognition?.text, "two")
+        XCTAssertEqual(state.pages[0].recognitionClock, Stamp(hlc: setB.hlc, device: devB).description)
+        XCTAssertNil(state.pages[1].recognition)
+        XCTAssertEqual(try NoteReducer.reconstruct([add, setA, setB, setC]), state)
+
+        // Clearing is an ordinary LWW write.
+        let clear = log.delta(devA, 200, [.setPageRecognition(pageId: p1, recognition: nil)])
+        let cleared = try NoteReducer.reconstruct([add, setA, setB, clear])
+        XCTAssertNil(cleared.pages[0].recognition)
+        XCTAssertEqual(cleared.pages[0].recognitionClock, Stamp(hlc: clear.hlc, device: devA).description)
+
+        // The recorded clock survives a snapshot: a late older write loses, a late newer one wins.
+        let snap = try log.snapshot(devB, 300, from: [add, setA, setB])
+        guard case .snapshot(_, let snapState) = snap.body else { return XCTFail("not a snapshot") }
+        XCTAssertEqual(snapState.pages.first { $0.id == p1 }?.recognition?.text, "two")
+        XCTAssertNil(snapState.pages.first { $0.id == p2 }?.recognitionClock)
+        let lateOld = log.delta(devC, 50, [.setPageRecognition(pageId: p1, recognition: rec("old"))])
+        XCTAssertEqual(try NoteReducer.reconstruct([snap, lateOld]).pages[0].recognition?.text, "two")
+        let lateNew = log.delta(devC, 250, [.setPageRecognition(pageId: p1, recognition: rec("new"))])
+        XCTAssertEqual(try NoteReducer.reconstruct([lateNew, snap]).pages[0].recognition?.text, "new")
+        // A page the snapshot never saw recognised does not compete: an older uncovered write still lands.
+        let lateP2 = log.delta(devC, 60, [.setPageRecognition(pageId: p2, recognition: rec("p2"))])
+        XCTAssertEqual(try NoteReducer.reconstruct([snap, lateP2]).pages[1].recognition?.text, "p2")
+        // A cleared register in a snapshot does compete.
+        let snapCleared = try log.snapshot(devB, 400, from: [add, setA, setB, clear])
+        XCTAssertNil(try NoteReducer.reconstruct([snapCleared, lateOld]).pages[0].recognition)
+
+        // `apply` honours the same register.
+        let applied = try NoteReducer.apply([lateNew], to: snapState, stamp: snap.stamp)
+        XCTAssertEqual(applied.pages[0].recognition?.text, "new")
+        XCTAssertEqual(try NoteReducer.apply([lateOld], to: snapState, stamp: snap.stamp).pages[0].recognition?.text,
+                       "two")
+
+        // An op naming a page nobody has seen is an orphan, applied again once the page arrives.
+        let p3 = UUID()
+        let early = log.delta(devA, 500, [.setPageRecognition(pageId: p3, recognition: rec("early"))])
+        let s2 = try log.snapshot(devB, 510, from: [add, early])
+        guard case .snapshot(let inc, _) = s2.body else { return XCTFail("not a snapshot") }
+        XCTAssertFalse(inc.covers(device: devA, seq: early.seq))
+        let page3 = log.delta(devC, 520, [.addPage(Page(id: p3, order: "c"))])
+        XCTAssertEqual(try NoteReducer.reconstruct([s2, early, page3]).pages.first { $0.id == p3 }?.recognition?.text,
+                       "early")
+    }
+
     func testDeleteAndRestoreNote() throws {
         var log = LogBuilder()
         let d0 = log.delta(devA, 0, [.setMeta(.title("x"))])
@@ -470,8 +529,12 @@ final class MergeTests: XCTestCase {
                     default: change = .pageSize(Bool.random(using: &rng) ? .a4 : .letter)
                     }
                     ops.append(.setMeta(change))
-                } else if r < 0.88, let p = pages.randomElement(using: &rng) {
+                } else if r < 0.84, let p = pages.randomElement(using: &rng) {
                     ops.append(.setPageOrder(pageId: p, order: PageOrder.between(nil, ["a", "b", "c"].randomElement(using: &rng))))
+                } else if r < 0.88, let p = pages.randomElement(using: &rng) {
+                    let text = "r\(Int.random(in: 0..<100, using: &rng))"
+                    ops.append(.setPageRecognition(pageId: p, recognition: Bool.random(using: &rng) ? nil
+                        : Recognition(engine: "test-1", text: text)))
                 } else if r < 0.92, pages.count > 2, let p = pages.randomElement(using: &rng) {
                     ops.append(.removePage(pageId: p))
                 } else {

@@ -31,6 +31,10 @@ final class ModelTests: XCTestCase {
                                                    points: [StrokePoint(x: 0, y: 0, w: 4, h: 4, al: 1.571)])),
             .removeStroke(page: page, strokeId: UUID()),
             .setPageOrder(pageId: page, order: "a1"),
+            .setPageRecognition(pageId: page, recognition: Recognition(
+                engine: "pencilkit-27.0", text: "Lecture 3",
+                words: [.init(text: "Lecture", box: .init(x: 52.5, y: 40, w: 96.25, h: 30.5))])),
+            .setPageRecognition(pageId: page, recognition: nil),
             .setMeta(.title("Lecture 3")),
             .setMeta(.tags(["math", "fall"])),
             .setMeta(.notebook(nil)),
@@ -45,6 +49,8 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(back, ops)
         let json = String(decoding: data, as: UTF8.self)
         XCTAssertTrue(json.contains(#"{"field":"notebook","op":"setMeta","value":null}"#), json)
+        XCTAssertTrue(json.contains(#""words":[{"box":[52.5,40,96.25,30.5],"t":"Lecture"}]"#), json)
+        XCTAssertTrue(json.contains(#""op":"setPageRecognition","pageId":"\#(page.uuidString.lowercased())","recognition":null}"#), json)
     }
 
     func testFormatExampleStateDecodes() throws {

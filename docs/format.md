@@ -200,6 +200,7 @@ Adds `"ops": [Op, ...]`, applied in order. Ops:
 | `addPage` | `page: {id, order}` | add an empty page |
 | `removePage` | `pageId` | remove page and its strokes; wins over adds |
 | `setPageOrder` | `pageId`, `order` | LWW on the page's order key |
+| `setPageRecognition` | `pageId`, `recognition` | LWW on the page's recognised text (§5.5); `null` clears it |
 | `setMeta` | `field`, `value` | LWW per field (§5.4) |
 | `deleteNote` | | LWW with `restoreNote` on `deleted` |
 | `restoreNote` | | |
@@ -223,8 +224,8 @@ Adds:
 `included` names every revision the snapshot already reflects: for each
 device, all `seq ≤ upTo` plus the listed `extra` (seen out of order).
 `included` must list only deltas the snapshot applied in full: a delta with
-an `addStroke` or `setPageOrder` naming a page the writer has not seen is
-left out, so it is applied again once the page arrives. (Removals of unseen
+an `addStroke`, `setPageOrder` or `setPageRecognition` naming a page the
+writer has not seen is left out, so it is applied again once the page arrives. (Removals of unseen
 ids are recorded as tombstones instead, §5.4.)
 
 Readers reconstruct a note as the merge of every snapshot present plus every
@@ -269,6 +270,9 @@ the window; of two snapshots with equal `included`, keep at least one.
 - `paper.kind` ∈ `blank`, `ruled`, `grid`, `dot`. Lengths are points (1/72 in).
 - `pageSize.infinite: true` means the page grows downward; `height` is then
   the current extent.
+- `pageSize.breakHeight` (optional, points): for an infinite page, the height
+  of each page a paginating exporter (PDF) splits it into. Absent, it
+  is `width × 11 / 8.5` (letter aspect). Ignored for finite pages.
 - In a snapshot, `pages` are sorted by `(order, id)`.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`,
@@ -290,8 +294,10 @@ omitted when empty.
 ### 5.5 Page
 
 ```json
-{ "id": "…", "order": "a0", "strokes": [ Stroke, ... ] }
+{ "id": "…", "order": "a0", "strokes": [ Stroke, ... ], "recognition": Recognition }
 ```
+
+`recognition` is optional (below).
 
 `order` is any string; pages sort lexicographically by `(order, id)`. The
 library provides a helper to generate a key between two neighbours.
@@ -299,6 +305,39 @@ library provides a helper to generate a key between two neighbours.
 In a snapshot, a page may carry `"orderClock"`, the `"<hlc>-<device>"` stamp
 of the `addPage` or `setPageOrder` that set its `order`, with the same LWW
 rule and default as `clocks` (§5.4).
+
+#### Recognised text
+
+A page may carry `"recognition"`, the text recognised in its handwriting:
+
+```json
+"recognition": {
+  "engine": "pencilkit-27.0",
+  "text": "Lecture 3\nlinear maps",
+  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ]
+}
+```
+
+- `engine`: free-form name and version of whatever produced the text, e.g.
+  `pencilkit-<iPadOS version>` or `notability-<version>` for an import.
+- `text`: the page's recognised text in reading order, lines separated by `\n`.
+- `words[].t`: one word of `text`; `words[].box`: its bounding box
+  `[x, y, w, h]` in page coordinates (points, origin top-left, y down).
+  Writers round to at most 3 decimals. `words` may be empty.
+
+Recognition is derived data: it is set as a whole, never merged, and a writer
+may replace it at any time (for example after strokes change). It is an LWW
+register per page, set by `setPageRecognition`. In a snapshot, a page with
+`recognition` or a page whose recognition was cleared carries
+`"recognitionClock"`, the `"<hlc>-<device>"` stamp of the op that last set it,
+with the same LWW rule as `orderClock` (a `recognition` without a clock is
+stamped by the snapshot's own `(hlc, device)`). A page with neither `recognition` nor
+`recognitionClock` has never had recognition set and does not compete with
+a `setPageRecognition` the snapshot does not cover. `addPage` ignores any
+`recognition` in its page object (the page is added empty, §5.2).
+
+Readers that index text for search use `text`; `words` lets a viewer
+highlight hits on the page.
 
 In a snapshot, every page and stroke carries `"origin"`,
 `"<hlc>-<device>-<seq>-<op>"`: the revision that added it and the op's
@@ -345,3 +384,8 @@ not emit NaN or infinities. Numbers in `points` are plain JSON numbers.
 `format` in `vault.json` and the body version byte identify the format.
 A reader that sees a higher major version must refuse to write and may
 offer read-only access if it can parse the files.
+
+Until the first tagged release the format is pre-1.0: it may change without
+a version bump or a migration path. Throughout, readers reject a revision
+holding an op type they do not know (fail closed, reported like any other
+unreadable revision); they never silently drop the op and apply the rest.
