@@ -18,12 +18,14 @@ struct NoteJSON: Encodable {
     var deleted: Bool
     var pages: Int
     var strokes: Int
+    var recognizedPages: Int
     var modified: Date?
     var problem: String?
 
     init(_ s: NoteSummary) {
         id = s.id.uuidString.lowercased(); title = s.title; tags = s.tags; notebook = s.notebook
-        deleted = s.deleted; pages = s.pages; strokes = s.strokes; modified = s.modified; problem = s.problem
+        deleted = s.deleted; pages = s.pages; strokes = s.strokes
+        recognizedPages = s.recognizedPages; modified = s.modified; problem = s.problem
     }
 }
 
@@ -97,6 +99,7 @@ struct NotesShow: ParsableCommand {
         print("Notebook: \(summary.notebook ?? "-")")
         print("Deleted:  \(summary.deleted ? "yes" : "no")")
         print("Pages:    \(summary.pages)   Strokes: \(summary.strokes)")
+        print("Text:     \(summary.recognizedPages) of \(summary.pages) page(s) with recognised text")
         print("Modified: \(Format.local(summary.modified))")
         if let p = summary.problem { print("Problem:  \(p)") }
         print("\nRevisions (\(history.count)):")

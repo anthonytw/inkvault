@@ -21,6 +21,8 @@ public struct NoteSummary: Hashable, Sendable {
     /// Set when some revisions could not be read (the numbers are then a
     /// best effort) or the note could not be reconstructed at all.
     public var problem: String?
+    /// Number of pages with recognised handwriting text.
+    public var recognizedPages: Int = 0
 
     /// Why a query matched no single note.
     public enum LookupError: Error, Hashable, Sendable {
@@ -126,6 +128,7 @@ extension Vault {
             s.deleted = state.deleted
             s.pages = state.pages.count
             s.strokes = state.pages.reduce(0) { $0 + $1.strokes.count }
+            s.recognizedPages = state.pages.filter { !($0.recognition?.text.isEmpty ?? true) }.count
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }
