@@ -92,6 +92,7 @@ struct CloudTests {
         }
     }
 
+    @MainActor
     @Test func localVaultsSkipICloudEntirely() async throws {
         let (url, _) = try AppModelTests.fixtureVault()
         #expect(!CloudVault.isUbiquitous(url))
