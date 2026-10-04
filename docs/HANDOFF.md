@@ -17,21 +17,12 @@ and macOS, static Linux binary published as a CI artifact.
 | #4 | CI: static Linux CLI build (five explicit `-Xlinker -l…` libs) | merged |
 | #6 | InkVault: vault layout, body framing + tag, keys, NoteStore, verify, fixture vault | merged |
 | #7 | CLI: keys, vault, verify, export, recover, compact, snapshot (`docs/cli.md`) | merged |
-| #8 | InkImport: Notability `.note` importer + page `recognition` field (`docs/import-notability.md`) | **open** |
+| #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
 
-PR #8 was still receiving fixes from an agent in the previous session when
-this was written. Before merging it: confirm CI is green, confirm the PR
-body's "decisions applied" section covers the five items below, and run
-`/code-review feat/notability-import medium` if no review findings were
-applied yet. If the agent died mid-way, re-issue the remaining items to a
-fresh Opus agent in a worktree of `feat/notability-import`.
-
-Decisions already given for #8: (1) pre-1.0 note in `format.md` §7, readers
-fail closed on unknown ops; (2) optional `pageSize.breakHeight` used by the
-renderer for infinite-page pagination, importer sets width×21/16; (3) scale
-imports to 612 pt width (`ImportOptions.scaleToLetterWidth`, default true);
-(4) highlighter = opaque colour + marker tool; (5) PDF/image page backgrounds
-go to the Phase 3 list.
+Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
+imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
+612 pt width with breaks every 803.25 pt. Not imported yet: PDF/image page
+backgrounds (Phase 3) and dashed strokes (imported solid).
 
 Smoke test of the shipped CLI (works as of #7):
 
@@ -87,8 +78,7 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
 
 ## Next tasks (in order), with brief sketches
 
-1. **Merge #8** after review (see above).
-2. **CLI: `import notability` and `search`** (Sonnet; cloud OK). Wire
+1. **CLI: `import notability` and `search`** (Sonnet; cloud OK). Wire
    `InkImport` into `Sources/InkVaultCLI` as `inkvault import notability
    PATH… --vault V [--notebook N] [--overwrite] [--dry-run] [--no-scale]`
    printing the `ImportReport`; add `inkvault search "term" [--json]` over
@@ -96,7 +86,7 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
    `notes show` listing recognised text presence. Tests via the synthetic
    `.note` fixture in `InkImportTests` and the sample vault. Update
    `docs/cli.md`, plan rows 0.6/0.7.
-3. **Phase 1, iPad app** (needs Xcode on the Mac or the macOS CI runner;
+2. **Phase 1, iPad app** (needs Xcode on the Mac or the macOS CI runner;
    Opus for 3a/3c, Sonnet for the rest). Split:
    - 3a `Apps/InkVault` Xcode project (SwiftUI, iPadOS 26 min, Catalyst on),
      depends on the local package; CI job on `macos-26` running
@@ -121,9 +111,9 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
    - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
      per page after edits; search field over recognition text with word-box
      highlights.
-4. **Phase 2, Mac via Catalyst**: menus, keyboard, multi-window, drag-out
+3. **Phase 2, Mac via Catalyst**: menus, keyboard, multi-window, drag-out
    export, bulk export, key management UI.
-5. **Phase 3** (`docs/plan.md`): history browser/restore, WebDAV client,
+4. **Phase 3** (`docs/plan.md`): history browser/restore, WebDAV client,
    compaction UI, PDF/image page backgrounds, PNG export, read-only access to
    newer formats, age CRLF diagnostic, PQ recipient type.
 
