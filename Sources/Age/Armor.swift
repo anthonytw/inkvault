@@ -4,7 +4,7 @@ import Foundation
 /// "AGE ENCRYPTED FILE", 64-column padded base64, no headers. Mirrors
 /// `filippo.io/age/armor`: LF or CRLF line endings, whitespace allowed only
 /// before the BEGIN line and after the END line (at most 1 KiB each side).
-enum Armor {
+public enum Armor {
     static let header = Array("-----BEGIN AGE ENCRYPTED FILE-----".utf8)
     static let footer = Array("-----END AGE ENCRYPTED FILE-----".utf8)
     static let maxWhitespace = 1024
@@ -15,7 +15,7 @@ enum Armor {
 
     /// Whether `data` looks armored: after leading whitespace it starts with
     /// the BEGIN line. Same heuristic as the `age` CLI.
-    static func isArmored(_ data: Data) -> Bool {
+    public static func isArmored(_ data: Data) -> Bool {
         let window = data.prefix(maxWhitespace + header.count)
         guard let start = window.firstIndex(where: { !isSpace($0) }) else { return false }
         return window[start...].starts(with: header)
@@ -35,7 +35,11 @@ enum Armor {
         return Data(out)
     }
 
-    static func decode(_ data: Data) throws -> Data {
+    /// Decodes armored data strictly (the rules above), returning the binary
+    /// age file.
+    ///
+    /// - Throws: `AgeError.armor` for anything malformed.
+    public static func decode(_ data: Data) throws -> Data {
         let bytes = [UInt8](data)
         var pos = 0
 

@@ -74,9 +74,52 @@ in a device Keychain or supplied externally.
 
 Adding a recipient: append it to `recipients`, re-encrypt `vaultSecret`
 to the new set, then re-encrypt every file under `notes/` to the new set
-(payload unchanged, new file key and header). Removing a recipient: the
-same, with a freshly generated `vaultSecret`. These are the only in-place
-rewrites in the format; do them from one device while others are idle.
+(new file key and header). Removing a recipient: the same, with a freshly
+generated `vaultSecret`. These are the only in-place rewrites in the format;
+do them from one device while others are idle.
+
+In both cases the `gzip(JSON)` bytes of every body (§4) are unchanged. On
+removal each body is also re-tagged under the new `vaultSecret`, after its
+existing tag has been verified under the outgoing secret. A file whose tag
+does not verify is left as it is and reported; it is never re-tagged.
+
+#### 3.3.1 Resumable procedure
+
+Implementations SHOULD change recipients as follows, so that an interrupted
+change can be finished by any device holding an identity of the new set:
+
+1. Write `rewrap-journal.json` at the vault root (atomically, and durably
+   before step 2):
+
+   ```json
+   { "format": "inkvault/1",
+     "previousVaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n" }
+   ```
+
+   - `format`: `inkvault/1`.
+   - `previousVaultSecret`: present only when the secret is rotated
+     (removal): the outgoing 32-byte vault secret, age-encrypted and
+     armored to the **new** recipient set. Absent when adding.
+2. Write `vault.json` with the new `recipients` and `vaultSecret`.
+3. For every file under `notes/`, skip it if it is already complete (below);
+   otherwise rewrite it as described above, verifying its tag under the
+   current secret or, failing that, under `previousVaultSecret`, and replace
+   it atomically (temporary file in the same directory, then rename).
+4. Delete `rewrap-journal.json` once every file is complete. If any file
+   could not be read or verified, keep the journal (it is the only copy of
+   the outgoing secret), report those files, and retry step 3 later.
+
+A file is complete when its age header has exactly one `X25519` stanza per
+current recipient (and no other stanzas) and its tag verifies under the
+current `vaultSecret`. X25519 stanzas do not name their recipient, so this
+count is the only header-level check; while a journal exists no other
+recipient change is started, so counts from two changes never mix.
+
+If `rewrap-journal.json` exists when a vault is opened, the change is
+unfinished: a writer finishes steps 3 and 4 before any other recipient
+change, and may verify tags under `previousVaultSecret` meanwhile. Readers
+that do not implement this procedure treat the journal as an unknown file
+(§1).
 
 ## 4. Encrypted file bodies
 
@@ -120,8 +163,15 @@ Each file under `notes/<noteId>/` is one revision. Name:
 - `device`: 8 lowercase hex chars, random per app installation. Never a
   hardware identifier.
 - `seq`: per (note, device) counter, decimal, starting at 1, gap-free.
+  A writer chooses `seq` greater than every `seq` for its device that
+  appears in a file name of the note or is covered by any snapshot's
+  `included` (§5.3), so a seq whose file was compacted away is never reused.
 
 Ordering key for anything that needs a total order: `(hlc, device, seq)`.
+
+A reader must reject a revision whose JSON `noteId`, `device`, `seq` or
+`hlc` (§5.1) disagree with its directory name or file name, and report it
+like any other unreadable file.
 
 ### 5.1 Common fields
 
