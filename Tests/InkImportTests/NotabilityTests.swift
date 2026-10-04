@@ -63,7 +63,7 @@ final class NotabilityTests: XCTestCase {
 
     func testConvertMapping() throws {
         let note = try NotabilityNote.parse(data: SyntheticNote.package())
-        let state = NotabilityImporter.convert(note, notebook: "Research/Daily log")
+        let state = NotabilityImporter.convert(note, notebook: "Research/Daily log", scaleToLetterWidth: false)
         let inset = 716.8 * 18.8 / 716.8
         XCTAssertEqual(state.meta.title, "Synthetic note")
         XCTAssertEqual(state.meta.notebook, "Research/Daily log")
@@ -72,6 +72,7 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(state.meta.paper.kind, .dot)
         XCTAssertTrue(state.meta.pageSize.infinite)
         XCTAssertEqual(state.meta.pageSize.width, 716.8, accuracy: 1e-9)
+        XCTAssertEqual(state.meta.pageSize.breakHeight ?? 0, SyntheticNote.pageHeight, accuracy: 1e-9)
         // Ink reaches page 2, so the extent covers it.
         XCTAssertGreaterThan(state.meta.pageSize.height, SyntheticNote.pageHeight + 50)
 
@@ -100,7 +101,7 @@ final class NotabilityTests: XCTestCase {
 
         // Ids are derived and stable.
         XCTAssertEqual(NotabilityImporter.convert(note), NotabilityImporter.convert(note))
-        XCTAssertNotEqual(NotabilityImporter.convert(note, generation: 2).pages[0].id, state.pages[0].id)
+        XCTAssertNotEqual(NotabilityImporter.convert(note, idSalt: "0a0b0c0d-2").pages[0].id, state.pages[0].id)
         XCTAssertEqual(NotabilityImporter.noteId(for: note), UUID.derived(from: "inkvault-notability:" + SyntheticNote.uuid))
         let id = NotabilityImporter.noteId(for: note).uuidString
         XCTAssertEqual(Array(id)[14], "8")   // version 8
@@ -116,7 +117,7 @@ final class NotabilityTests: XCTestCase {
 
     func testRecognitionMerge() throws {
         let note = try NotabilityNote.parse(data: SyntheticNote.package())
-        let rec = try XCTUnwrap(NotabilityImporter.convert(note).pages[0].recognition)
+        let rec = try XCTUnwrap(NotabilityImporter.convert(note, scaleToLetterWidth: false).pages[0].recognition)
         let inset = 18.8
         XCTAssertEqual(rec.engine, "notability-14.2.6")
         XCTAssertEqual(rec.text, "ab cd\nx")
@@ -129,6 +130,33 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(b.x, 199 + inset, accuracy: 1e-9)
         XCTAssertEqual(b.y, 49 + SyntheticNote.pageHeight, accuracy: 1e-9)
         XCTAssertEqual(b.w, 32, accuracy: 1e-9)
+    }
+
+    func testScaleToLetterWidth() throws {
+        let note = try NotabilityNote.parse(data: SyntheticNote.package())
+        let raw = NotabilityImporter.convert(note, scaleToLetterWidth: false)
+        let scaled = NotabilityImporter.convert(note)   // default: scaled
+        let k = 612 / 716.8
+        XCTAssertEqual(scaled.meta.pageSize.width, 612, accuracy: 1e-9)
+        XCTAssertEqual(scaled.meta.pageSize.breakHeight ?? 0, 612 * 21 / 16, accuracy: 1e-9)
+        XCTAssertEqual(scaled.meta.pageSize.height, raw.meta.pageSize.height * k, accuracy: 1)
+        XCTAssertEqual(scaled.meta.paper.spacing, raw.meta.paper.spacing * k, accuracy: 1e-9)
+        XCTAssertEqual(scaled.meta.paper.spacing, 18, accuracy: 1e-9)   // 0.25 in on letter
+        for (a, b) in zip(raw.pages[0].strokes, scaled.pages[0].strokes) {
+            XCTAssertEqual(b.ink.width, a.ink.width * k, accuracy: 1e-9)
+            for (p, q) in zip(a.points, b.points) {
+                XCTAssertEqual(q.x, p.x * k, accuracy: 1e-9)
+                XCTAssertEqual(q.y, p.y * k, accuracy: 1e-9)
+                XCTAssertEqual(q.w, p.w * k, accuracy: 1e-9)
+                XCTAssertEqual(q.f, p.f)
+            }
+        }
+        let rb = try XCTUnwrap(raw.pages[0].recognition?.words.first?.box)
+        let sb = try XCTUnwrap(scaled.pages[0].recognition?.words.first?.box)
+        XCTAssertEqual(sb.x, rb.x * k, accuracy: 1e-9)
+        XCTAssertEqual(sb.h, rb.h * k, accuracy: 1e-9)
+        // Same ids either way.
+        XCTAssertEqual(scaled.pages[0].strokes.map(\.id), raw.pages[0].strokes.map(\.id))
     }
 
     func testImportIntoVaultSkipAndOverwrite() throws {
@@ -154,6 +182,7 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(ok.strokes, 4)
         XCTAssertEqual(ok.recognizedPages, 2)
         XCTAssertEqual(ok.dropped.typedTextCharacters, 11)
+        XCTAssertEqual(ok.originalWidth ?? 0, 716.8, accuracy: 1e-9)
 
         let id = try XCTUnwrap(ok.noteId)
         let state = try vault.reconstruct(noteId: id)
@@ -162,6 +191,8 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(state.meta.created, SyntheticNote.created)   // wall = Notability creation date
         XCTAssertEqual(state.pages.first?.strokes.count, 4)
         XCTAssertEqual(state.pages.first?.recognition?.words.count, 3)
+        XCTAssertEqual(state.meta.pageSize.width, 612, accuracy: 1e-9)
+        XCTAssertEqual(state.meta.pageSize.breakHeight ?? 0, 803.25, accuracy: 1e-9)
         let names = try vault.revisionNames(of: id)
         XCTAssertEqual(names.count, 1)
 
@@ -203,6 +234,105 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(report.skipped, 1)   // same Notability uuid twice
         XCTAssertEqual(report.notes[0].notebook, "Research/Daily log")
         XCTAssertTrue(report.notes[0].source.hasSuffix("!Notability/Research/Daily log/A copy.note"))
+    }
+
+    /// Two devices overwriting in turn never re-mint a tombstoned id.
+    func testOverwriteFromTwoDevices() throws {
+        let notePath = tmp.appendingPathComponent("Synthetic.note")
+        try SyntheticNote.package().write(to: notePath)
+        let identity = X25519Identity()
+        let vault = try Vault.create(at: tmp.appendingPathComponent("T.inkvault"), recipients: [identity.recipient],
+                                     identities: [identity])
+        let a = DeviceID("aaaaaaaa")!, b = DeviceID("bbbbbbbb")!
+        var clock = HybridClock()
+        var pageIds = Set<UUID>()
+        for (device, overwrite) in [(a, false), (a, true), (b, true), (b, true), (a, true)] {
+            let r = try NotabilityImporter.import(paths: [notePath], into: vault, device: device, clock: &clock,
+                                                  options: .init(overwrite: overwrite))
+            XCTAssertEqual(r.imported, 1, "\(device) \(r.notes.map(\.status))")
+            let state = try vault.reconstruct(noteId: try XCTUnwrap(r.notes.first?.noteId))
+            XCTAssertEqual(state.pages.count, 1)
+            XCTAssertEqual(state.pages.first?.strokes.count, 4)
+            XCTAssertTrue(pageIds.insert(try XCTUnwrap(state.pages.first?.id)).inserted, "page id re-minted")
+        }
+    }
+
+    /// An overwrite re-sets tags and notebook even when they are now empty.
+    func testOverwriteClearsTagsAndNotebook() throws {
+        let identity = X25519Identity()
+        let vault = try Vault.create(at: tmp.appendingPathComponent("C.inkvault"), recipients: [identity.recipient],
+                                     identities: [identity])
+        var clock = HybridClock()
+        let first = tmp.appendingPathComponent("one.note"), second = tmp.appendingPathComponent("two.note")
+        try SyntheticNote.package().write(to: first)
+        try SyntheticNote.package(subject: "unsortedNotesKey", tags: "").write(to: second)
+        let device = DeviceID("0a0b0c0d")!
+        let r = try NotabilityImporter.import(paths: [first], into: vault, device: device, clock: &clock)
+        let id = try XCTUnwrap(r.notes.first?.noteId)
+        XCTAssertEqual(try vault.reconstruct(noteId: id).meta.notebook, "Fixtures")
+        _ = try NotabilityImporter.import(paths: [second], into: vault, device: device, clock: &clock,
+                                          options: .init(overwrite: true))
+        let state = try vault.reconstruct(noteId: id)
+        XCTAssertEqual(state.meta.tags, [])
+        XCTAssertNil(state.meta.notebook)
+    }
+
+    /// An unzipped `.note` package directory imports like the zip.
+    func testPackageDirectory() throws {
+        let dir = tmp.appendingPathComponent("Notability/Research/Unzipped.note")
+        try SyntheticNote.writeDirectory(dir)
+        let note = try NotabilityNote.parse(package: NotePackage(directory: dir))
+        XCTAssertEqual(note.curves.count, 4)
+        XCTAssertEqual(note.recognition.count, 2)
+        let identity = X25519Identity()
+        let vault = try Vault.create(at: tmp.appendingPathComponent("D.inkvault"), recipients: [identity.recipient],
+                                     identities: [identity])
+        var clock = HybridClock()
+        for input in [dir, tmp.appendingPathComponent("Notability")] {
+            let r = try NotabilityImporter.import(paths: [input], into: vault, device: DeviceID("0a0b0c0d")!,
+                                                  clock: &clock)
+            XCTAssertEqual(r.notes.count, 1, "\(input.path)")   // the package is not searched inside
+            XCTAssertEqual(r.notes.first?.notebook, "Research")
+        }
+    }
+
+    /// A curve whose point count is not 3k + 1 is read as a polyline; the rest stay Bézier.
+    func testNonConformingCurveIsPolyline() throws {
+        var cs = SyntheticNote.curves
+        cs.append(.init(points: [(10, 10), (20, 10), (30, 20), (40, 20), (50, 30)], fw: [1, 1, 1, 1, 1],
+                        width: 1.4, rgba: [0, 0, 0, 255], style: 3))
+        let note = try NotabilityNote.parse(data: SyntheticNote.package(curves: cs))
+        XCTAssertEqual(note.curves.count, 5)
+        XCTAssertEqual(note.curves[0].points.count, 4)              // Bézier untouched
+        XCTAssertEqual(note.curves[4].points.count, 3 * 4 + 1)      // polyline as degenerate Béziers
+        XCTAssertEqual(note.curves[4].fractionalWidths.count, 5)
+        XCTAssertEqual(note.curves[4].points[3], .init(x: 20, y: 10))
+        let state = NotabilityImporter.convert(note, scaleToLetterWidth: false)
+        XCTAssertEqual(state.pages[0].strokes.count, 5)
+    }
+
+    /// Corrupt coordinates fail the note with a report row, never trap.
+    func testHugeCoordinatesFailCleanly() throws {
+        var cs = SyntheticNote.curves
+        cs[0].points[2] = (3e38, 3e38)
+        let data = SyntheticNote.package(curves: cs)
+        XCTAssertThrowsError(try NotabilityNote.parse(data: data)) { e in
+            guard case ImportError.notability = e else { return XCTFail("\(e)") }
+        }
+        // The sampler itself clamps rather than trapping.
+        let curve = NotabilityNote.Curve(points: [.init(x: 0, y: 0), .init(x: 3e38, y: 0), .init(x: -3e38, y: 0),
+                                                  .init(x: 1, y: 0)],
+                                         fractionalWidths: [1, 1], width: 1, color: .black, style: 3)
+        XCTAssertLessThanOrEqual(BezierToBSpline.samples(of: curve).count, 1 + BezierToBSpline.maxSamplesPerSegment)
+
+        let path = tmp.appendingPathComponent("bad.note")
+        try data.write(to: path)
+        let identity = X25519Identity()
+        let vault = try Vault.create(at: tmp.appendingPathComponent("H.inkvault"), recipients: [identity.recipient],
+                                     identities: [identity])
+        var clock = HybridClock()
+        let r = try NotabilityImporter.import(paths: [path], into: vault, device: DeviceID("0a0b0c0d")!, clock: &clock)
+        XCTAssertEqual(r.failed, 1)
     }
 
     func testPaperStyles() {

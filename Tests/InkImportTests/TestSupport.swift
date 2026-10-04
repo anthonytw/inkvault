@@ -241,9 +241,8 @@ enum SyntheticNote {
         return Float16Bits.encode(x)
     }
 
-    static func session() -> Data {
+    static func session(curves cs: [CurveSpec] = curves) -> Data {
         var a = KeyedArchiveBuilder()
-        let cs = curves
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
         var unit: [Float] = []
@@ -295,12 +294,12 @@ enum SyntheticNote {
         return a.archive(top: [("$0", root)])
     }
 
-    static func metadata() -> Data {
+    static func metadata(subject: String = "Fixtures", tags: String = "alpha, beta") -> Data {
         var b = KeyedArchiveBuilder()
         let d = b.dict([
             ("noteName", b.string("Synthetic note")),
-            ("noteSubject", b.string("Fixtures")),
-            ("noteTags", b.string("alpha, beta")),
+            ("noteSubject", b.string(subject)),
+            ("noteTags", b.string(tags)),
             ("noteCreationDateKey", b.date(created)),
             ("noteModifiedDateKey", b.date(created.addingTimeInterval(60))),
             ("uuidKey", b.string(uuid)),
@@ -341,20 +340,36 @@ enum SyntheticNote {
         return d
     }
 
-    /// The `.note` package bytes.
-    static func package() -> Data {
+    /// The package's files (path inside the package, bytes).
+    static func files(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
+                      tags: String = "alpha, beta") -> [(String, Data)] {
         let dir = "Synthetic note/"
         let library = try! PropertyListSerialization.data(
             fromPropertyList: ["application version": "1", "library-format-version": "1.0", "recordings": [String: Any]()],
             format: .binary, options: 0)
-        return ZipWriter.write([
-            .init(path: dir, data: Data(), deflate: false),
-            .init(path: dir + "Session.plist", data: session()),
-            .init(path: dir + "metadata.plist", data: metadata()),
-            .init(path: dir + "HandwritingIndex/index.plist", data: handwritingIndex()),
-            .init(path: dir + "Recordings/library.plist", data: library),
-            .init(path: dir + "thumb.png", data: png(width: 48, height: 63), deflate: false),
-        ])
+        return [
+            (dir + "Session.plist", session(curves: cs)),
+            (dir + "metadata.plist", metadata(subject: subject, tags: tags)),
+            (dir + "HandwritingIndex/index.plist", handwritingIndex()),
+            (dir + "Recordings/library.plist", library),
+            (dir + "thumb.png", png(width: 48, height: 63)),
+        ]
+    }
+
+    /// The `.note` package bytes.
+    static func package(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
+                        tags: String = "alpha, beta") -> Data {
+        ZipWriter.write([.init(path: "Synthetic note/", data: Data(), deflate: false)]
+            + files(curves: cs, subject: subject, tags: tags).map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
+    }
+
+    /// Writes the package unzipped, as a `.note` directory.
+    static func writeDirectory(_ url: URL) throws {
+        for (path, data) in files() {
+            let f = url.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: f)
+        }
     }
 }
 

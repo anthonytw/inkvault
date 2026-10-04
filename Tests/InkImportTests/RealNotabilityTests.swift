@@ -21,18 +21,17 @@ final class RealNotabilityTests: XCTestCase {
     }
 
     /// (label, notebook, bytes) of every `.note` in the samples.
-    func allNotes() throws -> [(String, Data)] {
+    func allNotes() throws -> [(String, NotePackage)] {
         guard let url = Self.samples else { throw XCTSkip("INKVAULT_NOTABILITY_SAMPLES not set") }
-        var archives: [ZipArchive] = []
-        return try NotabilityImporter.sources(url, archives: &archives).map { ($0.label, try $0.load()) }
+        return try NotabilityImporter.sources(url).map { ($0.label, try $0.load()) }
     }
 
     /// Every note parses and converts; the mapping is self-consistent.
     func testEveryNoteParsesAndConverts() throws {
         var curves = 0, failures: [String] = []
-        for (label, data) in try allNotes() {
+        for (label, pkg) in try allNotes() {
             do {
-                let note = try NotabilityNote.parse(data: data)
+                let note = try NotabilityNote.parse(package: pkg)
                 let state = NotabilityImporter.convert(note)
                 XCTAssertEqual(state.pages.count, 1)
                 XCTAssertEqual(state.pages[0].strokes.count, note.curves.count, label)
@@ -59,21 +58,21 @@ final class RealNotabilityTests: XCTestCase {
 
         let only = ProcessInfo.processInfo.environment["INKVAULT_NOTABILITY_ONLY"]
         var checked = 0, index = 0
-        for (label, data) in try allNotes() {
+        for (label, pkg) in try allNotes() {
             if let only, !label.contains(only) { continue }
-            let zip = try ZipArchive(data: data)
-            guard let thumbEntry = zip.entries.first(where: { $0.path.hasSuffix("/thumb12x.png") }) else { continue }
-            let note = try NotabilityNote.parse(archive: zip)
+            guard let thumbPath = pkg.paths.first(where: { $0.hasSuffix("/thumb12x.png") }) else { continue }
+            let note = try NotabilityNote.parse(package: pkg)
             // Notes on imported PDFs show the PDF in the thumbnail; skip them.
             guard only != nil || (note.pdfCount == 0 && note.curves.count >= 50 && note.mediaCount == 0) else { continue }
             let state = NotabilityImporter.convert(note)
-            let pdf = try PDFWriter.render(note: state, options: RenderOptions(infiniteChunkHeight: note.paper.pageHeight))
+            // The page's breakHeight paginates it like Notability.
+            let pdf = try PDFWriter.render(note: state)
             index += 1
             let name = "n\(index)"
             let pdfURL = tmp.appendingPathComponent("\(name).pdf")
             try pdf.write(to: pdfURL)
             let thumbURL = tmp.appendingPathComponent("\(name)-thumb.png")
-            try zip.read(thumbEntry).write(to: thumbURL)
+            try pkg.read(thumbPath).write(to: thumbURL)
             let rendered = try bitmap(pdfURL, tmp.appendingPathComponent("\(name).bmp"))
             let thumb = try bitmap(thumbURL, tmp.appendingPathComponent("\(name)-thumb.bmp"))
             // Some thumbnails are stale and show blank paper: nothing to compare.
@@ -92,7 +91,6 @@ final class RealNotabilityTests: XCTestCase {
             for (a, b, what) in [(rb.0, tb.0, "left"), (rb.1, tb.1, "top"), (rb.2, tb.2, "right"), (rb.3, tb.3, "bottom")] {
                 XCTAssertEqual(a, b, accuracy: 0.02, "\(what) edge of ink, \(label)")
             }
-            print(String(format: "DX %@ v%d w%.1f dx %.1f %.1f", name, note.formatVersion ?? 0, note.paper.width, (tb.0 - rb.0) * note.paper.width, (tb.2 - rb.2) * note.paper.width))
             print(String(format: "%@: aspect %.4f vs %.4f; ink box %.3f %.3f %.3f %.3f vs %.3f %.3f %.3f %.3f", name, ra, ta,
                          rb.0, rb.1, rb.2, rb.3, tb.0, tb.1, tb.2, tb.3))
             checked += 1
@@ -111,8 +109,11 @@ final class RealNotabilityTests: XCTestCase {
             for y in 0..<height {
                 for x in 0..<width {
                     let i = 4 * (y * width + x)
-                    let lum = 0.3 * Double(pixels[i]) + 0.59 * Double(pixels[i + 1]) + 0.11 * Double(pixels[i + 2])
-                    guard pixels[i + 3] > 128, lum < 110 else { continue }
+                    let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                    let lum = 0.3 * Double(r) + 0.59 * Double(g) + 0.11 * Double(b)
+                    // Dark ink, or grey (thin, antialiased) ink; not the bluish paper pattern.
+                    let grey = max(r, g, b) - min(r, g, b) < 16
+                    guard pixels[i + 3] > 128, lum < 110 || (grey && lum < 200) else { continue }
                     x0 = min(x0, x); y0 = min(y0, y); x1 = max(x1, x); y1 = max(y1, y)
                 }
             }

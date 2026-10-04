@@ -144,6 +144,9 @@ public struct NotabilityNote: Hashable, Sendable {
     /// `sessionFormatVersion` (5–9 seen).
     public var formatVersion: Int?
 
+    /// Largest accepted coordinate magnitude, document units (about 1000
+    /// pages); anything beyond is treated as corrupt.
+    public static let maxCoordinate = 1_000_000.0
     /// The highlighter value of `curvesstyles`.
     public static let highlighterStyle = 4
     /// The pen value of `curvesstyles`.
@@ -179,31 +182,34 @@ extension NotabilityNote {
     ///   plist, `.notability` when `Session.plist` is missing or its
     ///   handwriting arrays are inconsistent.
     public static func parse(data: Data) throws -> NotabilityNote {
-        try parse(archive: ZipArchive(data: data))
+        try parse(package: NotePackage(data: data))
     }
 
     /// Parses a `.note` package already opened as a zip.
     public static func parse(archive zip: ZipArchive) throws -> NotabilityNote {
-        // The package is one top-level directory (`<name>/Session.plist`).
-        let sessionEntry = zip.entries.first { e in
-            e.path.hasSuffix("Session.plist") && e.path.split(separator: "/").count <= 2
-                && (e.path == "Session.plist" || e.path.hasSuffix("/Session.plist"))
-        }
-        guard let sessionEntry else { throw ImportError.notability("no Session.plist in package") }
-        let prefix = String(sessionEntry.path.dropLast("Session.plist".count))
+        try parse(package: NotePackage(zip: zip))
+    }
+
+    /// Parses a `.note` package (zip or unzipped directory).
+    public static func parse(package pkg: NotePackage) throws -> NotabilityNote {
+        // The package is one top-level directory (`<name>/Session.plist`), or
+        // `Session.plist` at the root of an unzipped package.
+        let sessionPath = pkg.paths.first { $0 == "Session.plist" }
+            ?? pkg.paths.first { $0.hasSuffix("/Session.plist") && $0.split(separator: "/").count == 2 }
+        guard let sessionPath else { throw ImportError.notability("no Session.plist in package") }
+        let prefix = String(sessionPath.dropLast("Session.plist".count))
         func part(_ name: String) throws -> Data? {
-            guard let e = zip.entry(prefix + name) else { return nil }
-            return try zip.read(e)
+            pkg.contains(prefix + name) ? try pkg.read(prefix + name) : nil
         }
 
-        let session = try KeyedArchive(data: zip.read(sessionEntry))
+        let session = try KeyedArchive(data: pkg.read(sessionPath))
         let root = try session.root(anyOf: ["$0", "root"])
         guard root.className != nil || root.raw("richText") != nil else {
             throw ImportError.notability("Session.plist root is not a NoteTakingSession")
         }
 
         var meta = try parseMetadata(part("metadata.plist"), session: session, root: root,
-                                     fallbackName: String(prefix.dropLast()))
+                                     fallbackName: prefix.isEmpty ? "Untitled" : String(prefix.dropLast()))
         if meta.name.isEmpty { meta.name = "Untitled" }
 
         let richText = try session.field(root, "richText")
@@ -217,12 +223,14 @@ extension NotabilityNote {
         let recordings = try parseRecordingCount(part("Recordings/library.plist"))
         let recognition = try parseRecognition(part("HandwritingIndex/index.plist"))
 
+        // Page aspect from one thumbnail: thumb.png, else the first other that has a size.
         var thumb: (Int, Int)?
-        for e in zip.entries where e.path.hasPrefix(prefix) && !e.path.dropFirst(prefix.count).contains("/") {
-            let name = e.path.dropFirst(prefix.count)
-            guard name.hasPrefix("thumb"), name.hasSuffix(".png"), e.uncompressedSize < 16 << 20,
-                  let size = pngSize(try zip.read(e)) else { continue }
-            if size.0 > (thumb?.0 ?? 0) { thumb = size }
+        let thumbs = pkg.paths.filter { p in
+            p.hasPrefix(prefix) && !p.dropFirst(prefix.count).contains("/")
+                && p.dropFirst(prefix.count).hasPrefix("thumb") && p.hasSuffix(".png")
+        }.sorted { a, b in (a == prefix + "thumb.png" ? 0 : 1, a) < (b == prefix + "thumb.png" ? 0 : 1, b) }
+        for t in thumbs {
+            if let size = pngSize(try pkg.read(t)) { thumb = size; break }
         }
 
         let paper = try parsePaper(session, root: root, richText: richText, thumbnail: thumb, curves: curves)
@@ -300,21 +308,28 @@ extension NotabilityNote {
             throw ImportError.notability("curvesstyles has \(stylesData.count) bytes for \(n) curves")
         }
 
-        // Per-node arrays: one value per on-curve point (k + 1 per curve).
-        let nodeCounts = counts.map { $0 == 0 ? 0 : ($0 - 1) / 3 + 1 }
-        let bezier = counts.allSatisfy { $0 == 0 || ($0 - 1) % 3 == 0 }
+        // Per-node arrays: one value per on-curve point (k + 1 per Bézier
+        // curve of 3k + 1 points). Decided per curve: a curve whose count is
+        // not 3k + 1 (never seen) is taken as a polyline with one value per point.
+        let conforming = counts.map { $0 == 0 || ($0 - 1) % 3 == 0 }
+        let mixed = zip(counts, conforming).map { c, ok in c == 0 ? 0 : (ok ? (c - 1) / 3 + 1 : c) }
         let fw = try float32s(data("curvesfractionalwidths"), "curvesfractionalwidths")
-        let nodesTotal: Int
+        var isBezier: [Bool]
         let perNode: [Int]
-        if bezier && fw.count == nodeCounts.reduce(0, +) {
-            perNode = nodeCounts; nodesTotal = fw.count
+        if fw.count == mixed.reduce(0, +) {
+            perNode = mixed; isBezier = conforming
         } else if fw.count == total {
-            // Not seen in practice: one value per stored point. Treated as a polyline.
-            perNode = counts; nodesTotal = total
+            // One value per stored point throughout: every curve is a polyline.
+            perNode = counts; isBezier = Array(repeating: false, count: n)
         } else {
-            throw ImportError.notability("curvesfractionalwidths has \(fw.count) values; expected \(nodeCounts.reduce(0, +))")
+            throw ImportError.notability("curvesfractionalwidths has \(fw.count) values; expected \(mixed.reduce(0, +))")
         }
-        let isBezier = perNode == nodeCounts
+        for i in 0..<n where counts[i] <= 1 { isBezier[i] = true }   // nothing to expand
+        let nodesTotal = fw.count
+        // Notability coordinates are within a few thousand units per page; reject garbage.
+        guard xy.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
+            throw ImportError.notability("curvespoints holds coordinates beyond ±\(Int(maxCoordinate))")
+        }
         func optional(_ key: String, stride: Int) throws -> [Double]? {
             let v = try float32s(data(key), key)
             return v.count == stride * nodesTotal && nodesTotal > 0 ? v : nil
@@ -333,7 +348,7 @@ extension NotabilityNote {
             var pts: [Point] = []
             pts.reserveCapacity(c)
             for j in 0..<c { pts.append(Point(x: xy[2 * (p + j)], y: xy[2 * (p + j) + 1])) }
-            if !isBezier, c > 1 {
+            if !isBezier[i] {
                 // Polyline fallback: expand to degenerate Bézier segments.
                 var bz: [Point] = [pts[0]]
                 for j in 1..<c {

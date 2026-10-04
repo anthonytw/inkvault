@@ -52,7 +52,9 @@ public enum BezierToBSpline {
             let p0 = pts[3 * s], c1 = pts[3 * s + 1], c2 = pts[3 * s + 2], p3 = pts[3 * s + 3]
             let a = node(s, p0), b = node(s + 1, p3)
             let len = dist(p0, c1) + dist(c1, c2) + dist(c2, p3)
-            let m = len.isFinite ? min(max(Int((len / maxSpacing).rounded(.up)), 1), maxSamplesPerSegment) : 1
+            // Clamp in Double: a huge (corrupt) length must not trap in Int().
+            let steps = (len / maxSpacing).rounded(.up)
+            let m = steps.isFinite ? Int(min(max(steps, 1), Double(maxSamplesPerSegment))) : 1
             for j in 1...m {
                 let u = Double(j) / Double(m)
                 if j == m { out.append(b); continue }

@@ -14,9 +14,16 @@ public enum NotabilityImporter {
         public var notebook: String?
         /// `app` field of written revisions.
         public var app: String
+        /// Scale every length (coordinates, widths, paper pitch, recognition
+        /// boxes, break height) by `612 / width`, so the page is US-letter
+        /// width in points and exports paginate as letter-width pages.
+        /// Off keeps Notability's document units (716.8 wide for iPad notes).
+        public var scaleToLetterWidth: Bool
 
-        public init(overwrite: Bool = false, notebook: String? = nil, app: String = "inkvault-import/0.1") {
+        public init(overwrite: Bool = false, notebook: String? = nil, app: String = "inkvault-import/0.1",
+                    scaleToLetterWidth: Bool = true) {
             self.overwrite = overwrite; self.notebook = notebook; self.app = app
+            self.scaleToLetterWidth = scaleToLetterWidth
         }
     }
 
@@ -65,6 +72,8 @@ public enum NotabilityImporter {
         public var strokes = 0
         /// Notability pages with recognised text.
         public var recognizedPages = 0
+        /// Notability's document width before any scaling (document units).
+        public var originalWidth: Double?
         /// What was not imported.
         public var dropped = Dropped()
         /// Wall time spent on this note, seconds.
@@ -92,6 +101,9 @@ public enum NotabilityImporter {
 
     // MARK: - Mapping
 
+    /// US letter width in points, the target of `scaleToLetterWidth`.
+    public static let letterWidth = 612.0
+
     /// The vault note id for a Notability note: a name-based UUID
     /// (`UUID.derived(from:)`) of `"inkvault-notability:" + uuidKey`, so a
     /// re-import of the same note finds it. Notes without a `uuidKey` (not
@@ -108,13 +120,20 @@ public enum NotabilityImporter {
     /// Maps a parsed note to an InkVault note state: one infinite page, one
     /// stroke per curve, Notability's recognised text merged into the page's
     /// `recognition`. Ids are derived from the Notability uuid (and
-    /// `generation`, bumped by an overwrite), so the mapping is deterministic.
+    /// `idSalt`, set by an overwrite), so the mapping is deterministic.
+    ///
+    /// The page is infinite with `breakHeight` set to one Notability page
+    /// (`width × 21/16` for letter), so exports paginate like Notability.
     ///
     /// - Parameters:
     ///   - notebook: the notebook to file the note under (else the Notability subject).
-    ///   - generation: 0 for a first import; distinct values mint fresh page and stroke ids.
-    public static func convert(_ note: NotabilityNote, notebook: String? = nil, generation: Int = 0) -> NoteState {
-        let key = "inkvault-notability:" + sourceKey(note) + (generation == 0 ? "" : ":gen\(generation)")
+    ///   - idSalt: nil for a first import; distinct values mint fresh page and
+    ///     stroke ids (an overwrite uses `"<device>-<seq>"` of its delta).
+    ///   - scaleToLetterWidth: scale every length by `612 / width` (see `Options`).
+    public static func convert(_ note: NotabilityNote, notebook: String? = nil, idSalt: String? = nil,
+                               scaleToLetterWidth: Bool = true) -> NoteState {
+        let k = scaleToLetterWidth ? letterWidth / note.paper.width : 1
+        let key = "inkvault-notability:" + sourceKey(note) + (idSalt.map { ":gen:" + $0 } ?? "")
         let pageId = UUID.derived(from: key + ":page")
 
         // Highlighter first so it sits behind the ink, as Notability draws it.
@@ -128,7 +147,11 @@ public enum NotabilityImporter {
         for i in order {
             let c = note.curves[i]
             let dx = note.paper.insetX
-            let pts = BezierToBSpline.strokePoints(of: c).map { p -> StrokePoint in var p = p; p.x += dx; return p }
+            let pts = BezierToBSpline.strokePoints(of: c).map { p -> StrokePoint in
+                var p = p
+                p.x = (p.x + dx) * k; p.y *= k; p.w *= k; p.h *= k
+                return p
+            }
             guard !pts.isEmpty else { continue }
             let highlighter = c.isHighlighter
             // Marker colours are opaque pigment; the marker tool supplies the
@@ -136,21 +159,21 @@ public enum NotabilityImporter {
             var color = c.color
             if highlighter { color.a = 255 }
             strokes.append(Stroke(id: UUID.derived(from: key + ":stroke:\(i)"),
-                                  ink: Ink(tool: highlighter ? .marker : .pen, color: color, width: c.width),
+                                  ink: Ink(tool: highlighter ? .marker : .pen, color: color, width: c.width * k),
                                   points: pts))
-            for p in pts where p.y.isFinite { maxY = max(maxY, p.y + max(p.w, c.width) / 2) }
+            for p in pts where p.y.isFinite { maxY = max(maxY, p.y + max(p.w, c.width * k) / 2) }
         }
 
         let paper = note.paper
-        var meta = NoteMeta(title: note.metadata.name, tags: note.metadata.tags,
+        let meta = NoteMeta(title: note.metadata.name, tags: note.metadata.tags,
                             notebook: notebook ?? note.metadata.subject,
                             created: note.metadata.created ?? Date(timeIntervalSince1970: 0),
-                            paper: Paper(kind: paper.kind, spacing: paper.spacing ?? 24),
-                            pageSize: PageSize(width: paper.width,
-                                               height: max(paper.pageHeight, maxY.rounded(.up)), infinite: true))
-        if paper.kind == .blank { meta.paper = .blank }
+                            paper: Paper(kind: paper.kind, spacing: (paper.spacing ?? 24 / k) * k),
+                            pageSize: PageSize(width: paper.width * k,
+                                               height: max(paper.pageHeight * k, maxY.rounded(.up)), infinite: true,
+                                               breakHeight: paper.pageHeight * k))
         let page = Page(id: pageId, order: PageOrder.between(nil, nil), strokes: strokes,
-                        recognition: recognition(note))
+                        recognition: recognition(note, scale: k))
         return NoteState(meta: meta, pages: [page])
     }
 
@@ -158,7 +181,8 @@ public enum NotabilityImporter {
     /// the single infinite page: texts joined by newlines in page order,
     /// words built by grouping character boxes between whitespace, boxes moved
     /// by `pageContentOrigin` and the page's offset (`(n - 1) × pageHeight`).
-    public static func recognition(_ note: NotabilityNote) -> Recognition? {
+    /// Every box is then multiplied by `scale`.
+    public static func recognition(_ note: NotabilityNote, scale: Double = 1) -> Recognition? {
         guard !note.recognition.isEmpty else { return nil }
         var texts: [String] = []
         var words: [Recognition.Word] = []
@@ -169,7 +193,8 @@ public enum NotabilityImporter {
             var current = "", box: Recognition.Box?
             func flush() {
                 if !current.isEmpty, let b = box {
-                    words.append(Recognition.Word(text: current, box: Recognition.Box(x: b.x + dx, y: b.y + dy, w: b.w, h: b.h)))
+                    words.append(Recognition.Word(text: current, box: Recognition.Box(
+                        x: (b.x + dx) * scale, y: (b.y + dy) * scale, w: b.w * scale, h: b.h * scale)))
                 }
                 current = ""; box = nil
             }
@@ -212,7 +237,7 @@ public enum NotabilityImporter {
 
     /// The ops of one import delta for `state` (as `convert` builds it):
     /// `addPage`, one `addStroke` per stroke, `setMeta` for title, tags,
-    /// notebook, paper and page size, and `setPageRecognition`.
+    /// notebook (even when empty), paper and page size, and `setPageRecognition`.
     public static func ops(for state: NoteState) -> [Op] {
         var ops: [Op] = []
         for page in state.pages {
@@ -221,8 +246,9 @@ public enum NotabilityImporter {
         }
         let m = state.meta
         ops.append(.setMeta(.title(m.title)))
-        if !m.tags.isEmpty { ops.append(.setMeta(.tags(m.tags))) }
-        if m.notebook != nil { ops.append(.setMeta(.notebook(m.notebook))) }
+        // Always set, so an overwrite can clear them.
+        ops.append(.setMeta(.tags(m.tags)))
+        ops.append(.setMeta(.notebook(m.notebook)))
         ops.append(.setMeta(.paper(m.paper)))
         ops.append(.setMeta(.pageSize(m.pageSize)))
         for page in state.pages where page.recognition != nil {
@@ -237,7 +263,7 @@ public enum NotabilityImporter {
     struct Source {
         var label: String
         var notebook: String?
-        var load: () throws -> Data
+        var load: () throws -> NotePackage
     }
 
     /// Imports Notability notes into `vault`, one delta per note.
@@ -261,9 +287,8 @@ public enum NotabilityImporter {
         var report = ImportReport()
         var existing = Set(try vault.noteIDs())
         var seen = Set<UUID>()
-        var archives: [ZipArchive] = []   // keep open while their sources are read
         for url in paths {
-            for source in try sources(url, archives: &archives) {
+            for source in try sources(url) {
                 let started = Date()
                 // Drain Foundation's autoreleased plist objects per note on Darwin.
                 var result = withPool {
@@ -274,7 +299,6 @@ public enum NotabilityImporter {
                 report.notes.append(result)
             }
         }
-        _ = archives
         return report
     }
 
@@ -291,7 +315,7 @@ public enum NotabilityImporter {
                           seen: inout Set<UUID>) -> NoteResult {
         var result = NoteResult(source: source.label, status: .ok)
         let note: NotabilityNote
-        do { note = try NotabilityNote.parse(data: source.load()) } catch {
+        do { note = try NotabilityNote.parse(package: source.load()) } catch {
             result.status = .failed(describe(error)); return result
         }
         let id = noteId(for: note)
@@ -300,6 +324,7 @@ public enum NotabilityImporter {
         let notebook = options.notebook ?? source.notebook ?? note.metadata.subject
         result.notebook = notebook
         result.dropped = dropped(note)
+        result.originalWidth = note.paper.width
         guard seen.insert(id).inserted else {
             result.status = .skipped("duplicate of an earlier note in this import (same Notability uuid)")
             return result
@@ -311,15 +336,18 @@ public enum NotabilityImporter {
         do {
             var ops: [Op] = []
             var seq = 1
-            var generation = 0
+            var salt: String?
             if exists {
                 let old = try vault.reconstruct(noteId: id)
                 seq = try vault.nextSeq(noteId: id, device: device)
-                generation = seq
+                // Unique per (device, seq), so no two overwrites, from any
+                // device, mint the same (possibly tombstoned) ids.
+                salt = "\(device)-\(seq)"
                 ops += old.pages.map { .removePage(pageId: $0.id) }
                 if old.deleted { ops.append(.restoreNote) }
             }
-            let state = convert(note, notebook: notebook, generation: generation)
+            let state = convert(note, notebook: notebook, idSalt: salt,
+                                scaleToLetterWidth: options.scaleToLetterWidth)
             ops += Self.ops(for: state)
             let wall = note.metadata.created ?? now()
             let hlc = clock.tick(wall: now())
@@ -344,39 +372,49 @@ public enum NotabilityImporter {
         }
     }
 
-    /// Expands one input path into `.note` sources.
-    static func sources(_ url: URL, archives: inout [ZipArchive]) throws -> [Source] {
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
-            throw ImportError.io("no such file: \(url.path)")
+    /// Expands one input path into `.note` sources. A `.note` may be a zip
+    /// file or an unzipped package directory; a directory is searched
+    /// recursively (without descending into packages); anything else is
+    /// opened as a zip of `.note` files.
+    static func sources(_ url: URL) throws -> [Source] {
+        func isDirectory(_ u: URL) -> Bool {
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir) && isDir.boolValue
         }
-        if isDir.boolValue {
+        func source(_ f: URL, notebook: String?) -> Source {
+            let dir = isDirectory(f)
+            return Source(label: f.path, notebook: notebook,
+                          load: { dir ? try NotePackage(directory: f) : try NotePackage(data: readFile(f)) })
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else { throw ImportError.io("no such file: \(url.path)") }
+        if url.pathExtension.lowercased() == "note" {
+            let comps = Array(url.standardizedFileURL.pathComponents.dropLast())
+            return [source(url, notebook: notebook(fromDirectories: comps))]
+        }
+        if isDirectory(url) {
             guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) else {
                 throw ImportError.io("cannot list \(url.path)")
             }
             var found: [URL] = []
-            for case let f as URL in walker where f.pathExtension.lowercased() == "note" { found.append(f) }
+            for case let f as URL in walker where f.pathExtension.lowercased() == "note" {
+                found.append(f)
+                if isDirectory(f) { walker.skipDescendants() }
+            }
             let base = url.standardizedFileURL.pathComponents
             return found.sorted { $0.path < $1.path }.map { f in
                 let comps = Array(f.standardizedFileURL.pathComponents.dropLast())
                 let rel = comps.count > base.count ? Array(comps[base.count...]) : []
-                return Source(label: f.path, notebook: notebook(fromDirectories: comps) ?? join(rel),
-                              load: { try readFile(f) })
+                return source(f, notebook: notebook(fromDirectories: comps) ?? join(rel))
             }
         }
-        if url.pathExtension.lowercased() == "note" {
-            let comps = Array(url.standardizedFileURL.pathComponents.dropLast())
-            return [Source(label: url.path, notebook: notebook(fromDirectories: comps), load: { try readFile(url) })]
-        }
-        // Anything else is treated as a zip of .note files.
+        // A zip of .note files (Notability's backup). The sources keep it open.
         let zip = try ZipArchive(url: url)
-        archives.append(zip)
         return zip.entries.filter { !$0.isDirectory && $0.path.lowercased().hasSuffix(".note") }
             .sorted { $0.path < $1.path }
             .map { e in
                 let comps = e.path.split(separator: "/").map(String.init).dropLast()
                 return Source(label: "\(url.path)!\(e.path)", notebook: notebook(fromDirectories: Array(comps)),
-                              load: { try zip.read(e) })
+                              load: { try NotePackage(data: zip.read(e)) })
             }
     }
 

@@ -1,5 +1,6 @@
 import CZlib
 import Foundation
+import InkVault
 
 /// A read-only zip archive (PKWARE APPNOTE): central directory, stored and
 /// deflated entries, and the zip64 extensions, so archives above 4 GiB or
@@ -94,7 +95,10 @@ public final class ZipArchive {
         let out: Data
         switch entry.method {
         case 0: out = stored
-        case 8: out = try Self.inflateRaw(stored, expected: entry.uncompressedSize, path: entry.path)
+        case 8:
+            do { out = try Gzip.inflateRaw(stored, maxOutput: Int(entry.uncompressedSize)) } catch {
+                throw ImportError.zip("\(entry.path): corrupt deflate data (\(error))")
+            }
         default: throw ImportError.zip("\(entry.path): compression method \(entry.method) is not supported")
         }
         guard UInt64(out.count) == entry.uncompressedSize else {
@@ -230,40 +234,6 @@ public final class ZipArchive {
         }
     }
 
-    /// Raw deflate (no zlib or gzip header), as zip stores it.
-    static func inflateRaw(_ data: Data, expected: UInt64, path: String) throws -> Data {
-        var stream = z_stream()
-        var rc = inflateInit2_(&stream, -15, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
-        guard rc == Z_OK else { throw ImportError.zip("\(path): inflateInit failed (\(rc))") }
-        defer { inflateEnd(&stream) }
-        let chunk = 256 << 10
-        var out = Data()
-        out.reserveCapacity(Int(min(expected, 1 << 28)))
-        var buffer = [UInt8](repeating: 0, count: chunk)
-        var input = [UInt8](data)
-        let limit = expected
-        rc = input.withUnsafeMutableBufferPointer { inp -> Int32 in
-            stream.next_in = inp.baseAddress
-            stream.avail_in = uInt(inp.count)
-            while true {
-                let r: Int32 = buffer.withUnsafeMutableBufferPointer { b in
-                    stream.next_out = b.baseAddress
-                    stream.avail_out = uInt(b.count)
-                    return inflate(&stream, Z_NO_FLUSH)
-                }
-                let produced = chunk - Int(stream.avail_out)
-                if UInt64(out.count + produced) > limit { return Z_DATA_ERROR }
-                out.append(contentsOf: buffer[0..<produced])
-                switch r {
-                case Z_STREAM_END: return Z_OK
-                case Z_OK: continue
-                default: return r == Z_BUF_ERROR ? Z_DATA_ERROR : r
-                }
-            }
-        }
-        guard rc == Z_OK else { throw ImportError.zip("\(path): corrupt deflate data (\(rc))") }
-        return out
-    }
 }
 
 // MARK: - Little-endian reads

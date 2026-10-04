@@ -16,11 +16,12 @@ var clock = HybridClock()
 let report = try NotabilityImporter.import(
     paths: [URL(fileURLWithPath: "Notability-backup.zip")],
     into: vault, device: device, clock: &clock,
-    options: .init(overwrite: false, notebook: nil))
+    options: .init(overwrite: false, notebook: nil, scaleToLetterWidth: true))
 for n in report.notes { print(n.status, n.source, n.strokes, n.dropped) }
 ```
 
-Each path may be a single `.note`, a directory (searched recursively), or
+Each path may be a single `.note` (a zip, or an unzipped package directory),
+a directory (searched recursively, not descending into packages), or
 the zip Notability's Google Drive backup produces (`Notability/<Subject>/
 <Folder>/<name>.note`, plus PDFs that are ignored). Each note becomes one
 delta: `addPage`, one `addStroke` per stroke, `setMeta` for title, tags,
@@ -32,13 +33,23 @@ notebook, paper and page size, and `setPageRecognition`.
 - **Idempotent**: the note id is `UUID.derived(from: "inkvault-notability:"
   + uuidKey)` (SHA-256, RFC 9562 version 8). A note already in the vault is
   skipped; `overwrite` removes its pages and writes the content again with
-  fresh page and stroke ids (removed ids are never reused, `format.md` §5.2).
+  fresh page and stroke ids salted with the overwriting delta's
+  `<device>-<seq>`, so no overwrite from any device re-mints a removed
+  (tombstoned) id (`format.md` §5.2). Tags and notebook are always written,
+  so an overwrite can clear them.
   Two packages with the same `uuidKey` in one run (Notability "copies" made
   by duplicating the file) import once; the second is reported as skipped.
 - **Created date**: the delta's `wall` is Notability's creation date, so the
   note's `created` (`format.md` §5.4) is preserved. Its `hlc` is current.
+- **Scale**: by default (`scaleToLetterWidth`) every length (coordinates,
+  widths, paper pitch, recognition boxes, break height) is multiplied by
+  `612 / W`, so a page is US-letter width in points and exports paginate as
+  letter-width pages (612 × 803.25 for Notability's 21/16 page). Off keeps
+  Notability's document units.
 - **Report**: per note `ok`, `skipped(reason)` or `failed(reason)`, stroke
-  count, recognised pages, and what was dropped.
+  count, recognised pages, Notability's original document width, and what
+  was dropped. A corrupt note (bad zip, inconsistent arrays, coordinates
+  beyond ±10⁶) fails with a reason and never stops the run.
 
 Real-data checks live in `Tests/InkImportTests/RealNotabilityTests.swift`
 and are skipped unless `INKVAULT_NOTABILITY_SAMPLES` points at a backup zip
@@ -109,7 +120,7 @@ All arrays are little-endian and concatenated over curves in drawing order.
 | `numcurves` | int | curve count *n* |
 | `numpoints` | int | total stored points |
 | `numfractionalwidths` | int | total on-curve points (see below) |
-| `curvesnumpoints` | int32 × *n* | points per curve, always `3k + 1` |
+| `curvesnumpoints` | int32 × *n* | points per curve, always `3k + 1` (a curve that is not is read as a polyline with one value per point; never seen) |
 | `curvespoints` | float32 (x, y) × numpoints | **piecewise cubic Bézier control polygons**: on-curve, control, control, on-curve, … |
 | `curveswidth` | float32 × *n* | base width, document units |
 | `curvesfractionalwidths` | float32 × numfractionalwidths | width multiplier per **on-curve** point (`k + 1` per curve) |
@@ -146,7 +157,8 @@ adds `W × 18.8 / 716.8` to every x.
 
 Notability pages stack vertically without gaps. One page is `W × aspect`
 high, where the aspect is `1 / r` for `paperSize = custom:<r>`, else the
-thumbnail's height/width, else 21/16. Every "letter" note has 48 × 63
+thumbnail's height/width (`thumb.png`, else the first other thumbnail),
+else 21/16. Every "letter" note has 48 × 63
 thumbnails (21/16 = 1.3125, not letter's 1.294), and fitting the handwriting
 index origins to stroke positions gives a page height of 940.8 = 716.8 ×
 21/16 independently.
@@ -194,11 +206,11 @@ height`. `engine` is `notability-<app version>`.
 | folders under `Notability/`, else subject | `notebook` |
 | `noteTags` | `tags` |
 | `noteCreationDateKey` | `created` (via the delta's `wall`) |
-| document width, content extent | one infinite page: `pageSize.width = W`, `height` = lowest ink (at least one Notability page) |
+| document width, content extent | one infinite page: `pageSize.width = W`, `height` = lowest ink (at least one Notability page), `breakHeight` = one Notability page (`W × 21/16`), all × `612 / W` when scaling |
 | `lineStyle2` / `lineStyle` | `paper.kind`, `paper.spacing` |
 | curve | one `Stroke`; id derived from the note uuid and curve index |
 | style 3 / 4 | `pen` / `marker` (highlighters are written first so they sit behind the ink) |
-| colour bytes | `ink.color`; for markers alpha is set to opaque, since the marker tool supplies the translucency (as PencilKit's does; InkRender draws markers at 50 %) |
+| colour bytes | `ink.color`; for markers alpha is set to opaque, since the marker tool supplies the translucency (as PencilKit's does; InkRender draws markers at 50 %, where Notability's stored alpha 0x6B shows highlighters at about 42 %) |
 | `curveswidth` | `ink.width` |
 | Bézier polygon | B-spline control points (below) |
 | width × fractional width | `w`, `h` |
@@ -226,7 +238,7 @@ of the Bézier.
 | Audio recordings and playback events | non-goal |
 | Dashed strokes | no dash attribute; imported solid and counted |
 | Paper colours, PDF-template paper | not stored per note; defaults used |
-| Page breaks | the note becomes one infinite page; InkRender splits it at letter aspect unless `RenderOptions.infiniteChunkHeight` is the Notability page height |
+| Page structure | the note becomes one infinite page; its `breakHeight` makes exports break where Notability's pages did |
 | `options`, `groupsArrays`, `bezierPathsDataDictionary`, `eventTokens` | empty or unknown |
 
 `deviceBasedWidth` notes without a recorded width (two empty samples) use
