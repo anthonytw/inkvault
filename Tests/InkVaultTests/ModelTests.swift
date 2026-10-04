@@ -28,7 +28,7 @@ final class ModelTests: XCTestCase {
         let ops: [Op] = [
             .addPage(Page(id: page, order: "a0")),
             .addStroke(page: page, stroke: Stroke(ink: Ink(tool: .marker, color: .black, width: 4),
-                                                   points: [StrokePoint(x: 0, y: 0, w: 4, h: 4)])),
+                                                   points: [StrokePoint(x: 0, y: 0, w: 4, h: 4, al: 1.571)])),
             .removeStroke(page: page, strokeId: UUID()),
             .setPageOrder(pageId: page, order: "a1"),
             .setMeta(.title("Lecture 3")),
