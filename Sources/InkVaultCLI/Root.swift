@@ -17,7 +17,7 @@ struct InkVaultCLI: ParsableCommand {
         version: "0.4.0",
         subcommands: [
             KeysCommand.self, VaultCommand.self, NotesCommand.self, ExportCommand.self,
-            RecoverCommand.self, CompactCommand.self, SnapshotCommand.self,
+            RecoverCommand.self, CompactCommand.self, SnapshotCommand.self, SyncCommand.self,
         ]
     )
 }

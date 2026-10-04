@@ -1,0 +1,37 @@
+import Foundation
+
+/// Errors from the WebDAV layer. Messages never contain credentials.
+public enum WebDAVError: Error, Hashable, Sendable {
+    /// Plain `http` to anything but localhost, or credentials in the URL.
+    case insecureURL(String)
+    /// The server answered with an unexpected status.
+    case http(method: String, path: String, status: Int)
+    /// The server redirected; follow-ups are refused so credentials stay put.
+    case redirect(path: String, location: String)
+    /// No response (connection, TLS, timeout).
+    case transport(String)
+    /// The response could not be understood.
+    case malformedResponse(String)
+    /// The local vault and the remote one have different `vaultId`s.
+    case vaultMismatch(local: String, remote: String)
+    /// A local filesystem operation failed.
+    case io(String)
+}
+
+extension WebDAVError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .insecureURL(let m): return m
+        case .http(let method, let path, let status):
+            let hint = (status == 401 || status == 403) ? " (check --user and the password)" : ""
+            return "\(method) /\(path) failed: HTTP \(status)\(hint)"
+        case .redirect(let path, let location):
+            return "/\(path) redirects to \(location); use that URL instead (redirects are not followed)"
+        case .transport(let m): return "network error: \(m)"
+        case .malformedResponse(let m): return "malformed server response: \(m)"
+        case .vaultMismatch(let l, let r):
+            return "the remote holds vault \(r) but the local vault is \(l); refusing to mix them"
+        case .io(let m): return m
+        }
+    }
+}

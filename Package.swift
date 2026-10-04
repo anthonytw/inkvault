@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "InkVault", targets: ["InkVault"]),
         .library(name: "InkRender", targets: ["InkRender"]),
         .library(name: "InkImport", targets: ["InkImport"]),
+        .library(name: "InkWebDAV", targets: ["InkWebDAV"]),
         .executable(name: "inkvault", targets: ["InkVaultCLI"]),
     ],
     dependencies: [
@@ -37,10 +38,15 @@ let package = Package(
             name: "InkImport",
             dependencies: ["InkVault", "CZlib"]
         ),
+        // The only target allowed network code (CLAUDE.md).
+        .target(
+            name: "InkWebDAV",
+            dependencies: ["InkVault", .product(name: "Crypto", package: "swift-crypto")]
+        ),
         .executableTarget(
             name: "InkVaultCLI",
             dependencies: [
-                "Age", "InkVault", "InkRender",
+                "Age", "InkVault", "InkRender", "InkWebDAV",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -52,6 +58,7 @@ let package = Package(
                     exclude: ["generate_sample_note.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "InkImportTests", dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib"]),
+        .testTarget(name: "InkWebDAVTests", dependencies: ["InkWebDAV", "InkVault", "Age"]),
         .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"]),
     ],
     swiftLanguageModes: [.v6]
