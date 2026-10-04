@@ -441,7 +441,7 @@ final class CLICommandTests: CLITestCase {
     // MARK: misc
 
     func testUsageAndHelp() throws {
-        XCTAssertEqual(try cli(["--version"]).out.trimmingCharacters(in: .whitespacesAndNewlines), "0.4.0")
+        XCTAssertEqual(try cli(["--version"]).out.trimmingCharacters(in: .whitespacesAndNewlines), "0.5.0")
         XCTAssertEqual(try cli(["bogus"]).status, 2)
         XCTAssertEqual(try cli(["notes", "list"]).status, 2)   // no vault given
         for sub in [["keys", "generate"], ["vault", "init"], ["vault", "recipients", "add"], ["export"], ["recover"],
