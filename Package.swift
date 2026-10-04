@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "Age", targets: ["Age"]),
         .library(name: "InkVault", targets: ["InkVault"]),
         .library(name: "InkRender", targets: ["InkRender"]),
+        .library(name: "InkImport", targets: ["InkImport"]),
         .executable(name: "inkvault", targets: ["InkVaultCLI"]),
     ],
     dependencies: [
@@ -32,6 +33,10 @@ let package = Package(
             name: "InkRender",
             dependencies: ["InkVault", "CZlib"]
         ),
+        .target(
+            name: "InkImport",
+            dependencies: ["InkVault", "CZlib"]
+        ),
         .executableTarget(
             name: "InkVaultCLI",
             dependencies: [
@@ -46,6 +51,7 @@ let package = Package(
         .testTarget(name: "InkRenderTests", dependencies: ["InkRender"],
                     exclude: ["generate_sample_note.py"],
                     resources: [.copy("Fixtures")]),
+        .testTarget(name: "InkImportTests", dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib"]),
         .testTarget(name: "CLITests", dependencies: []),
     ],
     swiftLanguageModes: [.v6]
