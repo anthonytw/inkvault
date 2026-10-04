@@ -110,13 +110,30 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
    - 3b Vault browser: create/open vault (on device, iCloud Drive via
      ubiquity container, any Files-app folder via security-scoped
      bookmark), notebook/tag sidebar, note list from `Vault.summaries()`.
-   - 3c Canvas: `PKCanvasView` + system tool picker; lossless
-     `PKStroke` ⇄ `Stroke` conversion (control points, ink, transform,
-     stable ids via PencilKit's Identifiable strokes on iPadOS 27 or a
-     side table); autosave = diff old/new drawing → `addStroke`/
-     `removeStroke` ops → one delta per pause; pixel-eraser slices → remove +
-     adds with `parent`; undo via the canvas's undo manager; paper layer
-     under the canvas; infinite page growth.
+   - 3c **done** (branch `feat/app-canvas`): `NoteCanvasView` shows one page
+     at a time (`PageCanvasView`: `PKCanvasView` + system `PKToolPicker`,
+     `PaperView` vector ruling from `InkRender.PaperRenderer` under it, fit
+     to width, pinch to 4x; infinite pages grow 400 pt below the ink and save
+     the new `pageSize`). Conversion in `StrokeConversion.swift`; masked
+     (pixel-erased) strokes become one stroke per `maskedPathRanges` range via
+     the Linux-tested `BSpline.substroke` (InkRender). Stable ids:
+     `StrokeLedger` (pure, per page) matches canvas strokes by an O(1)
+     content fingerprint (`CanvasStrokeInfo`) as a multiset, mints fresh ids
+     for new content, infers `parent` (retired same-content stroke → same
+     path signature → same family with containing bounds), revives ids whose
+     removal is not on disk yet. `NoteEditor` debounces (1.5 s) into ONE
+     delta per pause and flushes on page switch, background, note switch and
+     vault close; `NoteWriter`/`DeviceClock` (actors) pick `seq`, tick the
+     package `HybridClock` and keep `DeviceState` in Application Support.
+     AppModel has a generation token so late `unlock`/`openVault`/`reload`/
+     `openEditor` results after `close()` are dropped (`CancellationError`).
+     Works on iPadOS 26 (the user's iPad cannot run 27; no 27-only API is
+     used); tests pass on iOS 26.5 and 27 simulators. Left: no UI tests and no
+     run on real hardware yet (pixel eraser verified with synthetic masks);
+     the note list does not refresh its stroke counts after edits; remote
+     changes arriving while a note is open are not merged into the canvas
+     until it is reopened; no page delete/reorder; the app never writes
+     snapshots; `reed` ink is stored as `fountainPen`.
    - 3d Keys: generate on device, import by paste/QR scan/AirDrop (`.key`
      file UTType), export (QR, share sheet), Keychain storage behind
      Face ID, passphrase-wrapped key file option; add second recipient
@@ -153,6 +170,13 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
   historical z-order is not restored.
 
 ## Gotchas collected so far
+
+PencilKit (from 3c): `PKStrokePoint` keeps locations, sizes and times as
+Float32 and quantizes opacity/azimuth/altitude (~1e-4; altitude even drifts on
+every re-wrap), so conversion round trips are equal within 2e-4, not bit for
+bit. `PKStroke.id`, `substroke(range:)` and `PKDrawing.erasePath` are
+iPadOS 27 only; the user's iPad is capped at 26, so do not depend on them.
+
 
 See `CLAUDE.md § Gotchas` (case-insensitive paths, FoundationXML, static
 link flags, test-output grepping, the app project). Also: GitHub's `macos-26` runner has an

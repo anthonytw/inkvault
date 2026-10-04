@@ -364,11 +364,15 @@ snapshot holding it, at op index equal to its position.
 - `tool` ∈ `pen`, `pencil`, `marker`, `monoline`, `fountainPen`,
   `watercolor`, `crayon`. Unknown tools render as `pen`.
 - `color` is `#RRGGBBAA`.
-- `points` are the control points of a uniform cubic B-spline, exactly as
+- `points` are the control points of a uniform cubic B-spline, as
   PencilKit's `PKStrokePath` exposes them: location `x,y` in points with
-  origin top-left and y down; `t` time offset in seconds; `w,h` size in
-  points; `o` opacity 0...1; `f` force; `az` azimuth and `al` altitude in
-  radians. Writers round to at most 3 decimals.
+  origin top-left and y down; `t` time offset in seconds; `w,h` the width
+  the ink is drawn at, in points (the nib's extent across the stroke, as
+  InkRender draws it); `o` opacity 0...1; `f` force; `az` azimuth and `al`
+  altitude in radians. Writers round to at most 3 decimals.
+- `w,h` are not `PKStrokePoint.size`: PencilKit draws a pen of size `s`
+  `2s − 4` wide (nothing below 2), so a PencilKit reader or writer converts
+  per ink (the app's `NibSize`, measured on iPadOS 26 and 27).
 - `transform` is an optional affine matrix `[a b c d tx ty]`; identity when
   absent.
 - `parent` optionally names the stroke this one was sliced from.

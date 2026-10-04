@@ -23,7 +23,7 @@ Do not use features newer than Swift 6.0 in `Sources/`.
 
 ## Hard rules
 
-- `Sources/*` and `Tests/*` must build on Linux: Foundation, swift-crypto
+- `Sources/*` and `Tests/*` must build on Linux: Foundation (plus FoundationNetworking in `InkWebDAV` only), swift-crypto
   (`import Crypto`), `CZlib` and swift-argument-parser only. No UIKit,
   AppKit, PencilKit, CoreGraphics, Compression, CommonCrypto, Security.
   Apple-only code goes under `Apps/`. Apple-only *tests* (e.g. comparing
@@ -33,7 +33,8 @@ Do not use features newer than Swift 6.0 in `Sources/`.
 - Crypto: use swift-crypto primitives; never hand-roll a cipher or MAC.
   scrypt and PBKDF2 are the only primitives implemented locally
   (swift-crypto lacks them); they must have RFC test vectors.
-- No network code in `Sources/` (phase 3 WebDAV will be its own target).
+- No network code in `Sources/` except the `InkWebDAV` target (`URLSession`, via
+  `FoundationNetworking` on Linux). `scripts/check-portability.sh` enforces it.
 - Keep the stock-CLI recovery path working:
   `age -d -i key FILE.age | tail -c +38 | gunzip | jq .`
 
@@ -65,7 +66,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   symbols: the default build system omits Foundation's static dependencies.
   Pass them explicitly, as CI does: `-Xlinker -lCoreFoundation -Xlinker
   -l_FoundationICU -Xlinker -l_FoundationCollections -Xlinker
-  -l_FoundationCShims -Xlinker -lswiftSynchronization`. Do not put these in
+  -l_FoundationCShims -Xlinker -lswiftSynchronization -Xlinker -l_CFXMLInterface
+  -Xlinker -l_CFURLSessionInterface -Xlinker -lcurl -Xlinker -lxml2` (the last four for FoundationXML and
+  FoundationNetworking, used by `InkWebDAV`; libcurl and libxml2 stay dynamic). Do not put these in
   `linkerSettings` (they break dynamic builds and `swift test`).
 - `Sources/` must also compile for iOS and Mac Catalyst (the app links it), not
   just macOS and Linux. Some Foundation API is macOS-only:
@@ -85,3 +88,39 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - A fresh Xcode install may fail every `xcodebuild` with "A required plugin
   failed to load": run `xcodebuild -runFirstLaunch`. It also ships without an
   iOS simulator runtime: `xcodebuild -downloadPlatform iOS` (about 8 GB).
+- The app's deployment target is iPadOS 26 and the user's iPad cannot update
+  to 27: any iPadOS 27 API (`PKStroke.id`, `PKStroke.substroke`,
+  `PKDrawing.erasePath`, recognition) must sit behind `if #available` with a
+  tested 26 path. Run `INKVAULT_SIM_ID=<iOS 26.x iPad> scripts/app.sh test`
+  as well as the default (newest) simulator.
+- PencilKit stores control points in reduced precision (Float32 locations,
+  quantized opacity/azimuth/altitude): compare converted strokes within a
+  tolerance, never with `==`. Stroke identity across canvas edits comes from
+  `StrokeLedger`'s fingerprints, which are always taken from the `PKStroke`.
+- `PKStrokePoint.size` is not the drawn width: a pen or monoline of size `s`
+  is drawn `2s − 4` wide (invisible below 2), markers and textured inks
+  differ again. Point sizes go through `NibSize` (StrokeConversion.swift);
+  never pass a format `w` to PencilKit directly. `ImportedStrokeRenderingTests`
+  pins the relation, so an iPadOS change to it fails there first.
+  That relation was measured on the simulator and Mac Catalyst only. Strokes
+  drawn on the user's iPad (iPad Pro 12.9" 4th gen) record pen sizes of about
+  3.2 to 4.9 for tool widths 0.88 to 25.7, and monoline size 3.25 whatever
+  the width, with the width carried inside the (opaque) `PKInk`; on hardware
+  the drawn width may depend on that ink, which the simulator ignores. Check
+  ink-width changes on a device, not only in tests.
+- `PKToolPicker.init` restores PencilKit's own saved tools
+  (`PKPaletteNamedDefaults` in the app's defaults) over the items it is
+  given, and its saved eraser is the pixel eraser. `EraserPreference` drops
+  that saved eraser entry before building a picker, so the object eraser is
+  the default and the user's last choice (stored under `InkVault.eraserType`)
+  wins. On iPadOS 26 the picker's pixel eraser is `.fixedWidthBitmap`: a
+  `.bitmap` eraser item comes back as that.
+- Debug builds open a vault and note from launch environment variables, for
+  scripted simulator or Catalyst runs (`DebugLaunch.swift`):
+  `INKVAULT_DEBUG_VAULT`, `INKVAULT_DEBUG_IDENTITY`, `INKVAULT_DEBUG_NOTE`
+  (id prefix), `INKVAULT_DEBUG_SCROLL_Y`, `INKVAULT_DEBUG_ZOOM`,
+  `INKVAULT_DEBUG_SNAPSHOT` (PNG of the canvas). With `xcrun simctl launch`
+  prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
+  autosaves.
+- `PKCanvasView` inverts ink colours in dark mode; the canvas forces
+  `.light` because ink colours are stored as drawn on (light) paper.
