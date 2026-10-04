@@ -23,10 +23,18 @@ jobs:
       - name: Portability guard
         run: scripts/check-portability.sh
       - name: Release build of the CLI (static stdlib)
-        # Non-blocking until the Swift 6.4 static-Foundation link issue is fixed
-        # (undefined Synchronization symbols; see issue tracker).
-        continue-on-error: true
-        run: swift build -c release --product inkvault --static-swift-stdlib
+        # Swift 6.4's default build system does not link Foundation's own static
+        # dependencies under --static-swift-stdlib; name them explicitly (CLAUDE.md).
+        run: >-
+          swift build -c release --product inkvault --static-swift-stdlib
+          -Xlinker -lCoreFoundation -Xlinker -l_FoundationICU
+          -Xlinker -l_FoundationCollections -Xlinker -l_FoundationCShims
+          -Xlinker -lswiftSynchronization
+      - name: Verify the CLI is static
+        run: |
+          .build/release/inkvault --version
+          ldd .build/release/inkvault
+          if ldd .build/release/inkvault | grep -Eq 'libswift|libFoundation'; then echo "not static" >&2; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: success()
         with:

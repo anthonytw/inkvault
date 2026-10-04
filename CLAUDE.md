@@ -55,3 +55,10 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - On Linux, `XMLParser` (and `XMLDocument`) live in `FoundationXML`, and
   `URLSession` in `FoundationNetworking`. Guard the import with
   `#if canImport(FoundationXML)`; macOS has them in Foundation.
+- `swift build --static-swift-stdlib` on Linux (Swift 6.4) fails to link with
+  undefined ICU / `_FoundationCollections` / Synchronization / CoreFoundation
+  symbols: the default build system omits Foundation's static dependencies.
+  Pass them explicitly, as CI does: `-Xlinker -lCoreFoundation -Xlinker
+  -l_FoundationICU -Xlinker -l_FoundationCollections -Xlinker
+  -l_FoundationCShims -Xlinker -lswiftSynchronization`. Do not put these in
+  `linkerSettings` (they break dynamic builds and `swift test`).
