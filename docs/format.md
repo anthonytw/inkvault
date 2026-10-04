@@ -168,7 +168,9 @@ Readers reconstruct a note as: take the snapshot with the greatest
 `(hlc, device, seq)` if any; apply every delta not covered by its
 `included`. Because strokes merge as sets and metadata by LWW using the
 op's own timestamp, the application order of deltas does not change the
-result.
+result. Reconstruction is order-independent: the same set of revisions gives
+the same state whatever order they are read in, and implementations must
+have a test that reconstructs from shuffled revision orders and compares.
 
 A device may write a snapshot at any time. Deltas covered by the newest
 snapshot and older than the retention window (default 30 days by `wall`)
@@ -200,6 +202,20 @@ everything they covered and they are older than the window.
   the current extent.
 - In a snapshot, `pages` are sorted by `(order, id)`.
 
+`State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`,
+`notebook`, `favorite`, `paper`, `pageSize`, `deleted`) to the stamp of the
+op that last set it, encoded `"<hlc>-<device>"`, e.g.
+`{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
+cover wins a register only if its own `(hlc, device)` is greater than that
+stamp. A register with no clock is treated as stamped by the snapshot's own
+`(hlc, device)`.
+
+`State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...]}`:
+ids whose `removeStroke` or `removePage` the snapshot writer saw without
+having seen the matching add. A delta adding a tombstoned id stays removed.
+Once the add is covered by `included`, the tombstone may be dropped. Both
+fields are omitted when empty.
+
 ### 5.5 Page
 
 ```json
@@ -208,6 +224,10 @@ everything they covered and they are older than the window.
 
 `order` is any string; pages sort lexicographically by `(order, id)`. The
 library provides a helper to generate a key between two neighbours.
+
+In a snapshot, a page may carry `"orderClock"`, the `"<hlc>-<device>"` stamp
+of the `addPage` or `setPageOrder` that set its `order`, with the same LWW
+rule and default as `clocks` (§5.4).
 
 ### 5.6 Stroke
 

@@ -158,18 +158,22 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
     /// Sort key; pages order by `(order, id)` lexicographically.
     public var order: String
     public var strokes: [Stroke]
+    /// Snapshot only: `"<hlc>-<device>"` stamp of the op that last set `order`
+    /// (format.md §5.5). Nil means the snapshot's own stamp.
+    public var orderClock: String?
 
-    public init(id: UUID = UUID(), order: String, strokes: [Stroke] = []) {
-        self.id = id; self.order = order; self.strokes = strokes
+    public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil) {
+        self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock
     }
 
-    enum CodingKeys: String, CodingKey { case id, order, strokes }
+    enum CodingKeys: String, CodingKey { case id, order, strokes, orderClock }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(LowercaseUUID.self, forKey: .id).uuid
         order = try c.decode(String.self, forKey: .order)
         strokes = try c.decodeIfPresent([Stroke].self, forKey: .strokes) ?? []
+        orderClock = try c.decodeIfPresent(String.self, forKey: .orderClock)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -177,6 +181,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         try c.encode(LowercaseUUID(id), forKey: .id)
         try c.encode(order, forKey: .order)
         try c.encode(strokes, forKey: .strokes)
+        if let orderClock { try c.encode(orderClock, forKey: .orderClock) }
     }
 }
 
@@ -234,13 +239,70 @@ public struct NoteMeta: Hashable, Sendable, Codable {
 
 /// Full note state as stored in a snapshot (format.md §5.4).
 public struct NoteState: Hashable, Sendable, Codable {
+    /// LWW register names that may appear in `clocks` (format.md §5.4).
+    public static let clockKeys = ["title", "tags", "notebook", "favorite", "paper", "pageSize", "deleted"]
+
     public var deleted: Bool
     public var meta: NoteMeta
     /// Sorted by `(order, id)`.
     public var pages: [Page]
+    /// Register name → `"<hlc>-<device>"` stamp that last set it. A missing
+    /// register is stamped by the snapshot's own `(hlc, device)`.
+    public var clocks: [String: String]?
+    /// Removed ids whose add the snapshot writer had not seen.
+    public var tombstones: Tombstones?
 
-    public init(deleted: Bool = false, meta: NoteMeta, pages: [Page] = []) {
+    public init(deleted: Bool = false, meta: NoteMeta, pages: [Page] = [],
+                clocks: [String: String]? = nil, tombstones: Tombstones? = nil) {
         self.deleted = deleted; self.meta = meta; self.pages = pages
+        self.clocks = clocks; self.tombstones = tombstones
+    }
+
+    enum CodingKeys: String, CodingKey { case deleted, meta, pages, clocks, tombstones }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deleted = try c.decode(Bool.self, forKey: .deleted)
+        meta = try c.decode(NoteMeta.self, forKey: .meta)
+        pages = try c.decode([Page].self, forKey: .pages)
+        clocks = try c.decodeIfPresent([String: String].self, forKey: .clocks)
+        tombstones = try c.decodeIfPresent(Tombstones.self, forKey: .tombstones)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(deleted, forKey: .deleted)
+        try c.encode(meta, forKey: .meta)
+        try c.encode(pages, forKey: .pages)
+        if let clocks, !clocks.isEmpty { try c.encode(clocks, forKey: .clocks) }
+        if let tombstones, !tombstones.isEmpty { try c.encode(tombstones, forKey: .tombstones) }
+    }
+}
+
+/// Snapshot tombstones (format.md §5.4): ids whose `removeStroke` /
+/// `removePage` was seen before the matching add, so a late add stays removed.
+public struct Tombstones: Hashable, Sendable, Codable {
+    public var strokes: [UUID]
+    public var pages: [UUID]
+
+    public init(strokes: [UUID] = [], pages: [UUID] = []) {
+        self.strokes = strokes; self.pages = pages
+    }
+
+    public var isEmpty: Bool { strokes.isEmpty && pages.isEmpty }
+
+    enum CodingKeys: String, CodingKey { case strokes, pages }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        strokes = try c.decodeIfPresent([LowercaseUUID].self, forKey: .strokes)?.map(\.uuid) ?? []
+        pages = try c.decodeIfPresent([LowercaseUUID].self, forKey: .pages)?.map(\.uuid) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(strokes.map(LowercaseUUID.init), forKey: .strokes)
+        try c.encode(pages.map(LowercaseUUID.init), forKey: .pages)
     }
 }
 
