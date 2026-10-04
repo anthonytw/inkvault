@@ -62,8 +62,8 @@ AGE-SECRET-KEY-1QGFZ...
 ```
 
 `age -d keys/<recipient>.key.age` with the passphrase must work. Writers
-should use an scrypt work factor between 15 and 18; readers must accept any
-work factor up to 22 (and may refuse larger with an error).
+use an scrypt work factor between 15 and 18; readers must accept any work
+factor up to 20, may accept up to 22, and may refuse larger with an error.
 
 The file is optional. A vault may be used with an identity that is only
 in a device Keychain or supplied externally.
