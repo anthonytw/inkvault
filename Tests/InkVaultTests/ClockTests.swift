@@ -60,6 +60,31 @@ final class ClockTests: XCTestCase {
         XCTAssertEqual(h, HLC(millis: baseMillis + 1, counter: 0))
     }
 
+    func testObserveIgnoresReadingsFarAhead() {
+        let wall = wallAt(baseMillis)
+        var clock = HybridClock(last: HLC(millis: baseMillis, counter: 5)!)
+        let farAhead = HLC(millis: baseMillis + HybridClock.maxAdoptedDrift + 1, counter: 0)!
+        XCTAssertEqual(clock.observe(farAhead, wall: wall), HLC(millis: baseMillis, counter: 5), "not adopted")
+        XCTAssertEqual(clock.tick(wall: wall), HLC(millis: baseMillis, counter: 6))
+        let nearAhead = HLC(millis: baseMillis + HybridClock.maxAdoptedDrift, counter: 3)!
+        XCTAssertEqual(clock.observe(nearAhead, wall: wall), HLC(millis: nearAhead.millis, counter: 4), "adopted")
+        // Such a revision still merges by its stamp as written.
+        var log = LogBuilder()
+        let future = Revision(noteId: testNote, device: devB, seq: 1, hlc: farAhead, wall: wall, app: "x",
+                              body: .delta(ops: [.setMeta(.title("future"))]))
+        let now = log.delta(devA, 0, [.setMeta(.title("now"))])
+        XCTAssertEqual(try NoteReducer.reconstruct([now, future]).meta.title, "future")
+    }
+
+    func testClockSaturatesInsteadOfGoingBackwards() {
+        let top = HLC(millis: HLC.maxMillis, counter: HLC.maxCounter)!
+        var clock = HybridClock(last: top)
+        XCTAssertEqual(clock.tick(wall: Date(timeIntervalSince1970: 1e12)), top)
+        XCTAssertEqual(clock.observe(top, wall: Date(timeIntervalSince1970: 1e12)), top)
+        var almost = HybridClock(millis: HLC.maxMillis - 1, counter: HLC.maxCounter)
+        XCTAssertEqual(almost.tick(wall: Date(timeIntervalSince1970: 0)), HLC(millis: HLC.maxMillis, counter: 0))
+    }
+
     func testDeviceIDAndStamp() {
         XCTAssertNotNil(DeviceID("a1b2c3d4"))
         XCTAssertNil(DeviceID("A1B2C3D4"))
@@ -113,6 +138,8 @@ final class ClockTests: XCTestCase {
             XCTAssertNil(Origin(bad), bad)
         }
         XCTAssertLessThan(Origin("17596320000000003-a1b2c3d4-12-1")!, Origin("17596320000000003-a1b2c3d4-12-2")!)
+        XCTAssertNil(Origin("17596320000000003-a1b2c3d4-0-0"), "seq starts at 1")
+        XCTAssertNotNil(Origin("17596320000000003-a1b2c3d4-1-0"))
     }
 
     func testIncluded() throws {
@@ -124,6 +151,8 @@ final class ClockTests: XCTestCase {
         XCTAssertFalse(inc.covers(device: devA, seq: 4))
         inc.insert(device: devA, seq: 4)
         XCTAssertEqual(inc.entries[devA], Included.Entry(upTo: 6, extra: []))
+        XCTAssertFalse(inc.covers(device: devA, seq: 0))
+        XCTAssertFalse(inc.covers(device: devA, seq: -3))
         inc.insert(device: devA, seq: 0)    // ignored
         XCTAssertEqual(inc.entries[devA]?.upTo, 6)
 

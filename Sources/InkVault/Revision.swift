@@ -20,10 +20,13 @@ public struct RevisionName: Hashable, Comparable, Sendable, CustomStringConverti
         case delta, snapshot
     }
 
+    /// Clock reading when the revision was written.
     public var hlc: HLC
+    /// Writing device.
     public var device: DeviceID
     /// Per (note, device) counter, starting at 1.
     public var seq: Int
+    /// Delta or snapshot.
     public var kind: Kind
 
     public init(hlc: HLC, device: DeviceID, seq: Int, kind: Kind) {
@@ -64,9 +67,13 @@ public struct RevisionName: Hashable, Comparable, Sendable, CustomStringConverti
 /// revision's ordering key plus the op's index in it (format.md §5.5–§5.6).
 /// Strokes on a page render in origin order.
 public struct Origin: Hashable, Comparable, Sendable, CustomStringConvertible {
+    /// `hlc` of the adding revision.
     public var hlc: HLC
+    /// Device of the adding revision.
     public var device: DeviceID
+    /// `seq` of the adding revision; at least 1 in any parsed origin.
     public var seq: Int
+    /// Index of the adding op within the revision's `ops`, from 0.
     public var op: Int
 
     public init(hlc: HLC, device: DeviceID, seq: Int, op: Int) {
@@ -77,10 +84,11 @@ public struct Origin: Hashable, Comparable, Sendable, CustomStringConvertible {
         self.init(hlc: name.hlc, device: name.device, seq: name.seq, op: op)
     }
 
+    /// Parses `"<hlc>-<device>-<seq>-<op>"`; rejects `seq` 0 and leading zeros.
     public init?(_ string: String) {
         let p = string.split(separator: "-", omittingEmptySubsequences: false)
         guard p.count == 4, let h = HLC(String(p[0])), let d = DeviceID(String(p[1])),
-              let seq = Origin.decimal(p[2]), let op = Origin.decimal(p[3]) else { return nil }
+              let seq = Origin.decimal(p[2]), seq >= 1, let op = Origin.decimal(p[3]) else { return nil }
         self.init(hlc: h, device: d, seq: seq, op: op)
     }
 
@@ -101,7 +109,9 @@ public struct Origin: Hashable, Comparable, Sendable, CustomStringConvertible {
 /// The set of revisions a snapshot reflects (format.md §5.3): per device,
 /// every `seq ≤ upTo` plus the listed `extra`.
 public struct Included: Hashable, Sendable {
+    /// Coverage for one device.
     public struct Entry: Hashable, Sendable, Codable {
+        /// Every `seq` from 1 through `upTo` is covered (inclusive; may be 0).
         public var upTo: Int
         /// Sorted, all greater than `upTo + 1`.
         public var extra: [Int]
@@ -112,7 +122,8 @@ public struct Included: Hashable, Sendable {
             normalize()
         }
 
-        public func covers(_ seq: Int) -> Bool { seq <= upTo || extra.contains(seq) }
+        /// True for a covered `seq`; never for `seq < 1`.
+        public func covers(_ seq: Int) -> Bool { seq >= 1 && (seq <= upTo || extra.contains(seq)) }
 
         mutating func insert(_ seq: Int) {
             guard seq >= 1, !covers(seq) else { return }
@@ -128,6 +139,7 @@ public struct Included: Hashable, Sendable {
         }
     }
 
+    /// Per-device coverage; devices without an entry cover nothing.
     public private(set) var entries: [DeviceID: Entry]
 
     public init(_ entries: [DeviceID: Entry] = [:]) {
@@ -150,8 +162,10 @@ public struct Included: Hashable, Sendable {
         for (device, theirs) in other.entries {
             let mine = entries[device] ?? Entry()
             if theirs.upTo > mine.upTo {
-                let needed = (mine.upTo + 1)...theirs.upTo
-                guard Set(mine.extra).isSuperset(of: needed) else { return false }
+                // The gap must be filled by `extra`; too few extras cannot.
+                guard theirs.upTo - mine.upTo <= mine.extra.count else { return false }
+                let extras = Set(mine.extra)
+                guard ((mine.upTo + 1)...theirs.upTo).allSatisfy(extras.contains) else { return false }
             }
             guard theirs.extra.allSatisfy(mine.covers) else { return false }
         }
@@ -196,19 +210,27 @@ extension Included: Codable {
 /// One file under `notes/<noteId>/` (format.md §5.1–§5.3), decrypted and
 /// unframed. Pure value; reading and writing files is elsewhere.
 public struct Revision: Hashable, Sendable {
+    /// The type-specific part of a revision.
     public enum Body: Hashable, Sendable {
+        /// Ops applied in order (format.md §5.2).
         case delta(ops: [Op])
+        /// Full state plus the revisions it reflects (format.md §5.3).
         case snapshot(included: Included, state: NoteState)
     }
 
+    /// Note directory name; lowercase on the wire.
     public var noteId: UUID
+    /// Writing device.
     public var device: DeviceID
+    /// Per (note, device) counter, starting at 1, gap-free.
     public var seq: Int
+    /// Clock reading when written; the LWW timestamp of the revision's ops.
     public var hlc: HLC
     /// Informational (history UI).
     public var wall: Date
     /// Informational, e.g. `inkvault-ios/0.1`.
     public var app: String
+    /// Delta ops or snapshot content.
     public var body: Body
 
     public init(noteId: UUID, device: DeviceID, seq: Int, hlc: HLC, wall: Date, app: String, body: Body) {

@@ -25,8 +25,8 @@ public enum CompactionPlanner {
 
     /// Revisions that may be deleted:
     ///
-    /// - a delta in `names` covered by at least one snapshot's `included`
-    ///   whose `wall` (from `wall`) is older than `retention`;
+    /// - a delta in `names` whose own `wall` (looked up in `wall`) is older
+    ///   than `retention` and which at least one snapshot's `included` covers;
     /// - a snapshot older than `retention` when another snapshot's
     ///   `included` is a superset of its `included`. Among snapshots with equal
     ///   `included`, the one with the greatest name is kept, so every deleted

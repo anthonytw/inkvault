@@ -15,7 +15,9 @@ public struct HLC: Hashable, Comparable, Sendable, CustomStringConvertible {
     /// `00000000000000000`, below every real clock reading.
     public static let zero = HLC(validMillis: 0, counter: 0)
 
+    /// Unix milliseconds, 0 through `maxMillis`.
     public let millis: Int64
+    /// Tie-breaker within one millisecond, 0 through `maxCounter`.
     public let counter: Int
 
     /// Returns nil when either part is out of range.
@@ -92,11 +94,18 @@ public struct HybridClock: Hashable, Sendable {
         return current
     }
 
+    /// How far ahead of the local wall clock a remote reading may be and
+    /// still be adopted by `observe` (format.md §5): 24 hours.
+    public static let maxAdoptedDrift: Int64 = 24 * 60 * 60 * 1000
+
     /// Merges a reading seen on another device's revision, so later local
-    /// readings sort after it.
+    /// readings sort after it. A reading more than `maxAdoptedDrift` ahead of
+    /// `wall` is not adopted: the clock is left as is and its current reading
+    /// returned. (Merging still uses that revision's stamp as written.)
     @discardableResult
     public mutating func observe(_ remote: HLC, wall: Date) -> HLC {
         let w = Self.wallMillis(wall)
+        guard remote.millis <= w + Self.maxAdoptedDrift else { return current }
         let m = max(w, millis, remote.millis)
         if m == millis && m == remote.millis {
             bump(max(counter, remote.counter) + 1)
@@ -113,13 +122,17 @@ public struct HybridClock: Hashable, Sendable {
     }
 
     /// Counter overflow borrows a millisecond rather than failing; the clock
-    /// stays monotonic and runs at most marginally ahead of the wall.
+    /// stays monotonic and runs at most marginally ahead of the wall. At the
+    /// very top of the range it saturates (repeats the maximum reading) rather
+    /// than wrapping below it.
     private mutating func bump(_ next: Int) {
-        if next > HLC.maxCounter {
-            millis = min(millis + 1, HLC.maxMillis)
+        if next <= HLC.maxCounter {
+            counter = next
+        } else if millis < HLC.maxMillis {
+            millis += 1
             counter = 0
         } else {
-            counter = next
+            counter = HLC.maxCounter
         }
     }
 
@@ -184,7 +197,9 @@ extension DeviceID: Codable {
 /// The last-writer-wins timestamp of an op: its revision's `(hlc, device)`.
 /// String form `"<hlc>-<device>"` (format.md §5.4 `clocks`).
 public struct Stamp: Hashable, Comparable, Sendable, CustomStringConvertible {
+    /// Clock reading of the revision holding the op.
     public var hlc: HLC
+    /// Device that wrote that revision; breaks ties between equal readings.
     public var device: DeviceID
 
     /// Below every real stamp; the stamp of a register nobody has set.
