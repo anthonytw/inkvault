@@ -5,6 +5,7 @@
 DerivedData/
 .DS_Store
 *.key
+!Tests/InkVaultTests/Fixtures/sample.key
 *.key.txt
 /tmp/
 .worktrees/

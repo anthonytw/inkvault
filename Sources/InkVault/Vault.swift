@@ -369,8 +369,9 @@ public struct Vault: Sendable {
         }
     }
 
-    /// Re-encrypts every revision file not yet current. A file is current
-    /// when its header has exactly one stanza per recipient and its tag
+    /// Re-encrypts every revision file not yet current (format.md §3.3.1).
+    /// A file is current when its header has exactly one X25519 stanza per
+    /// recipient (and no other stanzas) and its tag
     /// verifies under the current secret; such files are skipped, which is
     /// what makes a second run finish an interrupted one.
     func rewrapNotes(stopAfter: Int?) throws -> RewrapReport {
@@ -389,7 +390,7 @@ public struct Vault: Sendable {
                 let stanzaCount: Int
                 let plain: Data
                 do {
-                    stanzaCount = try AgeFile.parseHeader(data).header.stanzas.count
+                    stanzaCount = try Self.x25519StanzaCount(data)
                     plain = try AgeFile.decrypt(data, with: identities)
                 } catch {
                     report.failures[path] = .undecryptable("\(error)"); continue
@@ -415,6 +416,13 @@ public struct Vault: Sendable {
             }
         }
         return report
+    }
+
+    /// One per X25519 stanza, or -1 when the header has any other stanza
+    /// type (never "complete" under format.md §3.3.1).
+    static func x25519StanzaCount(_ data: Data) throws -> Int {
+        let stanzas = try AgeFile.parseHeader(data).header.stanzas
+        return stanzas.allSatisfy { $0.type == "X25519" } ? stanzas.count : -1
     }
 
     // MARK: - Listing helpers

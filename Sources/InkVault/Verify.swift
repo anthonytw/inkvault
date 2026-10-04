@@ -110,7 +110,7 @@ extension Vault {
                 do {
                     let data = try FileIO.read(file)
                     _ = try decodeRevisionFile(data, note: note, name: name, secret: secret)
-                    let stanzas = (try? AgeFile.parseHeader(data).header.stanzas.count) ?? 0
+                    let stanzas = (try? Self.x25519StanzaCount(data)) ?? -1
                     if stanzas != recipientCount {
                         report.files.append(.init(path: path, status: .staleRecipients,
                                                   detail: "\(stanzas) stanzas, \(recipientCount) recipients"))

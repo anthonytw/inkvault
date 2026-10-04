@@ -44,7 +44,8 @@ would make readers drop the new delta).
 
 ## Recipient changes and resumability (§3.3)
 
-The only in-place rewrite. Order of operations:
+The only in-place rewrite. The procedure is the recommended one of
+`format.md` §3.3.1; this section explains the reasoning. Order of operations:
 
 1. Write `rewrap-journal.json` at the vault root. When the secret rotates
    (recipient removed) it holds the **outgoing** vault secret, age-encrypted
@@ -52,7 +53,8 @@ The only in-place rewrite. Order of operations:
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
    removal).
 3. For every revision file: decrypt with our identities, then
-   - **skip** it if its header has exactly one stanza per current recipient
+   - **skip** it if its header has exactly one X25519 stanza per current recipient
+     (and no other stanzas)
      and its tag verifies under the current secret (already done);
    - otherwise re-encrypt the same plaintext to the new set (on removal,
      first re-tag the unchanged gzip bytes with the new secret, after

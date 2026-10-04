@@ -27,7 +27,9 @@ drop export, bulk export, key management.
 
 History browser and restore; built-in WebDAV client; compaction UI;
 handwriting search via PencilKit recognition (iPadOS 27); PNG export; stroke
-dedupe after concurrent slicing; post-quantum recipient type.
+dedupe after concurrent slicing; post-quantum recipient type; read-only
+access to vaults of a newer format version (`format.md` §7; today `Vault.open`
+refuses any `format` other than `inkvault/1`).
 
 ## Working agreements
 

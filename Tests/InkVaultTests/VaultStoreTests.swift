@@ -221,7 +221,7 @@ final class VaultStoreTests: VaultTestCase {
         report = vault.verify()
         XCTAssertFalse(report.isHealthy)
         XCTAssertTrue(report.manifestOK)
-        XCTAssertEqual(report.counts[.ok], log.count)    // 4 good revisions + key file
+        XCTAssertEqual(report.counts[.ok], log.count)    // 4 intact revisions + 1 identity file
         XCTAssertEqual(report.counts[.undecryptable], 1)
         XCTAssertEqual(report.counts[.tagMismatch], 1)
         XCTAssertEqual(report.counts[.corruptBody], 1)
