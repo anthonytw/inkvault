@@ -53,16 +53,24 @@ struct ExportCommand: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
-        let summaries = try vault.summaries()
-        var chosen: [NoteSummary]
-        if let note {
-            let one = try NoteSummary.find(note, in: summaries)
-            if one.deleted { printStderr("inkvault: warning: \(one.id.uuidString.lowercased()) is deleted") }
-            chosen = [one]
-        } else {
-            chosen = summaries.filter { deleted || !$0.deleted }
+        // Each note is decrypted once: loaded, summarised and reconstructed from the same read.
+        let ids = try note.map { [try vault.resolveNote($0)] } ?? vault.noteIDs()
+        var states: [(NoteSummary, NoteState)] = []
+        var failures = 0
+        for id in ids {
+            let loaded = try vault.loadNote(id)
+            let s = vault.summary(of: id, loaded: loaded)
+            if note != nil {
+                if s.deleted { printStderr("inkvault: warning: \(id.uuidString.lowercased()) is deleted") }
+            } else if s.deleted && !deleted {
+                continue
+            }
+            do { states.append((s, try vault.reconstruct(loaded))) } catch {
+                failures += 1
+                printError("\(id.uuidString.lowercased()): \(CLIError.from(error).message)")
+            }
         }
-        if chosen.isEmpty { throw CLIError("no notes to export") }
+        if states.isEmpty { throw CLIError.failure("no notes to export") }
 
         let options = RenderOptions(paper: !noPaper)
         let fm = FileManager.default
@@ -71,16 +79,7 @@ struct ExportCommand: ParsableCommand {
         }
         func write(_ data: Data, to path: String) throws {
             do { try data.write(to: URL(fileURLWithPath: path), options: .atomic) } catch {
-                throw CLIError("cannot write \(path): \(error.localizedDescription)")
-            }
-        }
-
-        var failures = 0
-        var states: [(NoteSummary, NoteState)] = []
-        for s in chosen {
-            do { states.append((s, try vault.reconstruct(noteId: s.id))) } catch {
-                failures += 1
-                printError("\(s.id.uuidString.lowercased()): \(CLIError.from(error).message)")
+                throw CLIError.failure("cannot write \(path): \(error.localizedDescription)")
             }
         }
 
@@ -132,6 +131,6 @@ struct ExportCommand: ParsableCommand {
             }
         }
         if output.json { try output.emitJSON(written) }
-        if failures > 0 { throw CLIError("\(failures) note(s) could not be exported") }
+        if failures > 0 { throw CLIError.failure("\(failures) note(s) could not be exported") }
     }
 }

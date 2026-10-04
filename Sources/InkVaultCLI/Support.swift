@@ -13,55 +13,61 @@ import Darwin
 
 // MARK: - Errors and exit codes
 
-/// A failure with its exit code. The message is one line.
-struct CLIError: Error {
+/// Exit codes shared by the commands (docs/cli.md).
+enum ExitStatus {
     static let failure: Int32 = 1
     static let usage: Int32 = 2
     static let unhealthy: Int32 = 3
     static let cannotDecrypt: Int32 = 4
+}
 
-    var message: String
-    var code: Int32
+/// A failure with its exit code. Messages are one line.
+enum CLIError: Error {
+    /// Exit 1: I/O, bad input, corrupt file, refusing to overwrite.
+    case failure(String)
+    /// Exit 2: the command line is wrong.
+    case usage(String)
+    /// Exit 3: unhealthy vault or incomplete rewrap.
+    case unhealthy(String)
+    /// Exit 4: wrong key or passphrase, or no key available.
+    case cannotDecrypt(String)
 
-    init(_ message: String, code: Int32 = CLIError.failure) {
-        self.message = message
-        self.code = code
+    var message: String {
+        switch self {
+        case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m): return m
+        }
+    }
+
+    var code: Int32 {
+        switch self {
+        case .failure: return ExitStatus.failure
+        case .usage: return ExitStatus.usage
+        case .unhealthy: return ExitStatus.unhealthy
+        case .cannotDecrypt: return ExitStatus.cannotDecrypt
+        }
     }
 
     /// Maps a library error to a message and an exit code.
     static func from(_ error: Error) -> CLIError {
         if let e = error as? CLIError { return e }
-        func one(_ s: String) -> String {
-            s.split(whereSeparator: \.isNewline).joined(separator: " ")
-        }
+        let text = "\(error)".split(whereSeparator: \.isNewline).joined(separator: " ")
         switch error {
-        case AgeError.noMatchingIdentity:
-            return CLIError("cannot decrypt: none of the given keys matches", code: cannotDecrypt)
-        case AgeError.noIdentities:
-            return CLIError("cannot decrypt: no identity given", code: cannotDecrypt)
-        case VaultError.vaultSecretUndecryptable:
-            return CLIError("cannot decrypt the vault: wrong key", code: cannotDecrypt)
-        case VaultError.wrongPassphrase:
-            return CLIError("cannot decrypt the key file: wrong passphrase", code: cannotDecrypt)
-        case VaultError.rewrapIncomplete(let files):
-            return CLIError("recipient change incomplete (\(files.count) file(s)); "
-                + "run `inkvault vault rewrap-resume`", code: unhealthy)
-        case let VaultError.revision(name, inner):
-            return CLIError("\(name): \(one("\(inner)"))")
-        case VaultError.locked, VaultError.noIdentities:
-            return CLIError("the vault is locked: give --identity FILE", code: cannotDecrypt)
-        case let e as VaultError:
-            return CLIError(one("\(e)"))
+        case AgeError.noMatchingIdentity, AgeError.noIdentities,
+             VaultError.vaultSecretUndecryptable, VaultError.wrongPassphrase,
+             VaultError.locked, VaultError.noIdentities:
+            return .cannotDecrypt(text)
+        case VaultError.rewrapIncomplete:
+            return .unhealthy(text + "; run `inkvault vault rewrap-resume`")
         case let e as NoteSummary.LookupError:
             switch e {
-            case .notFound(let q): return CLIError("no note matches '\(q)'")
+            case .notFound(let q): return .failure("no note matches '\(q)'")
             case .ambiguous(let q, let ids):
-                return CLIError("'\(q)' is ambiguous: \(ids.map { $0.uuidString.lowercased() }.joined(separator: ", "))")
+                return .failure("'\(q)' is ambiguous: \(ids.map { $0.uuidString.lowercased() }.joined(separator: ", "))")
             }
         case let e as LocalizedError where e.errorDescription != nil:
-            return CLIError(one(e.errorDescription ?? ""))
+            return .failure((e.errorDescription ?? "").split(whereSeparator: \.isNewline).joined(separator: " "))
         default:
-            return CLIError(one("\(error)"))
+            return .failure(text)
         }
     }
 }
@@ -157,8 +163,8 @@ enum Format {
 func writeNewSecretFile(_ text: String, to path: String) throws {
     let fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
     if fd < 0 {
-        if errno == EEXIST { throw CLIError("refusing to overwrite \(path)") }
-        throw CLIError("cannot create \(path): \(String(cString: strerror(errno)))")
+        if errno == EEXIST { throw CLIError.failure("refusing to overwrite \(path)") }
+        throw CLIError.failure("cannot create \(path): \(String(cString: strerror(errno)))")
     }
     let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     handle.write(Data(text.utf8))
@@ -167,10 +173,10 @@ func writeNewSecretFile(_ text: String, to path: String) throws {
 func readIdentityFile(_ path: String) throws -> X25519Identity {
     let text: String
     do { text = try String(contentsOfFile: path, encoding: .utf8) } catch {
-        throw CLIError("cannot read \(path): \(error.localizedDescription)")
+        throw CLIError.failure("cannot read \(path): \(error.localizedDescription)")
     }
     do { return try IdentityFile.parse(text) } catch {
-        throw CLIError("\(path) holds no AGE-SECRET-KEY identity")
+        throw CLIError.failure("\(path) holds no AGE-SECRET-KEY identity")
     }
 }
 
@@ -196,40 +202,43 @@ func promptSecret(_ prompt: String) -> String? {
     return readLine()
 }
 
-/// Whether a passphrase can be had without asking a person.
-func passphraseAvailableWithoutPrompt(envName: String?) -> Bool {
-    if let envName { return Env.vars[envName] != nil }
-    return Env.vars["INKVAULT_PASSPHRASE"] != nil
-}
-
 /// `--passphrase-env VAR`, else `$INKVAULT_PASSPHRASE`, else the terminal.
-func obtainPassphrase(envName: String?, prompt: String = "Vault passphrase: ", confirm: Bool = false) throws -> String {
+/// Failing to get one is exit 4 (no key available) unless `asError` says otherwise.
+func obtainPassphrase(envName: String?, prompt: String = "Vault passphrase: ", confirm: Bool = false,
+                      asError: (String) -> CLIError = CLIError.cannotDecrypt) throws -> String {
     if let envName {
-        guard let v = Env.vars[envName] else { throw CLIError("environment variable \(envName) is not set") }
+        guard let v = Env.vars[envName] else { throw asError("environment variable \(envName) is not set") }
         return v
     }
     if let v = Env.vars["INKVAULT_PASSPHRASE"] { return v }
     guard let first = promptSecret(prompt) else {
-        throw CLIError("no passphrase: set INKVAULT_PASSPHRASE or --passphrase-env VAR (stdin is not a terminal)")
+        throw asError("no passphrase: set INKVAULT_PASSPHRASE or --passphrase-env VAR (stdin is not a terminal)")
     }
     if confirm {
-        guard promptSecret("Repeat passphrase: ") == first else { throw CLIError("passphrases differ") }
+        guard promptSecret("Repeat passphrase: ") == first else { throw asError("passphrases differ") }
     }
     return first
+}
+
+func parseRecipient(_ s: String) throws -> X25519Recipient {
+    do { return try X25519Recipient(string: s) } catch {
+        throw CLIError.usage("not an age recipient (age1...): \(s)")
+    }
 }
 
 /// How much unlocking a command needs.
 enum Unlock {
     /// The vault must be readable.
     case required
-    /// Unlock only without asking anyone (identities or a scripted passphrase).
+    /// Unlock only without asking anyone: identities, a scripted passphrase,
+    /// or an explicitly named `--passphrase-env` (which must then be set).
     case ifPossible
 }
 
 extension AccessOptions {
     func vaultURL() throws -> URL {
         guard let path = vault ?? Env.vars["INKVAULT_VAULT"], !path.isEmpty else {
-            throw CLIError("no vault: pass --vault PATH or set INKVAULT_VAULT", code: CLIError.usage)
+            throw CLIError.usage("no vault: pass --vault PATH or set INKVAULT_VAULT")
         }
         return URL(fileURLWithPath: path)
     }
@@ -243,16 +252,9 @@ extension AccessOptions {
 
     /// The identity stored passphrase-wrapped in the vault's `keys/`.
     func identityFromKeyFiles(of locked: Vault, recipient: X25519Recipient? = nil) throws -> X25519Identity {
-        let files = try locked.identityFiles()
-        let candidates: [X25519Recipient]
-        if let recipient {
-            candidates = [recipient]
-        } else {
-            candidates = files
-        }
+        let candidates = try recipient.map { [$0] } ?? locked.identityFiles()
         guard !candidates.isEmpty else {
-            throw CLIError("no identity: pass --identity FILE (the vault stores no passphrase-wrapped key)",
-                           code: CLIError.cannotDecrypt)
+            throw CLIError.cannotDecrypt("no key: pass --identity FILE (the vault stores no passphrase-wrapped key)")
         }
         let pass = try obtainPassphrase(envName: passphraseEnv)
         var lastError: Error = VaultError.wrongPassphrase
@@ -264,29 +266,22 @@ extension AccessOptions {
 
     /// Opens the vault with the identities this invocation provides.
     func openVault(_ unlock: Unlock) throws -> Vault {
-        let url = try vaultURL()
+        try openVault(at: try vaultURL(), unlock)
+    }
+
+    func openVault(at url: URL, _ unlock: Unlock) throws -> Vault {
         var ids: [any AgeIdentity] = try explicitIdentities()
         if ids.isEmpty {
             let locked = try Vault.open(at: url)
             switch unlock {
             case .ifPossible:
-                guard passphraseAvailableWithoutPrompt(envName: passphraseEnv),
-                      !((try? locked.identityFiles()) ?? []).isEmpty else { return locked }
+                let scripted = passphraseEnv != nil || Env.vars["INKVAULT_PASSPHRASE"] != nil
+                guard scripted, !((try? locked.identityFiles()) ?? []).isEmpty else { return locked }
                 ids = [try identityFromKeyFiles(of: locked)]
             case .required:
                 ids = [try identityFromKeyFiles(of: locked)]
             }
         }
         return try Vault.open(at: url, identities: ids)
-    }
-}
-
-extension AccessOptions {
-    /// For commands that take only some of the access options (`recover`).
-    static func make(identity: [String], passphraseEnv: String?) -> AccessOptions {
-        var a = AccessOptions()
-        a.identity = identity
-        a.passphraseEnv = passphraseEnv
-        return a
     }
 }

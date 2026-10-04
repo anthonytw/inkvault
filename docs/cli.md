@@ -36,7 +36,7 @@ printed only by `keys generate` and `keys export`.
 | 1 | Generic failure (I/O, bad input, corrupt file, refusing to overwrite). |
 | 2 | Usage error (unknown option, missing vault, bad recipient string). |
 | 3 | `vault verify` found problems, or a recipient change is incomplete. |
-| 4 | Cannot decrypt: wrong key or passphrase, or no key available. |
+| 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
 
 Errors go to stderr, one line each, prefixed `inkvault:`.
 
@@ -134,13 +134,14 @@ written is printed.
 ### Recover
 
 ```
-inkvault recover FILE.age [--note-id UUID] [--identity FILE ...] [--no-verify]
+inkvault recover FILE.age [--note-id UUID] [--identity FILE ...] [--vault PATH] [--no-verify]
 ```
 
 Decrypts one revision file and prints its JSON to stdout, byte for byte what
 `age -d -i KEY FILE | tail -c +38 | gunzip` prints. It needs only an identity
-file and the one `.age` file. If `vault.json` is found in a parent directory
-and the identity opens it, the inner HMAC tag is verified (the note id is the
+file and the one `.age` file. If a vault is known (`--vault`, else `vault.json`
+found in a parent directory of the file, else `$INKVAULT_VAULT`) and the identity
+opens it, the inner HMAC tag is verified (the note id is the
 file's directory name unless `--note-id` says otherwise); otherwise
 `UNVERIFIED: ...` is printed to stderr and the JSON is printed anyway. A tag
 that does not match is an error (exit 1, nothing printed; the message points to
@@ -161,7 +162,9 @@ deltas past the retention window that no snapshot covers (always the case for a
 note with no snapshot, once it has anything that old), it
 writes a snapshot first (device id and clock as for `snapshot`), then compacts.
 `--dry-run` writes and deletes nothing and lists `would snapshot` and
-`would delete` lines. `snapshot` writes a snapshot of the note. Both need a
+`would delete` lines. With `--all` a note that cannot be compacted (an unreadable
+revision) is reported on stderr, the other notes are still processed, and the
+exit code is 1. `snapshot` writes a snapshot of the note. Both need a
 key. Snapshots stamp the file with this machine's
 device id and clock from `$XDG_STATE_HOME/inkvault/device.json` (default
 `~/.local/state/inkvault/device.json`), created on first use:

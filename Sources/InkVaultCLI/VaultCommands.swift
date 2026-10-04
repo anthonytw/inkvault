@@ -11,12 +11,6 @@ struct VaultCommand: ParsableCommand {
     )
 }
 
-private func parseRecipient(_ s: String) throws -> X25519Recipient {
-    do { return try X25519Recipient(string: s) } catch {
-        throw CLIError("not an age recipient (age1...): \(s)", code: CLIError.usage)
-    }
-}
-
 // MARK: - init
 
 struct VaultInit: ParsableCommand {
@@ -71,9 +65,10 @@ struct VaultInit: ParsableCommand {
         if let storeKey {
             let id = try readIdentityFile(storeKey)
             guard recipients.contains(id.recipient) else {
-                throw CLIError("\(storeKey) is not one of the --recipient keys", code: CLIError.usage)
+                throw CLIError.usage("\(storeKey) is not one of the --recipient keys")
             }
-            stored = (id, try obtainPassphrase(envName: passphraseEnv, prompt: "New key passphrase: ", confirm: true))
+            stored = (id, try obtainPassphrase(envName: passphraseEnv, prompt: "New key passphrase: ", confirm: true,
+                                                 asError: CLIError.failure))
         }
         let vault = try Vault.create(at: URL(fileURLWithPath: path), recipients: recipients, labels: label)
         var keyFile: String?
@@ -182,8 +177,8 @@ private func reportRewrap(_ report: Vault.RewrapReport, output: OutputOptions) t
         for (file, why) in report.failures.sorted(by: { $0.key < $1.key }) {
             printError("\(file): \(why)")
         }
-        throw CLIError("incomplete: \(report.failures.count) file(s) not rewrapped; fix them, then run "
-            + "`inkvault vault rewrap-resume`", code: CLIError.unhealthy)
+        throw CLIError.unhealthy("incomplete: \(report.failures.count) file(s) not rewrapped; fix them, then run "
+            + "`inkvault vault rewrap-resume`")
     }
 }
 
@@ -279,7 +274,7 @@ struct VaultVerify: ParsableCommand {
             print("\(report.files.count) file(s)" + (counts.isEmpty ? "" : " (" + counts.joined(separator: ", ") + ")")
                 + (report.isHealthy ? ": healthy" : ": UNHEALTHY"))
         }
-        if !report.isHealthy { throw ExitCode(CLIError.unhealthy) }
+        if !report.isHealthy { throw ExitCode(ExitStatus.unhealthy) }
     }
 
     private struct Out: Encodable {

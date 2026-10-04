@@ -117,8 +117,20 @@ final class CLICommandTests: CLITestCase {
         let bad = try cli(["notes", "list", "--vault", Self.fixtureVault], env: ["INKVAULT_PASSPHRASE": "nope"])
         XCTAssertEqual(bad.status, 4)
         XCTAssertEqual(bad.err.split(separator: "\n").count, 1, bad.err)
-        // No identity and no way to ask (stdin is /dev/null).
-        XCTAssertEqual(try cli(["notes", "list", "--vault", Self.fixtureVault]).status, 1)
+        // No key and no way to ask (stdin is /dev/null): exit 4.
+        let noKey = try cli(["notes", "list", "--vault", Self.fixtureVault])
+        XCTAssertEqual(noKey.status, 4)
+        XCTAssertTrue(noKey.err.contains("no passphrase"), noKey.err)
+        // A named variable that is not set is an error, also for `vault info` (which must not run locked).
+        for cmd in [["notes", "list"], ["vault", "info"], ["vault", "verify"]] {
+            let unset = try cli(cmd + ["--vault", Self.fixtureVault, "--passphrase-env", "NOT_SET_ANYWHERE"])
+            XCTAssertEqual(unset.status, 4, "\(cmd)")
+            XCTAssertTrue(unset.err.contains("NOT_SET_ANYWHERE"), unset.err)
+        }
+        // Library errors read as sentences, not enum dumps.
+        let notVault = try cli(["vault", "init", path("notes"), "--recipient", try fixtureIdentity().recipient.string])
+        XCTAssertEqual(notVault.status, 1)
+        XCTAssertTrue(notVault.err.contains("must end in .inkvault"), notVault.err)
         // Environment variables stand in for the options.
         let env = try cli(["notes", "list", "--json"], env: ["INKVAULT_VAULT": Self.fixtureVault,
                                                              "INKVAULT_IDENTITY": Self.fixtureKey])
@@ -264,6 +276,52 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual(try cli(["vault", "verify"] + args).status, 0)
         let shown = try cli(["notes", "list", "--json"] + args)
         XCTAssertEqual((shown.json as? [[String: Any]])?.first { $0["id"] as? String == note }?["strokes"] as? Int, 3)
+    }
+
+    func testCompactDryRunMatchesRealRunWithTwoSnapshots() throws {
+        let (vault, _, keyPath) = try makeVault()
+        let v = path("mine.inkvault")
+        let args = ["--vault", v, "--identity", keyPath]
+        let note = UUID(uuidString: "aaaaaaaa-1111-4111-8111-000000000001")!
+        XCTAssertEqual(try cli(["snapshot", note.uuidString.lowercased()] + args).status, 0)   // S1
+        // A new old delta that S1 does not cover.
+        let ms: Int64 = 1_760_000_009_000
+        try vault.write(Revision(noteId: note, device: DeviceID("abcdef01")!, seq: 3, hlc: HLC(millis: ms, counter: 0)!,
+                                 wall: Date(timeIntervalSince1970: Double(ms) / 1000), app: "t",
+                                 body: .delta(ops: [.setMeta(.favorite(true))])))
+        let dry = try cli(["compact", note.uuidString.lowercased(), "--retention", "0", "--dry-run"] + args)
+        XCTAssertEqual(dry.status, 0, dry.err)
+        let real = try cli(["compact", note.uuidString.lowercased(), "--retention", "0"] + args)
+        XCTAssertEqual(real.status, 0, real.err)
+        func deletions(_ r: CLIResult, _ word: String) -> [String] {
+            r.out.split(separator: "\n").filter { $0.hasPrefix(word) }.map { String($0.dropFirst(word.count)) }
+        }
+        XCTAssertEqual(deletions(dry, "would delete "), deletions(real, "deleted "))
+        XCTAssertEqual(deletions(real, "deleted ").count, 4)   // three deltas and S1
+        let jsonDry = try cli(["compact", "--all", "--retention", "0", "--dry-run", "--json"] + args)
+        let items = try XCTUnwrap(jsonDry.json as? [[String: Any]])
+        XCTAssertTrue(items.allSatisfy { $0["snapshotNeeded"] is Bool })
+    }
+
+    func testCompactAllContinuesPastABrokenNote() throws {
+        _ = try makeVault()
+        let v = path("mine.inkvault")
+        let keyPath = path("mine.inkvault.key")
+        let broken = v + "/notes/aaaaaaaa-1111-4111-8111-000000000001"
+        let file = broken + "/" + (try FileManager.default.contentsOfDirectory(atPath: broken).sorted()[0])
+        var bytes = try Data(contentsOf: URL(fileURLWithPath: file))
+        bytes[bytes.count - 5] ^= 1
+        try bytes.write(to: URL(fileURLWithPath: file))
+        let args = ["--vault", v, "--identity", keyPath, "--retention", "0"]
+        let dry = try cli(["compact", "--all", "--dry-run"] + args)
+        XCTAssertEqual(dry.status, 1, dry.out + dry.err)
+        let real = try cli(["compact", "--all"] + args)
+        XCTAssertEqual(real.status, 1)
+        XCTAssertTrue(real.err.contains("aaaaaaaa-1111"), real.err)
+        XCTAssertTrue(real.out.contains("bbbbbbbb-2222"), real.out)   // the healthy note was still compacted
+        let groceries = try FileManager.default.contentsOfDirectory(atPath: v + "/notes/bbbbbbbb-2222-4222-8222-000000000002")
+        XCTAssertEqual(groceries.count, 1)
+        XCTAssertTrue(groceries[0].hasSuffix(".snapshot.age"))
     }
 
     func testSvgLayoutAllVersusSingle() throws {

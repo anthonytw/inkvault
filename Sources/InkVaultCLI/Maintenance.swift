@@ -38,45 +38,69 @@ struct CompactCommand: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
-        let chosen = note != nil
-            ? [try NoteSummary.find(note ?? "", in: try vault.summaries())]
-            : try vault.summaries()
+        let ids = try note.map { [try vault.resolveNote($0)] } ?? vault.noteIDs()
         let seconds = retention * 86400
-        struct Item: Encodable { var note: String; var snapshot: String?; var files: [String] }
+        struct Item: Encodable {
+            var note: String
+            /// A snapshot is (dry run) or was (real run) needed before compacting.
+            var snapshotNeeded: Bool
+            /// The snapshot file written; nil on a dry run or when none was needed.
+            var snapshot: String?
+            var files: [String]
+        }
         var items: [Item] = []
-        for s in chosen {
-            let needs = try vault.needsSnapshotBeforeCompaction(noteId: s.id, retention: seconds)
-            var snapName: String?
-            let names: [RevisionName]
-            if dryRun {
-                if needs { snapName = "(would be written)" }
-                names = try vault.compactionPlan(noteId: s.id, retention: seconds, assumingSnapshot: needs)
-            } else {
-                if needs { snapName = try takeSnapshot(vault, noteId: s.id).name.filename }
-                names = try vault.compact(noteId: s.id, retention: seconds)
+        var failures = 0
+        for id in ids {
+            let name = id.uuidString.lowercased()
+            do {
+                var loaded = try vault.loadNote(id)
+                let needs = loaded.needsSnapshotBeforeCompaction(retention: seconds)
+                var snapName: String?
+                let names: [RevisionName]
+                if dryRun {
+                    // A real run would fail on an unreadable revision when it snapshots; so does the dry run.
+                    if needs { _ = try vault.reconstruct(loaded) }
+                    names = loaded.compactionPlan(retention: seconds, assumingSnapshot: needs)
+                } else {
+                    if needs {
+                        let (snap, _) = try takeSnapshot(vault, loaded: loaded)
+                        snapName = snap.name.filename
+                        loaded.revisions.append(snap)
+                    }
+                    names = try vault.compact(noteId: id, loaded: loaded, retention: seconds)
+                }
+                items.append(Item(note: name, snapshotNeeded: needs, snapshot: snapName, files: names.map(\.filename)))
+            } catch {
+                failures += 1
+                printError("\(name): \(CLIError.from(error).message)")
             }
-            items.append(Item(note: s.id.uuidString.lowercased(), snapshot: snapName, files: names.map(\.filename)))
         }
-        if output.json { try output.emitJSON(items); return }
-        let total = items.reduce(0) { $0 + $1.files.count }
-        for i in items {
-            if let sn = i.snapshot { print(dryRun ? "would snapshot \(i.note)" : "snapshot \(i.note)/\(sn)") }
-            for f in i.files { print("\(dryRun ? "would delete" : "deleted") \(i.note)/\(f)") }
+        if output.json {
+            try output.emitJSON(items)
+        } else {
+            let total = items.reduce(0) { $0 + $1.files.count }
+            for i in items {
+                if i.snapshotNeeded {
+                    print(dryRun ? "would snapshot \(i.note)" : "snapshot \(i.note)/\(i.snapshot ?? "")")
+                }
+                for f in i.files { print("\(dryRun ? "would delete" : "deleted") \(i.note)/\(f)") }
+            }
+            output.info("\(dryRun ? "Would delete" : "Deleted") \(total) file(s).")
         }
-        output.info("\(dryRun ? "Would delete" : "Deleted") \(total) file(s).")
+        if failures > 0 { throw CLIError.failure("\(failures) note(s) could not be compacted") }
     }
 }
 
-/// Writes a snapshot with this machine's device id and clock, and saves the clock.
-@discardableResult
-func takeSnapshot(_ vault: Vault, noteId: UUID) throws -> Revision {
+/// Writes a snapshot of an already-loaded note with this machine's device id
+/// and clock, and saves the clock. Returns the snapshot and the device state.
+func takeSnapshot(_ vault: Vault, loaded: LoadedNote) throws -> (Revision, DeviceState) {
     let stateURL = DeviceState.defaultURL()
     var state = try DeviceState.loadOrCreate(at: stateURL)
     var clock = state.clock
-    let snap = try vault.snapshot(noteId: noteId, device: state.device, clock: &clock, wall: Date(), app: appName)
+    let snap = try vault.snapshot(loaded: loaded, device: state.device, clock: &clock, wall: Date(), app: appName)
     state.clock = clock
     try state.save(to: stateURL)
-    return snap
+    return (snap, state)
 }
 
 struct SnapshotCommand: ParsableCommand {
@@ -94,15 +118,14 @@ struct SnapshotCommand: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
-        let summary = try NoteSummary.find(note, in: try vault.summaries())
-        let snap = try takeSnapshot(vault, noteId: summary.id)
-        let state = try DeviceState.loadOrCreate(at: DeviceState.defaultURL())
+        let id = try vault.resolveNote(note)
+        let (snap, state) = try takeSnapshot(vault, loaded: try vault.loadNote(id))
         if output.json {
             struct Out: Encodable { var note: String; var file: String; var device: String }
-            try output.emitJSON(Out(note: summary.id.uuidString.lowercased(), file: snap.name.filename,
+            try output.emitJSON(Out(note: id.uuidString.lowercased(), file: snap.name.filename,
                                     device: state.device.rawValue))
         } else {
-            output.info("Wrote \(summary.id.uuidString.lowercased())/\(snap.name.filename)")
+            output.info("Wrote \(id.uuidString.lowercased())/\(snap.name.filename)")
         }
     }
 }

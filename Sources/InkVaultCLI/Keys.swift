@@ -90,11 +90,9 @@ struct KeysExport: ParsableCommand {
         let locked = try Vault.open(at: try access.vaultURL())
         var wanted: X25519Recipient?
         if let recipient {
-            do { wanted = try X25519Recipient(string: recipient) } catch {
-                throw CLIError("not an age recipient: \(recipient)", code: CLIError.usage)
-            }
+            wanted = try parseRecipient(recipient)
         } else if try locked.identityFiles().count > 1 {
-            throw CLIError("the vault holds several key files; choose one with --recipient", code: CLIError.usage)
+            throw CLIError.usage("the vault holds several key files; choose one with --recipient")
         }
         let identity = try access.identityFromKeyFiles(of: locked, recipient: wanted)
         let text = IdentityFile.render(identity, created: Date())

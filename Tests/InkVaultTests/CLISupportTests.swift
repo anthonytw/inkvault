@@ -1,5 +1,6 @@
 import Age
 import XCTest
+
 @testable import InkVault
 
 /// Library pieces the `inkvault` CLI is built on: recovery, summaries,
@@ -83,5 +84,44 @@ final class CLISupportTests: XCTestCase {
         XCTAssertEqual(ExportName.stem(title: "", noteId: id), "untitled-0d1c6a1e")
         XCTAssertEqual(ExportName.stem(title: "../..", noteId: id), "untitled-0d1c6a1e")
         XCTAssertLessThan(ExportName.stem(title: String(repeating: "a", count: 500), noteId: id).count, 80)
+    }
+
+    func testResolveNoteWithoutDecryptingAndDescriptions() throws {
+        let (vault, id) = try fixtureVault()
+        XCTAssertEqual(try vault.resolveNote("1111"), SampleFixture.lecture)
+        XCTAssertEqual(try vault.resolveNote(SampleFixture.lecture.uuidString), SampleFixture.lecture)
+        XCTAssertEqual(try vault.resolveNote("Fixture deleted"), SampleFixture.deleted)
+        XCTAssertThrowsError(try vault.resolveNote("zzzz"))
+        // A locked vault can still resolve ids (nothing is decrypted), but not titles.
+        let locked = try Vault.open(at: FixtureTests.bundled("sample.inkvault"))
+        XCTAssertEqual(try locked.resolveNote("2222"), SampleFixture.deleted)
+        XCTAssertThrowsError(try locked.resolveNote("Fixture deleted"))
+        _ = id
+        XCTAssertTrue("\(VaultError.invalidVaultName("notes"))".contains("must end in .inkvault"))
+        XCTAssertFalse("\(RevisionReadError.undecryptable("x"))".contains("undecryptable("))
+        XCTAssertFalse("\(AgeError.noMatchingIdentity)".contains("noMatchingIdentity"))
+    }
+
+    func testRecoveryAllowMismatchPolicy() throws {
+        let (vault, id) = try fixtureVault()
+        let (url, note, name) = try firstRevisionFile(vault)
+        let data = try Data(contentsOf: url)
+        let r = try Recovery.decrypt(data, noteId: note, filename: "x" + name, identities: [id], vault: vault,
+                                     onMismatch: .allowMismatch)
+        XCTAssertTrue(r.tagMismatch)
+        XCTAssertFalse(r.verified)
+        XCTAssertFalse(r.json.isEmpty)
+    }
+
+    func testAssumedSnapshotSubsumesOlderSnapshots() throws {
+        let (vault, _) = try fixtureVault()
+        let loaded = try vault.loadNote(SampleFixture.lecture)
+        let far = Date(timeIntervalSince1970: 4_000_000_000)
+        let plain = loaded.compactionPlan(retention: 0, now: far)
+        let assumed = loaded.compactionPlan(retention: 0, now: far, assumingSnapshot: true)
+        XCTAssertEqual(assumed.count, 5)   // every existing revision is covered by the hypothetical snapshot
+        XCTAssertLessThan(plain.count, assumed.count)
+        XCTAssertTrue(loaded.needsSnapshotBeforeCompaction(retention: 0, now: far))
+        XCTAssertFalse(loaded.needsSnapshotBeforeCompaction(retention: 100_000 * 86400, now: far))
     }
 }

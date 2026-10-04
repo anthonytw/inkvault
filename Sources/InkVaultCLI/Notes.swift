@@ -78,8 +78,10 @@ struct NotesShow: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
-        let summary = try NoteSummary.find(note, in: try vault.summaries())
-        let history = try vault.history(noteId: summary.id)
+        let id = try vault.resolveNote(note)
+        let loaded = try vault.loadNote(id)
+        let summary = vault.summary(of: id, loaded: loaded)
+        let history = loaded.history
         if output.json {
             struct Rev: Encodable { var name: String; var kind: String; var wall: Date?; var app: String?; var error: String? }
             struct Out: Encodable { var note: NoteJSON; var revisions: [Rev] }
