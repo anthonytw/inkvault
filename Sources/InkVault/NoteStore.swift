@@ -216,12 +216,7 @@ extension Vault {
     @discardableResult
     public func compact(noteId: UUID, retention: TimeInterval = CompactionPlanner.defaultRetention,
                         now: Date = Date()) throws -> [RevisionName] {
-        let loaded = try loadNote(noteId)
-        var wall: [RevisionName: Date] = [:]
-        for r in loaded.revisions { wall[r.name] = r.wall }
-        let doomed = CompactionPlanner.deletable(names: loaded.revisions.map(\.name), wall: wall,
-                                                 snapshots: loaded.revisions.compactMap(SnapshotCoverage.init),
-                                                 retention: retention, now: now)
+        let doomed = try compactionPlan(noteId: noteId, retention: retention, now: now)
         let dir = noteURL(noteId)
         for n in doomed { try FileIO.remove(dir.appendingPathComponent(n.filename)) }
         return doomed
