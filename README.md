@@ -28,14 +28,16 @@ all run natively on Linux, and CI publishes a static Linux binary.
 | `Sources/InkVault` | Vault layout, note log, merge, keys |
 | `Sources/InkRender` | Stroke geometry, PDF and SVG writers |
 | `Sources/InkVaultCLI` | Command-line tool: keys, verify, export, recover |
-| `Apps/` | iPad and Mac apps (Xcode project, phase 1) |
+| `Apps/InkVault` | iPad app, Mac via Catalyst (Xcode project, phase 1; a shell so far) |
 | `docs/format.md` | The on-disk format, normative |
 | `DESIGN.md` | Why it is built this way |
 | `docs/plan.md` | Phases and task board |
 
 Everything under `Sources/` builds and tests on Linux and macOS with
-`swift test`. The apps need Xcode.
+`swift test`. The apps need Xcode 26 or newer: open
+`Apps/InkVault/InkVault.xcodeproj` (scheme `InkVaultApp`), or run
+`scripts/app.sh test` (iPad simulator) and `scripts/app.sh catalyst` (Mac).
 
 ## Status
 
-Phase 0 (core library and CLI) is nearly done: the `inkvault` CLI (keys, vault, verify, export, recover; see `docs/cli.md`) works on Linux and macOS. No app yet.
+Phase 0 (core library and CLI) is nearly done: the `inkvault` CLI (keys, vault, verify, export, recover; see `docs/cli.md`) works on Linux and macOS. The iPad app is a scaffold: it opens and unlocks a vault and lists its notes; drawing comes next.
