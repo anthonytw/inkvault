@@ -2,7 +2,7 @@ import ArgumentParser
 import Foundation
 import InkVault
 
-private let appName = "inkvault-cli/0.4"
+let appName = "inkvault-cli/0.4"
 
 struct CompactCommand: ParsableCommand {
     static let configuration = CommandConfiguration(

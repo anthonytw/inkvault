@@ -16,7 +16,8 @@ struct ExportCommand: ParsableCommand {
             Physics-week-3-0d1c6a1e.pdf. --out is a directory, except for a single note's pdf/json
             (a path ending in .pdf/.json is taken as the file) and for --merge (always the file).
             Deleted notes are skipped by --all unless --deleted; a deleted note named explicitly
-            is exported with a warning.
+            is exported with a warning. --at exports a single note as it was at that revision (a
+            name from `notes history`, as for `notes restore --to`).
             """
     )
 
@@ -41,12 +42,17 @@ struct ExportCommand: ParsableCommand {
     @Flag(name: .customLong("no-paper"), help: "Leave out the paper background and ruling.")
     var noPaper = false
 
+    @Option(name: .long, help: ArgumentHelp("Export the note as of this revision (see `notes history`).",
+                                            valueName: "revision"))
+    var at: String?
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func validate() throws {
         guard all != (note != nil) else { throw ValidationError("give exactly one of a note (id or title) and --all") }
         if merge && format != .pdf { throw ValidationError("--merge only applies to --format pdf") }
+        if at != nil && all { throw ValidationError("--at needs a single note, not --all") }
     }
 
     private struct Written: Encodable { var note: String; var files: [String] }
@@ -65,7 +71,14 @@ struct ExportCommand: ParsableCommand {
             } else if s.deleted && !deleted {
                 continue
             }
-            do { states.append((s, try vault.reconstruct(loaded))) } catch {
+            do {
+                if let at {
+                    let point = try NoteHistory.resolve(at, among: loaded.revisions.map(\.name))
+                    states.append((s, try loaded.state(at: point)))
+                } else {
+                    states.append((s, try vault.reconstruct(loaded)))
+                }
+            } catch {
                 failures += 1
                 printError("\(id.uuidString.lowercased()): \(CLIError.from(error).message)")
             }

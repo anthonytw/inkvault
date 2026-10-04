@@ -18,6 +18,7 @@ and macOS, static Linux binary published as a CI artifact.
 | #6 | InkVault: vault layout, body framing + tag, keys, NoteStore, verify, fixture vault | merged |
 | #7 | CLI: keys, vault, verify, export, recover, compact, snapshot (`docs/cli.md`) | merged |
 | #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
+| (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
 
 Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
 imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
@@ -113,9 +114,28 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
      highlights.
 3. **Phase 2, Mac via Catalyst**: menus, keyboard, multi-window, drag-out
    export, bulk export, key management UI.
-4. **Phase 3** (`docs/plan.md`): history browser/restore, WebDAV client,
+4. **Phase 3** (`docs/plan.md`): history browser UI (the core and CLI are
+   done: `Sources/InkVault/History.swift`, `format.md` §5.7), WebDAV client,
    compaction UI, PDF/image page backgrounds, PNG export, read-only access to
    newer formats, age CRLF diagnostic, PQ recipient type.
+
+## History and restore (how it works)
+
+- A restore point is a revision; the note as of R is
+  `NoteReducer.reconstruct` of every revision ordered `≤ R` by
+  `(hlc, device, seq)`. There is no parallel merge implementation.
+- `NoteHistory.restoreOps(current:target:)` diffs two states into one delta.
+  Items correspond by id or by `parent` (for strokes also same ink/points/
+  transform), which is what makes a repeated restore a no-op.
+- Pages gained an optional `parent` (`format.md` §5.5) so a re-created page
+  names the one it restores; old readers ignore it.
+- Completeness after compaction: gone revisions are the `(device, seq)`
+  listed in some snapshot's `included` without a file. A point is complete if
+  each is covered by a snapshot `≤` it or provably after it (`Completeness`
+  in `History.swift`). This is conservative: some points that could be rebuilt
+  are reported incomplete.
+- Re-added strokes render above the strokes that stayed (new `origin`); exact
+  historical z-order is not restored.
 
 ## Gotchas collected so far
 

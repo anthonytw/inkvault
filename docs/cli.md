@@ -101,6 +101,8 @@ inkvault vault verify
 ```
 inkvault notes list [--tag T] [--notebook N] [--deleted]
 inkvault notes show ID|TITLE
+inkvault notes history ID|TITLE
+inkvault notes restore ID|TITLE --to REVISION [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
@@ -109,12 +111,41 @@ hidden unless `--deleted`. `show` prints the metadata and the revision history
 full id, an id prefix of 4 or more characters, or its exact title
 (case-insensitive); an ambiguous name is an error that lists the candidates.
 
+`history` lists the note's restore points, one per readable revision, oldest
+first by `(hlc, device, seq)`: kind, wall time, device, app and revision name.
+`--json` gives `revision`, `kind`, `hlc`, `device`, `seq`, `wall`, `app` and
+`complete` per point. Revisions deleted by `compact` are not restore points. A
+point is `complete: false` (shown as `(incomplete)`) when the note as of it can
+no longer be rebuilt: revisions before it were compacted away and no snapshot
+at or before it covers them, or one before it is unreadable. Unreadable
+revisions are not listed; a warning on stderr counts them.
+
+`restore` makes the note look as it did at `REVISION` (the merge of every
+revision up to and including it, `docs/format.md` §5.7) by writing **one new
+delta**; no existing file is changed or deleted. Pages and strokes added since
+are removed, those removed since are re-added under new ids with `parent`
+naming the old id, and title, tags, notebook, favorite, paper, page size, page
+order, recognition and the deleted flag are set back. `REVISION` is a name from
+`history`, with or without its `.delta.age`/`.snapshot.age` suffix, or a unique
+prefix of 6 or more characters. If the note already matches, nothing is written
+(restoring twice is a no-op). `--dry-run` prints what would change
+(`would restore ...: remove 1 page(s); re-add 1 stroke(s); set tags`) and
+writes nothing. The delta is stamped with this machine's device id and clock,
+as for `snapshot`. Restoring needs every revision of the note to be readable;
+an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
+`changed`, `file` (the delta written, if any) and `changes` (`pagesRemoved`,
+`pagesRestored`, `strokesRemoved`, `strokesRestored`, `pageOrderChanges`,
+`recognitionChanges`, `metaFields`, `deleted`).
+
 ### Export
 
 ```
 inkvault export (ID|TITLE | --all) --format pdf|svg|json --out PATH
-                [--merge] [--deleted] [--no-paper]
+                [--merge] [--deleted] [--no-paper] [--at REVISION]
 ```
+
+- `--at REVISION` (single note only) exports the note as it was at that
+  revision, named as for `notes restore --to`.
 
 - `pdf`: one file per note; `--merge` puts every selected note in one PDF
   (`--out` is then the file).

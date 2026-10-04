@@ -104,7 +104,9 @@ Consequences:
 - Concurrent edits are two branches; ink merges by set union of stroke ids
   (remove always wins), metadata merges last-writer-wins per field.
 - History is the log; restore writes a new delta, so history itself is
-  append-only.
+  append-only. Restored strokes and pages get new ids with `parent` naming
+  the old ones; revisions removed by compaction are no longer restore points
+  (`format.md` §5.7).
 - Recovery without the app reads the newest snapshot; at worst the deltas
   since it are lost, never the note.
 

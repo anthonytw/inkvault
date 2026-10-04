@@ -5,8 +5,8 @@ import InkVault
 struct NotesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notes",
-        abstract: "List notes and show their history.",
-        subcommands: [NotesList.self, NotesShow.self]
+        abstract: "List notes, show their history and restore earlier revisions.",
+        subcommands: [NotesList.self, NotesShow.self, NotesHistory.self, NotesRestore.self]
     )
 }
 
