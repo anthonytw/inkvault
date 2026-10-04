@@ -29,6 +29,11 @@ revision is written), the clock first observes every readable revision of the
 note so the new ops win LWW, and `seq` comes from `nextSeq`. `NoteOps.newNote`
 builds the ops for a new note (one page plus all metadata fields).
 
+The app does the same with its own `DeviceClock` actor (`NoteWriter.append`
+for browser edits, `NoteWriter.write` for canvas autosave), so one process
+ticks one in-memory clock over the state file instead of two writers
+racing on it.
+
 ## Notebook paths
 
 `NotebookPath` and `NotebookNode` (`Notebooks.swift`) implement the `/`
@@ -61,9 +66,10 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
    not waited for. A download error fails the open with the file name; 90 s
    without any file completing fails it with a "check that this iPad is
    online" message. Cancel stops the wait (`CancellationError`, no alert);
-4. reads (`Vault.open`, `summaries`, `summary`, `identityFiles`) inside an
-   `NSFileCoordinator` coordinated read of the vault folder, and writes each
-   edit's delta (`Vault.apply`) inside a coordinated write of its
+4. reads (`Vault.open`, `summaries`, `summary`, `identityFiles`, the
+   note an editor opens) inside an `NSFileCoordinator` coordinated read of
+   the vault folder, and writes each delta (browser edits and canvas
+   autosave, both through `NoteWriter`) inside a coordinated write of its
    `notes/<id>/` folder (vault creation: of the new vault folder), so iCloud
    sees and uploads the new revision files.
 
@@ -170,3 +176,84 @@ readable plus the failures. `compact` deletes only names returned by
 deleted and never counts as coverage. `verify()` never throws: it re-checks
 `vault.json` (format, recipients, the secret's stanza count) and gives every
 entry a status.
+
+## WebDAV sync (`Sources/InkWebDAV`)
+
+The one target with network code. It talks to a plain WebDAV collection that
+holds a copy of the vault folder (same layout, `vault.json` at the collection
+root) using PROPFIND (Depth 1), GET, PUT, MKCOL and DELETE, so any server
+works (Nextcloud, Apache `mod_dav`, nginx dav, rclone serve webdav,
+wsgidav). Everything is behind `WebDAVTransport`; `URLSessionTransport` is
+the real one (it never follows redirects, so credentials cannot be forwarded
+and methods cannot be rewritten) and tests use an in-memory server.
+
+**Security.** Basic auth, `https` only; `http` is accepted for `localhost`,
+`127.0.0.1` and `[::1]`. Credentials in the URL are refused. Everything on the
+server is already age-encrypted, except `vault.json` (public by design).
+A remote `vault.json` with another `vaultId` aborts the run before any
+change.
+
+**What is synced.** `vault.json`, `rewrap-journal.json` and
+`notes/<uuid>/<name>.age`. Remote entries that are not a lowercase-UUID note
+directory or a canonical revision file name (format.md §5) are ignored and
+listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
+and unknown files are not synced. A downloaded revision must start with the
+age header or it is rejected. Remote names are reported with control
+characters escaped, so a hostile name cannot drive the terminal. Response
+bodies are read incrementally and the request is cancelled past a limit
+(`maxFileBytes`, 256 MiB, for revisions; 16 MiB for listings, manifests and
+everything else), so a server cannot make the client buffer more.
+
+**Write-once files.** For each note the run compares the local and remote file
+sets with the set recorded at the last sync (`SyncState.files`):
+
+| local | remote | in last sync | action |
+| --- | --- | --- | --- |
+| yes | no | no | upload (`If-None-Match: *`) |
+| no | yes | no | download |
+| yes | no | yes | the server dropped it: delete locally if compaction allows, else upload it again |
+| no | yes | yes | we dropped it: delete remotely if compaction allows, else download it again |
+
+An existing file is never overwritten on either side. Downloads go to a
+`.inkvault-tmp-<uuid>` file in the target directory, are fsynced, and are
+linked into place with `link(2)` (fails if the name exists), so a partial file
+never appears under its final name and a file that showed up meanwhile wins.
+
+**Compaction deletes.** Sync never decides on its own to delete. A removed file
+is deleted on the other side only if `CompactionPlanner.deletable` says so,
+with retention 0 (the side that removed it already applied the retention
+window) over the revisions held locally: a delta needs a snapshot that covers it,
+a snapshot needs one that subsumes it. The covering snapshot must be one the
+remote side holds: on the server (as listed at the start of the run) for a file
+the server dropped, since a compaction there keeps its covering snapshot there,
+and also on the server for a remote delete. An emptied or recreated remote
+folder therefore deletes nothing locally; its files are uploaded again. A snapshot removed locally can only be judged from
+the `included` coverage recorded when it was last synced. Without an unlocked
+vault nothing can be checked, so nothing is deleted. A removal that fails the
+check is undone (the file is copied back).
+
+**Mutable files.** `vault.json` and `rewrap-journal.json` are compared by
+content hash (SHA-256) against the last-synced hash; the server ETag (or
+Last-Modified) is only recorded to send `If-Match` on upload. Local only
+changed: PUT with `If-Match`. Remote only changed: atomic replace. Both
+changed (or no common ancestor and different content): the remote copy is
+saved as `<name>.conflict-<device>-<yyyymmddThhmmssZ>.json` in the vault root
+(not again if an identical one exists), nothing else changes, and the
+conflict is reported on every run until the files agree. A PUT rejected with
+412 is a conflict too. `rewrap-journal.json` deleted locally is not deleted
+remotely (deletions come only from compaction) and not restored locally.
+
+**Limits.** A recipient change rewrites files under `notes/` in place
+(format.md §3.3), which sync never propagates: after one, pull into a fresh
+folder from a new collection (or upload the rewritten vault to a new one) and
+retire the old one. `rewrap-journal.json` left on the server by a finished
+change is harmless but stays there. Syncing during an unfinished rewrap can
+copy a mix of old and new files.
+
+**State.** `$XDG_STATE_HOME/inkvault/sync/<hash of URL and vault path>.json`:
+file names, hashes, ETags and snapshot coverage, no secrets. Deleting it makes
+the next run a first sync: nothing is deleted, nothing overwritten.
+
+**Testing.** `scripts/test-webdav.sh` starts a local wsgidav
+(`pip install wsgidav cheroot`) and runs the integration tests, which are
+skipped unless `INKVAULT_WEBDAV_TEST_URL` is set.

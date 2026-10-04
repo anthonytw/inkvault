@@ -9,7 +9,11 @@ struct RootView: View {
     @Environment(VaultLibrary.self) private var library
     @State private var pickingVault = false
     @State private var creatingVault = false
+    #if DEBUG
+    @State private var columns: NavigationSplitViewVisibility = DebugLaunch.isActive ? .detailOnly : .all
+    #else
     @State private var columns = NavigationSplitViewVisibility.all
+    #endif
     /// Set when a failed reopen should end in the folder picker.
     @State private var pickAfterAlert = false
     @State private var triedAutoOpen = false
@@ -28,7 +32,7 @@ struct RootView: View {
                 } content: {
                     NoteListView()
                 } detail: {
-                    CanvasPlaceholderView(note: model.selectedNote)
+                    NoteCanvasView()
                 }
             }
         }
@@ -51,6 +55,11 @@ struct RootView: View {
             UnlockView()
                 .interactiveDismissDisabled()
         }
+        #if DEBUG
+        .task {
+            if DebugLaunch.isActive { await DebugLaunch.run(model) }
+        }
+        #endif
         .alert("InkVault", isPresented: Binding(get: { model.errorMessage != nil },
                                                 set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK", role: .cancel) {
@@ -68,6 +77,9 @@ struct RootView: View {
         .task {
             // Reopen the last vault on launch; a failure leaves the welcome screen.
             guard !triedAutoOpen, model.phase == .noVault, let last = library.recents.first else { return }
+            #if DEBUG
+            if DebugLaunch.isActive { return }   // the launch environment names the vault
+            #endif
             triedAutoOpen = true
             await reopen(last, pickOnFailure: false)
         }

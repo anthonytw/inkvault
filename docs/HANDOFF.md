@@ -119,9 +119,10 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
      rename notebook (applies to every note in it, deleted ones too). Note list:
      title search, sort (modified/title), new note (title, paper, notebook),
      context menu / swipe: add/remove tag, move to notebook, delete, restore.
-     Every edit is one delta from `Vault.apply` (package, `Edit.swift`; device
-     id and clock in `Application Support/InkVault/device.json`), the app writes
-     no vault file itself. Tests: `BrowserTests` (app), `EditTests` (package).
+     Every edit is one delta through `NoteWriter.append` with the same
+     `DeviceClock` as the canvas (device id and clock in
+     `Application Support/InkVault/device.json`; `Vault.apply` in
+     `Edit.swift` stays for the CLI), the app writes no vault file itself. Tests: `BrowserTests` (app), `EditTests` (package).
      Leftovers: iCloud Drive works only through the picker (a folder inside
      iCloud Drive; the ubiquity container needs the iCloud entitlement
      `com.apple.developer.icloud-container-identifiers` +
@@ -139,13 +140,38 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
      `LSSupportsOpeningDocumentsInPlace`); vaults cannot be deleted or renamed;
      the new-vault key is not stored in the Keychain (3d); the empty notebook
      does not exist without a note (notebook is a note field).
-   - 3c Canvas: `PKCanvasView` + system tool picker; lossless
-     `PKStroke` ⇄ `Stroke` conversion (control points, ink, transform,
-     stable ids via PencilKit's Identifiable strokes on iPadOS 27 or a
-     side table); autosave = diff old/new drawing → `addStroke`/
-     `removeStroke` ops → one delta per pause; pixel-eraser slices → remove +
-     adds with `parent`; undo via the canvas's undo manager; paper layer
-     under the canvas; infinite page growth.
+   - 3c **done** (branch `feat/app-canvas`): `NoteCanvasView` shows one page
+     at a time (`PageCanvasView`: `PKCanvasView` + system `PKToolPicker`,
+     `PaperView` vector ruling from `InkRender.PaperRenderer` under it, fit
+     to width, pinch to 4x; infinite pages grow 400 pt below the ink and save
+     the new `pageSize`). Conversion in `StrokeConversion.swift`; masked
+     (pixel-erased) strokes become one stroke per `maskedPathRanges` range via
+     the Linux-tested `BSpline.substroke` (InkRender). Stable ids:
+     `StrokeLedger` (pure, per page) matches canvas strokes by an O(1)
+     content fingerprint (`CanvasStrokeInfo`) as a multiset, mints fresh ids
+     for new content, infers `parent` (retired same-content stroke → same
+     path signature → same family with containing bounds), revives ids whose
+     removal is not on disk yet. `NoteEditor` debounces (1.5 s) into ONE
+     delta per pause and flushes on page switch, background, note switch and
+     vault close; `NoteWriter`/`DeviceClock` (actors) pick `seq`, tick the
+     package `HybridClock` and keep `DeviceState` in Application Support.
+     AppModel has a generation token so late `unlock`/`openVault`/`reload`/
+     `openEditor` results after `close()` are dropped (`CancellationError`).
+     Works on iPadOS 26 (the user's iPad cannot run 27; no 27-only API is
+     used); tests pass on iOS 26.5 and 27 simulators. Left: no UI tests and no
+     run on real hardware yet (pixel eraser verified with synthetic masks);
+     the note list does not refresh its stroke counts after edits; remote
+     changes arriving while a note is open are not merged into the canvas
+     until it is reopened; no page delete/reorder; the app never writes
+     snapshots; `reed` ink is stored as `fountainPen`.
+   - 3b + 3c merge (#15 onto #17): the generation token also guards the
+     iCloud download wait, browser edits (`refresh`), `createVault` (a vault
+     created while another was opened is returned with its key, not opened)
+     and the unlock after it; `close()` releases folder access only after the
+     editor's last save and any browser edit in flight; the canvas reads and
+     writes under `NSFileCoordinator` in iCloud Drive (`NoteEditor.open(...,
+     coordinated:)`, `NoteWriter`); deleting or restoring the open note
+     reopens it (read-only / editable).
    - 3d Keys: generate on device, import by paste/QR scan/AirDrop (`.key`
      file UTType), export (QR, share sheet), Keychain storage behind
      Face ID, passphrase-wrapped key file option; add second recipient
@@ -182,6 +208,13 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
   historical z-order is not restored.
 
 ## Gotchas collected so far
+
+PencilKit (from 3c): `PKStrokePoint` keeps locations, sizes and times as
+Float32 and quantizes opacity/azimuth/altitude (~1e-4; altitude even drifts on
+every re-wrap), so conversion round trips are equal within 2e-4, not bit for
+bit. `PKStroke.id`, `substroke(range:)` and `PKDrawing.erasePath` are
+iPadOS 27 only; the user's iPad is capped at 26, so do not depend on them.
+
 
 See `CLAUDE.md § Gotchas` (case-insensitive paths, FoundationXML, static
 link flags, test-output grepping, the app project). Also: GitHub's `macos-26` runner has an

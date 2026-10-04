@@ -3,10 +3,9 @@ import Foundation
 import InkVault
 
 /// Vault browsing: opening and creating vaults, and the sidebar's edits.
-/// Every edit is one delta per note, written through `Vault.apply`; the
-/// app never writes vault files itself.
+/// Every edit is one delta per note, written through `NoteWriter` with the
+/// same device clock as the canvas; the app never writes vault files itself.
 extension AppModel {
-    nonisolated static let appName = "inkvault-app/0.1"
 
     // MARK: - Opening and creating
 
@@ -29,18 +28,31 @@ extension AppModel {
 
     /// Creates a vault in `parent` and opens it: unlocked when a key was
     /// generated, locked (asking for the key) when only a recipient was given.
+    ///
+    /// When another vault is opened or this one closed meanwhile, the vault
+    /// is still created and returned (with its key, which nothing else holds)
+    /// but not opened.
     func createVault(_ request: NewVaultRequest, in parent: URL, library: VaultLibrary) async throws -> CreatedVault {
+        let gen = generation
         let created = try await library.create(request, in: parent)
-        // The scope on `parent` ended; reopen through the bookmark `create` saved
-        // (by id: another recent vault may have the same name).
-        if let entry = library.recents.first(where: { $0.id == created.recentID }),
-           let url = try? library.resolve(entry) {
-            try await openVault(at: url)
-        } else {
-            try await openVault(at: created.url)
-        }
-        if let secret = created.secretKey {
-            try await unlock(identityText: secret)
+        guard gen == generation else { return created }
+        do {
+            // The scope on `parent` ended; reopen through the bookmark `create` saved
+            // (by id: another recent vault may have the same name).
+            if let entry = library.recents.first(where: { $0.id == created.recentID }),
+               let url = try? library.resolve(entry) {
+                try await openVault(at: url)
+            } else {
+                try await openVault(at: created.url)
+            }
+            let opened = generation
+            if let secret = created.secretKey {
+                try ensureCurrent(opened)
+                try await unlock(identityText: secret)
+            }
+            try ensureCurrent(opened)
+        } catch is CancellationError {
+            return created
         }
         remember(in: library)
         return created
@@ -112,14 +124,18 @@ extension AppModel {
         if sidebarSelection == .tag(tag), !self.tags.contains(tag) { sidebarSelection = .allNotes }
     }
 
+    /// Moves a note to Recently Deleted; open on the canvas, it reopens read-only.
     func deleteNote(_ id: UUID) async throws {
         guard !(try summary(id).deleted) else { return }
         try await commit([(id: id, ops: [.deleteNote])])
+        try await reopenEditor(ifShowing: id)
     }
 
+    /// Restores a note; open on the canvas, it reopens editable.
     func restoreNote(_ id: UUID) async throws {
         guard try summary(id).deleted else { return }
         try await commit([(id: id, ops: [.restoreNote])])
+        try await reopenEditor(ifShowing: id)
     }
 
     private func summary(_ id: UUID) throws -> NoteSummary {
@@ -130,27 +146,23 @@ extension AppModel {
     /// Writes one delta per entry, one after another, then refreshes just
     /// those summaries. Edits are serialised (`editGate`) so two taps cannot
     /// interleave; the vault is looked up after waiting, so an edit queued
-    /// before the vault closed is not written into it afterwards. In iCloud
-    /// Drive each delta is a coordinated write on its note's folder.
+    /// before the vault closed is not written into it afterwards (and
+    /// `close()` waits for one being written before access to the folder
+    /// ends). Deltas go through `NoteWriter.append` with the canvas's device
+    /// clock; in iCloud Drive each is a coordinated write on its note's folder.
     private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
         await editGate.acquire()
         defer { editGate.release() }
         guard let vault else { throw ModelError.noVaultOpen }
+        guard vault.canRead else { throw vault.isLocked ? VaultError.locked : VaultError.noIdentities }
+        let clock = try deviceClockForWriting()
         isEditing = true
         defer { isEditing = false }
-        let stateURL = deviceStateURL
         let batch = edits
-        let app = Self.appName
         let cloud = isCloudVault
         do {
-            try await Self.offMain {
-                for edit in batch {
-                    let folder = vault.url.appendingPathComponent("notes", isDirectory: true)
-                        .appendingPathComponent(edit.id.uuidString.lowercased(), isDirectory: true)
-                    try CloudVault.coordinatedWrite(cloud ? folder : nil) {
-                        _ = try vault.apply(edit.ops, to: edit.id, deviceState: stateURL, app: app)
-                    }
-                }
+            for edit in batch {
+                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud)
             }
         } catch {
             try? await refresh(batch.map(\.id))   // some deltas may have landed
@@ -162,11 +174,12 @@ extension AppModel {
     /// Re-reads the summaries of `ids` and merges them into `notes`.
     func refresh(_ ids: [UUID]) async throws {
         guard let vault else { throw ModelError.noVaultOpen }
+        let gen = generation
         let coordinate = coordinationURL
-        let fresh = try await Self.offMain {
+        let fresh = try await offMain {
             try CloudVault.coordinatedRead(coordinate) { try ids.map { try vault.summary(of: $0) } }
         }
-        guard self.vault?.url == vault.url else { return }
+        try ensureCurrent(gen)
         var list = notes.filter { old in !fresh.contains { $0.id == old.id } }
         list += fresh
         notes = list.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }

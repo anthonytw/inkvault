@@ -103,9 +103,6 @@ final class VaultLibrary {
     /// `Application Support/InkVault/recents.json`.
     static var defaultStoreURL: URL { supportDirectory.appendingPathComponent("recents.json") }
 
-    /// `Application Support/InkVault/device.json`: this install's device id and clock.
-    static var defaultDeviceStateURL: URL { supportDirectory.appendingPathComponent("device.json") }
-
     private static var supportDirectory: URL {
         let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                  appropriateFor: nil, create: true))

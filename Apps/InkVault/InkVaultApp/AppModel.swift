@@ -78,14 +78,34 @@ final class AppModel {
     var isCloudVault = false
     var cloudTask: Task<Bool, any Error>?
 
+
     /// Where this install keeps its device id and hybrid clock.
     let deviceStateURL: URL
+    /// The note open on the canvas, if any (`openEditor(for:)`).
+    private(set) var editor: NoteEditor?
 
     private(set) var vault: Vault?
     private var scopedURL: URL?
+    /// Bumped by `close()` (and so by every `openVault`): async work started
+    /// under an older generation must not publish its result (the vault it
+    /// read is gone).
+    private(set) var generation = 0
+    /// The save of the editor `close()` dropped; awaited before any note is
+    /// opened again, so a reopened note is read after its last delta landed.
+    private var closingEditor: Task<Void, Never>?
+    /// This installation's device id and clock, created on first write
+    /// access. Every write (canvas autosave and browser edits) ticks this one
+    /// clock, so the state file has a single writer.
+    private var deviceClock: DeviceClock?
+    private let editorDebounce: Duration
+    /// Test seam: awaited after each piece of off-main vault work.
+    private let afterIO: (@Sendable () async -> Void)?
 
-    init(deviceStateURL: URL = VaultLibrary.defaultDeviceStateURL) {
+    init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
+         afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
+        self.editorDebounce = editorDebounce
+        self.afterIO = afterIO
     }
 
     // MARK: - Derived
@@ -152,13 +172,17 @@ final class AppModel {
 
     /// Opens the vault at `url` by name only (no key yet). Starts
     /// security-scoped access for URLs from the document picker and keeps
-    /// it until the vault is closed.
+    /// it until the vault is closed. A vault in iCloud Drive is downloaded
+    /// first (`fetchFromICloud`).
     func openVault(at url: URL) async throws {
         close()
+        let gen = generation
         let scoped = url.startAccessingSecurityScopedResource()
         do {
             let cloud = try await fetchFromICloud(url)
-            let opened = try await Self.offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
+            try ensureCurrent(gen)
+            let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
+            try ensureCurrent(gen)
             if scoped { scopedURL = url }
             isCloudVault = cloud
             vault = opened
@@ -179,10 +203,12 @@ final class AppModel {
     /// Unlocks the open vault with age identities and loads the note list.
     func unlock(with identities: [any AgeIdentity]) async throws {
         guard let url = vaultURL else { throw ModelError.noVaultOpen }
+        let gen = generation
         let coordinate = coordinationURL
-        let opened = try await Self.offMain {
+        let opened = try await offMain {
             try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities) }
         }
+        try ensureCurrent(gen)
         vault = opened
         phase = .unlocked
         try await reload()
@@ -200,36 +226,110 @@ final class AppModel {
     /// (`keys/<recipient>.key.age`, format.md §3.2).
     func unlock(passphrase: String) async throws {
         guard let locked = vault else { throw ModelError.noVaultOpen }
+        let gen = generation
         let coordinate = coordinationURL
-        let identity: X25519Identity = try await Self.offMain {
-            let stored = try CloudVault.coordinatedRead(coordinate) { try locked.identityFiles() }
-            guard !stored.isEmpty else { throw ModelError.noStoredKeys }
-            for recipient in stored {
-                do { return try locked.readIdentityFile(recipient: recipient, passphrase: passphrase) } catch VaultError.wrongPassphrase {
-                    continue
+        let identity: X25519Identity = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) { () throws -> X25519Identity in
+                let stored = try locked.identityFiles()
+                guard !stored.isEmpty else { throw ModelError.noStoredKeys }
+                for recipient in stored {
+                    do { return try locked.readIdentityFile(recipient: recipient, passphrase: passphrase) } catch VaultError.wrongPassphrase {
+                        continue
+                    }
                 }
+                throw ModelError.passphraseMatchesNoKey
             }
-            throw ModelError.passphraseMatchesNoKey
         }
+        try ensureCurrent(gen)
         try await unlock(with: [identity])
     }
 
-    /// Re-reads every note summary from disk.
+    /// Re-reads every note summary from disk (after fetching new files when
+    /// the vault is in iCloud Drive).
     func reload() async throws {
         guard let vault else { throw ModelError.noVaultOpen }
+        let gen = generation
         isBusy = true
-        defer { isBusy = false }
-        if isCloudVault { _ = try await fetchFromICloud(vault.url) }
+        defer { if gen == generation { isBusy = false } }
+        if isCloudVault {
+            _ = try await fetchFromICloud(vault.url)
+            try ensureCurrent(gen)
+        }
         let coordinate = coordinationURL
-        notes = try await Self.offMain { try CloudVault.coordinatedRead(coordinate) { try vault.summaries() } }
+        let loaded = try await offMain { try CloudVault.coordinatedRead(coordinate) { try vault.summaries() } }
+        try ensureCurrent(gen)
+        notes = loaded
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
     }
 
-    /// Forgets the vault (and its keys) and releases folder access.
+    // MARK: - Editor
+
+    /// Opens `noteID` on the canvas (nil closes it). The previous note is
+    /// saved first. Needs an unlocked vault; the device clock is created on
+    /// first use. In iCloud Drive the note is read, and its deltas written,
+    /// under file coordination.
+    func openEditor(for noteID: UUID?) async throws {
+        guard editor?.noteID != noteID || noteID == nil else { return }
+        let gen = generation
+        let previous = editor
+        editor = nil
+        await previous?.close()
+        await closingEditor?.value
+        try ensureCurrent(gen)
+        guard let noteID else { return }
+        guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
+        let clock = try deviceClockForWriting()
+        let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
+                                               coordinated: isCloudVault)
+        await afterIO?()
+        try ensureCurrent(gen)
+        guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
+        guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
+        let stale = editor
+        editor = opened
+        if let stale { Task { await stale.close() } }
+    }
+
+    /// Reloads the open editor when it shows `id` (after a browser edit that
+    /// changes whether it may be edited, e.g. delete or restore). Pending
+    /// canvas changes are saved first.
+    func reopenEditor(ifShowing id: UUID) async throws {
+        guard editor?.noteID == id else { return }
+        try await openEditor(for: nil)
+        try await openEditor(for: id)
+    }
+
+    func deviceClockForWriting() throws -> DeviceClock {
+        if let deviceClock { return deviceClock }
+        let clock = try DeviceClock(url: deviceStateURL)
+        deviceClock = clock
+        return clock
+    }
+
+    // MARK: - Closing
+
+    /// Forgets the vault (and its keys). Folder access ends once the open
+    /// note's pending changes and any edit already being written are saved.
     func close() {
+        generation += 1
         cancelCloudDownload()
         isCloudVault = false
-        if let scopedURL { scopedURL.stopAccessingSecurityScopedResource() }
+        isBusy = false
+        let editor = self.editor
+        let scoped = scopedURL
+        self.editor = nil
+        if editor != nil || scoped != nil {
+            let earlier = closingEditor
+            let gate = editGate
+            closingEditor = Task {
+                await earlier?.value
+                await editor?.close()
+                // A browser edit already writing (`commit`) finishes first.
+                await gate.acquire()
+                gate.release()
+                scoped?.stopAccessingSecurityScopedResource()
+            }
+        }
         scopedURL = nil
         vault = nil
         vaultURL = nil
@@ -245,8 +345,16 @@ final class AppModel {
         do { try await body() } catch is CancellationError {} catch { errorMessage = "\(error)" }
     }
 
+    /// Throws `CancellationError` when `close()` or another `openVault` ran
+    /// since `gen` was taken, so a late result cannot resurrect a closed vault.
+    func ensureCurrent(_ gen: Int) throws {
+        guard gen == generation else { throw CancellationError() }
+    }
+
     /// Runs blocking vault work (file I/O, decryption) on a background thread.
-    nonisolated static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(priority: .userInitiated) { try work() }.value
+    func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        let value = try await Task.detached(priority: .userInitiated) { try work() }.value
+        await afterIO?()
+        return value
     }
 }
