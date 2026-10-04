@@ -217,6 +217,41 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual(svgs, ["Physics-Week-3-aaaaaaaa-p001.svg", "Physics-Week-3-aaaaaaaa-p002.svg"])
         XCTAssertTrue(try String(contentsOfFile: svgDir + "/" + svgs[0], encoding: .utf8).contains("<svg"))
 
+        // PNG: one file per page, `--dpi` scales the image, bad values are usage errors.
+        func pngSize(_ file: String) throws -> (Int, Int) {
+            let b = [UInt8](try Data(contentsOf: URL(fileURLWithPath: file)))
+            XCTAssertEqual(Array(b.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            func u32(_ i: Int) -> Int { Int(b[i]) << 24 | Int(b[i + 1]) << 16 | Int(b[i + 2]) << 8 | Int(b[i + 3]) }
+            return (u32(16), u32(20))
+        }
+        let pngDir = path("png")
+        let png = try cli(["export", "aaaaaaaa-1111-4111-8111-000000000001", "--format", "png", "--out", pngDir,
+                           "--vault", v, "--identity", keyPath])
+        XCTAssertEqual(png.status, 0, png.err)
+        let pngs = try FileManager.default.contentsOfDirectory(atPath: pngDir).sorted()
+        XCTAssertEqual(pngs, ["Physics-Week-3-aaaaaaaa-p001.png", "Physics-Week-3-aaaaaaaa-p002.png"])
+        XCTAssertTrue(png.out.contains("Physics-Week-3-aaaaaaaa-p002.png"), png.out)
+        let (w2, h2) = try pngSize(pngDir + "/" + pngs[0])
+        XCTAssertEqual([w2, h2], [1224, 1584])   // letter at the default 144 dpi
+        let png72Dir = path("png72")
+        XCTAssertEqual(try cli(["export", "Groceries", "--format", "png", "--dpi", "72", "--out", png72Dir,
+                                "--vault", v, "--identity", keyPath]).status, 0)
+        let (w1, h1) = try pngSize(png72Dir + "/Groceries-bbbbbbbb-p001.png")
+        XCTAssertEqual([w1, h1], [612, 792])
+        let pngAll = path("pngall")
+        XCTAssertEqual(try cli(["export", "--all", "--format", "png", "--dpi", "36", "--out", pngAll, "--vault", v,
+                                "--identity", keyPath]).status, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: pngAll + "/Groceries-bbbbbbbb"), ["p001.png"])
+        for bad in ["0", "-3", "nan", "inf", "99999"] {
+            XCTAssertEqual(try cli(["export", "--all", "--format", "png", "--dpi", bad, "--out", path("nope"),
+                                    "--vault", v, "--identity", keyPath]).status, 2, bad)
+        }
+        // A dpi that passes validation but exceeds the pixel cap fails cleanly (exit 1, nothing written).
+        let huge = try cli(["export", "Groceries", "--format", "png", "--dpi", "2400", "--out", path("huge"),
+                            "--vault", v, "--identity", keyPath])
+        XCTAssertEqual(huge.status, 1)
+        XCTAssertTrue(huge.err.contains("exceeds the limit"), huge.err)
+
         // JSON: the reconstructed NoteState.
         let jsonDir = path("json")
         XCTAssertEqual(try cli(["export", "--all", "--format", "json", "--out", jsonDir, "--vault", v,
@@ -406,7 +441,7 @@ final class CLICommandTests: CLITestCase {
     // MARK: misc
 
     func testUsageAndHelp() throws {
-        XCTAssertEqual(try cli(["--version"]).out.trimmingCharacters(in: .whitespacesAndNewlines), "0.4.0")
+        XCTAssertEqual(try cli(["--version"]).out.trimmingCharacters(in: .whitespacesAndNewlines), "0.5.0")
         XCTAssertEqual(try cli(["bogus"]).status, 2)
         XCTAssertEqual(try cli(["notes", "list"]).status, 2)   // no vault given
         for sub in [["keys", "generate"], ["vault", "init"], ["vault", "recipients", "add"], ["export"], ["recover"],

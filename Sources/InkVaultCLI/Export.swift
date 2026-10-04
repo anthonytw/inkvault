@@ -4,19 +4,20 @@ import InkRender
 import InkVault
 
 enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
-    case pdf, svg, json
+    case pdf, svg, png, json
 }
 
 struct ExportCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
-        abstract: "Export notes to PDF, SVG (one file per page) or the reconstructed JSON.",
+        abstract: "Export notes to PDF, SVG or PNG (one file per page) or the reconstructed JSON.",
         discussion: """
             File names are the sanitised title plus the first 8 characters of the note id, e.g.
             Physics-week-3-0d1c6a1e.pdf. --out is a directory, except for a single note's pdf/json
             (a path ending in .pdf/.json is taken as the file) and for --merge (always the file).
             Deleted notes are skipped by --all unless --deleted; a deleted note named explicitly
-            is exported with a warning.
+            is exported with a warning. --at exports a single note as it was at that revision (a
+            name from `notes history`, as for `notes restore --to`).
             """
     )
 
@@ -26,7 +27,7 @@ struct ExportCommand: ParsableCommand {
     @Flag(name: .long, help: "Export every note.")
     var all = false
 
-    @Option(name: .long, help: "pdf, svg or json.")
+    @Option(name: .long, help: "pdf, svg, png or json.")
     var format: ExportFormat
 
     @Option(name: .long, help: ArgumentHelp("Output path (see above).", valueName: "path"))
@@ -35,11 +36,18 @@ struct ExportCommand: ParsableCommand {
     @Flag(name: .long, help: "pdf only: write all notes into one PDF file.")
     var merge = false
 
+    @Option(name: .long, help: "png only: resolution in dots per inch (a page point is 1/72 inch).")
+    var dpi: Double = 144
+
     @Flag(name: .long, help: "With --all, include deleted notes.")
     var deleted = false
 
     @Flag(name: .customLong("no-paper"), help: "Leave out the paper background and ruling.")
     var noPaper = false
+
+    @Option(name: .long, help: ArgumentHelp("Export the note as of this revision (see `notes history`).",
+                                            valueName: "revision"))
+    var at: String?
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -47,6 +55,10 @@ struct ExportCommand: ParsableCommand {
     func validate() throws {
         guard all != (note != nil) else { throw ValidationError("give exactly one of a note (id or title) and --all") }
         if merge && format != .pdf { throw ValidationError("--merge only applies to --format pdf") }
+        if at != nil && all { throw ValidationError("--at needs a single note, not --all") }
+        if format == .png, !(dpi.isFinite && dpi > 0 && dpi <= 2400) {
+            throw ValidationError("--dpi must be greater than 0 and at most 2400")
+        }
     }
 
     private struct Written: Encodable { var note: String; var files: [String] }
@@ -65,7 +77,14 @@ struct ExportCommand: ParsableCommand {
             } else if s.deleted && !deleted {
                 continue
             }
-            do { states.append((s, try vault.reconstruct(loaded))) } catch {
+            do {
+                if let at {
+                    let point = try NoteHistory.resolve(at, among: loaded.revisions.map(\.name))
+                    states.append((s, try loaded.state(at: point)))
+                } else {
+                    states.append((s, try vault.reconstruct(loaded)))
+                }
+            } catch {
                 failures += 1
                 printError("\(id.uuidString.lowercased()): \(CLIError.from(error).message)")
             }
@@ -110,14 +129,20 @@ struct ExportCommand: ParsableCommand {
                         let file = singleFile ? out : path(stem + ".json")
                         try write(try InkJSON.encoder().encode(state), to: file)
                         report(s, [file])
-                    case .svg:
-                        let pages = try SVGWriter.render(note: state, options: options)
+                    case .svg, .png:
+                        let pages: [Data]
+                        if format == .png {
+                            pages = try PNGWriter.render(note: state, options: options, png: PNGOptions(dpi: dpi))
+                        } else {
+                            pages = try SVGWriter.render(note: state, options: options).map { Data($0.utf8) }
+                        }
+                        let ext = format.rawValue
                         var files: [String] = []
                         if all { try mkdir(path(stem)) }
-                        for (i, svg) in pages.enumerated() {
-                            let file = all ? path(stem + String(format: "/p%03d.svg", i + 1))
-                                : path(stem + String(format: "-p%03d.svg", i + 1))
-                            try write(Data(svg.utf8), to: file)
+                        for (i, data) in pages.enumerated() {
+                            let file = all ? path(stem + String(format: "/p%03d.", i + 1) + ext)
+                                : path(stem + String(format: "-p%03d.", i + 1) + ext)
+                            try write(data, to: file)
                             files.append(file)
                         }
                         report(s, files)

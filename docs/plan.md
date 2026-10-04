@@ -9,8 +9,8 @@
 | 0.3 | Render: B-spline evaluation, variable-width outlines, paper, PDF writer, SVG writer | `Sources/InkRender` | golden-file tests; PDF opens in Preview; matches PencilKit interpolation on macOS |
 | 0.4 | CLI: `keys`, `vault init/info/recipients/verify`, `notes`, `export`, `recover`, `compact`, `snapshot` (done, `docs/cli.md`) | `Sources/InkVaultCLI` | end-to-end test: init → write revisions → export PDF → `age -d` recovery |
 | 0.5 | CI: Linux (swift:6.4-noble) + macOS; static Linux CLI artifact; cloud setup script | `.github`, `scripts` | green on PR, binary downloadable |
-| 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`) | `Sources/InkImport` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
-| 0.7 | CLI `search` over page recognition text (title, notebook, tags, recognised words) | `Sources/InkVaultCLI` | end-to-end test: import fixture → search finds a recognised word |
+| 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`); CLI `import notability` (done, `docs/cli.md`) | `Sources/InkImport`, `Sources/InkVaultCLI` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
+| 0.7 | CLI `search` over page recognition text (done, `docs/cli.md`; matching note title, notebook and tags is not implemented) | `Sources/InkVaultCLI` | end-to-end test: import fixture → search finds a recognised word |
 | 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
 
 ## Phase 1 — iPad app
@@ -29,13 +29,24 @@ drop export, bulk export, key management.
 
 ## Phase 3 — nice to have
 
-History browser and restore; built-in WebDAV client; compaction UI;
-PNG export; page backgrounds (PDF and image attachments: in the reference
+Built-in WebDAV client; compaction UI;
+~~PNG export~~ (done: `inkvault export --format png [--dpi N]`, pure-Swift rasterizer in
+`Sources/InkRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper); stroke
 dedupe after concurrent slicing; post-quantum recipient type; read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
 refuses any `format` other than `inkvault/1`).
+
+Done from this list:
+
+- **History and restore, core + CLI** (`Sources/InkVault/History.swift`,
+  `format.md` §5.7, `docs/cli.md`): restore points per revision, the note as of
+  any revision, `Vault.restore` writing one delta (re-added items get new ids
+  with `parent`), `inkvault notes history`, `notes restore --to [--dry-run]`,
+  `export --at`. Compacted revisions are not restore points. Still to do: the
+  history browser UI in the app (Phase 1/2), on top of `Vault.restorePoints`,
+  `Vault.state(noteId:at:)` and `Vault.restore`.
 
 ## Working agreements
 

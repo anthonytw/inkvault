@@ -101,26 +101,103 @@ inkvault vault verify
 ```
 inkvault notes list [--tag T] [--notebook N] [--deleted]
 inkvault notes show ID|TITLE
+inkvault notes history ID|TITLE
+inkvault notes restore ID|TITLE --to REVISION [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
-hidden unless `--deleted`. `show` prints the metadata and the revision history
+hidden unless `--deleted`. `show` prints the metadata, how many pages have recognised text (`Text:`; `recognizedPages`
+in `--json`) and the revision history
 (kind, wall time, file name; `-v` adds the app string). A note is named by its
 full id, an id prefix of 4 or more characters, or its exact title
 (case-insensitive); an ambiguous name is an error that lists the candidates.
 
+`history` lists the note's restore points, one per readable revision, oldest
+first by `(hlc, device, seq)`: kind, wall time, device, app and revision name.
+`--json` gives `revision`, `kind`, `hlc`, `device`, `seq`, `wall`, `app` and
+`complete` per point. Revisions deleted by `compact` are not restore points. A
+point is `complete: false` (shown as `(incomplete)`) when the note as of it can
+no longer be rebuilt: revisions before it were compacted away and no snapshot
+at or before it covers them, or one before it (or any snapshot) is unreadable. Unreadable
+revisions are not listed; a warning on stderr counts them.
+
+`restore` makes the note look as it did at `REVISION` (the merge of every
+revision up to and including it, `docs/format.md` §5.7) by writing **one new
+delta**; no existing file is changed or deleted. Pages and strokes added since
+are removed, those removed since are re-added under new ids with `parent`
+naming the old id, and title, tags, notebook, favorite, paper, page size, page
+order, recognition and the deleted flag are set back. `REVISION` is a name from
+`history`, with or without its `.delta.age`/`.snapshot.age` suffix, or a unique
+prefix of 6 or more characters. If the note already matches, nothing is written
+(restoring twice is a no-op). `--dry-run` prints what would change
+(`would restore ...: remove 1 page(s); re-add 1 stroke(s); set tags`) and
+writes nothing. The delta is stamped with this machine's device id and clock,
+as for `snapshot`. Restoring needs every revision of the note to be readable;
+an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
+`changed`, `file` (the delta written, if any) and `changes` (`pagesRemoved`,
+`pagesRestored`, `strokesRemoved`, `strokesRestored`, `pageOrderChanges`,
+`recognitionChanges`, `metaFields`, `deleted`).
+
+### Import
+
+```
+inkvault import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
+```
+
+Each `PATH` is a `.note` file, an unzipped `.note` package directory, a folder
+searched recursively for `.note` files, or a zip of `.note` files (Notability's
+backup); see `docs/import-notability.md` for the mapping. One row is printed per
+note (status, title, notebook, strokes written, pages with recognised text,
+source) plus a summary line; `-v` lists what was left behind (typed text, PDFs,
+media, recordings, dashed strokes). A note already in the vault is skipped unless
+`--overwrite`, which replaces its pages. `--notebook` files every note under one
+notebook; `--no-scale` keeps Notability's document units instead of scaling to
+612 pt width. The device id and clock come from `device.json` as for `snapshot`.
+
+`--dry-run` imports into a throwaway copy of the vault with a throwaway device,
+so the report is exact but neither the vault nor `device.json` is touched.
+`--json` emits `summary` and `notes` (with `status` `imported`, `skipped` or
+`failed`, `reason`, `id`, `dropped`, ...). Exit 1 if any note failed, a path
+does not exist, or no `.note` file was found.
+
+### Search
+
+```
+inkvault search TERM
+```
+
+Case-insensitive substring search over every page's recognised text (the
+Notability import, later on-device recognition) in all notes except deleted
+ones. Human output is one row per matching page: note title, page number and a
+snippet. `--json` emits a list of hits with `noteId`, `title`, `notebook`,
+`page` (1-based), `pageId`, `snippet`, `matches`, `engine` and `words`, the
+recognised words containing the term with their `[x, y, w, h]` boxes. No match
+prints `No matches.` (an empty list with `--json`) and exits 0.
+
 ### Export
 
 ```
-inkvault export (ID|TITLE | --all) --format pdf|svg|json --out PATH
-                [--merge] [--deleted] [--no-paper]
+inkvault export (ID|TITLE | --all) --format pdf|svg|png|json --out PATH
+                [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
 ```
+
+- `--at REVISION` (single note only) exports the note as it was at that
+  revision, named as for `notes restore --to`.
 
 - `pdf`: one file per note; `--merge` puts every selected note in one PDF
   (`--out` is then the file).
 - `svg`: one file per page. A single note gives `<name>-p001.svg`,
   `<name>-p002.svg`, ... in the output directory; with `--all` each note gets a
   subdirectory, `<name>/p001.svg`, `<name>/p002.svg`, ...
+- `png`: one RGBA8 image per page, written like `svg` (`<name>-p001.png`, ...,
+  or `<name>/p001.png` with `--all`). Pure Swift, no system imaging library.
+  Paper, strokes and tool opacity match the PDF; edges are anti-aliased. An
+  infinite page is split into images exactly as it is split into PDF pages, so
+  numbering counts output pages. `--dpi N` sets the resolution (default 144,
+  i.e. 2x the 72 pt/inch page; `0 < N <= 2400`, else exit 2). An image over
+  40 million pixels (a letter page above about 620 dpi) is an error naming the
+  limit, not an allocation; lower `--dpi`. With `--no-paper` the background is
+  transparent.
 - `json`: the reconstructed note (`NoteState`, `docs/format.md` §6).
 
 File names are the sanitised title plus the first 8 characters of the note id
