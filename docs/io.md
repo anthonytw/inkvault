@@ -142,7 +142,11 @@ change.
 directory or a canonical revision file name (format.md §5) are ignored and
 listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
 and unknown files are not synced. A downloaded revision must start with the
-age header or it is rejected.
+age header or it is rejected. Remote names are reported with control
+characters escaped, so a hostile name cannot drive the terminal. Response
+bodies are read incrementally and the request is cancelled past a limit
+(`maxFileBytes`, 256 MiB, for revisions; 16 MiB for listings, manifests and
+everything else), so a server cannot make the client buffer more.
 
 **Write-once files.** For each note the run compares the local and remote file
 sets with the set recorded at the last sync (`SyncState.files`):
@@ -163,8 +167,11 @@ never appears under its final name and a file that showed up meanwhile wins.
 is deleted on the other side only if `CompactionPlanner.deletable` says so,
 with retention 0 (the side that removed it already applied the retention
 window) over the revisions held locally: a delta needs a snapshot that covers it,
-a snapshot needs one that subsumes it. For remote deletes the covering snapshot
-must also be on the server. A snapshot removed locally can only be judged from
+a snapshot needs one that subsumes it. The covering snapshot must be one the
+remote side holds: on the server (as listed at the start of the run) for a file
+the server dropped, since a compaction there keeps its covering snapshot there,
+and also on the server for a remote delete. An emptied or recreated remote
+folder therefore deletes nothing locally; its files are uploaded again. A snapshot removed locally can only be judged from
 the `included` coverage recorded when it was last synced. Without an unlocked
 vault nothing can be checked, so nothing is deleted. A removal that fails the
 check is undone (the file is copied back).

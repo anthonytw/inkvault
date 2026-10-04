@@ -104,7 +104,7 @@ public final class WebDAVSync {
 
     static func describe(_ error: Error) -> String {
         let text = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-        return text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return SyncReport.printable(text.split(whereSeparator: \.isNewline).joined(separator: " "))
     }
 
     // MARK: - Same vault?
@@ -249,7 +249,7 @@ public final class WebDAVSync {
         var out: [String: [RemoteEntry]] = [:]
         for d in dirs {
             guard d.isCollection, Self.isNoteID(d.name) else {
-                report.ignored.append("notes/\(d.name)")
+                report.ignored.append(SyncReport.printable("notes/\(d.name)"))
                 continue
             }
             out[d.name] = try client.list(["notes", d.name]) ?? []
@@ -265,12 +265,13 @@ public final class WebDAVSync {
         var R = Set<RevisionName>()
         for e in remoteEntries ?? [] {
             guard !e.isCollection, let n = RevisionName(e.name), n.filename == e.name else {
-                report.ignored.append("notes/\(id)/\(e.name)")
+                report.ignored.append(SyncReport.printable("notes/\(id)/\(e.name)"))
                 continue
             }
             R.insert(n)
             if let s = e.size { size[n] = s }
         }
+        let remoteListed = R
         var L = Set<RevisionName>()
         for f in try LocalFS.entries(dir) {
             if let n = RevisionName(f), n.filename == f { L.insert(n) }
@@ -299,23 +300,24 @@ public final class WebDAVSync {
         let epoch = Date(timeIntervalSince1970: 0)
 
         // The other side deleted these: delete here only if compaction allows it, else put them back.
+        // A compaction there kept its covering snapshot there, so only snapshots the server
+        // listed count as cover; an emptied or recreated remote folder deletes nothing here.
         if !remoteDeleted.isEmpty {
-            var allowed = Set<RevisionName>()
-            if let loaded {
-                var wall: [RevisionName: Date] = [:]
-                for n in remoteDeleted { wall[n] = epoch }
-                let snaps = loaded.revisions.compactMap(SnapshotCoverage.init).map { s -> SnapshotCoverage in
-                    var s = s
-                    if remoteDeleted.contains(s.name) { s.wall = epoch }
-                    return s
-                }
-                allowed = Set(CompactionPlanner.deletable(names: loaded.revisions.map(\.name), wall: wall, snapshots: snaps,
-                                                          retention: 0, now: options.now)).intersection(remoteDeleted)
-            }
+            let onServer = (loaded?.revisions ?? []).filter { remoteListed.contains($0.name) }
+                .compactMap(SnapshotCoverage.init)
+            var coverage: [RevisionName: SnapshotCoverage] = [:]
+            for r in loaded?.revisions ?? [] { if let c = SnapshotCoverage(r) { coverage[c.name] = c } }
             let readable = Set(loaded?.revisions.map(\.name) ?? [])
             for n in remoteDeleted.sorted() {
                 attempt(n) {
-                    if allowed.contains(n) {
+                    var allowed = false
+                    if loaded != nil, readable.contains(n) {
+                        var snaps = onServer
+                        if var own = coverage[n] { own.wall = epoch; snaps.append(own) }
+                        allowed = CompactionPlanner.deletable(names: [n], wall: [n: epoch], snapshots: snaps,
+                                                              retention: 0, now: options.now).contains(n)
+                    }
+                    if allowed {
                         report.deleted.append(.init(side: "local", path: "notes/\(key(id, n))"))
                         if !options.dryRun { try LocalFS.remove(dir.appendingPathComponent(n.filename)) }
                         L.remove(n)
@@ -392,7 +394,7 @@ public final class WebDAVSync {
         if let size, size > options.maxFileBytes { throw WebDAVError.io("\(path) is \(size) bytes, over the limit; skipped") }
         report.downloaded.append(path)
         guard !options.dryRun else { return true }
-        let (data, _) = try client.get(["notes", id, n.filename])
+        let (data, _) = try client.get(["notes", id, n.filename], maxBytes: options.maxFileBytes)
         guard data.count <= options.maxFileBytes else { throw WebDAVError.io("\(path) is over the size limit; skipped") }
         guard data.starts(with: Self.ageMagic) else {
             throw WebDAVError.malformedResponse("\(path) is not an age file; not written")

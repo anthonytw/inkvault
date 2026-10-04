@@ -13,4 +13,9 @@ if grep -rEn "$netpattern" Sources/ --exclude-dir=InkWebDAV; then
   echo "error: network code outside Sources/InkWebDAV" >&2
   exit 1
 fi
+# Unavailable on iOS and Mac Catalyst, which link Sources/ too (CLAUDE.md).
+if grep -rEn 'homeDirectoryForCurrentUser' Sources/; then
+  echo "error: FileManager.homeDirectoryForCurrentUser is macOS-only; use NSHomeDirectory()" >&2
+  exit 1
+fi
 echo "portability: ok"

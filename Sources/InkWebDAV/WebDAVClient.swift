@@ -48,6 +48,9 @@ public struct WebDAVClient: Sendable {
     private let baseComponents: [String]
     private let origin: String
 
+    /// Largest response body read for listings, manifests and status replies (16 MiB).
+    public static let defaultMaxResponseBytes = 16 << 20
+
     /// Hosts that may be reached over plain HTTP.
     static let localHosts: Set<String> = ["localhost", "127.0.0.1", "::1", "[::1]"]
 
@@ -121,8 +124,11 @@ public struct WebDAVClient: Sendable {
     }
 
     /// Downloads one file; returns its bytes and the response ETag, if any.
-    public func get(_ path: [String]) throws -> (data: Data, etag: String?) {
-        let r = try send("GET", path, collection: false)
+    ///
+    /// - Throws: `WebDAVError.responseTooLarge` once the body exceeds `maxBytes`
+    ///   (reading stops there; nothing larger is buffered).
+    public func get(_ path: [String], maxBytes: Int = defaultMaxResponseBytes) throws -> (data: Data, etag: String?) {
+        let r = try send("GET", path, collection: false, maxResponseBytes: maxBytes)
         guard r.status == 200 else { throw try failure("GET", path, r) }
         return (r.body, r.headers["etag"])
     }
@@ -169,7 +175,9 @@ public struct WebDAVClient: Sendable {
             guard let url = self.url(forAbsolute: comps) else { continue }
             var h: [String: String] = ["User-Agent": "inkvault-webdav/0.1"]
             if let authorization { h["Authorization"] = authorization }
-            let r = try transport.send(WebDAVRequest(method: "MKCOL", url: url, headers: h))
+            let r = try transport.send(WebDAVRequest(method: "MKCOL", url: url, headers: h,
+                                                     maxResponseBytes: Self.defaultMaxResponseBytes))
+            try Self.checkSize(r, url: url, limit: Self.defaultMaxResponseBytes)
             if isBase && ![200, 201, 405].contains(r.status) { throw try failure("MKCOL", [], r) }
         }
     }
@@ -206,14 +214,22 @@ public struct WebDAVClient: Sendable {
     }()
 
     private func send(_ method: String, _ path: [String], collection: Bool, headers: [String: String] = [:],
-                      body: Data? = nil) throws -> WebDAVResponse {
+                      body: Data? = nil, maxResponseBytes: Int = defaultMaxResponseBytes) throws -> WebDAVResponse {
         guard let url = url(for: path, collection: collection) else {
             throw WebDAVError.malformedResponse("cannot form a URL for \(path.joined(separator: "/"))")
         }
         var h = headers
         if let authorization { h["Authorization"] = authorization }
         h["User-Agent"] = "inkvault-webdav/0.1"
-        return try transport.send(WebDAVRequest(method: method, url: url, headers: h, body: body))
+        let r = try transport.send(WebDAVRequest(method: method, url: url, headers: h, body: body,
+                                                 maxResponseBytes: maxResponseBytes))
+        try Self.checkSize(r, url: url, limit: maxResponseBytes)
+        return r
+    }
+
+    /// The same limit for transports that do not enforce `maxResponseBytes` themselves.
+    private static func checkSize(_ r: WebDAVResponse, url: URL, limit: Int) throws {
+        if r.body.count > limit { throw WebDAVError.responseTooLarge(path: url.path, limit: limit) }
     }
 
     private func failure(_ method: String, _ path: [String], _ r: WebDAVResponse) throws -> WebDAVError {

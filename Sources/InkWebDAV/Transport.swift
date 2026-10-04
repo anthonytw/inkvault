@@ -9,9 +9,14 @@ public struct WebDAVRequest: Sendable {
     public var url: URL
     public var headers: [String: String]
     public var body: Data?
+    /// Largest response body accepted; a transport stops reading past it and
+    /// throws `WebDAVError.responseTooLarge`. Nil means no limit.
+    public var maxResponseBytes: Int?
 
-    public init(method: String, url: URL, headers: [String: String] = [:], body: Data? = nil) {
+    public init(method: String, url: URL, headers: [String: String] = [:], body: Data? = nil,
+                maxResponseBytes: Int? = nil) {
         self.method = method; self.url = url; self.headers = headers; self.body = body
+        self.maxResponseBytes = maxResponseBytes
     }
 }
 
@@ -37,10 +42,12 @@ public protocol WebDAVTransport: Sendable {
 
 /// The `URLSession` transport. Redirects are never followed: a redirect would
 /// resend credentials and rewrite methods, so it surfaces as a 3xx response
-/// that the client reports with the target.
+/// that the client reports with the target. Bodies are read incrementally and
+/// the request is cancelled once one exceeds `maxResponseBytes`, so a server
+/// cannot make the client buffer more than that.
 public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
     private let session: URLSession
-    private let delegate = NoRedirects()
+    private let delegate = Delegate()
 
     public init(timeout: TimeInterval = 60) {
         let config = URLSessionConfiguration.ephemeral
@@ -56,28 +63,75 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
         r.httpMethod = request.method
         r.httpBody = request.body
         for (k, v) in request.headers { r.setValue(v, forHTTPHeaderField: k) }
-        let box = ResultBox()
-        let done = DispatchSemaphore(value: 0)
-        let task = session.dataTask(with: r) { data, response, error in
-            box.set(data: data, response: response, error: error)
-            done.signal()
-        }
+        let task = session.dataTask(with: r)
+        let pending = Pending(limit: request.maxResponseBytes)
+        delegate.register(task.taskIdentifier, pending)
+        defer { delegate.unregister(task.taskIdentifier) }
         task.resume()
-        done.wait()
-        var (data, response, error) = box.get()
-        if error != nil, let r = delegate.challenged.take(task.taskIdentifier) { response = r; error = nil }
+        pending.done.wait()
+        var (data, response, error, tooLarge, challenged) = pending.result()
+        if tooLarge, let limit = request.maxResponseBytes {
+            throw WebDAVError.responseTooLarge(path: request.url.path, limit: limit)
+        }
+        if error != nil, let challenged { response = challenged; error = nil }
         if let error { throw WebDAVError.transport(Self.describe(error)) }
-        guard let http = response as? HTTPURLResponse else { throw WebDAVError.transport("not an HTTP response") }
+        guard let http = (response ?? task.response) as? HTTPURLResponse else {
+            throw WebDAVError.transport("not an HTTP response")
+        }
         var headers: [String: String] = [:]
         for (k, v) in http.allHeaderFields { headers["\(k)".lowercased()] = "\(v)" }
-        return WebDAVResponse(status: http.statusCode, headers: headers, body: data ?? Data())
+        return WebDAVResponse(status: http.statusCode, headers: headers, body: data)
     }
 
     private static func describe(_ error: Error) -> String {
         (error as NSError).localizedDescription
     }
 
-    private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    /// One request in flight: its body so far and how it ended.
+    private final class Pending: @unchecked Sendable {
+        let done = DispatchSemaphore(value: 0)
+        let limit: Int?
+        private let lock = NSLock()
+        private var data = Data()
+        private var response: URLResponse?
+        private var error: Error?
+        private var tooLarge = false
+        private var challenged: HTTPURLResponse?
+
+        init(limit: Int?) { self.limit = limit }
+
+        /// False (and marks the request too large) when the body would exceed the limit.
+        func accept(expected: Int64) -> Bool {
+            guard let limit, expected > Int64(limit) else { return true }
+            lock.lock(); tooLarge = true; lock.unlock()
+            return false
+        }
+
+        func append(_ chunk: Data) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if let limit, chunk.count > limit - data.count { tooLarge = true; return false }
+            data.append(chunk)
+            return true
+        }
+
+        func set(response r: URLResponse) { lock.lock(); response = r; lock.unlock() }
+        func set(challenged r: HTTPURLResponse) { lock.lock(); challenged = r; lock.unlock() }
+        func finish(_ e: Error?) { lock.lock(); error = e; lock.unlock(); done.signal() }
+
+        func result() -> (Data, URLResponse?, Error?, Bool, HTTPURLResponse?) {
+            lock.lock(); defer { lock.unlock() }
+            return (data, response, error, tooLarge, challenged)
+        }
+    }
+
+    private final class Delegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        private let lock = NSLock()
+        private var pending: [Int: Pending] = [:]
+
+        func register(_ id: Int, _ p: Pending) { lock.lock(); pending[id] = p; lock.unlock() }
+        func unregister(_ id: Int) { lock.lock(); pending[id] = nil; lock.unlock() }
+        private func lookup(_ id: Int) -> Pending? { lock.lock(); defer { lock.unlock() }; return pending[id] }
+
         func urlSession(_ session: URLSession, task: URLSessionTask,
                         willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                         completionHandler: @escaping (URLRequest?) -> Void) {
@@ -88,33 +142,23 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
         /// answered with the 401 itself, never with a stored credential.
         func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-            if let r = challenge.failureResponse as? HTTPURLResponse { challenged.set(task.taskIdentifier, r) }
+            if let r = challenge.failureResponse as? HTTPURLResponse { lookup(task.taskIdentifier)?.set(challenged: r) }
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
 
-        let challenged = ChallengeLog()
-    }
-
-    /// The 401 responses that cancelled a request, by task, so the caller still sees the status.
-    private final class ChallengeLog: @unchecked Sendable {
-        private let lock = NSLock()
-        private var responses: [Int: HTTPURLResponse] = [:]
-        func set(_ id: Int, _ r: HTTPURLResponse) { lock.lock(); responses[id] = r; lock.unlock() }
-        func take(_ id: Int) -> HTTPURLResponse? { lock.lock(); defer { lock.unlock() }; return responses.removeValue(forKey: id) }
-    }
-
-    private final class ResultBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data: Data?
-        private var response: URLResponse?
-        private var error: Error?
-        func set(data: Data?, response: URLResponse?, error: Error?) {
-            lock.lock(); defer { lock.unlock() }
-            self.data = data; self.response = response; self.error = error
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+            guard let p = lookup(dataTask.taskIdentifier) else { return completionHandler(.cancel) }
+            p.set(response: response)
+            completionHandler(p.accept(expected: response.expectedContentLength) ? .allow : .cancel)
         }
-        func get() -> (Data?, URLResponse?, Error?) {
-            lock.lock(); defer { lock.unlock() }
-            return (data, response, error)
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            guard let p = lookup(dataTask.taskIdentifier), p.append(data) else { return dataTask.cancel() }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            lookup(task.taskIdentifier)?.finish(error)
         }
     }
 }

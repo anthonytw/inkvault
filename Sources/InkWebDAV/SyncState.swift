@@ -28,7 +28,7 @@ struct SyncState: Codable, Equatable {
     /// The default state file for one (remote, local vault) pair.
     static func defaultURL(remote: URL, vault: URL,
                                   environment: [String: String] = ProcessInfo.processInfo.environment,
-                                  home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+                                  home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) -> URL {
         let base: URL
         if let xdg = environment["XDG_STATE_HOME"], xdg.hasPrefix("/") {
             base = URL(fileURLWithPath: xdg, isDirectory: true)

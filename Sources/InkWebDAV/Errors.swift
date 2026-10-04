@@ -16,6 +16,8 @@ public enum WebDAVError: Error, Hashable, Sendable {
     case vaultMismatch(local: String, remote: String)
     /// A local filesystem operation failed.
     case io(String)
+    /// The response body exceeded the limit for this request; reading stopped there.
+    case responseTooLarge(path: String, limit: Int)
 }
 
 extension WebDAVError: LocalizedError {
@@ -26,12 +28,15 @@ extension WebDAVError: LocalizedError {
             let hint = (status == 401 || status == 403) ? " (check --user and the password)" : ""
             return "\(method) /\(path) failed: HTTP \(status)\(hint)"
         case .redirect(let path, let location):
-            return "/\(path) redirects to \(location); use that URL instead (redirects are not followed)"
+            return "/\(SyncReport.printable(path)) redirects to \(SyncReport.printable(location)); "
+                + "use that URL instead (redirects are not followed)"
         case .transport(let m): return "network error: \(m)"
-        case .malformedResponse(let m): return "malformed server response: \(m)"
+        case .malformedResponse(let m): return "malformed server response: \(SyncReport.printable(m))"
         case .vaultMismatch(let l, let r):
             return "the remote holds vault \(r) but the local vault is \(l); refusing to mix them"
         case .io(let m): return m
+        case .responseTooLarge(let path, let limit):
+            return "the response for \(SyncReport.printable(path)) is over \(limit) bytes; not read"
         }
     }
 }

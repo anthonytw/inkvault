@@ -28,6 +28,19 @@ final class WebDAVIntegrationTests: SyncTestCase {
                               options: WebDAVSyncOptions(dryRun: dryRun, deviceLabel: name)).run()
     }
 
+    func testURLSessionStopsReadingAtTheLimit() throws {
+        let c = try realClient(path: "it-\(UUID().uuidString.lowercased())")
+        try c.createBase()
+        let big = Data((0..<(3 << 20)).map { UInt8(truncatingIfNeeded: $0) })
+        XCTAssertTrue(try c.put(["big.bin"], big, condition: .create))
+        XCTAssertThrowsError(try c.get(["big.bin"], maxBytes: 64 << 10)) {
+            guard case WebDAVError.responseTooLarge(_, let limit) = $0 else { return XCTFail("\($0)") }
+            XCTAssertEqual(limit, 64 << 10)
+        }
+        XCTAssertEqual(try c.get(["big.bin"], maxBytes: 4 << 20).data, big)
+        XCTAssertEqual(try c.get(["big.bin"], maxBytes: big.count).data, big)
+    }
+
     func testTwoVaultsThroughOneServer() throws {
         // A fresh nested collection exercises MKCOL of missing parents.
         let c = try realClient(path: "it-\(UUID().uuidString.lowercased())/nested/vault")

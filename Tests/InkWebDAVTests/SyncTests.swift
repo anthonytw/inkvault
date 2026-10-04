@@ -337,6 +337,73 @@ final class SyncTests: SyncTestCase {
         XCTAssertEqual(server.names(under: "notes/\(noteID.uuidString.lowercased())"), [d1.name.filename])
     }
 
+    func testWipedServerNeverDeletesLocalHistory() throws {
+        let server = MockDAV()
+        let (_, ds, snap) = try compactionSetup(server)
+        let id = noteID.uuidString.lowercased()
+        // The remote folder was emptied (or recreated): every file is "deleted on the
+        // server", and the local snapshot covers the deltas. That is not a compaction:
+        // a compaction always leaves its covering snapshot on the server.
+        for n in server.names(under: "notes/\(id)") { server.removeDirect("notes/\(id)/\(n)") }
+        let report = try sync("B", server)
+        XCTAssertTrue(report.deleted.isEmpty, "\(report)")
+        let all = Set(ds.map(\.name.filename) + [snap.name.filename])
+        XCTAssertEqual(Set(try fileNames(try openVault("B"))), all)
+        XCTAssertEqual(Set(server.names(under: "notes/\(id)")), all)
+    }
+
+    func testRemoteNamesCannotInjectControlCharacters() throws {
+        let server = MockDAV()
+        let a = try makeVault("A")
+        _ = try delta(a, device: devA, t: 0, title: "one")
+        try sync("A", server)
+        let id = noteID.uuidString.lowercased()
+        server.putDirect("notes/\(id)/evil\u{1B}]0;pwned\u{07}\u{1B}[2J.age", Data("x".utf8))
+        server.putDirect("notes/x\u{1B}[31my/1.delta.age", Data("x".utf8))
+        let report = try sync("B", server)
+        XCTAssertEqual(report.ignored.count, 2, "\(report)")
+        for name in report.ignored {
+            XCTAssertFalse(name.unicodeScalars.contains { $0.properties.generalCategory == .control }, name)
+        }
+        XCTAssertTrue(report.ignored.contains { $0.contains("\\u{1B}") }, "\(report.ignored)")
+    }
+
+    func testRedirectLocationIsPrintedWithoutControlCharacters() {
+        let e = WebDAVError.redirect(path: "", location: "https://x/\u{1B}]52;c;cHduZWQ=\u{07}")
+        let text = e.localizedDescription
+        XCTAssertFalse(text.unicodeScalars.contains { $0.properties.generalCategory == .control }, text)
+    }
+
+    func testOversizedBodyIsRefusedWhateverTheListingSaid() throws {
+        let server = MockDAV()
+        let a = try makeVault("A")
+        let d = try delta(a, device: devA, t: 0, title: "one")
+        try sync("A", server)
+        let id = noteID.uuidString.lowercased()
+        // The listing reports the real (small) size; the GET answers with far more.
+        let limits = Locked<[Int?]>([])
+        server.interceptor = { r in
+            guard r.method == "GET", r.url.path.hasSuffix(d.name.filename) else { return nil }
+            limits.value.append(r.maxResponseBytes)
+            return WebDAVResponse(status: 200, body: WebDAVSync.ageMagic + Data(count: 4096))
+        }
+        try FileManager.default.createDirectory(at: dir("B"), withIntermediateDirectories: true)
+        let report = try WebDAVSync(directory: dir("B"), vault: nil, client: try client(server),
+                                    stateURL: tmp.appendingPathComponent("state-B.json"),
+                                    options: WebDAVSyncOptions(maxFileBytes: 1000)).run()
+        XCTAssertEqual(limits.value, [1000], "the transport is told the limit")
+        XCTAssertEqual(report.errors.map(\.path), ["notes/\(id)/\(d.name.filename)"], "\(report)")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: dir("B").appendingPathComponent("notes/\(id)/\(d.name.filename)").path))
+        // Listings and manifests have a limit too.
+        server.interceptor = { r in
+            r.method == "PROPFIND" ? WebDAVResponse(status: 207, body: Data(count: WebDAVClient.defaultMaxResponseBytes + 1)) : nil
+        }
+        XCTAssertThrowsError(try client(server).list([])) {
+            guard case WebDAVError.responseTooLarge = $0 else { return XCTFail("\($0)") }
+        }
+    }
+
     func testLockedVaultNeverPropagatesDeletions() throws {
         let server = MockDAV()
         let (a, ds, _) = try compactionSetup(server)

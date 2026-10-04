@@ -41,6 +41,20 @@ public struct SyncReport: Codable, Hashable, Sendable {
 
     public init(dryRun: Bool = false) { self.dryRun = dryRun }
 
+    /// `text` with control characters escaped as `\u{XX}`, so a name or
+    /// header chosen by the server cannot drive the terminal it is printed on.
+    static func printable(_ text: String) -> String {
+        var out = ""
+        for u in text.unicodeScalars {
+            if u.properties.generalCategory == .control {
+                out += "\\u{" + String(u.value, radix: 16, uppercase: true) + "}"
+            } else {
+                out.unicodeScalars.append(u)
+            }
+        }
+        return out
+    }
+
     /// True when nothing was transferred, deleted or reported.
     public var isEmpty: Bool {
         uploaded.isEmpty && downloaded.isEmpty && deleted.isEmpty && conflicts.isEmpty && errors.isEmpty
