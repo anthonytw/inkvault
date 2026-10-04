@@ -1,0 +1,223 @@
+import Foundation
+
+/// Errors from the note log (revisions, reconstruction, snapshots).
+public enum NoteLogError: Error, Hashable, Sendable {
+    /// Reconstruction or a snapshot needs at least one revision.
+    case noRevisions
+    /// Revisions from two different notes were mixed.
+    case mixedNotes(UUID, UUID)
+    /// Two revisions claim the same `(device, seq)` with different content.
+    case conflictingRevisions(device: DeviceID, seq: Int)
+    /// A delta was required but something else was given.
+    case notADelta(RevisionName)
+}
+
+// MARK: - File names
+
+/// `<hlc>-<device>-<seq>.<delta|snapshot>.age` (format.md §5).
+public struct RevisionName: Hashable, Comparable, Sendable, CustomStringConvertible {
+    public enum Kind: String, Hashable, Sendable, Codable {
+        case delta, snapshot
+    }
+
+    public var hlc: HLC
+    public var device: DeviceID
+    /// Per (note, device) counter, starting at 1.
+    public var seq: Int
+    public var kind: Kind
+
+    public init(hlc: HLC, device: DeviceID, seq: Int, kind: Kind) {
+        self.hlc = hlc; self.device = device; self.seq = seq; self.kind = kind
+    }
+
+    /// Parses a file base name. Rejects non-canonical `seq` (leading zeros, 0).
+    public init?(_ filename: String) {
+        let dot = filename.split(separator: ".", omittingEmptySubsequences: false)
+        guard dot.count == 3, dot[2] == "age", let kind = Kind(rawValue: String(dot[1])) else { return nil }
+        let dash = dot[0].split(separator: "-", omittingEmptySubsequences: false)
+        guard dash.count == 3,
+              let hlc = HLC(String(dash[0])),
+              let device = DeviceID(String(dash[1])) else { return nil }
+        let s = dash[2]
+        guard !s.isEmpty, s.utf8.allSatisfy({ (0x30...0x39).contains($0) }), s.first != "0",
+              let seq = Int(s) else { return nil }
+        self.init(hlc: hlc, device: device, seq: seq, kind: kind)
+    }
+
+    /// The file base name.
+    public var filename: String { "\(hlc)-\(device)-\(seq).\(kind.rawValue).age" }
+    public var description: String { filename }
+
+    /// The LWW stamp of ops in this revision.
+    public var stamp: Stamp { Stamp(hlc: hlc, device: device) }
+
+    /// Total order `(hlc, device, seq)`; `kind` only breaks ties between
+    /// malformed duplicates.
+    public static func < (l: RevisionName, r: RevisionName) -> Bool {
+        (l.hlc, l.device, l.seq, l.kind.rawValue) < (r.hlc, r.device, r.seq, r.kind.rawValue)
+    }
+}
+
+// MARK: - included
+
+/// The set of revisions a snapshot reflects (format.md §5.3): per device,
+/// every `seq ≤ upTo` plus the listed `extra`.
+public struct Included: Hashable, Sendable {
+    public struct Entry: Hashable, Sendable, Codable {
+        public var upTo: Int
+        /// Sorted, all greater than `upTo + 1`.
+        public var extra: [Int]
+
+        public init(upTo: Int = 0, extra: [Int] = []) {
+            self.upTo = upTo
+            self.extra = extra
+            normalize()
+        }
+
+        public func covers(_ seq: Int) -> Bool { seq <= upTo || extra.contains(seq) }
+
+        mutating func insert(_ seq: Int) {
+            guard seq >= 1, !covers(seq) else { return }
+            extra.append(seq)
+            normalize()
+        }
+
+        mutating func normalize() {
+            upTo = max(upTo, 0)
+            var set = Set(extra.filter { $0 > upTo })
+            while set.remove(upTo + 1) != nil { upTo += 1 }
+            extra = set.sorted()
+        }
+    }
+
+    public private(set) var entries: [DeviceID: Entry]
+
+    public init(_ entries: [DeviceID: Entry] = [:]) {
+        self.entries = entries.mapValues { var e = $0; e.normalize(); return e }
+    }
+
+    /// True when the revision `(device, seq)` is reflected.
+    public func covers(device: DeviceID, seq: Int) -> Bool {
+        entries[device]?.covers(seq) ?? false
+    }
+
+    /// Adds one revision, folding contiguous extras into `upTo`.
+    public mutating func insert(device: DeviceID, seq: Int) {
+        guard seq >= 1 else { return }
+        entries[device, default: Entry()].insert(seq)
+    }
+
+    /// Everything covered by either.
+    public func union(_ other: Included) -> Included {
+        var out = self
+        for (device, e) in other.entries {
+            var mine = out.entries[device] ?? Entry()
+            mine.upTo = max(mine.upTo, e.upTo)
+            mine.extra += e.extra
+            mine.normalize()
+            out.entries[device] = mine
+        }
+        return out
+    }
+}
+
+extension Included: Codable {
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode([String: Entry].self)
+        var entries: [DeviceID: Entry] = [:]
+        for (k, v) in raw {
+            guard let d = DeviceID(k) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad device id \(k)"))
+            }
+            entries[d] = v
+        }
+        self.init(entries)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(Dictionary(uniqueKeysWithValues: entries.map { ($0.key.rawValue, $0.value) }))
+    }
+}
+
+// MARK: - Revision envelope
+
+/// One file under `notes/<noteId>/` (format.md §5.1–§5.3), decrypted and
+/// unframed. Pure value; reading and writing files is elsewhere.
+public struct Revision: Hashable, Sendable {
+    public enum Body: Hashable, Sendable {
+        case delta(ops: [Op])
+        case snapshot(included: Included, state: NoteState)
+    }
+
+    public var noteId: UUID
+    public var device: DeviceID
+    public var seq: Int
+    public var hlc: HLC
+    /// Informational (history UI).
+    public var wall: Date
+    /// Informational, e.g. `inkvault-ios/0.1`.
+    public var app: String
+    public var body: Body
+
+    public init(noteId: UUID, device: DeviceID, seq: Int, hlc: HLC, wall: Date, app: String, body: Body) {
+        self.noteId = noteId; self.device = device; self.seq = seq; self.hlc = hlc
+        self.wall = wall; self.app = app; self.body = body
+    }
+
+    public var kind: RevisionName.Kind {
+        if case .delta = body { return .delta }
+        return .snapshot
+    }
+
+    /// The file name this revision is stored under.
+    public var name: RevisionName { RevisionName(hlc: hlc, device: device, seq: seq, kind: kind) }
+
+    /// LWW stamp for this revision's ops.
+    public var stamp: Stamp { Stamp(hlc: hlc, device: device) }
+}
+
+extension Revision: Codable {
+    enum CodingKeys: String, CodingKey { case type, noteId, device, seq, hlc, wall, app, ops, included, state }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        noteId = try c.decode(LowercaseUUID.self, forKey: .noteId).uuid
+        device = try c.decode(DeviceID.self, forKey: .device)
+        seq = try c.decode(Int.self, forKey: .seq)
+        guard seq >= 1 else {
+            throw DecodingError.dataCorruptedError(forKey: .seq, in: c, debugDescription: "seq must be ≥ 1")
+        }
+        hlc = try c.decode(HLC.self, forKey: .hlc)
+        wall = try c.decode(Date.self, forKey: .wall)
+        app = try c.decode(String.self, forKey: .app)
+        let type = try c.decode(String.self, forKey: .type)
+        switch type {
+        case "delta":
+            body = .delta(ops: try c.decode([Op].self, forKey: .ops))
+        case "snapshot":
+            body = .snapshot(included: try c.decode(Included.self, forKey: .included),
+                             state: try c.decode(NoteState.self, forKey: .state))
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown revision type \(type)")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind.rawValue, forKey: .type)
+        try c.encode(LowercaseUUID(noteId), forKey: .noteId)
+        try c.encode(device, forKey: .device)
+        try c.encode(seq, forKey: .seq)
+        try c.encode(hlc, forKey: .hlc)
+        try c.encode(wall, forKey: .wall)
+        try c.encode(app, forKey: .app)
+        switch body {
+        case .delta(let ops):
+            try c.encode(ops, forKey: .ops)
+        case .snapshot(let included, let state):
+            try c.encode(included, forKey: .included)
+            try c.encode(state, forKey: .state)
+        }
+    }
+}
