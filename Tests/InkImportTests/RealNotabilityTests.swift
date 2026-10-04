@@ -45,6 +45,51 @@ final class RealNotabilityTests: XCTestCase {
         print("parsed curves: \(curves)")
     }
 
+    /// Every recognised page's `pageContentOrigin`, moved down by the page's
+    /// offset (`(n - 1) × pageHeight`), lands on the top-left of the ink on
+    /// that page. This checks the page geometry of every note with
+    /// recognition, including notes on PDF pages (whose stride is not the
+    /// paper's), which the thumbnail comparison skips.
+    func testRecognitionOriginsMatchInkOnEveryPage() throws {
+        var checked = 0, pdfChecked = 0, misses: [String] = []
+        for (index, (_, pkg)) in try allNotes().enumerated() {
+            let note = try NotabilityNote.parse(package: pkg)
+            let h = note.paper.pageHeight
+            let points = note.curves.flatMap(\.points)
+            for (n, page) in note.recognition.sorted(by: { $0.key < $1.key }) where !page.characterBoxes.isEmpty {
+                // The origin is the top-left of the page's ink less about 0.7
+                // units: some ink touches its top edge and some its left edge.
+                let x0 = page.origin.x + 0.7, y0 = Double(n - 1) * h + page.origin.y + 0.7
+                let tol = 3.0   // stroke widths and control points blur the edges
+                let topEdge = points.contains { abs($0.y - y0) < tol && $0.x > x0 - tol }
+                let leftEdge = points.contains { abs($0.x - x0) < tol && $0.y > y0 - tol && $0.y < Double(n) * h }
+                checked += 1
+                if note.pdfPageCount > 0 { pdfChecked += 1 }
+                if !topEdge || !leftEdge {
+                    misses.append("note #\(index) page \(n): top edge \(topEdge), left edge \(leftEdge)")
+                }
+            }
+        }
+        print("recognition origins checked: \(checked) pages (\(pdfChecked) on PDF notes), \(misses.count) off")
+        XCTAssertEqual(misses, [])
+        XCTAssertGreaterThan(pdfChecked, 0, "no PDF note with recognition in the samples")
+    }
+
+    /// Notes that import with no strokes really have no ink: no curves, no
+    /// handwriting index. Prints how many are PDF-only and how many blank.
+    func testNotesWithoutCurvesAreInkless() throws {
+        var pdfOnly = 0, blank = 0, inked = 0
+        for (index, (_, pkg)) in try allNotes().enumerated() {
+            let note = try NotabilityNote.parse(package: pkg)
+            guard note.curves.isEmpty else { inked += 1; continue }
+            XCTAssertTrue(note.recognition.isEmpty, "note #\(index) has recognised handwriting but no curves")
+            XCTAssertFalse(pkg.paths.contains { $0.hasSuffix("HandwritingIndex/index.plist") },
+                           "note #\(index) has a handwriting index but no curves")
+            if note.pdfPageCount > 0 { pdfOnly += 1 } else { blank += 1 }
+        }
+        print("notes with ink: \(inked); without: \(pdfOnly) PDF-only, \(blank) blank")
+    }
+
     #if os(macOS)
     /// Renders the first Notability page of real notes and compares it with
     /// Notability's own thumbnail: same aspect ratio, and the ink's bounding
@@ -179,11 +224,14 @@ final class RealNotabilityTests: XCTestCase {
         var dropped = NotabilityImporter.Dropped()
         for n in report.notes {
             dropped.typedTextCharacters += n.dropped.typedTextCharacters; dropped.pdfs += n.dropped.pdfs
+            dropped.pdfPages += n.dropped.pdfPages
             dropped.media += n.dropped.media; dropped.recordings += n.dropped.recordings
             dropped.dashedStrokes += n.dropped.dashedStrokes; dropped.unknownStyleStrokes += n.dropped.unknownStyleStrokes
         }
         print("""
         BULK: notes \(report.notes.count) ok \(report.imported) skipped \(report.skipped) failed \(report.failed)
+        BULK: notes without strokes \(report.notes.filter { $0.status == .ok && $0.strokes == 0 }.count) \
+        (\(report.notes.filter { $0.status == .ok && $0.strokes == 0 && $0.dropped.pdfPages > 0 }.count) on PDF pages)
         BULK: strokes \(report.strokes) recognised pages \(report.notes.reduce(0) { $0 + $1.recognizedPages })
         BULK: wall \(String(format: "%.1f", elapsed)) s; slowest \(String(format: "%.2f", slowest?.seconds ?? 0)) s \(slowest?.source ?? "")
         BULK: dropped \(dropped)

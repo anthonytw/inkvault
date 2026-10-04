@@ -58,7 +58,7 @@ or directory:
 ```bash
 INKVAULT_NOTABILITY_SAMPLES=data/Notability-backup.zip \
 INKVAULT_NOTABILITY_RENDER_DIR=data/render \
-  swift test --filter RealNotabilityTests            # parse all, render + compare
+  swift test --filter RealNotabilityTests            # parse all, render + compare, page geometry
 INKVAULT_NOTABILITY_SAMPLES=data/Notability-backup.zip \
 INKVAULT_NOTABILITY_BULK_VAULT=data/scratch.inkvault \
   swift test --filter testBulkImport                 # full import, prints report
@@ -107,8 +107,13 @@ Root class `NoteTakingSession`:
 - `richText` (`FormattedString`): `attributedString` (typed text,
   `stringKey`), `Handwriting Overlay` → `SpatialHash` (the ink, below),
   `reflowState` (`NBReflowStateLocked` with `pageWidthInDocumentCoordsKey`,
-  or `NBReflowStateReflowable`), `pdfFiles` (`PDFFile` objects), and
-  `mediaObjects` (`ImageMediaObject`, …).
+  or `NBReflowStateReflowable`), `pdfFiles` (`PDFFile` objects: `pdfFileName`
+  under `PDFs/`, `highlights`, always empty in the samples), `pageLayoutArray`
+  (one dictionary per page of a note made from a PDF:
+  `kPageLayoutDocumentPageNumberKey`, `kPageLayoutPDFFileNameKey`,
+  `kPageLayoutPDFFileKey`, `kPageLayoutPDFPageNumberKey`,
+  `kPageLayoutPDFIsOriginalPageKey`, `kPageLayoutPageIsBookmarkedKey`; empty
+  on paper notes), and `mediaObjects` (`ImageMediaObject`, …).
 - `NBNoteTakingSessionIsHighlighterBehindTextKey` (true in every sample).
 
 ### Ink: `InkedSpatialHash`
@@ -157,11 +162,24 @@ adds `W × 18.8 / 716.8` to every x.
 
 Notability pages stack vertically without gaps. One page is `W × aspect`
 high, where the aspect is `1 / r` for `paperSize = custom:<r>`, else the
-thumbnail's height/width (`thumb.png`, else the first other thumbnail),
-else 21/16. Every "letter" note has 48 × 63
+height/width of the widest thumbnail (`thumb12x.png` is 576 px wide, so its
+aspect is more precise than `thumb.png`'s 48), else 21/16. Every "letter" note has 48 × 63
 thumbnails (21/16 = 1.3125, not letter's 1.294), and fitting the handwriting
 index origins to stroke positions gives a page height of 940.8 = 716.8 ×
 21/16 independently.
+
+**PDF pages.** In a note made from a PDF every page is a PDF page
+(`pageLayoutArray`, in PDF page order; no blank pages inserted in any sample),
+laid out at the document width, and the thumbnails show the PDF's aspect. The
+ink of such a note is in the same `InkedSpatialHash`, in the same continuous
+coordinates. Its pages repeat every `⌈W × aspect⌉` units, not `W × aspect`:
+fitting the handwriting index origins to the ink (26 recognised pages of
+PDF notes, up to page 64) gives 538.02 for 716.8 × 0.75 = 537.6 and 429.01 for
+572 × 0.75 = 429. Without the rounding, page 39 is 16 units off. Rounding to
+the nearest unit fits the same data; 16:9 slides (403.2 → 404) have no
+recognised pages in the samples, so that case is unverified. All PDF pages
+of one note had the same size in the samples; a PDF with mixed page sizes
+would need the PDF's page boxes, which the importer does not read.
 
 ### Paper
 
@@ -206,7 +224,7 @@ height`. `engine` is `notability-<app version>`.
 | folders under `Notability/`, else subject | `notebook` |
 | `noteTags` | `tags` |
 | `noteCreationDateKey` | `created` (via the delta's `wall`) |
-| document width, content extent | one infinite page: `pageSize.width = W`, `height` = lowest ink (at least one Notability page), `breakHeight` = one Notability page (`W × 21/16`), all × `612 / W` when scaling |
+| document width, content extent | one infinite page: `pageSize.width = W`, `height` = lowest ink (at least one Notability page), `breakHeight` = one Notability page (`W × 21/16`; `⌈W × aspect⌉` on PDF pages), all × `612 / W` when scaling |
 | `lineStyle2` / `lineStyle` | `paper.kind`, `paper.spacing` |
 | curve | one `Stroke`; id derived from the note uuid and curve index |
 | style 3 / 4 | `pen` / `marker` (highlighters are written first so they sit behind the ink) |
@@ -232,7 +250,7 @@ of the Bézier.
 
 | What | Why |
 | --- | --- |
-| PDF backgrounds (`pdfFiles`, 26 of 130 sample notes) and PDF templates | the format has no page backgrounds yet; the ink is imported in place, so it floats on blank paper |
+| PDF backgrounds (`pdfFiles`, 26 of 130 sample notes) and PDF templates | the format has no page backgrounds yet; the ink is imported in place, so it floats on blank paper. The report counts the PDF pages (`dropped.pdfPages`). |
 | Images and other media (`mediaObjects`) | no image support in the format |
 | Typed text (`attributedString`) | the format has no typed text (`DESIGN.md` non-goals); counted in the report. In the samples it was only newlines. |
 | Audio recordings and playback events | non-goal |
@@ -240,6 +258,15 @@ of the Bézier.
 | Paper colours, PDF-template paper | not stored per note; defaults used |
 | Page structure | the note becomes one infinite page; its `breakHeight` makes exports break where Notability's pages did |
 | `options`, `groupsArrays`, `bezierPathsDataDictionary`, `eventTokens` | empty or unknown |
+
+**Notes that import with no strokes.** 17 of the 127 imported sample notes
+have none, and none of them has any ink to import: their `InkedSpatialHash`
+is empty (`numcurves` 0, empty arrays), they have no
+`HandwritingIndex/index.plist`, their `PDFFile.highlights` are empty, and
+their PDFs carry no ink annotations. 15 are PDFs that were never written on
+(the CLI prints `no ink in …` for them) and 2 are blank paper notes. Their
+content arrives with PDF backgrounds (Phase 3). `testNotesWithoutCurvesAreInkless`
+checks this on a backup.
 
 `deviceBasedWidth` notes without a recorded width (two empty samples) use
 716.8, widened to fit any ink beyond it.

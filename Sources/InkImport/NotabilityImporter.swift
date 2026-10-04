@@ -33,6 +33,9 @@ public enum NotabilityImporter {
         public var typedTextCharacters = 0
         /// Imported PDFs the ink was written on.
         public var pdfs = 0
+        /// Pages of the note that were PDF pages (the PDF is not imported, so
+        /// they become blank paper; a note without ink is then empty).
+        public var pdfPages = 0
         /// Images and other media objects.
         public var media = 0
         /// Audio recordings.
@@ -226,6 +229,7 @@ public enum NotabilityImporter {
         var d = Dropped()
         d.typedTextCharacters = note.typedText.trimmingCharacters(in: .whitespacesAndNewlines).count
         d.pdfs = note.pdfCount
+        d.pdfPages = note.pdfPageCount
         d.media = note.mediaCount
         d.recordings = note.recordingCount
         d.dashedStrokes = note.curves.filter(\.dashed).count

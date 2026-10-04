@@ -37,8 +37,11 @@ public struct NotabilityNote: Hashable, Sendable {
         /// state's page width, else `NotabilityNote.defaultWidth` (widened to
         /// fit the strokes).
         public var width: Double
-        /// Height of one Notability page: `width` × the page aspect (from a
-        /// `custom:<w/h>` paper size, else the thumbnails, else 21/16).
+        /// Height of one Notability page, i.e. the distance from one page's
+        /// top to the next: `width` × the page aspect (from a `custom:<w/h>`
+        /// paper size, else the largest thumbnail, else 21/16). On a note whose
+        /// pages are PDF pages it is that product rounded up to a whole unit
+        /// (measured: 716.8 × 0.75 = 537.6 pages repeat every 538).
         public var pageHeight: Double
         /// Added to every ink and recognition x to place it on the page
         /// (`width × horizontalInsetFraction`).
@@ -135,6 +138,9 @@ public struct NotabilityNote: Hashable, Sendable {
     public var recognition: [Int: RecognizedPage]
     /// `richText.pdfFiles` count (imported PDFs the ink sits on).
     public var pdfCount: Int
+    /// Pages of the note that are PDF pages (`richText.pageLayoutArray`
+    /// entries naming a PDF file); 0 for a note on paper.
+    public var pdfPageCount: Int
     /// `richText.mediaObjects` count (images and other media).
     public var mediaCount: Int
     /// Audio recordings listed in `Recordings/library.plist`.
@@ -165,10 +171,11 @@ public struct NotabilityNote: Hashable, Sendable {
     public static let defaultPageAspect = 21.0 / 16.0
 
     public init(metadata: Metadata, paper: Paper, curves: [Curve], typedText: String = "",
-                recognition: [Int: RecognizedPage] = [:], pdfCount: Int = 0, mediaCount: Int = 0,
+                recognition: [Int: RecognizedPage] = [:], pdfCount: Int = 0, pdfPageCount: Int = 0, mediaCount: Int = 0,
                 recordingCount: Int = 0, bundleVersion: String? = nil, formatVersion: Int? = nil) {
         self.metadata = metadata; self.paper = paper; self.curves = curves; self.typedText = typedText
-        self.recognition = recognition; self.pdfCount = pdfCount; self.mediaCount = mediaCount
+        self.recognition = recognition; self.pdfCount = pdfCount; self.pdfPageCount = pdfPageCount
+        self.mediaCount = mediaCount
         self.recordingCount = recordingCount; self.bundleVersion = bundleVersion; self.formatVersion = formatVersion
     }
 }
@@ -219,24 +226,30 @@ extension NotabilityNote {
 
         let typed = try session.field(try session.field(richText, "attributedString"), "stringKey").string ?? ""
         let pdfCount = try session.elements(session.field(richText, "pdfFiles")).count
+        let pdfPageCount = try session.elements(session.field(richText, "pageLayoutArray")).filter { page in
+            page.raw("kPageLayoutPDFFileNameKey") != nil || page.raw("kPageLayoutPDFFileKey") != nil
+        }.count
         let mediaCount = try session.elements(session.field(richText, "mediaObjects")).count
         let recordings = try parseRecordingCount(part("Recordings/library.plist"))
         let recognition = try parseRecognition(part("HandwritingIndex/index.plist"))
 
-        // Page aspect from one thumbnail: thumb.png, else the first other that has a size.
+        // Page aspect from the widest thumbnail (thumb.png is 48 px wide,
+        // thumb12x.png 576 px, so the larger ones carry the aspect more
+        // precisely); ties prefer thumb.png.
         var thumb: (Int, Int)?
         let thumbs = pkg.paths.filter { p in
             p.hasPrefix(prefix) && !p.dropFirst(prefix.count).contains("/")
                 && p.dropFirst(prefix.count).hasPrefix("thumb") && p.hasSuffix(".png")
         }.sorted { a, b in (a == prefix + "thumb.png" ? 0 : 1, a) < (b == prefix + "thumb.png" ? 0 : 1, b) }
         for t in thumbs {
-            if let size = pngSize(try pkg.read(t)) { thumb = size; break }
+            if let size = pngSize(try pkg.read(t)), size.0 > 0, size.1 > 0, size.0 > (thumb?.0 ?? 0) { thumb = size }
         }
 
-        let paper = try parsePaper(session, root: root, richText: richText, thumbnail: thumb, curves: curves)
+        let paper = try parsePaper(session, root: root, richText: richText, thumbnail: thumb, curves: curves,
+                                   pdfPages: pdfPageCount > 0)
         return NotabilityNote(
             metadata: meta, paper: paper, curves: curves, typedText: typed, recognition: recognition,
-            pdfCount: pdfCount, mediaCount: mediaCount, recordingCount: recordings,
+            pdfCount: pdfCount, pdfPageCount: pdfPageCount, mediaCount: mediaCount, recordingCount: recordings,
             bundleVersion: try session.field(root, "NBNoteTakingSessionBundleVersionNumberKey").string,
             formatVersion: try session.field(root, "sessionFormatVersion").int.map { Int($0) })
     }
@@ -465,7 +478,7 @@ extension NotabilityNote {
     // MARK: Paper
 
     static func parsePaper(_ a: KeyedArchive, root: KeyedArchive.Node, richText: KeyedArchive.Node,
-                           thumbnail: (Int, Int)?, curves: [Curve]) throws -> Paper {
+                           thumbnail: (Int, Int)?, curves: [Curve], pdfPages: Bool = false) throws -> Paper {
         let layout = try a.field(root, "NBNoteTakingSessionDocumentPaperLayoutModelKey")
         let attrs = try a.field(layout, "documentPaperAttributes")
         let sizing = try a.field(attrs, "paperSizingBehavior").string
@@ -499,7 +512,13 @@ extension NotabilityNote {
         }
 
         let (kind, spacing) = paperStyle(lineStyle2: lineStyle2, lineStyle: lineStyle, width: w, size: size)
-        return Paper(width: w, pageHeight: w * aspect, kind: kind, spacing: spacing,
+        // PDF pages are laid out at the document width and stack every
+        // ceil(width × aspect) units (measured against the handwriting index
+        // on 716.8- and 572-wide notes: 537.6 → 538, 429 → 429). Paper
+        // pages are exactly width × aspect (940.8 on a 716.8 note).
+        var pageHeight = w * aspect
+        if pdfPages { pageHeight = (pageHeight - 1e-6).rounded(.up) }
+        return Paper(width: w, pageHeight: pageHeight, kind: kind, spacing: spacing,
                      identifier: try a.field(attrs, "paperIdentifier").string, size: size,
                      sizingBehavior: sizing, lineStyle2: lineStyle2, lineStyle: lineStyle)
     }

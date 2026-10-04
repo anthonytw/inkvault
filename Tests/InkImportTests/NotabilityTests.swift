@@ -28,6 +28,7 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(note.formatVersion, 9)
         XCTAssertEqual(note.typedText, "typed words")
         XCTAssertEqual(note.recordingCount, 0)
+        XCTAssertEqual(note.pdfPageCount, 0)
 
         XCTAssertEqual(note.paper.width, 716.8, accuracy: 1e-9)
         XCTAssertEqual(note.paper.pageHeight, 716.8 * 63 / 48, accuracy: 1e-9)   // thumbnail 48 × 63
