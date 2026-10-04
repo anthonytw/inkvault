@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux (swift:6.4-noble)
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zlib headers and age CLI
+        run: |
+          apt-get update -q
+          apt-get install -y -q zlib1g-dev age
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
+      - name: Portability guard
+        run: scripts/check-portability.sh
+      - name: Release build of the CLI (static stdlib)
+        run: swift build -c release --product inkvault --static-swift-stdlib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inkvault-linux-x86_64
+          path: .build/release/inkvault
+
+  macos:
+    name: macOS
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+          swift --version
+      - name: Install age CLI
+        run: brew install age
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
