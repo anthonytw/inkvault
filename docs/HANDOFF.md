@@ -18,6 +18,7 @@ and macOS, static Linux binary published as a CI artifact.
 | #6 | InkVault: vault layout, body framing + tag, keys, NoteStore, verify, fixture vault | merged |
 | #7 | CLI: keys, vault, verify, export, recover, compact, snapshot (`docs/cli.md`) | merged |
 | #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
+| `feat/png-export` | InkRender: PNG export (`Raster.swift` scanline filler with 8 sub-rows and exact horizontal coverage, non-zero union per draw command so a stroke blends once like the PDF; `PNGEncoder.swift` streamed zlib + adaptive filters; `PNGWriter.swift` paginates like the PDF; `--dpi`, 40 MP cap per image) + `inkvault export --format png` | PR open |
 
 Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
 imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
@@ -114,7 +115,7 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
 3. **Phase 2, Mac via Catalyst**: menus, keyboard, multi-window, drag-out
    export, bulk export, key management UI.
 4. **Phase 3** (`docs/plan.md`): history browser/restore, WebDAV client,
-   compaction UI, PDF/image page backgrounds, PNG export, read-only access to
+   compaction UI, PDF/image page backgrounds, read-only access to
    newer formats, age CRLF diagnostic, PQ recipient type.
 
 ## Gotchas collected so far

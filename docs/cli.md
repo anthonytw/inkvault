@@ -112,8 +112,8 @@ full id, an id prefix of 4 or more characters, or its exact title
 ### Export
 
 ```
-inkvault export (ID|TITLE | --all) --format pdf|svg|json --out PATH
-                [--merge] [--deleted] [--no-paper]
+inkvault export (ID|TITLE | --all) --format pdf|svg|png|json --out PATH
+                [--merge] [--deleted] [--no-paper] [--dpi N]
 ```
 
 - `pdf`: one file per note; `--merge` puts every selected note in one PDF
@@ -121,6 +121,15 @@ inkvault export (ID|TITLE | --all) --format pdf|svg|json --out PATH
 - `svg`: one file per page. A single note gives `<name>-p001.svg`,
   `<name>-p002.svg`, ... in the output directory; with `--all` each note gets a
   subdirectory, `<name>/p001.svg`, `<name>/p002.svg`, ...
+- `png`: one RGBA8 image per page, written like `svg` (`<name>-p001.png`, ...,
+  or `<name>/p001.png` with `--all`). Pure Swift, no system imaging library.
+  Paper, strokes and tool opacity match the PDF; edges are anti-aliased. An
+  infinite page is split into images exactly as it is split into PDF pages, so
+  numbering counts output pages. `--dpi N` sets the resolution (default 144,
+  i.e. 2x the 72 pt/inch page; `0 < N <= 2400`, else exit 2). An image over
+  40 million pixels (a letter page above about 620 dpi) is an error naming the
+  limit, not an allocation; lower `--dpi`. With `--no-paper` the background is
+  transparent.
 - `json`: the reconstructed note (`NoteState`, `docs/format.md` §6).
 
 File names are the sanitised title plus the first 8 characters of the note id
