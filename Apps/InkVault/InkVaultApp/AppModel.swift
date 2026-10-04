@@ -3,6 +3,14 @@ import Foundation
 import InkVault
 import Observation
 
+/// How the note list is ordered.
+enum NoteSort: String, CaseIterable, Identifiable, Sendable {
+    case modified = "Date Modified"
+    case title = "Title"
+
+    var id: String { rawValue }
+}
+
 /// What the sidebar has selected; filters the note list.
 enum SidebarItem: Hashable, Sendable {
     case allNotes
@@ -31,6 +39,7 @@ final class AppModel {
         case notAnIdentity
         case noStoredKeys
         case passphraseMatchesNoKey
+        case noteNotFound
 
         var description: String {
             switch self {
@@ -38,6 +47,7 @@ final class AppModel {
             case .notAnIdentity: return "That text holds no AGE-SECRET-KEY-1… identity."
             case .noStoredKeys: return "This vault has no passphrase-protected key file."
             case .passphraseMatchesNoKey: return "The passphrase opens none of this vault's key files."
+            case .noteNotFound: return "That note is no longer in the vault."
             }
         }
     }
@@ -46,7 +56,7 @@ final class AppModel {
     /// The open vault's folder.
     private(set) var vaultURL: URL?
     /// Every note in the vault, deleted ones included, sorted by title.
-    private(set) var notes: [NoteSummary] = []
+    var notes: [NoteSummary] = []
     /// True while vault I/O is in flight.
     private(set) var isBusy = false
     /// The last error, as a sentence for an alert; cleared by the view.
@@ -54,11 +64,21 @@ final class AppModel {
 
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
+    /// Filters the note list by title (recognised-text search is task 3f).
+    var searchText = ""
+    var sortOrder = NoteSort.modified
+    /// True while an edit is being written.
+    var isEditing = false
 
-    private var vault: Vault?
+    /// Where this install keeps its device id and hybrid clock.
+    let deviceStateURL: URL
+
+    private(set) var vault: Vault?
     private var scopedURL: URL?
 
-    init() {}
+    init(deviceStateURL: URL = VaultLibrary.defaultDeviceStateURL) {
+        self.deviceStateURL = deviceStateURL
+    }
 
     // MARK: - Derived
 
@@ -77,13 +97,36 @@ final class AppModel {
         Set(notes.filter { !$0.deleted }.flatMap(\.tags)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    /// The note list for the current sidebar selection.
+    /// The note list for the current sidebar selection, title search and sort order.
     var visibleNotes: [NoteSummary] {
+        let inSelection: [NoteSummary]
         switch sidebarSelection ?? .allNotes {
-        case .allNotes: return notes.filter { !$0.deleted }
-        case .notebook(let n): return notes.filter { !$0.deleted && $0.notebook == n }
-        case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains(t) }
-        case .deleted: return notes.filter(\.deleted)
+        case .allNotes: inSelection = notes.filter { !$0.deleted }
+        case .notebook(let n): inSelection = notes.filter { !$0.deleted && $0.notebook == n }
+        case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains(t) }
+        case .deleted: inSelection = notes.filter(\.deleted)
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = query.isEmpty ? inSelection : inSelection.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        return Self.sorted(matching, by: sortOrder)
+    }
+
+    static func sorted(_ list: [NoteSummary], by order: NoteSort) -> [NoteSummary] {
+        switch order {
+        case .title:
+            return list.sorted {
+                let c = $0.title.localizedStandardCompare($1.title)
+                return c == .orderedSame ? $0.id.uuidString < $1.id.uuidString : c == .orderedAscending
+            }
+        case .modified:
+            return list.sorted {
+                switch ($0.modified, $1.modified) {
+                case let (a?, b?) where a != b: return a > b
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: return $0.id.uuidString < $1.id.uuidString
+                }
+            }
         }
     }
 
@@ -168,6 +211,7 @@ final class AppModel {
         vaultURL = nil
         notes = []
         selectedNoteID = nil
+        searchText = ""
         sidebarSelection = .allNotes
         phase = .noVault
     }
@@ -178,7 +222,7 @@ final class AppModel {
     }
 
     /// Runs blocking vault work (file I/O, decryption) on a background thread.
-    private nonisolated static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+    nonisolated static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await Task.detached(priority: .userInitiated) { try work() }.value
     }
 }

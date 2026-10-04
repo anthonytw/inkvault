@@ -21,6 +21,14 @@ top of it.
   `history`, `nextSeq`, `verify`) and identity files (`keys/`, §3.2) are
   extensions on it.
 
+## Editing a note
+
+`Vault.apply(_:to:deviceState:app:)` writes one delta of `Op`s as this device:
+device id and hybrid clock come from a `DeviceState` file (saved before the
+revision is written), the clock first observes every readable revision of the
+note so the new ops win LWW, and `seq` comes from `nextSeq`. `NoteOps.newNote`
+builds the ops for a new note (one page plus all metadata fields).
+
 ## Atomic writes
 
 Every file the library writes (revisions, `vault.json`, identity files, the

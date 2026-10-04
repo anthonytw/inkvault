@@ -85,3 +85,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - A fresh Xcode install may fail every `xcodebuild` with "A required plugin
   failed to load": run `xcodebuild -runFirstLaunch`. It also ships without an
   iOS simulator runtime: `xcodebuild -downloadPlatform iOS` (about 8 GB).
+- App edits go through `Vault.apply(_:to:deviceState:app:)` (one delta, device id
+  and clock from a state file the app keeps in Application Support); never write
+  vault files from `Apps/`. Security-scoped URLs from the picker need
+  `startAccessingSecurityScopedResource()` for the whole time the vault is used;
+  vault bookmarks use `options: []` (no `.withSecurityScope` on iOS/Catalyst).
+- The app's non-UI logic (`AppModel*.swift`, `VaultLibrary.swift`, their tests)
+  can be typechecked and run on Linux with a scratch package that symlinks the
+  files and shims the Apple-only URL bookmark and scoped-resource APIs; SwiftUI
+  views cannot, only the CI `app` job builds them.
