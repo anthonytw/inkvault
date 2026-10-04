@@ -118,7 +118,9 @@ inkvault export (ID|TITLE | --all) --format pdf|svg|json --out PATH
 
 - `pdf`: one file per note; `--merge` puts every selected note in one PDF
   (`--out` is then the file).
-- `svg`: one file per page, `<name>-p001.svg`, `<name>-p002.svg`, ...
+- `svg`: one file per page. A single note gives `<name>-p001.svg`,
+  `<name>-p002.svg`, ... in the output directory; with `--all` each note gets a
+  subdirectory, `<name>/p001.svg`, `<name>/p002.svg`, ...
 - `json`: the reconstructed note (`NoteState`, `docs/format.md` §6).
 
 File names are the sanitised title plus the first 8 characters of the note id
@@ -132,7 +134,7 @@ written is printed.
 ### Recover
 
 ```
-inkvault recover FILE.age [--note-id UUID] [--identity FILE ...]
+inkvault recover FILE.age [--note-id UUID] [--identity FILE ...] [--no-verify]
 ```
 
 Decrypts one revision file and prints its JSON to stdout, byte for byte what
@@ -141,8 +143,10 @@ file and the one `.age` file. If `vault.json` is found in a parent directory
 and the identity opens it, the inner HMAC tag is verified (the note id is the
 file's directory name unless `--note-id` says otherwise); otherwise
 `UNVERIFIED: ...` is printed to stderr and the JSON is printed anyway. A tag
-that does not match is an error (exit 1) and nothing is printed. Wrong key:
-exit 4.
+that does not match is an error (exit 1, nothing printed; the message points to
+`--no-verify`). `--no-verify` is for damaged vaults: on a mismatch it prints the
+body anyway, writes `WARNING: tag mismatch, content may be tampered or from
+another vault` to stderr and exits 3 so scripts can tell. Wrong key: exit 4.
 
 ### Maintenance
 
@@ -152,9 +156,13 @@ inkvault snapshot ID|TITLE
 ```
 
 `compact` deletes only what a snapshot makes redundant and what is older than
-`--retention` days (default 30), per `docs/format.md` §5.3; with no snapshot it
-deletes nothing. `--dry-run` lists the files. `snapshot` writes a snapshot of
-the note. Both need a key. `snapshot` stamps the file with this machine's
+`--retention` days (default 30), per `docs/format.md` §5.3. When a note has
+deltas past the retention window that no snapshot covers (always the case for a
+note with no snapshot, once it has anything that old), it
+writes a snapshot first (device id and clock as for `snapshot`), then compacts.
+`--dry-run` writes and deletes nothing and lists `would snapshot` and
+`would delete` lines. `snapshot` writes a snapshot of the note. Both need a
+key. Snapshots stamp the file with this machine's
 device id and clock from `$XDG_STATE_HOME/inkvault/device.json` (default
 `~/.local/state/inkvault/device.json`), created on first use:
 

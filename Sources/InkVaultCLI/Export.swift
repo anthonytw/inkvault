@@ -114,8 +114,10 @@ struct ExportCommand: ParsableCommand {
                     case .svg:
                         let pages = try SVGWriter.render(note: state, options: options)
                         var files: [String] = []
+                        if all { try mkdir(path(stem)) }
                         for (i, svg) in pages.enumerated() {
-                            let file = path(stem + String(format: "-p%03d.svg", i + 1))
+                            let file = all ? path(stem + String(format: "/p%03d.svg", i + 1))
+                                : path(stem + String(format: "-p%03d.svg", i + 1))
                             try write(Data(svg.utf8), to: file)
                             files.append(file)
                         }

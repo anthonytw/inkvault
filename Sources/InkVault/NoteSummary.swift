@@ -66,14 +66,38 @@ extension Vault {
     }
 
     /// The revisions `compact` would delete, without deleting them.
+    ///
+    /// - Parameter assumingSnapshot: plan as if a snapshot of everything
+    ///   were written now, so every delta past retention counts as covered.
     public func compactionPlan(noteId: UUID, retention: TimeInterval = CompactionPlanner.defaultRetention,
-                               now: Date = Date()) throws -> [RevisionName] {
+                               now: Date = Date(), assumingSnapshot: Bool = false) throws -> [RevisionName] {
         let loaded = try loadNote(noteId)
         var wall: [RevisionName: Date] = [:]
         for r in loaded.revisions { wall[r.name] = r.wall }
-        return CompactionPlanner.deletable(names: loaded.revisions.map(\.name), wall: wall,
-                                           snapshots: loaded.revisions.compactMap(SnapshotCoverage.init),
-                                           retention: retention, now: now)
+        var plan = CompactionPlanner.deletable(names: loaded.revisions.map(\.name), wall: wall,
+                                               snapshots: loaded.revisions.compactMap(SnapshotCoverage.init),
+                                               retention: retention, now: now)
+        if assumingSnapshot {
+            let extra = loaded.revisions.filter {
+                $0.kind == .delta && now.timeIntervalSince($0.wall) > retention && !plan.contains($0.name)
+            }.map(\.name)
+            plan = (plan + extra).sorted()
+        }
+        return plan
+    }
+
+    /// True when `compact` could not make progress without a snapshot: the
+    /// note has deltas past retention that no snapshot covers (which includes
+    /// a note without any snapshot, once something is old enough). False for a note without readable revisions.
+    public func needsSnapshotBeforeCompaction(noteId: UUID, retention: TimeInterval = CompactionPlanner.defaultRetention,
+                                              now: Date = Date()) throws -> Bool {
+        let loaded = try loadNote(noteId)
+        guard !loaded.revisions.isEmpty else { return false }
+        let snaps = loaded.revisions.compactMap(SnapshotCoverage.init)
+        return loaded.revisions.contains { r in
+            r.kind == .delta && now.timeIntervalSince(r.wall) > retention
+                && !snaps.contains { $0.included.covers(device: r.device, seq: r.seq) }
+        }
     }
 }
 

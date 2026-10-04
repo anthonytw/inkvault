@@ -22,14 +22,17 @@ public enum Recovery {
     ///   - identities: age identities to try.
     ///   - vault: when given and unlocked, the tag is verified (also under
     ///     the previous secret during an unfinished rewrap).
+    ///   - verifyTag: false skips the tag check even with a vault (for
+    ///     damaged vaults); the result is then `verified == false`.
     /// - Throws: `AgeError` if age decryption fails, `BodyFramingError` for
     ///   a bad frame or a tag mismatch, `VaultError`/`RevisionReadError` for
     ///   a corrupt gzip body.
     public static func decrypt(_ file: Data, noteId: String, filename: String,
-                               identities: [any AgeIdentity], vault: Vault?) throws -> RecoveredRevision {
+                               identities: [any AgeIdentity], vault: Vault?,
+                               verifyTag: Bool = true) throws -> RecoveredRevision {
         let plain = try AgeFile.decrypt(file, with: identities)
         let unframed: BodyFraming.Unframed
-        if let vault, let secret = vault.secret {
+        if verifyTag, let vault, let secret = vault.secret {
             unframed = try Vault.unframe(plain, note: noteId, filename: filename, secret: secret,
                                          previous: vault.previousSecret)
         } else {

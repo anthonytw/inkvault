@@ -229,39 +229,51 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual(try cli(["export", "--format", "pdf", "--out", dir, "--vault", Self.fixtureVault]).status, 2)
     }
 
-    func testCompactAndSnapshot() throws {
+    func testCompactSnapshotsFirstAndSnapshotCommand() throws {
         let (_, _, keyPath) = try makeVault()
         let v = path("mine.inkvault")
         let args = ["--vault", v, "--identity", keyPath]
         let note = "aaaaaaaa-1111-4111-8111-000000000001"
         let dir = v + "/notes/" + note
-        // No snapshot yet: nothing is deletable, however old.
-        let none = try cli(["compact", "--all", "--retention", "0", "--dry-run"] + args)
-        XCTAssertEqual(none.status, 0, none.err)
-        XCTAssertTrue(none.out.contains("Would delete 0"), none.out)
-        let snap = try cli(["snapshot", note] + args)
-        XCTAssertEqual(snap.status, 0, snap.err)
+        func count() throws -> Int { try FileManager.default.contentsOfDirectory(atPath: dir).count }
         let state = tmp.appendingPathComponent("state/inkvault/device.json")
-        let device = (try JSONSerialization.jsonObject(with: Data(contentsOf: state)) as? [String: Any])?["device"] as? String
-        XCTAssertEqual(device?.count, 8)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir).count, 3)
-        // The two old deltas are covered and past retention; a dry run keeps them.
+        func device() throws -> String? {
+            (try JSONSerialization.jsonObject(with: Data(contentsOf: state)) as? [String: Any])?["device"] as? String
+        }
+        // No snapshot: a dry run says it would snapshot and delete both old deltas, and touches nothing.
         let dry = try cli(["compact", "Physics / Week 3", "--retention", "0", "--dry-run"] + args)
         XCTAssertEqual(dry.status, 0, dry.err)
-        XCTAssertTrue(dry.out.contains("would delete") && dry.out.contains("Would delete 2"), dry.out)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir).count, 3)
-        // A very long retention keeps everything.
-        XCTAssertTrue(try cli(["compact", note, "--retention", "100000", "--dry-run"] + args).out.contains("Would delete 0"))
-        let real = try cli(["compact", note, "--retention", "0", "--json"] + args)
+        XCTAssertTrue(dry.out.contains("would snapshot") && dry.out.contains("Would delete 2"), dry.out)
+        XCTAssertEqual(try count(), 2)
+        // A long retention needs nothing.
+        let keep = try cli(["compact", note, "--retention", "100000", "--dry-run"] + args)
+        XCTAssertTrue(keep.out.contains("Would delete 0") && !keep.out.contains("would snapshot"), keep.out)
+        // For real: snapshot written, old deltas gone.
+        let real = try cli(["compact", note, "--retention", "0"] + args)
         XCTAssertEqual(real.status, 0, real.err)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir).count, 1)
-        // A second snapshot reuses the device id.
+        XCTAssertTrue(real.out.contains("snapshot ") && real.out.contains("Deleted 2"), real.out)
+        XCTAssertEqual(try count(), 1)
+        XCTAssertEqual(try device()?.count, 8)
+        // Now covered: a second compact writes no further snapshot.
+        let again = try cli(["compact", note, "--retention", "0", "--dry-run"] + args)
+        XCTAssertTrue(!again.out.contains("would snapshot") && again.out.contains("Would delete 0"), again.out)
+        // `snapshot` reuses the device id.
+        let id = try device()
         XCTAssertEqual(try cli(["snapshot", "Physics / Week 3"] + args).status, 0)
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: Data(contentsOf: state)) as? [String: Any])?["device"] as? String,
-                       device)
+        XCTAssertEqual(try device(), id)
         XCTAssertEqual(try cli(["vault", "verify"] + args).status, 0)
         let shown = try cli(["notes", "list", "--json"] + args)
         XCTAssertEqual((shown.json as? [[String: Any]])?.first { $0["id"] as? String == note }?["strokes"] as? Int, 3)
+    }
+
+    func testSvgLayoutAllVersusSingle() throws {
+        let (_, _, keyPath) = try makeVault()
+        let v = path("mine.inkvault")
+        let all = path("svgall")
+        XCTAssertEqual(try cli(["export", "--all", "--format", "svg", "--out", all, "--vault", v, "--identity", keyPath]).status, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: all + "/Physics-Week-3-aaaaaaaa").sorted(),
+                       ["p001.svg", "p002.svg"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: all + "/Groceries-bbbbbbbb"), ["p001.svg"])
     }
 
     // MARK: recover
@@ -300,7 +312,13 @@ final class CLICommandTests: CLITestCase {
         let wrong = try cli(["recover", firstRevision, "--identity", Self.fixtureKey, "--note-id",
                              "22222222-2222-4222-8222-222222222222"])
         XCTAssertEqual(wrong.status, 1)
-        XCTAssertTrue(wrong.err.contains("tag mismatch"), wrong.err)
+        XCTAssertTrue(wrong.err.contains("tag mismatch") && wrong.err.contains("--no-verify"), wrong.err)
+        XCTAssertTrue(wrong.out.isEmpty)
+        let forced = try cli(["recover", firstRevision, "--identity", Self.fixtureKey, "--note-id",
+                              "22222222-2222-4222-8222-222222222222", "--no-verify"])
+        XCTAssertEqual(forced.status, 3)
+        XCTAssertTrue(forced.err.contains("WARNING: tag mismatch, content may be tampered or from another vault"), forced.err)
+        XCTAssertNotNil(forced.json)
         // A file that is not age at all.
         let junk = path("junk.age")
         try Data("not age".utf8).write(to: URL(fileURLWithPath: junk))

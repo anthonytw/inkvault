@@ -29,6 +29,10 @@ struct RecoverCommand: ParsableCommand {
             help: ArgumentHelp("Variable holding the passphrase of a key file stored in the vault.", valueName: "var"))
     var passphraseEnv: String?
 
+    @Flag(name: .customLong("no-verify"),
+          help: "On a tag mismatch print the body anyway, with a warning, and exit 3 (for damaged vaults).")
+    var noVerify = false
+
     @Flag(name: .shortAndLong, help: "Do not print the UNVERIFIED notice or other detail.")
     var quiet = false
 
@@ -65,12 +69,23 @@ struct RecoverCommand: ParsableCommand {
         }
 
         let result: RecoveredRevision
+        var tampered = false
         do {
             result = try Recovery.decrypt(data, noteId: note, filename: url.lastPathComponent, identities: ids, vault: vault)
         } catch BodyFramingError.tagMismatch {
-            throw CLIError("tag mismatch: the file was altered, moved or belongs to another vault (check --note-id)")
+            guard noVerify else {
+                throw CLIError("tag mismatch: the file was altered, moved or belongs to another vault "
+                    + "(check --note-id; use --no-verify to print the body anyway for damaged vaults)")
+            }
+            tampered = true
+            result = try Recovery.decrypt(data, noteId: note, filename: url.lastPathComponent, identities: ids,
+                                          vault: vault, verifyTag: false)
         }
         FileHandle.standardOutput.write(result.json)
+        if tampered {
+            printStderr("WARNING: tag mismatch, content may be tampered or from another vault")
+            throw ExitCode(CLIError.unhealthy)
+        }
         if !result.verified {
             if !quiet { printStderr("UNVERIFIED: tag not checked (\(why))") }
         } else if verbose {
