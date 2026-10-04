@@ -40,7 +40,7 @@ let package = Package(
         .executableTarget(
             name: "InkVaultCLI",
             dependencies: [
-                "Age", "InkVault", "InkRender",
+                "Age", "InkVault", "InkRender", "InkImport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
