@@ -7,9 +7,11 @@ import UIKit
 // PencilKit ⇄ format conversion (format.md §5.6). Everything here works on
 // iPadOS 26; nothing uses the iPadOS 27 additions (stroke ids, substroke).
 //
-// Carried exactly: every control point's location, time offset, size,
-// opacity, force, azimuth and altitude; the ink type (except `reed`, below);
-// the colour as 8-bit RGBA; the transform.
+// Carried exactly: every control point's location, time offset, opacity,
+// force, azimuth and altitude; the ink type (except `reed`, below); the
+// colour as 8-bit RGBA; the transform. Point sizes go through `NibSize`:
+// the format stores the width the ink is drawn at, PencilKit a size that
+// it renders much thinner (or not at all), per ink.
 // Not representable in the format, so approximated:
 // - `Ink.width`: PencilKit strokes have no nominal width; a new stroke takes
 //   the tool's width when the tool still matches, else its widest point.
@@ -79,15 +81,77 @@ extension Transform {
     }
 }
 
+/// Format point size (`w`, `h`: the width the ink is drawn at, in points,
+/// format.md §5.6) ⇄ `PKStrokePoint.size`, per ink.
+///
+/// PencilKit does not draw a point at its `size`. Measured on iPadOS 26.5 and
+/// 27.0 (the same on both; independent of force, tool width, timing, render
+/// scale, `secondaryScale` and `threshold`), a straight stroke of size `s` is
+/// drawn:
+/// - `pen`, `monoline`, `fountainPen` (across the nib): `2s − 4` wide, so
+///   nothing at all below `s = 2`. Strokes drawn with the Pencil have sizes
+///   of about 2.5 to 5; Notability's pens are 0.4 to 2 wide, which is why
+///   imported notes showed no handwriting.
+/// - `marker`: a nib whose extents depend on direction and azimuth; a size
+///   of `(w / 0.4375, h / 1.225)` draws about `w` wide in every direction
+///   when `w == h`.
+/// - `pencil`, `crayon`, `watercolor`: about `1.75 s` (textured edges).
+///
+/// Every map is linear, so format → PencilKit → format is exact up to
+/// PencilKit's storage: Float32, and a height kept as a ratio of the width
+/// rounded to 1e-3 (so a marker's `h` comes back within about `0.0015 w`).
+/// PencilKit → format → PencilKit is stable. PencilKit sizes below 2 on the pen family
+/// (drawn invisibly by PencilKit) come back as width 0, which loads as size
+/// 2, also invisible.
+enum NibSize {
+    /// Pen family: drawn width `2s − 4`.
+    static let penOffset = 2.0
+    /// Marker: drawn extent per unit of size, across a horizontal stroke (`w`)
+    /// and a vertical one (`h`).
+    static let markerWidthFactor = 0.4375
+    static let markerHeightFactor = 1.225
+    /// Textured inks: drawn width per unit of size.
+    static let texturedFactor = 1.75
+
+    /// The PencilKit size for a format point size.
+    static func pkSize(w: Double, h: Double, tool: InkTool) -> CGSize {
+        let w = max(w, 0), h = max(h, 0)
+        switch tool {
+        case .pen, .monoline, .fountainPen:
+            return CGSize(width: w / 2 + penOffset, height: h / 2 + penOffset)
+        case .marker:
+            return CGSize(width: w / markerWidthFactor, height: h / markerHeightFactor)
+        case .pencil, .crayon, .watercolor:
+            return CGSize(width: w / texturedFactor, height: h / texturedFactor)
+        }
+    }
+
+    /// The format point size for a PencilKit size.
+    static func formatSize(_ size: CGSize, tool: InkTool) -> (w: Double, h: Double) {
+        let sw = Double(size.width), sh = Double(size.height)
+        switch tool {
+        case .pen, .monoline, .fountainPen:
+            return (max(2 * (sw - penOffset), 0), max(2 * (sh - penOffset), 0))
+        case .marker:
+            return (sw * markerWidthFactor, sh * markerHeightFactor)
+        case .pencil, .crayon, .watercolor:
+            return (sw * texturedFactor, sh * texturedFactor)
+        }
+    }
+}
+
 extension StrokePoint {
-    init(_ p: PKStrokePoint) {
+    /// A format point from a PencilKit control point drawn with `tool`.
+    init(_ p: PKStrokePoint, tool: InkTool) {
+        let size = NibSize.formatSize(p.size, tool: tool)
         self.init(x: Double(p.location.x), y: Double(p.location.y), t: p.timeOffset,
-                  w: Double(p.size.width), h: Double(p.size.height), o: Double(p.opacity),
+                  w: size.w, h: size.h, o: Double(p.opacity),
                   f: Double(p.force), az: Double(p.azimuth), al: Double(p.altitude))
     }
 
-    var pkStrokePoint: PKStrokePoint {
-        PKStrokePoint(location: CGPoint(x: x, y: y), timeOffset: t, size: CGSize(width: w, height: h),
+    /// The PencilKit control point for this point drawn with `tool`.
+    func pkStrokePoint(tool: InkTool) -> PKStrokePoint {
+        PKStrokePoint(location: CGPoint(x: x, y: y), timeOffset: t, size: NibSize.pkSize(w: w, h: h, tool: tool),
                       opacity: CGFloat(o), force: CGFloat(f), azimuth: CGFloat(az), altitude: CGFloat(al))
     }
 }
@@ -100,7 +164,9 @@ enum StrokeConversion {
     /// The PencilKit stroke for a stored stroke. Its texture seed is derived
     /// from the stroke id, so a textured stroke looks the same on every load.
     static func pkStroke(_ stroke: Stroke) -> PKStroke {
-        let path = PKStrokePath(controlPoints: stroke.points.map(\.pkStrokePoint), creationDate: loadedCreationDate)
+        let tool = stroke.ink.tool
+        let path = PKStrokePath(controlPoints: stroke.points.map { $0.pkStrokePoint(tool: tool) },
+                                creationDate: loadedCreationDate)
         let ink = PKInk(stroke.ink.tool.pkInkType, color: stroke.ink.color.uiColor)
         let transform = (stroke.transform ?? .identity).cgAffineTransform
         return PKStroke(ink: ink, path: path, transform: transform, mask: nil, randomSeed: seed(for: stroke.id))
@@ -112,9 +178,9 @@ enum StrokeConversion {
         return UInt32(u.0) << 24 | UInt32(u.1) << 16 | UInt32(u.2) << 8 | UInt32(u.3)
     }
 
-    /// The control points of a PencilKit path.
-    static func points(of path: PKStrokePath) -> [StrokePoint] {
-        path.map(StrokePoint.init)
+    /// The control points of a PencilKit path drawn with `tool`.
+    static func points(of path: PKStrokePath, tool: InkTool) -> [StrokePoint] {
+        path.map { StrokePoint($0, tool: tool) }
     }
 
     /// The format strokes a PencilKit stroke stands for: one for an unmasked
@@ -125,10 +191,11 @@ enum StrokeConversion {
     /// - Parameter nominalWidth: `Ink.width` to record; nil takes the widest
     ///   control point.
     static func strokes(from pk: PKStroke, nominalWidth: Double? = nil) -> [Stroke] {
-        let all = points(of: pk.path)
+        let tool = InkTool(pk.ink.inkType)
+        let all = points(of: pk.path, tool: tool)
         let transform = Transform(pk.transform)
         let width = nominalWidth ?? all.map(\.w).max() ?? 0
-        let ink = Ink(tool: InkTool(pk.ink.inkType), color: InkVault.Color(pk.ink.color), width: width)
+        let ink = Ink(tool: tool, color: InkVault.Color(pk.ink.color), width: width)
         let pieces: [[StrokePoint]]
         if pk.mask == nil {
             pieces = [all]

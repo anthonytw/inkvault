@@ -31,7 +31,9 @@ struct StrokeConversionTests {
         #expect(StrokeConversion.strokes(from: pk).count == 1)
         #expect(back.ink == original.ink)
         #expect(back.transform == original.transform)
-        Self.expectClose(back.points, original.points)
+        // PencilKit keeps a size's height as a ratio of its width rounded to
+        // 1e-3, and the marker map makes that ratio far from 1.
+        Self.expectClose(back.points, original.points, tolerance: tool == .marker ? 0.01 : Self.pencilKitPrecision)
     }
 
     /// Locations, sizes, times, force, opacity and azimuth come back bit for

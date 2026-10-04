@@ -20,7 +20,7 @@ enum TS {
 
     /// A stroke as the canvas would report it once drawn.
     static func canvasStroke(_ s: Stroke, created: Date = Date()) -> PKStroke {
-        let path = PKStrokePath(controlPoints: s.points.map(\.pkStrokePoint), creationDate: created)
+        let path = PKStrokePath(controlPoints: s.points.map { $0.pkStrokePoint(tool: s.ink.tool) }, creationDate: created)
         return PKStroke(ink: PKInk(s.ink.tool.pkInkType, color: s.ink.color.uiColor), path: path,
                         transform: (s.transform ?? .identity).cgAffineTransform)
     }

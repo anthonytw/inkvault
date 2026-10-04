@@ -94,5 +94,10 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   quantized opacity/azimuth/altitude): compare converted strokes within a
   tolerance, never with `==`. Stroke identity across canvas edits comes from
   `StrokeLedger`'s fingerprints, which are always taken from the `PKStroke`.
+- `PKStrokePoint.size` is not the drawn width: a pen or monoline of size `s`
+  is drawn `2s − 4` wide (invisible below 2), markers and textured inks
+  differ again. Point sizes go through `NibSize` (StrokeConversion.swift);
+  never pass a format `w` to PencilKit directly. `ImportedStrokeRenderingTests`
+  pins the relation, so an iPadOS change to it fails there first.
 - `PKCanvasView` inverts ink colours in dark mode; the canvas forces
   `.light` because ink colours are stored as drawn on (light) paper.
