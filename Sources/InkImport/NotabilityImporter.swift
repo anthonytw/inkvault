@@ -1,0 +1,398 @@
+import Foundation
+import InkVault
+
+/// Maps Notability notes to InkVault notes and writes them into a vault
+/// (`docs/import-notability.md`).
+public enum NotabilityImporter {
+    /// Options for `import`.
+    public struct Options: Sendable {
+        /// Re-import notes whose derived id already exists in the vault. The
+        /// old pages are removed and the note's content written again with
+        /// fresh page and stroke ids (removed ids are never reused, format.md §5.2).
+        public var overwrite: Bool
+        /// Notebook for every imported note instead of the path-derived one.
+        public var notebook: String?
+        /// `app` field of written revisions.
+        public var app: String
+
+        public init(overwrite: Bool = false, notebook: String? = nil, app: String = "inkvault-import/0.1") {
+            self.overwrite = overwrite; self.notebook = notebook; self.app = app
+        }
+    }
+
+    /// Content of a Notability note that the import leaves behind.
+    public struct Dropped: Hashable, Sendable {
+        /// Characters of typed text.
+        public var typedTextCharacters = 0
+        /// Imported PDFs the ink was written on.
+        public var pdfs = 0
+        /// Images and other media objects.
+        public var media = 0
+        /// Audio recordings.
+        public var recordings = 0
+        /// Strokes imported solid although Notability draws them dashed.
+        public var dashedStrokes = 0
+        /// Strokes of a `curvesstyles` value other than pen or highlighter (imported as pen).
+        public var unknownStyleStrokes = 0
+
+        public init() {}
+
+        /// True when nothing was left behind.
+        public var isEmpty: Bool { self == Dropped() }
+    }
+
+    /// Outcome for one source note.
+    public enum Status: Hashable, Sendable {
+        case ok
+        /// Not written; the reason says why (already in the vault, duplicate in this run).
+        case skipped(String)
+        /// Could not be parsed or written.
+        case failed(String)
+    }
+
+    /// One row of an `ImportReport`.
+    public struct NoteResult: Hashable, Sendable {
+        /// Where the note came from: a file path, or `<zip>!<entry>`.
+        public var source: String
+        /// Derived note id (nil when the note could not be parsed).
+        public var noteId: UUID?
+        /// Note title.
+        public var title: String?
+        /// Notebook it went to.
+        public var notebook: String?
+        public var status: Status
+        /// Strokes written.
+        public var strokes = 0
+        /// Notability pages with recognised text.
+        public var recognizedPages = 0
+        /// What was not imported.
+        public var dropped = Dropped()
+        /// Wall time spent on this note, seconds.
+        public var seconds = 0.0
+
+        public init(source: String, status: Status) { self.source = source; self.status = status }
+    }
+
+    /// Result of `import`.
+    public struct ImportReport: Hashable, Sendable {
+        /// One entry per source note, in input order.
+        public var notes: [NoteResult] = []
+
+        public init() {}
+
+        /// Notes written.
+        public var imported: Int { notes.filter { $0.status == .ok }.count }
+        /// Notes skipped.
+        public var skipped: Int { notes.filter { if case .skipped = $0.status { return true }; return false }.count }
+        /// Notes that failed.
+        public var failed: Int { notes.filter { if case .failed = $0.status { return true }; return false }.count }
+        /// Strokes written across all notes.
+        public var strokes: Int { notes.reduce(0) { $0 + $1.strokes } }
+    }
+
+    // MARK: - Mapping
+
+    /// The vault note id for a Notability note: a name-based UUID
+    /// (`UUID.derived(from:)`) of `"inkvault-notability:" + uuidKey`, so a
+    /// re-import of the same note finds it. Notes without a `uuidKey` (not
+    /// seen in practice) use their name and creation time instead.
+    public static func noteId(for note: NotabilityNote) -> UUID {
+        UUID.derived(from: "inkvault-notability:" + sourceKey(note))
+    }
+
+    static func sourceKey(_ note: NotabilityNote) -> String {
+        if let u = note.metadata.uuid, !u.isEmpty { return u }
+        return "name:\(note.metadata.name)|created:\(note.metadata.created?.timeIntervalSinceReferenceDate ?? 0)"
+    }
+
+    /// Maps a parsed note to an InkVault note state: one infinite page, one
+    /// stroke per curve, Notability's recognised text merged into the page's
+    /// `recognition`. Ids are derived from the Notability uuid (and
+    /// `generation`, bumped by an overwrite), so the mapping is deterministic.
+    ///
+    /// - Parameters:
+    ///   - notebook: the notebook to file the note under (else the Notability subject).
+    ///   - generation: 0 for a first import; distinct values mint fresh page and stroke ids.
+    public static func convert(_ note: NotabilityNote, notebook: String? = nil, generation: Int = 0) -> NoteState {
+        let key = "inkvault-notability:" + sourceKey(note) + (generation == 0 ? "" : ":gen\(generation)")
+        let pageId = UUID.derived(from: key + ":page")
+
+        // Highlighter first so it sits behind the ink, as Notability draws it.
+        let order = note.curves.indices.sorted { a, b in
+            let ha = note.curves[a].isHighlighter, hb = note.curves[b].isHighlighter
+            return ha != hb ? ha : a < b
+        }
+        var strokes: [Stroke] = []
+        strokes.reserveCapacity(note.curves.count)
+        var maxY = 0.0
+        for i in order {
+            let c = note.curves[i]
+            let dx = note.paper.insetX
+            let pts = BezierToBSpline.strokePoints(of: c).map { p -> StrokePoint in var p = p; p.x += dx; return p }
+            guard !pts.isEmpty else { continue }
+            let highlighter = c.isHighlighter
+            // Marker colours are opaque pigment; the marker tool supplies the
+            // translucency (as PencilKit's does).
+            var color = c.color
+            if highlighter { color.a = 255 }
+            strokes.append(Stroke(id: UUID.derived(from: key + ":stroke:\(i)"),
+                                  ink: Ink(tool: highlighter ? .marker : .pen, color: color, width: c.width),
+                                  points: pts))
+            for p in pts where p.y.isFinite { maxY = max(maxY, p.y + max(p.w, c.width) / 2) }
+        }
+
+        let paper = note.paper
+        var meta = NoteMeta(title: note.metadata.name, tags: note.metadata.tags,
+                            notebook: notebook ?? note.metadata.subject,
+                            created: note.metadata.created ?? Date(timeIntervalSince1970: 0),
+                            paper: Paper(kind: paper.kind, spacing: paper.spacing ?? 24),
+                            pageSize: PageSize(width: paper.width,
+                                               height: max(paper.pageHeight, maxY.rounded(.up)), infinite: true))
+        if paper.kind == .blank { meta.paper = .blank }
+        let page = Page(id: pageId, order: PageOrder.between(nil, nil), strokes: strokes,
+                        recognition: recognition(note))
+        return NoteState(meta: meta, pages: [page])
+    }
+
+    /// Notability's per-page recognition merged into one `Recognition` for
+    /// the single infinite page: texts joined by newlines in page order,
+    /// words built by grouping character boxes between whitespace, boxes moved
+    /// by `pageContentOrigin` and the page's offset (`(n - 1) × pageHeight`).
+    public static func recognition(_ note: NotabilityNote) -> Recognition? {
+        guard !note.recognition.isEmpty else { return nil }
+        var texts: [String] = []
+        var words: [Recognition.Word] = []
+        for number in note.recognition.keys.sorted() {
+            guard let page = note.recognition[number] else { continue }
+            texts.append(page.text)
+            let dx = page.origin.x + note.paper.insetX, dy = page.origin.y + Double(number - 1) * note.paper.pageHeight
+            var current = "", box: Recognition.Box?
+            func flush() {
+                if !current.isEmpty, let b = box {
+                    words.append(Recognition.Word(text: current, box: Recognition.Box(x: b.x + dx, y: b.y + dy, w: b.w, h: b.h)))
+                }
+                current = ""; box = nil
+            }
+            var unit = 0
+            for ch in page.text {
+                let units = ch.utf16.count
+                defer { unit += units }
+                if ch.isWhitespace { flush(); continue }
+                current.append(ch)
+                for u in unit..<(unit + units) where u < page.characterBoxes.count {
+                    guard let b = page.characterBoxes[u] else { continue }
+                    box = box.map { union($0, b) } ?? b
+                }
+            }
+            flush()
+        }
+        let engine = "notability" + (note.bundleVersion.map { "-" + $0 } ?? "")
+        return Recognition(engine: engine, text: texts.joined(separator: "\n"), words: words)
+    }
+
+    private static func union(_ a: Recognition.Box, _ b: Recognition.Box) -> Recognition.Box {
+        let x0 = min(a.x, b.x), y0 = min(a.y, b.y)
+        let x1 = max(a.x + a.w, b.x + b.w), y1 = max(a.y + a.h, b.y + b.h)
+        return Recognition.Box(x: x0, y: y0, w: x1 - x0, h: y1 - y0)
+    }
+
+    /// What `convert` leaves out of `note`.
+    public static func dropped(_ note: NotabilityNote) -> Dropped {
+        var d = Dropped()
+        d.typedTextCharacters = note.typedText.trimmingCharacters(in: .whitespacesAndNewlines).count
+        d.pdfs = note.pdfCount
+        d.media = note.mediaCount
+        d.recordings = note.recordingCount
+        d.dashedStrokes = note.curves.filter(\.dashed).count
+        d.unknownStyleStrokes = note.curves.filter {
+            $0.style != NotabilityNote.penStyle && $0.style != NotabilityNote.highlighterStyle
+        }.count
+        return d
+    }
+
+    /// The ops of one import delta for `state` (as `convert` builds it):
+    /// `addPage`, one `addStroke` per stroke, `setMeta` for title, tags,
+    /// notebook, paper and page size, and `setPageRecognition`.
+    public static func ops(for state: NoteState) -> [Op] {
+        var ops: [Op] = []
+        for page in state.pages {
+            ops.append(.addPage(Page(id: page.id, order: page.order)))
+            for s in page.strokes { ops.append(.addStroke(page: page.id, stroke: s)) }
+        }
+        let m = state.meta
+        ops.append(.setMeta(.title(m.title)))
+        if !m.tags.isEmpty { ops.append(.setMeta(.tags(m.tags))) }
+        if m.notebook != nil { ops.append(.setMeta(.notebook(m.notebook))) }
+        ops.append(.setMeta(.paper(m.paper)))
+        ops.append(.setMeta(.pageSize(m.pageSize)))
+        for page in state.pages where page.recognition != nil {
+            ops.append(.setPageRecognition(pageId: page.id, recognition: page.recognition))
+        }
+        return ops
+    }
+
+    // MARK: - Import
+
+    /// One `.note` found in the inputs.
+    struct Source {
+        var label: String
+        var notebook: String?
+        var load: () throws -> Data
+    }
+
+    /// Imports Notability notes into `vault`, one delta per note.
+    ///
+    /// Each path may be a `.note` file, a directory (searched recursively for
+    /// `.note` files), or a zip holding `.note` files (Notability's Google
+    /// Drive backup). The notebook is the directory under `Notability/` in the
+    /// path (e.g. `Research/Daily log`), else the directory relative to an
+    /// input directory, else the note's Notability subject; `options.notebook`
+    /// overrides all of them.
+    ///
+    /// A note whose derived id already exists is skipped unless
+    /// `options.overwrite`. Per-note problems are reported, not thrown. The
+    /// delta's `wall` is the note's Notability creation date, so the note's
+    /// `created` (format.md §5.4) is preserved; its `hlc` comes from `clock`.
+    ///
+    /// - Throws: `ImportError.io` / `.zip` when an input cannot be listed or
+    ///   opened; `VaultError` when the vault cannot be listed.
+    public static func `import`(paths: [URL], into vault: Vault, device: DeviceID, clock: inout HybridClock,
+                                options: Options = Options(), now: () -> Date = Date.init) throws -> ImportReport {
+        var report = ImportReport()
+        var existing = Set(try vault.noteIDs())
+        var seen = Set<UUID>()
+        var archives: [ZipArchive] = []   // keep open while their sources are read
+        for url in paths {
+            for source in try sources(url, archives: &archives) {
+                let started = Date()
+                // Drain Foundation's autoreleased plist objects per note on Darwin.
+                var result = withPool {
+                    importOne(source, into: vault, device: device, clock: &clock, options: options, now: now,
+                              existing: &existing, seen: &seen)
+                }
+                result.seconds = Date().timeIntervalSince(started)
+                report.notes.append(result)
+            }
+        }
+        _ = archives
+        return report
+    }
+
+    static func withPool<T>(_ body: () -> T) -> T {
+        #if canImport(Darwin)
+        return autoreleasepool(invoking: body)
+        #else
+        return body()
+        #endif
+    }
+
+    static func importOne(_ source: Source, into vault: Vault, device: DeviceID, clock: inout HybridClock,
+                          options: Options, now: () -> Date, existing: inout Set<UUID>,
+                          seen: inout Set<UUID>) -> NoteResult {
+        var result = NoteResult(source: source.label, status: .ok)
+        let note: NotabilityNote
+        do { note = try NotabilityNote.parse(data: source.load()) } catch {
+            result.status = .failed(describe(error)); return result
+        }
+        let id = noteId(for: note)
+        result.noteId = id
+        result.title = note.metadata.name
+        let notebook = options.notebook ?? source.notebook ?? note.metadata.subject
+        result.notebook = notebook
+        result.dropped = dropped(note)
+        guard seen.insert(id).inserted else {
+            result.status = .skipped("duplicate of an earlier note in this import (same Notability uuid)")
+            return result
+        }
+        let exists = existing.contains(id)
+        if exists && !options.overwrite {
+            result.status = .skipped("already in the vault"); return result
+        }
+        do {
+            var ops: [Op] = []
+            var seq = 1
+            var generation = 0
+            if exists {
+                let old = try vault.reconstruct(noteId: id)
+                seq = try vault.nextSeq(noteId: id, device: device)
+                generation = seq
+                ops += old.pages.map { .removePage(pageId: $0.id) }
+                if old.deleted { ops.append(.restoreNote) }
+            }
+            let state = convert(note, notebook: notebook, generation: generation)
+            ops += Self.ops(for: state)
+            let wall = note.metadata.created ?? now()
+            let hlc = clock.tick(wall: now())
+            try vault.write(Revision(noteId: id, device: device, seq: seq, hlc: hlc, wall: wall,
+                                     app: options.app, body: .delta(ops: ops)))
+            existing.insert(id)
+            result.strokes = state.pages.reduce(0) { $0 + $1.strokes.count }
+            result.recognizedPages = note.recognition.count
+        } catch {
+            result.status = .failed(describe(error))
+        }
+        return result
+    }
+
+    static func describe(_ error: Error) -> String {
+        switch error {
+        case ImportError.zip(let s): return "zip: \(s)"
+        case ImportError.archive(let s): return "plist: \(s)"
+        case ImportError.notability(let s): return "note: \(s)"
+        case ImportError.io(let s): return "io: \(s)"
+        default: return "\(error)"
+        }
+    }
+
+    /// Expands one input path into `.note` sources.
+    static func sources(_ url: URL, archives: inout [ZipArchive]) throws -> [Source] {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+            throw ImportError.io("no such file: \(url.path)")
+        }
+        if isDir.boolValue {
+            guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) else {
+                throw ImportError.io("cannot list \(url.path)")
+            }
+            var found: [URL] = []
+            for case let f as URL in walker where f.pathExtension.lowercased() == "note" { found.append(f) }
+            let base = url.standardizedFileURL.pathComponents
+            return found.sorted { $0.path < $1.path }.map { f in
+                let comps = Array(f.standardizedFileURL.pathComponents.dropLast())
+                let rel = comps.count > base.count ? Array(comps[base.count...]) : []
+                return Source(label: f.path, notebook: notebook(fromDirectories: comps) ?? join(rel),
+                              load: { try readFile(f) })
+            }
+        }
+        if url.pathExtension.lowercased() == "note" {
+            let comps = Array(url.standardizedFileURL.pathComponents.dropLast())
+            return [Source(label: url.path, notebook: notebook(fromDirectories: comps), load: { try readFile(url) })]
+        }
+        // Anything else is treated as a zip of .note files.
+        let zip = try ZipArchive(url: url)
+        archives.append(zip)
+        return zip.entries.filter { !$0.isDirectory && $0.path.lowercased().hasSuffix(".note") }
+            .sorted { $0.path < $1.path }
+            .map { e in
+                let comps = e.path.split(separator: "/").map(String.init).dropLast()
+                return Source(label: "\(url.path)!\(e.path)", notebook: notebook(fromDirectories: Array(comps)),
+                              load: { try zip.read(e) })
+            }
+    }
+
+    /// The directories after the last `Notability` component, joined by `/`.
+    static func notebook(fromDirectories comps: [String]) -> String? {
+        guard let i = comps.lastIndex(of: "Notability") else { return nil }
+        return join(Array(comps[(i + 1)...]))
+    }
+
+    private static func join(_ comps: [String]) -> String? {
+        comps.isEmpty ? nil : comps.joined(separator: "/")
+    }
+
+    private static func readFile(_ url: URL) throws -> Data {
+        do { return try Data(contentsOf: url) } catch {
+            throw ImportError.io("cannot read \(url.path): \(error.localizedDescription)")
+        }
+    }
+}
