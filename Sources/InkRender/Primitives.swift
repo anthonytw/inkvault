@@ -111,6 +111,24 @@ public enum RenderError: Error, Equatable {
     case invalidGeometry
     /// Page width is not a finite positive number <= `maxExtent`, or height is negative/non-finite/too large.
     case invalidPageSize
+    /// The raster scale is not a finite positive number.
+    case invalidScale
+    /// An output image would have `pixels` pixels, more than `limit` allows.
+    case imageTooLarge(pixels: Double, limit: Int)
+}
+
+extension RenderError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .compressionFailed(let rc): return "zlib failed (status \(rc))"
+        case .extentTooLarge(let e): return "page or stroke extent \(fmt(e)) pt is beyond the supported limit"
+        case .invalidGeometry: return "a stroke has non-finite coordinates, sizes or transform"
+        case .invalidPageSize: return "the page size is invalid"
+        case .invalidScale: return "the raster scale or dpi must be a finite positive number"
+        case .imageTooLarge(let pixels, let limit):
+            return "image of \(fmt(pixels)) pixels exceeds the limit of \(limit); lower --dpi"
+        }
+    }
 }
 
 /// Clamps to 0...1; NaN becomes 0 (plain `min(max(x, 0), 1)` passes NaN through).

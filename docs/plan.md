@@ -30,7 +30,8 @@ drop export, bulk export, key management.
 ## Phase 3 — nice to have
 
 Built-in WebDAV client; compaction UI;
-PNG export; page backgrounds (PDF and image attachments: in the reference
+~~PNG export~~ (done: `inkvault export --format png [--dpi N]`, pure-Swift rasterizer in
+`Sources/InkRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper); stroke
 dedupe after concurrent slicing; post-quantum recipient type; read-only
