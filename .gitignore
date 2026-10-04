@@ -9,3 +9,6 @@ DerivedData/
 *.key.txt
 /tmp/
 .worktrees/
+
+# Personal sample data for importer development (never commit)
+/data/
