@@ -73,20 +73,21 @@ struct PreparedPage {
         strokes = list
         if size.infinite {
             guard low <= maxE else { throw RenderError.extentTooLarge(low) }
-            let chunk = Self.chunkHeight(options: options, width: size.width)
+            let chunk = Self.chunkHeight(options: options, size: size)
             extent = max(size.height, low.rounded(.up), chunk)
         } else {
             extent = size.height
         }
     }
 
-    static func chunkHeight(options: RenderOptions, width: Double) -> Double {
-        let base = options.infiniteChunkHeight ?? width * 11 / 8.5
+    /// The option, else the page's `breakHeight`, else letter aspect from the width.
+    static func chunkHeight(options: RenderOptions, size: PageSize) -> Double {
+        let base = options.infiniteChunkHeight ?? size.breakHeight ?? size.width * 11 / 8.5
         return min(max(base.isFinite ? base : 792, 72), RenderLimits.maxExtent)
     }
 
     /// Chunk height for infinite pages: the option (clamped), else letter aspect from the width.
-    var chunkHeight: Double { Self.chunkHeight(options: options, width: meta.pageSize.width) }
+    var chunkHeight: Double { Self.chunkHeight(options: options, size: meta.pageSize) }
 
     /// Output pages for this note page.
     var chunks: [PageChunk] {

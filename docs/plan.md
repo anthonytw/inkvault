@@ -30,7 +30,9 @@ drop export, bulk export, key management.
 ## Phase 3 — nice to have
 
 History browser and restore; built-in WebDAV client; compaction UI;
-PNG export; stroke
+PNG export; page backgrounds (PDF and image attachments: in the reference
+Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
+imported today as ink on blank paper); stroke
 dedupe after concurrent slicing; post-quantum recipient type; read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
 refuses any `format` other than `inkvault/1`).

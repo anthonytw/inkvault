@@ -270,6 +270,9 @@ the window; of two snapshots with equal `included`, keep at least one.
 - `paper.kind` ∈ `blank`, `ruled`, `grid`, `dot`. Lengths are points (1/72 in).
 - `pageSize.infinite: true` means the page grows downward; `height` is then
   the current extent.
+- `pageSize.breakHeight` (optional, points): for an infinite page, the height
+  of each page a paginating exporter (PDF) splits it into. Absent, it
+  is `width × 11 / 8.5` (letter aspect). Ignored for finite pages.
 - In a snapshot, `pages` are sorted by `(order, id)`.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`,
@@ -381,3 +384,8 @@ not emit NaN or infinities. Numbers in `points` are plain JSON numbers.
 `format` in `vault.json` and the body version byte identify the format.
 A reader that sees a higher major version must refuse to write and may
 offer read-only access if it can parse the files.
+
+Until the first tagged release the format is pre-1.0: it may change without
+a version bump or a migration path. Throughout, readers reject a revision
+holding an op type they do not know (fail closed, reported like any other
+unreadable revision); they never silently drop the op and apply the rest.

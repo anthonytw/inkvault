@@ -281,9 +281,12 @@ public struct PageSize: Hashable, Sendable, Codable {
     /// Points; current extent when `infinite`.
     public var height: Double
     public var infinite: Bool
+    /// Points; for an infinite page, the height of each page an exporter
+    /// paginates it into. Nil: `width × 11 / 8.5` (format.md §5.4).
+    public var breakHeight: Double?
 
-    public init(width: Double, height: Double, infinite: Bool = false) {
-        self.width = width; self.height = height; self.infinite = infinite
+    public init(width: Double, height: Double, infinite: Bool = false, breakHeight: Double? = nil) {
+        self.width = width; self.height = height; self.infinite = infinite; self.breakHeight = breakHeight
     }
 
     public static let letter = PageSize(width: 612, height: 792)

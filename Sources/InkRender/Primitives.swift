@@ -79,8 +79,8 @@ public struct RenderOptions: Sendable {
     /// Curve flattening tolerance in points.
     public var tolerance: Double
     /// Height of each PDF page an infinite page is split into. `nil` uses the
-    /// page width x 11 / 8.5 (letter aspect), independent of the page's current
-    /// extent. Clamped to 72 ... `RenderLimits.maxExtent`.
+    /// page's `pageSize.breakHeight`, else the page width x 11 / 8.5 (letter
+    /// aspect), independent of the page's current extent. Clamped to 72 ... `RenderLimits.maxExtent`.
     public var infiniteChunkHeight: Double?
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
