@@ -1,0 +1,13 @@
+{
+  "created" : "2026-10-04T16:20:00.000Z",
+  "format" : "inkvault/1",
+  "recipients" : [
+    {
+      "added" : "2026-10-04T16:20:00.000Z",
+      "key" : "age1f406y9syjcsa2gj2lgz0s2g7suxrytycqr79zccg3d4spcujegqsgl00rd",
+      "label" : "InkVault test fixture (throwaway, test-only key)"
+    }
+  ],
+  "vaultId" : "5a3b1e00-1000-4000-8000-000000000001",
+  "vaultSecret" : "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBBMmo2MmlURXR2RUtwTEJu\nTjZsU2lYSDB2UXMxcENDVktGdFdTdU1rZGxVCmlTU0hHbTg3WXNrbEgxcEZaSEd4\nY3cyWmFUaWZ4aGttSjVhQ1JsM3ZkNEEKLS0tIDQvTEs2WTVqakFGZUpsOU9oSlZr\nR2ZET2lZU0p1ZXpOdUl0ZlBER2E0MVkKFKlYlMxwNDZaRInBOC9a10ym1vO90qrp\nZekuqayDIuzsU1pR0Ml/CcU+E15z2i9izvxPTYDyrh3fZCRoT3wEpQ==\n-----END AGE ENCRYPTED FILE-----\n"
+}
