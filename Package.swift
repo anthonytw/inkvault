@@ -46,7 +46,7 @@ let package = Package(
         .testTarget(name: "InkRenderTests", dependencies: ["InkRender"],
                     exclude: ["generate_sample_note.py"],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "CLITests", dependencies: []),
+        .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"]),
     ],
     swiftLanguageModes: [.v6]
 )
