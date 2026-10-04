@@ -17,12 +17,23 @@ public enum PaperRenderer {
     /// chunk with `yOffset <= y < yEnd` (half-open), so a rule exactly on a
     /// boundary is drawn once, at local y = 0, in the lower chunk.
     ///
+    /// `originY` is the global y that maps to output y = 0 (default `yOffset`,
+    /// i.e. chunk-local output); pass 0 to emit global coordinates for a band of
+    /// a taller image. `includeBackground: false` omits the background rect.
+    ///
     /// Paper whose spacing is below `RenderLimits.minPaperSpacing` (or not
     /// finite), or that would need more than `RenderLimits.maxPaperCommands`
-    /// commands, renders as the plain background.
+    /// commands in this band, renders as the plain background. Guarantee: any
+    /// band up to 612 x 792 pt (a letter page, or an infinite-page chunk of
+    /// width <= 612 pt) renders its full ruling at every spacing >= 4 pt.
     public static func commands(paper: Paper, width: Double, height: Double,
-                                yOffset: Double = 0, yEnd: Double? = nil) -> [DrawCommand] {
-        var out = [DrawCommand(.rect(x: 0, y: 0, width: width, height: height), fill: Paint(paper.background))]
+                                yOffset: Double = 0, yEnd: Double? = nil,
+                                originY: Double? = nil, includeBackground: Bool = true) -> [DrawCommand] {
+        let origin = originY ?? yOffset
+        var out: [DrawCommand] = []
+        if includeBackground {
+            out.append(DrawCommand(.rect(x: 0, y: yOffset - origin, width: width, height: height), fill: Paint(paper.background)))
+        }
         let s = paper.spacing
         let bottom = yEnd ?? (yOffset + height)
         guard paper.kind != .blank, s.isFinite, s >= RenderLimits.minPaperSpacing,
@@ -50,18 +61,18 @@ public enum PaperRenderer {
         case .blank:
             break
         case .ruled:
-            for k in rows { out.append(hline(Double(k) * s - yOffset, width, line)) }
+            for k in rows { out.append(hline(Double(k) * s - origin, width, line)) }
         case .grid:
-            for k in rows { out.append(hline(Double(k) * s - yOffset, width, line)) }
+            for k in rows { out.append(hline(Double(k) * s - origin, width, line)) }
             for k in cols {
                 let x = Double(k) * s
-                out.append(DrawCommand(.line(from: Point(x: x, y: 0), to: Point(x: x, y: height)),
+                out.append(DrawCommand(.line(from: Point(x: x, y: yOffset - origin), to: Point(x: x, y: bottom - origin)),
                                        stroke: line, lineWidth: ruleWidth))
             }
         case .dot:
             for r in rows {
                 for k in cols {
-                    out.append(DrawCommand(.circle(center: Point(x: Double(k) * s, y: Double(r) * s - yOffset),
+                    out.append(DrawCommand(.circle(center: Point(x: Double(k) * s, y: Double(r) * s - origin),
                                                    radius: dotRadius), fill: line))
                 }
             }

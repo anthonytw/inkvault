@@ -84,4 +84,26 @@ final class SVGWriterTests: XCTestCase {
         let meta = T.meta(size: PageSize(width: 200, height: 300, infinite: true))
         XCTAssertThrowsError(try SVGWriter.render(page: Page(order: "a", strokes: [s]), meta: meta))
     }
+
+    func testZeroHeightInfinitePageFloorsAtChunkHeight() throws {
+        let meta = T.meta(size: PageSize(width: 612, height: 0, infinite: true))
+        let c = try parse(try SVGWriter.render(page: Page(order: "a"), meta: meta))
+        XCTAssertEqual(c.svgAttrs["viewBox"], "0 0 612 792")
+        XCTAssertEqual(c.svgAttrs["height"], "792pt")
+    }
+
+    func testDotPaperOnLetterPageAtMinSpacingRendersFully() throws {
+        let meta = T.meta(paper: Paper(kind: .dot, spacing: RenderLimits.minPaperSpacing), size: .letter)
+        let c = try parse(try SVGWriter.render(page: Page(order: "a"), meta: meta))
+        XCTAssertEqual(c.counts["circle"], 152 * 197)   // cols 1...152, rows 1...197
+    }
+
+    func testTallInfiniteDotPageKeepsRulingPerBand() throws {
+        var meta = T.meta(paper: Paper(kind: .dot, spacing: 24), size: PageSize(width: 612, height: 792, infinite: true))
+        meta.pageSize.height = 792
+        let stroke = T.stroke([T.pt(10, 10), T.pt(10, 3000)])
+        let c = try parse(try SVGWriter.render(page: Page(order: "a", strokes: [stroke]), meta: meta))
+        // 25 columns x rows 1...ceil(extent/24)-1 across several bands; far more than one band's 800.
+        XCTAssertGreaterThan(c.counts["circle"] ?? 0, 3000)
+    }
 }

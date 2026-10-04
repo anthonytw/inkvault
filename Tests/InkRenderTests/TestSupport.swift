@@ -44,10 +44,16 @@ enum T {
     /// Index of the first occurrence of `needle` in `hay` at or after `from`.
     static func find(_ hay: [UInt8], _ needle: String, from: Int = 0, backwards: Bool = false) -> Int? {
         let n = Array(needle.utf8)
-        guard n.count <= hay.count else { return nil }
-        let range = Array(from...(hay.count - n.count))
-        for i in (backwards ? range.reversed() : range) where hay[i] == n[0] {
-            if hay[i..<(i + n.count)].elementsEqual(n) { return i }
+        guard let first = n.first, from >= 0, hay.count >= n.count else { return nil }
+        let last = hay.count - n.count
+        guard from <= last else { return nil }
+        func matches(_ i: Int) -> Bool { hay[i] == first && hay[i..<(i + n.count)].elementsEqual(n) }
+        if backwards {
+            var i = last
+            while i >= from { if matches(i) { return i }; i -= 1 }
+        } else {
+            var i = from
+            while i <= last { if matches(i) { return i }; i += 1 }
         }
         return nil
     }
