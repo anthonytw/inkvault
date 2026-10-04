@@ -183,6 +183,33 @@ struct AppModelTests {
         #expect(model.editor == nil)
         #expect(await TS.waitUntil { editor.deltasWritten == 1 })
     }
+
+    @Test func reopeningANoteRightAfterCloseReadsItsLastSave() async throws {
+        // Regression: close() saved the open note in a detached task, so the
+        // same note reopened at once could be read before that delta landed
+        // and show strokes whose removal was already on its way to disk.
+        let (url, key) = try Self.fixtureVault()
+        let keyText = try String(contentsOf: key, encoding: .utf8)
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .seconds(60))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: keyText)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        let page = try #require(editor.currentPage)
+        var drawing = editor.drawing(for: page.id)
+        let erased = try #require(editor.liveStrokes(of: page.id).first)
+        drawing.strokes.removeFirst()
+        editor.drawingDidChange(pageID: page.id, drawing: drawing, tool: nil)
+        model.close()
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: keyText)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let reopened = try #require(model.editor)
+        #expect(editor.deltasWritten == 1)
+        #expect(!reopened.liveStrokes(of: page.id).contains { $0.id == erased.id })
+    }
 }
 
 private final class BundleToken {}

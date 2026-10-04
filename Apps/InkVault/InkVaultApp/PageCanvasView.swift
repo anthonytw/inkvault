@@ -1,3 +1,4 @@
+import InkRender
 import InkVault
 import PencilKit
 import SwiftUI
@@ -115,8 +116,21 @@ final class PageCanvasHost: UIView {
 
     func apply(paper: Paper, pageSize: PageSize) {
         self.paper = paper
-        self.pageSize = pageSize
+        self.pageSize = Self.displayable(pageSize)
         fitWidth(force: true)
+    }
+
+    /// `size` with width and height clamped to 1 ... `RenderLimits.maxExtent`
+    /// points (letter for non-finite values), so a corrupt page size cannot
+    /// produce an absurd zoom scale or content size.
+    static func displayable(_ size: PageSize) -> PageSize {
+        func clamp(_ v: Double, _ fallback: Double) -> Double {
+            v.isFinite ? min(max(v, 1), RenderLimits.maxExtent) : fallback
+        }
+        var s = size
+        s.width = clamp(size.width, PageSize.letter.width)
+        s.height = clamp(size.height, PageSize.letter.height)
+        return s
     }
 
     func scrollToTop() {

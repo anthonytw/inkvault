@@ -163,6 +163,49 @@ struct StrokeLedgerTests {
         #expect(Self.save(&l).count == 1)
     }
 
+    @Test func undoWhileTheEraseIsBeingWrittenGetsANewId() throws {
+        // Regression: the ledger used to commit only after the write returned,
+        // so an undo during the write revived the id whose removal was being
+        // written and the next save added that removed id again.
+        let stored = [TS.stroke()]
+        var l = Self.ledger(stored)
+        let original = StrokeConversion.pkStroke(stored[0])
+        l.update(TS.items([]))                                  // erase
+        let save = try #require(l.beginSave(page: Self.page))   // the write is in flight
+        #expect(save.ops == [.removeStroke(page: Self.page, strokeId: stored[0].id)])
+        let back = try #require(l.update(TS.items([original])).added.first)   // undo meanwhile
+        #expect(back.id != stored[0].id)
+        #expect(back.parent == stored[0].id)
+        // The write lands; the next save adds the new id only.
+        let next = try #require(l.beginSave(page: Self.page))
+        #expect(next.ops == [.addStroke(page: Self.page, stroke: back)])
+    }
+
+    @Test func aFailedSaveLeavesItsOpsPending() throws {
+        let stored = [TS.stroke(), TS.stroke(x: 200)]
+        var l = Self.ledger(stored)
+        var drawing = [StrokeConversion.pkStroke(stored[1])]
+        drawing.append(TS.canvasStroke(TS.stroke(x: 300)))
+        l.update(TS.items(drawing))
+        let save = try #require(l.beginSave(page: Self.page))
+        #expect(save.ops.count == 2)
+        #expect(l.beginSave(page: Self.page) == nil)            // nothing else pending
+        l.saveFailed(save)
+        let retry = try #require(l.beginSave(page: Self.page))
+        #expect(retry.ops == save.ops)
+    }
+
+    @Test func pieceOfAStrokeBeingWrittenNamesItAsParent() throws {
+        var l = Self.ledger([])
+        let pk = TS.canvasStroke(TS.stroke(n: 40))
+        let whole = try #require(l.update(TS.items([pk])).added.first)
+        _ = try #require(l.beginSave(page: Self.page))           // its add is in flight
+        var masked = pk
+        masked.mask = UIBezierPath(rect: CGRect(x: 0, y: -100, width: 80, height: 400))
+        let change = l.update(TS.items([masked]))
+        #expect(change.added.first?.parent == whole.id)
+    }
+
     @Test func movingAStrokeReplacesItWithoutParent() throws {
         let stored = [TS.stroke()]
         var l = Self.ledger(stored)

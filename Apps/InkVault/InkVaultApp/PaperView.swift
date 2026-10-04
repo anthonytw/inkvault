@@ -63,11 +63,12 @@ final class PaperView: UIView {
     }
 
     /// Line and dot paths in page points, built band by band (PaperRenderer
-    /// caps the commands per band).
+    /// caps the commands per band). Ruling stops at `RenderLimits.maxExtent`,
+    /// as in exports, so a corrupt or absurd page height cannot spin here.
     static func paths(paper: Paper, size: CGSize) -> (CGMutablePath, CGMutablePath) {
         let lines = CGMutablePath(), dots = CGMutablePath()
-        let width = Double(size.width), height = Double(size.height)
-        guard width > 0, height > 0, height.isFinite else { return (lines, dots) }
+        let width = Double(size.width), height = min(Double(size.height), RenderLimits.maxExtent)
+        guard width > 0, width <= RenderLimits.maxExtent, height > 0 else { return (lines, dots) }
         let band = 792.0
         var y = 0.0
         while y < height {

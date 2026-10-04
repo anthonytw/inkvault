@@ -183,12 +183,14 @@ final class NoteEditor {
         guard let writer else { return }
         let pageOps = pendingPageOps
         var ops = pageOps
-        var written: [(UUID, [Stroke])] = []
+        // Ledgers commit before the write (see `StrokeLedger.beginSave`) and
+        // roll back if it fails.
+        var saves: [(UUID, StrokeLedger.Save)] = []
         for page in pages {
-            guard let l = ledgers[page.id] else { continue }
-            let live = l.live
-            let strokeOps = l.pendingOps(page: page.id, live: live)
-            if !strokeOps.isEmpty { ops += strokeOps; written.append((page.id, live)) }
+            guard var l = ledgers[page.id], let save = l.beginSave(page: page.id) else { continue }
+            ledgers[page.id] = l
+            ops += save.ops
+            saves.append((page.id, save))
         }
         let size = pageSize
         if size != committedPageSize { ops.append(.setMeta(.pageSize(size))) }
@@ -196,10 +198,10 @@ final class NoteEditor {
         do {
             try await writer.write(ops)
         } catch {
+            for (id, save) in saves { ledgers[id]?.saveFailed(save) }
             saveError = "Could not save: \(error)"
             return
         }
-        for (id, live) in written { ledgers[id]?.commit(live) }
         pendingPageOps.removeFirst(pageOps.count)
         committedPageSize = size
         deltasWritten += 1

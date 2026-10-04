@@ -170,6 +170,35 @@ struct StrokeLedger {
         return removes + adds
     }
 
+    /// A save in flight (`beginSave`): the ops it writes and what was on
+    /// disk before it.
+    struct Save {
+        var ops: [Op]
+        fileprivate var previous: [Stroke]
+    }
+
+    /// Starts writing the live strokes: returns the ops that bring the disk up
+    /// to them and records them as committed at once, before the write
+    /// finishes. Committing late would let an undo during the write revive an
+    /// id whose removal is being written, and the next save would add that
+    /// removed id again (format.md §5.2), so the stroke would vanish on disk.
+    /// Nil when nothing is pending. Call `saveFailed(_:)` if the write fails.
+    mutating func beginSave(page: UUID) -> Save? {
+        let live = self.live
+        let ops = pendingOps(page: page, live: live)
+        guard !ops.isEmpty else { return nil }
+        let save = Save(ops: ops, previous: committed)
+        commit(live)
+        return save
+    }
+
+    /// The write started by `save` failed: its ops stay pending. Ids it added
+    /// stay marked as written (the file may have landed), so they are never
+    /// revived after a removal; at worst a later stroke names one as `parent`.
+    mutating func saveFailed(_ save: Save) {
+        committed = save.previous
+    }
+
     /// Records that `live` (as passed to `pendingOps`) is now on disk.
     mutating func commit(_ live: [Stroke]) {
         let liveIDs = Set(live.map(\.id))

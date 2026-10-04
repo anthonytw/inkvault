@@ -63,6 +63,9 @@ final class AppModel {
     /// Bumped by `close()` and `openVault`: async work started under an older
     /// generation must not publish its result (the vault it read is gone).
     private var generation = 0
+    /// The save of the editor `close()` dropped; awaited before any note is
+    /// opened again, so a reopened note is read after its last delta landed.
+    private var closingEditor: Task<Void, Never>?
     /// This installation's device id and clock, created on first write access.
     private var deviceClock: DeviceClock?
     private let deviceStateURL: URL
@@ -191,12 +194,14 @@ final class AppModel {
     /// first use.
     func openEditor(for noteID: UUID?) async throws {
         guard editor?.noteID != noteID || noteID == nil else { return }
+        let gen = generation
         let previous = editor
         editor = nil
         await previous?.close()
+        await closingEditor?.value
+        try ensureCurrent(gen)
         guard let noteID else { return }
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
-        let gen = generation
         let clock = try deviceClockForWriting()
         let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce)
         await afterIO?()
@@ -223,7 +228,9 @@ final class AppModel {
         let scoped = scopedURL
         self.editor = nil
         if editor != nil || scoped != nil {
-            Task {
+            let earlier = closingEditor
+            closingEditor = Task {
+                await earlier?.value
                 await editor?.close()
                 scoped?.stopAccessingSecurityScopedResource()
             }
