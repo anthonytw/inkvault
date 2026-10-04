@@ -127,12 +127,17 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
     public var transform: Transform?
     /// Stroke this one was sliced from, if any.
     public var parent: UUID?
+    /// Snapshot only: `"<hlc>-<device>-<seq>-<op>"` of the op that added the
+    /// stroke (format.md §5.6). Ignored inside ops.
+    public var origin: String?
 
-    public init(id: UUID = UUID(), ink: Ink, points: [StrokePoint], transform: Transform? = nil, parent: UUID? = nil) {
+    public init(id: UUID = UUID(), ink: Ink, points: [StrokePoint], transform: Transform? = nil, parent: UUID? = nil,
+                origin: String? = nil) {
         self.id = id; self.ink = ink; self.points = points; self.transform = transform; self.parent = parent
+        self.origin = origin
     }
 
-    enum CodingKeys: String, CodingKey { case id, ink, points, transform, parent }
+    enum CodingKeys: String, CodingKey { case id, ink, points, transform, parent, origin }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -141,6 +146,7 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
         points = try c.decode([StrokePoint].self, forKey: .points)
         transform = try c.decodeIfPresent(Transform.self, forKey: .transform)
         parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -150,6 +156,7 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
         try c.encode(points, forKey: .points)
         if let transform, !transform.isIdentity { try c.encode(transform, forKey: .transform) }
         if let parent { try c.encode(LowercaseUUID(parent), forKey: .parent) }
+        if let origin { try c.encode(origin, forKey: .origin) }
     }
 }
 
@@ -161,12 +168,16 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
     /// Snapshot only: `"<hlc>-<device>"` stamp of the op that last set `order`
     /// (format.md §5.5). Nil means the snapshot's own stamp.
     public var orderClock: String?
+    /// Snapshot only: `"<hlc>-<device>-<seq>-<op>"` of the `addPage` that
+    /// added the page (format.md §5.5).
+    public var origin: String?
 
-    public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil) {
-        self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock
+    public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil,
+                origin: String? = nil) {
+        self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock; self.origin = origin
     }
 
-    enum CodingKeys: String, CodingKey { case id, order, strokes, orderClock }
+    enum CodingKeys: String, CodingKey { case id, order, strokes, orderClock, origin }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -174,6 +185,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         order = try c.decode(String.self, forKey: .order)
         strokes = try c.decodeIfPresent([Stroke].self, forKey: .strokes) ?? []
         orderClock = try c.decodeIfPresent(String.self, forKey: .orderClock)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -182,6 +194,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         try c.encode(order, forKey: .order)
         try c.encode(strokes, forKey: .strokes)
         if let orderClock { try c.encode(orderClock, forKey: .orderClock) }
+        if let origin { try c.encode(origin, forKey: .origin) }
     }
 }
 

@@ -58,6 +58,44 @@ public struct RevisionName: Hashable, Comparable, Sendable, CustomStringConverti
     }
 }
 
+// MARK: - origin
+
+/// Which op added a page or stroke: `"<hlc>-<device>-<seq>-<op>"`, the adding
+/// revision's ordering key plus the op's index in it (format.md §5.5–§5.6).
+/// Strokes on a page render in origin order.
+public struct Origin: Hashable, Comparable, Sendable, CustomStringConvertible {
+    public var hlc: HLC
+    public var device: DeviceID
+    public var seq: Int
+    public var op: Int
+
+    public init(hlc: HLC, device: DeviceID, seq: Int, op: Int) {
+        self.hlc = hlc; self.device = device; self.seq = seq; self.op = op
+    }
+
+    public init(_ name: RevisionName, op: Int) {
+        self.init(hlc: name.hlc, device: name.device, seq: name.seq, op: op)
+    }
+
+    public init?(_ string: String) {
+        let p = string.split(separator: "-", omittingEmptySubsequences: false)
+        guard p.count == 4, let h = HLC(String(p[0])), let d = DeviceID(String(p[1])),
+              let seq = Origin.decimal(p[2]), let op = Origin.decimal(p[3]) else { return nil }
+        self.init(hlc: h, device: d, seq: seq, op: op)
+    }
+
+    private static func decimal(_ s: Substring) -> Int? {
+        guard !s.isEmpty, s.utf8.allSatisfy({ (0x30...0x39).contains($0) }), s == "0" || s.first != "0" else { return nil }
+        return Int(s)
+    }
+
+    public var description: String { "\(hlc)-\(device)-\(seq)-\(op)" }
+
+    public static func < (l: Origin, r: Origin) -> Bool {
+        (l.hlc, l.device, l.seq, l.op) < (r.hlc, r.device, r.seq, r.op)
+    }
+}
+
 // MARK: - included
 
 /// The set of revisions a snapshot reflects (format.md §5.3): per device,
@@ -105,6 +143,19 @@ public struct Included: Hashable, Sendable {
     public mutating func insert(device: DeviceID, seq: Int) {
         guard seq >= 1 else { return }
         entries[device, default: Entry()].insert(seq)
+    }
+
+    /// True when every revision `other` covers is also covered here.
+    public func isSuperset(of other: Included) -> Bool {
+        for (device, theirs) in other.entries {
+            let mine = entries[device] ?? Entry()
+            if theirs.upTo > mine.upTo {
+                let needed = (mine.upTo + 1)...theirs.upTo
+                guard Set(mine.extra).isSuperset(of: needed) else { return false }
+            }
+            guard theirs.extra.allSatisfy(mine.covers) else { return false }
+        }
+        return true
     }
 
     /// Everything covered by either.

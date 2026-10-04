@@ -103,6 +103,18 @@ final class ClockTests: XCTestCase {
         ])
     }
 
+    func testOrigin() {
+        let o = Origin("17596320000000003-a1b2c3d4-12-0")
+        XCTAssertEqual(o?.seq, 12)
+        XCTAssertEqual(o?.op, 0)
+        XCTAssertEqual(o?.description, "17596320000000003-a1b2c3d4-12-0")
+        for bad in ["17596320000000003-a1b2c3d4-12", "17596320000000003-a1b2c3d4-12-01",
+                    "17596320000000003-a1b2c3d4-x-0", "17596320000000003-a1b2c3d4-12-0-1"] {
+            XCTAssertNil(Origin(bad), bad)
+        }
+        XCTAssertLessThan(Origin("17596320000000003-a1b2c3d4-12-1")!, Origin("17596320000000003-a1b2c3d4-12-2")!)
+    }
+
     func testIncluded() throws {
         var inc = Included()
         XCTAssertFalse(inc.covers(device: devA, seq: 1))

@@ -1,27 +1,33 @@
 import Foundation
 
-// MARK: - Merge (docs/format.md §5.2–§5.5)
+// MARK: - Merge (docs/format.md §5.2–§5.6)
 //
-// Reconstruction is collect-then-resolve: every op is first folded into a
-// commutative structure (sets for adds/removes, max-by-key registers for LWW
-// fields, min-by-key for stroke adds), then the state is built from those.
-// Nothing depends on the order revisions or ops are visited in.
+// Reconstruction is collect-then-resolve. Every snapshot and every delta not
+// covered by any snapshot is folded into commutative structures (removal
+// sets, min-origin evidence per page and stroke, max-key LWW registers); the
+// state is then built from those. Nothing depends on visiting order, and no
+// single snapshot is privileged.
 
-/// Full deterministic key of one op: its revision's stamp, then `seq` and
-/// position inside the revision (and inside an `addPage`'s stroke list).
+/// Full deterministic LWW key: the stamp, then `seq` and op index inside the
+/// revision, then the source revision (which only separates snapshot values
+/// that carry the same recorded clock).
 struct OpKey: Comparable {
     var stamp: Stamp
     var seq: Int
     var index: Int
-    var sub: Int = 0
+    var src: RevisionName
 
-    /// Key for a value coming from a snapshot: beats any op with the same stamp.
-    static func base(_ stamp: Stamp) -> OpKey { OpKey(stamp: stamp, seq: .max, index: .max, sub: .max) }
-    /// Key for a register nobody set: loses to every op.
-    static let unset = OpKey(stamp: .zero, seq: .min, index: .min, sub: .min)
+    /// A value held by snapshot `src`, last set at `stamp`: beats any op with the same stamp.
+    static func base(_ stamp: Stamp, _ src: RevisionName) -> OpKey {
+        OpKey(stamp: stamp, seq: .max, index: .max, src: src)
+    }
+
+    /// A register nobody set: loses to everything.
+    static let unset = OpKey(stamp: .zero, seq: .min, index: .min,
+                             src: RevisionName(hlc: .zero, device: .zero, seq: 0, kind: .delta))
 
     static func < (l: OpKey, r: OpKey) -> Bool {
-        (l.stamp, l.seq, l.index, l.sub) < (r.stamp, r.seq, r.index, r.sub)
+        (l.stamp, l.seq, l.index, l.src) < (r.stamp, r.seq, r.index, r.src)
     }
 }
 
@@ -37,33 +43,26 @@ struct Register<Value> {
 
 /// Rebuilds note state from revisions.
 public enum NoteReducer {
-    /// Reconstructs a note (format.md §5.3): the snapshot with the greatest
-    /// `(hlc, device, seq)`, plus every delta its `included` does not cover.
+    /// Reconstructs a note (format.md §5.3): the merge of every snapshot plus
+    /// every delta no snapshot's `included` covers.
     ///
     /// The result is identical for any permutation of `revisions`. It carries
-    /// what a snapshot needs: `clocks` for every register, `orderClock` on
-    /// every page and `tombstones` (nil when empty).
+    /// what a snapshot needs: all `clocks`, `orderClock` and `origin` on every
+    /// page, `origin` on every stroke, and `tombstones` (nil when empty).
     public static func reconstruct(_ revisions: [Revision]) throws -> NoteState {
-        let revs = try canonical(revisions)
-        let deltas = revs.filter { $0.kind == .delta }
-        guard let newest = newestSnapshot(revs), case .snapshot(let included, let state) = newest.body else {
-            return resolve(base: nil, applying: deltas, seen: deltas)
-        }
-        let uncovered = deltas.filter { !included.covers(device: $0.device, seq: $0.seq) }
-        return resolve(base: (state, newest.stamp), applying: uncovered, seen: deltas)
+        try resolve(canonical(revisions)).state
     }
 
-    /// Applies deltas to an existing state, e.g. for live editing. Registers
-    /// without a recorded clock in `state` are treated as stamped `stamp`.
+    /// Applies deltas to an existing state, e.g. for live editing. `state`
+    /// acts as a snapshot that covers nothing; registers without a recorded
+    /// clock are treated as stamped `stamp`.
     public static func apply(_ deltas: [Revision], to state: NoteState, stamp: Stamp) throws -> NoteState {
         for d in deltas where d.kind != .delta { throw NoteLogError.notADelta(d.name) }
         let revs = try canonical(deltas)
-        return resolve(base: (state, stamp), applying: revs, seen: revs)
-    }
-
-    /// The snapshot with the greatest `(hlc, device, seq)`, if any.
-    public static func newestSnapshot(_ revisions: [Revision]) -> Revision? {
-        revisions.filter { $0.kind == .snapshot }.max { $0.name < $1.name }
+        let base = Snap(name: RevisionName(hlc: stamp.hlc, device: stamp.device, seq: 0, kind: .snapshot),
+                        included: Included(), state: state)
+        let earliest = revs.min { $0.name < $1.name }?.wall
+        return resolve(snapshots: [base], deltas: revs, earliestWall: earliest).state
     }
 
     /// Checks one note id, drops exact duplicates, rejects two different
@@ -82,62 +81,149 @@ public enum NoteReducer {
         return byKey.values.flatMap(\.values)
     }
 
-    /// Folds `applying` into `base`. `seen` is every delta the caller holds
-    /// (applied or covered), used only to decide which removals still need a
-    /// tombstone.
-    static func resolve(base: (state: NoteState, stamp: Stamp)?, applying: [Revision], seen: [Revision]) -> NoteState {
-        func baseKey(_ field: String) -> OpKey {
-            guard let base else { return .unset }
-            return .base(base.state.clocks?[field].flatMap(Stamp.init) ?? base.stamp)
+    struct Snap {
+        var name: RevisionName
+        var included: Included
+        var state: NoteState
+    }
+
+    struct Resolution {
+        var state: NoteState
+        /// Everything the state reflects in full: every snapshot's `included`,
+        /// the snapshots themselves, and every applied delta that is not an orphan.
+        var included: Included
+    }
+
+    static func resolve(_ revs: [Revision]) -> Resolution {
+        var snaps: [Snap] = []
+        var deltas: [Revision] = []
+        for r in revs {
+            switch r.body {
+            case .delta: deltas.append(r)
+            case .snapshot(let included, let state): snaps.append(Snap(name: r.name, included: included, state: state))
+            }
+        }
+        let earliest = revs.min { $0.name < $1.name }?.wall
+        return resolve(snapshots: snaps, deltas: deltas, earliestWall: earliest)
+    }
+
+    /// Item evidence: where a page or stroke was seen and which op added it.
+    struct Evidence<Item> {
+        var origin: Origin
+        var src: RevisionName
+        var item: Item
+        var page: UUID?
+
+        func beats(_ other: Evidence) -> Bool { (origin, src) < (other.origin, other.src) }
+    }
+
+    static func resolve(snapshots: [Snap], deltas: [Revision], earliestWall: Date?) -> Resolution {
+        let uncovered = deltas.filter { d in !snapshots.contains { $0.included.covers(device: d.device, seq: d.seq) } }
+
+        // Removals: every snapshot's tombstones plus removes in uncovered deltas.
+        var removedPages = Set<UUID>()
+        var removedStrokes = Set<UUID>()
+        for s in snapshots {
+            removedPages.formUnion(s.state.tombstones?.pages ?? [])
+            removedStrokes.formUnion(s.state.tombstones?.strokes ?? [])
+        }
+        for d in uncovered {
+            for op in d.ops {
+                switch op {
+                case .removePage(let id): removedPages.insert(id)
+                case .removeStroke(_, let id): removedStrokes.insert(id)
+                default: break
+                }
+            }
         }
 
-        let meta0 = base?.state.meta ?? NoteMeta(created: applying.map(\.wall).min() ?? Date(timeIntervalSince1970: 0))
-        var title = Register(value: meta0.title, key: baseKey("title"))
-        var tags = Register(value: meta0.tags, key: baseKey("tags"))
-        var notebook = Register(value: meta0.notebook, key: baseKey("notebook"))
-        var favorite = Register(value: meta0.favorite, key: baseKey("favorite"))
-        var paper = Register(value: meta0.paper, key: baseKey("paper"))
-        var pageSize = Register(value: meta0.pageSize, key: baseKey("pageSize"))
-        var deleted = Register(value: base?.state.deleted ?? false, key: baseKey("deleted"))
-        var created = meta0.created
+        // Orphans (§5.3): a delta whose page-targeting op names a page nobody
+        // has seen is applied but not listed in `included`, so it is applied
+        // again once the page arrives.
+        var knownPages = removedPages
+        for s in snapshots { knownPages.formUnion(s.state.pages.map(\.id)) }
+        for d in deltas {
+            for case .addPage(let p) in d.ops { knownPages.insert(p.id) }
+        }
+        func isOrphan(_ d: Revision) -> Bool {
+            d.ops.contains { op in
+                switch op {
+                case .addStroke(let page, _): return !knownPages.contains(page)
+                case .setPageOrder(let page, _): return !knownPages.contains(page)
+                default: return false
+                }
+            }
+        }
+        let orphans = Set(uncovered.filter(isOrphan).map(\.name))
 
-        let basePages = base?.state.pages ?? []
+        // LWW registers.
+        let defaults = NoteMeta(created: Date(timeIntervalSince1970: 0))
+        var title = Register(value: defaults.title, key: .unset)
+        var tags = Register(value: defaults.tags, key: .unset)
+        var notebook = Register(value: defaults.notebook, key: .unset)
+        var favorite = Register(value: defaults.favorite, key: .unset)
+        var paper = Register(value: defaults.paper, key: .unset)
+        var pageSize = Register(value: defaults.pageSize, key: .unset)
+        var deleted = Register(value: false, key: .unset)
+        var created = earliestWall
         var order: [UUID: Register<String>] = [:]
-        for p in basePages {
-            let k: OpKey = .base(p.orderClock.flatMap(Stamp.init) ?? base?.stamp ?? .zero)
-            order[p.id, default: Register(value: p.order, key: k)].offer(p.order, k)
-        }
-        var addedPages = Set<UUID>()
-        var removedPages = Set(base?.state.tombstones?.pages ?? [])
-        var removedStrokes = Set(base?.state.tombstones?.strokes ?? [])
-        var adds: [UUID: (key: OpKey, page: UUID, stroke: Stroke)] = [:]
+        var pages: [UUID: Evidence<Page>] = [:]
+        var strokes: [UUID: Evidence<Stroke>] = [:]
+        var snapPageIds: [RevisionName: Set<UUID>] = [:]
+        var snapStrokeIds: [RevisionName: Set<UUID>] = [:]
 
         func offerOrder(_ id: UUID, _ value: String, _ k: OpKey) {
             order[id, default: Register(value: value, key: k)].offer(value, k)
         }
-        func offerAdd(_ page: UUID, _ stroke: Stroke, _ k: OpKey) {
-            if let existing = adds[stroke.id], existing.key <= k { return }
-            adds[stroke.id] = (k, page, stroke)
+        func offerPage(_ e: Evidence<Page>) {
+            if let cur = pages[e.item.id], !e.beats(cur) { return }
+            pages[e.item.id] = e
+        }
+        func offerStroke(_ e: Evidence<Stroke>) {
+            if let cur = strokes[e.item.id], !e.beats(cur) { return }
+            strokes[e.item.id] = e
         }
 
-        for rev in applying {
-            guard case .delta(let ops) = rev.body else { continue }
-            created = min(created, rev.wall)
-            for (i, op) in ops.enumerated() {
-                let k = OpKey(stamp: rev.stamp, seq: rev.seq, index: i)
+        for s in snapshots {
+            let stamp = s.name.stamp
+            func key(_ field: String) -> OpKey { .base(s.state.clocks?[field].flatMap(Stamp.init) ?? stamp, s.name) }
+            let m = s.state.meta
+            title.offer(m.title, key("title"))
+            tags.offer(m.tags, key("tags"))
+            notebook.offer(m.notebook, key("notebook"))
+            favorite.offer(m.favorite, key("favorite"))
+            paper.offer(m.paper, key("paper"))
+            pageSize.offer(m.pageSize, key("pageSize"))
+            deleted.offer(s.state.deleted, key("deleted"))
+            created = min(created ?? m.created, m.created)
+
+            var pageIds = Set<UUID>(), strokeIds = Set<UUID>()
+            for (pos, p) in s.state.pages.enumerated() {
+                pageIds.insert(p.id)
+                // Without a recorded origin, the holding snapshot is the origin (§5.5).
+                let origin = p.origin.flatMap(Origin.init) ?? Origin(s.name, op: pos)
+                offerPage(Evidence(origin: origin, src: s.name, item: p, page: nil))
+                offerOrder(p.id, p.order, .base(p.orderClock.flatMap(Stamp.init) ?? stamp, s.name))
+                for (j, st) in p.strokes.enumerated() {
+                    strokeIds.insert(st.id)
+                    let so = st.origin.flatMap(Origin.init) ?? Origin(s.name, op: j)
+                    offerStroke(Evidence(origin: so, src: s.name, item: st, page: p.id))
+                }
+            }
+            snapPageIds[s.name] = pageIds
+            snapStrokeIds[s.name] = strokeIds
+        }
+
+        for d in uncovered {
+            for (i, op) in d.ops.enumerated() {
+                let k = OpKey(stamp: d.stamp, seq: d.seq, index: i, src: d.name)
                 switch op {
                 case .addStroke(let page, let stroke):
-                    offerAdd(page, stroke, k)
-                case .removeStroke(_, let id):
-                    removedStrokes.insert(id)
+                    offerStroke(Evidence(origin: Origin(d.name, op: i), src: d.name, item: stroke, page: page))
                 case .addPage(let page):
-                    addedPages.insert(page.id)
+                    // §5.2: the page is added empty.
+                    offerPage(Evidence(origin: Origin(d.name, op: i), src: d.name, item: page, page: nil))
                     offerOrder(page.id, page.order, k)
-                    for (j, s) in page.strokes.enumerated() {
-                        offerAdd(page.id, s, OpKey(stamp: rev.stamp, seq: rev.seq, index: i, sub: j + 1))
-                    }
-                case .removePage(let id):
-                    removedPages.insert(id)
                 case .setPageOrder(let id, let value):
                     offerOrder(id, value, k)
                 case .setMeta(let change):
@@ -149,52 +235,64 @@ public enum NoteReducer {
                     case .paper(let v): paper.offer(v, k)
                     case .pageSize(let v): pageSize.offer(v, k)
                     }
-                case .deleteNote:
-                    deleted.offer(true, k)
-                case .restoreNote:
-                    deleted.offer(false, k)
+                case .deleteNote: deleted.offer(true, k)
+                case .restoreNote: deleted.offer(false, k)
+                case .removeStroke, .removePage: break
                 }
             }
         }
 
-        // Resolve pages and strokes.
-        let basePageIds = Set(basePages.map(\.id))
-        let livePages = basePageIds.union(addedPages).subtracting(removedPages)
-        var baseStrokeIds = Set<UUID>()
-        var strokes: [UUID: [Stroke]] = [:]
-        for p in basePages {
-            for s in p.strokes { baseStrokeIds.insert(s.id) }
-            if livePages.contains(p.id) {
-                strokes[p.id, default: []] += p.strokes.filter { !removedStrokes.contains($0.id) }
+        // An item is gone if a snapshot covers the revision that added it but
+        // does not contain it: that snapshot saw the add and later the removal.
+        func removedByCoverage(_ origin: Origin, _ id: UUID, _ held: [RevisionName: Set<UUID>]) -> Bool {
+            snapshots.contains { s in
+                s.included.covers(device: origin.device, seq: origin.seq) && !(held[s.name]?.contains(id) ?? false)
             }
         }
-        let newStrokes = adds.values
-            .filter { !baseStrokeIds.contains($0.stroke.id) && !removedStrokes.contains($0.stroke.id) && livePages.contains($0.page) }
-            .sorted { $0.key < $1.key }
-        for a in newStrokes { strokes[a.page, default: []].append(a.stroke) }
 
-        var pages: [Page] = []
+        let livePages = Set(pages.values.filter { e in
+            !removedPages.contains(e.item.id) && !removedByCoverage(e.origin, e.item.id, snapPageIds)
+        }.map(\.item.id))
+
+        var byPage: [UUID: [Evidence<Stroke>]] = [:]
+        for e in strokes.values {
+            guard let page = e.page, livePages.contains(page), !removedStrokes.contains(e.item.id),
+                  !removedByCoverage(e.origin, e.item.id, snapStrokeIds) else { continue }
+            byPage[page, default: []].append(e)
+        }
+
+        var outPages: [Page] = []
         for id in livePages {
-            guard let reg = order[id] else { continue }
-            pages.append(Page(id: id, order: reg.value, strokes: strokes[id] ?? [], orderClock: reg.key.stamp.description))
+            guard let e = pages[id], let reg = order[id] else { continue }
+            let list = (byPage[id] ?? []).sorted { ($0.origin, $0.item.id.uuidString) < ($1.origin, $1.item.id.uuidString) }
+            outPages.append(Page(id: id, order: reg.value,
+                                 strokes: list.map { var s = $0.item; s.origin = $0.origin.description; return s },
+                                 orderClock: reg.key.stamp.description, origin: e.origin.description))
         }
         // Byte-wise (code point) order, not Swift's normalising String `<`.
-        pages.sort { l, r in
+        outPages.sort { l, r in
             if l.order != r.order { return l.order.utf8.lexicographicallyPrecedes(r.order.utf8) }
             return l.id.uuidString.lowercased() < r.id.uuidString.lowercased()
         }
 
-        // Tombstones: removals whose add nobody here has seen.
-        var seenStrokes = baseStrokeIds
-        var seenPages = basePageIds
-        for rev in seen {
-            guard case .delta(let ops) = rev.body else { continue }
-            for op in ops {
+        // What the new `included` will reflect, and tombstones for removals
+        // whose add it does not reflect.
+        var included = Included()
+        var seenPages = Set<UUID>(), seenStrokes = Set<UUID>()
+        for s in snapshots {
+            included = included.union(s.included)
+            if s.name.seq >= 1 { included.insert(device: s.name.device, seq: s.name.seq) }
+            seenPages.formUnion(snapPageIds[s.name] ?? [])
+            seenStrokes.formUnion(snapStrokeIds[s.name] ?? [])
+        }
+        for d in uncovered where !orphans.contains(d.name) {
+            included.insert(device: d.device, seq: d.seq)
+        }
+        for d in deltas where included.covers(device: d.device, seq: d.seq) {
+            for op in d.ops {
                 switch op {
+                case .addPage(let p): seenPages.insert(p.id)
                 case .addStroke(_, let s): seenStrokes.insert(s.id)
-                case .addPage(let p):
-                    seenPages.insert(p.id)
-                    for s in p.strokes { seenStrokes.insert(s.id) }
                 default: break
                 }
             }
@@ -203,7 +301,7 @@ public enum NoteReducer {
                               pages: sortedIds(removedPages.subtracting(seenPages)))
 
         let meta = NoteMeta(title: title.value, tags: tags.value, notebook: notebook.value, favorite: favorite.value,
-                            created: created, paper: paper.value, pageSize: pageSize.value)
+                            created: created ?? defaults.created, paper: paper.value, pageSize: pageSize.value)
         let clocks: [String: String] = [
             "title": title.key.stamp.description,
             "tags": tags.key.stamp.description,
@@ -213,8 +311,9 @@ public enum NoteReducer {
             "pageSize": pageSize.key.stamp.description,
             "deleted": deleted.key.stamp.description,
         ]
-        return NoteState(deleted: deleted.value, meta: meta, pages: pages, clocks: clocks,
-                         tombstones: tomb.isEmpty ? nil : tomb)
+        let state = NoteState(deleted: deleted.value, meta: meta, pages: outPages, clocks: clocks,
+                              tombstones: tomb.isEmpty ? nil : tomb)
+        return Resolution(state: state, included: included)
     }
 
     private static func sortedIds(_ ids: Set<UUID>) -> [UUID] {
@@ -222,29 +321,31 @@ public enum NoteReducer {
     }
 }
 
+extension Revision {
+    /// The ops of a delta; empty for a snapshot.
+    var ops: [Op] {
+        if case .delta(let ops) = body { return ops }
+        return []
+    }
+}
+
 // MARK: - Snapshots
 
 public enum SnapshotBuilder {
-    /// Writes a snapshot reflecting every given revision: `included` is the
-    /// newest snapshot's `included` plus the `(device, seq)` of each input and
-    /// of the snapshot itself; `state` carries `clocks`, `orderClock` and
-    /// `tombstones`. `clock` observes every input first, so the snapshot sorts
-    /// after all of them.
+    /// Writes a snapshot of every given revision. `included` lists only what
+    /// the state reflects in full (§5.3): every input snapshot's `included`,
+    /// the input snapshots, every applied delta except orphans, and the new
+    /// snapshot itself. `clock` observes every input first, so the snapshot
+    /// sorts after all of them.
     public static func makeSnapshot(from revisions: [Revision], device: DeviceID, seq: Int,
                                     clock: inout HybridClock, wall: Date, app: String) throws -> Revision {
         let revs = try NoteReducer.canonical(revisions)
-        let state = try NoteReducer.reconstruct(revs)
-        var included = Included()
-        if let newest = NoteReducer.newestSnapshot(revs), case .snapshot(let inc, _) = newest.body {
-            included = inc
-        }
-        for r in revs {
-            clock.observe(r.hlc, wall: wall)
-            included.insert(device: r.device, seq: r.seq)
-        }
+        let res = NoteReducer.resolve(revs)
+        for r in revs { clock.observe(r.hlc, wall: wall) }
+        var included = res.included
         included.insert(device: device, seq: seq)
         let hlc = clock.tick(wall: wall)
         return Revision(noteId: revs[0].noteId, device: device, seq: seq, hlc: hlc, wall: wall, app: app,
-                        body: .snapshot(included: included, state: state))
+                        body: .snapshot(included: included, state: res.state))
     }
 }

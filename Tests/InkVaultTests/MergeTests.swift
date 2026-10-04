@@ -34,21 +34,115 @@ final class MergeTests: XCTestCase {
         XCTAssertEqual(try NoteReducer.reconstruct([snapAll, reB, d1]).allStrokeIds, [])
     }
 
-    /// Documents a limit of format.md §5.4 as amended: a tombstone may be
-    /// dropped once its add is covered, so a stale re-add of the *same* id
-    /// that arrives after such a snapshot resurrects the stroke. Remove-wins
-    /// holds for any set of revisions without that snapshot. If the format
-    /// owner decides to keep tombstones longer, flip the last assertion.
-    func testStaleReAddAfterCoveringSnapshotResurrects() throws {
+    /// Writer obligation (format.md §5.2, §5.6): a removed stroke id is never
+    /// added again; undo mints a new id. Whenever the remove and a re-add are
+    /// both visible, the reducer ignores the re-add. The case where the re-add
+    /// arrives after a snapshot that covered both add and remove (and dropped
+    /// the tombstone) cannot arise from a conforming writer, so it is not tested.
+    func testRemovedStrokeIdIsNeverReAdded() throws {
         var log = LogBuilder()
         let s = stroke()
-        let d1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V")), .addStroke(page: p1, stroke: s)])
-        let rmA = log.delta(devA, 200, [.removeStroke(page: p1, strokeId: s.id)])
-        let reB = log.delta(devB, 300, [.addStroke(page: p1, stroke: s)])
-        let snap = try log.snapshot(devC, 250, from: [d1, rmA])
+        let d1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V"))])
+        let rm = log.delta(devB, 100, [.removeStroke(page: p1, strokeId: s.id)])
+        let snap = try log.snapshot(devB, 150, from: [d1, rm])
         guard case .snapshot(_, let state) = snap.body else { return XCTFail("not a snapshot") }
-        XCTAssertNil(state.tombstones, "the add was covered, so no tombstone is written")
-        XCTAssertEqual(try NoteReducer.reconstruct([snap, reB]).allStrokeIds, [s.id])
+        XCTAssertEqual(state.tombstones?.strokes, [s.id])
+
+        // A re-add of a tombstoned id is ignored.
+        let reAdd = log.delta(devA, 200, [.addStroke(page: p1, stroke: s)])
+        XCTAssertEqual(try NoteReducer.apply([reAdd], to: state, stamp: snap.stamp).allStrokeIds, [])
+        // A remove and a later re-add in the same run: the re-add is ignored.
+        let s2 = stroke()
+        let add2 = log.delta(devA, 300, [.addStroke(page: p1, stroke: s2)])
+        let rm2 = log.delta(devA, 400, [.removeStroke(page: p1, strokeId: s2.id)])
+        let reAdd2 = log.delta(devB, 500, [.addStroke(page: p1, stroke: s2)])
+        XCTAssertEqual(try NoteReducer.apply([reAdd2, rm2, add2], to: state, stamp: snap.stamp).allStrokeIds, [])
+        // The conforming way to undo an erase: a new id with `parent` set.
+        let restored = stroke(parent: s2.id)
+        let undo = log.delta(devA, 600, [.addStroke(page: p1, stroke: restored)])
+        let after = try NoteReducer.apply([add2, rm2, undo], to: state, stamp: snap.stamp)
+        XCTAssertEqual(after.allStrokeIds, [restored.id])
+        XCTAssertEqual(after.pages[0].strokes[0].parent, s2.id)
+    }
+
+    func testMergeHonoursRemovalSeenByAnotherSnapshot() throws {
+        // A removes X and snapshots; B, which never saw the removal, later
+        // writes a newer snapshot that still holds X. The remove delta is
+        // compacted, so only the two snapshots remain.
+        var log = LogBuilder()
+        let x = stroke(), y = stroke()
+        let d1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V")), .addStroke(page: p1, stroke: x),
+                                     .addStroke(page: p1, stroke: y)])
+        let rm = log.delta(devA, 200, [.removeStroke(page: p1, strokeId: x.id)])
+        let snapA = try log.snapshot(devA, 250, from: [d1, rm])              // saw add and remove: no x, no tombstone
+        let snapB = try log.snapshot(devB, 1000, from: [d1])                 // holds x and y
+        guard case .snapshot(_, let stA) = snapA.body else { return XCTFail("not a snapshot") }
+        XCTAssertNil(stA.tombstones)
+        XCTAssertLessThan(snapA.name, snapB.name, "the stale snapshot is the newer one")
+        // Only the snapshots survive; x stays removed because A's snapshot covers its origin.
+        for order in [[snapA, snapB], [snapB, snapA]] {
+            XCTAssertEqual(try NoteReducer.reconstruct(order).allStrokeIds, [y.id])
+        }
+        let origin = try XCTUnwrap(try NoteReducer.reconstruct([snapB]).pages[0].strokes.first { $0.id == x.id }?.origin)
+        XCTAssertEqual(Origin(origin), Origin(d1.name, op: 1))
+    }
+
+    func testCompactedDeltaSurvivesOfflineSnapshot() throws {
+        // A writes d1 and snapshots it, then compacts d1. B was offline the
+        // whole time and later snapshots with a greater HLC without ever
+        // seeing d1 or A's snapshot. d1's content must survive.
+        var log = LogBuilder()
+        let x = stroke()
+        let d1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V")), .addStroke(page: p1, stroke: x),
+                                     .setMeta(.title("From A"))])
+        let snapA = try log.snapshot(devA, 10, from: [d1])
+        let day: TimeInterval = 86_400
+        let now = wallAt(baseMillis).addingTimeInterval(60 * day)
+        let coverage = [try XCTUnwrap(SnapshotCoverage(snapA))]
+        XCTAssertEqual(CompactionPlanner.deletable(names: [d1.name, snapA.name], wall: [d1.name: d1.wall],
+                                                   snapshots: coverage, now: now), [d1.name])
+
+        let dB = log.delta(devB, 5_000_000, [.addPage(Page(id: p2, order: "W")), .setMeta(.favorite(true))])
+        let snapB = try log.snapshot(devB, 5_000_100, from: [dB])
+        XCTAssertGreaterThan(snapB.hlc, snapA.hlc)
+        // d1 is gone from disk; the vault now holds snapA, dB and snapB.
+        let state = try NoteReducer.reconstruct([snapB, dB, snapA])
+        XCTAssertEqual(state.pages.map(\.id), [p1, p2])
+        XCTAssertEqual(state.allStrokeIds, [x.id])
+        XCTAssertEqual(state.meta.title, "From A")
+        XCTAssertTrue(state.meta.favorite)
+
+        // Neither snapshot subsumes the other, so neither may be deleted ...
+        let both = [snapA, snapB].compactMap(SnapshotCoverage.init)
+        XCTAssertEqual(CompactionPlanner.deletable(names: [snapA.name, dB.name, snapB.name], wall: [dB.name: dB.wall],
+                                                   snapshots: both, now: now.addingTimeInterval(day * 100)), [dB.name])
+        // ... until a snapshot that merged both exists.
+        let merged = try log.snapshot(devB, 5_000_200, from: [snapA, dB, snapB])
+        let all = [snapA, snapB, merged].compactMap(SnapshotCoverage.init)
+        XCTAssertEqual(CompactionPlanner.deletable(names: [], wall: [:], snapshots: all,
+                                                   now: now.addingTimeInterval(day * 100)), [snapA.name, snapB.name])
+        XCTAssertEqual(try NoteReducer.reconstruct([merged]).pages, state.pages)
+    }
+
+    func testOrphanAddStrokeIsAppliedOnceItsPageArrives() throws {
+        var log = LogBuilder()
+        let x = stroke()
+        let addPage = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V"))])            // A seq 1
+        let draw = log.delta(devA, 100, [.addStroke(page: p1, stroke: x), .setMeta(.title("t"))])  // A seq 2
+        // C received A's seq 2 but not seq 1.
+        let snap = try log.snapshot(devC, 200, from: [draw])
+        guard case .snapshot(let included, let state) = snap.body else { return XCTFail("not a snapshot") }
+        XCTAssertFalse(included.covers(device: devA, seq: 2), "an orphan delta is left out of included")
+        XCTAssertEqual(state.meta.title, "t", "its other ops are still applied")
+        XCTAssertEqual(state.allStrokeIds, [])
+        // The page arrives; the stroke appears.
+        let later = try NoteReducer.reconstruct([snap, draw, addPage])
+        XCTAssertEqual(later.strokeIds, [[x.id]])
+        // And a snapshot taken now includes both.
+        let snap2 = try log.snapshot(devC, 300, from: [snap, draw, addPage])
+        guard case .snapshot(let inc2, _) = snap2.body else { return XCTFail("not a snapshot") }
+        XCTAssertTrue(inc2.covers(device: devA, seq: 1) && inc2.covers(device: devA, seq: 2))
+        XCTAssertEqual(try NoteReducer.reconstruct([snap2]).strokeIds, [[x.id]])
     }
 
     func testConcurrentSlicingKeepsBothPieceSets() throws {
@@ -224,11 +318,24 @@ final class MergeTests: XCTestCase {
                 XCTAssertEqual(state, reference, "seed \(seed) permutation \(i)")
                 XCTAssertEqual(try InkJSON.encoder().encode(state), refJSON, "seed \(seed) permutation \(i)")
             }
+
+            // Compaction (everything past retention) never changes the visible note.
+            let snaps = revisions.compactMap(SnapshotCoverage.init)
+            let wall = Dictionary(uniqueKeysWithValues: revisions.map { ($0.name, $0.wall) })
+            let doomed = Set(CompactionPlanner.deletable(names: revisions.map(\.name), wall: wall, snapshots: snaps,
+                                                         retention: 0, now: wallAt(baseMillis + 10_000_000)))
+            XCTAssertFalse(doomed.isEmpty)
+            let compacted = try NoteReducer.reconstruct(revisions.filter { !doomed.contains($0.name) })
+            XCTAssertEqual(compacted.pages, reference.pages, "seed \(seed)")
+            XCTAssertEqual(compacted.meta, reference.meta, "seed \(seed)")
+            XCTAssertEqual(compacted.deleted, reference.deleted, "seed \(seed)")
+            XCTAssertEqual(compacted.clocks, reference.clocks, "seed \(seed)")
         }
     }
 
-    /// 3 devices, 200 ops (adds, removes, slices, re-adds, meta, page moves,
-    /// page removes, delete/restore), 2 snapshots from partial views.
+    /// 3 devices, 200 ops (adds, removes incl. of never-added ids, slices,
+    /// meta, page moves, page removes, delete/restore), 2 snapshots from
+    /// partial views. Writers follow §5.2: no removed id is re-added.
     func randomLog(rng: inout SplitMix64) throws -> [Revision] {
         let devices = [devA, devB, devC]
         var clocks = [HybridClock(), HybridClock(), HybridClock()]
@@ -273,8 +380,6 @@ final class MergeTests: XCTestCase {
                         strokes.append((victim.page, piece))
                         ops.append(.addStroke(page: victim.page, stroke: piece))
                     }
-                } else if r < 0.63, let again = strokes.randomElement(using: &rng) {
-                    ops.append(.addStroke(page: again.page, stroke: again.stroke))   // re-add attempt
                 } else if r < 0.78 {
                     let change: MetaChange
                     switch Int.random(in: 0..<6, using: &rng) {
