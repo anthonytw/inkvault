@@ -52,7 +52,7 @@ let package = Package(
                     exclude: ["generate_sample_note.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "InkImportTests", dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib"]),
-        .testTarget(name: "CLITests", dependencies: []),
+        .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"]),
     ],
     swiftLanguageModes: [.v6]
 )

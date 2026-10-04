@@ -188,8 +188,17 @@ extension Vault {
         try NoteReducer.reconstruct(strictRevisions(noteId))
     }
 
+    /// `reconstruct(noteId:)` for a note already loaded with `loadNote`, so
+    /// it is not decrypted twice. Same strictness: any failure throws.
+    public func reconstruct(_ loaded: LoadedNote) throws -> NoteState {
+        try NoteReducer.reconstruct(Self.strictRevisions(of: loaded))
+    }
+
     func strictRevisions(_ noteId: UUID) throws -> [Revision] {
-        let loaded = try loadNote(noteId)
+        try Self.strictRevisions(of: try loadNote(noteId))
+    }
+
+    static func strictRevisions(of loaded: LoadedNote) throws -> [Revision] {
         if let (name, err) = loaded.failures.min(by: { $0.key < $1.key }) {
             throw VaultError.revision(name: name.filename, err)
         }
@@ -201,7 +210,14 @@ extension Vault {
     @discardableResult
     public func snapshot(noteId: UUID, device: DeviceID, clock: inout HybridClock, wall: Date,
                          app: String) throws -> Revision {
-        let revs = try strictRevisions(noteId)
+        try snapshot(loaded: try loadNote(noteId), device: device, clock: &clock, wall: wall, app: app)
+    }
+
+    /// `snapshot(noteId:...)` for a note already loaded with `loadNote`.
+    @discardableResult
+    public func snapshot(loaded: LoadedNote, device: DeviceID, clock: inout HybridClock, wall: Date,
+                         app: String) throws -> Revision {
+        let revs = try Self.strictRevisions(of: loaded)
         let seq = Self.nextSeq(from: revs, device: device)
         let snap = try SnapshotBuilder.makeSnapshot(from: revs, device: device, seq: seq, clock: &clock,
                                                     wall: wall, app: app)
@@ -216,12 +232,15 @@ extension Vault {
     @discardableResult
     public func compact(noteId: UUID, retention: TimeInterval = CompactionPlanner.defaultRetention,
                         now: Date = Date()) throws -> [RevisionName] {
-        let loaded = try loadNote(noteId)
-        var wall: [RevisionName: Date] = [:]
-        for r in loaded.revisions { wall[r.name] = r.wall }
-        let doomed = CompactionPlanner.deletable(names: loaded.revisions.map(\.name), wall: wall,
-                                                 snapshots: loaded.revisions.compactMap(SnapshotCoverage.init),
-                                                 retention: retention, now: now)
+        try compact(noteId: noteId, loaded: try loadNote(noteId), retention: retention, now: now)
+    }
+
+    /// `compact(noteId:...)` for a note already loaded with `loadNote`. The
+    /// plan is made from `loaded`, so it must reflect what is on disk.
+    @discardableResult
+    public func compact(noteId: UUID, loaded: LoadedNote, retention: TimeInterval = CompactionPlanner.defaultRetention,
+                        now: Date = Date()) throws -> [RevisionName] {
+        let doomed = loaded.compactionPlan(retention: retention, now: now)
         let dir = noteURL(noteId)
         for n in doomed { try FileIO.remove(dir.appendingPathComponent(n.filename)) }
         return doomed

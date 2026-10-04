@@ -145,3 +145,24 @@ func isValidStanzaString(_ s: String) -> Bool {
     let u = s.utf8
     return !u.isEmpty && u.allSatisfy { $0 >= 33 && $0 <= 126 }
 }
+
+extension AgeError: CustomStringConvertible {
+    /// A human sentence for each case.
+    public var description: String {
+        switch self {
+        case .headerParse: return "not an age file (bad header)"
+        case .unsupportedVersion: return "unsupported age version"
+        case .invalidStanza: return "malformed age recipient stanza"
+        case .scryptNotAlone: return "malformed age file: scrypt stanza mixed with others"
+        case .scryptWorkFactor: return "scrypt work factor too high"
+        case .headerMAC: return "age header MAC does not match (file damaged)"
+        case .noMatchingIdentity: return "none of the given keys matches this file"
+        case .noIdentities: return "no key given"
+        case .noRecipients: return "no recipients"
+        case .payload: return "age payload is damaged or truncated"
+        case .armor: return "malformed ASCII armor"
+        case .invalidKey: return "malformed age key"
+        case .invalidStanzaEncoding: return "invalid stanza encoding"
+        }
+    }
+}

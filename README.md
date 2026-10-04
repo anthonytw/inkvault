@@ -38,4 +38,4 @@ Everything under `Sources/` builds and tests on Linux and macOS with
 
 ## Status
 
-Phase 0 (core library and CLI) in progress. Not usable yet.
+Phase 0 (core library and CLI) is nearly done: the `inkvault` CLI (keys, vault, verify, export, recover; see `docs/cli.md`) works on Linux and macOS. No app yet.
