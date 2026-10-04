@@ -5,7 +5,7 @@
 | # | Task | Owner target | Done when |
 | --- | --- | --- | --- |
 | 0.1 | age v1: X25519 + scrypt recipients, header, HMAC, STREAM payload, armor, Bech32 keys | `Sources/Age` | all C2SP CCTV vectors pass; round-trips with the `age` CLI |
-| 0.2 | Vault: manifest, keys, vault secret, body framing + tag, revisions, HLC, merge, snapshot, compaction | `Sources/InkVault` | property tests for merge; concurrent-edit scenarios; `format.md` examples parse |
+| 0.2 | Vault: manifest, keys, vault secret, body framing + tag, revisions, HLC, merge, snapshot, compaction; on-disk vault I/O (`docs/io.md`) | `Sources/InkVault` | property tests for merge; concurrent-edit scenarios; `format.md` examples parse; vault round trip, tag binding, resumable recipient rewrap, `age -d … \| tail -c +38 \| gunzip` recovery test; fixture vault in `Tests/InkVaultTests/Fixtures` |
 | 0.3 | Render: B-spline evaluation, variable-width outlines, paper, PDF writer, SVG writer | `Sources/InkRender` | golden-file tests; PDF opens in Preview; matches PencilKit interpolation on macOS |
 | 0.4 | CLI: `keys`, `vault init/recipients/verify/list`, `export`, `recover` | `Sources/InkVaultCLI` | end-to-end test: init → write revisions → export PDF → `age -d` recovery |
 | 0.5 | CI: Linux (swift:6.4-noble) + macOS; static Linux CLI artifact; cloud setup script | `.github`, `scripts` | green on PR, binary downloadable |

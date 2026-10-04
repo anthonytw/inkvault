@@ -20,7 +20,7 @@ enum SampleFixture {
     static let deleted = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
     static let app = "inkvault-fixture/1"
 
-    static func id(_ n: Int) -> UUID { UUID(uuidString: String(format: "f1c70000-0000-4000-8000-%012d", n))! }
+    static func id(_ n: Int) -> UUID { UUID(uuidString: String(format: "f1c70000-0000-4000-8000-%012ld", n))! }
     static func at(_ offset: Int64) -> Date { Date(timeIntervalSince1970: Double(baseMillis + offset) / 1000) }
 
     static func stroke(_ n: Int, tool: InkTool = .pen, color: Color = Color(r: 0x1A, g: 0x1A, b: 0x1A)) -> Stroke {
