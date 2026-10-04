@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A1000000000000000000B001 /* InkVault in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D001 /* InkVault */; };
 		A1000000000000000000B002 /* Age in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D002 /* Age */; };
+		A1000000000000000000B004 /* InkRender in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D003 /* InkRender */; };
 		A1000000000000000000B003 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F003 /* Fixtures */; };
 /* End PBXBuildFile section */
 
@@ -48,6 +49,7 @@
 			files = (
 				A1000000000000000000B001 /* InkVault in Frameworks */,
 				A1000000000000000000B002 /* Age in Frameworks */,
+				A1000000000000000000B004 /* InkRender in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +112,7 @@
 			packageProductDependencies = (
 				A1000000000000000000D001 /* InkVault */,
 				A1000000000000000000D002 /* Age */,
+				A1000000000000000000D003 /* InkRender */,
 			);
 			productName = InkVaultApp;
 			productReference = A1000000000000000000F001 /* InkVault.app */;
@@ -405,6 +408,10 @@
 		A1000000000000000000D002 /* Age */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Age;
+		};
+		A1000000000000000000D003 /* InkRender */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = InkRender;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
