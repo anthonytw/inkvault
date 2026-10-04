@@ -29,7 +29,8 @@ jobs:
           swift build -c release --product inkvault --static-swift-stdlib
           -Xlinker -lCoreFoundation -Xlinker -l_FoundationICU
           -Xlinker -l_FoundationCollections -Xlinker -l_FoundationCShims
-          -Xlinker -lswiftSynchronization
+          -Xlinker -lswiftSynchronization -Xlinker -l_CFXMLInterface
+          -Xlinker -l_CFURLSessionInterface
       - name: Verify the CLI is static
         run: |
           .build/release/inkvault --version
