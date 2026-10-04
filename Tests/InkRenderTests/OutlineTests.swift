@@ -110,4 +110,43 @@ final class OutlineTests: XCTestCase {
         let xs = subs.flatMap(\.points).map(\.x)
         XCTAssertLessThan((xs.max() ?? 0) - (xs.min() ?? 0), 0.2)
     }
+
+    func testNaNAlphaClampsToZero() {
+        XCTAssertEqual(Paint(r: 0, g: 0, b: 0, alpha: .nan).alpha, 0)
+        XCTAssertEqual(Paint(r: 0, g: 0, b: 0, alpha: 7).alpha, 1)
+        XCTAssertEqual(Paint(.black, opacity: .nan).alpha, 0)
+    }
+
+    func testStrokesAreClippedPerChunk() throws {
+        let line = T.stroke((0..<8).map { T.pt(10 + 5 * sin(Double($0)), Double($0) * 400) })
+        let mono = T.stroke((0..<8).map { T.pt(10 + 5 * sin(Double($0)), Double($0) * 400) }, tool: .monoline)
+        let meta = T.meta(paper: .blank, size: PageSize(width: 100, height: 100, infinite: true))
+        var opts = RenderOptions(); opts.infiniteChunkHeight = 400
+        let prepared = try PreparedPage(page: Page(order: "a", strokes: [line, mono]), meta: meta, options: opts)
+        let chunks = prepared.chunks
+        XCTAssertGreaterThanOrEqual(chunks.count, 7)
+        var total = 0
+        for chunk in chunks {
+            for c in prepared.layers(for: chunk).strokes {
+                guard case let .path(subs) = c.primitive else { continue }
+                total += subs.reduce(0) { $0 + $1.points.count }
+                for p in subs.flatMap(\.points) {
+                    XCTAssertGreaterThan(p.y, -450); XCTAssertLessThan(p.y, 850)   // near the chunk, not the whole page
+                }
+            }
+        }
+        let whole = prepared.allStrokeCommands().reduce(0) { n, c in
+            if case let .path(subs) = c.primitive { return n + subs.reduce(0) { $0 + $1.points.count } }
+            return n
+        }
+        XCTAssertLessThan(total, whole * 2)   // each point emitted ~once, not once per chunk
+    }
+
+    func testFindHelperDoesNotTrapNearEnd() {
+        let b = Array("abcabc".utf8)
+        XCTAssertEqual(T.find(b, "abc", from: 1), 3)
+        XCTAssertNil(T.find(b, "abc", from: 4))
+        XCTAssertNil(T.find(b, "abcabcabc"))
+        XCTAssertEqual(T.count(Data(b), "abc"), 2)
+    }
 }

@@ -10,23 +10,32 @@ struct PageChunk {
     var height: Double { yEnd - yOffset }
 }
 
-/// A note page validated once, with each stroke's page-space bounds computed
-/// once, ready to be cut into chunks. Shared by the PDF and SVG writers.
+/// A note page validated once, with every stroke sampled and outlined once in
+/// page coordinates, ready to be cut into chunks. Shared by the PDF and SVG
+/// writers.
 struct PreparedPage {
+    struct PreparedStroke {
+        /// Geometry in page coordinates.
+        var commands: [DrawCommand]
+        var minY: Double
+        var maxY: Double
+    }
+
     let meta: NoteMeta
     let options: RenderOptions
-    /// Non-empty strokes with their conservative vertical extent.
-    let strokes: [(stroke: Stroke, minY: Double, maxY: Double)]
-    /// Total page height: `pageSize.height`, or for infinite pages the larger
-    /// of that and the lowest stroke edge (rounded up).
+    let strokes: [PreparedStroke]
+    /// Total page height: `pageSize.height`, or for infinite pages the largest
+    /// of that, the lowest stroke edge (rounded up) and one chunk height.
     let extent: Double
 
-    /// Validates `meta`/`page` and computes bounds.
+    /// Validates `meta`/`page` and builds stroke geometry.
     ///
-    /// - Throws: `RenderError.invalidPageSize`, `.invalidGeometry` (non-finite
-    ///   stroke data) or `.extentTooLarge` (an infinite page that would
-    ///   exceed `RenderLimits.maxExtent`). Strokes far outside a finite page
-    ///   are not an error; they are simply culled.
+    /// - Throws: `RenderError.invalidPageSize`; `.invalidGeometry` for a stroke
+    ///   with non-finite coordinates, size, opacity, force, width or
+    ///   transform; `.extentTooLarge` for a transformed coordinate (either
+    ///   axis) beyond `RenderLimits.maxExtent` in magnitude. Finite coordinates
+    ///   within the limit that fall outside a finite page are not an error; the
+    ///   stroke is simply culled.
     init(page: Page, meta: NoteMeta, options: RenderOptions) throws {
         let size = meta.pageSize
         let maxE = RenderLimits.maxExtent
@@ -36,36 +45,48 @@ struct PreparedPage {
         self.meta = meta
         self.options = options
 
-        var list: [(stroke: Stroke, minY: Double, maxY: Double)] = []
+        var list: [PreparedStroke] = []
         var low = 0.0
         for stroke in page.strokes where !stroke.points.isEmpty {
             let xf = stroke.transform ?? .identity
-            let radius = stroke.points.reduce(stroke.ink.width.magnitude) { max($0, $1.w.magnitude, $1.h.magnitude) }
-            let pad = radius * xf.meanScale / 2 + 1
+            guard [xf.a, xf.b, xf.c, xf.d, xf.tx, xf.ty, stroke.ink.width].allSatisfy(\.isFinite) else {
+                throw RenderError.invalidGeometry
+            }
+            var radius = stroke.ink.width.magnitude
             var lo = Double.infinity, hi = -Double.infinity
             for p in stroke.points {
-                let y = xf.apply(x: p.x, y: p.y).y
-                guard y.isFinite, p.x.isFinite, p.w.isFinite, p.h.isFinite, stroke.ink.width.isFinite else { throw RenderError.invalidGeometry }
-                lo = min(lo, y); hi = max(hi, y)
+                guard [p.x, p.y, p.w, p.h, p.o, p.f].allSatisfy(\.isFinite) else { throw RenderError.invalidGeometry }
+                let q = xf.apply(x: p.x, y: p.y)
+                guard q.x.isFinite, q.y.isFinite else { throw RenderError.invalidGeometry }
+                guard abs(q.x) <= maxE, abs(q.y) <= maxE else {
+                    throw RenderError.extentTooLarge(max(abs(q.x), abs(q.y)))
+                }
+                lo = min(lo, q.y); hi = max(hi, q.y)
+                radius = max(radius, p.w.magnitude, p.h.magnitude)
             }
-            guard lo.isFinite, hi.isFinite, pad.isFinite else { throw RenderError.invalidGeometry }
-            list.append((stroke, lo - pad, hi + pad))
+            let pad = radius * xf.meanScale / 2 + 1
+            guard pad.isFinite, pad <= maxE else { throw RenderError.extentTooLarge(pad) }
+            list.append(PreparedStroke(commands: StrokeOutline.commands(for: stroke, tolerance: options.tolerance),
+                                       minY: lo - pad, maxY: hi + pad))
             low = max(low, hi + pad)
         }
+        strokes = list
         if size.infinite {
             guard low <= maxE else { throw RenderError.extentTooLarge(low) }
-            extent = max(size.height, low.rounded(.up))
+            let chunk = Self.chunkHeight(options: options, width: size.width)
+            extent = max(size.height, low.rounded(.up), chunk)
         } else {
             extent = size.height
         }
-        strokes = list
+    }
+
+    static func chunkHeight(options: RenderOptions, width: Double) -> Double {
+        let base = options.infiniteChunkHeight ?? width * 11 / 8.5
+        return min(max(base.isFinite ? base : 792, 72), RenderLimits.maxExtent)
     }
 
     /// Chunk height for infinite pages: the option (clamped), else letter aspect from the width.
-    var chunkHeight: Double {
-        let base = options.infiniteChunkHeight ?? meta.pageSize.width * 11 / 8.5
-        return min(max(base.isFinite ? base : 792, 72), RenderLimits.maxExtent)
-    }
+    var chunkHeight: Double { Self.chunkHeight(options: options, width: meta.pageSize.width) }
 
     /// Output pages for this note page.
     var chunks: [PageChunk] {
@@ -77,7 +98,9 @@ struct PreparedPage {
     }
 
     /// Paper (if enabled) and strokes for `chunk`, in chunk-local coordinates.
-    /// Strokes that miss the chunk are skipped.
+    /// Strokes that miss the chunk are skipped, and within the rest only the
+    /// subpaths that can touch the chunk are kept (long open polylines are cut
+    /// to the runs that do).
     func layers(for chunk: PageChunk) -> (paper: [DrawCommand], strokes: [DrawCommand]) {
         var paper: [DrawCommand] = []
         if options.paper {
@@ -86,8 +109,62 @@ struct PreparedPage {
         }
         var out: [DrawCommand] = []
         for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.yEnd) {
-            out += StrokeOutline.commands(for: s.stroke, tolerance: options.tolerance, offsetY: -chunk.yOffset)
+            for c in s.commands {
+                if let clipped = Self.clip(c, to: chunk.yOffset, chunk.yEnd) {
+                    out.append(clipped.translated(dy: -chunk.yOffset))
+                }
+            }
         }
         return (paper, out)
+    }
+
+    /// Paper for the whole page in one coordinate space (the SVG layout). The
+    /// ruling cap applies per chunk-sized band, so tall infinite pages keep
+    /// their ruling.
+    func fullPagePaper() -> [DrawCommand] {
+        guard options.paper else { return [] }
+        let w = meta.pageSize.width
+        var out = [DrawCommand(.rect(x: 0, y: 0, width: w, height: extent), fill: Paint(meta.paper.background))]
+        let h = meta.pageSize.infinite ? chunkHeight : extent
+        let count = max(Int((extent / h).rounded(.up)), 1)
+        for i in 0..<count {
+            let top = Double(i) * h
+            let bottom = i == count - 1 ? extent : Double(i + 1) * h
+            out += PaperRenderer.commands(paper: meta.paper, width: w, height: bottom - top, yOffset: top,
+                                          yEnd: bottom, originY: 0, includeBackground: false)
+        }
+        return out
+    }
+
+    /// Geometry of every stroke in page coordinates (no chunking).
+    func allStrokeCommands() -> [DrawCommand] { strokes.flatMap(\.commands) }
+
+    private static func clip(_ c: DrawCommand, to top: Double, _ bottom: Double) -> DrawCommand? {
+        guard case let .path(subs) = c.primitive else { return c }
+        let pad = c.stroke != nil ? c.lineWidth / 2 : 0
+        var kept: [Subpath] = []
+        for sp in subs {
+            if sp.closed || c.stroke == nil || sp.points.count < 2 {
+                guard let lo = sp.points.map(\.y).min(), let hi = sp.points.map(\.y).max() else { continue }
+                if hi + pad >= top && lo - pad <= bottom { kept.append(sp) }
+                continue
+            }
+            // Open polyline: keep maximal runs of segments that overlap the chunk.
+            var run: [Point] = []
+            for i in 0..<(sp.points.count - 1) {
+                let a = sp.points[i], b = sp.points[i + 1]
+                if max(a.y, b.y) + pad >= top && min(a.y, b.y) - pad <= bottom {
+                    if run.isEmpty { run.append(a) }
+                    run.append(b)
+                } else if !run.isEmpty {
+                    kept.append(Subpath(points: run, closed: false)); run = []
+                }
+            }
+            if !run.isEmpty { kept.append(Subpath(points: run, closed: false)) }
+        }
+        if kept.isEmpty { return nil }
+        var out = c
+        out.primitive = .path(kept)
+        return out
     }
 }

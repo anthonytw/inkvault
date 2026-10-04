@@ -3,13 +3,14 @@ import InkVault
 
 /// RGB colour plus alpha (0...1), the paint used by every draw command.
 public struct Paint: Hashable, Sendable {
+    /// Red, green and blue components, 0...255.
     public var r: UInt8, g: UInt8, b: UInt8
     /// Opacity 0...1.
     public var alpha: Double
 
-    /// Creates a paint; `alpha` is clamped to 0...1.
+    /// Creates a paint; `alpha` is clamped to 0...1 (NaN becomes 0).
     public init(r: UInt8, g: UInt8, b: UInt8, alpha: Double = 1) {
-        self.r = r; self.g = g; self.b = b; self.alpha = min(max(alpha, 0), 1)
+        self.r = r; self.g = g; self.b = b; self.alpha = clamp01(alpha)
     }
 
     /// Paint from a model colour: alpha = `color.a / 255 * opacity`.
@@ -23,7 +24,9 @@ public struct Paint: Hashable, Sendable {
 
 /// A polyline or polygon.
 public struct Subpath: Hashable, Sendable {
+    /// Vertices in drawing order.
     public var points: [Point]
+    /// Whether the last vertex connects back to the first.
     public var closed: Bool
     /// Creates a subpath.
     public init(points: [Point], closed: Bool) { self.points = points; self.closed = closed }
@@ -52,9 +55,13 @@ public enum Primitive: Hashable, Sendable {
 /// SVG writers consume; both paper and strokes are expressed with it.
 /// Strokes always use round caps and round joins.
 public struct DrawCommand: Hashable, Sendable {
+    /// The shape to paint.
     public var primitive: Primitive
+    /// Fill paint, or `nil` for no fill.
     public var fill: Paint?
+    /// Outline paint, or `nil` for no outline.
     public var stroke: Paint?
+    /// Outline width in points (used only when `stroke` is set).
     public var lineWidth: Double
 
     /// Creates a command; `lineWidth` only matters when `stroke` is set.
@@ -90,8 +97,8 @@ public enum RenderLimits {
     public static let maxExtent = 200_000.0
     /// Smallest ruling / grid / dot spacing drawn; tighter paper renders blank.
     public static let minPaperSpacing = 4.0
-    /// Most ruling commands drawn per output page; more renders blank paper.
-    public static let maxPaperCommands = 20_000.0
+    /// Most ruling commands drawn per band (output page or chunk-sized slice); more renders blank paper.
+    public static let maxPaperCommands = 40_000.0
 }
 
 /// Errors thrown by the renderers.
@@ -104,6 +111,24 @@ public enum RenderError: Error, Equatable {
     case invalidGeometry
     /// Page width is not a finite positive number <= `maxExtent`, or height is negative/non-finite/too large.
     case invalidPageSize
+}
+
+/// Clamps to 0...1; NaN becomes 0 (plain `min(max(x, 0), 1)` passes NaN through).
+func clamp01(_ v: Double) -> Double { v.isNaN ? 0 : min(max(v, 0), 1) }
+
+extension DrawCommand {
+    /// The same command moved down by `dy` points.
+    func translated(dy: Double) -> DrawCommand {
+        func t(_ p: Point) -> Point { Point(x: p.x, y: p.y + dy) }
+        var c = self
+        switch primitive {
+        case let .rect(x, y, w, h): c.primitive = .rect(x: x, y: y + dy, width: w, height: h)
+        case let .line(a, b): c.primitive = .line(from: t(a), to: t(b))
+        case let .circle(center, r): c.primitive = .circle(center: t(center), radius: r)
+        case let .path(subs): c.primitive = .path(subs.map { Subpath(points: $0.points.map(t), closed: $0.closed) })
+        }
+        return c
+    }
 }
 
 /// Deterministic, locale-independent number formatting (<= 3 decimals).

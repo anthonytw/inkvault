@@ -79,7 +79,7 @@ final class PDFWriterTests: XCTestCase {
 
     func testHugeCoordinatesThrow() {
         let meta = T.meta(size: PageSize(width: 200, height: 300, infinite: true))
-        for y in [1e300, 5e6] {
+        for y in [1e300, 5e6, -5e6] {
             let note = T.note(pages: [[T.stroke([T.pt(0, 0), T.pt(0, y)])]], meta: meta)
             XCTAssertThrowsError(try PDFWriter.render(note: note, options: RenderOptions())) { err in
                 guard case RenderError.extentTooLarge = err else { return XCTFail("\(err)") }
@@ -95,10 +95,69 @@ final class PDFWriterTests: XCTestCase {
         }
     }
 
-    func testFiniteStrokeFarOutsidePageIsCulledNotAnError() throws {
-        let far = T.stroke([T.pt(10, 1e300), T.pt(20, 1e300)])
+    func testFiniteStrokeOutsidePageButWithinLimitIsCulled() throws {
+        let far = T.stroke([T.pt(10, 90_000), T.pt(20, 90_100)])
         let d = try PDFWriter.render(note: T.note(pages: [[far]]), options: RenderOptions(compress: false))
         XCTAssertEqual(pageCount(d), 1)
+        XCTAssertFalse(T.contains(d, " c\n"), "culled stroke emits nothing")
+    }
+
+    func testNonFiniteOpacityForceAndTransformThrowInvalidGeometry() {
+        func bad(_ s: Stroke) {
+            XCTAssertThrowsError(try PDFWriter.render(note: T.note(pages: [[s]]), options: RenderOptions())) {
+                XCTAssertEqual($0 as? RenderError, .invalidGeometry)
+            }
+        }
+        for v in [Double.nan, .infinity, -.infinity] {
+            bad(T.stroke([T.pt(0, 0, o: v), T.pt(10, 10)]))
+            bad(T.stroke([T.pt(0, 0), T.pt(10, 10, o: 0.5), T.pt(20, 0, o: v)]))
+            var p = T.pt(5, 5); p.f = v
+            bad(T.stroke([T.pt(0, 0), p]))
+            bad(T.stroke([T.pt(0, 0), T.pt(10, 10)], transform: Transform(a: v, b: 0, c: 0, d: 1, tx: 0, ty: 0)))
+            bad(T.stroke([T.pt(0, 0), T.pt(10, 10)], transform: Transform(a: 1, b: 0, c: v, d: 1, tx: 0, ty: 0)))
+            bad(T.stroke([T.pt(0, 0), T.pt(10, 10)], transform: Transform(a: 1, b: 0, c: 0, d: 1, tx: v, ty: 0)))
+        }
+    }
+
+    func testHugeXCoordinatesThrowLikeY() {
+        for finite in [true, false] {
+            let size = PageSize(width: 200, height: 300, infinite: !finite)
+            for x in [1e300, 5e6, 1e39] {
+                let note = T.note(pages: [[T.stroke([T.pt(0, 0), T.pt(x, 10)])]], meta: T.meta(size: size))
+                XCTAssertThrowsError(try PDFWriter.render(note: note, options: RenderOptions())) { err in
+                    guard case RenderError.extentTooLarge = err else { return XCTFail("\(err)") }
+                }
+            }
+            // The transform can push a small coordinate out of range too.
+            let big = T.stroke([T.pt(0, 0), T.pt(1, 1)], transform: Transform(a: 1e9, b: 0, c: 0, d: 1, tx: 0, ty: 0))
+            XCTAssertThrowsError(try PDFWriter.render(note: T.note(pages: [[big]], meta: T.meta(size: size)),
+                                                      options: RenderOptions()))
+        }
+    }
+
+    func testEmptyNoteIsValidated() {
+        for size in [PageSize(width: 0, height: 100), PageSize(width: 100, height: 0),
+                     PageSize(width: .nan, height: 100)] {
+            XCTAssertThrowsError(try PDFWriter.render(note: T.note(pages: [], meta: T.meta(size: size)),
+                                                      options: RenderOptions())) {
+                XCTAssertEqual($0 as? RenderError, .invalidPageSize)
+            }
+        }
+    }
+
+    func testEmptyInfiniteNoteUsesChunkHeight() throws {
+        let note = T.note(pages: [], meta: T.meta(size: PageSize(width: 612, height: 0, infinite: true)))
+        let d = try PDFWriter.render(note: note, options: RenderOptions(compress: false))
+        XCTAssertEqual(pageCount(d), 1)
+        XCTAssertTrue(T.contains(d, "/MediaBox [0 0 612 792]"))
+    }
+
+    func testNaNToleranceStillRendersSanely() throws {
+        let s = T.stroke((0..<6).map { T.pt(Double($0) * 20, 50 * sin(Double($0))) })
+        var o = RenderOptions(compress: false); o.tolerance = .nan
+        let d = try PDFWriter.render(note: T.note(pages: [[s]]), options: o)
+        let ref = try PDFWriter.render(note: T.note(pages: [[s]]), options: RenderOptions(compress: false))
+        XCTAssertEqual(d, ref)   // NaN falls back to the default tolerance
     }
 
     func testUncompressedContainsOperators() throws {

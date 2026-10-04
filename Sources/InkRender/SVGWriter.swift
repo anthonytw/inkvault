@@ -17,16 +17,17 @@ public enum SVGWriter {
         let prepared = try PreparedPage(page: page, meta: meta, options: options)
         let width = meta.pageSize.width
         let height = prepared.extent
-        let layers = prepared.layers(for: PageChunk(yOffset: 0, yEnd: height, width: width))
+        let paperCommands = prepared.fullPagePaper()
+        let strokeCommands = prepared.allStrokeCommands()
 
         var s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         s += "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fmt(width))pt\" height=\"\(fmt(height))pt\" "
         s += "viewBox=\"0 0 \(fmt(width)) \(fmt(height))\">\n"
         if !meta.title.isEmpty { s += "<title>\(escape(meta.title))</title>\n" }
         s += "<g id=\"paper\">\n"
-        for c in layers.paper { s += element(c) + "\n" }
+        for c in paperCommands { s += element(c) + "\n" }
         s += "</g>\n<g id=\"strokes\">\n"
-        for c in layers.strokes { s += element(c) + "\n" }
+        for c in strokeCommands { s += element(c) + "\n" }
         s += "</g>\n</svg>\n"
         return s
     }

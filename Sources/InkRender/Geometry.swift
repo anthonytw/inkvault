@@ -3,7 +3,10 @@ import InkVault
 
 /// A 2-D point in page coordinates (points, origin top-left, y down).
 public struct Point: Hashable, Sendable {
-    public var x: Double, y: Double
+    /// Horizontal position, points, increasing rightwards.
+    public var x: Double
+    /// Vertical position, points, increasing downwards.
+    public var y: Double
     /// Creates a point.
     public init(x: Double, y: Double) { self.x = x; self.y = y }
 
@@ -17,6 +20,7 @@ public struct Point: Hashable, Sendable {
 
 /// One evaluated point on a stroke's curve. Every attribute is interpolated.
 public struct StrokeSample: Hashable, Sendable {
+    /// Location in page coordinates (after the stroke transform).
     public var x: Double, y: Double
     /// Size in points (already scaled by the stroke transform).
     public var w: Double, h: Double
@@ -125,8 +129,8 @@ public enum StrokeSampler {
         guard !pts.isEmpty else { return [] }
         let xf = stroke.transform ?? .identity
         let scale = xf.meanScale
-        let tol = max(tolerance, 1e-4)
-        let cap = max(maxSpacing, 0.01)
+        let tol = tolerance.isFinite ? max(tolerance, 1e-4) : 0.05
+        let cap = maxSpacing.isFinite ? max(maxSpacing, 0.01) : 1.0
 
         func eval(_ t: Double) -> StrokeSample {
             var s = BSpline.sample(of: pts, at: t)

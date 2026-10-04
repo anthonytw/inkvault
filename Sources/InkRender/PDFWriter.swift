@@ -4,7 +4,8 @@ import InkVault
 /// Minimal PDF 1.4 writer: vector paths, RGB colour, alpha via `ExtGState`.
 ///
 /// Every note page becomes one PDF page of `pageSize` points; an `infinite`
-/// page is split into pages of `infiniteChunkHeight` (default `pageSize.height`)
+/// page is split into pages of `infiniteChunkHeight` (default: page width x
+/// 11 / 8.5, letter aspect, independent of the page's current extent)
 /// covering the page's full extent. Page content is flipped to PDF's bottom-left
 /// origin with a single leading `1 0 0 -1 0 H cm`, so all geometry stays in
 /// page coordinates. Strokes crossing a chunk boundary are drawn on both pages.
@@ -34,8 +35,17 @@ public enum PDFWriter {
             }
         }
         if pages.isEmpty {
-            let size = notes.first?.meta.pageSize ?? .letter
-            pages.append(OutPage(width: size.width, height: size.height, content: Data(), alphas: []))
+            // A document needs a page: render an empty one through the same
+            // validation and chunking as real pages.
+            let meta = notes.first?.meta ?? NoteMeta(created: Date(timeIntervalSince1970: 0))
+            let prepared = try PreparedPage(page: Page(order: "a"), meta: meta, options: options)
+            for chunk in prepared.chunks.prefix(1) {
+                var cs = ContentStream(height: chunk.height)
+                cs.begin()
+                for c in prepared.layers(for: chunk).paper { cs.emit(c) }
+                pages.append(OutPage(width: chunk.width, height: chunk.height,
+                                     content: Data(cs.text.utf8), alphas: cs.alphas.sorted()))
+            }
         }
 
         // Object numbering: 1 catalog, 2 pages, 3 info, ExtGStates, then page/content pairs.

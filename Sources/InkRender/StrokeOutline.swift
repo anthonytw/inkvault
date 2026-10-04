@@ -32,7 +32,7 @@ public enum StrokeOutline {
     /// `mean(sample o) * toolOpacity`. Feed it to `Paint(_:opacity:)`.
     public static func opacityFactor(for stroke: Stroke, samples: [StrokeSample]) -> Double {
         let meanO = samples.isEmpty ? 1 : samples.reduce(0) { $0 + $1.o } / Double(samples.count)
-        return min(max(meanO, 0), 1) * toolOpacity(stroke.ink.tool)
+        return clamp01(meanO) * toolOpacity(stroke.ink.tool)
     }
 
     /// Draw commands for one stroke (empty for a stroke with no points).
