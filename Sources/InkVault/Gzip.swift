@@ -62,9 +62,23 @@ public enum Gzip {
     /// Decompresses exactly one gzip member. Trailing bytes, truncation, a bad
     /// CRC or length, or output beyond `maxOutput` all throw.
     public static func decompress(_ data: Data, maxOutput: Int = defaultMaxOutput) throws -> Data {
+        try inflateStream(data, windowBits: gzipWindowBits, maxOutput: maxOutput)
+    }
+
+    /// Decompresses exactly one raw deflate stream (RFC 1951, no zlib or
+    /// gzip framing, as zip entries store it), with the same strictness as
+    /// `decompress`: trailing bytes, truncation or output beyond `maxOutput`
+    /// throw.
+    public static func inflateRaw(_ data: Data, maxOutput: Int = defaultMaxOutput) throws -> Data {
+        try inflateStream(data, windowBits: -15, maxOutput: maxOutput)
+    }
+
+    /// The shared inflate loop; `windowBits` selects the framing (zlib's
+    /// convention: `15 + 16` gzip, `-15` raw deflate).
+    static func inflateStream(_ data: Data, windowBits: Int32, maxOutput: Int) throws -> Data {
         guard !data.isEmpty else { throw GzipError.inflate(Z_DATA_ERROR) }
         var stream = z_stream()
-        var rc = inflateInit2_(&stream, gzipWindowBits, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
+        var rc = inflateInit2_(&stream, windowBits, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
         guard rc == Z_OK else { throw GzipError.inflate(rc) }
         defer { inflateEnd(&stream) }
 
