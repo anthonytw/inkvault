@@ -159,6 +159,21 @@ public struct WebDAVClient: Sendable {
         }
     }
 
+    /// Creates the base collection and any missing ancestors (`mkcol([])`
+    /// answered 409). Ancestors that cannot be created are ignored: only the
+    /// base itself has to exist in the end.
+    public func createBase() throws {
+        for depth in 1...max(baseComponents.count, 1) {
+            let comps = Array(baseComponents.prefix(depth))
+            let isBase = depth >= baseComponents.count
+            guard let url = self.url(forAbsolute: comps) else { continue }
+            var h: [String: String] = ["User-Agent": "inkvault-webdav/0.1"]
+            if let authorization { h["Authorization"] = authorization }
+            let r = try transport.send(WebDAVRequest(method: "MKCOL", url: url, headers: h))
+            if isBase && ![200, 201, 405].contains(r.status) { throw try failure("MKCOL", [], r) }
+        }
+    }
+
     /// Deletes a file. A file that is already gone is fine.
     public func delete(_ path: [String]) throws {
         let r = try send("DELETE", path, collection: false)
@@ -177,6 +192,11 @@ public struct WebDAVClient: Sendable {
         var s = origin + "/" + all.joined(separator: "/")
         if collection && !all.isEmpty { s += "/" }
         return URL(string: s)
+    }
+
+    func url(forAbsolute comps: [String]) -> URL? {
+        let all = comps.map { $0.addingPercentEncoding(withAllowedCharacters: Self.segmentAllowed) ?? $0 }
+        return URL(string: origin + "/" + all.joined(separator: "/") + "/")
     }
 
     private static let segmentAllowed: CharacterSet = {

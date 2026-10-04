@@ -408,7 +408,8 @@ public final class WebDAVSync {
         case .created, .exists: break
         case .missingParent:
             guard !path.isEmpty else {
-                throw WebDAVError.http(method: "MKCOL", path: "", status: 409)
+                try client.createBase()
+                break
             }
             try ensureCollection(Array(path.dropLast()))
             _ = try client.mkcol(path)

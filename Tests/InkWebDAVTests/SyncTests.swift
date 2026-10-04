@@ -41,6 +41,17 @@ final class SyncTests: SyncTestCase {
         }
     }
 
+    func testCreatesMissingBaseAndAncestors() throws {
+        let server = MockDAV(collections: [""])
+        let a = try makeVault("A")
+        _ = try delta(a, device: devA, t: 0, title: "one")
+        let report = try sync("A", server)
+        XCTAssertTrue(report.errors.isEmpty, "\(report)")
+        XCTAssertEqual(report.uploaded.count, 2)
+        XCTAssertNotNil(server.file("vault.json"))
+        XCTAssertEqual(try sync("B", server).downloaded.count, 2)
+    }
+
     // MARK: transfer
 
     func testTwoDevicesConvergeWithConcurrentDeltas() throws {

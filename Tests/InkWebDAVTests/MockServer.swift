@@ -7,7 +7,9 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
     struct Stored { var data: Data; var etag: String }
     private let lock = NSLock()
     private var files: [String: Stored] = [:]
-    private var collections: Set<String> = ["/dav/vault"]
+    private var collections: Set<String>
+
+    init(collections: Set<String> = ["", "/dav", "/dav/vault"]) { self.collections = collections }
     private var counter = 0
     private(set) var requests: [(method: String, path: String)] = []
     /// When set, called for each request; return a response to short-circuit.

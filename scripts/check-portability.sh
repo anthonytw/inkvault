@@ -7,4 +7,10 @@ if grep -rEn "$pattern" Sources/; then
   echo "error: Apple-only import in Sources/ (use 'import Crypto' from swift-crypto, CZlib for gzip)" >&2
   exit 1
 fi
+# Network code lives in Sources/InkWebDAV only (CLAUDE.md).
+netpattern='(URLSession|FoundationNetworking|NWConnection|CFNetwork|import[[:space:]]+Network\b)'
+if grep -rEn "$netpattern" Sources/ --exclude-dir=InkWebDAV; then
+  echo "error: network code outside Sources/InkWebDAV" >&2
+  exit 1
+fi
 echo "portability: ok"

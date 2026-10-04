@@ -173,6 +173,43 @@ device id and clock from `$XDG_STATE_HOME/inkvault/device.json` (default
 { "device": "3fa9c01e", "millis": 1760000000000, "counter": 0 }
 ```
 
+### Sync
+
+```
+inkvault sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
+                         [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
+```
+
+Mirrors the vault folder with a WebDAV collection (`docs/io.md`, "WebDAV
+sync"); the server needs no logic. `URL` must be `https://`, or `http://` to
+`localhost`, `127.0.0.1` or `[::1]`; anything else is refused (exit 2) before a
+request is made, and so are credentials inside the URL. The password is read
+from the environment variable named by `--password-env` (default
+`INKVAULT_WEBDAV_PASSWORD`) and never from the command line. The vault folder
+may be missing or empty: the first run pulls everything.
+
+Revision files are copied to the side that lacks them and never overwritten.
+`vault.json` and `rewrap-journal.json` are compared with the last sync (state
+in `$XDG_STATE_HOME/inkvault/sync/`); a change on one side is copied over, a
+change on both keeps both copies (`vault.conflict-<device>-<time>.json` next to
+the local file; `--device` names this machine, default the host name) and exits
+3. Deletions follow only compaction: a file removed on one side is removed on
+the other only if the compaction rules (`docs/format.md` §5.3) allow it with
+the revisions held locally, which needs the vault unlocked (`--identity`, or
+`--passphrase-env`/`$INKVAULT_PASSPHRASE` for the stored key file); otherwise
+it is restored, or, with the vault locked, left alone and listed as skipped.
+`--dry-run` makes no request that changes anything and writes nothing; it
+lists `would upload`, `would download` and `would delete` lines. It cannot see
+files it would first download, so it may under-report deletions.
+
+Output: one line per action, then
+`N uploaded, N downloaded, N deleted, N conflicts, N errors` (`-q` hides the
+lines, `-v` adds skipped and ignored entries). `--json` prints the report:
+`dryRun`, `uploaded`, `downloaded`, `deleted` (`{side, path}`), `conflicts`
+(`{path, remoteCopy, detail}`), `errors` and `skipped` (`{path, message}`) and
+`ignored` (remote names that are not vault files). One failing file does not stop the
+run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts.
+
 ## Worked examples
 
 ### Move a key to a second device

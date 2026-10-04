@@ -64,7 +64,8 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
         }
         task.resume()
         done.wait()
-        let (data, response, error) = box.get()
+        var (data, response, error) = box.get()
+        if error != nil, let r = delegate.challenged.take(task.taskIdentifier) { response = r; error = nil }
         if let error { throw WebDAVError.transport(Self.describe(error)) }
         guard let http = response as? HTTPURLResponse else { throw WebDAVError.transport("not an HTTP response") }
         var headers: [String: String] = [:]
@@ -82,6 +83,24 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
                         completionHandler: @escaping (URLRequest?) -> Void) {
             completionHandler(nil)
         }
+
+        /// Credentials are sent preemptively in the header; a challenge is
+        /// answered with the 401 itself, never with a stored credential.
+        func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            if let r = challenge.failureResponse as? HTTPURLResponse { challenged.set(task.taskIdentifier, r) }
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+
+        let challenged = ChallengeLog()
+    }
+
+    /// The 401 responses that cancelled a request, by task, so the caller still sees the status.
+    private final class ChallengeLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var responses: [Int: HTTPURLResponse] = [:]
+        func set(_ id: Int, _ r: HTTPURLResponse) { lock.lock(); responses[id] = r; lock.unlock() }
+        func take(_ id: Int) -> HTTPURLResponse? { lock.lock(); defer { lock.unlock() }; return responses.removeValue(forKey: id) }
     }
 
     private final class ResultBox: @unchecked Sendable {

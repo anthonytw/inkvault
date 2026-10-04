@@ -29,7 +29,8 @@ drop export, bulk export, key management.
 
 ## Phase 3 — nice to have
 
-History browser and restore; built-in WebDAV client; compaction UI;
+History browser and restore; built-in WebDAV client (`inkvault sync webdav`,
+`docs/io.md`; the iPad app UI is still open); compaction UI;
 PNG export; page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper); stroke
