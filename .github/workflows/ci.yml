@@ -57,3 +57,18 @@ jobs:
         run: swift build --build-tests
       - name: Test
         run: swift test --skip-build
+
+  app:
+    name: iPad app (simulator + Mac Catalyst)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: Test on an iPad simulator
+        run: scripts/app.sh test
+      - name: Build for Mac Catalyst (unsigned)
+        run: scripts/app.sh catalyst

@@ -11,7 +11,12 @@ swift build                 # macOS or Linux
 swift test                  # all targets
 swift test --filter AgeTests
 scripts/test-linux.sh       # on a Mac with Docker, or in a cloud VM: run tests in swift:6.4-noble
+scripts/app.sh test         # iPad app: xcodebuild test on the newest iPadOS 26+ simulator
+scripts/app.sh catalyst     # iPad app: unsigned Mac Catalyst build
 ```
+
+The app lives in `Apps/InkVault/InkVault.xcodeproj` (open it in Xcode; scheme
+`InkVaultApp`). It depends on this package as a local package (`../..`).
 
 Toolchain floor is Swift 6.0 (`swift-tools-version: 6.0`, language mode 6).
 Do not use features newer than Swift 6.0 in `Sources/`.
@@ -63,3 +68,21 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   -l_FoundationICU -Xlinker -l_FoundationCollections -Xlinker
   -l_FoundationCShims -Xlinker -lswiftSynchronization`. Do not put these in
   `linkerSettings` (they break dynamic builds and `swift test`).
+- `Sources/` must also compile for iOS and Mac Catalyst (the app links it), not
+  just macOS and Linux. Some Foundation API is macOS-only:
+  `FileManager.homeDirectoryForCurrentUser` is unavailable there (use
+  `NSHomeDirectory()`). `scripts/app.sh catalyst` catches these.
+- The app target is `InkVaultApp` with `PRODUCT_NAME = InkVault` and
+  `PRODUCT_MODULE_NAME = InkVaultApp`: a module named `InkVault` would collide
+  with the package's `InkVault` library. Tests use `@testable import InkVaultApp`.
+- `project.pbxproj` is hand-maintained and uses folder-synchronized groups
+  (Xcode 16+): add or remove `.swift` files under `Apps/InkVault/InkVaultApp/` or
+  `InkVaultAppTests/` without touching the project file. Only new targets,
+  package products, build settings or resources need a pbxproj edit; keep object
+  ids as 24 hex digits and check with `plutil -lint`.
+- App tests read the package's fixture vault through a folder reference to
+  `Tests/InkVaultTests/Fixtures` (copied into the test bundle as `Fixtures/`);
+  copy the vault to a temp dir before anything could write to it.
+- A fresh Xcode install may fail every `xcodebuild` with "A required plugin
+  failed to load": run `xcodebuild -runFirstLaunch`. It also ships without an
+  iOS simulator runtime: `xcodebuild -downloadPlatform iOS` (about 8 GB).
