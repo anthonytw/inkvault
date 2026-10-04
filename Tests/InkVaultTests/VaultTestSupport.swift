@@ -37,11 +37,17 @@ class VaultTestCase: XCTestCase {
         let s3 = UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000b3")!
         return [
             log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0")), .setMeta(.title("Lecture 3"))]),
-            log.delta(devA, 10, [.addStroke(page: p1, stroke: stroke(s1))]),
-            log.delta(devB, 15, [.addStroke(page: p1, stroke: stroke(s2)), .setMeta(.tags(["math"]))]),
+            log.delta(devA, 10, [.addStroke(page: p1, stroke: wireStroke(s1))]),
+            log.delta(devB, 15, [.addStroke(page: p1, stroke: wireStroke(s2)), .setMeta(.tags(["math"]))]),
             log.delta(devB, 20, [.removeStroke(page: p1, strokeId: s1)]),
-            log.delta(devA, 30, [.addStroke(page: p1, stroke: stroke(s3))]),
+            log.delta(devA, 30, [.addStroke(page: p1, stroke: wireStroke(s3))]),
         ]
+    }
+
+    /// A stroke whose numbers survive the writer's 3-decimal rounding.
+    func wireStroke(_ id: UUID) -> Stroke {
+        Stroke(id: id, ink: Ink(tool: .pen, color: .black, width: 2),
+               points: [StrokePoint(x: 1, y: 2, w: 2, h: 2, al: 1.5), StrokePoint(x: 3.25, y: 4, t: 0.016, w: 2, h: 2, al: 1.5)])
     }
 
     /// Flips one bit of a file in place (simulating storage damage).
