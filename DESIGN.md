@@ -54,6 +54,12 @@ Swift. PencilKit's pixel eraser slices strokes into new strokes, so the
 drawing stays vector; in our log that is one `removeStroke` plus the
 surviving pieces as `addStroke`s.
 
+Each page may also carry its recognised handwriting text (`format.md` §5.5):
+produced on device by PencilKit's handwriting recognition (iPadOS 27) or
+carried in by an importer (Notability ships its own), stored inside the
+encrypted note body like everything else, and used to power search. It is
+derived data, replaced as a whole, so it merges last-writer-wins per page.
+
 ## Encryption
 
 Container: age v1 (age-encryption.org/v1), X25519 recipients, implemented in

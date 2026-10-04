@@ -160,6 +160,53 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+/// Text recognised in a page's handwriting (format.md §5.5): produced on
+/// device (PencilKit) or carried in by an importer; used for search.
+public struct Recognition: Hashable, Sendable, Codable {
+    /// One recognised word and where it is on the page.
+    public struct Word: Hashable, Sendable, Codable {
+        /// The word.
+        public var text: String
+        /// Bounding box `[x, y, w, h]` in page coordinates (points).
+        public var box: Box
+
+        public init(text: String, box: Box) { self.text = text; self.box = box }
+
+        enum CodingKeys: String, CodingKey { case text = "t", box }
+    }
+
+    /// Axis-aligned rectangle, encoded `[x, y, w, h]`.
+    public struct Box: Hashable, Sendable, Codable {
+        public var x: Double, y: Double, w: Double, h: Double
+
+        public init(x: Double, y: Double, w: Double, h: Double) {
+            self.x = x; self.y = y; self.w = w; self.h = h
+        }
+
+        public init(from decoder: Decoder) throws {
+            var c = try decoder.unkeyedContainer()
+            x = try c.decode(Double.self); y = try c.decode(Double.self)
+            w = try c.decode(Double.self); h = try c.decode(Double.self)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.unkeyedContainer()
+            for v in [x, y, w, h] { try c.encode(InkJSON.round3(v)) }
+        }
+    }
+
+    /// Name and version of the recogniser, e.g. `pencilkit-27.0` or `notability-14.2.6`.
+    public var engine: String
+    /// The page's text in reading order, lines separated by `\n`.
+    public var text: String
+    /// Words of `text` with their boxes; may be empty.
+    public var words: [Word]
+
+    public init(engine: String, text: String, words: [Word] = []) {
+        self.engine = engine; self.text = text; self.words = words
+    }
+}
+
 public struct Page: Hashable, Sendable, Codable, Identifiable {
     public var id: UUID
     /// Sort key; pages order by `(order, id)` lexicographically.
@@ -171,13 +218,19 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
     /// Snapshot only: `"<hlc>-<device>-<seq>-<op>"` of the `addPage` that
     /// added the page (format.md §5.5).
     public var origin: String?
+    /// Recognised handwriting text; set by `setPageRecognition` (format.md §5.5).
+    public var recognition: Recognition?
+    /// Snapshot only: `"<hlc>-<device>"` stamp of the `setPageRecognition`
+    /// that last set `recognition`. Nil with a nil `recognition` means never set.
+    public var recognitionClock: String?
 
     public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil,
-                origin: String? = nil) {
+                origin: String? = nil, recognition: Recognition? = nil, recognitionClock: String? = nil) {
         self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock; self.origin = origin
+        self.recognition = recognition; self.recognitionClock = recognitionClock
     }
 
-    enum CodingKeys: String, CodingKey { case id, order, strokes, orderClock, origin }
+    enum CodingKeys: String, CodingKey { case id, order, strokes, orderClock, origin, recognition, recognitionClock }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -186,6 +239,8 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         strokes = try c.decodeIfPresent([Stroke].self, forKey: .strokes) ?? []
         orderClock = try c.decodeIfPresent(String.self, forKey: .orderClock)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        recognition = try c.decodeIfPresent(Recognition.self, forKey: .recognition)
+        recognitionClock = try c.decodeIfPresent(String.self, forKey: .recognitionClock)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -195,6 +250,8 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         try c.encode(strokes, forKey: .strokes)
         if let orderClock { try c.encode(orderClock, forKey: .orderClock) }
         if let origin { try c.encode(origin, forKey: .origin) }
+        if let recognition { try c.encode(recognition, forKey: .recognition) }
+        if let recognitionClock { try c.encode(recognitionClock, forKey: .recognitionClock) }
     }
 }
 
@@ -365,13 +422,15 @@ public enum Op: Hashable, Sendable {
     case addPage(Page)
     case removePage(pageId: UUID)
     case setPageOrder(pageId: UUID, order: String)
+    /// LWW on the page's recognised text; nil clears it (format.md §5.5).
+    case setPageRecognition(pageId: UUID, recognition: Recognition?)
     case setMeta(MetaChange)
     case deleteNote
     case restoreNote
 }
 
 extension Op: Codable {
-    enum CodingKeys: String, CodingKey { case op, page, stroke, strokeId, pageId, order, field, value }
+    enum CodingKeys: String, CodingKey { case op, page, stroke, strokeId, pageId, order, recognition, field, value }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -390,6 +449,9 @@ extension Op: Codable {
         case "setPageOrder":
             self = .setPageOrder(pageId: try c.decode(LowercaseUUID.self, forKey: .pageId).uuid,
                                  order: try c.decode(String.self, forKey: .order))
+        case "setPageRecognition":
+            self = .setPageRecognition(pageId: try c.decode(LowercaseUUID.self, forKey: .pageId).uuid,
+                                       recognition: try c.decodeIfPresent(Recognition.self, forKey: .recognition))
         case "setMeta":
             let field = try c.decode(String.self, forKey: .field)
             switch field {
@@ -430,6 +492,10 @@ extension Op: Codable {
             try c.encode("setPageOrder", forKey: .op)
             try c.encode(LowercaseUUID(pageId), forKey: .pageId)
             try c.encode(order, forKey: .order)
+        case .setPageRecognition(let pageId, let recognition):
+            try c.encode("setPageRecognition", forKey: .op)
+            try c.encode(LowercaseUUID(pageId), forKey: .pageId)
+            try c.encode(recognition, forKey: .recognition)   // null when nil
         case .setMeta(let change):
             try c.encode("setMeta", forKey: .op)
             try c.encode(change.field, forKey: .field)
