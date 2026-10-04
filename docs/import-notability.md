@@ -163,7 +163,11 @@ adds `W × 18.8 / 716.8` to every x.
 Notability pages stack vertically without gaps. One page is `W × aspect`
 high, where the aspect is `1 / r` for `paperSize = custom:<r>`, else the
 height/width of the widest thumbnail (`thumb12x.png` is 576 px wide, so its
-aspect is more precise than `thumb.png`'s 48), else 21/16. Every "letter" note has 48 × 63
+aspect is more precise than `thumb.png`'s 48), else 21/16. Thumbnails are
+hints: one that cannot be read is skipped, and an aspect outside 1/16…16 (from
+a thumbnail or `custom:`) is ignored, as is a document width outside
+16…100 000, so a corrupt note cannot produce a page height of 0, of 10¹² or
+of infinity. Every "letter" note has 48 × 63
 thumbnails (21/16 = 1.3125, not letter's 1.294), and fitting the handwriting
 index origins to stroke positions gives a page height of 940.8 = 716.8 ×
 21/16 independently.
@@ -179,7 +183,9 @@ PDF notes, up to page 64) gives 538.02 for 716.8 × 0.75 = 537.6 and 429.01 for
 the nearest unit fits the same data; 16:9 slides (403.2 → 404) have no
 recognised pages in the samples, so that case is unverified. All PDF pages
 of one note had the same size in the samples; a PDF with mixed page sizes
-would need the PDF's page boxes, which the importer does not read.
+would need the PDF's page boxes, which the importer does not read. A PDF note
+without a usable thumbnail falls back to 21/16 like paper, rounded up too
+(941 on a 716.8 note): a guess either way.
 
 ### Paper
 
@@ -224,7 +230,7 @@ height`. `engine` is `notability-<app version>`.
 | folders under `Notability/`, else subject | `notebook` |
 | `noteTags` | `tags` |
 | `noteCreationDateKey` | `created` (via the delta's `wall`) |
-| document width, content extent | one infinite page: `pageSize.width = W`, `height` = lowest ink (at least one Notability page), `breakHeight` = one Notability page (`W × 21/16`; `⌈W × aspect⌉` on PDF pages), all × `612 / W` when scaling |
+| document width, content extent | one infinite page: `pageSize.width = W`, `height` = lowest ink (at least one Notability page), `breakHeight` = one Notability page (`W × aspect`, usually 21/16; `⌈W × aspect⌉` on PDF pages), all × `612 / W` when scaling |
 | `lineStyle2` / `lineStyle` | `paper.kind`, `paper.spacing` |
 | curve | one `Stroke`; id derived from the note uuid and curve index |
 | style 3 / 4 | `pen` / `marker` (highlighters are written first so they sit behind the ink) |

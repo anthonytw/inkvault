@@ -235,14 +235,17 @@ extension NotabilityNote {
 
         // Page aspect from the widest thumbnail (thumb.png is 48 px wide,
         // thumb12x.png 576 px, so the larger ones carry the aspect more
-        // precisely); ties prefer thumb.png.
+        // precisely); ties prefer thumb.png. A thumbnail is only a hint: one
+        // that cannot be read, or whose aspect is implausible, is skipped.
         var thumb: (Int, Int)?
         let thumbs = pkg.paths.filter { p in
             p.hasPrefix(prefix) && !p.dropFirst(prefix.count).contains("/")
                 && p.dropFirst(prefix.count).hasPrefix("thumb") && p.hasSuffix(".png")
         }.sorted { a, b in (a == prefix + "thumb.png" ? 0 : 1, a) < (b == prefix + "thumb.png" ? 0 : 1, b) }
         for t in thumbs {
-            if let size = pngSize(try pkg.read(t)), size.0 > 0, size.1 > 0, size.0 > (thumb?.0 ?? 0) { thumb = size }
+            guard let data = try? pkg.read(t), let size = pngSize(data),
+                  plausibleAspect(Double(size.1) / Double(max(size.0, 1))) != nil, size.0 > (thumb?.0 ?? 0) else { continue }
+            thumb = size
         }
 
         let paper = try parsePaper(session, root: root, richText: richText, thumbnail: thumb, curves: curves,
@@ -490,25 +493,26 @@ extension NotabilityNote {
         var width: Double?
         if let sizing, sizing.hasPrefix("lockedWidth:") {
             let parts = sizing.split(separator: ":")
-            if parts.count >= 2, let w = Double(parts[1]), w.isFinite, w > 0 { width = w }
+            if parts.count >= 2, let w = Double(parts[1]).flatMap(plausibleWidth) { width = w }
         }
-        if width == nil, let w = try a.field(try a.field(richText, "reflowState"), "pageWidthInDocumentCoordsKey").double,
-           w.isFinite, w > 0 {
+        if width == nil, let w = try a.field(try a.field(richText, "reflowState"), "pageWidthInDocumentCoordsKey").double
+            .flatMap(plausibleWidth) {
             width = w
         }
         if width == nil {
             // deviceBasedWidth without a recorded width: the iPad default,
             // widened if any ink lies beyond it.
-            let maxX = curves.lazy.flatMap(\.points).map(\.x).max() ?? 0
-            width = max(defaultWidth, (maxX + 8).rounded(.up))
+            let maxX = curves.lazy.flatMap(\.points).map(\.x).filter(\.isFinite).max() ?? 0
+            width = min(max(defaultWidth, (maxX + 8).rounded(.up)), widthRange.upperBound)
         }
         let w = width ?? defaultWidth
 
         var aspect = defaultPageAspect
-        if let size, size.hasPrefix("custom:"), let r = Double(size.dropFirst("custom:".count)), r.isFinite, r > 0 {
-            aspect = 1 / r
-        } else if let (tw, th) = thumbnail, tw > 0, th > 0 {
-            aspect = Double(th) / Double(tw)
+        if let size, size.hasPrefix("custom:"), let r = Double(size.dropFirst("custom:".count)),
+           r.isFinite, r > 0, let a = plausibleAspect(1 / r) {
+            aspect = a
+        } else if let (tw, th) = thumbnail, tw > 0, th > 0, let a = plausibleAspect(Double(th) / Double(tw)) {
+            aspect = a
         }
 
         let (kind, spacing) = paperStyle(lineStyle2: lineStyle2, lineStyle: lineStyle, width: w, size: size)
@@ -522,6 +526,18 @@ extension NotabilityNote {
                      identifier: try a.field(attrs, "paperIdentifier").string, size: size,
                      sizingBehavior: sizing, lineStyle2: lineStyle2, lineStyle: lineStyle)
     }
+
+    /// Page height / width ratios outside this range are not Notability
+    /// pages (the samples hold 0.5625 to 1.414); a corrupt or hostile
+    /// thumbnail or `custom:` size would otherwise make a page height of zero
+    /// or of 10¹² units.
+    static let aspectRange = 1.0 / 16 ... 16.0
+    /// Document widths outside this range are ignored (the samples hold 572
+    /// and 716.8): a width near 0 scales the ink to infinity, a huge one to 0.
+    static let widthRange = 16.0 ... 100_000.0
+
+    static func plausibleAspect(_ a: Double) -> Double? { aspectRange.contains(a) ? a : nil }
+    static func plausibleWidth(_ w: Double) -> Double? { widthRange.contains(w) ? w : nil }
 
     /// Document units per legacy spacing unit (`Dots:0.5`, `Lines:0.5`),
     /// measured on a 716.8-wide page: 0.5 → 18.8.

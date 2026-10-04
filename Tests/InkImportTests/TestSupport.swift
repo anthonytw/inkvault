@@ -241,10 +241,12 @@ enum SyntheticNote {
         return Float16Bits.encode(x)
     }
 
-    /// - Parameter pdfPages: lay the note out on that many pages of one
-    ///   imported PDF (`pdfFiles` + `pageLayoutArray`), as Notability does for
-    ///   a note made from a PDF.
-    static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0) -> Data {
+    /// - Parameters:
+    ///   - pdfPages: lay the note out on that many pages of one imported PDF
+    ///     (`pdfFiles` + `pageLayoutArray`), as Notability does for a note
+    ///     made from a PDF.
+    ///   - paperSize: the `paperSize` attribute (`letter`, `custom:<w/h>`, …).
+    static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter") -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
@@ -290,7 +292,7 @@ enum SyntheticNote {
             ("pdfFiles", a.array(pdfFiles)), ("mediaObjects", a.array([])), ("pageLayoutArray", a.array(pageLayout)),
         ])
         let attrs = a.object("GLModel.PaperAttributes", [
-            ("paperIdentifier", a.string("Legacy:13")), ("paperSize", a.string("letter")),
+            ("paperIdentifier", a.string("Legacy:13")), ("paperSize", a.string(paperSize)),
             ("paperOrientation", a.string("portrait")),
             ("paperSizingBehavior", a.string("lockedWidth:716.8:iPad")),
             ("lineStyle2", a.string("Dots:false:true:0.25")),
@@ -362,13 +364,13 @@ enum SyntheticNote {
     static func files(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
                       tags: String = "alpha, beta", pdfPages: Int = 0,
                       thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)],
-                      handwriting: Bool = true) -> [(String, Data)] {
+                      handwriting: Bool = true, paperSize: String = "letter") -> [(String, Data)] {
         let dir = "Synthetic note/"
         let library = try! PropertyListSerialization.data(
             fromPropertyList: ["application version": "1", "library-format-version": "1.0", "recordings": [String: Any]()],
             format: .binary, options: 0)
         var out = [
-            (dir + "Session.plist", session(curves: cs, pdfPages: pdfPages)),
+            (dir + "Session.plist", session(curves: cs, pdfPages: pdfPages, paperSize: paperSize)),
             (dir + "metadata.plist", metadata(subject: subject, tags: tags)),
             (dir + "Recordings/library.plist", library),
         ]
@@ -382,10 +384,10 @@ enum SyntheticNote {
     static func package(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
                         tags: String = "alpha, beta", pdfPages: Int = 0,
                         thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)],
-                        handwriting: Bool = true) -> Data {
+                        handwriting: Bool = true, paperSize: String = "letter") -> Data {
         ZipWriter.write([.init(path: "Synthetic note/", data: Data(), deflate: false)]
             + files(curves: cs, subject: subject, tags: tags, pdfPages: pdfPages, thumbnails: thumbnails,
-                    handwriting: handwriting).map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
+                    handwriting: handwriting, paperSize: paperSize).map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
     }
 
     /// Writes the package unzipped, as a `.note` directory.

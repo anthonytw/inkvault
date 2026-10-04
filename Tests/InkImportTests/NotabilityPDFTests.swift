@@ -99,4 +99,68 @@ final class NotabilityPDFTests: XCTestCase {
         XCTAssertEqual(state.pages[0].strokes.count, 0)
         XCTAssertEqual(state.meta.pageSize.breakHeight ?? 0, 538 * 612 / 716.8, accuracy: 1e-9)
     }
+
+    // MARK: - Untrusted geometry (review of #18)
+
+    func testWidestThumbnailWinsWhateverItsName() throws {
+        // Sorted by name the 2x thumbnail comes last; it is narrower, so the 12x one wins.
+        let note = try NotabilityNote.parse(data: SyntheticNote.package(
+            thumbnails: [("thumb.png", 48, 37), ("thumb12x.png", 576, 432), ("thumb2x.png", 96, 73)]))
+        XCTAssertEqual(note.paper.pageHeight, 537.6, accuracy: 1e-9)
+    }
+
+    /// A degenerate thumbnail made the PDF page height round to 0 (and the
+    /// note's `breakHeight` with it) or grow to 10¹² units.
+    func testImplausibleThumbnailAspectIsIgnored() throws {
+        for thumbs in [[("thumb.png", 0xFFFF_FFFF, 1)], [("thumb.png", 1, 0x7FFF_FFFF)], [("thumb.png", 0, 36)]] {
+            let note = try NotabilityNote.parse(data: SyntheticNote.package(pdfPages: 2, thumbnails: thumbs))
+            XCTAssertEqual(note.paper.pageHeight, 941, accuracy: 1e-9, "\(thumbs)")   // ⌈716.8 × 21/16⌉
+        }
+        // The widest thumbnail is skipped when implausible, not the note's aspect.
+        let note = try NotabilityNote.parse(data: SyntheticNote.package(
+            pdfPages: 2, thumbnails: [("thumb.png", 48, 36), ("thumb12x.png", 0xFFFF_FFFF, 1)]))
+        XCTAssertEqual(note.paper.pageHeight, 538, accuracy: 1e-9)
+        let size = NotabilityImporter.convert(note).meta.pageSize
+        XCTAssertGreaterThan(size.breakHeight ?? 0, 0)
+    }
+
+    /// `custom:<w/h>` near 0 gave an infinite page height (the note failed to
+    /// encode); a huge one a height of 0.
+    func testImplausibleCustomPaperSizeFallsBackToTheThumbnail() throws {
+        for size in ["custom:5e-324", "custom:1e308", "custom:0.001"] {
+            let note = try NotabilityNote.parse(data: SyntheticNote.package(
+                pdfPages: 2, thumbnails: Self.slideThumbs, paperSize: size))
+            XCTAssertEqual(note.paper.pageHeight, 538, accuracy: 1e-9, size)
+            XCTAssertNoThrow(try JSONEncoder().encode(NotabilityImporter.convert(note)), size)
+        }
+        let plausible = try NotabilityNote.parse(data: SyntheticNote.package(paperSize: "custom:0.5"))
+        XCTAssertEqual(plausible.paper.pageHeight, 716.8 * 2, accuracy: 1e-9)
+    }
+
+    /// A locked width near 0 scaled the ink to infinity (NaN page size); a
+    /// huge one squashed it to 0. Both fall back to the reflow width.
+    func testImplausibleLockedWidthIsIgnored() throws {
+        for value in ["5e-324:iP", "1e-9:iPad", "1e308:iPad"] {
+            let files = SyntheticNote.files(pdfPages: 2, thumbnails: Self.slideThumbs).map { path, data in
+                ZipWriter.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: value) : data)
+            }
+            let note = try NotabilityNote.parse(data: ZipWriter.write(files))
+            XCTAssertEqual(note.paper.width, 716.8, accuracy: 1e-9, value)
+            XCTAssertEqual(note.paper.pageHeight, 538, accuracy: 1e-9, value)
+            let state = NotabilityImporter.convert(note)
+            XCTAssertTrue(state.pages[0].strokes.allSatisfy { $0.points.allSatisfy { $0.x.isFinite && $0.y.isFinite } })
+            XCTAssertNoThrow(try JSONEncoder().encode(state), value)
+        }
+    }
+
+    /// Reading every thumbnail (not just the first) must not make a corrupt
+    /// one fail a note that imported before.
+    func testUnreadableThumbnailIsSkipped() throws {
+        var zip = SyntheticNote.package(pdfPages: 2, thumbnails: [("thumb.png", 48, 36), ("thumb12x.png", 576, 433)])
+        let stored = SyntheticNote.png(width: 576, height: 433)
+        let r = try XCTUnwrap(zip.range(of: stored))
+        zip[r.upperBound - 1] ^= 0xFF   // CRC mismatch on read
+        let note = try NotabilityNote.parse(data: zip)
+        XCTAssertEqual(note.paper.pageHeight, 538, accuracy: 1e-9)   // from thumb.png's 4:3
+    }
 }
