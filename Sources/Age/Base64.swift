@@ -15,6 +15,13 @@ enum Base64 {
         return t
     }()
 
+    private static func word24(_ a: UInt8, _ b: UInt8, _ c: UInt8) -> UInt32 {
+        var n: UInt32 = UInt32(a) << 16
+        n |= UInt32(b) << 8
+        n |= UInt32(c)
+        return n
+    }
+
     /// Encodes without `=` padding ("raw" base64, used in the age header).
     static func encodeRaw<D: DataProtocol>(_ data: D) -> String {
         encode(Array(data), padded: false)
@@ -30,7 +37,7 @@ enum Base64 {
         out.reserveCapacity((bytes.count + 2) / 3 * 4)
         var i = 0
         while i + 3 <= bytes.count {
-            let n = UInt32(bytes[i]) << 16 | UInt32(bytes[i + 1]) << 8 | UInt32(bytes[i + 2])
+            let n = word24(bytes[i], bytes[i + 1], bytes[i + 2])
             out.append(alphabet[Int(n >> 18 & 63)])
             out.append(alphabet[Int(n >> 12 & 63)])
             out.append(alphabet[Int(n >> 6 & 63)])
@@ -39,12 +46,12 @@ enum Base64 {
         }
         switch bytes.count - i {
         case 1:
-            let n = UInt32(bytes[i]) << 16
+            let n = word24(bytes[i], 0, 0)
             out.append(alphabet[Int(n >> 18 & 63)])
             out.append(alphabet[Int(n >> 12 & 63)])
             if padded { out.append(contentsOf: [0x3D, 0x3D]) }
         case 2:
-            let n = UInt32(bytes[i]) << 16 | UInt32(bytes[i + 1]) << 8
+            let n = word24(bytes[i], bytes[i + 1], 0)
             out.append(alphabet[Int(n >> 18 & 63)])
             out.append(alphabet[Int(n >> 12 & 63)])
             out.append(alphabet[Int(n >> 6 & 63)])
@@ -87,7 +94,10 @@ enum Base64 {
             let a = decodeTable[Int(chars[i])], b = decodeTable[Int(chars[i + 1])]
             let c = decodeTable[Int(chars[i + 2])], d = decodeTable[Int(chars[i + 3])]
             if a > 63 || b > 63 || c > 63 || d > 63 { return nil }
-            let n = UInt32(a) << 18 | UInt32(b) << 12 | UInt32(c) << 6 | UInt32(d)
+            var n: UInt32 = UInt32(a) << 18
+            n |= UInt32(b) << 12
+            n |= UInt32(c) << 6
+            n |= UInt32(d)
             out.append(UInt8(n >> 16 & 0xFF))
             out.append(UInt8(n >> 8 & 0xFF))
             out.append(UInt8(n & 0xFF))

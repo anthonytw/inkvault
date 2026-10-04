@@ -27,7 +27,8 @@ public enum Age {
         let fileKey = FileKey()
         var stanzas = [Stanza]()
         for r in recipients { stanzas += try r.wrap(fileKey: fileKey) }
-        if stanzas.contains(where: { $0.type == "scrypt" }) && stanzas.count != 1 {
+        let hasScrypt: Bool = stanzas.contains { (s: Stanza) -> Bool in s.type == "scrypt" }
+        if hasScrypt && stanzas.count != 1 {
             throw AgeError.scryptNotAlone
         }
         var out = Data(try HeaderCodec.encodeWithoutMAC(stanzas))

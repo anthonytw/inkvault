@@ -85,7 +85,8 @@ final class RoundTripTests: XCTestCase {
 
         // Flip one byte in the second chunk: the first chunk is still released.
         var flipped = ct
-        flipped[start + 16 + 65_536 + 16 + 10] ^= 1
+        let secondChunk: Int = start + Stream.nonceSize + Stream.encryptedChunkSize
+        flipped[secondChunk + 10] ^= 1
         var released = Data()
         XCTAssertThrowsError(try Age.decrypt(binary: flipped, with: [id], released: &released)) {
             XCTAssertEqual($0 as? AgeError, .payload)
@@ -95,7 +96,7 @@ final class RoundTripTests: XCTestCase {
         // Truncate the final chunk.
         XCTAssertThrowsError(try Age.decrypt(ct.dropLast(1), with: [id])) { XCTAssertEqual($0 as? AgeError, .payload) }
         // Drop the final chunk entirely: the file ends after a non-final chunk.
-        XCTAssertThrowsError(try Age.decrypt(ct.prefix(start + 16 + 65_536 + 16), with: [id])) {
+        XCTAssertThrowsError(try Age.decrypt(ct.prefix(secondChunk), with: [id])) {
             XCTAssertEqual($0 as? AgeError, .payload)
         }
         // Trailing data.
@@ -105,8 +106,9 @@ final class RoundTripTests: XCTestCase {
         let (h, _) = try Age.parseHeader(ct)
         var stanzas = h.stanzas
         stanzas.append(Stanza(type: "grease", args: ["x"], body: Data()))
-        let forged = Data(try HeaderCodec.encodeWithoutMAC(stanzas)) + Data(" \(Base64.encodeRaw(h.mac))\n".utf8)
-            + ct.dropFirst(start)
+        var forged = Data(try HeaderCodec.encodeWithoutMAC(stanzas))
+        forged += Data(" \(Base64.encodeRaw(h.mac))\n".utf8)
+        forged += ct.dropFirst(start)
         XCTAssertThrowsError(try Age.decrypt(forged, with: [id])) { XCTAssertEqual($0 as? AgeError, .headerMAC) }
         header[0] = UInt8(ascii: "b")
         XCTAssertThrowsError(try Age.decrypt(header, with: [id])) { XCTAssertEqual($0 as? AgeError, .headerParse) }
@@ -116,7 +118,8 @@ final class RoundTripTests: XCTestCase {
         // Bodies that are exact multiples of 48 bytes end with an empty line.
         for n in [0, 1, 47, 48, 49, 96, 100] {
             let s = Stanza(type: "test", args: ["a", "b"], body: random(n))
-            let encoded = try HeaderCodec.encodeWithoutMAC([s]) + Array(" \(Base64.encodeRaw(Data(count: 32)))\n".utf8)
+            var encoded: [UInt8] = try HeaderCodec.encodeWithoutMAC([s])
+            encoded += Array(" \(Base64.encodeRaw(Data(count: 32)))\n".utf8)
             let (h, start) = try Age.parseHeader(Data(encoded))
             XCTAssertEqual(h.stanzas, [s], "body \(n)")
             XCTAssertEqual(start, encoded.count)

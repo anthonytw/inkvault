@@ -12,7 +12,7 @@ final class KeyTests: XCTestCase {
     func testSpecExampleKeys() throws {
         let id = try X25519Identity(string: Self.specIdentity)
         XCTAssertEqual(id.string, Self.specIdentity)
-        XCTAssertEqual(id.privateKey.rawRepresentation, Data(repeating: 0x42, count: 32))
+        XCTAssertEqual(id.secretKey, Data(repeating: 0x42, count: 32))
         XCTAssertEqual(id.recipient.string, Self.specRecipient)
         let r = try X25519Recipient(string: Self.specRecipient)
         XCTAssertEqual(r, id.recipient)

@@ -25,7 +25,13 @@ enum Bech32 {
 
     private static func checksum(hrp: [UInt8], data: [UInt8]) -> [UInt8] {
         let mod = polymod(hrpExpand(hrp) + data + [0, 0, 0, 0, 0, 0]) ^ 1
-        return (0..<6).map { UInt8((mod >> UInt32(5 * (5 - $0))) & 31) }
+        var out = [UInt8]()
+        for i in 0..<6 {
+            let shift: UInt32 = UInt32(5 * (5 - i))
+            let v: UInt32 = (mod >> shift) & 31
+            out.append(UInt8(v))
+        }
+        return out
     }
 
     private static func convertBits(_ data: [UInt8], from: Int, to: Int, pad: Bool) -> [UInt8]? {

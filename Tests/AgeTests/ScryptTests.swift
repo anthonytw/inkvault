@@ -7,7 +7,14 @@ import XCTest
 final class ScryptTests: XCTestCase {
     func hex(_ s: String) -> [UInt8] {
         let digits = Array(s.filter { $0.isHexDigit })
-        return stride(from: 0, to: digits.count, by: 2).map { UInt8(String(digits[$0...$0 + 1]), radix: 16)! }
+        var out = [UInt8]()
+        var i = 0
+        while i + 1 < digits.count {
+            let pair: String = String(digits[i...(i + 1)])
+            out.append(UInt8(pair, radix: 16)!)
+            i += 2
+        }
+        return out
     }
 
     func testSalsa208Core() {

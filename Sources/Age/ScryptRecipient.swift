@@ -35,8 +35,9 @@ public struct ScryptIdentity: AgeIdentity {
 
     /// - Parameter maxWorkFactor: the largest log2(N) accepted when
     ///   decrypting; larger values throw `AgeError.scryptWorkFactor`.
-    ///   `docs/format.md` §3.2 requires accepting up to 22.
-    public init(passphrase: String, maxWorkFactor: Int = 22) {
+    ///   `docs/format.md` §3.2 requires accepting up to 20 (log2 N = 20
+    ///   needs 1 GiB; each step doubles it). Values above 30 are clamped.
+    public init(passphrase: String, maxWorkFactor: Int = 20) {
         self.passphrase = Array(passphrase.utf8)
         self.maxWorkFactor = min(maxWorkFactor, 30)
     }

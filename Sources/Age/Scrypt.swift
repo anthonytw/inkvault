@@ -17,7 +17,12 @@ enum Scrypt {
         while out.count < keyLength {
             var mac = HMAC<SHA256>(key: key)
             mac.update(data: salt)
-            mac.update(data: [UInt8(block >> 24), UInt8(block >> 16 & 0xFF), UInt8(block >> 8 & 0xFF), UInt8(block & 0xFF)])
+            var index = [UInt8](repeating: 0, count: 4)
+            for k in 0..<4 {
+                let shift: UInt32 = UInt32(24 - 8 * k)
+                index[k] = UInt8(truncatingIfNeeded: block >> shift)
+            }
+            mac.update(data: index)
             var u = Array(mac.finalize())
             var t = u
             if iterations > 1 {
@@ -41,10 +46,7 @@ enum Scrypt {
         guard !o1, !o2, vWords < Int.max / 4, p <= (1 << 30) / max(1, r) else { return nil }
 
         let b = pbkdf2SHA256(password: password, salt: salt, iterations: 1, keyLength: p * 128 * r)
-        var words = [UInt32](repeating: 0, count: p * blockWords)
-        for i in 0..<words.count {
-            words[i] = UInt32(b[4 * i]) | UInt32(b[4 * i + 1]) << 8 | UInt32(b[4 * i + 2]) << 16 | UInt32(b[4 * i + 3]) << 24
-        }
+        var words = Self.words(b)
         var v = [UInt32](repeating: 0, count: vWords)
         var scratch = [UInt32](repeating: 0, count: blockWords + 16)
         withPointers(&words, &v, &scratch) { w, vp, sp in
@@ -52,14 +54,7 @@ enum Scrypt {
                 roMix(w + i * blockWords, v: vp, scratch: sp, n: n, r: r)
             }
         }
-        var bOut = [UInt8](repeating: 0, count: words.count * 4)
-        for (i, w) in words.enumerated() {
-            bOut[4 * i] = UInt8(w & 0xFF)
-            bOut[4 * i + 1] = UInt8(w >> 8 & 0xFF)
-            bOut[4 * i + 2] = UInt8(w >> 16 & 0xFF)
-            bOut[4 * i + 3] = UInt8(w >> 24)
-        }
-        return pbkdf2SHA256(password: password, salt: bOut, iterations: 1, keyLength: keyLength)
+        return pbkdf2SHA256(password: password, salt: Self.bytes(words), iterations: 1, keyLength: keyLength)
     }
 
     // MARK: - Core
@@ -150,14 +145,29 @@ enum Scrypt {
 // MARK: - Byte-level wrappers (used by the RFC 7914 test vectors)
 
 extension Scrypt {
+    /// Little-endian bytes to words (`bytes.count` must be a multiple of 4).
     static func words(_ bytes: [UInt8]) -> [UInt32] {
-        stride(from: 0, to: bytes.count, by: 4).map {
-            UInt32(bytes[$0]) | UInt32(bytes[$0 + 1]) << 8 | UInt32(bytes[$0 + 2]) << 16 | UInt32(bytes[$0 + 3]) << 24
+        var out = [UInt32](repeating: 0, count: bytes.count / 4)
+        for i in 0..<out.count {
+            var w: UInt32 = 0
+            for k in 0..<4 {
+                let byte: UInt32 = UInt32(bytes[4 * i + k])
+                w |= byte << UInt32(8 * k)
+            }
+            out[i] = w
         }
+        return out
     }
 
+    /// Words to little-endian bytes.
     static func bytes(_ words: [UInt32]) -> [UInt8] {
-        words.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8 & 0xFF), UInt8($0 >> 16 & 0xFF), UInt8($0 >> 24)] }
+        var out = [UInt8](repeating: 0, count: words.count * 4)
+        for (i, w) in words.enumerated() {
+            for k in 0..<4 {
+                out[4 * i + k] = UInt8(truncatingIfNeeded: w >> UInt32(8 * k))
+            }
+        }
+        return out
     }
 
     static func salsa208(bytes input: [UInt8]) -> [UInt8] {

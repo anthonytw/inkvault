@@ -36,7 +36,9 @@ final class CCTVTests: XCTestCase {
         var out = Data()
         var it = s.utf8.makeIterator()
         while let a = it.next(), let b = it.next() {
-            out.append(UInt8(String(decoding: [a, b], as: UTF8.self), radix: 16)!)
+            let pair: String = String(decoding: [a, b], as: UTF8.self)
+            let byte: UInt8 = UInt8(pair, radix: 16)!
+            out.append(byte)
         }
         return out
     }

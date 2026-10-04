@@ -108,15 +108,16 @@ func hkdfSHA256(ikm: some DataProtocol, salt: some DataProtocol, info: String) -
     )
 }
 
-private let zeroNonce: ChaChaPoly.Nonce = {
-    // A 12-byte nonce is always valid, so this cannot fail.
-    guard let n = try? ChaChaPoly.Nonce(data: Data(count: 12)) else { fatalError("unreachable") }
-    return n
-}()
+/// The fixed all-zero 12-byte nonce used for wrapping file keys. Built on
+/// use: swift-crypto's `ChaChaPoly.Nonce` is not `Sendable` on Linux, so it
+/// cannot be a global.
+func zeroNonce() throws -> ChaChaPoly.Nonce {
+    try ChaChaPoly.Nonce(data: [UInt8](repeating: 0, count: 12))
+}
 
 /// ChaCha20-Poly1305 with a zero nonce, for wrapping a 16-byte file key.
 func aeadSealFileKey(key: SymmetricKey, fileKey: FileKey) throws -> Data {
-    Data(try ChaChaPoly.seal(fileKey.bytes, using: key, nonce: zeroNonce).combined.dropFirst(12))
+    Data(try ChaChaPoly.seal(fileKey.bytes, using: key, nonce: try zeroNonce()).combined.dropFirst(12))
 }
 
 /// Opens a 32-byte wrapped file key. Throws `invalidStanza` if `body` is
@@ -125,7 +126,7 @@ func aeadSealFileKey(key: SymmetricKey, fileKey: FileKey) throws -> Data {
 func aeadOpenFileKey(key: SymmetricKey, body: Data) throws -> FileKey? {
     guard body.count == 32 else { throw AgeError.invalidStanza }
     let b = Data(body)
-    guard let box = try? ChaChaPoly.SealedBox(nonce: zeroNonce, ciphertext: b.prefix(16), tag: b.suffix(16)),
+    guard let box = try? ChaChaPoly.SealedBox(nonce: zeroNonce(), ciphertext: b.prefix(16), tag: b.suffix(16)),
         let plain = try? ChaChaPoly.open(box, using: key)
     else { return nil }
     return try FileKey(bytes: plain)

@@ -39,11 +39,19 @@ public struct X25519Recipient: AgeRecipient, Hashable {
 
 /// An age X25519 identity (private key), `AGE-SECRET-KEY-1...`.
 public struct X25519Identity: AgeIdentity {
-    let privateKey: Curve25519.KeyAgreement.PrivateKey
+    // Raw bytes rather than swift-crypto key objects, which are not
+    // `Sendable` on Linux. The key object is rebuilt on use.
+    let secretKey: Data
+    let publicKey: Data
+
+    init(privateKey: Curve25519.KeyAgreement.PrivateKey) {
+        secretKey = privateKey.rawRepresentation
+        publicKey = privateKey.publicKey.rawRepresentation
+    }
 
     /// Generates a new random identity.
     public init() {
-        privateKey = Curve25519.KeyAgreement.PrivateKey()
+        self.init(privateKey: Curve25519.KeyAgreement.PrivateKey())
     }
 
     /// Parses a Bech32 `AGE-SECRET-KEY-1...` identity (uppercase only, as
@@ -52,17 +60,17 @@ public struct X25519Identity: AgeIdentity {
         guard let (hrp, data) = Bech32.decode(string), hrp == "AGE-SECRET-KEY-", data.count == 32,
             let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data)
         else { throw AgeError.invalidKey }
-        privateKey = key
+        self.init(privateKey: key)
     }
 
     /// The Bech32 encoding, uppercase `AGE-SECRET-KEY-1...`.
     public var string: String {
-        Bech32.encode(hrp: "AGE-SECRET-KEY-", data: [UInt8](privateKey.rawRepresentation)) ?? ""
+        Bech32.encode(hrp: "AGE-SECRET-KEY-", data: [UInt8](secretKey)) ?? ""
     }
 
     /// The matching public recipient.
     public var recipient: X25519Recipient {
-        X25519Recipient(publicKey: privateKey.publicKey.rawRepresentation)
+        X25519Recipient(publicKey: publicKey)
     }
 
     public func unwrap(stanzas: [Stanza]) throws -> FileKey? {
@@ -82,13 +90,14 @@ public struct X25519Identity: AgeIdentity {
         }
         // Low-order shares make X25519 return all zeros; the spec says abort.
         // Some backends throw here instead, which is the same outcome.
-        guard let shared = try? privateKey.sharedSecretFromKeyAgreement(with: theirs) else {
+        guard let privateKey = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: secretKey),
+            let shared = try? privateKey.sharedSecretFromKeyAgreement(with: theirs)
+        else {
             throw AgeError.invalidStanza
         }
         let secret = shared.withUnsafeBytes { Data($0) }
         guard secret.contains(where: { $0 != 0 }) else { throw AgeError.invalidStanza }
-        let ours = privateKey.publicKey.rawRepresentation
-        let key = hkdfSHA256(ikm: secret, salt: shareData + ours, info: x25519Label)
+        let key = hkdfSHA256(ikm: secret, salt: shareData + publicKey, info: x25519Label)
         return try aeadOpenFileKey(key: key, body: stanza.body)
     }
 }

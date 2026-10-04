@@ -24,7 +24,8 @@ final class InteropTests: XCTestCase {
 
     static func which(_ name: String) -> URL? {
         let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        let dirs = path.split(separator: ":").map(String.init) + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+        var dirs: [String] = path.split(separator: ":").map { String($0) }
+        dirs += ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
         for dir in dirs {
             let url = URL(fileURLWithPath: dir).appendingPathComponent(name)
             if FileManager.default.isExecutableFile(atPath: url.path) { return url }
@@ -40,21 +41,17 @@ final class InteropTests: XCTestCase {
     }
 
     @discardableResult
-    func run(_ exe: URL, _ args: [String], stdin: Data = Data()) throws -> Data {
+    func run(_ exe: URL, _ args: [String]) throws -> Data {
         let p = Process()
         p.executableURL = exe
         p.arguments = args
-        let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
-        p.standardInput = inPipe
+        let outPipe = Pipe(), errPipe = Pipe()
+        p.standardInput = FileHandle.nullDevice
         p.standardOutput = outPipe
         p.standardError = errPipe
         try p.run()
-        // Write stdin and drain stdout concurrently to avoid pipe deadlocks.
-        let writer = Thread {
-            inPipe.fileHandleForWriting.write(stdin)
-            try? inPipe.fileHandleForWriting.close()
-        }
-        writer.start()
+        // stderr from age is small; stdout is drained first so a large
+        // plaintext cannot fill the pipe and stall the child.
         let out = outPipe.fileHandleForReading.readDataToEndOfFile()
         let err = errPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()

@@ -69,9 +69,10 @@ enum Inflate {
     /// Decodes a zlib stream (2-byte header, DEFLATE data, Adler-32).
     static func zlib(_ input: Data) throws -> Data {
         let bytes = [UInt8](input)
-        guard bytes.count >= 6, bytes[0] & 0x0F == 8, (Int(bytes[0]) << 8 | Int(bytes[1])) % 31 == 0,
-            bytes[1] & 0x20 == 0
-        else { throw Failure() }
+        guard bytes.count >= 6 else { throw Failure() }
+        let cmf: Int = Int(bytes[0])
+        let flg: Int = Int(bytes[1])
+        guard cmf & 0x0F == 8, (cmf * 256 + flg) % 31 == 0, flg & 0x20 == 0 else { throw Failure() }
         var r = BitReader(data: bytes, pos: 2)
         var out = [UInt8]()
         var final = false
@@ -81,7 +82,7 @@ enum Inflate {
             case 0:
                 r.alignToByte()
                 guard r.pos + 4 <= bytes.count else { throw Failure() }
-                let len = Int(bytes[r.pos]) | Int(bytes[r.pos + 1]) << 8
+                let len: Int = Int(bytes[r.pos]) + 256 * Int(bytes[r.pos + 1])
                 r.pos += 4
                 guard r.pos + len <= bytes.count else { throw Failure() }
                 out += bytes[r.pos..<r.pos + len]
@@ -123,8 +124,10 @@ enum Inflate {
             a = (a + UInt32(byte)) % 65521
             b = (b + a) % 65521
         }
-        let want = UInt32(bytes[r.pos]) << 24 | UInt32(bytes[r.pos + 1]) << 16 | UInt32(bytes[r.pos + 2]) << 8 | UInt32(bytes[r.pos + 3])
-        guard want == b << 16 | a else { throw Failure() }
+        var want: UInt32 = 0
+        for k in 0..<4 { want = want << 8 | UInt32(bytes[r.pos + k]) }
+        let got: UInt32 = b << 16 | a
+        guard want == got else { throw Failure() }
         return Data(out)
     }
 
