@@ -1,58 +1,92 @@
 import Foundation
 import InkVault
 
-/// One output page: a vertical slice of a note page.
+/// One output page: a vertical slice of a note page. `yOffset ..< yEnd` is the
+/// slice in page coordinates; `height` is `yEnd - yOffset`.
 struct PageChunk {
     var yOffset: Double
+    var yEnd: Double
     var width: Double
-    var height: Double
+    var height: Double { yEnd - yOffset }
 }
 
-/// Shared layout logic for the PDF and SVG writers.
-enum PageComposer {
-    /// Conservative page-space bounding box of a stroke (control hull + pen radius).
-    static func bounds(of stroke: Stroke) -> (minY: Double, maxY: Double)? {
-        guard !stroke.points.isEmpty else { return nil }
-        let xf = stroke.transform ?? .identity
-        let r = (stroke.points.map { max($0.w, $0.h) }.max() ?? 0).magnitude
-        let pad = max(r, stroke.ink.width) * xf.meanScale / 2 + 1
-        let ys = stroke.points.map { xf.apply(x: $0.x, y: $0.y).y }
-        guard let lo = ys.min(), let hi = ys.max() else { return nil }
-        return (lo - pad, hi + pad)
-    }
+/// A note page validated once, with each stroke's page-space bounds computed
+/// once, ready to be cut into chunks. Shared by the PDF and SVG writers.
+struct PreparedPage {
+    let meta: NoteMeta
+    let options: RenderOptions
+    /// Non-empty strokes with their conservative vertical extent.
+    let strokes: [(stroke: Stroke, minY: Double, maxY: Double)]
+    /// Total page height: `pageSize.height`, or for infinite pages the larger
+    /// of that and the lowest stroke edge (rounded up).
+    let extent: Double
 
-    /// Total height of the page: `pageSize.height`, or for infinite pages the
-    /// larger of that and the lowest stroke edge (rounded up).
-    static func extent(page: Page, meta: NoteMeta) -> Double {
+    /// Validates `meta`/`page` and computes bounds.
+    ///
+    /// - Throws: `RenderError.invalidPageSize`, `.invalidGeometry` (non-finite
+    ///   stroke data) or `.extentTooLarge` (an infinite page that would
+    ///   exceed `RenderLimits.maxExtent`). Strokes far outside a finite page
+    ///   are not an error; they are simply culled.
+    init(page: Page, meta: NoteMeta, options: RenderOptions) throws {
         let size = meta.pageSize
-        guard size.infinite else { return size.height }
-        let low = page.strokes.compactMap { bounds(of: $0)?.maxY }.max() ?? 0
-        return max(size.height, low.rounded(.up))
-    }
+        let maxE = RenderLimits.maxExtent
+        guard size.width.isFinite, size.width > 0, size.width <= maxE,
+              size.height.isFinite, size.height >= 0, size.height <= maxE,
+              size.infinite || size.height > 0 else { throw RenderError.invalidPageSize }
+        self.meta = meta
+        self.options = options
 
-    static func chunks(page: Page, meta: NoteMeta, options: RenderOptions) -> [PageChunk] {
-        let size = meta.pageSize
-        guard size.infinite else { return [PageChunk(yOffset: 0, width: size.width, height: size.height)] }
-        let chunkH = max(options.infiniteChunkHeight ?? size.height, 1)
-        let total = extent(page: page, meta: meta)
-        let count = max(Int((total / chunkH).rounded(.up)), 1)
-        return (0..<count).map { PageChunk(yOffset: Double($0) * chunkH, width: size.width, height: chunkH) }
-    }
-
-    /// Paper (if enabled) then strokes, in chunk-local coordinates.
-    static func layers(page: Page, meta: NoteMeta, chunk: PageChunk, options: RenderOptions)
-        -> (paper: [DrawCommand], strokes: [DrawCommand]) {
-        var paper: [DrawCommand] = []
-        var out: [DrawCommand] = []
-        if options.paper {
-            paper = PaperRenderer.commands(paper: meta.paper, width: chunk.width, height: chunk.height, yOffset: chunk.yOffset)
-        }
-        let finite = !meta.pageSize.infinite
-        for stroke in page.strokes {
-            if !finite, let b = bounds(of: stroke), b.maxY < chunk.yOffset || b.minY > chunk.yOffset + chunk.height {
-                continue
+        var list: [(stroke: Stroke, minY: Double, maxY: Double)] = []
+        var low = 0.0
+        for stroke in page.strokes where !stroke.points.isEmpty {
+            let xf = stroke.transform ?? .identity
+            let radius = stroke.points.reduce(stroke.ink.width.magnitude) { max($0, $1.w.magnitude, $1.h.magnitude) }
+            let pad = radius * xf.meanScale / 2 + 1
+            var lo = Double.infinity, hi = -Double.infinity
+            for p in stroke.points {
+                let y = xf.apply(x: p.x, y: p.y).y
+                guard y.isFinite, p.x.isFinite, p.w.isFinite, p.h.isFinite, stroke.ink.width.isFinite else { throw RenderError.invalidGeometry }
+                lo = min(lo, y); hi = max(hi, y)
             }
-            out += StrokeOutline.commands(for: stroke, tolerance: options.tolerance, offsetY: -chunk.yOffset)
+            guard lo.isFinite, hi.isFinite, pad.isFinite else { throw RenderError.invalidGeometry }
+            list.append((stroke, lo - pad, hi + pad))
+            low = max(low, hi + pad)
+        }
+        if size.infinite {
+            guard low <= maxE else { throw RenderError.extentTooLarge(low) }
+            extent = max(size.height, low.rounded(.up))
+        } else {
+            extent = size.height
+        }
+        strokes = list
+    }
+
+    /// Chunk height for infinite pages: the option (clamped), else letter aspect from the width.
+    var chunkHeight: Double {
+        let base = options.infiniteChunkHeight ?? meta.pageSize.width * 11 / 8.5
+        return min(max(base.isFinite ? base : 792, 72), RenderLimits.maxExtent)
+    }
+
+    /// Output pages for this note page.
+    var chunks: [PageChunk] {
+        let w = meta.pageSize.width
+        guard meta.pageSize.infinite else { return [PageChunk(yOffset: 0, yEnd: extent, width: w)] }
+        let h = chunkHeight
+        let count = max(Int((extent / h).rounded(.up)), 1)   // extent <= maxExtent, h >= 72
+        return (0..<count).map { PageChunk(yOffset: Double($0) * h, yEnd: Double($0 + 1) * h, width: w) }
+    }
+
+    /// Paper (if enabled) and strokes for `chunk`, in chunk-local coordinates.
+    /// Strokes that miss the chunk are skipped.
+    func layers(for chunk: PageChunk) -> (paper: [DrawCommand], strokes: [DrawCommand]) {
+        var paper: [DrawCommand] = []
+        if options.paper {
+            paper = PaperRenderer.commands(paper: meta.paper, width: chunk.width, height: chunk.height,
+                                           yOffset: chunk.yOffset, yEnd: chunk.yEnd)
+        }
+        var out: [DrawCommand] = []
+        for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.yEnd) {
+            out += StrokeOutline.commands(for: s.stroke, tolerance: options.tolerance, offsetY: -chunk.yOffset)
         }
         return (paper, out)
     }

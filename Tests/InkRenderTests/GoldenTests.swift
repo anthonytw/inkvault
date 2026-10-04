@@ -5,13 +5,13 @@ import InkVault
 final class GoldenTests: XCTestCase {
     func testSamplePageOneMatchesGolden() throws {
         let note = try T.loadSampleNote()
-        let svg = SVGWriter.render(page: note.pages[0], meta: note.meta)
-        let url = T.fixtureDir.appendingPathComponent("sample-page-1.svg")
+        let svg = try SVGWriter.render(page: note.pages[0], meta: note.meta)
+        let sourceURL = T.fixtureSourceDir.appendingPathComponent("sample-page-1.svg")
         if ProcessInfo.processInfo.environment["INKRENDER_UPDATE_GOLDEN"] == "1" {
-            try Data(svg.utf8).write(to: url)
+            try Data(svg.utf8).write(to: sourceURL)
             return
         }
-        let golden = try String(contentsOf: url, encoding: .utf8)
+        let golden = try String(contentsOf: T.fixtureURL("sample-page-1.svg"), encoding: .utf8)
         if svg != golden {
             let a = svg.split(separator: "\n", omittingEmptySubsequences: false)
             let b = golden.split(separator: "\n", omittingEmptySubsequences: false)
@@ -31,10 +31,10 @@ final class GoldenTests: XCTestCase {
         // Page 2 is shown on grid paper (paper is per-note in the model).
         var grid = note.meta
         grid.paper = Paper(kind: .grid, spacing: 30)
-        let svg = SVGWriter.render(page: note.pages[1], meta: grid)
+        let svg = try SVGWriter.render(page: note.pages[1], meta: grid)
         XCTAssertTrue(svg.contains("<line"))
         let pdf = try PDFWriter.render(note: note, options: RenderOptions())
-        XCTAssertTrue(T.latin1(pdf).hasPrefix("%PDF-1.4"))
+        XCTAssertEqual(Array(pdf.prefix(8)), Array("%PDF-1.4".utf8))
         if let dir = ProcessInfo.processInfo.environment["INKRENDER_WRITE_PDF"] {
             try pdf.write(to: URL(fileURLWithPath: dir).appendingPathComponent("sample.pdf"))
         }

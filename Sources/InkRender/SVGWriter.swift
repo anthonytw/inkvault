@@ -8,16 +8,19 @@ import InkVault
 /// ribbon) or `<polyline>` (monoline / marker) per non-empty stroke, in order.
 /// Infinite pages become a single tall SVG (no chunking).
 public enum SVGWriter {
-    public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions()) -> String {
+    /// Renders one page. Width and height carry a `pt` unit so viewers show the
+    /// page at its real size; the `viewBox` is unitless points.
+    ///
+    /// - Throws: `RenderError` for invalid page sizes, non-finite stroke data
+    ///   or an infinite page beyond `RenderLimits.maxExtent`.
+    public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions()) throws -> String {
+        let prepared = try PreparedPage(page: page, meta: meta, options: options)
         let width = meta.pageSize.width
-        let height = PageComposer.extent(page: page, meta: meta)
-        let chunk = PageChunk(yOffset: 0, width: width, height: height)
-        var opts = options
-        opts.infiniteChunkHeight = height
-        let layers = PageComposer.layers(page: page, meta: meta, chunk: chunk, options: opts)
+        let height = prepared.extent
+        let layers = prepared.layers(for: PageChunk(yOffset: 0, yEnd: height, width: width))
 
         var s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        s += "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fmt(width))\" height=\"\(fmt(height))\" "
+        s += "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fmt(width))pt\" height=\"\(fmt(height))pt\" "
         s += "viewBox=\"0 0 \(fmt(width)) \(fmt(height))\">\n"
         if !meta.title.isEmpty { s += "<title>\(escape(meta.title))</title>\n" }
         s += "<g id=\"paper\">\n"
@@ -28,9 +31,9 @@ public enum SVGWriter {
         return s
     }
 
-    /// One SVG string per page of the note, in order.
-    public static func render(note: NoteState, options: RenderOptions = RenderOptions()) -> [String] {
-        note.pages.map { render(page: $0, meta: note.meta, options: options) }
+    /// One SVG string per page of the note, in order. Throws like `render(page:meta:options:)`.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions()) throws -> [String] {
+        try note.pages.map { try render(page: $0, meta: note.meta, options: options) }
     }
 
     static func escape(_ s: String) -> String {
@@ -57,7 +60,7 @@ public enum SVGWriter {
         return s
     }
 
-    private static func attrs(_ c: DrawCommand, polyline: Bool = false) -> String {
+    private static func attrs(_ c: DrawCommand) -> String {
         var parts: [String] = []
         if let f = c.fill { parts.append(paintAttrs("fill", f)) } else { parts.append("fill=\"none\"") }
         if let st = c.stroke {
@@ -79,7 +82,7 @@ public enum SVGWriter {
         case let .path(subs):
             if subs.count == 1, !subs[0].closed, c.fill == nil {
                 let pts = subs[0].points.map { "\(fmt($0.x)),\(fmt($0.y))" }.joined(separator: " ")
-                return "<polyline points=\"\(pts)\" \(attrs(c, polyline: true))/>"
+                return "<polyline points=\"\(pts)\" \(attrs(c))/>"
             }
             var d = ""
             for sp in subs where !sp.points.isEmpty {

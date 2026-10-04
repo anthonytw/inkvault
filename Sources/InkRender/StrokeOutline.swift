@@ -28,10 +28,11 @@ public enum StrokeOutline {
         }
     }
 
-    /// Final paint alpha: `color.a * mean(sample o) * toolOpacity`.
-    public static func opacity(for stroke: Stroke, samples: [StrokeSample]) -> Double {
+    /// Opacity factor applied on top of the colour's own alpha:
+    /// `mean(sample o) * toolOpacity`. Feed it to `Paint(_:opacity:)`.
+    public static func opacityFactor(for stroke: Stroke, samples: [StrokeSample]) -> Double {
         let meanO = samples.isEmpty ? 1 : samples.reduce(0) { $0 + $1.o } / Double(samples.count)
-        return Double(stroke.ink.color.a) / 255 * min(max(meanO, 0), 1) * toolOpacity(stroke.ink.tool)
+        return min(max(meanO, 0), 1) * toolOpacity(stroke.ink.tool)
     }
 
     /// Draw commands for one stroke (empty for a stroke with no points).
@@ -39,8 +40,7 @@ public enum StrokeOutline {
         let samples = StrokeSampler.samples(for: stroke, tolerance: tolerance, offsetY: offsetY)
         guard !samples.isEmpty else { return [] }
         let scale = (stroke.transform ?? .identity).meanScale
-        let c = stroke.ink.color
-        let paint = Paint(r: c.r, g: c.g, b: c.b, alpha: opacity(for: stroke, samples: samples))
+        let paint = Paint(stroke.ink.color, opacity: opacityFactor(for: stroke, samples: samples))
 
         switch stroke.ink.tool {
         case .monoline, .marker:
@@ -98,22 +98,47 @@ public enum StrokeOutline {
         return polys
     }
 
-    /// Regular polygon approximating a circle, with positive orientation.
+    /// Unit-circle vertices (32 segments, counter-clockwise in the shoelace
+    /// sense). Written out as constants so that no `sin`/`cos` call, whose last
+    /// digit can differ between libm implementations, sits in the output path.
+    static let unitCircle: [(x: Double, y: Double)] = [
+        (1.0, 0.0),
+        (0.9807852804032304, 0.1950903220161282),
+        (0.9238795325112867, 0.3826834323650898),
+        (0.8314696123025452, 0.5555702330196022),
+        (0.7071067811865476, 0.7071067811865475),
+        (0.5555702330196023, 0.8314696123025452),
+        (0.3826834323650898, 0.9238795325112867),
+        (0.1950903220161283, 0.9807852804032304),
+        (1e-16, 1.0),
+        (-0.1950903220161282, 0.9807852804032304),
+        (-0.3826834323650897, 0.9238795325112867),
+        (-0.555570233019602, 0.8314696123025453),
+        (-0.7071067811865475, 0.7071067811865476),
+        (-0.8314696123025453, 0.5555702330196022),
+        (-0.9238795325112867, 0.3826834323650899),
+        (-0.9807852804032304, 0.1950903220161286),
+        (-1.0, 1e-16),
+        (-0.9807852804032304, -0.1950903220161284),
+        (-0.9238795325112868, -0.3826834323650897),
+        (-0.8314696123025455, -0.555570233019602),
+        (-0.7071067811865477, -0.7071067811865475),
+        (-0.5555702330196022, -0.8314696123025452),
+        (-0.3826834323650903, -0.9238795325112865),
+        (-0.1950903220161287, -0.9807852804032303),
+        (-2e-16, -1.0),
+        (0.1950903220161283, -0.9807852804032304),
+        (0.38268343236509, -0.9238795325112866),
+        (0.5555702330196018, -0.8314696123025455),
+        (0.7071067811865474, -0.7071067811865477),
+        (0.8314696123025452, -0.5555702330196022),
+        (0.9238795325112865, -0.3826834323650904),
+        (0.9807852804032303, -0.1950903220161287),
+    ]
+
+    /// Regular 32-gon approximating a circle, with positive orientation.
     public static func circle(_ c: Point, radius r: Double) -> Subpath {
-        let tol = 0.02
-        let steps: Int
-        if r <= tol {
-            steps = 8
-        } else {
-            steps = min(max(Int((Double.pi / acos(1 - tol / r)).rounded(.up)), 8), 48)
-        }
-        var pts: [Point] = []
-        pts.reserveCapacity(steps)
-        for k in 0..<steps {
-            let a = 2 * Double.pi * Double(k) / Double(steps)
-            pts.append(Point(x: c.x + r * cos(a), y: c.y + r * sin(a)))
-        }
-        return oriented(Subpath(points: pts, closed: true))
+        Subpath(points: unitCircle.map { Point(x: c.x + r * $0.x, y: c.y + r * $0.y) }, closed: true)
     }
 
     private static func oriented(_ s: Subpath) -> Subpath {

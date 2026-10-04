@@ -4,9 +4,15 @@ import InkVault
 /// A 2-D point in page coordinates (points, origin top-left, y down).
 public struct Point: Hashable, Sendable {
     public var x: Double, y: Double
+    /// Creates a point.
     public init(x: Double, y: Double) { self.x = x; self.y = y }
 
-    func distance(to p: Point) -> Double { hypot(p.x - x, p.y - y) }
+    /// Euclidean distance. Uses `sqrt` (correctly rounded everywhere) rather
+    /// than `hypot`, so output bytes do not depend on the platform's libm.
+    func distance(to p: Point) -> Double {
+        let dx = p.x - x, dy = p.y - y
+        return (dx * dx + dy * dy).squareRoot()
+    }
 }
 
 /// One evaluated point on a stroke's curve. Every attribute is interpolated.
@@ -19,6 +25,12 @@ public struct StrokeSample: Hashable, Sendable {
     /// Force.
     public var f: Double
 
+    /// Creates a sample.
+    public init(x: Double, y: Double, w: Double, h: Double, o: Double, f: Double) {
+        self.x = x; self.y = y; self.w = w; self.h = h; self.o = o; self.f = f
+    }
+
+    /// The sample's location.
     public var point: Point { Point(x: x, y: y) }
 }
 
@@ -33,9 +45,6 @@ public struct StrokeSample: Hashable, Sendable {
 /// force, azimuth, altitude and time are interpolated *linearly* between the
 /// two neighbouring control points.
 public enum BSpline {
-    /// Largest valid parameter (`points.count - 1`).
-    public static func maxParameter(_ points: [StrokePoint]) -> Double { Double(max(points.count - 1, 0)) }
-
     private static func control(_ p: [StrokePoint], _ j: Int) -> (x: Double, y: Double) {
         let n = p.count
         if j < 0 { return (2 * p[0].x - p[1].x, 2 * p[0].y - p[1].y) }
@@ -88,10 +97,12 @@ extension Transform {
         Point(x: a * x + c * y + tx, y: b * x + d * y + ty)
     }
 
-    /// Uniform scale factor used for widths.
+    /// Uniform scale factor used for widths: `sqrt(|det|)`. A singular or
+    /// non-finite matrix collapses the stroke, so widths scale to 0 (the
+    /// ribbon's minimum width then applies).
     var meanScale: Double {
         let det = abs(a * d - b * c)
-        return det > 0 ? det.squareRoot() : 1
+        return det.isFinite ? det.squareRoot() : 0
     }
 }
 

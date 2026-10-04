@@ -42,9 +42,11 @@ final class SVGWriterTests: XCTestCase {
         ]
         let page = Page(order: "a", strokes: strokes)
         let meta = T.meta(title: "A & B <c>", paper: Paper(kind: .grid, spacing: 50))
-        let svg = SVGWriter.render(page: page, meta: meta)
+        let svg = try SVGWriter.render(page: page, meta: meta)
         let c = try parse(svg)
         XCTAssertEqual(c.svgAttrs["viewBox"], "0 0 200 300")
+        XCTAssertEqual(c.svgAttrs["width"], "200pt")
+        XCTAssertEqual(c.svgAttrs["height"], "300pt")
         XCTAssertEqual(c.strokeChildren, 4)
         XCTAssertEqual((c.counts["path"] ?? 0) + (c.counts["polyline"] ?? 0), 4)
         XCTAssertEqual(c.counts["polyline"], 2)   // monoline + marker
@@ -55,25 +57,31 @@ final class SVGWriterTests: XCTestCase {
 
     func testDotPaperAndPaperOff() throws {
         let page = Page(order: "a")
-        let svg = SVGWriter.render(page: page, meta: T.meta(paper: Paper(kind: .dot, spacing: 50)))
+        let svg = try SVGWriter.render(page: page, meta: T.meta(paper: Paper(kind: .dot, spacing: 50)))
         XCTAssertEqual(try parse(svg).counts["circle"], 3 * 5)
         var o = RenderOptions(); o.paper = false
-        let bare = SVGWriter.render(page: page, meta: T.meta(), options: o)
+        let bare = try SVGWriter.render(page: page, meta: T.meta(), options: o)
         XCTAssertNil(try parse(bare).counts["rect"])
     }
 
-    func testColoursAndOpacity() {
+    func testColoursAndOpacity() throws {
         let s = T.stroke([T.pt(0, 0), T.pt(10, 0), T.pt(20, 5)], color: Color(r: 255, g: 0, b: 16, a: 128))
-        let svg = SVGWriter.render(page: Page(order: "a", strokes: [s]), meta: T.meta())
+        let svg = try SVGWriter.render(page: Page(order: "a", strokes: [s]), meta: T.meta())
         XCTAssertTrue(svg.contains("fill=\"#ff0010\" fill-opacity=\"0.502\""))
     }
 
     func testInfinitePageUsesFullExtent() throws {
         let s = T.stroke([T.pt(10, 10), T.pt(10, 900)])
         let meta = T.meta(size: PageSize(width: 200, height: 300, infinite: true))
-        let svg = SVGWriter.render(page: Page(order: "a", strokes: [s]), meta: meta)
+        let svg = try SVGWriter.render(page: Page(order: "a", strokes: [s]), meta: meta)
         let c = try parse(svg)
         let vb = try XCTUnwrap(c.svgAttrs["viewBox"]).split(separator: " ").compactMap { Double($0) }
         XCTAssertGreaterThan(vb[3], 900)
+    }
+
+    func testHugeStrokeOnInfinitePageThrows() {
+        let s = T.stroke([T.pt(0, 0), T.pt(0, 1e300)])
+        let meta = T.meta(size: PageSize(width: 200, height: 300, infinite: true))
+        XCTAssertThrowsError(try SVGWriter.render(page: Page(order: "a", strokes: [s]), meta: meta))
     }
 }

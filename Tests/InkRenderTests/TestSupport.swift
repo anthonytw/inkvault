@@ -20,14 +20,46 @@ enum T {
         NoteState(meta: meta, pages: pages.enumerated().map { Page(order: "a\($0.offset)", strokes: $0.element) })
     }
 
-    static var fixtureDir: URL {
+    /// Source-tree fixtures directory (used only to rewrite the golden file).
+    static var fixtureSourceDir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
     }
 
+    /// Fixture from the test bundle (`resources: [.copy("Fixtures")]`).
+    static func fixtureURL(_ name: String) throws -> URL {
+        let url = Bundle.module.resourceURL?.appendingPathComponent("Fixtures").appendingPathComponent(name)
+        guard let url, FileManager.default.fileExists(atPath: url.path) else {
+            throw NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "missing fixture \(name)"])
+        }
+        return url
+    }
+
     static func loadSampleNote() throws -> NoteState {
-        let data = try Data(contentsOf: fixtureDir.appendingPathComponent("sample-note.json"))
+        let data = try Data(contentsOf: fixtureURL("sample-note.json"))
         return try InkJSON.decoder().decode(NoteState.self, from: data)
     }
 
-    static func latin1(_ d: Data) -> String { String(data: d, encoding: .isoLatin1) ?? "" }
+    // Byte-level search helpers: PDFs are binary, so never index them as String.
+
+    /// Index of the first occurrence of `needle` in `hay` at or after `from`.
+    static func find(_ hay: [UInt8], _ needle: String, from: Int = 0, backwards: Bool = false) -> Int? {
+        let n = Array(needle.utf8)
+        guard n.count <= hay.count else { return nil }
+        let range = Array(from...(hay.count - n.count))
+        for i in (backwards ? range.reversed() : range) where hay[i] == n[0] {
+            if hay[i..<(i + n.count)].elementsEqual(n) { return i }
+        }
+        return nil
+    }
+
+    static func contains(_ d: Data, _ needle: String) -> Bool { find([UInt8](d), needle) != nil }
+
+    static func count(_ d: Data, _ needle: String) -> Int {
+        let b = [UInt8](d)
+        var c = 0, i = 0
+        while let j = find(b, needle, from: i) { c += 1; i = j + needle.utf8.count }
+        return c
+    }
+
+    static func ascii(_ s: ArraySlice<UInt8>) -> String { String(decoding: s, as: UTF8.self) }
 }

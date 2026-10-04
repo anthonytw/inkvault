@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deterministically generates sample-note.json (a NoteState, format.md 5.4).
 
-Run: python3 generate_sample_note.py > sample-note.json
+Run: python3 generate_sample_note.py > Fixtures/sample-note.json
 Uses a fixed LCG so output never depends on the platform's RNG.
 """
 import json, math

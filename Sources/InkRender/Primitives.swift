@@ -4,12 +4,15 @@ import InkVault
 /// RGB colour plus alpha (0...1), the paint used by every draw command.
 public struct Paint: Hashable, Sendable {
     public var r: UInt8, g: UInt8, b: UInt8
+    /// Opacity 0...1.
     public var alpha: Double
 
+    /// Creates a paint; `alpha` is clamped to 0...1.
     public init(r: UInt8, g: UInt8, b: UInt8, alpha: Double = 1) {
         self.r = r; self.g = g; self.b = b; self.alpha = min(max(alpha, 0), 1)
     }
 
+    /// Paint from a model colour: alpha = `color.a / 255 * opacity`.
     public init(_ c: Color, opacity: Double = 1) {
         self.init(r: c.r, g: c.g, b: c.b, alpha: Double(c.a) / 255 * opacity)
     }
@@ -22,6 +25,7 @@ public struct Paint: Hashable, Sendable {
 public struct Subpath: Hashable, Sendable {
     public var points: [Point]
     public var closed: Bool
+    /// Creates a subpath.
     public init(points: [Point], closed: Bool) { self.points = points; self.closed = closed }
 
     /// Shoelace signed area (positive = counter-clockwise in a y-up frame).
@@ -53,6 +57,7 @@ public struct DrawCommand: Hashable, Sendable {
     public var stroke: Paint?
     public var lineWidth: Double
 
+    /// Creates a command; `lineWidth` only matters when `stroke` is set.
     public init(_ primitive: Primitive, fill: Paint? = nil, stroke: Paint? = nil, lineWidth: Double = 1) {
         self.primitive = primitive; self.fill = fill; self.stroke = stroke; self.lineWidth = lineWidth
     }
@@ -67,9 +72,11 @@ public struct RenderOptions: Sendable {
     /// Curve flattening tolerance in points.
     public var tolerance: Double
     /// Height of each PDF page an infinite page is split into. `nil` uses the
-    /// note's `pageSize.height`.
+    /// page width x 11 / 8.5 (letter aspect), independent of the page's current
+    /// extent. Clamped to 72 ... `RenderLimits.maxExtent`.
     public var infiniteChunkHeight: Double?
 
+    /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
     public init(paper: Bool = true, compress: Bool = true, tolerance: Double = 0.05,
                 infiniteChunkHeight: Double? = nil) {
         self.paper = paper; self.compress = compress; self.tolerance = tolerance
@@ -77,8 +84,26 @@ public struct RenderOptions: Sendable {
     }
 }
 
+/// Hard limits protecting the renderers from hostile or corrupt input.
+public enum RenderLimits {
+    /// Largest page height / stroke extent accepted, in points (~2.8 km at 72 dpi).
+    public static let maxExtent = 200_000.0
+    /// Smallest ruling / grid / dot spacing drawn; tighter paper renders blank.
+    public static let minPaperSpacing = 4.0
+    /// Most ruling commands drawn per output page; more renders blank paper.
+    public static let maxPaperCommands = 20_000.0
+}
+
+/// Errors thrown by the renderers.
 public enum RenderError: Error, Equatable {
+    /// zlib returned this status while compressing.
     case compressionFailed(Int32)
+    /// A page or stroke extends beyond `RenderLimits.maxExtent` (the value is the offending extent).
+    case extentTooLarge(Double)
+    /// A stroke has non-finite coordinates, widths or transform.
+    case invalidGeometry
+    /// Page width is not a finite positive number <= `maxExtent`, or height is negative/non-finite/too large.
+    case invalidPageSize
 }
 
 /// Deterministic, locale-independent number formatting (<= 3 decimals).

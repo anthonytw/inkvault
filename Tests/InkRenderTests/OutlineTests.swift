@@ -82,4 +82,32 @@ final class OutlineTests: XCTestCase {
         guard case let .line(a, _) = chunk[1].primitive else { return XCTFail() }
         XCTAssertEqual(a.y, 120 - 100, accuracy: 1e-9)
     }
+
+    func testTinyPaperSpacingRendersBlank() {
+        let dots = PaperRenderer.commands(paper: Paper(kind: .dot, spacing: 0.001), width: 612, height: 792)
+        XCTAssertEqual(dots.count, 1)
+        let grid = PaperRenderer.commands(paper: Paper(kind: .grid, spacing: .nan), width: 612, height: 792)
+        XCTAssertEqual(grid.count, 1)
+        let ok = PaperRenderer.commands(paper: Paper(kind: .ruled, spacing: 4), width: 100, height: 100)
+        XCTAssertGreaterThan(ok.count, 1)
+    }
+
+    func testRuleOnChunkBoundaryBelongsToExactlyOneChunk() {
+        // spacing 24, chunk 96: rule at y=96 is in the second chunk only.
+        func ys(_ off: Double) -> [Double] {
+            PaperRenderer.commands(paper: .ruled, width: 50, height: 96, yOffset: off, yEnd: off + 96)
+                .compactMap { if case let .line(a, _) = $0.primitive { return a.y + off } else { return nil } }
+        }
+        let first = ys(0), second = ys(96)
+        XCTAssertEqual(first, [24, 48, 72])
+        XCTAssertEqual(second, [96, 120, 144, 168])
+    }
+
+    func testCollapsedTransformGivesMinimumWidth() {
+        let xf = Transform(a: 0, b: 0, c: 0, d: 0, tx: 5, ty: 5)
+        let cmds = StrokeOutline.commands(for: T.stroke([T.pt(0, 0, w: 10), T.pt(10, 0, w: 10)], transform: xf))
+        guard case let .path(subs) = cmds[0].primitive else { return XCTFail() }
+        let xs = subs.flatMap(\.points).map(\.x)
+        XCTAssertLessThan((xs.max() ?? 0) - (xs.min() ?? 0), 0.2)
+    }
 }

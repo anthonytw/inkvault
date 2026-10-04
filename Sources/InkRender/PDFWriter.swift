@@ -22,8 +22,9 @@ public enum PDFWriter {
 
         for note in notes {
             for page in note.pages {
-                for chunk in PageComposer.chunks(page: page, meta: note.meta, options: options) {
-                    let layers = PageComposer.layers(page: page, meta: note.meta, chunk: chunk, options: options)
+                let prepared = try PreparedPage(page: page, meta: note.meta, options: options)
+                for chunk in prepared.chunks {
+                    let layers = prepared.layers(for: chunk)
                     var cs = ContentStream(height: chunk.height)
                     cs.begin()
                     for c in layers.paper + layers.strokes { cs.emit(c) }
@@ -90,7 +91,10 @@ public enum PDFWriter {
         }
         let xrefPos = out.count
         var xref = "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
-        for o in offsets { xref += String(format: "%010d 00000 n \n", o) }
+        for o in offsets {
+            let digits = String(o)   // not printf: "%d" width is ABI-dependent for 64-bit Int
+            xref += String(repeating: "0", count: max(10 - digits.count, 0)) + digits + " 00000 n \n"
+        }
         xref += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R /Info 3 0 R >>\nstartxref\n\(xrefPos)\n%%EOF\n"
         out.append(Data(xref.utf8))
         return out
@@ -144,7 +148,7 @@ struct ContentStream {
         case let .rect(x, y, w, h):
             text += "\(fmt(x)) \(fmt(y)) \(fmt(w)) \(fmt(h)) re \(op)\n"
         case let .line(a, b):
-            text += "\(fmt(a.x)) \(fmt(a.y)) m \(fmt(b.x)) \(fmt(b.y)) l S\n"
+            text += "\(fmt(a.x)) \(fmt(a.y)) m \(fmt(b.x)) \(fmt(b.y)) l \(op)\n"
         case let .circle(center, r):
             let k = 0.5522847498 * r
             let x = center.x, y = center.y
