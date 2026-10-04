@@ -85,3 +85,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - A fresh Xcode install may fail every `xcodebuild` with "A required plugin
   failed to load": run `xcodebuild -runFirstLaunch`. It also ships without an
   iOS simulator runtime: `xcodebuild -downloadPlatform iOS` (about 8 GB).
+- The app's deployment target is iPadOS 26 and the user's iPad cannot update
+  to 27: any iPadOS 27 API (`PKStroke.id`, `PKStroke.substroke`,
+  `PKDrawing.erasePath`, recognition) must sit behind `if #available` with a
+  tested 26 path. Run `INKVAULT_SIM_ID=<iOS 26.x iPad> scripts/app.sh test`
+  as well as the default (newest) simulator.
+- PencilKit stores control points in reduced precision (Float32 locations,
+  quantized opacity/azimuth/altitude): compare converted strokes within a
+  tolerance, never with `==`. Stroke identity across canvas edits comes from
+  `StrokeLedger`'s fingerprints, which are always taken from the `PKStroke`.
+- `PKCanvasView` inverts ink colours in dark mode; the canvas forces
+  `.light` because ink colours are stored as drawn on (light) paper.

@@ -20,7 +20,7 @@ struct RootView: View {
         } content: {
             NoteListView()
         } detail: {
-            CanvasPlaceholderView(note: model.selectedNote)
+            NoteCanvasView()
         }
         .fileImporter(isPresented: $pickingVault, allowedContentTypes: [.folder]) { result in
             Task {

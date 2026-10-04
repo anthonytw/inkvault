@@ -55,10 +55,27 @@ final class AppModel {
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
 
+    /// The note open on the canvas, if any (`openEditor(for:)`).
+    private(set) var editor: NoteEditor?
+
     private var vault: Vault?
     private var scopedURL: URL?
+    /// Bumped by `close()` and `openVault`: async work started under an older
+    /// generation must not publish its result (the vault it read is gone).
+    private var generation = 0
+    /// This installation's device id and clock, created on first write access.
+    private var deviceClock: DeviceClock?
+    private let deviceStateURL: URL
+    private let editorDebounce: Duration
+    /// Test seam: awaited after each piece of off-main vault work.
+    private let afterIO: (@Sendable () async -> Void)?
 
-    init() {}
+    init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
+         afterIO: (@Sendable () async -> Void)? = nil) {
+        self.deviceStateURL = deviceStateURL
+        self.editorDebounce = editorDebounce
+        self.afterIO = afterIO
+    }
 
     // MARK: - Derived
 
@@ -98,9 +115,11 @@ final class AppModel {
     /// it until the vault is closed.
     func openVault(at url: URL) async throws {
         close()
+        let gen = generation
         let scoped = url.startAccessingSecurityScopedResource()
         do {
-            let opened = try await Self.offMain { try Vault.open(at: url) }
+            let opened = try await offMain { try Vault.open(at: url) }
+            try ensureCurrent(gen)
             if scoped { scopedURL = url }
             vault = opened
             vaultURL = url
@@ -120,7 +139,9 @@ final class AppModel {
     /// Unlocks the open vault with age identities and loads the note list.
     func unlock(with identities: [any AgeIdentity]) async throws {
         guard let url = vaultURL else { throw ModelError.noVaultOpen }
-        let opened = try await Self.offMain { try Vault.open(at: url, identities: identities) }
+        let gen = generation
+        let opened = try await offMain { try Vault.open(at: url, identities: identities) }
+        try ensureCurrent(gen)
         vault = opened
         phase = .unlocked
         try await reload()
@@ -138,7 +159,8 @@ final class AppModel {
     /// (`keys/<recipient>.key.age`, format.md §3.2).
     func unlock(passphrase: String) async throws {
         guard let locked = vault else { throw ModelError.noVaultOpen }
-        let identity: X25519Identity = try await Self.offMain {
+        let gen = generation
+        let identity: X25519Identity = try await offMain {
             let stored = try locked.identityFiles()
             guard !stored.isEmpty else { throw ModelError.noStoredKeys }
             for recipient in stored {
@@ -148,21 +170,64 @@ final class AppModel {
             }
             throw ModelError.passphraseMatchesNoKey
         }
+        try ensureCurrent(gen)
         try await unlock(with: [identity])
     }
 
     /// Re-reads every note summary from disk.
     func reload() async throws {
         guard let vault else { throw ModelError.noVaultOpen }
+        let gen = generation
         isBusy = true
-        defer { isBusy = false }
-        notes = try await Self.offMain { try vault.summaries() }
+        defer { if gen == generation { isBusy = false } }
+        let loaded = try await offMain { try vault.summaries() }
+        try ensureCurrent(gen)
+        notes = loaded
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
     }
 
-    /// Forgets the vault (and its keys) and releases folder access.
+    /// Opens `noteID` on the canvas (nil closes it). The previous note is
+    /// saved first. Needs an unlocked vault; the device clock is created on
+    /// first use.
+    func openEditor(for noteID: UUID?) async throws {
+        guard editor?.noteID != noteID || noteID == nil else { return }
+        let previous = editor
+        editor = nil
+        await previous?.close()
+        guard let noteID else { return }
+        guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
+        let gen = generation
+        let clock = try deviceClockForWriting()
+        let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce)
+        await afterIO?()
+        try ensureCurrent(gen)
+        guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
+        guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
+        let stale = editor
+        editor = opened
+        if let stale { Task { await stale.close() } }
+    }
+
+    private func deviceClockForWriting() throws -> DeviceClock {
+        if let deviceClock { return deviceClock }
+        let clock = try DeviceClock(url: deviceStateURL)
+        deviceClock = clock
+        return clock
+    }
+
+    /// Forgets the vault (and its keys) and releases folder access, after the
+    /// open note's pending changes are saved.
     func close() {
-        if let scopedURL { scopedURL.stopAccessingSecurityScopedResource() }
+        generation += 1
+        let editor = self.editor
+        let scoped = scopedURL
+        self.editor = nil
+        if editor != nil || scoped != nil {
+            Task {
+                await editor?.close()
+                scoped?.stopAccessingSecurityScopedResource()
+            }
+        }
         scopedURL = nil
         vault = nil
         vaultURL = nil
@@ -174,11 +239,19 @@ final class AppModel {
 
     /// Runs `body` and records its error for the UI instead of throwing.
     func report(_ body: () async throws -> Void) async {
-        do { try await body() } catch { errorMessage = "\(error)" }
+        do { try await body() } catch is CancellationError {} catch { errorMessage = "\(error)" }
+    }
+
+    /// Throws `CancellationError` when `close()` or another `openVault` ran
+    /// since `gen` was taken, so a late result cannot resurrect a closed vault.
+    private func ensureCurrent(_ gen: Int) throws {
+        guard gen == generation else { throw CancellationError() }
     }
 
     /// Runs blocking vault work (file I/O, decryption) on a background thread.
-    private nonisolated static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(priority: .userInitiated) { try work() }.value
+    private func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        let value = try await Task.detached(priority: .userInitiated) { try work() }.value
+        await afterIO?()
+        return value
     }
 }
