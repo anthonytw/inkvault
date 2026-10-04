@@ -42,7 +42,9 @@ let package = Package(
         .testTarget(name: "AgeTests", dependencies: ["Age"],
                     resources: [.copy("Vectors")]),
         .testTarget(name: "InkVaultTests", dependencies: ["InkVault"]),
-        .testTarget(name: "InkRenderTests", dependencies: ["InkRender"]),
+        .testTarget(name: "InkRenderTests", dependencies: ["InkRender"],
+                    exclude: ["generate_sample_note.py"],
+                    resources: [.copy("Fixtures")]),
         .testTarget(name: "CLITests", dependencies: []),
     ],
     swiftLanguageModes: [.v6]

@@ -52,3 +52,6 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   XCTest `Executed N tests` line is the one that matters.
 - CLI tests run the built binary as a subprocess (see `Tests/CLITests`);
   do not add the executable target as a test dependency.
+- On Linux, `XMLParser` (and `XMLDocument`) live in `FoundationXML`, and
+  `URLSession` in `FoundationNetworking`. Guard the import with
+  `#if canImport(FoundationXML)`; macOS has them in Foundation.
