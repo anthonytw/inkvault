@@ -223,14 +223,20 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
     /// Snapshot only: `"<hlc>-<device>"` stamp of the `setPageRecognition`
     /// that last set `recognition`. Nil with a nil `recognition` means never set.
     public var recognitionClock: String?
+    /// The removed page this one re-creates, e.g. when restored from history
+    /// (format.md §5.5). Informational; set once by `addPage`.
+    public var parent: UUID?
 
     public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil,
-                origin: String? = nil, recognition: Recognition? = nil, recognitionClock: String? = nil) {
+                origin: String? = nil, recognition: Recognition? = nil, recognitionClock: String? = nil,
+                parent: UUID? = nil) {
         self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock; self.origin = origin
-        self.recognition = recognition; self.recognitionClock = recognitionClock
+        self.recognition = recognition; self.recognitionClock = recognitionClock; self.parent = parent
     }
 
-    enum CodingKeys: String, CodingKey { case id, order, strokes, orderClock, origin, recognition, recognitionClock }
+    enum CodingKeys: String, CodingKey {
+        case id, order, strokes, orderClock, origin, recognition, recognitionClock, parent
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -241,6 +247,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         recognition = try c.decodeIfPresent(Recognition.self, forKey: .recognition)
         recognitionClock = try c.decodeIfPresent(String.self, forKey: .recognitionClock)
+        parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -252,6 +259,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         if let origin { try c.encode(origin, forKey: .origin) }
         if let recognition { try c.encode(recognition, forKey: .recognition) }
         if let recognitionClock { try c.encode(recognitionClock, forKey: .recognitionClock) }
+        if let parent { try c.encode(LowercaseUUID(parent), forKey: .parent) }
     }
 }
 

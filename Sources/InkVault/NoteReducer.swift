@@ -265,7 +265,8 @@ public enum NoteReducer {
             outPages.append(Page(id: id, order: reg.value,
                                  strokes: list.map { var s = $0.item; s.origin = emitted($0.origin); return s },
                                  orderClock: reg.key.stamp.description, origin: emitted(e.origin),
-                                 recognition: rec?.value, recognitionClock: rec?.key.stamp.description))
+                                 recognition: rec?.value, recognitionClock: rec?.key.stamp.description,
+                                 parent: e.item.parent))
         }
         // Byte-wise (code point) order, not Swift's normalising String `<`.
         outPages.sort { l, r in
