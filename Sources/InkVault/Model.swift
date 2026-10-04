@@ -252,8 +252,10 @@ public struct NoteMeta: Hashable, Sendable, Codable {
 
 /// Full note state as stored in a snapshot (format.md §5.4).
 public struct NoteState: Hashable, Sendable, Codable {
-    /// LWW register names that may appear in `clocks` (format.md §5.4).
-    public static let clockKeys = ["title", "tags", "notebook", "favorite", "paper", "pageSize", "deleted"]
+    /// The LWW registers, named as they appear in `clocks` (format.md §5.4).
+    public enum ClockKey: String, Hashable, Sendable, CaseIterable {
+        case title, tags, notebook, favorite, paper, pageSize, deleted
+    }
 
     public var deleted: Bool
     public var meta: NoteMeta
@@ -262,7 +264,8 @@ public struct NoteState: Hashable, Sendable, Codable {
     /// Register name → `"<hlc>-<device>"` stamp that last set it. A missing
     /// register is stamped by the snapshot's own `(hlc, device)`.
     public var clocks: [String: String]?
-    /// Removed ids whose add the snapshot writer had not seen.
+    /// Stroke ids removed before their add was covered, and every removed
+    /// page id (page tombstones are permanent).
     public var tombstones: Tombstones?
 
     public init(deleted: Bool = false, meta: NoteMeta, pages: [Page] = [],
@@ -292,8 +295,9 @@ public struct NoteState: Hashable, Sendable, Codable {
     }
 }
 
-/// Snapshot tombstones (format.md §5.4): ids whose `removeStroke` /
-/// `removePage` was seen before the matching add, so a late add stays removed.
+/// Snapshot tombstones (format.md §5.4): stroke ids whose `removeStroke` was
+/// seen while the adding revision was not yet covered, and every removed page
+/// id, so a late add stays removed.
 public struct Tombstones: Hashable, Sendable, Codable {
     public var strokes: [UUID]
     public var pages: [UUID]

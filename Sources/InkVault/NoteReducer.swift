@@ -128,18 +128,17 @@ public enum NoteReducer {
             removedStrokes.formUnion(s.state.tombstones?.strokes ?? [])
         }
         for d in uncovered {
-            for op in d.ops {
-                switch op {
-                case .removePage(let id): removedPages.insert(id)
-                case .removeStroke(_, let id): removedStrokes.insert(id)
-                default: break
-                }
-            }
+            for case .removeStroke(_, let id) in d.ops { removedStrokes.insert(id) }
+        }
+        // Page tombstones are permanent (§5.4), so every removePage counts.
+        for d in deltas {
+            for case .removePage(let id) in d.ops { removedPages.insert(id) }
         }
 
         // Orphans (§5.3): a delta whose page-targeting op names a page nobody
         // has seen is applied but not listed in `included`, so it is applied
-        // again once the page arrives.
+        // again once the page arrives. A removed page is known (its tombstone
+        // is permanent), so ops on it are covered no-ops, never orphans.
         var knownPages = removedPages
         for s in snapshots { knownPages.formUnion(s.state.pages.map(\.id)) }
         for d in deltas {
@@ -156,15 +155,13 @@ public enum NoteReducer {
         }
         let orphans = Set(uncovered.filter(isOrphan).map(\.name))
 
-        // LWW registers.
-        let defaults = NoteMeta(created: Date(timeIntervalSince1970: 0))
-        var title = Register(value: defaults.title, key: .unset)
-        var tags = Register(value: defaults.tags, key: .unset)
-        var notebook = Register(value: defaults.notebook, key: .unset)
-        var favorite = Register(value: defaults.favorite, key: .unset)
-        var paper = Register(value: defaults.paper, key: .unset)
-        var pageSize = Register(value: defaults.pageSize, key: .unset)
-        var deleted = Register(value: false, key: .unset)
+        // LWW registers, one per `NoteState.ClockKey`.
+        let defaults = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)))
+        var registers: [NoteState.ClockKey: Register<RegisterValue>] = [:]
+        for k in NoteState.ClockKey.allCases {
+            registers[k] = Register(value: RegisterValue(k, in: defaults), key: .unset)
+        }
+        func offer(_ value: RegisterValue, _ k: OpKey) { registers[value.clockKey]?.offer(value, k) }
         var created = earliestWall
         var order: [UUID: Register<String>] = [:]
         var pages: [UUID: Evidence<Page>] = [:]
@@ -186,15 +183,10 @@ public enum NoteReducer {
 
         for s in snapshots {
             let stamp = s.name.stamp
-            func key(_ field: String) -> OpKey { .base(s.state.clocks?[field].flatMap(Stamp.init) ?? stamp, s.name) }
+            for k in NoteState.ClockKey.allCases {
+                offer(RegisterValue(k, in: s.state), .base(s.state.clocks?[k.rawValue].flatMap(Stamp.init) ?? stamp, s.name))
+            }
             let m = s.state.meta
-            title.offer(m.title, key("title"))
-            tags.offer(m.tags, key("tags"))
-            notebook.offer(m.notebook, key("notebook"))
-            favorite.offer(m.favorite, key("favorite"))
-            paper.offer(m.paper, key("paper"))
-            pageSize.offer(m.pageSize, key("pageSize"))
-            deleted.offer(s.state.deleted, key("deleted"))
             created = min(created ?? m.created, m.created)
 
             var pageIds = Set<UUID>(), strokeIds = Set<UUID>()
@@ -226,17 +218,9 @@ public enum NoteReducer {
                     offerOrder(page.id, page.order, k)
                 case .setPageOrder(let id, let value):
                     offerOrder(id, value, k)
-                case .setMeta(let change):
-                    switch change {
-                    case .title(let v): title.offer(v, k)
-                    case .tags(let v): tags.offer(v, k)
-                    case .notebook(let v): notebook.offer(v, k)
-                    case .favorite(let v): favorite.offer(v, k)
-                    case .paper(let v): paper.offer(v, k)
-                    case .pageSize(let v): pageSize.offer(v, k)
-                    }
-                case .deleteNote: deleted.offer(true, k)
-                case .restoreNote: deleted.offer(false, k)
+                case .setMeta(let change): offer(.meta(change), k)
+                case .deleteNote: offer(.deleted(true), k)
+                case .restoreNote: offer(.deleted(false), k)
                 case .removeStroke, .removePage: break
                 }
             }
@@ -266,8 +250,8 @@ public enum NoteReducer {
             guard let e = pages[id], let reg = order[id] else { continue }
             let list = (byPage[id] ?? []).sorted { ($0.origin, $0.item.id.uuidString) < ($1.origin, $1.item.id.uuidString) }
             outPages.append(Page(id: id, order: reg.value,
-                                 strokes: list.map { var s = $0.item; s.origin = $0.origin.description; return s },
-                                 orderClock: reg.key.stamp.description, origin: e.origin.description))
+                                 strokes: list.map { var s = $0.item; s.origin = emitted($0.origin); return s },
+                                 orderClock: reg.key.stamp.description, origin: emitted(e.origin)))
         }
         // Byte-wise (code point) order, not Swift's normalising String `<`.
         outPages.sort { l, r in
@@ -275,49 +259,91 @@ public enum NoteReducer {
             return l.id.uuidString.lowercased() < r.id.uuidString.lowercased()
         }
 
-        // What the new `included` will reflect, and tombstones for removals
-        // whose add it does not reflect.
+        // What the new `included` will reflect.
         var included = Included()
-        var seenPages = Set<UUID>(), seenStrokes = Set<UUID>()
         for s in snapshots {
             included = included.union(s.included)
             if s.name.seq >= 1 { included.insert(device: s.name.device, seq: s.name.seq) }
-            seenPages.formUnion(snapPageIds[s.name] ?? [])
-            seenStrokes.formUnion(snapStrokeIds[s.name] ?? [])
         }
         for d in uncovered where !orphans.contains(d.name) {
             included.insert(device: d.device, seq: d.seq)
         }
-        for d in deltas where included.covers(device: d.device, seq: d.seq) {
-            for op in d.ops {
-                switch op {
-                case .addPage(let p): seenPages.insert(p.id)
-                case .addStroke(_, let s): seenStrokes.insert(s.id)
-                default: break
-                }
+
+        // A stroke tombstone may be dropped only once the revision that added
+        // the stroke is covered by that `included` (§5.4). What an input
+        // snapshot merely held proves nothing: it may hold an orphan's stroke.
+        var addOrigins: [UUID: [Origin]] = [:]
+        for e in strokes.values { addOrigins[e.item.id, default: []].append(e.origin) }
+        for d in deltas {
+            for case (let i, .addStroke(_, let st)) in d.ops.enumerated() {
+                addOrigins[st.id, default: []].append(Origin(d.name, op: i))
             }
         }
-        let tomb = Tombstones(strokes: sortedIds(removedStrokes.subtracting(seenStrokes)),
-                              pages: sortedIds(removedPages.subtracting(seenPages)))
+        let keptStrokes = removedStrokes.filter { id in
+            !(addOrigins[id] ?? []).contains { included.covers(device: $0.device, seq: $0.seq) }
+        }
+        let tomb = Tombstones(strokes: sortedIds(keptStrokes), pages: sortedIds(removedPages))
 
-        let meta = NoteMeta(title: title.value, tags: tags.value, notebook: notebook.value, favorite: favorite.value,
-                            created: created ?? defaults.created, paper: paper.value, pageSize: pageSize.value)
-        let clocks: [String: String] = [
-            "title": title.key.stamp.description,
-            "tags": tags.key.stamp.description,
-            "notebook": notebook.key.stamp.description,
-            "favorite": favorite.key.stamp.description,
-            "paper": paper.key.stamp.description,
-            "pageSize": pageSize.key.stamp.description,
-            "deleted": deleted.key.stamp.description,
-        ]
-        let state = NoteState(deleted: deleted.value, meta: meta, pages: outPages, clocks: clocks,
+        var state = NoteState(meta: defaults.meta, pages: outPages,
                               tombstones: tomb.isEmpty ? nil : tomb)
+        state.meta.created = created ?? defaults.meta.created
+        var clocks: [String: String] = [:]
+        for (k, reg) in registers {
+            reg.value.apply(to: &state)
+            clocks[k.rawValue] = reg.key.stamp.description
+        }
+        state.clocks = clocks
         return Resolution(state: state, included: included)
     }
 
     private static func sortedIds(_ ids: Set<UUID>) -> [UUID] {
         ids.sorted { $0.uuidString.lowercased() < $1.uuidString.lowercased() }
+    }
+}
+
+/// An origin is written only when it names a real revision (`seq ≥ 1`);
+/// `apply`'s stand-in base has none to give.
+private func emitted(_ origin: Origin) -> String? { origin.seq >= 1 ? origin.description : nil }
+
+/// The value of one LWW register (`NoteState.ClockKey`).
+enum RegisterValue {
+    case meta(MetaChange)
+    case deleted(Bool)
+
+    /// Reads register `key` from `state`.
+    init(_ key: NoteState.ClockKey, in state: NoteState) {
+        let m = state.meta
+        switch key {
+        case .title: self = .meta(.title(m.title))
+        case .tags: self = .meta(.tags(m.tags))
+        case .notebook: self = .meta(.notebook(m.notebook))
+        case .favorite: self = .meta(.favorite(m.favorite))
+        case .paper: self = .meta(.paper(m.paper))
+        case .pageSize: self = .meta(.pageSize(m.pageSize))
+        case .deleted: self = .deleted(state.deleted)
+        }
+    }
+
+    var clockKey: NoteState.ClockKey {
+        switch self {
+        case .deleted: return .deleted
+        case .meta(let change):
+            switch change {
+            case .title: return .title
+            case .tags: return .tags
+            case .notebook: return .notebook
+            case .favorite: return .favorite
+            case .paper: return .paper
+            case .pageSize: return .pageSize
+            }
+        }
+    }
+
+    func apply(to state: inout NoteState) {
+        switch self {
+        case .meta(let change): change.apply(to: &state.meta)
+        case .deleted(let v): state.deleted = v
+        }
     }
 }
 
@@ -336,7 +362,7 @@ public enum SnapshotBuilder {
     /// the state reflects in full (§5.3): every input snapshot's `included`,
     /// the input snapshots, every applied delta except orphans, and the new
     /// snapshot itself. `clock` observes every input first, so the snapshot
-    /// sorts after all of them.
+    /// sorts after every input it adopts (see `HybridClock.observe`).
     public static func makeSnapshot(from revisions: [Revision], device: DeviceID, seq: Int,
                                     clock: inout HybridClock, wall: Date, app: String) throws -> Revision {
         let revs = try NoteReducer.canonical(revisions)

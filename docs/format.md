@@ -112,7 +112,9 @@ Each file under `notes/<noteId>/` is one revision. Name:
   followed by a 4-digit counter, both zero-padded. Lexicographic order of
   `hlc` is causal-ish time order. The clock follows the usual HLC rules:
   on every local event or received revision, `millis = max(wall, seen)`,
-  counter increments on ties and resets otherwise.
+  counter increments on ties and resets otherwise. A device does not adopt
+  a received `hlc` more than 24 hours ahead of its own wall clock; such a
+  revision still merges using its `hlc` exactly as written.
 - `device`: 8 lowercase hex chars, random per app installation. Never a
   hardware identifier.
 - `seq`: per (note, device) counter, decimal, starting at 1, gap-free.
@@ -225,11 +227,13 @@ cover wins a register only if its own `(hlc, device)` is greater than that
 stamp; between snapshots, the greater recorded stamp wins. A register with
 no clock is treated as stamped by the snapshot's own `(hlc, device)`.
 
-`State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...]}`:
-ids whose `removeStroke` or `removePage` the snapshot writer saw without
-having seen the matching add. A delta adding a tombstoned id stays removed.
-Once the add is covered by `included`, the tombstone may be dropped. Both
-fields are omitted when empty.
+`State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...]}`.
+A delta adding a tombstoned id stays removed. `strokes` lists ids whose
+`removeStroke` was seen while the revision that added the stroke was not yet
+covered by `included`; once it is covered, the tombstone may be dropped.
+`pages` lists every removed page id and is never pruned, so a late op on a
+removed page is a no-op rather than an orphan (§5.3). Both fields are
+omitted when empty.
 
 ### 5.5 Page
 

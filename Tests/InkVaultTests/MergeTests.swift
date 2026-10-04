@@ -145,6 +145,85 @@ final class MergeTests: XCTestCase {
         XCTAssertEqual(try NoteReducer.reconstruct([snap2]).strokeIds, [[x.id]])
     }
 
+    /// Review finding: a tombstone may be dropped only when the revision that
+    /// added the stroke is covered by the new `included`, not because an
+    /// input snapshot held the stroke (it may hold an orphan's stroke).
+    func testTombstoneKeptWhileAddingRevisionIsAnOrphan() throws {
+        var log = LogBuilder()
+        let q = UUID(uuidString: "00000000-0000-4000-8000-0000000000a9")!
+        let s = stroke(), t = stroke()
+        let a1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V"))])
+        let a2 = log.delta(devA, 100, [.addStroke(page: p1, stroke: s), .addStroke(page: q, stroke: t)])  // q unseen
+        let c1 = try log.snapshot(devC, 200, from: [a1, a2])
+        guard case .snapshot(let inc1, let st1) = c1.body else { return XCTFail("not a snapshot") }
+        XCTAssertFalse(inc1.covers(device: devA, seq: 2), "a2 is an orphan")
+        XCTAssertEqual(st1.allStrokeIds, [s.id], "but its stroke on a known page is held")
+        let b1 = log.delta(devB, 300, [.removeStroke(page: p1, strokeId: s.id)])
+        let c2 = try log.snapshot(devC, 400, from: [c1, a2, b1])
+        guard case .snapshot(let inc2, let st2) = c2.body else { return XCTFail("not a snapshot") }
+        XCTAssertFalse(inc2.covers(device: devA, seq: 2))
+        XCTAssertEqual(st2.tombstones?.strokes, [s.id], "a2 is not covered, so the tombstone stays")
+
+        // Compact everything the planner allows; a2 must survive and S must stay removed.
+        let all = [a1, a2, c1, b1, c2]
+        let wall = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0.wall) })
+        let doomed = Set(CompactionPlanner.deletable(names: all.map(\.name), wall: wall,
+                                                     snapshots: [c1, c2].compactMap(SnapshotCoverage.init),
+                                                     retention: 0, now: wallAt(baseMillis + 10_000_000)))
+        let kept = all.filter { !doomed.contains($0.name) }
+        XCTAssertEqual(Set(kept.map(\.name)), [a2.name, c2.name])
+        XCTAssertEqual(try NoteReducer.reconstruct(kept).allStrokeIds, [])
+
+        // Once q arrives, a2 is applied in full: T appears, S stays removed,
+        // and the next snapshot may drop the tombstone.
+        let addQ = log.delta(devB, 500, [.addPage(Page(id: q, order: "W"))])
+        let now = try NoteReducer.reconstruct(kept + [addQ])
+        XCTAssertEqual(now.allStrokeIds, [t.id])
+        let c3 = try log.snapshot(devC, 600, from: kept + [addQ])
+        guard case .snapshot(let inc3, let st3) = c3.body else { return XCTFail("not a snapshot") }
+        XCTAssertTrue(inc3.covers(device: devA, seq: 2))
+        XCTAssertNil(st3.tombstones?.strokes.first)
+        XCTAssertEqual(try NoteReducer.reconstruct([c3, a2]).allStrokeIds, [t.id])
+    }
+
+    /// Page tombstones are permanent (§5.4): a late addStroke on a page whose
+    /// add and remove were both compacted is a covered no-op, not an orphan,
+    /// so `included` stays contiguous.
+    func testLateAddStrokeOnRemovedPageIsACoveredNoOp() throws {
+        var log = LogBuilder()
+        let addP = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V"))])
+        let rmP = log.delta(devB, 100, [.removePage(pageId: p1)])
+        let s1 = try log.snapshot(devB, 200, from: [addP, rmP])
+        guard case .snapshot(_, let st1) = s1.body else { return XCTFail("not a snapshot") }
+        XCTAssertEqual(st1.tombstones?.pages, [p1], "kept although the add was seen")
+        // addP and rmP are compacted; a late stroke from C arrives.
+        var lateLog = log
+        let late = lateLog.delta(devC, 50, [.addStroke(page: p1, stroke: stroke())])
+        var current = [s1, late]
+        for i in 0..<3 {
+            let snap = try lateLog.snapshot(devB, 300 + Int64(i) * 100, from: current)
+            guard case .snapshot(let inc, let st) = snap.body else { return XCTFail("not a snapshot") }
+            XCTAssertEqual(inc.entries[devC], Included.Entry(upTo: 1, extra: []))
+            XCTAssertEqual(st.pages, [])
+            XCTAssertEqual(st.tombstones?.pages, [p1])
+            current = [snap]
+        }
+    }
+
+    func testApplyDoesNotInventOrigins() throws {
+        var log = LogBuilder()
+        let held = stroke()
+        let state = NoteState(meta: NoteMeta(created: wallAt(baseMillis)),
+                              pages: [Page(id: p1, order: "V", strokes: [held])])
+        let added = stroke()
+        let d = log.delta(devA, 100, [.addStroke(page: p1, stroke: added)])
+        let out = try NoteReducer.apply([d], to: state, stamp: Stamp(hlc: HLC(millis: baseMillis, counter: 0)!, device: devB))
+        XCTAssertEqual(out.pages[0].strokes.map(\.id), [held.id, added.id])
+        XCTAssertNil(out.pages[0].strokes[0].origin, "no real revision added it here")
+        XCTAssertNil(out.pages[0].origin)
+        XCTAssertEqual(out.pages[0].strokes[1].origin, Origin(d.name, op: 0).description)
+    }
+
     func testConcurrentSlicingKeepsBothPieceSets() throws {
         var log = LogBuilder()
         let x = stroke()
