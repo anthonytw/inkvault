@@ -7,3 +7,4 @@ DerivedData/
 *.key
 *.key.txt
 /tmp/
+.worktrees/
