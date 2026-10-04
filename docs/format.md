@@ -197,7 +197,7 @@ Adds `"ops": [Op, ...]`, applied in order. Ops:
 | --- | --- | --- |
 | `addStroke` | `page`, `stroke` | add stroke to page (no-op if page removed) |
 | `removeStroke` | `page`, `strokeId` | remove stroke; wins over any add |
-| `addPage` | `page: {id, order}` | add an empty page |
+| `addPage` | `page: {id, order, parent?}` | add an empty page |
 | `removePage` | `pageId` | remove page and its strokes; wins over adds |
 | `setPageOrder` | `pageId`, `order` | LWW on the page's order key |
 | `setPageRecognition` | `pageId`, `recognition` | LWW on the page's recognised text (§5.5); `null` clears it |
@@ -294,10 +294,13 @@ omitted when empty.
 ### 5.5 Page
 
 ```json
-{ "id": "…", "order": "a0", "strokes": [ Stroke, ... ], "recognition": Recognition }
+{ "id": "…", "order": "a0", "strokes": [ Stroke, ... ], "recognition": Recognition, "parent": "…" }
 ```
 
-`recognition` is optional (below).
+`recognition` is optional (below). `parent` is optional: the id of a removed
+page this one re-creates (a restore from history, §5.7). It is
+informational, set by the `addPage` that adds the page and carried into
+snapshots; readers that do not know it may ignore it.
 
 `order` is any string; pages sort lexicographically by `(order, id)`. The
 library provides a helper to generate a key between two neighbours.
@@ -373,6 +376,46 @@ snapshot holding it, at op index equal to its position.
   undoes an erase, or restores from history, must mint a new id and may set
   `parent` to the old one.
 - `origin` appears only in snapshots (§5.5).
+
+### 5.7 History and restore
+
+Every revision is a restore point, ordered by `(hlc, device, seq)`, and
+shows its `wall`, `device`, `app` and kind. The note **as of** revision R is
+the reconstruction (§5.3) of every revision ordered at or before R. For a
+delta this is not necessarily what R's writer saw (a concurrent revision with
+a smaller `hlc` is included, one with a larger is not); it is the only
+definition every reader can compute the same way.
+
+Compaction (§5.3) deletes revisions; they are no longer restore points. A
+surviving revision R can still be shown only if each deleted revision is
+covered by the `included` of a snapshot ordered at or before R, or is
+provably ordered after R (R itself, or a surviving revision ordered after
+R, of the same device with a smaller `seq`, precedes it). Otherwise readers
+report R as incomplete and do not show or restore it. Likewise for an
+unreadable revision ordered at or before R, and for every R while any
+snapshot is unreadable (it may be the only record of compacted revisions).
+
+Restoring a note to R never rewrites or deletes history. A writer appends
+one delta whose ops turn the current state into the state as of R:
+
+- pages and strokes present now but not as of R: `removePage` /
+  `removeStroke`;
+- pages and strokes present as of R but removed since: re-added under new
+  ids (`addPage`, `addStroke`; a re-added page gets its strokes and its
+  recognition from R), with `parent` set to the old id (§5.2);
+- `setPageOrder`, `setPageRecognition`, `setMeta` for every page order,
+  recognition and metadata register that differs, and `deleteNote` or
+  `restoreNote` if `deleted` differs.
+
+A page or stroke counts as present when its id is, or when an item with
+`parent` naming it is (for a stroke, also with the same `ink`, `points` and
+`transform`), so restoring the same point twice writes nothing the second
+time. The delta's `hlc` is issued after observing every revision of the
+note, so its LWW ops win over what they set back. Re-added strokes are
+drawn above the strokes that stayed (they sort by their new `origin`).
+Concurrent revisions the restoring device has not seen merge with the
+restore as with any delta: strokes added to a surviving page stay, and
+anything on a page the restore removes is removed with it.
 
 ## 6. Identifiers and encodings
 

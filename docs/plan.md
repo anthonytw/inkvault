@@ -29,7 +29,7 @@ drop export, bulk export, key management.
 
 ## Phase 3 — nice to have
 
-History browser and restore; built-in WebDAV client; compaction UI;
+Built-in WebDAV client; compaction UI;
 ~~PNG export~~ (done: `inkvault export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/InkRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
@@ -37,6 +37,16 @@ imported today as ink on blank paper); stroke
 dedupe after concurrent slicing; post-quantum recipient type; read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
 refuses any `format` other than `inkvault/1`).
+
+Done from this list:
+
+- **History and restore, core + CLI** (`Sources/InkVault/History.swift`,
+  `format.md` §5.7, `docs/cli.md`): restore points per revision, the note as of
+  any revision, `Vault.restore` writing one delta (re-added items get new ids
+  with `parent`), `inkvault notes history`, `notes restore --to [--dry-run]`,
+  `export --at`. Compacted revisions are not restore points. Still to do: the
+  history browser UI in the app (Phase 1/2), on top of `Vault.restorePoints`,
+  `Vault.state(noteId:at:)` and `Vault.restore`.
 
 ## Working agreements
 

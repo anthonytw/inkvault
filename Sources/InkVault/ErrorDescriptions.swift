@@ -76,3 +76,16 @@ extension BodyFramingError: CustomStringConvertible {
         }
     }
 }
+
+extension HistoryError: CustomStringConvertible {
+    /// A human sentence for each case.
+    public var description: String {
+        switch self {
+        case .unknownRevision(let q): return "no revision of this note matches '\(q)'"
+        case .ambiguousRevision(let q, let names):
+            return "'\(q)' matches several revisions: \(names.map(\.filename).joined(separator: ", "))"
+        case .incompleteHistory(let n):
+            return "the note as of \(n.filename) cannot be rebuilt: earlier revisions were compacted away or are unreadable"
+        }
+    }
+}
