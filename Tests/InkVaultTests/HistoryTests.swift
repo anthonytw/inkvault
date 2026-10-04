@@ -314,8 +314,53 @@ final class HistoryTests: XCTestCase {
         let snap = try log.snapshot(devC, 30, from: [b1, a1, a2])
         // a2 is gone; a1 (same device, lower seq) is ordered after b1, so a2 is too.
         let left = [b1, a1, snap]
-        XCTAssertEqual(NoteHistory.restorePoints(left).map(\.complete), [true, false, true])
+        // At a1 itself, a2 (same device, higher seq) is ordered after the point as well.
+        XCTAssertEqual(NoteHistory.restorePoints(left).map(\.complete), [true, true, true])
         XCTAssertEqual(try NoteHistory.state(left, at: b1.name).meta.title, "")
+        XCTAssertEqual(try NoteHistory.state(left, at: a1.name).meta.title, "one")
+    }
+
+    func testPointItselfProvesLaterSeqsOfItsDeviceComeAfterIt() throws {
+        var log = LogBuilder()
+        let a1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0")), .addStroke(page: p1, stroke: drawn(1))])
+        let a2 = log.delta(devA, 10, [.addStroke(page: p1, stroke: drawn(2))])
+        let snap = try log.snapshot(devB, 20, from: [a1, a2])
+        // a2 was compacted away; a1 is the point and has a lower seq of the same device.
+        let left = [a1, snap]
+        XCTAssertEqual(NoteHistory.restorePoints(left).map(\.complete), [true, true])
+        XCTAssertEqual(try NoteHistory.state(left, at: a1.name).allStrokeIds.count, 1)
+        let delta = try XCTUnwrap(try restore(left, to: a1.name, at: 30))
+        XCTAssertEqual(RestoreSummary(delta.ops).strokesRemoved, 1)
+    }
+
+    func testUnreadableSnapshotMakesEveryPointIncomplete() throws {
+        var log = LogBuilder()
+        let a1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])
+        let b1 = log.delta(devB, 10, [.setMeta(.title("b"))])
+        let a2 = log.delta(devA, 20, [.addStroke(page: p1, stroke: drawn(1))])
+        let snap = try log.snapshot(devA, 30, from: [a1, a2])
+        // a1 and a2 were compacted; the only record of them is the snapshot, which
+        // cannot be read. As of b1 the note had page p1, but b1 alone does not.
+        let loaded = LoadedNote(revisions: [b1], failures: [snap.name: .tagMismatch])
+        XCTAssertEqual(loaded.restorePoints.map(\.complete), [false])
+        XCTAssertThrowsError(try loaded.state(at: b1.name)) {
+            XCTAssertEqual($0 as? HistoryError, .incompleteHistory(b1.name))
+        }
+    }
+
+    func testHugeIncludedRangeIsNotEnumerated() throws {
+        var log = LogBuilder()
+        let b1 = log.delta(devB, 0, [.addPage(Page(id: p1, order: "a0"))])
+        let a1 = log.delta(devA, 10, [.setMeta(.title("one"))])
+        for upTo in [1 << 40, Int.max - 1] {
+            var snap = try log.snapshot(devC, 20, from: [b1, a1])
+            guard case .snapshot(_, let state) = snap.body else { return XCTFail("not a snapshot") }
+            snap.body = .snapshot(included: Included([devA: .init(upTo: upTo), devB: .init(upTo: 1)]), state: state)
+            // Every devA seq but 1 is gone; b1 precedes all of them only if a1 proves it, and a1 (seq 1) does.
+            XCTAssertEqual(NoteHistory.restorePoints([b1, a1, snap]).map(\.complete), [true, true, true], "\(upTo)")
+            // Without a1, nothing proves the gone devA revisions came after b1.
+            XCTAssertEqual(NoteHistory.restorePoints([b1, snap]).map(\.complete), [false, true], "\(upTo)")
+        }
     }
 
     func testUnreadableRevisionMakesLaterPointsIncomplete() throws {

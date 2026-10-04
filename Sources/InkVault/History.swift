@@ -253,43 +253,56 @@ public enum NoteHistory {
 /// so the gone ones are the `(device, seq)` some snapshot's `included` lists
 /// but no file has. The state as of point P is complete when each gone
 /// revision is covered by a snapshot ordered at or before P, or provably
-/// ordered after P: a surviving revision of the same device with a smaller
-/// `seq` is ordered after P (a device's clock and `seq` both only grow).
+/// ordered after P: P itself or a surviving revision ordered after it, of the
+/// same device with a smaller `seq`, comes before it (a device's clock and
+/// `seq` both only grow).
+///
+/// An unreadable snapshot may be the only record of revisions compacted
+/// away, so it makes every point incomplete. Coverage is compared as ranges,
+/// never enumerated: `upTo` comes from a file and may be huge.
 struct Completeness {
-    var gone: [(device: DeviceID, seq: Int)] = []
     var snapshots: [(name: RevisionName, included: Included)] = []
     var listed: [RevisionName]
     var unreadable: [RevisionName]
+    /// Every seq in some file name, per device.
+    var present: [DeviceID: Set<Int>] = [:]
+    /// The union of every readable snapshot's `included`.
+    var covered = Included()
 
     init(_ revisions: [Revision], unreadable: [RevisionName]) {
         listed = revisions.map(\.name) + unreadable
         self.unreadable = unreadable
-        var present: [DeviceID: Set<Int>] = [:]
         for n in listed { present[n.device, default: []].insert(n.seq) }
-        var covered: [DeviceID: Set<Int>] = [:]
         for r in revisions {
             guard case .snapshot(let included, _) = r.body else { continue }
             snapshots.append((r.name, included))
-            for (d, e) in included.entries {
-                if e.upTo >= 1 { covered[d, default: []].formUnion(1...e.upTo) }
-                covered[d, default: []].formUnion(e.extra)
-            }
-        }
-        for (d, seqs) in covered {
-            for s in seqs.sorted() where !(present[d]?.contains(s) ?? false) { gone.append((d, s)) }
+            covered = covered.union(included)
         }
     }
 
     func isComplete(at point: RevisionName) -> Bool {
-        if unreadable.contains(where: { $0 <= point }) { return false }
-        if gone.isEmpty { return true }
-        let before = snapshots.filter { $0.name <= point }
-        var firstAfter: [DeviceID: Int] = [:]   // smallest seq per device ordered after `point`
-        for n in listed where n > point { firstAfter[n.device] = min(firstAfter[n.device] ?? .max, n.seq) }
-        return gone.allSatisfy { g in
-            if let f = firstAfter[g.device], f < g.seq { return true }
-            return before.contains { $0.included.covers(device: g.device, seq: g.seq) }
+        if unreadable.contains(where: { $0 <= point || $0.kind == .snapshot }) { return false }
+        let before = snapshots.filter { $0.name <= point }.reduce(Included()) { $0.union($1.included) }
+        // Smallest seq per device at or after `point`: its device's higher seqs come later.
+        var firstAtOrAfter: [DeviceID: Int] = [:]
+        for n in listed where n >= point { firstAtOrAfter[n.device] = min(firstAtOrAfter[n.device] ?? .max, n.seq) }
+        for (device, all) in covered.entries {
+            let have = present[device] ?? []
+            let known = before.entries[device] ?? Included.Entry()
+            // Gone seqs that matter: covered somewhere, no file, below `limit`.
+            let limit = firstAtOrAfter[device] ?? .max
+            func needs(_ seq: Int) -> Bool { seq < limit && !have.contains(seq) && !known.covers(seq) }
+            if all.extra.contains(where: needs) { return false }
+            // The run (known.upTo, min(all.upTo, limit - 1)] must be all files or known extras.
+            let top = min(all.upTo, limit - 1)
+            if known.upTo < top {
+                let length = top - known.upTo
+                let filled = have.count { $0 > known.upTo && $0 <= top }
+                    + known.extra.count { $0 > known.upTo && $0 <= top && !have.contains($0) }
+                if filled < length { return false }
+            }
         }
+        return true
     }
 }
 

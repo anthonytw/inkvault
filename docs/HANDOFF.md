@@ -145,8 +145,9 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
 - Completeness after compaction: gone revisions are the `(device, seq)`
   listed in some snapshot's `included` without a file. A point is complete if
   each is covered by a snapshot `≤` it or provably after it (`Completeness`
-  in `History.swift`). This is conservative: some points that could be rebuilt
-  are reported incomplete.
+  in `History.swift`; ranges are compared, never enumerated, since `upTo` is
+  read from a file). An unreadable snapshot makes every point incomplete. This
+  is conservative: some points that could be rebuilt are reported incomplete.
 - Re-added strokes render above the strokes that stayed (new `origin`); exact
   historical z-order is not restored.
 

@@ -389,10 +389,11 @@ definition every reader can compute the same way.
 Compaction (§5.3) deletes revisions; they are no longer restore points. A
 surviving revision R can still be shown only if each deleted revision is
 covered by the `included` of a snapshot ordered at or before R, or is
-provably ordered after R (a surviving revision of the same device with a
-smaller `seq` is ordered after R). Otherwise readers report R as incomplete
-and do not show or restore it. Likewise for an unreadable revision ordered
-at or before R.
+provably ordered after R (R itself, or a surviving revision ordered after
+R, of the same device with a smaller `seq`, precedes it). Otherwise readers
+report R as incomplete and do not show or restore it. Likewise for an
+unreadable revision ordered at or before R, and for every R while any
+snapshot is unreadable (it may be the only record of compacted revisions).
 
 Restoring a note to R never rewrites or deletes history. A writer appends
 one delta whose ops turn the current state into the state as of R:

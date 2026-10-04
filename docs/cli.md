@@ -118,7 +118,7 @@ first by `(hlc, device, seq)`: kind, wall time, device, app and revision name.
 `complete` per point. Revisions deleted by `compact` are not restore points. A
 point is `complete: false` (shown as `(incomplete)`) when the note as of it can
 no longer be rebuilt: revisions before it were compacted away and no snapshot
-at or before it covers them, or one before it is unreadable. Unreadable
+at or before it covers them, or one before it (or any snapshot) is unreadable. Unreadable
 revisions are not listed; a warning on stderr counts them.
 
 `restore` makes the note look as it did at `REVISION` (the merge of every
