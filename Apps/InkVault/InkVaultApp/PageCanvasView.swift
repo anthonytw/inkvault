@@ -32,6 +32,13 @@ struct PageCanvasView: UIViewRepresentable {
             host.canvas.undoManager?.removeAllActions()   // undo must not cross pages or notes
             c.isLoading = false
             host.scrollToTop()
+            #if DEBUG
+            if DebugLaunch.isActive {
+                let d = host.canvas.drawing
+                NSLog("InkVaultDebug loaded strokes=%d bounds=%@ pageSize=%@", d.strokes.count,
+                      NSCoder.string(for: d.bounds), "\(pageSize)")
+            }
+            #endif
         }
         host.isReadOnly = editor.isReadOnly
         host.apply(paper: paper, pageSize: pageSize)
@@ -51,6 +58,7 @@ struct PageCanvasView: UIViewRepresentable {
         var isLoading = false
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            if let type = EraserPreference.eraserType(of: canvasView.tool) { EraserPreference.save(type) }
             guard !isLoading, let editor, let pageID else { return }
             editor.drawingDidChange(pageID: pageID, drawing: canvasView.drawing, tool: canvasView.tool)
         }
@@ -62,10 +70,11 @@ struct PageCanvasView: UIViewRepresentable {
 }
 
 /// UIKit side of `PageCanvasView`.
-final class PageCanvasHost: UIView {
+final class PageCanvasHost: UIView, PKToolPickerObserver {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
-    private let toolPicker = PKToolPicker()
+    /// Starts with the last-used eraser mode, the object eraser by default.
+    let toolPicker = EraserPreference.makeToolPicker()
     private var pageSize = PageSize.letter
     private var paper = Paper.blank
     private var fittedWidth: CGFloat = 0
@@ -91,7 +100,15 @@ final class PageCanvasHost: UIView {
         canvas.insertSubview(paperView, at: 0)
         addSubview(canvas)
         toolPicker.addObserver(canvas)
+        toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
+    }
+
+    /// Remembers the eraser mode the user picks, for the next canvas.
+    func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
+        if let eraser = toolPicker.selectedToolItem as? PKToolPickerEraserItem {
+            EraserPreference.save(eraser.eraserTool.eraserType)
+        }
     }
 
     @available(*, unavailable)
@@ -112,7 +129,17 @@ final class PageCanvasHost: UIView {
         super.layoutSubviews()
         canvas.frame = bounds
         fitWidth()
+        #if DEBUG
+        if debugLaunchPending, bounds.width > 0 {
+            debugLaunchPending = false
+            DebugLaunch.canvasDidLayOut(self)
+        }
+        #endif
     }
+
+    #if DEBUG
+    private var debugLaunchPending = DebugLaunch.isActive
+    #endif
 
     func apply(paper: Paper, pageSize: PageSize) {
         self.paper = paper

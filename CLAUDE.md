@@ -99,5 +99,25 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   differ again. Point sizes go through `NibSize` (StrokeConversion.swift);
   never pass a format `w` to PencilKit directly. `ImportedStrokeRenderingTests`
   pins the relation, so an iPadOS change to it fails there first.
+  That relation was measured on the simulator and Mac Catalyst only. Strokes
+  drawn on the user's iPad (iPad Pro 12.9" 4th gen) record pen sizes of about
+  3.2 to 4.9 for tool widths 0.88 to 25.7, and monoline size 3.25 whatever
+  the width, with the width carried inside the (opaque) `PKInk`; on hardware
+  the drawn width may depend on that ink, which the simulator ignores. Check
+  ink-width changes on a device, not only in tests.
+- `PKToolPicker.init` restores PencilKit's own saved tools
+  (`PKPaletteNamedDefaults` in the app's defaults) over the items it is
+  given, and its saved eraser is the pixel eraser. `EraserPreference` drops
+  that saved eraser entry before building a picker, so the object eraser is
+  the default and the user's last choice (stored under `InkVault.eraserType`)
+  wins. On iPadOS 26 the picker's pixel eraser is `.fixedWidthBitmap`: a
+  `.bitmap` eraser item comes back as that.
+- Debug builds open a vault and note from launch environment variables, for
+  scripted simulator or Catalyst runs (`DebugLaunch.swift`):
+  `INKVAULT_DEBUG_VAULT`, `INKVAULT_DEBUG_IDENTITY`, `INKVAULT_DEBUG_NOTE`
+  (id prefix), `INKVAULT_DEBUG_SCROLL_Y`, `INKVAULT_DEBUG_ZOOM`,
+  `INKVAULT_DEBUG_SNAPSHOT` (PNG of the canvas). With `xcrun simctl launch`
+  prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
+  autosaves.
 - `PKCanvasView` inverts ink colours in dark mode; the canvas forces
   `.light` because ink colours are stored as drawn on (light) paper.
