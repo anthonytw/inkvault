@@ -1,0 +1,53 @@
+import Age
+import Foundation
+import XCTest
+@testable import InkVault
+
+/// A temporary directory removed in tearDown, plus helpers for vault tests.
+class VaultTestCase: XCTestCase {
+    var tmp: URL!
+
+    override func setUpWithError() throws {
+        tmp = FileManager.default.temporaryDirectory.appendingPathComponent("inkvault-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: tmp)
+    }
+
+    func vaultURL(_ name: String = "Test") -> URL { tmp.appendingPathComponent("\(name).inkvault") }
+
+    func makeVault(_ identity: X25519Identity, name: String = "Test") throws -> Vault {
+        try Vault.create(at: vaultURL(name), recipients: [identity.recipient], labels: ["test"],
+                         identities: [identity])
+    }
+
+    func fileURL(_ vault: Vault, _ note: UUID, _ name: RevisionName) -> URL {
+        vault.url.appendingPathComponent("notes").appendingPathComponent(note.uuidString.lowercased())
+            .appendingPathComponent(name.filename)
+    }
+
+    /// Five revisions over one note from two devices (testNote).
+    func sampleLog() -> [Revision] {
+        var log = LogBuilder()
+        let p1 = UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000a1")!
+        let s1 = UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000b1")!
+        let s2 = UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000b2")!
+        let s3 = UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000b3")!
+        return [
+            log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0")), .setMeta(.title("Lecture 3"))]),
+            log.delta(devA, 10, [.addStroke(page: p1, stroke: stroke(s1))]),
+            log.delta(devB, 15, [.addStroke(page: p1, stroke: stroke(s2)), .setMeta(.tags(["math"]))]),
+            log.delta(devB, 20, [.removeStroke(page: p1, strokeId: s1)]),
+            log.delta(devA, 30, [.addStroke(page: p1, stroke: stroke(s3))]),
+        ]
+    }
+
+    /// Flips one bit of a file in place (simulating storage damage).
+    func flipByte(_ url: URL, at offsetFromEnd: Int) throws {
+        var d = try Data(contentsOf: url)
+        d[d.count - offsetFromEnd] ^= 0x01
+        try d.write(to: url)
+    }
+}
