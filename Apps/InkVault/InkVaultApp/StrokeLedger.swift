@@ -172,7 +172,7 @@ struct StrokeLedger {
 
     /// A save in flight (`beginSave`): the ops it writes and what was on
     /// disk before it.
-    struct Save {
+    struct Save: Equatable {
         var ops: [Op]
         fileprivate var previous: [Stroke]
     }
