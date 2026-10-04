@@ -112,7 +112,9 @@ Each file under `notes/<noteId>/` is one revision. Name:
   followed by a 4-digit counter, both zero-padded. Lexicographic order of
   `hlc` is causal-ish time order. The clock follows the usual HLC rules:
   on every local event or received revision, `millis = max(wall, seen)`,
-  counter increments on ties and resets otherwise.
+  counter increments on ties and resets otherwise. A device does not adopt
+  a received `hlc` more than 24 hours ahead of its own wall clock; such a
+  revision still merges using its `hlc` exactly as written.
 - `device`: 8 lowercase hex chars, random per app installation. Never a
   hardware identifier.
 - `seq`: per (note, device) counter, decimal, starting at 1, gap-free.
@@ -127,7 +129,7 @@ Ordering key for anything that needs a total order: `(hlc, device, seq)`.
   "noteId": "…",
   "device": "a1b2c3d4",
   "seq": 12,
-  "hlc": "00017596320000000003",
+  "hlc": "17596320000000003",
   "wall": "2026-10-04T16:20:00.123Z",
   "app": "inkvault-ios/0.1"
 }
@@ -150,7 +152,11 @@ Adds `"ops": [Op, ...]`, applied in order. Ops:
 | `deleteNote` | | LWW with `restoreNote` on `deleted` |
 | `restoreNote` | | |
 
-The LWW timestamp of an op is the revision's `(hlc, device)`.
+The LWW timestamp of an op is the revision's `(hlc, device)`. `addPage`
+adds the page empty; strokes go in `addStroke` ops. A stroke id is never
+added again after it has been removed; a writer that undoes an erase, or
+restores from history, must mint a new id and may set `parent` to the old
+one. The same holds for page ids.
 
 ### 5.3 Snapshot
 
@@ -164,16 +170,27 @@ Adds:
 
 `included` names every revision the snapshot already reflects: for each
 device, all `seq ≤ upTo` plus the listed `extra` (seen out of order).
-Readers reconstruct a note as: take the snapshot with the greatest
-`(hlc, device, seq)` if any; apply every delta not covered by its
-`included`. Because strokes merge as sets and metadata by LWW using the
-op's own timestamp, the application order of deltas does not change the
-result.
+`included` must list only deltas the snapshot applied in full: a delta with
+an `addStroke` or `setPageOrder` naming a page the writer has not seen is
+left out, so it is applied again once the page arrives. (Removals of unseen
+ids are recorded as tombstones instead, §5.4.)
 
-A device may write a snapshot at any time. Deltas covered by the newest
-snapshot and older than the retention window (default 30 days by `wall`)
-may be deleted; older snapshots may be deleted when a newer snapshot covers
-everything they covered and they are older than the window.
+Readers reconstruct a note as the merge of every snapshot present plus every
+delta not covered by any snapshot's `included`. Pages and strokes merge as
+sets: an item is present if some snapshot holds it or an uncovered delta adds
+it, unless a tombstone or an uncovered remove names it, its page is gone, or
+some snapshot covers the revision in its `origin` (§5.5, §5.6) but does not
+hold it. Metadata, page order and `deleted` merge by LWW, using each
+snapshot's recorded clocks and each delta op's own timestamp.
+Reconstruction is order-independent: the same set of revisions gives the
+same state whatever order they are read in, and implementations must have a
+test that reconstructs from shuffled revision orders and compares.
+
+A device may write a snapshot at any time. A delta may be deleted when at
+least one snapshot covers it and it is older than the retention window
+(default 30 days by `wall`). A snapshot may be deleted when another
+snapshot's `included` is a superset of its `included` and it is older than
+the window; of two snapshots with equal `included`, keep at least one.
 
 ### 5.4 State and metadata
 
@@ -194,11 +211,29 @@ everything they covered and they are older than the window.
 }
 ```
 
-- `created` is set once by the first revision and never changes.
+- `created` is set once by the first revision and never changes. Readers take
+  the earliest of any snapshot's recorded `created` and the `wall` of the
+  earliest known revision by `(hlc, device, seq)`.
 - `paper.kind` ∈ `blank`, `ruled`, `grid`, `dot`. Lengths are points (1/72 in).
 - `pageSize.infinite: true` means the page grows downward; `height` is then
   the current extent.
 - In a snapshot, `pages` are sorted by `(order, id)`.
+
+`State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`,
+`notebook`, `favorite`, `paper`, `pageSize`, `deleted`) to the stamp of the
+op that last set it, encoded `"<hlc>-<device>"`, e.g.
+`{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
+cover wins a register only if its own `(hlc, device)` is greater than that
+stamp; between snapshots, the greater recorded stamp wins. A register with
+no clock is treated as stamped by the snapshot's own `(hlc, device)`.
+
+`State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...]}`.
+A delta adding a tombstoned id stays removed. `strokes` lists ids whose
+`removeStroke` was seen while the revision that added the stroke was not yet
+covered by `included`; once it is covered, the tombstone may be dropped.
+`pages` lists every removed page id and is never pruned, so a late op on a
+removed page is a no-op rather than an orphan (§5.3). Both fields are
+omitted when empty.
 
 ### 5.5 Page
 
@@ -208,6 +243,17 @@ everything they covered and they are older than the window.
 
 `order` is any string; pages sort lexicographically by `(order, id)`. The
 library provides a helper to generate a key between two neighbours.
+
+In a snapshot, a page may carry `"orderClock"`, the `"<hlc>-<device>"` stamp
+of the `addPage` or `setPageOrder` that set its `order`, with the same LWW
+rule and default as `clocks` (§5.4).
+
+In a snapshot, every page and stroke carries `"origin"`,
+`"<hlc>-<device>-<seq>-<op>"`: the revision that added it and the op's
+index in that revision. A snapshot whose `included` covers that revision but
+which does not hold the item has seen it removed. Strokes on a page are
+ordered by `origin`. An item without `origin` is treated as added by the
+snapshot holding it, at op index equal to its position.
 
 ### 5.6 Stroke
 
@@ -232,6 +278,10 @@ library provides a helper to generate a key between two neighbours.
 - `transform` is an optional affine matrix `[a b c d tx ty]`; identity when
   absent.
 - `parent` optionally names the stroke this one was sliced from.
+- A stroke id is never added again after it has been removed; a writer that
+  undoes an erase, or restores from history, must mint a new id and may set
+  `parent` to the old one.
+- `origin` appears only in snapshots (§5.5).
 
 ## 6. Identifiers and encodings
 
