@@ -30,7 +30,7 @@ jobs:
           -Xlinker -lCoreFoundation -Xlinker -l_FoundationICU
           -Xlinker -l_FoundationCollections -Xlinker -l_FoundationCShims
           -Xlinker -lswiftSynchronization -Xlinker -l_CFXMLInterface
-          -Xlinker -l_CFURLSessionInterface
+          -Xlinker -l_CFURLSessionInterface -Xlinker -lcurl -Xlinker -lxml2
       - name: Verify the CLI is static
         run: |
           .build/release/inkvault --version
