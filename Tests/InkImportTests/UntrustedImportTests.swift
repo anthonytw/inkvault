@@ -204,4 +204,27 @@ final class UntrustedImportTests: XCTestCase {
         out += [0, 0, 0, 0, 0, 0, 4, 1] + be(objects.count, 8) + be(0, 8) + be(table, 8)
         return Data(out)
     }
+
+    /// Two copies of one note (same uuid) whose strokes all share a point
+    /// count, colour and x but differ in height: every stroke of the copy
+    /// was compared with every stroke of the chosen one (30 000² = 9·10⁸
+    /// comparisons, over a minute). Comparisons are now budgeted; past the
+    /// budget a stroke counts as missing, so the copy is imported as a
+    /// separate version and no ink is lost.
+    func testDuplicateDetectionIsNotQuadratic() throws {
+        func prints(_ n: Int, y: Double) -> [NotabilityImporter.StrokePrint] {
+            (0..<n).map { _ in
+                NotabilityImporter.StrokePrint(NotabilityNote.Curve(
+                    points: [.init(x: 100, y: y), .init(x: 110, y: y + 5)], fractionalWidths: [1], width: 1,
+                    color: Color(r: 0, g: 0, b: 0, a: 255), style: NotabilityNote.penStyle), format: .note)
+            }
+        }
+        var index = NotabilityImporter.PrintIndex()
+        index.insert(prints(30_000, y: 0))
+        let t0 = Date()
+        XCTAssertEqual(index.missing(prints(30_000, y: 1000)), 30_000)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 10)
+        // Matching strokes are still found.
+        XCTAssertEqual(index.missing(prints(100, y: 0)), 0)
+    }
 }

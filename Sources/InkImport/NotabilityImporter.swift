@@ -446,31 +446,76 @@ public enum NotabilityImporter {
         var buckets: [StrokePrint.Bucket: [StrokePrint]] = [:]
         var byShape: [StrokePrint.Bucket: [StrokePrint]] = [:]   // cell 0: x ignored
 
+        /// Comparisons one `missing` call may make: `comparisonsPerStroke`
+        /// per stroke (of the index and of the query) plus `baseComparisons`.
+        /// Prints that agree on everything but one value all land in one
+        /// bucket, so an unbounded scan is quadratic in the note's size.
+        static let comparisonsPerStroke = 256
+        /// See `comparisonsPerStroke`.
+        static let baseComparisons = 1_000_000
+        private(set) var count = 0
+
         mutating func insert(_ prints: [StrokePrint]) {
             for p in prints {
                 buckets[p.bucket, default: []].append(p)
                 byShape[StrokePrint.Bucket(points: p.points, rgba: p.rgba, cell: 0), default: []].append(p)
             }
+            count += prints.count
         }
 
-        func contains(_ p: StrokePrint) -> Bool {
+        /// The scan state of one `missing` call.
+        struct Search {
+            /// Comparisons left.
+            var budget: Int
+            /// Per bucket, where the last match was: copies list their
+            /// strokes in the same order, so the next match is usually next.
+            var start: [StrokePrint.Bucket: Int] = [:]
+            var byShapeStart: [StrokePrint.Bucket: Int] = [:]
+        }
+
+        /// Whether `p` is in the index; nil when `search` ran out of budget.
+        func contains(_ p: StrokePrint, _ search: inout Search) -> Bool? {
+            /// Scans `list` from `from` (wrapping around); the index of the match.
+            func scan(_ list: [StrokePrint], from: Int, _ match: (StrokePrint) -> Bool) -> Int?? {
+                guard !list.isEmpty else { return .some(nil) }
+                let first = ((from % list.count) + list.count) % list.count
+                for k in 0..<list.count {
+                    guard search.budget > 0 else { return nil }
+                    search.budget -= 1
+                    let i = (first + k) % list.count
+                    if match(list[i]) { return .some(i) }
+                }
+                return .some(nil)
+            }
             let b = p.bucket
             if p.anyX {
-                return (byShape[StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: 0)] ?? []).contains {
+                let key = StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: 0)
+                guard let found = scan(byShape[key] ?? [], from: search.byShapeStart[key] ?? 0, {
                     Self.close($0.dx, p.dx) && Self.close($0.dy, p.dy) && $0.sameY(p)
-                }
+                }) else { return nil }
+                if let i = found { search.byShapeStart[key] = i + 1 }
+                return found != nil
             }
             for cell in (b.cell - 1)...(b.cell + 1) {
-                for q in buckets[StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: cell)] ?? []
-                where Self.close(q.x, p.x) && Self.close(q.dx, p.dx) && Self.close(q.dy, p.dy) && q.sameY(p) {
+                let key = StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: cell)
+                guard let found = scan(buckets[key] ?? [], from: search.start[key] ?? 0, { q in
+                    Self.close(q.x, p.x) && Self.close(q.dx, p.dx) && Self.close(q.dy, p.dy) && q.sameY(p)
+                }) else { return nil }
+                if let i = found {
+                    search.start[key] = i + 1
                     return true
                 }
             }
             return false
         }
 
-        /// Strokes of `prints` not in the index.
-        func missing(_ prints: [StrokePrint]) -> Int { prints.filter { !contains($0) }.count }
+        /// Strokes of `prints` not in the index. Past the comparison budget
+        /// the rest count as missing: the copy is then imported as a
+        /// separate version, which loses nothing.
+        func missing(_ prints: [StrokePrint]) -> Int {
+            var search = Search(budget: Self.baseComparisons + Self.comparisonsPerStroke * (count + prints.count))
+            return prints.filter { contains($0, &search) != true }.count
+        }
     }
 
     /// The scan: every source parsed once, grouped by note, a decision per source.
