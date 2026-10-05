@@ -83,6 +83,7 @@ final class RememberedKeys {
         let gen = model.generation
         isUnlocking = true
         defer { isUnlocking = false }
+        let identity: String
         do {
             let stored = try await store.storage(for: id)
             try model.ensureCurrent(gen)
@@ -90,11 +91,8 @@ final class RememberedKeys {
             storage = stored
             guard stored != nil else { return .noKey }
             let name = model.vaultName ?? "the vault"
-            let identity = try await store.readKey(for: id, reason: "Unlock “\(name)” with its saved key")
+            identity = try await store.readKey(for: id, reason: "Unlock “\(name)” with its saved key")
             try model.ensureCurrent(gen)
-            try await model.unlock(identityText: identity)
-            brokenVaultID = nil
-            return .unlocked
         } catch is CancellationError {
             return .cancelled
         } catch KeyStoreError.cancelled {
@@ -103,8 +101,30 @@ final class RememberedKeys {
             if model.vault?.vaultId == id { storage = nil }
             return .noKey
         } catch {
-            if model.vault?.vaultId == id { brokenVaultID = id }
+            // Face ID failed or the Keychain could not be read: the key itself
+            // may be fine, so it is not marked broken (replacing it could
+            // delete a working iCloud Keychain copy on every device).
+            return .failed("The saved key could not be read: \(error)")
+        }
+        do {
+            try await model.unlock(identityText: identity)
+            brokenVaultID = nil
+            return .unlocked
+        } catch is CancellationError {
+            return .cancelled
+        } catch {
+            // Only a key that is not one, or that opens nothing, is broken; an
+            // I/O failure (e.g. iCloud) says nothing about the key.
+            if model.vault?.vaultId == id, Self.isWrongKey(error) { brokenVaultID = id }
             return .failed("The saved key did not unlock this vault: \(error)")
+        }
+    }
+
+    /// Whether an unlock failed because of the key rather than the vault's files.
+    static func isWrongKey(_ error: any Error) -> Bool {
+        switch error {
+        case AppModel.ModelError.notAnIdentity, VaultError.vaultSecretUndecryptable: return true
+        default: return false
         }
     }
 

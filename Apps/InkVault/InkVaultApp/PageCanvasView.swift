@@ -31,6 +31,7 @@ struct PageCanvasView: UIViewRepresentable {
             c.pageID = pageID
             c.editorID = ObjectIdentifier(editor)
             c.isLoading = true
+            host.cancelErasing()   // an erase in progress belongs to the old page
             host.canvas.drawing = editor.drawing(for: pageID)
             host.canvas.undoManager?.removeAllActions()   // undo must not cross pages or notes
             c.isLoading = false
@@ -152,6 +153,11 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
         updateEraser()
+    }
+
+    /// Drops an object-eraser gesture in progress (the drawing is being replaced).
+    func cancelErasing() {
+        objectEraser.cancelGesture()
     }
 
     /// Whether the picker's selected tool is the object eraser.

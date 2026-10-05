@@ -2,6 +2,7 @@ import Foundation
 import InkVault
 import PencilKit
 import Testing
+import UIKit
 @testable import InkVaultApp
 
 /// The sized object eraser on PencilKit strokes: hit shapes, and erasing
@@ -98,5 +99,58 @@ struct ObjectEraserTests {
         await editor.flush()
         #expect(try NoteEditorTests.myDeltas(vault, clock).isEmpty)
         #expect(editor.liveStrokes(of: page.id).map(\.id) == ids)
+    }
+
+    // MARK: - The gesture against the canvas
+
+    static func canvas(_ strokes: [PKStroke]) -> (PKCanvasView, ObjectEraserController) {
+        let canvas = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 800, height: 1000))
+        let eraser = ObjectEraserController()
+        eraser.attach(to: UIView(), canvas: canvas)
+        canvas.drawing = PKDrawing(strokes: strokes)
+        return (canvas, eraser)
+    }
+
+    static var otherPage: PKDrawing {
+        PKDrawing(strokes: [TS.canvasStroke(TS.stroke(x: 300, y: 60)), TS.canvasStroke(TS.stroke(x: 300, y: 300)),
+                            TS.canvasStroke(TS.stroke(x: 300, y: 500))])
+    }
+
+    @Test func aGestureErasesWhatItTouches() {
+        let (canvas, eraser) = Self.canvas([TS.canvasStroke(TS.stroke(x: 40, y: 60)), TS.canvasStroke(TS.stroke(x: 40, y: 300))])
+        eraser.begin(at: EraserPoint(x: 40, y: 60))      // on the first stroke's first point
+        #expect(canvas.drawing.strokes.count == 1)
+        eraser.move(to: EraserPoint(x: 40, y: 300))
+        eraser.end(at: EraserPoint(x: 40, y: 300))
+        #expect(canvas.drawing.strokes.isEmpty)
+    }
+
+    /// Regression: a page switch under the Pencil (`PageCanvasView` loads the
+    /// new page's drawing) must not write the old page's strokes onto it.
+    @Test func aDrawingLoadedMidGestureIsNeverOverwritten() {
+        let (canvas, eraser) = Self.canvas([TS.canvasStroke(TS.stroke(x: 40, y: 60)), TS.canvasStroke(TS.stroke(x: 40, y: 300))])
+        eraser.begin(at: EraserPoint(x: 600, y: 900))   // touches nothing yet
+        eraser.cancelGesture()                          // PageCanvasHost.cancelErasing
+        let other = Self.otherPage
+        canvas.drawing = other
+        eraser.move(to: EraserPoint(x: 40, y: 60))       // where the old page had ink
+        eraser.end(at: EraserPoint(x: 40, y: 60))
+        #expect(canvas.drawing.strokes.count == 3)
+        #expect(canvas.drawing.strokes.map { CanvasStrokeInfo($0).key } == other.strokes.map { CanvasStrokeInfo($0).key })
+    }
+
+    @Test func aDrawingReplacedWithoutCancelIsNeverOverwrittenEither() {
+        let (canvas, eraser) = Self.canvas([TS.canvasStroke(TS.stroke(x: 40, y: 60)), TS.canvasStroke(TS.stroke(x: 40, y: 300))])
+        eraser.begin(at: EraserPoint(x: 600, y: 900))
+        canvas.drawing = Self.otherPage
+        eraser.move(to: EraserPoint(x: 40, y: 60))
+        eraser.end(at: EraserPoint(x: 40, y: 60))
+        #expect(canvas.drawing.strokes.count == 3)
+    }
+
+    @Test func thePencilStopsScrollingButFingersAndPointerDoNot() {
+        let all: [UITouch.TouchType] = [.direct, .indirect, .pencil, .indirectPointer]
+        let kept = ObjectEraserController.panTouchTypesWithoutPencil(all.map { NSNumber(value: $0.rawValue) })
+        #expect(kept.map(\.intValue) == [UITouch.TouchType.direct, .indirect, .indirectPointer].map(\.rawValue))
     }
 }

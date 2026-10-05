@@ -171,4 +171,33 @@ struct RememberedKeysTests {
         #expect(result == .cancelled || result == .noKey)
         #expect(model.phase == .noVault)
     }
+
+    /// Regression: a failed Face ID (or Keychain error) is not a broken key.
+    /// Marking it broken offered to replace it after a manual unlock, and
+    /// saving "this iPad" deletes the iCloud Keychain copy on every device.
+    @Test func failedAuthenticationIsNotABrokenKey() async throws {
+        let (model, key) = try await Self.lockedModel()
+        let store = FakeKeyStore()
+        let vaultID = try #require(model.vault?.vaultId)
+        await store.put((try IdentityFile.parse(key)).string, for: vaultID, storage: .iCloudKeychain)
+        await store.setAuthError(.authenticationFailed)
+        let keys = RememberedKeys(store: store)
+        guard case .failed(let message) = await keys.unlockWithRememberedKey(model) else {
+            Issue.record("a failed Face ID must fail")
+            return
+        }
+        #expect(!message.contains("did not unlock"))
+        #expect(model.phase == .locked)
+        try await keys.unlock(model, identityText: key)
+        #expect(model.phase == .unlocked)
+        #expect(keys.offer == nil)   // the remembered key stays
+        #expect(await store.items[vaultID]?.storage == .iCloudKeychain)
+    }
+
+    @Test func onlyKeyErrorsMarkAKeyBroken() {
+        #expect(RememberedKeys.isWrongKey(AppModel.ModelError.notAnIdentity))
+        #expect(RememberedKeys.isWrongKey(VaultError.vaultSecretUndecryptable("x")))
+        #expect(!RememberedKeys.isWrongKey(VaultError.io("x")))
+        #expect(!RememberedKeys.isWrongKey(CocoaError(.fileReadUnknown)))
+    }
 }

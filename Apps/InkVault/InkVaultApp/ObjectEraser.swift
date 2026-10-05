@@ -62,8 +62,9 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
         if active {
             // The Pencil erases and never scrolls.
             if savedPanTouchTypes == nil {
-                savedPanTouchTypes = canvas.panGestureRecognizer.allowedTouchTypes
-                canvas.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+                let saved = canvas.panGestureRecognizer.allowedTouchTypes
+                savedPanTouchTypes = saved
+                canvas.panGestureRecognizer.allowedTouchTypes = Self.panTouchTypesWithoutPencil(saved)
             }
             let fingers = Self.fingersDraw(canvas)
             press.allowedTouchTypes = fingers
@@ -92,6 +93,12 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
         hover.isEnabled = active
     }
 
+    /// The scroll view's pan touch types minus the Pencil: fingers, and the
+    /// pointer and trackpad on a Mac or with a keyboard, still scroll.
+    static func panTouchTypesWithoutPencil(_ types: [NSNumber]) -> [NSNumber] {
+        types.filter { $0.intValue != UITouch.TouchType.pencil.rawValue }
+    }
+
     /// Whether finger touches draw on `canvas` (and so erase with this eraser).
     static func fingersDraw(_ canvas: PKCanvasView) -> Bool {
         switch canvas.drawingPolicy {
@@ -113,21 +120,44 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
         let p = pagePoint(g.location(in: canvas))
         showCursor(at: g.location(in: host))
         switch g.state {
-        case .began:
-            radius = ObjectEraserSize.load()
-            before = canvas.drawing
-            remaining = canvas.drawing.strokes
-            shapes = Array(repeating: nil, count: remaining.count)
-            last = p
-            erase(to: p)
-        case .changed:
-            erase(to: p)
-        case .ended, .cancelled, .failed:
-            erase(to: p)
-            finish()
-        default:
-            break
+        case .began: begin(at: p)
+        case .changed: move(to: p)
+        case .ended, .cancelled, .failed: end(at: p)
+        default: break
         }
+    }
+
+    /// Touch-down: erases what the eraser touches at `p` (page points).
+    func begin(at p: EraserPoint) {
+        guard let canvas else { return }
+        radius = ObjectEraserSize.load()
+        before = canvas.drawing
+        remaining = canvas.drawing.strokes
+        shapes = Array(repeating: nil, count: remaining.count)
+        last = p
+        erase(to: p)
+    }
+
+    /// The touch moved to `p`: erases what the sweep from the last point touches.
+    func move(to p: EraserPoint) {
+        erase(to: p)
+    }
+
+    /// Touch-up (or a cancelled gesture): one undo step for the whole gesture.
+    func end(at p: EraserPoint) {
+        erase(to: p)
+        finish()
+    }
+
+    /// Drops the gesture in progress without touching the canvas: the drawing
+    /// under it was replaced (another page or note was loaded). The rest of
+    /// the gesture erases nothing, and it registers no undo, so strokes of
+    /// the old page can never be written onto the new one.
+    func cancelGesture() {
+        before = nil
+        remaining = []
+        shapes = []
+        last = nil
     }
 
     @objc private func hovered(_ g: UIHoverGestureRecognizer) {
@@ -156,6 +186,12 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
 
     private func erase(to p: EraserPoint) {
         guard let canvas, let from = last else { return }
+        // Defence in depth for `cancelGesture`: a drawing replaced behind the
+        // gesture's back is never overwritten with this gesture's strokes.
+        guard canvas.drawing.strokes.count == remaining.count else {
+            cancelGesture()
+            return
+        }
         last = p
         var hit = IndexSet()
         for i in remaining.indices {
