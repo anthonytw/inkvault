@@ -222,25 +222,8 @@ queued for up to 30 minutes.
 
 ## Roadmap
 
-Next, in order:
-1. Merge the reviewed batch (above).
-2. Rename sweep → rebuild test vault (PQ key, full import) → first TestFlight.
-3. App round 2 (cloud sessions, CI-compiled; device checks by the user):
-   pages vs pageless (reorder/delete pages), share/export from the app (3e),
-   handwriting search in the app (3f: Vision `VNRecognizeTextRequest` on
-   rendered pages for iPadOS 26), settings panel, Spanish localization,
-   history browser UI, remote changes merged into an open canvas, note list
-   counts refresh, snapshots written by the app.
-4. Attachments implementation: ~20 parallel tasks per `docs/attachments.md`
-   §14 after #22 merges (batches of 3–4 cloud sessions). Start with task A0
-   (model types), then run the rest of `docs/plan.md` "Attachments" in
-   parallel; the settings panel and unused-attachments index are E6/E7 there.
-5. Phase 2 Mac (menus, keyboard, multi-window, drag-out export), then App
-   Store submission (privacy policy page, listing, screenshots; #26 drafts).
-6. `/ultrareview` before the first public release.
-
-Future ideas (user): LaTeX math typing + handwriting→LaTeX (on-device),
-video attachments, on-device AI only.
+The roadmap is in `docs/ROADMAP.md`: tables by component (shared library,
+CLI, iPad app, macOS app) and the order of work.
 
 Phase 1 task detail (historical, for reference):
 
