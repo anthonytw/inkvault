@@ -34,28 +34,23 @@ the XCTest `Executed N tests` line is the one that matters.
 Style: Swift 6 strict concurrency, `Sendable` value types for the model, typed error enums per
 module, no force-unwraps outside tests, `///` on public API, XCTest for tests.
 
-## Licence and contributor agreement
+## Licence and sign-off
 
-InkVault is licensed **GPL-3.0-or-later** (`LICENSE`). The maintainer, Anthony Wertz, holds the
-copyright and intends to distribute the iPad and Mac app through Apple's App Store. Apple's
-terms of service impose restrictions that the GPL does not allow on a third party's
-redistribution, so the project can only ship there if the copyright holder also licenses its own
-code outside the GPL, or the licence carries a matching exception. Contributions must therefore
-come with the right to do that.
+InkVault is licensed **GPL-3.0-or-later with an App Store exception** (`LICENSE`,
+`LICENSE-EXCEPTION`; background and consequences in
+[docs/legal/app-store-exception.md](docs/legal/app-store-exception.md)). The exception is a
+GPLv3 section 7 additional permission that lets anyone, the maintainer included, distribute
+builds through Apple's App Store under Apple's terms as long as the complete source stays
+public under the GPL. It does not relicense your code or give the maintainer any right the
+other contributors do not have.
 
-Policy: **a contributor licence agreement (CLA)**, [CLA.md](CLA.md). By ticking the box in the PR
-template (or stating "I agree to the InkVault CLA" in the PR) you confirm:
+There is **no contributor licence agreement** and no copyright assignment. You keep your
+copyright. By contributing you license your work under those same terms (inbound = outbound),
+and you certify the [Developer Certificate of Origin](https://developercertificate.org/) by
+signing off each commit (`git commit -s`, which adds `Signed-off-by: Your Name <you@example.org>`):
+you wrote it or have the right to submit it under this licence, and your employer does not
+claim it. Ticking the box in the PR template is the fallback for a commit you could not sign.
 
-- you wrote the contribution, or have the right to submit it, and your employer does not claim it;
-- you keep your copyright, and the contribution stays available to everyone under the GPL;
-- you grant the maintainer a perpetual, worldwide, irrevocable licence to use, modify and
-  distribute it under any terms, including the GPL, app-store terms and a future licence, so the
-  app can ship on the App Store.
-
-If you cannot agree to that, the project cannot take your code, but issues, bug reports and
-ideas are always welcome. Why a CLA rather than an exception, and the alternative text:
-[docs/legal/app-store-exception.md](docs/legal/app-store-exception.md).
-
-TODO(user): decide the policy (CLA recommended). Until you do, treat CLA.md and the PR template
-checkbox as drafts, and consider accepting no outside code. This is not legal advice; have a
-lawyer review it before the App Store release.
+Third-party code needs a licence compatible with GPL-3.0-or-later and with App Store
+distribution (MIT, BSD, Apache-2.0, ISC); say where it came from in the PR. GPL-only (without
+this permission) and AGPL code cannot be accepted.

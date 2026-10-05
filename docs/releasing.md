@@ -11,12 +11,13 @@ A release is a git tag `vX.Y.Z`. `.github/workflows/release.yml` does the rest.
 2. Tag the merge commit on `main` and push the tag (a maintainer does this by hand):
    `git tag -s vX.Y.Z -m "InkVault CLI X.Y.Z" && git push origin vX.Y.Z`.
 3. The workflow:
-   - **prepare**: fails unless the tag is `vMAJOR.MINOR.PATCH[-pre]`, equals the version in
+   - **prepare**: fails unless the tag points at a commit reachable from `main` (the workflow does not run
+     the tests itself: merge only with CI green, then tag), is `vMAJOR.MINOR.PATCH[-pre]`, equals the version in
      `Version.swift`, and `CHANGELOG.md` has a non-empty section for it;
    - **linux** (x86_64 on `ubuntu-24.04`, aarch64 on `ubuntu-24.04-arm`, both in
      `swift:6.4-noble`) and **macos** (`swift build --arch arm64 --arch x86_64`): build, check
      that the binary is static (Linux) or universal (macOS) and prints the tag's version, and
-     package `inkvault-X.Y.Z-<platform>.tar.gz` (binary, LICENSE, README, CHANGELOG,
+     package `inkvault-X.Y.Z-<platform>.tar.gz` (binary, LICENSE, LICENSE-EXCEPTION, README, CHANGELOG,
      `docs/cli.md`; `scripts/package-cli.sh`);
    - **publish**: `SHA256SUMS`, build provenance attestations for the tarballs and
      `SHA256SUMS` (`actions/attest-build-provenance`), then `gh release create` with the

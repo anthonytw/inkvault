@@ -1,24 +1,24 @@
 ---
-title: InkVault Privacy Policy
+title: Sempere Privacy Policy
 permalink: /privacy/
 ---
 
-# InkVault Privacy Policy
+# Sempere Privacy Policy
 
 *Effective: TODO(user): date. Last updated: TODO(user): date.*
 
-**Short version: InkVault does not collect, transmit or share any data about you. It has no
+**Short version: Sempere does not collect, transmit or share any data about you. It has no
 servers, no accounts, no analytics and no advertising.**
 
-## What InkVault is
+## What Sempere is
 
-InkVault is a handwriting notes app. Your notes are stored in a "vault", a folder of files that
+Sempere is a handwriting notes app (an app for the open InkVault vault format). Your notes are stored in a "vault", a folder of files that
 are encrypted on your device with an encryption key that you create and control. The developer
 (Anthony Wertz, "we") cannot read your notes and does not receive them.
 
 ## Data we collect
 
-None. InkVault does not collect personal data, usage data, diagnostics, identifiers, location,
+None. Sempere does not collect personal data, usage data, diagnostics, identifiers, location,
 contacts or content. It contains no analytics or advertising software and no third-party SDKs
 that collect data. We run no server that the app talks to.
 
@@ -44,17 +44,17 @@ your notes. If you lose every copy of your key, your notes cannot be decrypted b
 
 ## Device permissions
 
-InkVault asks only for access to the folders you pick with the system file picker, and uses the
+Sempere asks only for access to the folders you pick with the system file picker, and uses the
 Keychain and (optionally) Face ID or Touch ID to unlock your key. Face ID data never leaves the
 system. TODO(user): update this list if the camera (QR key import) or any other permission is added.
 
 ## Children
 
-InkVault collects no data from anyone, including children.
+Sempere collects no data from anyone, including children.
 
 ## Open source
 
-The source code is public under the GPL-3.0-or-later at <https://github.com/anthonytw/inkvault>,
+The source code is public under the GPL-3.0-or-later (with an App Store exception) at <https://github.com/anthonytw/inkvault>,
 so these statements can be checked.
 
 ## Changes

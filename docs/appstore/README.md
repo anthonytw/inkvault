@@ -1,6 +1,7 @@
 # App Store preparation
 
-Drafts for the iPad/Mac (Catalyst) release. Everything marked **TODO(user)** needs your
+Drafts for the iPad/Mac (Catalyst) release. The App Store listing is named **Sempere**; the code,
+project and CLI keep the name InkVault until the app rename. Everything marked **TODO(user)** needs your
 decision or confirmation; nothing here has been submitted. Not legal advice.
 
 | File | What |
@@ -13,12 +14,14 @@ decision or confirmation; nothing here has been submitted. Not legal advice.
 
 ## Checklist before the first TestFlight/App Store build
 
-- [ ] TODO(user): contributor policy decided (`CONTRIBUTING.md`, `docs/legal/app-store-exception.md`)
-- [ ] TODO(user): name available in App Store Connect (`listing.md`); bundle id is
+- [x] contributor policy decided: GPL-3.0-or-later with the App Store exception, no CLA
+      (`LICENSE-EXCEPTION`, `CONTRIBUTING.md`, `docs/legal/app-store-exception.md`)
+- [ ] TODO(user): the name Sempere is available in App Store Connect (`listing.md`); bundle id is
       `io.github.anthonytw.inkvault` in the project today, and cannot change after the first upload
 - [ ] TODO(user): signing team set in Xcode; the iCloud entitlement is *not* needed (vaults
       live in folders picked through Files)
-- [ ] TODO(user): `ITSAppUsesNonExemptEncryption` decision (`export-compliance.md`)
+- [x] export compliance decided: mass-market standard encryption at full strength
+      (`export-compliance.md`); still to do: add the Info.plist key it names
 - [ ] TODO(user): add `PrivacyInfo.xcprivacy` (`app-privacy.md`; not added by this PR because it
       is an app-target resource and needs a build to validate on a Mac)
 - [ ] TODO(user): host the privacy policy and enter its URL

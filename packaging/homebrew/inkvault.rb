@@ -28,7 +28,7 @@ class Inkvault < Formula
 
   def install
     bin.install "inkvault"
-    doc.install "README.md", "CHANGELOG.md", "docs/cli.md"
+    doc.install "README.md", "CHANGELOG.md", "LICENSE-EXCEPTION", "docs/cli.md"
   end
 
   test do

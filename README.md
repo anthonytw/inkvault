@@ -16,7 +16,7 @@ that matter and nothing else:
 - **Real ink.** Strokes are vectors (PencilKit B-splines), so erasing, export
   and search stay clean.
 
-Free software under the GPL-3.0-or-later, no telemetry. The `inkvault` CLI is a
+Free software under the GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`), no telemetry. The `inkvault` CLI is a
 first-class Linux citizen: keys, unlock, verify, recovery and PDF/SVG export
 all run natively on Linux, and CI publishes a static Linux binary.
 
@@ -47,5 +47,5 @@ Phase 0 (core library and CLI) is nearly done: the `inkvault` CLI (keys, vault, 
 Tagged releases publish the CLI for Linux (static, x86_64 and aarch64) and macOS (universal)
 with checksums and build provenance; see [CHANGELOG.md](CHANGELOG.md) and
 [docs/releasing.md](docs/releasing.md). To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md)
-(including the contributor agreement); to report a vulnerability, [SECURITY.md](SECURITY.md).
+(licence, DCO sign-off, no CLA); to report a vulnerability, [SECURITY.md](SECURITY.md).
 Homebrew formula template: `packaging/homebrew/`. App Store preparation drafts: `docs/appstore/`.

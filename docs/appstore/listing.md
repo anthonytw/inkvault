@@ -5,21 +5,16 @@ no spaces needed), description 4000, what's new 4000. TODO(user): every line is 
 
 ## Name
 
-"InkVault" is the working name. TODO(user): check availability in App Store Connect (names are
-unique per store; nothing here could check it) and search the store and trademarks
-(USPTO TESS, EUIPO) for "InkVault". Fallbacks, if taken or too close to something existing:
+**Sempere** is the App Store listing name (decided by the maintainer). InkVault remains the name of
+the project, the vault format, the repository and the `inkvault` command-line tool. TODO(user):
+check that "Sempere" is available in App Store Connect (names are unique per store; nothing here
+could check it) and search the store and trademarks (USPTO TESS, EUIPO).
 
-- InkVault Notes
-- Inkwell Vault
-- Quillkey
-- Penlock
-- Sealed Ink
-- Cipherpen
-- Vaultpen
-
-Naming the listing "InkVault: Private Notes" style (name + descriptor, up to 30 characters)
-also works if only the bare name is taken. The bundle id (`io.github.anthonytw.inkvault`) is
-independent of the display name; the Xcode display name is `InkVault` (`CFBundleDisplayName`).
+If the bare name is taken, a name + descriptor listing ("Sempere: Private Notes", up to 30
+characters) also works. The bundle id (`io.github.anthonytw.inkvault`) cannot change after the
+first upload and is independent of the display name. The Xcode project, scheme and
+`CFBundleDisplayName` still say `InkVault`: the app rename (display name, product name, icon
+text) is a separate change, to be made before the first upload.
 
 ## Subtitle (30)
 
@@ -34,7 +29,7 @@ Sync through any folder you already use.
 ## Description
 
 ```
-InkVault is a handwriting notes app for iPad and Mac that keeps your notes yours.
+Sempere is a handwriting notes app for iPad and Mac that keeps your notes yours.
 
 YOUR KEYS, YOUR NOTES
 Every note is encrypted with the open age format, to keys you generate, import, export and back
@@ -62,9 +57,10 @@ SIMPLE ON PURPOSE
 Notebooks, tags, paper styles and search. No AI, no ads, no subscription, no analytics.
 
 OPEN SOURCE
-InkVault is free software (GPL-3.0-or-later). Read the code at github.com/anthonytw/inkvault.
+Sempere is free software (GPL-3.0-or-later with an App Store exception). Read the code at
+github.com/anthonytw/inkvault.
 
-Privacy: InkVault collects no data.
+Privacy: Sempere collects no data.
 ```
 
 TODO(user): trim to what the shipping build really does. At the time of writing the app has
@@ -94,17 +90,20 @@ you choose. No account, no tracking.
 - Privacy Policy URL: TODO(user): hosted `privacy-policy.md`.
 - Copyright: `© 2026 Anthony Wertz`. TODO(user): confirm the name and year.
 - Price: free? TODO(user). No in-app purchases, no ads.
-- License: apps built from GPL source: mention in the description (above) and the Apple
-  standard EULA applies, or provide a custom EULA (TODO(user), see `docs/legal/`).
+- License: the source is GPL-3.0-or-later with the App Store exception (`LICENSE-EXCEPTION`,
+  `docs/legal/app-store-exception.md`), which is what lets the project ship under Apple's terms.
+  Mention it in the description (above); the Apple standard EULA applies unless you provide a
+  custom one (TODO(user)).
 
 ## App Review notes (text for the reviewer)
 
 ```
-InkVault stores notes in a user-chosen folder, encrypted with an age key. To review: choose
+Sempere stores notes in a user-chosen folder, encrypted with an age key. To review: choose
 "New Vault" → "On This Device", generate a key (shown once; copy it), then create a note and
 draw with Apple Pencil or a finger. No account or network access is needed. A sample vault is
-not required. The app contains encryption (age: X25519, ChaCha20-Poly1305, HKDF, scrypt) for
-the user's own data; see export compliance answers.
+not required. The app contains encryption (age: hybrid ML-KEM-768 + X25519, ChaCha20-Poly1305,
+HKDF, scrypt) for the user's own data; standard published algorithms at full strength, mass-market
+software; see export compliance answers.
 ```
 
 TODO(user): if a reviewer needs a test vault and key, attach a throwaway vault (the repository's

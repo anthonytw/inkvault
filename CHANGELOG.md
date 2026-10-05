@@ -7,6 +7,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [Unreleased]
 
+### Changed
+
+- Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
+  additional permission). Contributions are licensed under the same terms and certified with a
+  DCO sign-off; there is no contributor licence agreement.
+
 ## [0.5.0] - TODO(user): date of the first release
 
 First public release of the `inkvault` CLI. Everything below was merged before
