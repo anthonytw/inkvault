@@ -7,7 +7,9 @@
 Reads what the two gated test stages wrote (see docs/import-notability.md,
 "Fidelity evaluation"; run everything with scripts/import-eval.sh):
 
-  <work>/oracle/<id8>/   thumbnails, our first-page renders, page1.pdf, meta.json
+  <work>/oracle/<id8>/   thumbnails, our first-page renders, page1.pdf, meta.json,
+                         and when the backup has Notability's PDF export of the
+                         note: notability.pdf, ours-page-NNN.png, src-K.pdf, pages.json
   <work>/canvas/<id8>/   per band: canvas snapshot, PKDrawing image, export PNG
 
 and writes <out>/summary.json, <out>/report.html (self-contained) and the
@@ -24,6 +26,7 @@ import base64
 import io
 import json
 import math
+import multiprocessing
 import statistics
 import sys
 from pathlib import Path
@@ -50,6 +53,11 @@ CANVAS_F1 = 0.90  # 1-pixel-tolerant F1, canvas vs export, per band
 CANVAS_RATIO = (0.75, 1.33)  # ink pixel ratio canvas / export, per band (as CanvasHostRenderingTests)
 CANVAS_EDGE_PT = 3.0
 MIN_INK_PX = 30  # bands/thumbnails with fewer ink pixels on both sides are "empty"
+PDF_F1 = 0.85  # Notability PDF page vs our page, 1-pixel-tolerant F1 (worst inked page)
+PDF_CHAMFER_PT = 1.0
+PDF_RATIO = (0.7, 1.4)
+PDF_EDGE_PT = 4.0
+PAPER_RGB = (163, 183, 211)  # Notability's PDF export draws dot/line paper as one page-wide path in this colour
 
 
 # ---------------------------------------------------------------- images
@@ -278,6 +286,195 @@ def canvas_note(d: Path) -> dict:
     return {"bands": bands, "_images": worst_img}
 
 
+# ---------------------------------------------------------------- stage: Notability's PDF export
+
+def notability_page_without_ink(doc, index: int, width: int) -> np.ndarray:
+    """Page `index` of Notability's PDF export with its ink removed: the
+    export draws the page content (the source PDF page, re-embedded) first
+    and the ink last, as filled paths, so the trailing run of path objects
+    is dropped (ink is filled, never stroked: a stroked path there belongs
+    to the page). Rendering this and the full page with the same renderer
+    and fonts makes their difference exactly the ink."""
+    import ctypes
+    import pypdfium2.raw as raw
+    page = doc[index]
+    pw, _ = page.get_size()
+    objs = list(page.get_objects(max_depth=1))
+
+    def is_ink(obj) -> bool:
+        if obj.type != 2:
+            return False
+        mode, stroke = ctypes.c_int(), ctypes.c_int()
+        raw.FPDFPath_GetDrawMode(obj, mode, stroke)
+        return mode.value != 0 and not stroke.value
+
+    k = len(objs)
+    while k > 0 and is_ink(objs[k - 1]):
+        k -= 1
+    for obj in objs[k:]:
+        page.remove_obj(obj)
+    page.gen_content()
+    bm = page.render(scale=width / pw, fill_color=(255, 255, 255, 255))
+    return np.asarray(bm.to_pil().convert("RGB")).astype(np.float32)
+
+
+def notability_page(doc, index: int, width: int, strip_paper: bool) -> tuple[np.ndarray, float]:
+    """Page `index` of Notability's own PDF export at `width` pixels, and its
+    height/width. With `strip_paper` the page-wide paper path (PAPER_RGB),
+    the white background image tiles and the invisible OCR text are removed
+    first, so only ink (and any images we do not import) is left."""
+    import ctypes
+    import pypdfium2.raw as raw
+    page = doc[index]
+    pw, ph = page.get_size()
+    if strip_paper:
+        for obj in list(page.get_objects(max_depth=1)):
+            kill = obj.type in (1, 3)  # text (invisible handwriting OCR), images (white paper tiles)
+            if obj.type == 2:
+                r, g, b, a = (ctypes.c_uint() for _ in range(4))
+                fill = (r.value, g.value, b.value) if raw.FPDFPageObj_GetFillColor(obj, r, g, b, a) else None
+                lb, bb, rb, tb = (ctypes.c_float() for _ in range(4))
+                raw.FPDFPageObj_GetBounds(obj, lb, bb, rb, tb)
+                kill = fill == PAPER_RGB and rb.value - lb.value > 0.8 * pw and tb.value - bb.value > 0.8 * ph
+            if kill:
+                page.remove_obj(obj)
+        page.gen_content()
+    bm = page.render(scale=width / pw, fill_color=(255, 255, 255, 255))
+    arr = np.asarray(bm.to_pil().convert("RGB")).astype(np.float32)
+    return arr, ph / pw
+
+
+SPECK_PX = 8  # connected difference blobs smaller than this are rasterization noise, not ink
+
+
+def despeckle(mask: np.ndarray) -> np.ndarray:
+    labels, n = ndimage.label(mask, structure=np.ones((3, 3), bool))
+    if n == 0:
+        return mask
+    sizes = np.bincount(labels.ravel())
+    keep = sizes >= SPECK_PX
+    keep[0] = False
+    return keep[labels]
+
+
+def pdf_pages_note(d: Path, img_dir: Path) -> dict | None:
+    """Every page of Notability's PDF export against our export page of the
+    same number (one `breakHeight` each): paper pages with the paper removed
+    from Notability's page and ink masks on both; pages on a PDF with both
+    composited on the source PDF page and the difference masks."""
+    if not (d / "notability.pdf").exists() or not (d / "pages.json").exists():
+        return None
+    import pypdfium2 as pdfium
+    info = json.loads((d / "pages.json").read_text())
+    layout = info.get("pdfLayout") or []
+    ours_pages = sorted(d.glob("ours-page-*.png"))
+    try:
+        doc = pdfium.PdfDocument(str(d / "notability.pdf"))
+    except Exception as e:
+        return {"error": f"cannot open Notability PDF: {e}"}
+    n_theirs, n_ours = len(doc), len(ours_pages)
+    pages = []
+    worst = None
+    pt = None
+    for i in range(max(n_theirs, n_ours)):
+        ours = load_rgba(ours_pages[i]) if i < n_ours else None
+        w = ours.shape[1] if ours is not None else (load_rgba(ours_pages[0]).shape[1] if ours_pages else 918)
+        pt = PAGE_WIDTH / w
+        on_pdf = i < len(layout) and layout[i] is not None
+        if i < n_theirs:
+            theirs, aspect = notability_page(doc, i, w, strip_paper=not on_pdf)
+        else:
+            theirs, aspect = None, None
+        h = ours.shape[0] if ours is not None else theirs.shape[0]
+        theirs = fit(theirs, h, w, 255.0) if theirs is not None else white(h, w)
+        ours = fit(ours, h, w, 0.0) if ours is not None else np.zeros((h, w, 4), np.float32)
+        bg = src = None
+        if on_pdf:
+            k, src_page = layout[i]
+            src = render_pdf_page(d / f"src-{k}.pdf", src_page, w, h)
+        if on_pdf and i < n_theirs:
+            # The page under the ink as Notability exported it (same fonts and
+            # renderer as its full page); see notability_page_without_ink.
+            bg = fit(notability_page_without_ink(pdfium.PdfDocument(str(d / "notability.pdf")), i, w), h, w, 255.0)
+        elif on_pdf:
+            bg = src
+        if bg is not None:
+            ours_rgb = over(ours, bg)
+            a = despeckle(pdf_ink_mask(ours_rgb, bg))
+            b = pdf_ink_mask(theirs, bg)
+            if src is not None and bg is not src:
+                # Trailing filled shapes of the PDF page (slide arrows) are
+                # stripped with the ink; the source PDF has them, so Notability
+                # ink must differ from both. Font rasterization differences
+                # against the source only appear in one of the two.
+                b &= pdf_ink_mask(theirs, src)
+            b = despeckle(b)
+            method = "pdf-diff"
+        else:
+            ours_rgb = over(ours, white(h, w))
+            a, b = ink_mask(ours_rgb), ink_mask(theirs)
+            method = "paper-stripped" if not on_pdf else "pdf (source not rendered)"
+        m = compare(a, b, pt)
+        m.update({"page": i + 1, "method": method, "onPDF": on_pdf, "missingTheirs": i >= n_theirs,
+                  "missingOurs": i >= n_ours})
+        if aspect is not None and n_ours:
+            m["heightDeltaPt"] = (aspect * PAGE_WIDTH) - h * pt
+        pages.append(m)
+        if not m.get("empty"):
+            key = m.get("f1", 0)
+            if worst is None or key < worst[0]:
+                worst = (key, i + 1, ours_rgb, theirs, a, b)
+    inked = [p for p in pages if not p.get("empty")]
+    res = {"pagesTheirs": n_theirs, "pagesOurs": n_ours, "pages": pages, "inkedPages": len(inked),
+           # Paper pages inserted into a note made from a PDF: pages of two heights.
+           "mixedPageSizes": any(x is None for x in layout) and any(x is not None for x in layout)}
+    if inked:
+        f1 = [p.get("f1", 0) for p in inked]
+        res.update({
+            "f1Min": min(f1), "f1Median": statistics.median(f1),
+            "chamferMax": max((p.get("chamfer") or 0) for p in inked),
+            "chamferMedian": statistics.median([(p.get("chamfer") or 0) for p in inked]),
+            "ratioMin": min(p.get("ratio", 0) for p in inked), "ratioMax": max(p.get("ratio", 0) for p in inked),
+            "maxEdge": max((max((abs(e) for e in p.get("edges", [])), default=0) for p in inked), default=0),
+        })
+    if worst is not None:
+        _, page, o, t, a, b = worst
+        res["worstPage"] = page
+        files = []
+        for k, (cap, arr) in enumerate([(f"ours (InkRender), page {page}", o), (f"Notability PDF, page {page}", t),
+                                         ("overlay of ink masks", overlay(a, b))]):
+            f = img_dir / f"{d.name}-pdf-{k}.png"
+            Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(f)
+            files.append((cap, f.name))
+        res["_files"] = files
+    return res
+
+
+def pdf_flags(p: dict) -> list[str]:
+    if p is None:
+        return []
+    if p.get("error"):
+        return ["pdf-unreadable"]
+    flags = []
+    for page in p["pages"]:
+        if page.get("empty"):
+            continue
+        if page["missingTheirs"]:
+            flags.append("pdf-ink-beyond-last-page")
+        elif page["missingOurs"] or page.get("inkA", 0) < MIN_INK_PX:
+            flags.append("pdf-content-not-imported")
+    if p.get("inkedPages"):
+        if p["f1Min"] < PDF_F1:
+            flags.append("pdf-f1")
+        if p["chamferMax"] > PDF_CHAMFER_PT:
+            flags.append("pdf-chamfer")
+        if not (PDF_RATIO[0] <= p["ratioMin"] and p["ratioMax"] <= PDF_RATIO[1]):
+            flags.append("pdf-ratio")
+        if p["maxEdge"] > PDF_EDGE_PT:
+            flags.append("pdf-bbox")
+    return sorted(set(flags))
+
+
 # ---------------------------------------------------------------- flags
 
 def oracle_flags(meta: dict, res: dict) -> list[str]:
@@ -332,9 +529,25 @@ def categorize(row: dict, flags: list[str]) -> str:
         return ""
     if any(f.startswith("canvas-") for f in failing):
         return "canvas conversion"
+    pdf = row.get("pdf") or {}
+    if any(f.startswith("pdf-") for f in failing):
+        bad = [p for p in pdf.get("pages", []) if not p.get("empty")
+               and (p.get("f1", 0) < PDF_F1 or (p.get("chamfer") or 0) > PDF_CHAMFER_PT
+                    or not PDF_RATIO[0] <= p.get("ratio", 0) <= PDF_RATIO[1])]
+        if pdf.get("mixedPageSizes"):
+            return "format limit: paper pages inserted in a PDF note (one breakHeight; ink placed right)"
+        if bad and all(max(p.get("inkA", 0), p.get("inkB", 0)) < 64 for p in bad):
+            return "measurement: PDF rasterization specks"
+        if "has-media" in flags:
+            return "unsupported: images"
+        if row.get("markers") and bad and all(p.get("f1", 0) >= 0.9 and p.get("ratio", 0) > 1 for p in bad):
+            # Notability draws highlighters behind the PDF's text; we draw on top.
+            return "measurement: highlighter over PDF text"
+        return "importer geometry (suspected, PDF)"
     if "thumbnails-all-blank" in failing:
         return "stale thumbnail"
-    if "thumbnail-content-not-imported" in failing and row["strokesOnPage1"] == 0 and row["pdfPages"]:
+    if "thumbnail-content-not-imported" in failing and row["pdfPages"] and (
+            row["strokesOnPage1"] == 0 or (row.get("oracle") or {}).get("method") == "pdf-diff"):
         return "PDF page raster differs (no ink on page 1)"
     o = row.get("oracle") or {}
     if set(failing) <= {"oracle-bbox"} and (o.get("f1") or 0) >= 0.95 and (o.get("chamfer") or 9) <= 0.5:
@@ -342,6 +555,14 @@ def categorize(row: dict, flags: list[str]) -> str:
         return "measurement: faint ink at the mask threshold"
     if "has-media" in flags:
         return "unsupported: images"
+    if row.get("typedChars"):
+        return "unsupported: typed text"
+    if row.get("bundle") and row.get("pdfs") and not row["pdfPages"]:
+        return "unsupported: PDF pages of an .ntb (the PDF is not in the bundle)"
+    if o.get("method") == "pdf-diff" and (o.get("precision1") or 0) >= 0.95:
+        # All our ink is on the thumbnail; the rest is the PDF page, which
+        # Notability rasterized differently from pdfium.
+        return "measurement: thumbnail's PDF raster differs"
     if "pdf-template" in flags:
         return "unsupported: PDF template paper"
     if "stale-thumbnails" in flags or "low-res-thumbnail-only" in failing:
@@ -469,7 +690,9 @@ def write_report(out: Path, summary: dict, rows: list[dict], gallery: list[dict]
             h.append("</code></p>")
         h.append("</div>")
     h.append("<h2>Per note (worst first)</h2><div class=wrap><table><tr>"
-             "<th class=l>note</th><th>pages</th><th>strokes</th><th>PDF</th><th>thumb</th><th>method</th>"
+             "<th class=l>note</th><th>pages</th><th>strokes</th><th>PDF</th>"
+             "<th>N.pdf pages</th><th>N.pdf F1 min</th><th>N.pdf F1 med</th><th>N.pdf chamfer max</th>"
+             "<th>thumb</th><th>method</th>"
              "<th>IoU</th><th>F1±1px</th><th>chamfer pt</th><th>ratio</th><th>max edge pt</th><th>offset pt</th>"
              "<th>canvas F1 min</th><th>canvas F1 med</th><th>canvas IoU min</th><th>canvas IoU med</th>"
              "<th>canvas ratio range</th><th class=l>category</th><th class=l>flags</th></tr>")
@@ -480,7 +703,10 @@ def write_report(out: Path, summary: dict, rows: list[dict], gallery: list[dict]
         off = o.get("residualOffset")
         h.append(
             f"<tr><td><a href='#n{r['id8']}'>{r['id8']}</a></td><td>{r['bands']}</td><td>{r['strokes']}</td>"
-            f"<td>{r['pdfPages'] or ''}</td><td>{o.get('thumb', '–')}</td><td class=l>{o.get('method', '')}</td>"
+            f"<td>{r['pdfPages'] or ''}</td>"
+            f"<td>{(r.get('pdf') or {}).get('pagesTheirs', '–')}</td><td>{fmt((r.get('pdf') or {}).get('f1Min'))}</td>"
+            f"<td>{fmt((r.get('pdf') or {}).get('f1Median'))}</td><td>{fmt((r.get('pdf') or {}).get('chamferMax'))}</td>"
+            f"<td>{o.get('thumb', '–')}</td><td class=l>{o.get('method', '')}</td>"
             f"<td>{fmt(o.get('iou'))}</td><td>{fmt(o.get('f1'))}</td><td>{fmt(o.get('chamfer'))}</td>"
             f"<td>{fmt(o.get('ratio'))}</td><td>{fmt(o.get('maxEdge'), 1)}</td>"
             f"<td>{fmt(off[0], 1) + ', ' + fmt(off[1], 1) if off else '–'}</td>"
@@ -505,11 +731,98 @@ def write_report(out: Path, summary: dict, rows: list[dict], gallery: list[dict]
 
 # ---------------------------------------------------------------- main
 
+def save_set(img_dir: Path, name: str, figs: list) -> list:
+    out = []
+    for k, (cap, arr) in enumerate(figs):
+        f = img_dir / f"{name}-{k}.png"
+        Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(f)
+        out.append((cap, f.name))
+    return out
+
+
+def process_note(job) -> dict:
+    """All metrics of one note (oracle, Notability PDF pages, canvas); images
+    for the report are written to `img_dir` and listed in `_sets`."""
+    d, canvas_dir, img_dir = job
+    id8 = d.name
+    meta, ores = oracle_note(d)
+    oimg = ores.pop("_images")
+    row = {"id8": id8, "strokes": meta["strokes"], "markers": meta["markers"], "dashed": meta["dashed"],
+           "pdfPages": meta["pdfPages"], "media": meta["media"], "bands": meta["bands"],
+           "strokesOnPage1": meta["strokesOnPage1"], "formatVersion": meta["formatVersion"],
+           "documentWidth": meta["documentWidth"], "oracleThumbs": ores["thumbs"], "_sets": [],
+           "typedChars": meta.get("typedChars", 0), "pdfs": meta.get("pdfs", 0),
+           "bundle": any(t["name"] == "thumbnail.png" for t in meta["thumbs"])}
+    flags = oracle_flags(meta, ores)
+    if ores["thumbs"]:
+        name = ores["primary"]
+        m = ores["thumbs"][name]
+        row["staleThumbs"] = ores["staleThumbs"]
+        row["oracle"] = {"thumb": name, "method": m.get("method"), "iou": m.get("iou"), "f1": m.get("f1"),
+                         "chamfer": m.get("chamfer"), "chamfer95": m.get("chamfer95"), "ratio": m.get("ratio"),
+                         "edges": m.get("edges"), "maxEdge": max((abs(e) for e in m.get("edges", [])), default=None),
+                         "residualOffset": m.get("residualOffset"), "bestShiftIoU": m.get("bestShiftIoU"),
+                         "precision1": m.get("precision1"), "recall1": m.get("recall1"),
+                         "empty": m.get("empty", False), "lowResOnly": ores.get("lowResOnly", False),
+                         "darknessCorrelation": m.get("darknessCorrelation")}
+    if oimg:
+        row["_sets"].append(("Import vs Notability thumbnail (page 1)", save_set(img_dir, f"{id8}-oracle", [
+            ("ours (InkRender, page 1)", oimg["ours"]), ("Notability thumbnail", oimg["thumb"]),
+            ("overlay of ink masks", overlay(oimg["a"], oimg["b"]))])))
+    pdf = pdf_pages_note(d, img_dir)
+    if pdf is not None:
+        files = pdf.pop("_files", None)
+        row["pdf"] = pdf
+        if not pdf.get("error"):
+            # Notability's PDF shows every page as it is now; the thumbnails
+            # only page 1, often stale. Thumbnail flags become context.
+            row["oracleFlags"] = flags
+            flags = [f for f in flags if f in INFO_FLAGS]
+        flags += pdf_flags(pdf)
+        if files:
+            row["_sets"].insert(0, (f"Import vs Notability's PDF export (worst page, {pdf.get('worstPage')})", files))
+    if (canvas_dir / id8 / "bands.json").exists():
+        c = canvas_note(canvas_dir / id8)
+        cimg = c.pop("_images")
+        row["canvasBands"] = c["bands"]
+        inked = [m["canvas"] for m in c["bands"] if not m["canvas"].get("empty")]
+        pk = [m["pk"] for m in c["bands"] if not m["pk"].get("empty")]
+        row["canvasSummary"] = {
+            "bands": len(c["bands"]), "inkedBands": len(inked),
+            "iouMin": min((m["iou"] for m in inked), default=None),
+            "iouMedian": statistics.median([m["iou"] for m in inked]) if inked else None,
+            "f1Min": min((m["f1"] for m in inked), default=None),
+            "f1Median": statistics.median([m["f1"] for m in inked]) if inked else None,
+            "ratioMin": min((m["ratio"] for m in inked), default=None),
+            "ratioMax": max((m["ratio"] for m in inked), default=None),
+            "chamferMax": max((m.get("chamfer", 0) for m in inked), default=None),
+            "pkF1Min": min((m["f1"] for m in pk), default=None),
+        }
+        flags += canvas_flags(c)
+        if cimg:
+            row["_sets"].append(("Canvas vs export (worst band)", save_set(img_dir, f"{id8}-canvas", [
+                (f"canvas, band {cimg['band']}", cimg["canvas"]), ("export (InkRender)", cimg["export"]),
+                ("overlay of ink masks", overlay(cimg["a"], cimg["b"]))])))
+    elif canvas_dir.is_dir():  # the canvas stage ran but skipped this note
+        flags.append("canvas-missing")
+    row["flags"] = flags
+    # Worst-first: flagged notes, then by the lowest of PDF, oracle and canvas F1.
+    of1 = (row.get("oracle") or {}).get("f1")
+    pf1 = (row.get("pdf") or {}).get("f1Min")
+    cf1 = (row.get("canvasSummary") or {}).get("f1Min")
+    score = min([v for v in (pf1, of1, cf1) if v is not None] or [1.0])
+    row["failing"] = [f for f in flags if f not in INFO_FLAGS]
+    row["category"] = categorize(row, flags)
+    row["_score"] = (0 if row["failing"] else 1, score)
+    return clean(row)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--gallery", type=int, default=20, help="worst notes to show images for (plus every flagged one)")
+    ap.add_argument("--jobs", type=int, default=0, help="worker processes (default: one per CPU)")
     args = ap.parse_args()
     oracle_dir, canvas_dir = args.work / "oracle", args.work / "canvas"
     if not oracle_dir.is_dir():
@@ -517,59 +830,15 @@ def main() -> int:
         return 2
     import_report = json.loads((args.work / "import.json").read_text()) if (args.work / "import.json").exists() else {}
 
-    rows, images = [], {}
+    img_dir = args.out / "img"
+    img_dir.mkdir(parents=True, exist_ok=True)
     notes = sorted(p for p in oracle_dir.iterdir() if (p / "meta.json").exists())
-    for i, d in enumerate(notes):
-        id8 = d.name
-        meta, ores = oracle_note(d)
-        oimg = ores.pop("_images")
-        row = {"id8": id8, "strokes": meta["strokes"], "markers": meta["markers"], "dashed": meta["dashed"],
-               "pdfPages": meta["pdfPages"], "media": meta["media"], "bands": meta["bands"],
-               "strokesOnPage1": meta["strokesOnPage1"], "formatVersion": meta["formatVersion"],
-               "documentWidth": meta["documentWidth"], "oracleThumbs": ores["thumbs"]}
-        flags = oracle_flags(meta, ores)
-        if ores["thumbs"]:
-            name = ores["primary"]
-            m = ores["thumbs"][name]
-            row["staleThumbs"] = ores["staleThumbs"]
-            row["oracle"] = {"thumb": name, "method": m.get("method"), "iou": m.get("iou"), "f1": m.get("f1"),
-                             "chamfer": m.get("chamfer"), "chamfer95": m.get("chamfer95"), "ratio": m.get("ratio"),
-                             "edges": m.get("edges"), "maxEdge": max((abs(e) for e in m.get("edges", [])), default=None),
-                             "residualOffset": m.get("residualOffset"), "bestShiftIoU": m.get("bestShiftIoU"),
-                             "empty": m.get("empty", False), "lowResOnly": ores.get("lowResOnly", False),
-                             "darknessCorrelation": m.get("darknessCorrelation")}
-        cimg = None
-        if (canvas_dir / id8 / "bands.json").exists():
-            c = canvas_note(canvas_dir / id8)
-            cimg = c.pop("_images")
-            row["canvasBands"] = c["bands"]
-            inked = [b["canvas"] for b in c["bands"] if not b["canvas"].get("empty")]
-            pk = [b["pk"] for b in c["bands"] if not b["pk"].get("empty")]
-            row["canvasSummary"] = {
-                "bands": len(c["bands"]), "inkedBands": len(inked),
-                "iouMin": min((m["iou"] for m in inked), default=None),
-                "iouMedian": statistics.median([m["iou"] for m in inked]) if inked else None,
-                "f1Min": min((m["f1"] for m in inked), default=None),
-                "f1Median": statistics.median([m["f1"] for m in inked]) if inked else None,
-                "ratioMin": min((m["ratio"] for m in inked), default=None),
-                "ratioMax": max((m["ratio"] for m in inked), default=None),
-                "chamferMax": max((m.get("chamfer", 0) for m in inked), default=None),
-                "pkF1Min": min((m["f1"] for m in pk), default=None),
-            }
-            flags += canvas_flags(c)
-        else:
-            flags.append("canvas-missing")
-        row["flags"] = flags
-        # Worst-first: flagged notes, then by the lower of oracle F1 and canvas F1 min.
-        of1 = (row.get("oracle") or {}).get("f1")
-        cf1 = (row.get("canvasSummary") or {}).get("f1Min")
-        score = min([v for v in (of1, cf1) if v is not None] or [1.0])
-        row["failing"] = [f for f in flags if f not in INFO_FLAGS]
-        row["category"] = categorize(row, flags)
-        row["_score"] = (0 if row["failing"] else 1, score)
-        rows.append(row)
-        images[id8] = (oimg, cimg)
-        print(f"[{i + 1}/{len(notes)}] {id8} {' '.join(flags)}", file=sys.stderr)
+    jobs = [(d, canvas_dir, img_dir) for d in notes]
+    rows = []
+    with multiprocessing.Pool(args.jobs or None) as pool:
+        for i, row in enumerate(pool.imap_unordered(process_note, jobs, chunksize=1)):
+            rows.append(row)
+            print(f"[{i + 1}/{len(notes)}] {row['id8']} {' '.join(row['flags'])}", file=sys.stderr)
 
     rows.sort(key=lambda r: r["_score"])
     for r in rows:
@@ -585,6 +854,8 @@ def main() -> int:
     pdfs = [r for r in scored if r["pdfPages"]]
     bands = [b for r in rows for b in r.get("canvasBands", [])]
     inked_bands = [b["canvas"] for b in bands if not b["canvas"].get("empty")]
+    pdf_rows = [r for r in rows if r.get("pdf") and r["pdf"].get("inkedPages")]
+    pdf_pages = [p for r in pdf_rows for p in r["pdf"]["pages"] if not p.get("empty") and p.get("f1") is not None]
     flag_counts: dict[str, int] = {}
     for r in rows:
         for f in r["flags"]:
@@ -608,6 +879,15 @@ def main() -> int:
         "canvasChamfer": dist([m.get("chamfer") for m in inked_bands]),
         "pkF1": dist([b["pk"]["f1"] for b in bands if not b["pk"].get("empty")]),
         "canvasVsPkF1": dist([b["canvasVsPk"]["f1"] for b in bands if not b["canvasVsPk"].get("empty")]),
+        "pdfNotes": len([r for r in rows if r.get("pdf")]), "pdfNotesInked": len(pdf_rows),
+        "pdfPagesInked": len(pdf_pages),
+        "pdfPageF1": dist([p["f1"] for p in pdf_pages]),
+        "pdfPageChamfer": dist([p.get("chamfer") for p in pdf_pages]),
+        "pdfPageRatio": dist([p.get("ratio") for p in pdf_pages]),
+        "pdfNoteF1Min": dist([r["pdf"]["f1Min"] for r in pdf_rows]),
+        "pdfNoteChamferMax": dist([r["pdf"]["chamferMax"] for r in pdf_rows]),
+        "pdfPageF1Paper": dist([p["f1"] for p in pdf_pages if not p["onPDF"]]),
+        "pdfPageF1OnPDF": dist([p["f1"] for p in pdf_pages if p["onPDF"]]),
         "flagCounts": flag_counts,
         "flaggedNotes": sum(1 for r in rows if r["failing"]),
         "categories": {c: sum(1 for r in rows if r["category"] == c) for c in sorted({r["category"] for r in rows if r["category"]})},
@@ -618,6 +898,13 @@ def main() -> int:
 
     agg["display"] = {
         "notes imported / skipped / failed": f"{import_report.get('imported', '?')} / {import_report.get('skipped', '?')} / {import_report.get('failed', '?')}",
+        "notes with Notability's PDF (inked)": f"{agg['pdfNotes']} ({agg['pdfNotesInked']})",
+        "Notability PDF pages compared (inked)": str(agg["pdfPagesInked"]),
+        "PDF page F1±1px median": d(agg["pdfPageF1"]),
+        "PDF page chamfer pt": "–" if not agg["pdfPageChamfer"].get("n") else
+        f"{agg['pdfPageChamfer']['median']:.2f} (p90 {agg['pdfPageChamfer']['p90']:.2f}, max {agg['pdfPageChamfer']['max']:.2f})",
+        "PDF page ink ratio median": d(agg["pdfPageRatio"]),
+        "PDF worst page per note, F1 median": d(agg["pdfNoteF1Min"]),
         "oracle-scored notes (paper / PDF)": f"{len(scored)} ({len(paper)} / {len(pdfs)})",
         "oracle F1±1px median": d(agg["oracleF1"]),
         "oracle IoU median": d(agg["oracleIoU"]),
@@ -637,6 +924,8 @@ def main() -> int:
     agg["histograms"] = {
         "oracle F1±1px (notes)": [(f"{edges[i]:.2f}–{min(edges[i + 1], 1):.2f}", n)
                                   for i, n in enumerate(histogram([r["oracle"]["f1"] for r in scored], edges))],
+        "Notability PDF page F1±1px (pages)": [(f"{edges[i]:.2f}–{min(edges[i + 1], 1):.2f}", n)
+                                               for i, n in enumerate(histogram([p["f1"] for p in pdf_pages], edges))],
         "canvas vs export F1±1px (bands)": [(f"{edges[i]:.2f}–{min(edges[i + 1], 1):.2f}", n)
                                             for i, n in enumerate(histogram([m["f1"] for m in inked_bands], edges))],
     }
@@ -648,38 +937,27 @@ def main() -> int:
     thresholds = {"oracle chamfer pt": ORACLE_CHAMFER_PT, "oracle F1": ORACLE_F1, "oracle ratio": ORACLE_RATIO,
                   "oracle edge pt": ORACLE_EDGE_PT, "canvas F1": CANVAS_F1, "canvas ratio": CANVAS_RATIO,
                   "canvas edge pt": CANVAS_EDGE_PT, "ink: lum <": DARK_LUM, "ink: chroma >": CHROMA,
-                  "PDF diff >": PDF_DIFF, "empty below px": MIN_INK_PX}
+                  "PDF diff >": PDF_DIFF, "empty below px": MIN_INK_PX, "PDF page F1": PDF_F1,
+                  "PDF page chamfer pt": PDF_CHAMFER_PT, "PDF page ratio": PDF_RATIO, "PDF page edge pt": PDF_EDGE_PT}
     import datetime
     summary = {"generated": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
                "thresholds": {k: list(v) if isinstance(v, tuple) else v for k, v in thresholds.items()},
                "aggregate": agg, "notes": rows}
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "summary.json").write_text(json.dumps(clean(summary), indent=1))
 
-    # Gallery: the worst N plus every flagged note.
-    img_dir = args.out / "img"
-    img_dir.mkdir(exist_ok=True)
+    # Gallery: the worst N plus every flagged note (images already in img/).
     pick = [r for r in rows if r["failing"]]
     for r in rows[: args.gallery]:
         if r not in pick:
             pick.append(r)
     gallery = []
     for r in pick:
-        oimg, cimg = images[r["id8"]]
-        sets = []
-        if oimg:
-            figs = [("ours (InkRender, page 1)", oimg["ours"]), ("Notability thumbnail", oimg["thumb"]),
-                    ("overlay of ink masks", overlay(oimg["a"], oimg["b"]))]
-            for k, (cap, arr) in enumerate(figs):
-                Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(img_dir / f"{r['id8']}-oracle-{k}.png")
-            sets.append(("Import vs Notability thumbnail", [(c, png_data_uri(a)) for c, a in figs]))
-        if cimg:
-            figs = [(f"canvas, band {cimg['band']}", cimg["canvas"]), ("export (InkRender)", cimg["export"]),
-                    ("overlay of ink masks", overlay(cimg["a"], cimg["b"]))]
-            for k, (cap, arr) in enumerate(figs):
-                Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(img_dir / f"{r['id8']}-canvas-{k}.png")
-            sets.append(("Canvas vs export (worst band)", [(c, png_data_uri(a)) for c, a in figs]))
+        sets = [(title, [(cap, png_data_uri(load_rgba(img_dir / f)[..., :3])) for cap, f in files])
+                for title, files in r["_sets"]]
         gallery.append({"id8": r["id8"], "flags": r["flags"], "sets": sets})
+    for r in rows:
+        r.pop("_sets", None)
+    (args.out / "summary.json").write_text(json.dumps(clean(summary), indent=1))
     write_report(args.out, summary, rows, gallery)
     print(json.dumps(clean(agg["display"]), indent=1))
     return 0

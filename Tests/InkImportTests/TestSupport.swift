@@ -125,7 +125,16 @@ struct KeyedArchiveBuilder {
 /// Minimal zip writer for tests: stored or raw-deflate entries, optional
 /// zip64 records (extra fields saturated plus a zip64 end record).
 enum ZipWriter {
-    struct File { var path: String; var data: Data; var deflate = true }
+    struct File {
+        var path: String; var data: Data; var deflate = true
+        /// MS-DOS modification time and date fields (0 = unset).
+        var dosTime: UInt16 = 0, dosDate: UInt16 = 0
+    }
+
+    /// MS-DOS date and time fields for a UTC calendar time.
+    static func dos(_ y: Int, _ mo: Int, _ d: Int, _ h: Int = 0, _ mi: Int = 0, _ s: Int = 0) -> (UInt16, UInt16) {
+        (UInt16(h << 11 | mi << 5 | s / 2), UInt16((y - 1980) << 9 | mo << 5 | d))
+    }
 
     static func write(_ files: [File], zip64: Bool = false) -> Data {
         var out = Data()
@@ -141,13 +150,14 @@ enum ZipWriter {
             let method = f.deflate ? 8 : 0
             var extra = Data()
             if zip64 { extra = le16(1) + le16(24) + le64(UInt64(f.data.count)) + le64(UInt64(body.count)) + le64(UInt64(offset)) }
-            out += le32(0x0403_4B50) + le16(zip64 ? 45 : 20) + le16(0x0800) + le16(method) + le16(0) + le16(0)
+            out += le32(0x0403_4B50) + le16(zip64 ? 45 : 20) + le16(0x0800) + le16(method)
+            out += le16(Int(f.dosTime)) + le16(Int(f.dosDate))
             out += le32(crc) + le32(zip64 ? 0xFFFF_FFFF : UInt32(body.count)) + le32(zip64 ? 0xFFFF_FFFF : UInt32(f.data.count))
             out += le16(name.count) + le16(zip64 ? 20 : 0) + name
             if zip64 { out += le16(1) + le16(16) + le64(UInt64(f.data.count)) + le64(UInt64(body.count)) }
             out += body
             central += le32(0x0201_4B50) + le16(zip64 ? 45 : 20) + le16(zip64 ? 45 : 20) + le16(0x0800) + le16(method)
-            central += le16(0) + le16(0) + le32(crc)
+            central += le16(Int(f.dosTime)) + le16(Int(f.dosDate)) + le32(crc)
             central += le32(zip64 ? 0xFFFF_FFFF : UInt32(body.count)) + le32(zip64 ? 0xFFFF_FFFF : UInt32(f.data.count))
             central += le16(name.count) + le16(extra.count) + le16(0) + le16(0) + le16(0) + le32(0)
             central += le32(zip64 ? 0xFFFF_FFFF : UInt32(offset)) + name + extra
@@ -246,9 +256,12 @@ enum SyntheticNote {
     ///     (`pdfFiles` + `pageLayoutArray`), as Notability does for a note
     ///     made from a PDF.
     ///   - paperSize: the `paperSize` attribute (`letter`, `custom:<w/h>`, …).
+    ///   - styles: replaces `curvesstyles` (e.g. a short array).
+    ///   - shapes: a `shapes` plist for the spatial hash.
     ///   - numcurvesOverride: a `numcurves` / `numpoints` value that disagrees
     ///     with the arrays (for corrupt-input tests).
     static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter",
+                        styles: Data? = nil, shapes: Data? = nil, created: Date = created,
                         numcurvesOverride: Int? = nil) -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
@@ -268,12 +281,12 @@ enum SyntheticNote {
             ("curvesaltitudeangles", a.data(f32(Array(repeating: Float.pi / 2, count: nodes)))),
             ("curvesazimuthunitvector", a.data(f32(unit))),
             ("curvescolors", a.data(Data(cs.flatMap(\.rgba)))),
-            ("curvesstyles", a.data(Data(cs.map(\.style)))),
+            ("curvesstyles", a.data(styles ?? Data(cs.map(\.style)))),
             ("curveUUIDs", a.data(Data(repeating: 0xAB, count: 16 * cs.count))),
             ("dashStyles", a.data(dash)),
             ("groupsArrays", a.array([])),
             ("bezierPathsDataDictionary", a.dict([])),
-        ])
+        ] + (shapes.map { [("shapes", a.data($0))] } ?? []))
         let overlay = a.object("HandwritingObject", [("SpatialHash", hash)])
         let attributed = a.dict([("stringKey", a.string("typed words")), ("subRangesKey", a.array([]))])
         let reflow = a.object("NBReflowStateLocked", [("pageWidthInDocumentCoordsKey", .real(width)),
@@ -314,14 +327,15 @@ enum SyntheticNote {
         return a.archive(top: [("$0", root)])
     }
 
-    static func metadata(subject: String = "Fixtures", tags: String = "alpha, beta") -> Data {
+    static func metadata(subject: String = "Fixtures", tags: String = "alpha, beta", uuid: String = uuid,
+                         created: Date = created, modified: Date? = nil) -> Data {
         var b = KeyedArchiveBuilder()
         let d = b.dict([
             ("noteName", b.string("Synthetic note")),
             ("noteSubject", b.string(subject)),
             ("noteTags", b.string(tags)),
             ("noteCreationDateKey", b.date(created)),
-            ("noteModifiedDateKey", b.date(created.addingTimeInterval(60))),
+            ("noteModifiedDateKey", b.date(modified ?? created.addingTimeInterval(60))),
             ("uuidKey", b.string(uuid)),
             ("notePackagePath", b.string("Synthetic note")),
         ])
@@ -367,14 +381,18 @@ enum SyntheticNote {
     static func files(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
                       tags: String = "alpha, beta", pdfPages: Int = 0,
                       thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)],
-                      handwriting: Bool = true, paperSize: String = "letter") -> [(String, Data)] {
+                      handwriting: Bool = true, paperSize: String = "letter", uuid: String = uuid,
+                      created: Date = created, modified: Date? = nil, styles: Data? = nil,
+                      shapes: Data? = nil) -> [(String, Data)] {
         let dir = "Synthetic note/"
         let library = try! PropertyListSerialization.data(
             fromPropertyList: ["application version": "1", "library-format-version": "1.0", "recordings": [String: Any]()],
             format: .binary, options: 0)
         var out = [
-            (dir + "Session.plist", session(curves: cs, pdfPages: pdfPages, paperSize: paperSize)),
-            (dir + "metadata.plist", metadata(subject: subject, tags: tags)),
+            (dir + "Session.plist", session(curves: cs, pdfPages: pdfPages, paperSize: paperSize, styles: styles,
+                                            shapes: shapes, created: created)),
+            (dir + "metadata.plist", metadata(subject: subject, tags: tags, uuid: uuid, created: created,
+                                              modified: modified)),
             (dir + "Recordings/library.plist", library),
         ]
         if handwriting { out.append((dir + "HandwritingIndex/index.plist", handwritingIndex())) }
@@ -387,10 +405,14 @@ enum SyntheticNote {
     static func package(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
                         tags: String = "alpha, beta", pdfPages: Int = 0,
                         thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)],
-                        handwriting: Bool = true, paperSize: String = "letter") -> Data {
+                        handwriting: Bool = true, paperSize: String = "letter", uuid: String = uuid,
+                        created: Date = created, modified: Date? = nil, styles: Data? = nil,
+                        shapes: Data? = nil) -> Data {
         ZipWriter.write([.init(path: "Synthetic note/", data: Data(), deflate: false)]
             + files(curves: cs, subject: subject, tags: tags, pdfPages: pdfPages, thumbnails: thumbnails,
-                    handwriting: handwriting, paperSize: paperSize).map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
+                    handwriting: handwriting, paperSize: paperSize, uuid: uuid, created: created, modified: modified,
+                    styles: styles, shapes: shapes)
+                .map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
     }
 
     /// Writes the package unzipped, as a `.note` directory.
