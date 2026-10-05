@@ -36,7 +36,8 @@ struct PreparedPage {
     ///   axis) beyond `RenderLimits.maxExtent` in magnitude. Finite coordinates
     ///   within the limit that fall outside a finite page are not an error; the
     ///   stroke is simply culled.
-    init(page: Page, meta: NoteMeta, options: RenderOptions) throws {
+    init(page: Page, meta: NoteMeta, options: RenderOptions,
+         maxOutlinePoints: Int = RenderLimits.maxOutlinePoints) throws {
         let size = meta.pageSize
         let maxE = RenderLimits.maxExtent
         guard size.width.isFinite, size.width > 0, size.width <= maxE,
@@ -47,6 +48,7 @@ struct PreparedPage {
 
         var list: [PreparedStroke] = []
         var low = 0.0
+        var outlinePoints = 0
         for stroke in page.strokes where !stroke.points.isEmpty {
             let xf = stroke.transform ?? .identity
             guard [xf.a, xf.b, xf.c, xf.d, xf.tx, xf.ty, stroke.ink.width].allSatisfy(\.isFinite) else {
@@ -66,8 +68,10 @@ struct PreparedPage {
             }
             let pad = radius * xf.meanScale / 2 + 1
             guard pad.isFinite, pad <= maxE else { throw RenderError.extentTooLarge(pad) }
-            list.append(PreparedStroke(commands: StrokeOutline.commands(for: stroke, tolerance: options.tolerance),
-                                       minY: lo - pad, maxY: hi + pad))
+            let commands = StrokeOutline.commands(for: stroke, tolerance: options.tolerance)
+            outlinePoints += commands.reduce(0) { $0 + $1.pointCount }
+            guard outlinePoints <= maxOutlinePoints else { throw RenderError.tooComplex }
+            list.append(PreparedStroke(commands: commands, minY: lo - pad, maxY: hi + pad))
             low = max(low, hi + pad)
         }
         strokes = list
