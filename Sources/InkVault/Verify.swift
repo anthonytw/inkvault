@@ -105,7 +105,15 @@ extension Vault {
                                       detail: nil))
         }
         let expected = Self.expectedStanzas((try? ageRecipients()) ?? [])
-        let notReadable = secret == nil ? "vault locked" : identities.isEmpty ? "no identities" : nil
+        // A legacy vault is not checked file by file: its notes are not to be
+        // read before the migration (format.md §3.3.2).
+        let legacy = (try? requireMigrated()) == nil
+        if legacy {
+            report.manifestProblems.append("legacy vault: classic X25519 recipient(s) "
+                + classicRecipients.joined(separator: ", ") + "; migrate first (format.md §3.3.2)")
+        }
+        let notReadable = legacy ? "legacy vault: migrate first"
+            : secret == nil ? "vault locked" : identities.isEmpty ? "no identities" : nil
         for note in list(notesURL, as: Self.notesName) {
             let dir = notesURL.appendingPathComponent(note)
             let base = "\(Self.notesName)/\(note)"

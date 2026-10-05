@@ -53,6 +53,7 @@ extension Vault {
     /// - Throws: `VaultError.locked` or `.noIdentities` when the vault cannot
     ///   read at all; otherwise `RevisionReadError`, one case per failing stage.
     public func readRevision(noteId: UUID, name: RevisionName) throws -> Revision {
+        try requireMigrated()
         let secret = try requireReadable()
         let note = noteId.uuidString.lowercased()
         let data: Data
@@ -113,6 +114,7 @@ extension Vault {
     ///   (files under `notes/` are write-once), `.seqInUse` if another file of
     ///   this note already has the same `(device, seq)`.
     public func write(_ revision: Revision) throws {
+        try requireMigrated()
         let secret = try requireSecret()
         let dir = noteURL(revision.noteId)
         let name = revision.name
@@ -168,6 +170,7 @@ extension Vault {
     /// Reads every revision of a note, collecting failures instead of
     /// throwing on them.
     public func loadNote(_ noteId: UUID) throws -> LoadedNote {
+        try requireMigrated()
         _ = try requireReadable()
         var revs: [Revision] = []
         var failures: [RevisionName: RevisionReadError] = [:]
@@ -240,6 +243,7 @@ extension Vault {
     @discardableResult
     public func compact(noteId: UUID, loaded: LoadedNote, retention: TimeInterval = CompactionPlanner.defaultRetention,
                         now: Date = Date()) throws -> [RevisionName] {
+        try requireMigrated()
         let doomed = loaded.compactionPlan(retention: retention, now: now)
         let dir = noteURL(noteId)
         for n in doomed { try FileIO.remove(dir.appendingPathComponent(n.filename)) }
@@ -249,6 +253,7 @@ extension Vault {
     /// Every revision of a note with its wall time, oldest first by
     /// `(hlc, device, seq)`. Unreadable revisions are listed with their error.
     public func history(noteId: UUID) throws -> [HistoryEntry] {
+        try requireMigrated()
         _ = try requireReadable()
         return try revisionNames(of: noteId).map { n in
             do {

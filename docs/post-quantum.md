@@ -82,7 +82,8 @@ recipients (the classic stanza voids the protection), and `age` refuses to
 encrypt such a mix. `AgeFile.encrypt` refuses it too unless
 `allowMixedPostQuantum: true`. A vault passes that flag for its own writes,
 because a legacy vault mid-migration (several devices, each switching keys)
-lists both types; `vault info` then says `Post-quantum: NO`. `age` decrypts
+lists both types; it is still legacy (migrate-only) until the last X25519 key
+is removed, and `vault info` says `Post-quantum: NO: legacy vault`. `age` decrypts
 mixed files fine. A vault created today can never be mixed.
 
 ## Policy: post-quantum only
@@ -93,10 +94,23 @@ a key" make only post-quantum keys (no classic option); `Vault.create`,
 `addRecipient` and the target of `replaceRecipient` throw
 `VaultError.classicRecipient` ("create a new key") for an `age1...` key, and
 so do `vault init`, `recipients add` / `replace` (exit 2) and the app's
-"use an existing recipient". X25519 identities still open **legacy** vaults
-(created before this rule, like the test fixture), whose X25519 recipients
-can only be replaced or removed. The Age module itself keeps full X25519
-support, as the age spec requires.
+"use an existing recipient".
+
+**Legacy vaults are migrate-only** (maintainer rule, format.md §3.3.2): a
+vault that lists any X25519 recipient, alone or next to post-quantum ones,
+opens only to be migrated. "Provide or derive a new compliant key, or it does
+not work." The library enforces it in one place (`Vault.isLegacy`,
+`requireMigrated()`, `VaultError.legacyVault`): reading or writing note
+content (summaries, read, reconstruct, history, restore, write/apply,
+snapshot, compact, import, verify of note files) throws "migrate first:
+inkvault vault recipients replace OLD NEW". Allowed: opening and unlocking,
+the manifest and `keys/` files, `addRecipient` (post-quantum only),
+`removeRecipient`, `replaceRecipient`, `resumeRewrap`. The CLI refuses every
+other command with exit 5 before asking for a passphrase; the app shows only
+a migration screen. Nothing on disk changed: `age -d -i key FILE.age | tail
+-c +38 | gunzip | jq .` and `inkvault recover` still read a legacy vault's
+files. The Age module itself keeps full X25519 support, as the age spec
+requires.
 
 This is safe to make the only option because the vectors and interop pass
 on every platform the project ships to, and the costs are small: about
@@ -118,6 +132,14 @@ inkvault vault info --vault notes.inkvault        # Post-quantum: yes
 
 Several devices: `recipients add` each device's new `age1pq1...` key, switch
 each device to its PQ key, then `recipients remove` every `age1...` key.
+
+The app migrates by itself: unlocking a legacy vault shows only a migration
+screen, which generates a post-quantum key (shown to save, optionally stored
+passphrase-wrapped), adds it, then removes every X25519 key. Adding first
+means an interruption at any point is finished with the one key the user
+holds at that moment: the old key while an X25519 key is still listed, the
+new one afterwards (files are then encrypted to both until the removal
+rewraps them).
 
 A rewrap gives every file a fresh file key and re-encrypts its payload;
 removal and replacement also rotate the vault secret. An interrupted

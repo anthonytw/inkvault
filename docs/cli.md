@@ -37,6 +37,16 @@ printed only by `keys generate` and `keys export`.
 | 2 | Usage error (unknown option, missing vault, bad recipient string). |
 | 3 | `vault verify` found problems, or a recipient change is incomplete. |
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
+| 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: inkvault vault recipients replace OLD NEW`. |
+
+**Legacy vaults** (format.md §3.3.2) are migrate-only. On a vault that lists a
+classic X25519 recipient, alone or next to post-quantum ones, only these run:
+`vault info`, `vault recipients add` (post-quantum key) / `remove` /
+`replace`, `vault rewrap-resume`, and `recover` (the stock-`age` equivalent,
+which reads one file and needs no migration). Every other command that opens
+a vault (`notes …`, `export`, `search`, `compact`, `snapshot`, `import`,
+`vault verify`, `keys export`, `sync webdav`) exits 5 before asking for a key
+or passphrase. `keys generate` and `keys show` do not touch a vault.
 
 Errors go to stderr, one line each, prefixed `inkvault:`.
 

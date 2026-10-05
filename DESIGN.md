@@ -71,8 +71,8 @@ derived data, replaced as a whole, so it merges last-writer-wins per page.
 Container: age v1 (age-encryption.org/v1), implemented in Swift on CryptoKit /
 swift-crypto and validated against the public C2SP test vectors and against
 the reference `age` CLI. Recipients are only age's native hybrid post-quantum type
-(MLKEM768-X25519, `age1pq1...`, age v1.3+); classic X25519 keys only open
-legacy vaults so they can be migrated. See `docs/post-quantum.md` for the threat ("harvest now,
+(MLKEM768-X25519, `age1pq1...`, age v1.3+); a legacy vault that still lists a
+classic X25519 key opens only to be migrated (its notes stay locked until then). See `docs/post-quantum.md` for the threat ("harvest now,
 decrypt later"), the choice and the migration.
 
 Why age and not GPG: one fixed modern construction (X25519, HKDF-SHA256,

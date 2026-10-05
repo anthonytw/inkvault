@@ -106,7 +106,7 @@ struct VaultInfo: ParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() throws {
-        let vault = try access.openVault(.ifPossible)
+        let vault = try access.openVault(.ifPossible, migration: true)
         let noteCount = try vault.noteIDs().count
         let keyFiles = try vault.identityFiles().map(\.string)
         let info = Info(
@@ -128,7 +128,12 @@ struct VaultInfo: ParsableCommand {
                 + "added \(Format.local(r.added))")
         }
         let classic = info.recipients.filter { $0.type != Info.Recipient.pqType }.count
-        print("Post-quantum:   \(classic == 0 ? "yes" : "NO (\(classic) X25519 recipient(s); see `vault recipients replace`)")")
+        if let old = vault.classicRecipients.first {
+            print("Post-quantum:   NO: legacy vault (\(classic) classic X25519 recipient(s)); its notes stay locked "
+                + "until it is migrated: inkvault vault recipients replace \(old) NEW")
+        } else {
+            print("Post-quantum:   yes")
+        }
         print("Stored keys:    \(keyFiles.isEmpty ? "none" : "\(keyFiles.count) passphrase-wrapped")")
         print("Pending rewrap: \(info.pendingRewrap ? "YES (run `inkvault vault rewrap-resume`)" : "no")")
         if !info.unlocked {
@@ -213,7 +218,7 @@ struct RecipientsAdd: ParsableCommand {
     func run() throws {
         let key = try parseRecipient(recipient)
         try requirePostQuantum([key])
-        var vault = try access.openVault(.required)
+        var vault = try access.openVault(.required, migration: true)
         let stored = try store.prepare(for: key)
         let report = try vault.addRecipient(key, label: label)
         try store.write(stored, into: vault, output: output)
@@ -236,7 +241,7 @@ struct RecipientsRemove: ParsableCommand {
 
     func run() throws {
         let key = try parseRecipient(recipient)
-        var vault = try access.openVault(.required)
+        var vault = try access.openVault(.required, migration: true)
         try reportRewrap(try vault.removeRecipient(key), output: output)
     }
 }
@@ -273,7 +278,7 @@ struct RecipientsReplace: ParsableCommand {
     func run() throws {
         let oldKey = try parseRecipient(old), newKey = try parseRecipient(new)
         try requirePostQuantum([newKey])
-        var vault = try access.openVault(.required)
+        var vault = try access.openVault(.required, migration: true)
         let stored = try store.prepare(for: newKey)
         let report = try vault.replaceRecipient(oldKey, with: newKey, label: label)
         try store.write(stored, into: vault, output: output)
@@ -347,7 +352,7 @@ struct VaultRewrapResume: ParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() throws {
-        var vault = try access.openVault(.required)
+        var vault = try access.openVault(.required, migration: true)
         guard vault.pendingRewrap else {
             if output.json {
                 try output.emitJSON(RewrapOutput(complete: true, rewrapped: 0, alreadyCurrent: 0, failures: [:]))

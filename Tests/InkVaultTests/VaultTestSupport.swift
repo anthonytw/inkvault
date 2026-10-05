@@ -3,6 +3,9 @@ import Foundation
 import XCTest
 @testable import InkVault
 
+/// A fresh post-quantum identity (vaults take no other kind).
+func pqIdentity() -> NativeIdentity { try! NativeIdentity.generate(.postQuantum) }
+
 /// A temporary directory removed in tearDown, plus helpers for vault tests.
 class VaultTestCase: XCTestCase {
     var tmp: URL!
@@ -18,7 +21,14 @@ class VaultTestCase: XCTestCase {
 
     func vaultURL(_ name: String = "Test") -> URL { tmp.appendingPathComponent("\(name).inkvault") }
 
-    func makeVault(_ identity: X25519Identity, name: String = "Test") throws -> Vault {
+    func makeVault(_ identity: NativeIdentity, name: String = "Test") throws -> Vault {
+        try Vault.create(at: vaultURL(name), recipients: [identity.recipient], labels: ["test"],
+                         identities: [identity])
+    }
+
+    /// A legacy X25519 vault (format.md §3.3.2): only key files, recipients
+    /// and migration work on it.
+    func makeLegacyVault(_ identity: X25519Identity, name: String = "Test") throws -> Vault {
         try Vault.create(at: vaultURL(name), recipients: [identity.recipient], labels: ["test"],
                          identities: [identity])
     }
@@ -56,11 +66,12 @@ class VaultTestCase: XCTestCase {
         let other = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
         var extra = log[0]
         extra.noteId = other
-        for r in log + [extra] { try vault.write(r) }
+        let writer = vault.allowingLegacyContent()   // also builds legacy migration inputs
+        for r in log + [extra] { try writer.write(r) }
         return log + [extra]
     }
 
-    func assertReadable(_ revs: [Revision], at url: URL, by id: X25519Identity, file: StaticString = #filePath,
+    func assertReadable(_ revs: [Revision], at url: URL, by id: NativeIdentity, file: StaticString = #filePath,
                         line: UInt = #line) throws {
         let v = try Vault.open(at: url, identities: [id])
         for r in revs {

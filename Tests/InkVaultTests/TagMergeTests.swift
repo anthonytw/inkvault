@@ -80,7 +80,7 @@ final class TagMergeTests: VaultTestCase {
 
     /// Survives a real vault round trip: the stored spelling is what was written.
     func testVaultKeepsTheWrittenSpelling() throws {
-        let vault = try makeVault(X25519Identity())
+        let vault = try makeVault(pqIdentity())
         let state = tmp.appendingPathComponent("device.json")
         let note = UUID()
         try vault.apply(NoteOps.newNote(title: "T", tags: ["Math", " math ", "Fall   Term"]), to: note,

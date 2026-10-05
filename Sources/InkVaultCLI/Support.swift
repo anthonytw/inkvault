@@ -19,6 +19,7 @@ enum ExitStatus {
     static let usage: Int32 = 2
     static let unhealthy: Int32 = 3
     static let cannotDecrypt: Int32 = 4
+    static let legacyVault: Int32 = 5
 }
 
 /// A failure with its exit code. Messages are one line.
@@ -31,10 +32,12 @@ enum CLIError: Error {
     case unhealthy(String)
     /// Exit 4: wrong key or passphrase, or no key available.
     case cannotDecrypt(String)
+    /// Exit 5: a legacy vault (classic X25519 recipient): migrate first.
+    case legacyVault(String)
 
     var message: String {
         switch self {
-        case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m): return m
+        case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m), .legacyVault(let m): return m
         }
     }
 
@@ -44,6 +47,7 @@ enum CLIError: Error {
         case .usage: return ExitStatus.usage
         case .unhealthy: return ExitStatus.unhealthy
         case .cannotDecrypt: return ExitStatus.cannotDecrypt
+        case .legacyVault: return ExitStatus.legacyVault
         }
     }
 
@@ -58,6 +62,8 @@ enum CLIError: Error {
             return .cannotDecrypt(text)
         case VaultError.classicRecipient:
             return .usage(text)
+        case VaultError.legacyVault:
+            return .legacyVault(text)
         case VaultError.rewrapIncomplete:
             return .unhealthy(text + "; run `inkvault vault rewrap-resume`")
         case let e as NoteSummary.LookupError:
@@ -290,14 +296,20 @@ extension AccessOptions {
     }
 
     /// Opens the vault with the identities this invocation provides.
-    func openVault(_ unlock: Unlock) throws -> Vault {
-        try openVault(at: try vaultURL(), unlock)
+    ///
+    /// - Parameter migration: true only for the commands a legacy vault
+    ///   (classic X25519 recipient) allows: the recipient changes that migrate
+    ///   it, `rewrap-resume` and `info`. Every other command is refused with
+    ///   exit 5 (`VaultError.legacyVault`) before any key or passphrase is read.
+    func openVault(_ unlock: Unlock, migration: Bool = false) throws -> Vault {
+        try openVault(at: try vaultURL(), unlock, migration: migration)
     }
 
-    func openVault(at url: URL, _ unlock: Unlock) throws -> Vault {
+    func openVault(at url: URL, _ unlock: Unlock, migration: Bool = false) throws -> Vault {
+        let locked = try Vault.open(at: url)
+        if !migration { try locked.requireMigrated() }
         var ids: [any AgeIdentity] = try explicitIdentities()
         if ids.isEmpty {
-            let locked = try Vault.open(at: url)
             switch unlock {
             case .ifPossible:
                 let scripted = passphraseEnv != nil || Env.vars["INKVAULT_PASSPHRASE"] != nil

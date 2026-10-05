@@ -48,12 +48,12 @@ final class CLIPostQuantumTests: CLITestCase {
     /// One-step migration: `recipients replace` swaps the X25519 key for a
     /// post-quantum one with a single rewrap; no file is ever mixed.
     func testReplaceMigratesVaultToPostQuantum() throws {
-        let vault = URL(fileURLWithPath: try copyFixtureVault()), oldKey = Self.fixtureKey
-        let old = try fixtureIdentity().recipient.string
+        let vault = URL(fileURLWithPath: try copyLegacyVault()), oldKey = Self.legacyKey
+        let old = try legacyIdentity().recipient.string
         XCTAssertEqual(try stanzaTypes(vault.path), [["X25519"]])
         _ = try generate("pq.key")
         let before = try cli(["vault", "info", "--vault", vault.path])
-        XCTAssertTrue(before.out.contains("Post-quantum:   NO (1 X25519"), before.out)
+        XCTAssertTrue(before.out.contains("Post-quantum:   NO: legacy vault (1 classic"), before.out)
 
         // The new key is given as its identity file: only the public key line is read.
         let r = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", vault.path,
@@ -77,14 +77,17 @@ final class CLIPostQuantumTests: CLITestCase {
     /// Two-step migration (several devices): add the PQ key (files are
     /// mixed meanwhile and `info` says so), then remove the X25519 key.
     func testAddThenRemoveMigration() throws {
-        let vault = URL(fileURLWithPath: try copyFixtureVault()), oldKey = Self.fixtureKey
-        let old = try fixtureIdentity().recipient.string
+        let vault = URL(fileURLWithPath: try copyLegacyVault()), oldKey = Self.legacyKey
+        let old = try legacyIdentity().recipient.string
         let pq = try generate("pq.key")
         XCTAssertEqual(try cli(["vault", "recipients", "add", pq, "--vault", vault.path, "--identity", oldKey]).status, 0)
         XCTAssertEqual(try stanzaTypes(vault.path), [["X25519", "mlkem768x25519"]])
         XCTAssertTrue(try cli(["vault", "info", "--vault", vault.path]).out.contains("Post-quantum:   NO"))
+        // Mixed is still legacy: only migration commands run (exit 5 otherwise).
         for key in [oldKey, path("pq.key")] {
-            XCTAssertEqual(try cli(["vault", "verify", "--vault", vault.path, "--identity", key]).status, 0)
+            let r = try cli(["vault", "verify", "--vault", vault.path, "--identity", key])
+            XCTAssertEqual(r.status, 5, r.err)
+            XCTAssertTrue(r.err.contains("migrate first: inkvault vault recipients replace \(old) NEW"), r.err)
         }
         XCTAssertEqual(try cli(["vault", "recipients", "remove", old, "--vault", vault.path,
                                 "--identity", path("pq.key")]).status, 0)
@@ -95,8 +98,8 @@ final class CLIPostQuantumTests: CLITestCase {
     /// The stock-CLI recovery path (CLAUDE.md) works on a post-quantum vault
     /// with age 1.3 or later.
     func testStockAgeRecoversPostQuantumVault() throws {
-        let vault = URL(fileURLWithPath: try copyFixtureVault()), oldKey = Self.fixtureKey
-        let old = try fixtureIdentity().recipient.string
+        let vault = URL(fileURLWithPath: try copyLegacyVault()), oldKey = Self.legacyKey
+        let old = try legacyIdentity().recipient.string
         _ = try generate("pq.key")
         XCTAssertEqual(try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", vault.path,
                                 "--identity", oldKey]).status, 0)
@@ -148,8 +151,8 @@ final class CLIPostQuantumTests: CLITestCase {
         let classic = classicID.recipient.string
         try IdentityFile.render(classicID, created: Date()).write(toFile: path("classic.key"), atomically: true,
                                                                   encoding: .utf8)
-        let vault = try copyFixtureVault()
-        let old = try fixtureIdentity().recipient.string
+        let vault = try copyLegacyVault()
+        let old = try legacyIdentity().recipient.string
         for args in [["vault", "recipients", "add", classic, "--vault", vault],
                      ["vault", "recipients", "replace", old, classic, "--vault", vault],
                      ["vault", "init", path("n.inkvault"), "--recipient", classic, "--store-key", path("classic.key")]] {
@@ -179,19 +182,19 @@ final class CLIPostQuantumTests: CLITestCase {
     /// of the given keys can decrypt"); with it, the same passphrase opens the
     /// new key.
     func testReplaceKeepsPassphraseUnlock() throws {
-        let old = try fixtureIdentity().recipient.string
+        let old = try legacyIdentity().recipient.string
         let pass = ["INKVAULT_PASSPHRASE": Self.passphrase]
         _ = try generate("pq.key")
 
-        let plain = try copyFixtureVault(as: "plain.inkvault")
-        XCTAssertEqual(try cli(["notes", "list", "--vault", plain], env: pass).status, 0)
+        let plain = try copyLegacyVault(as: "plain.inkvault")
+        XCTAssertEqual(try cli(["notes", "list", "--vault", plain], env: pass).status, 5, "legacy: migrate first")
         XCTAssertEqual(try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", plain],
                                env: pass).status, 0)
         let after = try cli(["notes", "list", "--vault", plain], env: pass)
         XCTAssertEqual(after.status, 4, after.err)
         XCTAssertTrue(after.err.contains("stores no passphrase-wrapped key"), after.err)
 
-        let stored = try copyFixtureVault(as: "stored.inkvault")
+        let stored = try copyLegacyVault(as: "stored.inkvault")
         let r = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", stored,
                          "--store-key", path("pq.key"), "--work-factor", "15"], env: pass)
         XCTAssertEqual(r.status, 0, r.err)
@@ -203,11 +206,69 @@ final class CLIPostQuantumTests: CLITestCase {
         XCTAssertEqual(((info.json as? [String: Any])?["keyFiles"] as? [String])?.count, 1, info.out)
 
         // --store-key must be the new recipient's key, checked before any change.
-        let other = try copyFixtureVault(as: "other.inkvault")
+        let other = try copyLegacyVault(as: "other.inkvault")
         let wrong = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", other,
-                             "--store-key", Self.fixtureKey], env: pass)
+                             "--store-key", Self.legacyKey], env: pass)
         XCTAssertEqual(wrong.status, 2, wrong.err)
         XCTAssertEqual(try stanzaTypes(other), [["X25519"]])
+    }
+
+    /// Legacy vaults are migrate-only (format.md §3.3.2): every command that
+    /// touches one exits 5 with "migrate first: inkvault vault recipients
+    /// replace OLD NEW", before any passphrase is asked for (none is set
+    /// here, so a prompt would end in exit 4), except the migration commands,
+    /// `vault info` and `recover` (the stock-age equivalent).
+    func testLegacyVaultIsMigrateOnly() throws {
+        let vault = try copyLegacyVault(), key = Self.legacyKey
+        let old = try legacyIdentity().recipient.string
+        let note = Self.lecture
+        let refused: [[String]] = [
+            ["notes", "list", "--vault", vault],
+            ["notes", "show", note, "--vault", vault],
+            ["notes", "history", note, "--vault", vault],
+            ["notes", "restore", note, "--to", "1", "--vault", vault],
+            ["export", note, "--format", "json", "--out", path("x.json"), "--vault", vault],
+            ["export", "--all", "--format", "pdf", "--out", path("x.pdf"), "--vault", vault],
+            ["search", "fixture", "--vault", vault],
+            ["compact", "--all", "--vault", vault],
+            ["snapshot", note, "--vault", vault],
+            ["import", "notability", path("none.note"), "--vault", vault],
+            ["import", "notability", path("none.note"), "--dry-run", "--vault", vault],
+            ["vault", "verify", "--vault", vault],
+            ["keys", "export", "--vault", vault],
+            ["sync", "webdav", "http://127.0.0.1:9/dav/", "--vault", vault],
+        ]
+        for args in refused {
+            for extra in [[String](), ["--identity", key]] {
+                let r = try cli(args + extra)
+                XCTAssertEqual(r.status, 5, "\(args + extra): \(r.err)")
+                XCTAssertTrue(r.err.contains("migrate first: inkvault vault recipients replace \(old) NEW"),
+                              "\(args + extra): \(r.err)")
+            }
+        }
+        XCTAssertEqual(try stanzaTypes(vault), [["X25519"]], "nothing was written")
+
+        // Allowed: info, recover (stock-age equivalent), and the migration itself.
+        let info = try cli(["vault", "info", "--vault", vault])
+        XCTAssertEqual(info.status, 0, info.err)
+        XCTAssertTrue(info.out.contains("replace \(old) NEW"), info.out)
+        let file = try XCTUnwrap(try FileManager.default.contentsOfDirectory(
+            atPath: URL(fileURLWithPath: vault).appendingPathComponent("notes/\(note)").path).sorted().first)
+        let recovered = try cli(["recover", "\(vault)/notes/\(note)/\(file)", "--identity", key])
+        XCTAssertEqual(recovered.status, 0, recovered.err)
+        XCTAssertNotNil(recovered.json)
+        XCTAssertEqual(try cli(["vault", "rewrap-resume", "--vault", vault, "--identity", key]).status, 0)
+        _ = try generate("pq.key")
+        let pq = try generateShow("pq.key")
+        XCTAssertEqual(try cli(["vault", "recipients", "add", pq, "--vault", vault, "--identity", key]).status, 0)
+        XCTAssertEqual(try cli(["notes", "list", "--vault", vault, "--identity", path("pq.key")]).status, 5,
+                       "still legacy while a classic key is listed")
+        let removed = try cli(["vault", "recipients", "remove", old, "--vault", vault, "--identity", key])
+        XCTAssertEqual(removed.status, 0, removed.err)
+        let list = try cli(["notes", "list", "--vault", vault, "--identity", path("pq.key")])
+        XCTAssertEqual(list.status, 0, list.err)
+        XCTAssertTrue(list.out.contains("Fixture lecture"), list.out)
+        XCTAssertEqual(try cli(["vault", "verify", "--vault", vault, "--identity", path("pq.key")]).status, 0)
     }
 
     /// The first `age` on PATH (or in the usual places) that is 1.3 or later.

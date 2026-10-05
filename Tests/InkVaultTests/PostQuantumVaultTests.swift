@@ -114,20 +114,28 @@ final class PostQuantumVaultTests: VaultTestCase {
         let revs = try populate(vault)
         try vault.addRecipient(new.recipient, label: "pq")
         XCTAssertEqual(try types(vault, revs), [["X25519", "mlkem768x25519"]])
-        try assertReadable(revs, at: vault.url, by: .x25519(old))
-        try assertReadable(revs, at: vault.url, by: new)
-        // New writes in a mixed vault carry both too.
-        var more = sampleLog()[0]
-        more.noteId = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
-        try vault.write(more)
-        XCTAssertEqual(try types(vault, [more]), [["X25519", "mlkem768x25519"]])
-        // Adding the PQ key did not make the existing files stale.
-        XCTAssertTrue(vault.verify().isHealthy)
+        // Mixed is still legacy: migrate-only, whichever key opens it.
+        for id in [NativeIdentity.x25519(old), new] {
+            let v = try Vault.open(at: vault.url, identities: [id])
+            XCTAssertTrue(v.isLegacy)
+            XCTAssertThrowsError(try v.summaries()) {
+                XCTAssertEqual($0 as? VaultError, .legacyVault(recipients: [old.recipient.string]))
+            }
+            XCTAssertThrowsError(try v.write(sampleLog()[0])) {
+                XCTAssertEqual($0 as? VaultError, .legacyVault(recipients: [old.recipient.string]))
+            }
+            XCTAssertFalse(v.verify().isHealthy)
+            // Both keys still decrypt every file (the stock recovery path).
+            for r in revs {
+                XCTAssertEqual(try v.allowingLegacyContent().readRevision(noteId: r.noteId, name: r.name), r)
+            }
+        }
 
         try vault.removeRecipient(.x25519(old.recipient))
-        XCTAssertEqual(try types(vault, revs + [more]), [["mlkem768x25519"]])
+        XCTAssertFalse(vault.isLegacy)
+        XCTAssertEqual(try types(vault, revs), [["mlkem768x25519"]])
         XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [old]))
-        try assertReadable(revs + [more], at: vault.url, by: new)
+        try assertReadable(revs, at: vault.url, by: new)
     }
 
     /// A file encrypted to the right number of recipients but the wrong
@@ -148,6 +156,67 @@ final class PostQuantumVaultTests: VaultTestCase {
         let rewrap = try vault.rewrapNotes(stopAfter: nil)
         XCTAssertEqual(rewrap.rewrapped, ["\(target.noteId.uuidString.lowercased())/\(target.name.filename)"])
         XCTAssertEqual(try types(vault, revs), [["mlkem768x25519"]])
+    }
+
+    /// A legacy vault (format.md §3.3.2) is migrate-only: every operation on
+    /// note content throws `legacyVault`; opening, key files, the manifest and
+    /// the migration itself work, and afterwards the notes are there.
+    func testLegacyVaultIsMigrateOnly() throws {
+        let old = X25519Identity(), new = try pq()
+        let created = try Vault.create(at: vaultURL(), recipients: [old.recipient], identities: [old])
+        let revs = try populate(created)
+        let note = revs[0].noteId, name = revs[0].name
+        let refusal = VaultError.legacyVault(recipients: [old.recipient.string])
+        var vault = try Vault.open(at: created.url, identities: [old])
+        XCTAssertTrue(vault.isLegacy)
+        XCTAssertEqual(vault.classicRecipients, [old.recipient.string])
+        let deviceState = tmp.appendingPathComponent("device.json")
+        var clock = HybridClock()
+        let refused: [(String, () throws -> Void)] = [
+            ("requireMigrated", { try vault.requireMigrated() }),
+            ("summaries", { _ = try vault.summaries() }),
+            ("summary", { _ = try vault.summary(of: note) }),
+            ("resolveNote by title", { _ = try vault.resolveNote("Lecture 3") }),
+            ("loadNote", { _ = try vault.loadNote(note) }),
+            ("readRevision", { _ = try vault.readRevision(noteId: note, name: name) }),
+            ("reconstruct", { _ = try vault.reconstruct(noteId: note) }),
+            ("history", { _ = try vault.history(noteId: note) }),
+            ("restorePoints", { _ = try vault.restorePoints(noteId: note) }),
+            ("state at", { _ = try vault.state(noteId: note, at: name) }),
+            ("restore", { _ = try vault.restore(note: note, toRevision: name, device: devC, clock: &clock, app: "t") }),
+            ("snapshot", { _ = try vault.snapshot(noteId: note, device: devC, clock: &clock, wall: Date(), app: "t") }),
+            ("compact", { _ = try vault.compact(noteId: note) }),
+            ("compact loaded", { _ = try vault.compact(noteId: note, loaded: LoadedNote(revisions: [], failures: [:])) }),
+            ("compactionPlan", { _ = try vault.compactionPlan(noteId: note) }),
+            ("write", { try vault.write(revs[0]) }),
+            ("apply", { _ = try vault.apply([.setMeta(.title("x"))], to: note, deviceState: deviceState, app: "t") }),
+        ]
+        for (label, op) in refused {
+            XCTAssertThrowsError(try op(), label) { XCTAssertEqual($0 as? VaultError, refusal, label) }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: deviceState.path), "refused before the clock ticks")
+        XCTAssertThrowsError(try Vault.open(at: created.url).summaries()) { XCTAssertEqual($0 as? VaultError, refusal) }
+        let report = vault.verify()
+        XCTAssertFalse(report.isHealthy)
+        XCTAssertTrue(report.manifestProblems.contains { $0.contains("legacy vault") }, "\(report.manifestProblems)")
+        XCTAssertEqual(report.counts[.notChecked], revs.count, "no note file is decrypted")
+        XCTAssertTrue("\(refusal)".contains("migrate first: inkvault vault recipients replace \(old.recipient.string) NEW"))
+
+        // Allowed: names, key files, the manifest, and the migration.
+        XCTAssertEqual(try vault.noteIDs().count, 2)
+        XCTAssertEqual(try vault.revisionNames(of: note).count, revs.filter { $0.noteId == note }.count)
+        try vault.writeIdentityFile(old, passphrase: "pw", workFactor: 15)
+        XCTAssertEqual(try vault.identityFiles(), [.x25519(old.recipient)])
+        let stray = X25519Identity().recipient
+        XCTAssertThrowsError(try vault.addRecipient(.x25519(stray), label: "x")) {
+            XCTAssertEqual($0 as? VaultError, .classicRecipient(stray.string))
+        }
+        try vault.addRecipient(new.recipient, label: "pq")
+        XCTAssertTrue(vault.isLegacy, "mixed is still legacy")
+        XCTAssertThrowsError(try vault.summaries())
+        try vault.removeRecipient(.x25519(old.recipient))
+        XCTAssertFalse(vault.isLegacy)
+        XCTAssertEqual(try Vault.open(at: created.url, identities: [new]).summaries().count, 2)
     }
 
     /// After a replace the old X25519 key file stays in `keys/`; it must not

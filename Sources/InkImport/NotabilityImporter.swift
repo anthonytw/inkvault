@@ -342,9 +342,11 @@ public enum NotabilityImporter {
     /// `created` (format.md §5.4) is preserved; its `hlc` comes from `clock`.
     ///
     /// - Throws: `ImportError.io` / `.zip` when an input cannot be listed or
-    ///   opened; `VaultError` when the vault cannot be listed.
+    ///   opened; `VaultError` when the vault cannot be listed, `.legacyVault`
+    ///   for a vault that still lists a classic key.
     public static func `import`(paths: [URL], into vault: Vault, device: DeviceID, clock: inout HybridClock,
                                 options: Options = Options(), now: () -> Date = Date.init) throws -> ImportReport {
+        try vault.requireMigrated()   // a legacy vault takes no notes (format.md §3.3.2)
         let all = try paths.flatMap { try sources($0) }
         let plan = self.plan(all)
         var report = ImportReport()

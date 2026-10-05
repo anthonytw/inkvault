@@ -10,7 +10,8 @@ struct InkVaultCLI: ParsableCommand {
             an identity file.
 
             Exit codes: 0 ok, 1 failure, 2 usage error, 3 unhealthy verify or incomplete rewrap,
-            4 cannot decrypt (wrong key or passphrase).
+            4 cannot decrypt (wrong key or passphrase), 5 legacy vault (classic key: migrate first with
+            `inkvault vault recipients replace OLD NEW`).
 
             Environment: INKVAULT_VAULT, INKVAULT_IDENTITY, INKVAULT_PASSPHRASE, XDG_STATE_HOME.
             """,

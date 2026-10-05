@@ -6,7 +6,7 @@ import XCTest
 final class IdentityFileTests: VaultTestCase {
     func testRoundTripWithPassphrase() throws {
         let id = X25519Identity()
-        let vault = try makeVault(id)
+        let vault = try makeLegacyVault(id)
         let created = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-04T16:20:00Z"))
         let url = try vault.writeIdentityFile(id, passphrase: "correct horse", workFactor: 15, created: created)
         XCTAssertEqual(url.lastPathComponent, "\(id.recipient.string).key.age")
@@ -43,7 +43,7 @@ final class IdentityFileTests: VaultTestCase {
 
     func testWriterWorkFactorRange() throws {
         let id = X25519Identity()
-        let vault = try makeVault(id)
+        let vault = try makeLegacyVault(id)
         for wf in [1, 14, 19, 22] {
             XCTAssertThrowsError(try vault.writeIdentityFile(id, passphrase: "p", workFactor: wf)) {
                 XCTAssertEqual($0 as? VaultError, .workFactorOutOfRange(wf))
@@ -54,7 +54,7 @@ final class IdentityFileTests: VaultTestCase {
 
     func testWorkFactorAboveCapIsRefused() throws {
         let id = X25519Identity()
-        let vault = try makeVault(id)
+        let vault = try makeLegacyVault(id)
         let url = try vault.writeIdentityFile(id, passphrase: "p", workFactor: 15)
         // Reader with a lower cap.
         XCTAssertThrowsError(try vault.readIdentityFile(recipient: id.recipient, passphrase: "p", maxWorkFactor: 14)) {

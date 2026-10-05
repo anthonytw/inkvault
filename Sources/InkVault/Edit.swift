@@ -54,6 +54,7 @@ extension Vault {
     @discardableResult
     public func apply(_ ops: [Op], to noteId: UUID, deviceState: URL, app: String,
                       wall: Date = Date()) throws -> Revision {
+        try requireMigrated()
         guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
         let loaded = try loadNote(noteId)
         var state = try DeviceState.loadOrCreate(at: deviceState)

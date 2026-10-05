@@ -43,9 +43,9 @@ Unknown files and directories must be ignored, never deleted.
 
 - `recipients[].key`: an age MLKEM768-X25519 recipient (§3.1, Bech32, HRP
   `age1pq`). At least one. Writers MUST NOT create a vault with, or add, an
-  X25519 recipient (HRP `age`). Readers accept X25519 recipients in vaults
-  written before this rule (legacy vaults); writers may only replace or
-  remove them (§3.3.2).
+  X25519 recipient (HRP `age`). A vault that lists any X25519 recipient
+  (alone or next to MLKEM768-X25519 ones) is a **legacy vault**: it may be
+  opened only to migrate it (§3.3.2).
 - `vaultSecret`: 32 random bytes, age-encrypted and armored, to exactly the
   listed recipients. It keys the inner authentication tag (§4) and the blob
   names (§8.1.2), and nothing else. It is rotated whenever a recipient is
@@ -62,7 +62,8 @@ Unknown files and directories must be ignored, never deleted.
 
 An age native identity, exactly as the reference `age-keygen` produces it
 (c2sp.org/age, "Native recipient types"). New keys are always
-MLKEM768-X25519; X25519 identities exist only to open legacy vaults:
+MLKEM768-X25519; X25519 identities exist only to migrate legacy vaults
+(§3.3.2):
 
 - **MLKEM768-X25519** (hybrid post-quantum, `age-keygen -pq`, age v1.3+): a
   32-byte seed, Bech32 with HRP `AGE-SECRET-KEY-PQ-` (77 characters). Its
@@ -176,6 +177,18 @@ not yet rewrapped are encrypted only to the outgoing recipient, so finishing
 it needs an identity of the outgoing key as well as one of the new set.
 
 #### 3.3.2 Migrating legacy X25519 vaults
+
+A vault whose `recipients` include an X25519 key (HRP `age`), alone or next
+to MLKEM768-X25519 keys, is a legacy vault. Implementations MUST NOT read or
+write note content of a legacy vault (decrypt, list, show, search, export,
+edit, import, compact, snapshot, restore, or verify revision files): they
+MUST refuse and direct the user to migrate. They MAY open and unlock it,
+read `vault.json` and the `keys/` files, and perform the migration below
+(including finishing an interrupted one per §3.3.1). The on-disk format of a
+legacy vault is unchanged, so the stock-CLI recovery of §4 still works on
+it; this rule binds implementations, not `age`. Once no X25519 recipient is
+listed the vault is an ordinary vault again (an unfinished rewrap is then
+finished as in §3.3.1).
 
 All files of a vault are quantum-safe only once every recipient is
 MLKEM768-X25519: an `X25519` stanza next to an `mlkem768x25519` one lets a

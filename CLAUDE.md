@@ -198,9 +198,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - Tags match case-insensitively (`NoteOps.tagKey`); titles are never keys.
 - Vaults are post-quantum only: new keys and recipients are MLKEM768-X25519
   (`age1pq1…`); public `Vault` API throws `classicRecipient` for X25519.
-  Legacy X25519 vaults (like the fixture) still open and migrate. Tests
-  that need a legacy vault use the internal X25519 `Vault.create` overload or
-  `Vault.createUnchecked` (`@testable`). Keys are `NativeIdentity` /
+  Legacy vaults (any X25519 recipient, mixed included) are migrate-only:
+  every note-content API calls `requireMigrated()` and throws `legacyVault`;
+  only open/unlock, keys/, add (PQ)/remove/replace/resumeRewrap work. The CLI
+  passes `migration: true` to `openVault` only for those commands (exit 5
+  otherwise); the app shows `MigrationView` only. `Fixtures/sample.*` is
+  post-quantum, `Fixtures/legacy.*` the X25519 migration input. Tests that
+  need a legacy vault use the internal X25519 `Vault.create` overload or
+  `Vault.createUnchecked`, and `allowingLegacyContent()` (`@testable`) to
+  write notes into it. Keys are `NativeIdentity` /
   `NativeRecipient` (Sources/Age/NativeKeys.swift). X-Wing comes from swift-crypto 4 (CryptoKit on Apple 26+,
   BoringSSL on Linux); never implement ML-KEM here. `postQuantumAvailable` is
   false on Apple OSes before 26 or SDKs before Xcode 26, so gate PQ tests

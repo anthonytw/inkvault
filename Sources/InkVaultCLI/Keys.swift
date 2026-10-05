@@ -96,6 +96,7 @@ struct KeysExport: ParsableCommand {
 
     func run() throws {
         let locked = try Vault.open(at: try access.vaultURL())
+        try locked.requireMigrated()
         var wanted: NativeRecipient?
         if let recipient {
             wanted = try parseRecipient(recipient)

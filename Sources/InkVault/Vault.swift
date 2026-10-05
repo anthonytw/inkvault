@@ -21,6 +21,10 @@ public enum VaultError: Error, Hashable, Sendable {
     /// take only post-quantum `age1pq1...` recipients (format.md §3.1);
     /// legacy X25519 recipients can only be replaced or removed.
     case classicRecipient(String)
+    /// The vault still lists a classic X25519 recipient (these keys): a
+    /// legacy vault, which may only be opened to migrate it to post-quantum
+    /// keys (format.md §3.3.2). Note content can be neither read nor written.
+    case legacyVault(recipients: [String])
     /// Only classic X25519 identities were offered to a vault that lists no
     /// X25519 recipient: such a key can never open it (format.md §3.1).
     case classicIdentity
@@ -114,6 +118,9 @@ public struct Vault: Sendable {
     /// Why a pending rewrap journal could not be read when the vault was
     /// opened (nil when there is none, it read fine, or the vault is locked).
     public private(set) var journalProblem: String?
+    /// Test seam (internal): lets tests write and read note content in a
+    /// legacy vault, to build migration inputs. Never set outside tests.
+    var legacyContentAllowed = false
 
     static let manifestName = "vault.json"
     static let keysName = "keys"
@@ -136,6 +143,35 @@ public struct Vault: Sendable {
     /// is known and at least one identity is held. A vault created with
     /// `identities: []` is unlocked (it can write) but cannot read.
     public var canRead: Bool { secret != nil && !identities.isEmpty }
+    /// The classic X25519 recipients (`age1...`) the manifest still lists.
+    public var classicRecipients: [String] {
+        manifest.recipients.map(\.key).filter { (try? NativeRecipient(string: $0))?.isPostQuantum != true }
+    }
+
+    /// True for a legacy vault: one that still lists a classic X25519
+    /// recipient, alone or next to post-quantum ones (format.md §3.3.2). A
+    /// legacy vault may be opened only to migrate it: `addRecipient` (a
+    /// post-quantum key), `removeRecipient`, `replaceRecipient`,
+    /// `resumeRewrap`, identity files and the manifest work; reading or
+    /// writing note content throws `VaultError.legacyVault`.
+    public var isLegacy: Bool { !classicRecipients.isEmpty }
+
+    /// Throws `VaultError.legacyVault` for a legacy vault (`isLegacy`). Every
+    /// operation on note content calls it first; callers (CLI, app) may call
+    /// it to refuse before asking for a key.
+    public func requireMigrated() throws {
+        guard !legacyContentAllowed else { return }
+        let classic = classicRecipients
+        if !classic.isEmpty { throw VaultError.legacyVault(recipients: classic) }
+    }
+
+    /// A copy that may read and write note content even when legacy (tests).
+    func allowingLegacyContent() -> Vault {
+        var v = self
+        v.legacyContentAllowed = true
+        return v
+    }
+
     /// True when a recipient change was interrupted; `resumeRewrap()` (or
     /// repeating the same `addRecipient`/`removeRecipient`) finishes it.
     public var pendingRewrap: Bool { FileIO.exists(journalURL) }

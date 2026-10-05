@@ -37,13 +37,15 @@ enum SampleFixture {
                  wall: at(offset), app: app, body: .delta(ops: ops))
     }
 
-    /// Writes the fixture vault at `url` (which must not exist yet).
+    /// Writes the fixture vault at `url` (which must not exist yet). With a
+    /// post-quantum identity this is `sample.inkvault`; with an X25519 one
+    /// `legacy.inkvault`, a legacy vault (format.md §3.3.2) that only the
+    /// migration tests open (its notes are written through the test seam).
     static func generate(at url: URL, identity: NativeIdentity) throws {
-        // A legacy X25519 vault: the fixture predates post-quantum-only vaults
-        // and doubles as the migration test input (format.md §3.3.2).
         let vault = try Vault.createUnchecked(at: url, recipients: [identity.recipient],
                                               labels: ["InkVault test fixture (throwaway, test-only key)"],
                                               identities: [identity], vaultId: vaultId, created: at(0))
+            .allowingLegacyContent()
         let p1 = id(1), p2 = id(2), q1 = id(3)
         // Lecture: devices A and B, a snapshot by A, then one uncovered delta.
         try vault.write(delta(lecture, devA, 1, 1000, [
@@ -135,26 +137,46 @@ final class FixtureTests: XCTestCase {
         XCTAssertEqual(read.string, identity.string)
     }
 
-    /// Rewrites Fixtures/sample.inkvault in the source tree, reusing
-    /// Fixtures/sample.key (or creating it on first run).
+    /// Rewrites Fixtures/sample.inkvault (post-quantum) and
+    /// Fixtures/legacy.inkvault (X25519) in the source tree, reusing
+    /// sample.key / legacy.key (or creating them on first run).
     func testRegenerateFixture() throws {
         guard ProcessInfo.processInfo.environment["INKVAULT_REGENERATE_FIXTURE"] == "1" else {
             throw XCTSkip("set INKVAULT_REGENERATE_FIXTURE=1 to rewrite the fixture vault")
         }
         let dir = Self.sourceFixtures
-        let keyURL = dir.appendingPathComponent("sample.key")
-        let identity: NativeIdentity
-        if let text = try? String(contentsOf: keyURL, encoding: .utf8) {
-            identity = try IdentityFile.parse(text)
-        } else {
-            identity = .x25519(X25519Identity())
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try ("# TEST-ONLY throwaway identity for Tests/InkVaultTests/Fixtures. Never use it for real notes.\n"
-                + IdentityFile.render(identity, created: SampleFixture.at(0)))
-                .write(to: keyURL, atomically: true, encoding: .utf8)
+        for (name, kind) in [("sample", NativeIdentity.Kind.postQuantum), ("legacy", .x25519)] {
+            let keyURL = dir.appendingPathComponent("\(name).key")
+            let identity: NativeIdentity
+            if let text = try? String(contentsOf: keyURL, encoding: .utf8) {
+                identity = try IdentityFile.parse(text)
+            } else {
+                identity = try NativeIdentity.generate(kind)
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try ("# TEST-ONLY throwaway identity for Tests/InkVaultTests/Fixtures. Never use it for real notes.\n"
+                    + IdentityFile.render(identity, created: SampleFixture.at(0)))
+                    .write(to: keyURL, atomically: true, encoding: .utf8)
+            }
+            let vaultURL = dir.appendingPathComponent("\(name).inkvault")
+            try? FileManager.default.removeItem(at: vaultURL)
+            try SampleFixture.generate(at: vaultURL, identity: identity)
         }
-        let vaultURL = dir.appendingPathComponent("sample.inkvault")
-        try? FileManager.default.removeItem(at: vaultURL)
-        try SampleFixture.generate(at: vaultURL, identity: identity)
+    }
+
+    /// The legacy fixture: an X25519 vault whose notes the library refuses
+    /// until it is migrated, while the stock recovery path still reads them.
+    func testLegacyFixtureIsMigrateOnly() throws {
+        let identity = try IdentityFile.parse(String(contentsOf: Self.bundled("legacy.key"), encoding: .utf8))
+        XCTAssertFalse(identity.isPostQuantum)
+        let vault = try Vault.open(at: Self.bundled("legacy.inkvault"), identities: [identity])
+        XCTAssertTrue(vault.isLegacy)
+        XCTAssertEqual(vault.classicRecipients, [identity.recipient.string])
+        XCTAssertThrowsError(try vault.summaries()) {
+            XCTAssertEqual($0 as? VaultError, .legacyVault(recipients: [identity.recipient.string]))
+        }
+        // Same content as the post-quantum sample, readable through the test seam.
+        let lecture = try vault.allowingLegacyContent().reconstruct(noteId: SampleFixture.lecture)
+        XCTAssertEqual(lecture.meta.title, "Fixture lecture")
+        XCTAssertEqual(try vault.identityFiles(), [identity.recipient])
     }
 }

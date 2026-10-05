@@ -424,10 +424,12 @@ final class CLICommandTests: CLITestCase {
     }
 
     func testRecoverMatchesStockAgePipeline() throws {
-        let ageBinary = ["/opt/homebrew/bin/age", "/usr/local/bin/age", "/usr/bin/age"]
-            + (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { "\($0)/age" }
-        guard let age = ageBinary.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw XCTSkip("age is not on PATH")
+        // The fixture key is post-quantum: stock recovery needs age 1.3 or later.
+        guard let age = CLIPostQuantumTests.agePQ() else {
+            if ProcessInfo.processInfo.environment["INKVAULT_REQUIRE_AGE_PQ"] != nil {
+                XCTFail("INKVAULT_REQUIRE_AGE_PQ set but no age >= 1.3 on PATH")
+            }
+            throw XCTSkip("no age >= 1.3 on PATH")
         }
         let sh = Process()
         sh.executableURL = URL(fileURLWithPath: "/bin/sh")
