@@ -161,4 +161,47 @@ final class UntrustedImportTests: XCTestCase {
         patch(stringRef, string - stringRef)
         return Data(b)
     }
+
+    /// A `shapes` plist whose array references one shape 5 000 times, that
+    /// shape's `strokePath` holding 1 000 cubic segments: 55 KB that
+    /// decoded into 15 M points (240 MB). Decoding is now capped by the
+    /// plist's size.
+    func testSharedShapeReferencesDoNotAmplify() throws {
+        let data = Self.sharedShapesPlist(references: 5000, segments: 1000)
+        XCTAssertLessThan(data.count, 60_000)
+        XCTAssertThrowsError(try NotabilityShapes.curves(data)) { e in
+            guard case ImportError.notability? = e as? ImportError else { return XCTFail("\(e)") }
+        }
+        XCTAssertThrowsError(try NotabilityNote.parse(data: SyntheticNote.package(shapes: data)))
+        // A few references are fine.
+        let few = try NotabilityShapes.curves(Self.sharedShapesPlist(references: 3, segments: 10))
+        XCTAssertEqual(few.curves.count, 3)
+        XCTAssertEqual(few.curves[0].points.count, 31)
+    }
+
+    /// `{shapes: [s, s, …]}` with `s = {strokePath: <move + segments cubics>}`,
+    /// every array entry a 1-byte reference to the same object.
+    static func sharedShapesPlist(references n: Int, segments k: Int) -> Data {
+        var path: [UInt8] = [0x25, 0xB3, 0xE5, 0x48] + (0..<4).map { UInt8((1 + k) >> (8 * $0) & 0xFF) }
+        path += [0] + [UInt8](repeating: 3, count: k)
+        for i in 0..<(1 + 3 * k) {
+            for v in [Double(i % 500), Double(i % 300)] { withUnsafeBytes(of: v.bitPattern.littleEndian) { path += $0 } }
+        }
+        func be(_ v: Int, _ width: Int) -> [UInt8] { (0..<width).reversed().map { UInt8(v >> (8 * $0) & 0xFF) } }
+        let objects: [[UInt8]] = [
+            [0xD1, 1, 2],                                                     // {shapes: array}
+            [0x56] + Array("shapes".utf8),
+            [0xAF, 0x12] + be(n, 4) + [UInt8](repeating: 3, count: n),        // n references to object 3
+            [0xD1, 4, 5],                                                     // {strokePath: data}
+            [0x5A] + Array("strokePath".utf8),
+            [0x4F, 0x12] + be(path.count, 4) + path,
+        ]
+        var out = Array("bplist00".utf8)
+        var offsets: [Int] = []
+        for o in objects { offsets.append(out.count); out += o }
+        let table = out.count
+        for o in offsets { out += be(o, 4) }
+        out += [0, 0, 0, 0, 0, 0, 4, 1] + be(objects.count, 8) + be(0, 8) + be(table, 8)
+        return Data(out)
+    }
 }
