@@ -153,6 +153,9 @@ public struct NotabilityNote: Hashable, Sendable {
     /// Largest accepted coordinate magnitude, document units (about 1000
     /// pages); anything beyond is treated as corrupt.
     public static let maxCoordinate = 1_000_000.0
+    /// Handwriting-index pages beyond this number are ignored (a corrupt key
+    /// must not place recognised words 10¹⁸ pages down).
+    public static let maxRecognizedPage = 100_000
     /// The highlighter value of `curvesstyles`.
     public static let highlighterStyle = 4
     /// The pen value of `curvesstyles`.
@@ -310,6 +313,11 @@ extension NotabilityNote {
         guard xy.count == 2 * total else { throw ImportError.notability("curvespoints holds \(xy.count / 2) points, expected \(total)") }
         let widths = try float32s(data("curveswidth"), "curveswidth")
         guard widths.count == n else { throw ImportError.notability("curveswidth has \(widths.count) entries for \(n) curves") }
+        // A NaN or infinite width would only fail when the note is written
+        // (JSON has no NaN); a huge one is garbage. Reject both here.
+        guard widths.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
+            throw ImportError.notability("curveswidth holds widths beyond ±\(Int(maxCoordinate))")
+        }
         let colors = try data("curvescolors")
         guard colors.count == 4 * n else { throw ImportError.notability("curvescolors has \(colors.count) bytes for \(n) curves") }
         let stylesData = try data("curvesstyles")
@@ -342,6 +350,10 @@ extension NotabilityNote {
         }
         for i in 0..<n where counts[i] <= 1 { isBezier[i] = true }   // nothing to expand
         let nodesTotal = fw.count
+        // Non-finite multipliers fall back to 1 (`BezierToBSpline`); finite ones must be sane.
+        guard fw.allSatisfy({ !$0.isFinite || abs($0) <= maxCoordinate }) else {
+            throw ImportError.notability("curvesfractionalwidths holds values beyond ±\(Int(maxCoordinate))")
+        }
         // Notability coordinates are within a few thousand units per page; reject garbage.
         guard xy.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
             throw ImportError.notability("curvespoints holds coordinates beyond ±\(Int(maxCoordinate))")
@@ -431,10 +443,11 @@ extension NotabilityNote {
         guard case .dict(let root) = try PlistValue.parse(data), case .dict(let pages)? = root["pages"] else { return [:] }
         var out: [Int: RecognizedPage] = [:]
         for (key, value) in pages {
-            guard let number = Int(key), number >= 1, case .dict(let page) = value,
+            guard let number = Int(key), (1...maxRecognizedPage).contains(number), case .dict(let page) = value,
                   let text = page["text"]?.string else { continue }
             var origin = Point(x: 0, y: 0)
-            if case .array(let o)? = page["pageContentOrigin"], o.count == 2, let x = o[0].double, let y = o[1].double {
+            if case .array(let o)? = page["pageContentOrigin"], o.count == 2, let x = o[0].double, let y = o[1].double,
+               x.isFinite, y.isFinite, abs(x) <= maxCoordinate, abs(y) <= maxCoordinate {
                 origin = Point(x: x, y: y)
             }
             let rects = page["characterRects"]?.data ?? Data()
@@ -557,9 +570,10 @@ extension NotabilityNote {
             default: return (.blank, nil)
             }
             guard let v = parts.last.flatMap(Double.init), v.isFinite, v > 0 else { return (kind, nil) }
-            if parts.count == 2 { return (kind, v * legacyScale) }
-            // Newer form: the last field is inches on the physical paper.
-            return (kind, v * width / paperWidthInches(size))
+            // Newer form (four fields): the last field is inches on the physical paper.
+            let spacing = parts.count == 2 ? v * legacyScale : v * width / paperWidthInches(size)
+            // An absurd pitch (or one that overflowed to infinity) draws as the default.
+            return (kind, spacing.isFinite && spacing <= maxCoordinate ? spacing : nil)
         }
         switch lineStyle {
         case 1: return (.ruled, 0.5 * legacyScale)

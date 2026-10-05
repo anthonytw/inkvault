@@ -36,20 +36,38 @@ public struct NotePackage {
         }
         var found: [String] = []
         for case let f as URL in walker {
-            guard (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            // Regular files only: no symlinks (a shared package must not pull
+            // in files from elsewhere), devices or FIFOs.
+            let values = try? f.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values?.isRegularFile == true, values?.isSymbolicLink != true else { continue }
             found.append(f.standardizedFileURL.pathComponents.dropFirst(base.count).joined(separator: "/"))
         }
         paths = found.sorted()
         reader = { path in
-            let url = directory.appendingPathComponent(path)
-            do { return try Data(contentsOf: url) } catch {
-                throw ImportError.io("cannot read \(url.path): \(error.localizedDescription)")
-            }
+            try Self.readFile(directory.appendingPathComponent(path), maxSize: ZipArchive.defaultMaxEntrySize)
         }
     }
 
     /// The bytes of `path`.
     public func read(_ path: String) throws -> Data { try reader(path) }
+
+    /// Reads a whole file, refusing one larger than `maxSize` before
+    /// allocating for it (a file in a shared folder can be any size).
+    static func readFile(_ url: URL, maxSize: UInt64) throws -> Data {
+        do {
+            let h = try FileHandle(forReadingFrom: url)
+            defer { try? h.close() }
+            let data = try h.read(upToCount: Int(min(maxSize, UInt64(Int.max - 1))) + 1) ?? Data()
+            guard UInt64(data.count) <= maxSize else {
+                throw ImportError.io("\(url.path) is larger than the \(maxSize)-byte limit")
+            }
+            return data
+        } catch let e as ImportError {
+            throw e
+        } catch {
+            throw ImportError.io("cannot read \(url.path): \(error.localizedDescription)")
+        }
+    }
 
     /// True when the package holds `path`.
     public func contains(_ path: String) -> Bool { paths.contains(path) }

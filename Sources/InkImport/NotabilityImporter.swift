@@ -388,7 +388,7 @@ public enum NotabilityImporter {
         func source(_ f: URL, notebook: String?) -> Source {
             let dir = isDirectory(f)
             return Source(label: f.path, notebook: notebook,
-                          load: { dir ? try NotePackage(directory: f) : try NotePackage(data: readFile(f)) })
+                          load: { dir ? try NotePackage(directory: f) : NotePackage(zip: try ZipArchive(url: f)) })
         }
         guard FileManager.default.fileExists(atPath: url.path) else { throw ImportError.io("no such file: \(url.path)") }
         if url.pathExtension.lowercased() == "note" {
@@ -430,11 +430,5 @@ public enum NotabilityImporter {
 
     private static func join(_ comps: [String]) -> String? {
         comps.isEmpty ? nil : comps.joined(separator: "/")
-    }
-
-    private static func readFile(_ url: URL) throws -> Data {
-        do { return try Data(contentsOf: url) } catch {
-            throw ImportError.io("cannot read \(url.path): \(error.localizedDescription)")
-        }
     }
 }
