@@ -3,6 +3,14 @@ import Foundation
 import InkVault
 import Observation
 
+/// How the note list is ordered.
+enum NoteSort: String, CaseIterable, Identifiable, Sendable {
+    case modified = "Date Modified"
+    case title = "Title"
+
+    var id: String { rawValue }
+}
+
 /// What the sidebar has selected; filters the note list.
 enum SidebarItem: Hashable, Sendable {
     case allNotes
@@ -31,6 +39,7 @@ final class AppModel {
         case notAnIdentity
         case noStoredKeys
         case passphraseMatchesNoKey
+        case noteNotFound
 
         var description: String {
             switch self {
@@ -38,6 +47,7 @@ final class AppModel {
             case .notAnIdentity: return "That text holds no AGE-SECRET-KEY-1… identity."
             case .noStoredKeys: return "This vault has no passphrase-protected key file."
             case .passphraseMatchesNoKey: return "The passphrase opens none of this vault's key files."
+            case .noteNotFound: return "That note is no longer in the vault."
             }
         }
     }
@@ -46,7 +56,7 @@ final class AppModel {
     /// The open vault's folder.
     private(set) var vaultURL: URL?
     /// Every note in the vault, deleted ones included, sorted by title.
-    private(set) var notes: [NoteSummary] = []
+    var notes: [NoteSummary] = []
     /// True while vault I/O is in flight.
     private(set) var isBusy = false
     /// The last error, as a sentence for an alert; cleared by the view.
@@ -54,21 +64,39 @@ final class AppModel {
 
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
+    /// Filters the note list by title (recognised-text search is task 3f).
+    var searchText = ""
+    var sortOrder = NoteSort.modified
+    /// True while an edit is being written.
+    var isEditing = false
+    /// Serialises edits (`commit`).
+    let editGate = EditGate()
+    /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
+    var cloudProgress: CloudProgress?
+    /// True when the open vault is in iCloud Drive: reads and writes are
+    /// coordinated and reloads fetch new files first.
+    var isCloudVault = false
+    var cloudTask: Task<Bool, any Error>?
 
+
+    /// Where this install keeps its device id and hybrid clock.
+    let deviceStateURL: URL
     /// The note open on the canvas, if any (`openEditor(for:)`).
     private(set) var editor: NoteEditor?
 
-    private var vault: Vault?
+    private(set) var vault: Vault?
     private var scopedURL: URL?
-    /// Bumped by `close()` and `openVault`: async work started under an older
-    /// generation must not publish its result (the vault it read is gone).
-    private var generation = 0
+    /// Bumped by `close()` (and so by every `openVault`): async work started
+    /// under an older generation must not publish its result (the vault it
+    /// read is gone).
+    private(set) var generation = 0
     /// The save of the editor `close()` dropped; awaited before any note is
     /// opened again, so a reopened note is read after its last delta landed.
     private var closingEditor: Task<Void, Never>?
-    /// This installation's device id and clock, created on first write access.
+    /// This installation's device id and clock, created on first write
+    /// access. Every write (canvas autosave and browser edits) ticks this one
+    /// clock, so the state file has a single writer.
     private var deviceClock: DeviceClock?
-    private let deviceStateURL: URL
     private let editorDebounce: Duration
     /// Test seam: awaited after each piece of off-main vault work.
     private let afterIO: (@Sendable () async -> Void)?
@@ -87,9 +115,15 @@ final class AppModel {
         vaultURL.map { $0.deletingPathExtension().lastPathComponent }
     }
 
-    /// Notebook names in use by live notes, sorted.
+    /// The notebook hierarchy of live notes (names are `/`-separated paths,
+    /// format.md §5.4).
+    var notebookTree: [NotebookNode] {
+        NotebookNode.tree(notes.filter { !$0.deleted }.map(\.notebook))
+    }
+
+    /// Every notebook path in use by live notes, parents included, in tree order.
     var notebooks: [String] {
-        Set(notes.filter { !$0.deleted }.compactMap(\.notebook)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        NotebookNode.flatten(notebookTree)
     }
 
     /// Tags in use by live notes, sorted.
@@ -97,13 +131,36 @@ final class AppModel {
         Set(notes.filter { !$0.deleted }.flatMap(\.tags)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    /// The note list for the current sidebar selection.
+    /// The note list for the current sidebar selection, title search and sort order.
     var visibleNotes: [NoteSummary] {
+        let inSelection: [NoteSummary]
         switch sidebarSelection ?? .allNotes {
-        case .allNotes: return notes.filter { !$0.deleted }
-        case .notebook(let n): return notes.filter { !$0.deleted && $0.notebook == n }
-        case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains(t) }
-        case .deleted: return notes.filter(\.deleted)
+        case .allNotes: inSelection = notes.filter { !$0.deleted }
+        case .notebook(let n): inSelection = notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
+        case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains(t) }
+        case .deleted: inSelection = notes.filter(\.deleted)
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = query.isEmpty ? inSelection : inSelection.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        return Self.sorted(matching, by: sortOrder)
+    }
+
+    static func sorted(_ list: [NoteSummary], by order: NoteSort) -> [NoteSummary] {
+        switch order {
+        case .title:
+            return list.sorted {
+                let c = $0.title.localizedStandardCompare($1.title)
+                return c == .orderedSame ? $0.id.uuidString < $1.id.uuidString : c == .orderedAscending
+            }
+        case .modified:
+            return list.sorted {
+                switch ($0.modified, $1.modified) {
+                case let (a?, b?) where a != b: return a > b
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: return $0.id.uuidString < $1.id.uuidString
+                }
+            }
         }
     }
 
@@ -115,15 +172,19 @@ final class AppModel {
 
     /// Opens the vault at `url` by name only (no key yet). Starts
     /// security-scoped access for URLs from the document picker and keeps
-    /// it until the vault is closed.
+    /// it until the vault is closed. A vault in iCloud Drive is downloaded
+    /// first (`fetchFromICloud`).
     func openVault(at url: URL) async throws {
         close()
         let gen = generation
         let scoped = url.startAccessingSecurityScopedResource()
         do {
-            let opened = try await offMain { try Vault.open(at: url) }
+            let cloud = try await fetchFromICloud(url)
+            try ensureCurrent(gen)
+            let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             try ensureCurrent(gen)
             if scoped { scopedURL = url }
+            isCloudVault = cloud
             vault = opened
             vaultURL = url
             phase = .locked
@@ -143,7 +204,10 @@ final class AppModel {
     func unlock(with identities: [any AgeIdentity]) async throws {
         guard let url = vaultURL else { throw ModelError.noVaultOpen }
         let gen = generation
-        let opened = try await offMain { try Vault.open(at: url, identities: identities) }
+        let coordinate = coordinationURL
+        let opened = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities) }
+        }
         try ensureCurrent(gen)
         vault = opened
         phase = .unlocked
@@ -163,35 +227,47 @@ final class AppModel {
     func unlock(passphrase: String) async throws {
         guard let locked = vault else { throw ModelError.noVaultOpen }
         let gen = generation
+        let coordinate = coordinationURL
         let identity: X25519Identity = try await offMain {
-            let stored = try locked.identityFiles()
-            guard !stored.isEmpty else { throw ModelError.noStoredKeys }
-            for recipient in stored {
-                do { return try locked.readIdentityFile(recipient: recipient, passphrase: passphrase) } catch VaultError.wrongPassphrase {
-                    continue
+            try CloudVault.coordinatedRead(coordinate) { () throws -> X25519Identity in
+                let stored = try locked.identityFiles()
+                guard !stored.isEmpty else { throw ModelError.noStoredKeys }
+                for recipient in stored {
+                    do { return try locked.readIdentityFile(recipient: recipient, passphrase: passphrase) } catch VaultError.wrongPassphrase {
+                        continue
+                    }
                 }
+                throw ModelError.passphraseMatchesNoKey
             }
-            throw ModelError.passphraseMatchesNoKey
         }
         try ensureCurrent(gen)
         try await unlock(with: [identity])
     }
 
-    /// Re-reads every note summary from disk.
+    /// Re-reads every note summary from disk (after fetching new files when
+    /// the vault is in iCloud Drive).
     func reload() async throws {
         guard let vault else { throw ModelError.noVaultOpen }
         let gen = generation
         isBusy = true
         defer { if gen == generation { isBusy = false } }
-        let loaded = try await offMain { try vault.summaries() }
+        if isCloudVault {
+            _ = try await fetchFromICloud(vault.url)
+            try ensureCurrent(gen)
+        }
+        let coordinate = coordinationURL
+        let loaded = try await offMain { try CloudVault.coordinatedRead(coordinate) { try vault.summaries() } }
         try ensureCurrent(gen)
         notes = loaded
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
     }
 
+    // MARK: - Editor
+
     /// Opens `noteID` on the canvas (nil closes it). The previous note is
     /// saved first. Needs an unlocked vault; the device clock is created on
-    /// first use.
+    /// first use. In iCloud Drive the note is read, and its deltas written,
+    /// under file coordination.
     func openEditor(for noteID: UUID?) async throws {
         guard editor?.noteID != noteID || noteID == nil else { return }
         let gen = generation
@@ -203,7 +279,8 @@ final class AppModel {
         guard let noteID else { return }
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
         let clock = try deviceClockForWriting()
-        let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce)
+        let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
+                                               coordinated: isCloudVault)
         await afterIO?()
         try ensureCurrent(gen)
         guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
@@ -213,25 +290,43 @@ final class AppModel {
         if let stale { Task { await stale.close() } }
     }
 
-    private func deviceClockForWriting() throws -> DeviceClock {
+    /// Reloads the open editor when it shows `id` (after a browser edit that
+    /// changes whether it may be edited, e.g. delete or restore). Pending
+    /// canvas changes are saved first.
+    func reopenEditor(ifShowing id: UUID) async throws {
+        guard editor?.noteID == id else { return }
+        try await openEditor(for: nil)
+        try await openEditor(for: id)
+    }
+
+    func deviceClockForWriting() throws -> DeviceClock {
         if let deviceClock { return deviceClock }
         let clock = try DeviceClock(url: deviceStateURL)
         deviceClock = clock
         return clock
     }
 
-    /// Forgets the vault (and its keys) and releases folder access, after the
-    /// open note's pending changes are saved.
+    // MARK: - Closing
+
+    /// Forgets the vault (and its keys). Folder access ends once the open
+    /// note's pending changes and any edit already being written are saved.
     func close() {
         generation += 1
+        cancelCloudDownload()
+        isCloudVault = false
+        isBusy = false
         let editor = self.editor
         let scoped = scopedURL
         self.editor = nil
         if editor != nil || scoped != nil {
             let earlier = closingEditor
+            let gate = editGate
             closingEditor = Task {
                 await earlier?.value
                 await editor?.close()
+                // A browser edit already writing (`commit`) finishes first.
+                await gate.acquire()
+                gate.release()
                 scoped?.stopAccessingSecurityScopedResource()
             }
         }
@@ -240,6 +335,7 @@ final class AppModel {
         vaultURL = nil
         notes = []
         selectedNoteID = nil
+        searchText = ""
         sidebarSelection = .allNotes
         phase = .noVault
     }
@@ -251,12 +347,12 @@ final class AppModel {
 
     /// Throws `CancellationError` when `close()` or another `openVault` ran
     /// since `gen` was taken, so a late result cannot resurrect a closed vault.
-    private func ensureCurrent(_ gen: Int) throws {
+    func ensureCurrent(_ gen: Int) throws {
         guard gen == generation else { throw CancellationError() }
     }
 
     /// Runs blocking vault work (file I/O, decryption) on a background thread.
-    private func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+    func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         let value = try await Task.detached(priority: .userInitiated) { try work() }.value
         await afterIO?()
         return value

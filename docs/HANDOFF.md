@@ -107,9 +107,39 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
      simulator, or `scripts/app.sh test` / `scripts/app.sh catalyst`
      (CI job `app`). The folder picker does not persist access yet: 3b adds
      bookmarks, iCloud, vault creation and a real sidebar.
-   - 3b Vault browser: create/open vault (on device, iCloud Drive via
-     ubiquity container, any Files-app folder via security-scoped
-     bookmark), notebook/tag sidebar, note list from `Vault.summaries()`.
+   - 3b **done** (branch `feat/app-vault-browser`): vault browser.
+     `VaultLibrary` (recent vaults as bookmarks in
+     `Application Support/InkVault/recents.json`, vault creation, folder-name
+     validation), welcome screen (recents, vaults in the app's Documents folder,
+     New Vault, Open Folder), `NewVaultView` (name, "On This Device" or any
+     picked folder, generate an X25519 key or paste an `age1…` recipient,
+     optional passphrase-wrapped copy in `keys/`; a generated key is shown once
+     with copy/share), reopen of the last vault on launch, stale bookmarks
+     re-saved, dead ones dropped with a message and the folder picker. Sidebar:
+     rename notebook (applies to every note in it, deleted ones too). Note list:
+     title search, sort (modified/title), new note (title, paper, notebook),
+     context menu / swipe: add/remove tag, move to notebook, delete, restore.
+     Every edit is one delta through `NoteWriter.append` with the same
+     `DeviceClock` as the canvas (device id and clock in
+     `Application Support/InkVault/device.json`; `Vault.apply` in
+     `Edit.swift` stays for the CLI), the app writes no vault file itself. Tests: `BrowserTests` (app), `EditTests` (package).
+     Leftovers: iCloud Drive works only through the picker (a folder inside
+     iCloud Drive; the ubiquity container needs the iCloud entitlement
+     `com.apple.developer.icloud-container-identifiers` +
+     `com.apple.developer.ubiquity-container-identifiers` and a paid team, so
+     `url(forUbiquityContainerIdentifier:)` is not used); evicted iCloud
+     files are downloaded before reading and on every reload, with progress
+     and cancel (`CloudVault.swift`, `docs/io.md` "iCloud Drive"; untested
+     against real iCloud in CI, the simulator has none). Notebooks are a
+     tree of `/`-separated paths (`format.md` §5.4, `Notebooks.swift`):
+     selecting a folder shows its sub-folders' notes, rename/move rewrites
+     the prefix of every descendant. Bookmarks on
+     Catalyst use plain options (`.withSecurityScope` is not in the Catalyst
+     SDK) and are untested on a sandboxed Mac build; the "On This Device"
+     folder is not exposed in Files (needs `UIFileSharingEnabled` /
+     `LSSupportsOpeningDocumentsInPlace`); vaults cannot be deleted or renamed;
+     the new-vault key is not stored in the Keychain (3d); the empty notebook
+     does not exist without a note (notebook is a note field).
    - 3c **done** (branch `feat/app-canvas`): `NoteCanvasView` shows one page
      at a time (`PageCanvasView`: `PKCanvasView` + system `PKToolPicker`,
      `PaperView` vector ruling from `InkRender.PaperRenderer` under it, fit
@@ -134,6 +164,14 @@ agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
      changes arriving while a note is open are not merged into the canvas
      until it is reopened; no page delete/reorder; the app never writes
      snapshots; `reed` ink is stored as `fountainPen`.
+   - 3b + 3c merge (#15 onto #17): the generation token also guards the
+     iCloud download wait, browser edits (`refresh`), `createVault` (a vault
+     created while another was opened is returned with its key, not opened)
+     and the unlock after it; `close()` releases folder access only after the
+     editor's last save and any browser edit in flight; the canvas reads and
+     writes under `NSFileCoordinator` in iCloud Drive (`NoteEditor.open(...,
+     coordinated:)`, `NoteWriter`); deleting or restoring the open note
+     reopens it (read-only / editable).
    - 3d Keys: generate on device, import by paste/QR scan/AirDrop (`.key`
      file UTType), export (QR, share sheet), Keychain storage behind
      Face ID, passphrase-wrapped key file option; add second recipient

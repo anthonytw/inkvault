@@ -49,15 +49,20 @@ actor DeviceClock {
 
 /// Appends one note's deltas: picks `seq`, stamps the clock, writes the
 /// revision (format.md §5). Vault I/O runs on this actor, off the main actor.
+/// In iCloud Drive (`coordinated`) each write is a coordinated write on the
+/// note's folder, so iCloud uploads it (`CloudVault`).
 actor NoteWriter {
     let vault: Vault
     let noteID: UUID
     let clock: DeviceClock
     let app: String
+    let coordinated: Bool
     private var nextSeq: Int
 
-    init(vault: Vault, noteID: UUID, clock: DeviceClock, nextSeq: Int, app: String = NoteWriter.appName) {
+    init(vault: Vault, noteID: UUID, clock: DeviceClock, nextSeq: Int, app: String = NoteWriter.appName,
+         coordinated: Bool = false) {
         self.vault = vault; self.noteID = noteID; self.clock = clock; self.nextSeq = nextSeq; self.app = app
+        self.coordinated = coordinated
     }
 
     /// `inkvault-ios/<version>` (format.md §5.1 `app`).
@@ -66,14 +71,47 @@ actor NoteWriter {
         return "inkvault-ios/\(v)"
     }
 
+    /// The note's folder, coordinated on for writes; nil outside iCloud Drive.
+    private var coordinationURL: URL? {
+        guard coordinated else { return nil }
+        return vault.url.appendingPathComponent("notes", isDirectory: true)
+            .appendingPathComponent(noteID.uuidString.lowercased(), isDirectory: true)
+    }
+
+    /// Writes one delta of `ops` to a note that is not loaded (the browser's
+    /// edits): the clock first observes every readable revision of the note,
+    /// so these ops win last-writer-wins races against what is already there.
+    /// Creates the note when it has no revisions yet.
+    @discardableResult
+    static func append(_ ops: [Op], to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
+                       coordinated: Bool = false) async throws -> RevisionName {
+        let device = clock.device
+        let (readings, seq) = try await Task.detached(priority: .userInitiated) {
+            try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { () throws -> ([HLC], Int) in
+                let loaded = try vault.loadNote(noteID)
+                let seq = loaded.failures.isEmpty
+                    ? Vault.nextSeq(from: loaded.revisions, device: device)
+                    : try vault.nextSeq(noteId: noteID, device: device)
+                return (loaded.revisions.map(\.hlc), seq)
+            }
+        }.value
+        await clock.observe(readings)
+        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
+        return try await writer.write(ops)
+    }
+
     /// Writes one delta holding `ops`. A `seq` already taken (another window
-    /// of this app wrote to the note) is re-read from disk and the write retried once.
+    /// of this app, or a browser edit, wrote to the note) is re-read from disk
+    /// and the write retried once.
     @discardableResult
     func write(_ ops: [Op]) async throws -> RevisionName {
         do {
             return try await attempt(ops)
         } catch VaultError.seqInUse {
-            nextSeq = try vault.nextSeq(noteId: noteID, device: clock.device)
+            let vault = self.vault, noteID = self.noteID, device = clock.device
+            nextSeq = try CloudVault.coordinatedRead(coordinated ? vault.url : nil) {
+                try vault.nextSeq(noteId: noteID, device: device)
+            }
             return try await attempt(ops)
         }
     }
@@ -82,7 +120,7 @@ actor NoteWriter {
         let hlc = try await clock.tick()
         let rev = Revision(noteId: noteID, device: clock.device, seq: nextSeq, hlc: hlc, wall: Date(), app: app,
                            body: .delta(ops: ops))
-        try vault.write(rev)
+        try CloudVault.coordinatedWrite(coordinationURL) { try vault.write(rev) }
         nextSeq += 1
         return rev.name
     }

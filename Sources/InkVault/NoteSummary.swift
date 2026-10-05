@@ -24,6 +24,12 @@ public struct NoteSummary: Hashable, Sendable {
     /// Number of pages with recognised handwriting text.
     public var recognizedPages: Int = 0
 
+    public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
+                strokes: Int, modified: Date?, problem: String?) {
+        self.id = id; self.title = title; self.tags = tags; self.notebook = notebook; self.deleted = deleted
+        self.pages = pages; self.strokes = strokes; self.modified = modified; self.problem = problem
+    }
+
     /// Why a query matched no single note.
     public enum LookupError: Error, Hashable, Sendable {
         case notFound(String)
