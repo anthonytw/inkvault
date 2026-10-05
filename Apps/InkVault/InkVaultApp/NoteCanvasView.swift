@@ -84,6 +84,7 @@ private struct EditorView: View {
     let editor: NoteEditor
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
+    @State private var choosingPaper = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,7 +95,7 @@ private struct EditorView: View {
                 Banner(text: error, systemImage: "exclamationmark.triangle", tint: .orange)
             }
             if let page = editor.currentPage {
-                PageCanvasView(editor: editor, pageID: page.id, paper: editor.meta.paper, pageSize: editor.pageSize,
+                PageCanvasView(editor: editor, pageID: page.id, paper: editor.displayedPaper(of: page), pageSize: editor.pageSize,
                                paletteVisible: paletteVisible, paletteCompact: paletteCompact)
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
@@ -109,8 +110,20 @@ private struct EditorView: View {
                 }
             }
         }
+        .sheet(isPresented: $choosingPaper) {
+            if let page = editor.currentPage {
+                PaperPickerView(paper: editor.displayedPaper(of: page),
+                                purpose: .page(number: editor.pageIndex + 1, count: editor.pages.count),
+                                onPreview: { editor.showPaperPreview($0) },
+                                onChoose: { paper, choice in editor.setPaper(paper, allPages: choice == .allPages) })
+            }
+        }
         .toolbar {
             if !editor.isReadOnly {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button("Paper…", systemImage: "square.grid.3x3") { choosingPaper = true }
+                        .disabled(editor.currentPage == nil)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     // Tap: show or hide the palette. Press and hold: compact palette.
                     Menu {

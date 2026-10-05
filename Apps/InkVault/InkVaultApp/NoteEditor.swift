@@ -16,6 +16,8 @@ final class NoteEditor {
     private(set) var meta: NoteMeta
     /// Live page size; an infinite page grows here and is saved with the next delta.
     private(set) var pageSize: PageSize
+    /// Paper being previewed by the paper picker (not saved); nil when none.
+    private(set) var previewPaper: Paper?
     /// Index into `pages` of the page on the canvas.
     private(set) var pageIndex = 0
     /// Why the note cannot be edited, if it cannot.
@@ -30,7 +32,7 @@ final class NoteEditor {
 
     @ObservationIgnored private var ledgers: [UUID: StrokeLedger] = [:]
     @ObservationIgnored private var committedPageSize: PageSize
-    /// Page additions not yet written (written before any stroke ops).
+    /// Page additions and paper changes not yet written (written before any stroke ops).
     @ObservationIgnored private var pendingPageOps: [Op] = []
     @ObservationIgnored private let writer: NoteWriter?
     @ObservationIgnored private let debounce: Duration
@@ -110,6 +112,36 @@ final class NoteEditor {
         guard pages.indices.contains(index), index != pageIndex else { return }
         pageIndex = index
         Task { await flush() }
+    }
+
+    /// The paper to draw under `page`: the picker's preview while one is
+    /// open, else the page's own paper, else the note's.
+    func displayedPaper(of page: Page) -> Paper {
+        previewPaper ?? page.paper ?? meta.paper
+    }
+
+    /// Shows `paper` under the canvas without saving it; nil ends the preview.
+    func showPaperPreview(_ paper: Paper?) {
+        previewPaper = paper?.validated()
+    }
+
+    /// Sets the paper of the current page, or of the whole note (every page),
+    /// at once on screen; saved with the next delta (`NoteOps.setPaper`).
+    func setPaper(_ paper: Paper, allPages: Bool) {
+        previewPaper = nil
+        guard !isReadOnly, let page = currentPage else { return }
+        let ops = NoteOps.setPaper(paper, scope: allPages ? .allPages : .page(page.id), note: meta, pages: pages)
+        guard !ops.isEmpty else { return }
+        for op in ops {
+            switch op {
+            case .setMeta(.paper(let p)): meta.paper = p
+            case .setPagePaper(let id, let p):
+                if let i = pages.firstIndex(where: { $0.id == id }) { pages[i].paper = p }
+            default: break
+            }
+        }
+        pendingPageOps += ops
+        scheduleSave()
     }
 
     /// Appends a blank page and shows it; saved with the next delta.

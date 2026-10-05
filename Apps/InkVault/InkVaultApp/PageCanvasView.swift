@@ -219,7 +219,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         var height = CGFloat(pageSize.height)
         if pageSize.infinite, fittedWidth > 0 { height = max(height, bounds.height / fittedWidth) }
         let size = CGSize(width: CGFloat(pageSize.width), height: height)
-        paperView.configure(paper: paper, size: size)
+        paperView.configure(paper: paper, size: size, sheetHeight: PaperRenderer.sheetHeight(for: pageSize))
         paperView.setZoom(z)
         canvas.contentSize = CGSize(width: size.width * z, height: size.height * z)
     }
