@@ -81,14 +81,20 @@ actor NoteWriter {
     /// Writes one delta of `ops` to a note that is not loaded (the browser's
     /// edits): the clock first observes every readable revision of the note,
     /// so these ops win last-writer-wins races against what is already there.
-    /// Creates the note when it has no revisions yet.
+    /// Creates the note when it has no revisions yet. `verify` runs inside
+    /// that read, before and after the note is loaded, and throws to refuse a
+    /// note whose files are not all local (`CloudVault.requireLocal`): `seq`
+    /// and the clock must never come from a partial log.
     @discardableResult
     static func append(_ ops: [Op], to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
-                       coordinated: Bool = false) async throws -> RevisionName {
+                       coordinated: Bool = false,
+                       verify: (@Sendable () throws -> Void)? = nil) async throws -> RevisionName {
         let device = clock.device
         let (readings, seq) = try await Task.detached(priority: .userInitiated) {
             try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { () throws -> ([HLC], Int) in
+                try verify?()
                 let loaded = try vault.loadNote(noteID)
+                try verify?()
                 let seq = loaded.failures.isEmpty
                     ? Vault.nextSeq(from: loaded.revisions, device: device)
                     : try vault.nextSeq(noteId: noteID, device: device)

@@ -181,7 +181,9 @@ extension AppModel {
     /// clock; in iCloud Drive each is a coordinated write on its note's folder.
     /// Callers that compute ops from a note's summary make the note local
     /// first (`downloadNote`), so a placeholder's empty summary is never
-    /// written back over the real one.
+    /// written back over the real one; in iCloud Drive each append re-checks
+    /// inside its coordinated read that the note is still all local
+    /// (`CloudVault.requireLocal`) and refuses to write otherwise.
     private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
         await editGate.acquire()
         defer { editGate.release() }
@@ -192,9 +194,19 @@ extension AppModel {
         defer { isEditing = false }
         let batch = edits
         let cloud = isCloudVault
+        let hooks = cloudHooks
         do {
             for edit in batch {
-                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud)
+                // iCloud: every revision file must still be local when the delta's
+                // seq is picked (a file can be evicted, or a new one listed, after
+                // `downloadNote`; a notebook rename does not download at all).
+                var verify: (@Sendable () throws -> Void)?
+                if cloud {
+                    let id = edit.id, url = vault.url
+                    verify = { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
+                }
+                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud,
+                                            verify: verify)
             }
         } catch {
             try? await refresh(batch.map(\.id))   // some deltas may have landed

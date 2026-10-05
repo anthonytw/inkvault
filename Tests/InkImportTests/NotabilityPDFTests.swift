@@ -54,6 +54,24 @@ final class NotabilityPDFTests: XCTestCase {
         return out
     }
 
+    /// Thumbnails round the page height down to whole pixels (letter at 576
+    /// px: 745.4 → 744), which made the stride of letter PDF pages 739 instead
+    /// of 741 on a 572-wide note (and 926 instead of 928 at 716.8), drifting
+    /// two units per page against Notability's own PDF export. A standard
+    /// aspect within two thumbnail pixels is used instead.
+    func testThumbnailAspectSnapsToLetter() throws {
+        let thumbs = [("thumb.png", 48, 62), ("thumb8x.png", 384, 496), ("thumb12x.png", 576, 744)]
+        let files = SyntheticNote.files(pdfPages: 3, thumbnails: thumbs).map { path, data in
+            ZipWriter.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: "572.0:Mac") : data)
+        }
+        XCTAssertEqual(try NotabilityNote.parse(data: ZipWriter.write(files)).paper.pageHeight, 741, accuracy: 1e-9)
+        let ipad = try NotabilityNote.parse(data: SyntheticNote.package(pdfPages: 3, thumbnails: thumbs))
+        XCTAssertEqual(ipad.paper.pageHeight, 928, accuracy: 1e-9)
+        // An aspect no standard size is near stays as measured.
+        XCTAssertEqual(NotabilityNote.snapAspect(1.2, thumbnailWidth: 384), 1.2)
+        XCTAssertEqual(NotabilityNote.snapAspect(744.0 / 576, thumbnailWidth: 576), 11 / 8.5)
+    }
+
     func testLargestThumbnailGivesTheAspect() throws {
         // thumb.png rounds 576 × 432 down to 48 × 37; the 12× thumbnail is exact.
         let note = try NotabilityNote.parse(data: SyntheticNote.package(

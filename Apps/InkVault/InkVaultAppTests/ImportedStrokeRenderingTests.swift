@@ -14,8 +14,10 @@ import UIKit
 struct ImportedStrokeRenderingTests {
     // MARK: - Synthetic strokes shaped like the importer's output
 
-    /// Notability's 716.8-unit page scaled to 612 pt, with its 18.8-unit x inset.
+    /// Notability's 716.8-unit page scaled to 612 pt.
     static let k = 612 / 716.8
+    /// Notability's x inset on that page: `W / 38.4` (`NotabilityNote.horizontalInsetFraction`).
+    static let inset = 716.8 / 38.4
 
     /// Rounds a point as a writer does (format.md §5.6).
     static func rounded(_ p: StrokePoint) -> StrokePoint {
@@ -32,7 +34,7 @@ struct ImportedStrokeRenderingTests {
         let fw = [0.75, 0.9, 1.0, 0.85, 0.7, 0.95]
         let points = (0..<n).map { i -> StrokePoint in
             let u = Double(i) / 16 * 2 * .pi
-            let px = (x + 18.8 + Double(i) * 1.1 + 4 * cos(u)) * k
+            let px = (x + inset + Double(i) * 1.1 + 4 * cos(u)) * k
             let py = (y + 9 * sin(u) + 3 * sin(u / 2)) * k
             let w = base * k * fw[(i / 4) % fw.count]
             return rounded(StrokePoint(x: px, y: py, t: Double(i) / 120, w: w, h: w, o: 1, f: 0, az: 0, al: .pi / 2))

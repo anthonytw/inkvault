@@ -10,7 +10,7 @@ import Foundation
 /// passing until nothing is pending (`AppModel.startCloudSync`).
 enum ProgressiveLoad {
     /// How many pending notes have their downloads requested at once.
-    static let defaultWindow = 6
+    static let defaultWindow = 16
 
     struct Pass: Equatable, Sendable {
         /// Every note directory found, in listing order.
@@ -21,6 +21,13 @@ enum ProgressiveLoad {
         var pending: [UUID] = []
         /// Notes iCloud reported an error for, with the reason (also in `pending`).
         var failures: [UUID: String] = [:]
+        /// Notes whose folder lists no revision file at all (also in `pending`):
+        /// iCloud has not listed its contents yet. A note always has at least
+        /// one revision, so an empty folder is never an empty note.
+        var unlisted: [UUID] = []
+        /// Revision files listed, and how many of them are local.
+        var files = 0
+        var localFiles = 0
     }
 
     /// One pass over the vault at `root`. Requests downloads (idempotent) for
@@ -38,14 +45,22 @@ enum ProgressiveLoad {
             pass.all.append(id)
             var missing: [CloudScan.Item] = []
             var stale: [CloudScan.Item] = []
+            pass.files += group.items.count
+            if group.items.isEmpty {
+                // Not listed yet: ask for the folder itself, which makes iCloud
+                // list (and fetch) what is in it.
+                pass.unlisted.append(id)
+                missing.append(CloudScan.Item(url: group.url, placeholder: false))
+            }
             for item in group.items {
                 switch hooks.state(item) {
                 case .missing: missing.append(item)
                 case .stale: stale.append(item)
                 case .failed(let reason): missing.append(item); pass.failures[id] = reason
-                case .current, .gone: break
+                case .current, .gone: pass.localFiles += 1
                 }
             }
+            pass.localFiles += stale.count
             if missing.isEmpty { pass.ready.append(id) } else {
                 pass.pending.append(id)
                 pendingItems[id] = missing
