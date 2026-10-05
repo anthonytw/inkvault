@@ -532,7 +532,8 @@ def categorize(row: dict, flags: list[str]) -> str:
     pdf = row.get("pdf") or {}
     if any(f.startswith("pdf-") for f in failing):
         bad = [p for p in pdf.get("pages", []) if not p.get("empty")
-               and (p.get("f1", 0) < PDF_F1 or (p.get("chamfer") or 0) > PDF_CHAMFER_PT)]
+               and (p.get("f1", 0) < PDF_F1 or (p.get("chamfer") or 0) > PDF_CHAMFER_PT
+                    or not PDF_RATIO[0] <= p.get("ratio", 0) <= PDF_RATIO[1])]
         if pdf.get("mixedPageSizes"):
             return "format limit: paper pages inserted in a PDF note (one breakHeight; ink placed right)"
         if bad and all(max(p.get("inkA", 0), p.get("inkB", 0)) < 64 for p in bad):
