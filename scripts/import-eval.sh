@@ -2,9 +2,11 @@
 # Notability import fidelity evaluation (docs/import-notability.md,
 # "Fidelity evaluation"). macOS with Xcode, an iPadOS 26+ simulator and uv.
 #
-#   scripts/import-eval.sh BACKUP.zip [OUT_DIR]
+#   scripts/import-eval.sh [--out OUT_DIR] BACKUP.zip [BACKUP-2.zip ...]
+#   scripts/import-eval.sh BACKUP.zip OUT_DIR        (older form: one input)
 #
-# OUT_DIR (default data/eval) must be git-ignored: everything written there is
+# Pass every part of a backup Drive split into several zips. OUT_DIR (default
+# data/eval) must be git-ignored: everything written there is
 # derived from personal notes. Writes OUT_DIR/report.html, OUT_DIR/summary.json
 # and OUT_DIR/img/; the scratch vault, its key and the per-band images live in
 # OUT_DIR/work and are deleted at the end unless INKVAULT_EVAL_KEEP=1.
@@ -17,12 +19,28 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [[ $# -lt 1 || ! -e "$1" ]]; then
-  echo "usage: $0 BACKUP.zip|NOTES_DIR [OUT_DIR]" >&2
+out="data/eval"
+inputs=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out) out="$2"; shift 2 ;;
+    *) inputs+=("$1"); shift ;;
+  esac
+done
+# Older form: BACKUP OUT_DIR, where OUT_DIR is not an input.
+if [[ ${#inputs[@]} -eq 2 && ! -f "${inputs[1]}" && "${inputs[1]}" != *.zip && "${inputs[1]}" != *.note ]]; then
+  out="${inputs[1]}"
+  inputs=("${inputs[0]}")
+fi
+if [[ ${#inputs[@]} -lt 1 ]]; then
+  echo "usage: $0 [--out OUT_DIR] BACKUP.zip|NOTES_DIR ..." >&2
   exit 2
 fi
-samples="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-out="${2:-data/eval}"
+samples=""
+for f in "${inputs[@]}"; do
+  if [[ ! -e "$f" ]]; then echo "error: no such input: $f" >&2; exit 2; fi
+  samples="${samples:+$samples:}$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+done
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 # Inside any git work tree (this one, or the main checkout's data/ from a
@@ -33,9 +51,10 @@ if git -C "$out" rev-parse --show-toplevel > /dev/null 2>&1 && ! git -C "$out" c
 fi
 work="$out/work"
 
-echo "== stage 1: import into a scratch vault, render page 1 at every thumbnail size" >&2
+echo "== stage 1: import into a scratch vault, render page 1 at every thumbnail size and every page" >&2
+# Release build (with testability): rendering every page in a debug build is ~10x slower.
 INKVAULT_NOTABILITY_SAMPLES="$samples" INKVAULT_EVAL_DIR="$work" \
-  swift test --filter ImportFidelityEvalTests/testExportEvaluationInputs
+  swift test -c release -Xswiftc -enable-testing --filter ImportFidelityEvalTests/testExportEvaluationInputs
 if [[ ! -f "$work/import.json" ]]; then
   echo "error: stage 1 wrote nothing (was the test skipped?)" >&2
   exit 1
