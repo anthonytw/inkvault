@@ -38,4 +38,26 @@ final class UntrustedRenderTests: XCTestCase {
             XCTAssertEqual(e as? RenderError, .tooComplex)
         }
     }
+
+    /// 470 bytes of JSON (found by the long fuzz run): an infinite page
+    /// 199 999 pt tall with 4 pt dot paper is 516 bands of ~7 000 dots, 3.7 M
+    /// paper commands; PNG export took 138 s and SVG 44 s. Past the per-page
+    /// budget the page renders on its plain background.
+    func testTallDensePaperIsBounded() throws {
+        let size = PageSize(width: 300, height: 199_999, infinite: true)
+        let note = T.note(pages: [[T.stroke([T.pt(72, 0, w: 199_999)], tool: .marker, width: 72)]],
+                          meta: T.meta(paper: Paper(kind: .dot, spacing: 4), size: size))
+        let prepared = try PreparedPage(page: note.pages[0], meta: note.meta, options: RenderOptions())
+        XCTAssertEqual(prepared.drawnPaper.kind, .blank)
+        XCTAssertEqual(prepared.drawnPaper.background, note.meta.paper.background)
+        XCTAssertLessThan(prepared.fullPagePaper().count, 1000)
+        let t0 = Date()
+        _ = try SVGWriter.render(note: note)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 20)
+
+        // Ordinary pages keep their ruling: 25 letter pages of 4 pt dots fit.
+        let normal = T.meta(paper: Paper(kind: .dot, spacing: 4), size: PageSize(width: 612, height: 792 * 25, infinite: true,
+                                                                                  breakHeight: 792))
+        XCTAssertEqual(try PreparedPage(page: Page(order: "a"), meta: normal, options: RenderOptions()).drawnPaper.kind, .dot)
+    }
 }

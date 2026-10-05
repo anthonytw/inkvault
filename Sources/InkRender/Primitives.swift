@@ -108,6 +108,10 @@ public enum RenderLimits {
     public static let minPaperSpacing = 4.0
     /// Most ruling commands drawn per band (output page or chunk-sized slice); more renders blank paper.
     public static let maxPaperCommands = 40_000.0
+    /// Most ruling commands drawn over all bands of one page; a page needing
+    /// more (a very tall infinite page with dense paper) renders on plain
+    /// background throughout. 25 letter pages of 4 pt dots fit.
+    public static let maxPaperCommandsPerPage = 1_000_000.0
     /// Curve samples a stroke may use: `samplesPerPoint` per control point
     /// plus `baseSamples`. A stroke whose segments would need more (very long
     /// segments from a few control points) is sampled more coarsely, so the
