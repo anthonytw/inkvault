@@ -132,15 +132,11 @@ struct RememberedKeysTests {
     }
 
     @Test func passphraseUnlockOffersTheKeyItOpened() async throws {
-        let (url, keyURL) = try AppModelTests.fixtureVault()
-        // Give the fixture a passphrase-wrapped copy of its key.
-        let identity = try IdentityFile.parse(try String(contentsOf: keyURL, encoding: .utf8))
-        let opened = try Vault.open(at: url, identities: [identity])
-        try opened.writeIdentityFile(identity, passphrase: "correct horse", workFactor: 15)
-        let model = AppModel(deviceStateURL: TS.deviceStateURL())
-        try await model.openVault(at: url)
+        // The fixture's key file holds its identity under `inkvault-test` (Fixtures/README.md).
+        let (model, key) = try await Self.lockedModel()
+        let identity = try IdentityFile.parse(key)
         let keys = RememberedKeys(store: FakeKeyStore())
-        try await keys.unlock(model, passphrase: "correct horse")
+        try await keys.unlock(model, passphrase: "inkvault-test")
         #expect(keys.offer?.identity == identity.string)
     }
 
