@@ -15,7 +15,7 @@ public enum VaultError: Error, Hashable, Sendable {
     case unsupportedFormat(String)
     /// A vault needs at least one recipient.
     case noRecipients
-    /// Not a Bech32 `age1...` X25519 recipient.
+    /// Not a Bech32 `age1...` (X25519) or `age1pq1...` (MLKEM768-X25519) recipient.
     case invalidRecipient(String)
     /// The recipient is already listed.
     case duplicateRecipient(String)
@@ -145,7 +145,7 @@ public struct Vault: Sendable {
     ///   - labels: empty, or one label per recipient.
     ///   - identities: kept for reading; may be empty (write-only use).
     ///   - vaultId, created: fixed values for reproducible fixtures.
-    public static func create(at url: URL, recipients: [X25519Recipient], labels: [String] = [],
+    public static func create(at url: URL, recipients: [NativeRecipient], labels: [String] = [],
                               identities: [any AgeIdentity] = [], vaultId: UUID = UUID(),
                               created: Date = Date()) throws -> Vault {
         guard url.lastPathComponent.hasSuffix(".inkvault"), url.lastPathComponent.count > ".inkvault".count else {
@@ -206,7 +206,7 @@ public struct Vault: Sendable {
         }
         guard !manifest.recipients.isEmpty else { throw VaultError.manifestCorrupt("no recipients") }
         for r in manifest.recipients {
-            guard (try? X25519Recipient(string: r.key)) != nil else {
+            guard (try? NativeRecipient(string: r.key)) != nil else {
                 throw VaultError.manifestCorrupt("invalid recipient \(r.key)")
             }
         }
@@ -224,8 +224,15 @@ public struct Vault: Sendable {
         return try VaultManifest.decode(data)
     }
 
-    static func encryptSecret(_ secret: VaultSecret, to recipients: [X25519Recipient]) throws -> String {
-        String(decoding: try AgeFile.encrypt(secret.bytes, to: recipients, armor: true), as: UTF8.self)
+    static func encryptSecret(_ secret: VaultSecret, to recipients: [NativeRecipient]) throws -> String {
+        String(decoding: try encrypt(secret.bytes, to: recipients, armor: true), as: UTF8.self)
+    }
+
+    /// Every vault write encrypts with this. A vault moving from X25519 to
+    /// post-quantum keys may list both types for a while (format.md §3.3.2);
+    /// its files then carry both stanza types, which `age` decrypts.
+    static func encrypt(_ data: Data, to recipients: [NativeRecipient], armor: Bool = false) throws -> Data {
+        try AgeFile.encrypt(data, to: recipients, armor: armor, allowMixedPostQuantum: true)
     }
 
     static func decryptSecret(_ armored: String, with identities: [any AgeIdentity]) throws -> VaultSecret {
@@ -244,9 +251,9 @@ public struct Vault: Sendable {
     }
 
     /// The manifest recipients as age recipients.
-    func ageRecipients() throws -> [X25519Recipient] {
+    func ageRecipients() throws -> [NativeRecipient] {
         try manifest.recipients.map { r in
-            do { return try X25519Recipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
+            do { return try NativeRecipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
         }
     }
 
@@ -292,7 +299,7 @@ public struct Vault: Sendable {
     /// to the new set (payload unchanged). Finishes an interrupted change
     /// first; repeating an interrupted `addRecipient` call completes it.
     @discardableResult
-    public mutating func addRecipient(_ recipient: X25519Recipient, label: String,
+    public mutating func addRecipient(_ recipient: NativeRecipient, label: String,
                                       added: Date = Date()) throws -> RewrapReport {
         try addRecipient(recipient, label: label, added: added, stopAfter: nil)
     }
@@ -302,8 +309,22 @@ public struct Vault: Sendable {
     /// unchanged). Finishes an interrupted change first; repeating an
     /// interrupted `removeRecipient` call completes it.
     @discardableResult
-    public mutating func removeRecipient(_ recipient: X25519Recipient) throws -> RewrapReport {
+    public mutating func removeRecipient(_ recipient: NativeRecipient) throws -> RewrapReport {
         try removeRecipient(recipient, stopAfter: nil)
+    }
+
+    /// Replaces `old` with `new` (keeping `old`'s label unless `label` is
+    /// given) in one change: rotates the vault secret and rewraps every
+    /// revision once. This is the post-quantum migration step (format.md
+    /// §3.3.2): replacing an X25519 key by an `age1pq1...` key never leaves a
+    /// file with both stanza types. Finishes an interrupted change first;
+    /// repeating an interrupted call completes it, but only with **both**
+    /// identities: the new one opens `vault.json`, the old one the files not
+    /// yet rewrapped. Keep the old key until no rewrap is pending.
+    @discardableResult
+    public mutating func replaceRecipient(_ old: NativeRecipient, with new: NativeRecipient, label: String? = nil,
+                                          added: Date = Date()) throws -> RewrapReport {
+        try replaceRecipient(old, with: new, label: label, added: added, stopAfter: nil)
     }
 
     /// Finishes an interrupted recipient change: rewraps every file not yet
@@ -313,7 +334,7 @@ public struct Vault: Sendable {
         try resumeRewrap(stopAfter: nil)
     }
 
-    mutating func addRecipient(_ recipient: X25519Recipient, label: String, added: Date,
+    mutating func addRecipient(_ recipient: NativeRecipient, label: String, added: Date,
                                stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
         let key = recipient.string
@@ -338,7 +359,32 @@ public struct Vault: Sendable {
         return report
     }
 
-    mutating func removeRecipient(_ recipient: X25519Recipient, stopAfter: Int?) throws -> RewrapReport {
+    mutating func replaceRecipient(_ old: NativeRecipient, with new: NativeRecipient, label: String?, added: Date,
+                                   stopAfter: Int?) throws -> RewrapReport {
+        _ = try requireSecret()
+        let oldKey = old.string, newKey = new.string
+        var report = RewrapReport()
+        func has(_ k: String) -> Bool { manifest.recipients.contains { $0.key == k } }
+        let resumed = pendingRewrap
+        if resumed {
+            report = try resumeRewrap(stopAfter: stopAfter)
+            guard report.isComplete else {
+                if has(newKey) && !has(oldKey) { return report }
+                throw VaultError.rewrapIncomplete(report.failures.keys.sorted())
+            }
+        }
+        if has(newKey) && !has(oldKey) && resumed { return report }
+        guard let index = manifest.recipients.firstIndex(where: { $0.key == oldKey }) else {
+            throw VaultError.unknownRecipient(oldKey)
+        }
+        guard !has(newKey) else { throw VaultError.duplicateRecipient(newKey) }
+        var next = manifest.recipients
+        next[index] = .init(key: newKey, label: label ?? next[index].label, added: added)
+        report.merge(try changeRecipients(next, rotate: true, stopAfter: stopAfter))
+        return report
+    }
+
+    mutating func removeRecipient(_ recipient: NativeRecipient, stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
         let key = recipient.string
         var report = RewrapReport()
@@ -387,7 +433,7 @@ public struct Vault: Sendable {
                                    stopAfter: Int?) throws -> RewrapReport {
         let current = try requireReadable()
         let ageNext = try next.map { r in
-            do { return try X25519Recipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
+            do { return try NativeRecipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
         }
         let newSecret = rotate ? VaultSecret.random() : current
         let journal = RewrapJournal(format: InkVaultFormat.identifier,
@@ -423,13 +469,14 @@ public struct Vault: Sendable {
     }
 
     /// Re-encrypts every revision file not yet current (format.md §3.3.1).
-    /// A file is current when its header has exactly one X25519 stanza per
-    /// recipient (and no other stanzas) and its tag
+    /// A file is current when its header has exactly one stanza of the
+    /// matching type per recipient (and no other stanzas) and its tag
     /// verifies under the current secret; such files are skipped, which is
     /// what makes a second run finish an interrupted one.
     func rewrapNotes(stopAfter: Int?) throws -> RewrapReport {
         let current = try requireSecret()
         let recips = try ageRecipients()
+        let expected = Self.expectedStanzas(recips)
         var report = RewrapReport()
         for note in try noteDirectoryNames() {
             let dir = notesURL.appendingPathComponent(note)
@@ -440,10 +487,10 @@ public struct Vault: Sendable {
                 do { data = try FileIO.read(file) } catch {
                     report.failures[path] = .unreadable("\(error)"); continue
                 }
-                let stanzaCount: Int
+                let stanzas: [String: Int]
                 let plain: Data
                 do {
-                    stanzaCount = try Self.x25519StanzaCount(data)
+                    stanzas = try Self.stanzaCounts(data)
                     plain = try AgeFile.decrypt(data, with: identities)
                 } catch {
                     report.failures[path] = .undecryptable("\(error)"); continue
@@ -451,7 +498,7 @@ public struct Vault: Sendable {
                 let body: Data
                 do {
                     _ = try BodyFraming.unframe(plain, noteId: note, filename: name, secret: current)
-                    if stanzaCount == recips.count {
+                    if stanzas == expected {
                         report.alreadyCurrent.append(path); continue
                     }
                     body = plain
@@ -464,18 +511,32 @@ public struct Vault: Sendable {
                     report.failures[path] = .corruptBody("\(error)"); continue
                 }
                 if let stopAfter, report.rewrapped.count >= stopAfter { throw VaultError.interrupted }
-                try FileIO.writeAtomically(try AgeFile.encrypt(body, to: recips), to: file, replacing: true)
+                try FileIO.writeAtomically(try Self.encrypt(body, to: recips), to: file, replacing: true)
                 report.rewrapped.append(path)
             }
         }
         return report
     }
 
-    /// One per X25519 stanza, or -1 when the header has any other stanza
-    /// type (never "complete" under format.md §3.3.1).
-    static func x25519StanzaCount(_ data: Data) throws -> Int {
-        let stanzas = try AgeFile.parseHeader(data).header.stanzas
-        return stanzas.allSatisfy { $0.type == "X25519" } ? stanzas.count : -1
+    /// The number of stanzas of each type in an age file's header.
+    static func stanzaCounts(_ data: Data) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for s in try AgeFile.parseHeader(data).header.stanzas { counts[s.type, default: 0] += 1 }
+        return counts
+    }
+
+    /// The stanza counts of a file encrypted to exactly `recipients`
+    /// (format.md §3.3.1 "complete"): one `X25519` or `mlkem768x25519`
+    /// stanza per recipient of that type.
+    static func expectedStanzas(_ recipients: [NativeRecipient]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for r in recipients { counts[r.stanzaType, default: 0] += 1 }
+        return counts
+    }
+
+    /// "2 X25519, 1 mlkem768x25519", for reports.
+    static func describe(_ counts: [String: Int]) -> String {
+        counts.isEmpty ? "none" : counts.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
     }
 
     // MARK: - Listing helpers
@@ -496,5 +557,30 @@ public struct Vault: Sendable {
             guard let r = RevisionName(n), r.filename == n else { return false }
             return !FileIO.isDirectory(dir.appendingPathComponent(n))
         }
+    }
+}
+
+// MARK: - X25519 conveniences
+
+extension Vault {
+    /// `create` with X25519 recipients only.
+    public static func create(at url: URL, recipients: [X25519Recipient], labels: [String] = [],
+                              identities: [any AgeIdentity] = [], vaultId: UUID = UUID(),
+                              created: Date = Date()) throws -> Vault {
+        try create(at: url, recipients: recipients.map(NativeRecipient.x25519), labels: labels,
+                   identities: identities, vaultId: vaultId, created: created)
+    }
+
+    /// `addRecipient` for an X25519 recipient.
+    @discardableResult
+    public mutating func addRecipient(_ recipient: X25519Recipient, label: String,
+                                      added: Date = Date()) throws -> RewrapReport {
+        try addRecipient(.x25519(recipient), label: label, added: added)
+    }
+
+    /// `removeRecipient` for an X25519 recipient.
+    @discardableResult
+    public mutating func removeRecipient(_ recipient: X25519Recipient) throws -> RewrapReport {
+        try removeRecipient(.x25519(recipient))
     }
 }

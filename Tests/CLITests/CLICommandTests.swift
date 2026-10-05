@@ -68,7 +68,11 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual((obj["recipients"] as? [[String: Any]])?.first?["label"] as? String, "laptop")
         XCTAssertEqual((obj["keyFiles"] as? [String])?.first, pub)
         let text = try cli(["vault", "info", "--vault", vault])
-        XCTAssertTrue(text.out.contains(pub) && text.out.contains("laptop"), text.out)
+        // Keys are post-quantum by default; `info` abbreviates the long key.
+        XCTAssertTrue(pub.hasPrefix("age1pq1"), pub)
+        XCTAssertTrue(text.out.contains(String(pub.prefix(16))) && text.out.contains("laptop"), text.out)
+        XCTAssertTrue(text.out.contains("Post-quantum:   yes"), text.out)
+        XCTAssertEqual((obj["recipients"] as? [[String: Any]])?.first?["type"] as? String, "mlkem768x25519")
         let verify = try cli(["vault", "verify", "--vault", vault], env: ["INKVAULT_PASSPHRASE": "s3cret"])
         XCTAssertEqual(verify.status, 0, verify.err)
         XCTAssertEqual(try cli(["vault", "verify", "--vault", vault], env: ["INKVAULT_PASSPHRASE": "bad"]).status, 4)

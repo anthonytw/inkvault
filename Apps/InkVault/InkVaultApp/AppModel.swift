@@ -48,7 +48,7 @@ final class AppModel {
         var description: String {
             switch self {
             case .noVaultOpen: return "No vault is open."
-            case .notAnIdentity: return "That text holds no AGE-SECRET-KEY-1… identity."
+            case .notAnIdentity: return "That text holds no AGE-SECRET-KEY-PQ-1… or AGE-SECRET-KEY-1… identity."
             case .noStoredKeys: return "This vault has no passphrase-protected key file."
             case .passphraseMatchesNoKey: return "The passphrase opens none of this vault's key files."
             case .noteNotFound: return "That note is no longer in the vault."
@@ -249,9 +249,9 @@ final class AppModel {
     }
 
     /// Unlocks with the text of an identity file (or a bare
-    /// `AGE-SECRET-KEY-1…` line).
+    /// `AGE-SECRET-KEY-PQ-1…` or `AGE-SECRET-KEY-1…` line).
     func unlock(identityText: String) async throws {
-        let identity: X25519Identity
+        let identity: NativeIdentity
         do { identity = try IdentityFile.parse(identityText) } catch { throw ModelError.notAnIdentity }
         try await unlock(with: [identity])
     }
@@ -262,8 +262,8 @@ final class AppModel {
         guard let locked = vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
-        let identity: X25519Identity = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { () throws -> X25519Identity in
+        let identity: NativeIdentity = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) { () throws -> NativeIdentity in
                 let stored = try locked.identityFiles()
                 guard !stored.isEmpty else { throw ModelError.noStoredKeys }
                 for recipient in stored {

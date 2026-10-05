@@ -67,7 +67,7 @@ final class RecipientTests: VaultTestCase {
         let a = X25519Identity(), b = X25519Identity()
         var vault = try makeVault(a)
         let revs = try populate(vault)
-        XCTAssertThrowsError(try vault.addRecipient(b.recipient, label: "B", added: Date(), stopAfter: 3)) {
+        XCTAssertThrowsError(try vault.addRecipient(.x25519(b.recipient), label: "B", added: Date(), stopAfter: 3)) {
             XCTAssertEqual($0 as? VaultError, .interrupted)
         }
 
@@ -93,7 +93,7 @@ final class RecipientTests: VaultTestCase {
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a])
         let revs = try populate(vault)
         let oldSecret = try XCTUnwrap(vault.secret)
-        XCTAssertThrowsError(try vault.removeRecipient(b.recipient, stopAfter: 2)) {
+        XCTAssertThrowsError(try vault.removeRecipient(.x25519(b.recipient), stopAfter: 2)) {
             XCTAssertEqual($0 as? VaultError, .interrupted)
         }
 

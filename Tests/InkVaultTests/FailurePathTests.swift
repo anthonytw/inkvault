@@ -96,7 +96,7 @@ final class FailurePathTests: VaultTestCase {
         let a = X25519Identity(), b = X25519Identity()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a])
         let revs = try populate(vault)
-        XCTAssertThrowsError(try vault.removeRecipient(b.recipient, stopAfter: 2))
+        XCTAssertThrowsError(try vault.removeRecipient(.x25519(b.recipient), stopAfter: 2))
         try Data("{".utf8).write(to: vault.url.appendingPathComponent("rewrap-journal.json"))
 
         var again = try Vault.open(at: vault.url, identities: [a])

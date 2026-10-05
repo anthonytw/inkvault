@@ -61,10 +61,14 @@ inkvault keys export --vault V [--recipient age1...] [--out FILE]
 
 - `generate` writes an `age-keygen`-style identity (mode 0600, refuses to
   overwrite) and prints the public key. Without `--out` the identity goes to
-  stdout and the public key to stderr.
-- `show` prints the public key (`age1...`) of an identity file.
+  stdout and the public key to stderr. The default is a post-quantum
+  MLKEM768-X25519 key (`AGE-SECRET-KEY-PQ-1...`, recipient `age1pq1...`, as
+  `age-keygen -pq` makes); `--x25519` makes a classic key, `--pq` is the
+  explicit default. Decrypting post-quantum files with the stock CLI needs
+  `age` 1.3 or later; on Apple platforms the key type needs macOS / iPadOS 26.
+- `show` prints the public key (`age1...` or `age1pq1...`) of an identity file.
 - `export` decrypts the vault's passphrase-wrapped key file
-  (`keys/<recipient>.key.age`) to a plain identity file, to move a key to
+  (`keys/<key-name>.key.age`, format.md §3.2) to a plain identity file, to move a key to
   another device. `--recipient` is needed only if the vault stores several.
 
 ### Vault
@@ -75,6 +79,7 @@ inkvault vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...
 inkvault vault info
 inkvault vault recipients add age1... [--label TEXT]
 inkvault vault recipients remove age1...
+inkvault vault recipients replace age1old... age1pq1new... [--label TEXT]
 inkvault vault rewrap-resume
 inkvault vault verify
 ```
@@ -90,6 +95,18 @@ inkvault vault verify
   (`remove` also rotates the vault secret) and print a report. If any file
   cannot be rewrapped the exit code is 3 and the message says to run
   `rewrap-resume`. Removing a key does not revoke what it already decrypted.
+- `recipients replace` swaps one recipient for another with a single rewrap
+  and a secret rotation: the post-quantum migration (format.md §3.3.2). An
+  interrupted replace is finished by `rewrap-resume` with **both** keys
+  (`--identity OLD --identity NEW`), so keep the old key until `info` shows
+  no pending rewrap.
+- Recipient arguments may be the key itself or a file holding it: a
+  recipients file (first non-comment line) or an identity file, of which only
+  the `# public key:` line is read. Post-quantum recipients are 1959
+  characters, so files are handier.
+- `info` abbreviates post-quantum keys, shows each recipient's type
+  (`x25519` / `mlkem768x25519`, `type` in `--json`) and a `Post-quantum:`
+  line: `yes` only when no X25519 recipient is left.
 - `rewrap-resume` finishes an interrupted change.
 - `verify` decrypts, tag-checks and decodes every file and prints
   `status  path` per file plus counts. Exit 0 only if the vault is healthy,
@@ -337,6 +354,9 @@ You have `key.txt` and one file, `17600...-ab12cd34-3.snapshot.age`, and no
 ```bash
 age -d -i key.txt 17600...-ab12cd34-3.snapshot.age | tail -c +38 | gunzip | jq .
 ```
+
+A post-quantum key (`AGE-SECRET-KEY-PQ-1...`) needs `age` 1.3 or later (the
+official release binaries; distribution packages may be older).
 
 The first 37 bytes of the decrypted body are the `INKV` header and HMAC tag
 (`docs/format.md` §4); `tail -c +38` skips them. Newest snapshot first: it

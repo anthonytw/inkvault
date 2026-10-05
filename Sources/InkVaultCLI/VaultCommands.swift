@@ -61,7 +61,7 @@ struct VaultInit: ParsableCommand {
 
     func run() throws {
         let recipients = try recipient.map(parseRecipient)
-        var stored: (X25519Identity, String)?
+        var stored: (NativeIdentity, String)?
         if let storeKey {
             let id = try readIdentityFile(storeKey)
             guard recipients.contains(id.recipient) else {
@@ -110,7 +110,10 @@ struct VaultInfo: ParsableCommand {
         let keyFiles = try vault.identityFiles().map(\.string)
         let info = Info(
             path: vault.url.path, vaultId: vault.vaultId.uuidString.lowercased(), created: vault.manifest.created,
-            recipients: vault.recipients.map { .init(key: $0.key, label: $0.label, added: $0.added) },
+            recipients: vault.recipients.map {
+                .init(key: $0.key, type: (try? NativeRecipient(string: $0.key))?.isPostQuantum == true
+                    ? Info.Recipient.pqType : "x25519", label: $0.label, added: $0.added)
+            },
             notes: noteCount, keyFiles: keyFiles, pendingRewrap: vault.pendingRewrap,
             journalProblem: vault.journalProblem, unlocked: !vault.isLocked)
         if output.json { try output.emitJSON(info); return }
@@ -120,8 +123,11 @@ struct VaultInfo: ParsableCommand {
         print("Notes:          \(info.notes)")
         print("Recipients:     \(info.recipients.count)")
         for r in info.recipients {
-            print("  \(r.key)  \(r.label.isEmpty ? "(no label)" : r.label)  added \(Format.local(r.added))")
+            print("  \(abbreviateKey(r.key))  \(r.type)  \(r.label.isEmpty ? "(no label)" : r.label)  "
+                + "added \(Format.local(r.added))")
         }
+        let classic = info.recipients.filter { $0.type != Info.Recipient.pqType }.count
+        print("Post-quantum:   \(classic == 0 ? "yes" : "NO (\(classic) X25519 recipient(s); see `vault recipients replace`)")")
         print("Stored keys:    \(keyFiles.isEmpty ? "none" : "\(keyFiles.count) passphrase-wrapped")")
         print("Pending rewrap: \(info.pendingRewrap ? "YES (run `inkvault vault rewrap-resume`)" : "no")")
         if !info.unlocked {
@@ -134,7 +140,14 @@ struct VaultInfo: ParsableCommand {
     }
 
     private struct Info: Encodable {
-        struct Recipient: Encodable { var key: String; var label: String; var added: Date }
+        struct Recipient: Encodable {
+            static let pqType = "mlkem768x25519"
+            var key: String
+            /// `x25519` or `mlkem768x25519`.
+            var type: String
+            var label: String
+            var added: Date
+        }
         var path: String
         var vaultId: String
         var created: Date
@@ -152,8 +165,8 @@ struct VaultInfo: ParsableCommand {
 struct VaultRecipients: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "recipients",
-        abstract: "Add or remove a recipient (rewraps every file).",
-        subcommands: [RecipientsAdd.self, RecipientsRemove.self]
+        abstract: "Add, remove or replace a recipient (rewraps every file).",
+        subcommands: [RecipientsAdd.self, RecipientsRemove.self, RecipientsReplace.self]
     )
 }
 
@@ -186,7 +199,7 @@ struct RecipientsAdd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add", abstract: "Add a recipient and rewrap the vault to it.")
 
-    @Argument(help: ArgumentHelp("The new recipient's public key.", valueName: "age1..."))
+    @Argument(help: ArgumentHelp("The new recipient's public key, or a file holding it.", valueName: "age1..."))
     var recipient: String
 
     @Option(name: .long, help: ArgumentHelp("A label shown in `vault info`.", valueName: "text"))
@@ -209,7 +222,7 @@ struct RecipientsRemove: ParsableCommand {
         discussion: "Removing a key does not un-leak what it already decrypted: copies of old files stay readable to it."
     )
 
-    @Argument(help: ArgumentHelp("The recipient to remove.", valueName: "age1..."))
+    @Argument(help: ArgumentHelp("The recipient to remove, or a file holding it.", valueName: "age1..."))
     var recipient: String
 
     @OptionGroup var access: AccessOptions
@@ -219,6 +232,41 @@ struct RecipientsRemove: ParsableCommand {
         let key = try parseRecipient(recipient)
         var vault = try access.openVault(.required)
         try reportRewrap(try vault.removeRecipient(key), output: output)
+    }
+}
+
+struct RecipientsReplace: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "replace",
+        abstract: "Replace one recipient by another in a single rewrap (e.g. an X25519 key by a post-quantum one).",
+        discussion: """
+            The post-quantum migration: `inkvault keys generate --out new.key` (post-quantum by default), then
+            `inkvault vault recipients replace age1old... new.key` with the old key unlocking (a recipient
+            argument may be a file; only its public key is read). Rotates the
+            vault secret and re-encrypts every note file once, so no file ever holds both stanza types.
+            If it is interrupted, finish with `rewrap-resume --identity OLD --identity NEW`: files not yet
+            rewrapped open only with the old key, so keep it until `vault info` shows no pending rewrap.
+            Copies of the old files (backups, file-provider version history) stay X25519-only.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("The recipient to replace, or a file holding it.", valueName: "age1..."))
+    var old: String
+
+    @Argument(help: ArgumentHelp("The new recipient, or a file holding it.", valueName: "age1pq1..."))
+    var new: String
+
+    @Option(name: .long, help: ArgumentHelp("A label for the new recipient (default: the old one's).",
+                                            valueName: "text"))
+    var label: String?
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let oldKey = try parseRecipient(old), newKey = try parseRecipient(new)
+        var vault = try access.openVault(.required)
+        try reportRewrap(try vault.replaceRecipient(oldKey, with: newKey, label: label), output: output)
     }
 }
 

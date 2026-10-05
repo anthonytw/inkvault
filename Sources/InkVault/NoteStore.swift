@@ -124,7 +124,7 @@ extension Vault {
         let json = try InkJSON.encoder().encode(revision)
         let body = try BodyFraming.frame(json: json, noteId: revision.noteId.uuidString.lowercased(),
                                          filename: name.filename, secret: secret)
-        let encrypted = try AgeFile.encrypt(body, to: ageRecipients())
+        let encrypted = try Self.encrypt(body, to: ageRecipients())
         try FileIO.createDirectory(dir)
         try FileIO.writeAtomically(encrypted, to: file, replacing: false)
     }

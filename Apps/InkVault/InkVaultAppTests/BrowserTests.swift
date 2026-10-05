@@ -45,7 +45,8 @@ struct BrowserTests {
         let created = try await model.createVault(NewVaultRequest(name: "Fresh", keySource: .generate, passphrase: nil),
                                                   in: parent, library: library)
         #expect(created.url.lastPathComponent == "Fresh.inkvault")
-        #expect(created.secretKey?.hasPrefix("AGE-SECRET-KEY-1") == true)
+        // Generated keys are post-quantum (docs/post-quantum.md).
+        #expect(created.secretKey?.hasPrefix("AGE-SECRET-KEY-PQ-1") == true)
         #expect(model.phase == .unlocked)
         #expect(model.notes.isEmpty)
         #expect(library.recents.map(\.name) == ["Fresh"])
@@ -81,6 +82,23 @@ struct BrowserTests {
         #expect(created.secretKey == nil)
         #expect(model.phase == .locked)
         try await model.unlock(identityText: IdentityFile.render(identity, created: Date()))
+        #expect(model.phase == .unlocked)
+    }
+
+    @Test func postQuantumRecipientOnlyVaultUnlocksWithPastedKey() async throws {
+        let parent = try Self.tempDir()
+        let identity = try NativeIdentity.generate(.postQuantum)
+        let library = try Self.library()
+        let model = AppModel(deviceStateURL: try Self.tempDir().appendingPathComponent("device.json"))
+        let created = try await model.createVault(
+            NewVaultRequest(name: "PQ", keySource: .recipient(identity.recipient.string), passphrase: nil),
+            in: parent, library: library)
+        #expect(try Vault.open(at: created.url).recipients.map(\.key) == [identity.recipient.string])
+        #expect(model.phase == .locked)
+        await #expect(throws: (any Error).self) {
+            try await model.unlock(identityText: IdentityFile.render(X25519Identity(), created: Date()))
+        }
+        try await model.unlock(identityText: identity.string)
         #expect(model.phase == .unlocked)
     }
 

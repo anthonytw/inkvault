@@ -36,7 +36,8 @@ Do not use features newer than Swift 6.0 in `Sources/`.
 - No network code in `Sources/` except the `InkWebDAV` target (`URLSession`, via
   `FoundationNetworking` on Linux). `scripts/check-portability.sh` enforces it.
 - Keep the stock-CLI recovery path working:
-  `age -d -i key FILE.age | tail -c +38 | gunzip | jq .`
+  `age -d -i key FILE.age | tail -c +38 | gunzip | jq .` (with `age` 1.3+ for
+  post-quantum keys).
 
 ## Style
 
@@ -172,4 +173,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   minimises or docks the system palette by dragging it to an edge or tapping its
   collapse handle. Changing the compact option swaps the picker object.
 - Tags match case-insensitively (`NoteOps.tagKey`); titles are never keys.
+- Keys are `NativeIdentity` / `NativeRecipient` (Sources/Age/NativeKeys.swift):
+  MLKEM768-X25519 post-quantum (`age1pq1…`, the default for new keys) or
+  X25519. X-Wing comes from swift-crypto 4 (CryptoKit on Apple 26+,
+  BoringSSL on Linux); never implement ML-KEM here. `postQuantumAvailable` is
+  false on Apple OSes before 26 or SDKs before Xcode 26, so gate PQ tests
+  with it. PQ recipients are 1959 characters: abbreviate in UI, and PQ key
+  files are `keys/age1pq-<sha256 hex>.key.age` (`IdentityFile.fileName`).
+  Vault writes use `Vault.encrypt` (mixed PQ + X25519 allowed during a
+  migration); plain `AgeFile.encrypt` refuses that mix, as `age` does.
+  Interop tests need `age` ≥ 1.3 on PATH (the official release; Ubuntu ships
+  1.1); CI sets `INKVAULT_REQUIRE_AGE_PQ` so they fail instead of skipping.
+  See `docs/post-quantum.md`.
 

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Asks for a key to the open vault: a stored key file's passphrase, or a
-/// pasted `AGE-SECRET-KEY-1…` identity. (Key management proper is task 3d.)
+/// pasted `AGE-SECRET-KEY-PQ-1…` or `AGE-SECRET-KEY-1…` identity. (Key management proper is task 3d.)
 struct UnlockView: View {
     @Environment(AppModel.self) private var model
     @State private var passphrase = ""
@@ -18,7 +18,7 @@ struct UnlockView: View {
                         .disabled(passphrase.isEmpty)
                 }
                 Section("Or paste a secret key") {
-                    TextField("AGE-SECRET-KEY-1…", text: $identityText, axis: .vertical)
+                    TextField("AGE-SECRET-KEY-PQ-1… or AGE-SECRET-KEY-1…", text: $identityText, axis: .vertical)
                         .font(.body.monospaced())
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)

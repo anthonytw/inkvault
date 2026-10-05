@@ -170,12 +170,14 @@ func writeNewSecretFile(_ text: String, to path: String) throws {
     handle.write(Data(text.utf8))
 }
 
-func readIdentityFile(_ path: String) throws -> X25519Identity {
+func readIdentityFile(_ path: String) throws -> NativeIdentity {
     let text: String
     do { text = try String(contentsOfFile: path, encoding: .utf8) } catch {
         throw CLIError.failure("cannot read \(path): \(error.localizedDescription)")
     }
-    do { return try IdentityFile.parse(text) } catch {
+    do { return try IdentityFile.parse(text) } catch AgeError.postQuantumUnavailable {
+        throw CLIError.failure("\(path): \(AgeError.postQuantumUnavailable)")
+    } catch {
         throw CLIError.failure("\(path) holds no AGE-SECRET-KEY identity")
     }
 }
@@ -220,10 +222,31 @@ func obtainPassphrase(envName: String?, prompt: String = "Vault passphrase: ", c
     return first
 }
 
-func parseRecipient(_ s: String) throws -> X25519Recipient {
-    do { return try X25519Recipient(string: s) } catch {
-        throw CLIError.usage("not an age recipient (age1...): \(s)")
+/// A recipient given on the command line: the `age1...` / `age1pq1...`
+/// string itself, or the path of a file holding one: a recipients file as
+/// `age-keygen -y` writes it (the first line that is not blank or `#`), or
+/// an identity file's `# public key:` comment (only that line is used).
+/// Post-quantum recipients are 1959 characters, so a file is often handier.
+func parseRecipient(_ s: String) throws -> NativeRecipient {
+    if let r = try? NativeRecipient(string: s) { return r }
+    if !s.hasPrefix("age1"), let text = try? String(contentsOfFile: s, encoding: .utf8) {
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        let publicKey = "# public key:"
+        if let line = lines.first(where: { !$0.isEmpty && !$0.hasPrefix("#") }),
+            let r = try? NativeRecipient(string: line) { return r }
+        if let line = lines.first(where: { $0.hasPrefix(publicKey) }),
+            let r = try? NativeRecipient(string: line.dropFirst(publicKey.count).trimmingCharacters(in: .whitespaces)) {
+            return r
+        }
+        throw CLIError.usage("\(s) holds no age recipient (age1... or age1pq1...)")
     }
+    throw CLIError.usage("not an age recipient (age1... or age1pq1...): \(abbreviateKey(s))")
+}
+
+/// `age1pq1abcdefgh…stuvwxyz` for a post-quantum recipient (1959
+/// characters in full); other strings unchanged.
+func abbreviateKey(_ s: String) -> String {
+    s.count > 80 ? "\(s.prefix(16))…\(s.suffix(8))" : s
 }
 
 /// How much unlocking a command needs.
@@ -244,14 +267,14 @@ extension AccessOptions {
     }
 
     /// `--identity` files plus `$INKVAULT_IDENTITY`.
-    func explicitIdentities() throws -> [X25519Identity] {
+    func explicitIdentities() throws -> [NativeIdentity] {
         var paths = identity
         if paths.isEmpty, let env = Env.vars["INKVAULT_IDENTITY"], !env.isEmpty { paths = [env] }
         return try paths.map(readIdentityFile)
     }
 
     /// The identity stored passphrase-wrapped in the vault's `keys/`.
-    func identityFromKeyFiles(of locked: Vault, recipient: X25519Recipient? = nil) throws -> X25519Identity {
+    func identityFromKeyFiles(of locked: Vault, recipient: NativeRecipient? = nil) throws -> NativeIdentity {
         let candidates = try recipient.map { [$0] } ?? locked.identityFiles()
         guard !candidates.isEmpty else {
             throw CLIError.cannotDecrypt("no key: pass --identity FILE (the vault stores no passphrase-wrapped key)")

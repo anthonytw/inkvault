@@ -11,7 +11,7 @@ A vault is a directory whose name ends in `.inkvault`.
 Notes.inkvault/
   vault.json                              plaintext manifest (§2)
   keys/
-    <recipient>.key.age                   optional passphrase-wrapped identity (§3)
+    <key-name>.key.age                    optional passphrase-wrapped identity (§3.2)
   notes/
     <noteId>/
       <hlc>-<device>-<seq>.delta.age      append-only revision (§5)
@@ -38,7 +38,10 @@ Unknown files and directories must be ignored, never deleted.
 }
 ```
 
-- `recipients[].key`: age X25519 recipient (Bech32, HRP `age`). At least one.
+- `recipients[].key`: an age native recipient (§3.1): MLKEM768-X25519
+  (Bech32, HRP `age1pq`) or X25519 (Bech32, HRP `age`). At least one.
+  A list may hold both types only while a vault moves from X25519 to
+  post-quantum keys (§3.3.2).
 - `vaultSecret`: 32 random bytes, age-encrypted and armored, to exactly the
   listed recipients. It keys the inner authentication tag (§4) and nothing
   else. It is rotated whenever a recipient is removed.
@@ -47,13 +50,36 @@ Unknown files and directories must be ignored, never deleted.
 
 ### 3.1 Identity
 
-An age X25519 identity, Bech32 with HRP `AGE-SECRET-KEY-`, exactly as
-`age-keygen` produces. The corresponding recipient is derived from it.
+An age native identity, exactly as the reference `age-keygen` produces it,
+of one of two types (c2sp.org/age, "Native recipient types"):
+
+- **MLKEM768-X25519** (hybrid post-quantum, `age-keygen -pq`, age v1.3+): a
+  32-byte seed, Bech32 with HRP `AGE-SECRET-KEY-PQ-` (77 characters). Its
+  recipient is the 1216-byte X-Wing public key (ML-KEM-768 encapsulation key
+  ‖ X25519 public key), Bech32 with HRP `age1pq` (1959 characters; the
+  Bech32 90-character limit does not apply). Files to it carry one
+  `mlkem768x25519` stanza: HPKE (RFC 9180) base mode with KEM
+  MLKEM768-X25519 (0x647a, draft-ietf-hpke-pq-03, which is X-Wing,
+  draft-connolly-cfrg-xwing-kem), HKDF-SHA256 and ChaCha20-Poly1305, `info`
+  `age-encryption.org/mlkem768x25519`; the one argument is the base64 1120-byte
+  encapsulation, the body the 32-byte sealed file key. Secure against
+  "harvest now, decrypt later" by a future quantum computer, provided no
+  stanza of another type sits next to it.
+- **X25519** (classic, `age-keygen`): Bech32 with HRP `AGE-SECRET-KEY-`;
+  recipient HRP `age`; one `X25519` stanza per recipient.
+
+The corresponding recipient is derived from the identity. Writers SHOULD
+create MLKEM768-X25519 identities for new keys. Reading files encrypted to
+them with the stock CLI needs `age` 1.3 or later.
 
 ### 3.2 Passphrase-wrapped identity file
 
-`keys/<recipient>.key.age` is an age file encrypted with a single scrypt
-(passphrase) recipient. Its plaintext is an `age-keygen` style file:
+`keys/<key-name>.key.age` is an age file encrypted with a single scrypt
+(passphrase) recipient. `<key-name>` is the recipient string for an X25519
+key, and for an MLKEM768-X25519 key (whose recipient is too long for a file
+name) `age1pq-` followed by the lowercase hex SHA-256 of the recipient string
+(64 digits). Readers find such a file by computing the name for each
+recipient in `vault.json`. Its plaintext is an `age-keygen` style file:
 
 ```
 # created: 2026-10-04T16:20:00Z
@@ -61,7 +87,10 @@ An age X25519 identity, Bech32 with HRP `AGE-SECRET-KEY-`, exactly as
 AGE-SECRET-KEY-1QGFZ...
 ```
 
-`age -d keys/<recipient>.key.age` with the passphrase must work. Writers
+(for a post-quantum key the `# public key:` line holds the `age1pq1...`
+recipient and the last line the `AGE-SECRET-KEY-PQ-1...` identity).
+
+`age -d keys/<key-name>.key.age` with the passphrase must work. Writers
 use an scrypt work factor between 15 and 18; readers must accept any work
 factor up to 20, may accept up to 22, and may refuse larger with an error.
 The reader cap exists because scrypt at work factor w needs 2^w × 1 KiB of
@@ -109,17 +138,48 @@ change can be finished by any device holding an identity of the new set:
    could not be read or verified, keep the journal (it is the only copy of
    the outgoing secret), report those files, and retry step 3 later.
 
-A file is complete when its age header has exactly one `X25519` stanza per
-current recipient (and no other stanzas) and its tag verifies under the
-current `vaultSecret`. X25519 stanzas do not name their recipient, so this
-count is the only header-level check; while a journal exists no other
-recipient change is started, so counts from two changes never mix.
+A file is complete when its age header has, for each stanza type, exactly
+one stanza per current recipient of the matching type (`X25519` for `age1`
+recipients, `mlkem768x25519` for `age1pq1` recipients) and no other stanzas,
+and its tag verifies under the current `vaultSecret`. Neither stanza type
+names its recipient, so these counts are the only header-level check; while a
+journal exists no other recipient change is started, so counts from two
+changes never mix.
 
 If `rewrap-journal.json` exists when a vault is opened, the change is
 unfinished: a writer finishes steps 3 and 4 before any other recipient
 change, and may verify tags under `previousVaultSecret` meanwhile. Readers
 that do not implement this procedure treat the journal as an unknown file
 (§1).
+
+A change may also **replace** one recipient by another in a single pass
+(steps 1–4 as for a removal: the secret rotates). Until it finishes, files
+not yet rewrapped are encrypted only to the outgoing recipient, so finishing
+it needs an identity of the outgoing key as well as one of the new set.
+
+#### 3.3.2 Moving to post-quantum keys
+
+All files of a vault are quantum-safe only once every recipient is
+MLKEM768-X25519: an `X25519` stanza next to an `mlkem768x25519` one lets a
+quantum adversary recover the file key. Writers encrypt every file (and
+`vaultSecret`) to the full recipient list, so a vault whose list holds both
+types writes files with both stanza types. The spec says files SHOULD NOT
+mix them and `age` refuses to encrypt such a mix, but `age` 1.3+ decrypts
+them; the format allows the mix only as a transition.
+
+To migrate, generate an MLKEM768-X25519 identity per device, then either
+
+1. **replace** each X25519 recipient by its post-quantum successor (§3.3.1,
+   one rewrap per key, no file ever mixed), or
+2. **add** every post-quantum recipient, then **remove** every X25519
+   recipient (several devices can switch one at a time; files are mixed in
+   between).
+
+Either way the rewrap gives every file a fresh file key, and the removal or
+replacement rotates `vaultSecret`, whose X25519-encrypted copy was exposed.
+Copies of files made before the rewrap (backups, iCloud Drive or other
+file-provider version history, sync conflict copies) are still X25519-only
+and stay exposed to "harvest now, decrypt later"; the format cannot reach them.
 
 ## 4. Encrypted file bodies
 
@@ -144,6 +204,9 @@ report, not silently drop, files that fail. Recovery without the app:
 ```
 age -d -i key.txt FILE.age | tail -c +38 | gunzip | jq .
 ```
+
+With a post-quantum key (`AGE-SECRET-KEY-PQ-1...`) this needs `age` 1.3 or
+later; older `age` reports that no identity matched.
 
 ## 5. Revisions
 

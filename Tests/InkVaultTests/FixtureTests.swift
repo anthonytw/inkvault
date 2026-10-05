@@ -38,7 +38,7 @@ enum SampleFixture {
     }
 
     /// Writes the fixture vault at `url` (which must not exist yet).
-    static func generate(at url: URL, identity: X25519Identity) throws {
+    static func generate(at url: URL, identity: NativeIdentity) throws {
         let vault = try Vault.create(at: url, recipients: [identity.recipient],
                                      labels: ["InkVault test fixture (throwaway, test-only key)"],
                                      identities: [identity], vaultId: vaultId, created: at(0))
@@ -141,11 +141,11 @@ final class FixtureTests: XCTestCase {
         }
         let dir = Self.sourceFixtures
         let keyURL = dir.appendingPathComponent("sample.key")
-        let identity: X25519Identity
+        let identity: NativeIdentity
         if let text = try? String(contentsOf: keyURL, encoding: .utf8) {
             identity = try IdentityFile.parse(text)
         } else {
-            identity = X25519Identity()
+            identity = .x25519(X25519Identity())
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try ("# TEST-ONLY throwaway identity for Tests/InkVaultTests/Fixtures. Never use it for real notes.\n"
                 + IdentityFile.render(identity, created: SampleFixture.at(0)))

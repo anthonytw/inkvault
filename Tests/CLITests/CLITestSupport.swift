@@ -71,7 +71,7 @@ class CLITestCase: XCTestCase {
         return dest.path
     }
 
-    func fixtureIdentity() throws -> X25519Identity {
+    func fixtureIdentity() throws -> NativeIdentity {
         try IdentityFile.parse(String(contentsOfFile: Self.fixtureKey, encoding: .utf8))
     }
 

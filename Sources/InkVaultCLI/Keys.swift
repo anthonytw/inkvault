@@ -20,16 +20,34 @@ struct KeysGenerate: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "generate",
         abstract: "Create a new age identity file (mode 0600) and print its public key.",
-        discussion: "Without --out the identity is written to standard output and the public key to standard error."
+        discussion: """
+            Without --out the identity is written to standard output and the public key to standard error.
+            The default is a post-quantum MLKEM768-X25519 key (AGE-SECRET-KEY-PQ-1..., recipient age1pq1...),
+            as `age-keygen -pq` makes; reading its files with the stock CLI needs age 1.3 or later. --x25519
+            makes a classic key instead, for age 1.2 and older or macOS before 26.
+            """
     )
 
     @Option(name: .long, help: ArgumentHelp("Where to write the identity. Refuses to overwrite.", valueName: "file"))
     var out: String?
 
+    @Flag(name: .long, help: "Post-quantum MLKEM768-X25519 key (the default).")
+    var pq = false
+
+    @Flag(name: .long, help: "Classic X25519 key instead of a post-quantum one.")
+    var x25519 = false
+
     @OptionGroup var output: OutputOptions
 
+    func validate() throws {
+        if pq && x25519 { throw ValidationError("--pq and --x25519 are exclusive") }
+    }
+
     func run() throws {
-        let identity = X25519Identity()
+        let identity: NativeIdentity
+        do { identity = try NativeIdentity.generate(x25519 ? .x25519 : .postQuantum) } catch {
+            throw CLIError.failure("\(error); use --x25519 for a classic key")
+        }
         let text = IdentityFile.render(identity, created: Date())
         let key = identity.recipient.string
         guard let out else {
@@ -51,7 +69,7 @@ struct KeysGenerate: ParsableCommand {
 struct KeysShow: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "show",
-        abstract: "Print the public key (age1...) of an identity file."
+        abstract: "Print the public key (age1... or age1pq1...) of an identity file."
     )
 
     @Argument(help: ArgumentHelp("The identity file.", valueName: "file"))
@@ -88,7 +106,7 @@ struct KeysExport: ParsableCommand {
 
     func run() throws {
         let locked = try Vault.open(at: try access.vaultURL())
-        var wanted: X25519Recipient?
+        var wanted: NativeRecipient?
         if let recipient {
             wanted = try parseRecipient(recipient)
         } else if try locked.identityFiles().count > 1 {
