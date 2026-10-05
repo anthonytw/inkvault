@@ -146,7 +146,8 @@ final class NotabilityBackupTests: XCTestCase {
 
     /// A straight line at the given height (same shape and x as any other).
     func line(y: Float, rgba: [UInt8] = [0, 0, 0, 255]) -> SyntheticNote.CurveSpec {
-        .init(points: [(100, y), (200, y), (300, y), (400, y)], fw: [1, 1], width: 1.4, rgba: rgba, style: 3)
+        let xs: [Float] = [100, 200, 300, 400]
+        return .init(points: xs.map { ($0, y) }, fw: [1, 1], width: 1.4, rgba: rgba, style: 3)
     }
 
     /// Regression: the containment check ignored y, so an older copy holding
