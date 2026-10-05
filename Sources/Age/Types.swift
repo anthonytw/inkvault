@@ -36,6 +36,13 @@ public enum AgeError: Error, Equatable, Sendable {
     case invalidKey
     /// A stanza type or argument is empty or contains bytes outside `!`...`~`.
     case invalidStanzaEncoding
+    /// The MLKEM768-X25519 post-quantum recipient type needs ML-KEM, which
+    /// this platform's crypto library lacks (Apple platforms before 26).
+    case postQuantumUnavailable
+    /// `encrypt` was given post-quantum and classic recipients together
+    /// without opting in: the file would not be quantum-safe (the `age` CLI
+    /// refuses the same mix).
+    case incompatibleRecipients
 }
 
 /// The 128-bit symmetric key that encrypts an age payload.
@@ -163,6 +170,10 @@ extension AgeError: CustomStringConvertible {
         case .armor: return "malformed ASCII armor"
         case .invalidKey: return "malformed age key"
         case .invalidStanzaEncoding: return "invalid stanza encoding"
+        case .incompatibleRecipients:
+            return "can't mix post-quantum (age1pq) and classic recipients: the file would not be quantum-safe"
+        case .postQuantumUnavailable:
+            return "post-quantum (age1pq) keys need ML-KEM, which this system lacks (needs macOS / iPadOS 26 or later)"
         }
     }
 }

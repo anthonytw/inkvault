@@ -7,20 +7,6 @@ import XCTest
 /// Runs every C2SP CCTV age vector in Tests/AgeTests/Vectors (format in the
 /// README there), mirroring the reference `testkit_test.go`.
 final class CCTVTests: XCTestCase {
-    /// Vectors that need the ML-KEM-768 + X25519 hybrid identity
-    /// (`AGE-SECRET-KEY-PQ-`), a recipient type outside task 0.1 (plan.md
-    /// phase 3 "post-quantum recipient type"). They are still run: with the
-    /// identities we can parse they must fail to decrypt. hybrid_x25519_arg
-    /// is NOT here: its X25519 identity alone produces the expected header
-    /// failure, so it is checked normally.
-    static let hybridOnly: Set<String> = [
-        "armor_hybrid", "hybrid", "hybrid_and_x25519", "hybrid_bad_tag", "hybrid_currupted_enc_mlkem",
-        "hybrid_currupted_enc_x25519", "hybrid_extra_argument", "hybrid_grease", "hybrid_identity",
-        "hybrid_long_file_key", "hybrid_long_share", "hybrid_low_order", "hybrid_multiple_recipients",
-        "hybrid_no_match", "hybrid_not_canonical_body", "hybrid_not_canonical_enc", "hybrid_short_share",
-        "hybrid_uppercase",
-    ]
-
     struct Vector {
         var name: String
         var expect = ""
@@ -60,7 +46,7 @@ final class CCTVTests: XCTestCase {
             case "payload": v.payloadHash = hex(value)
             case "file key": v.fileKey = hex(value)
             case "identity":
-                if let id = try? X25519Identity(string: value) {
+                if let id = try? NativeIdentity(string: value) {
                     v.identities.append(id)
                 } else {
                     v.unparsedIdentities.append(value)
@@ -104,28 +90,16 @@ final class CCTVTests: XCTestCase {
         XCTAssertEqual(names.count, 147, "expected the full CCTV set")
 
         var counts: [String: Int] = [:]
-        var hybridSeen = Set<String>()
+        var hybrid = 0
         for name in names {
             let v = try Self.parse(name: name, contents: Data(contentsOf: dir.appendingPathComponent(name)))
-            if !v.unparsedIdentities.isEmpty {
-                XCTAssertTrue(
-                    v.unparsedIdentities.allSatisfy { $0.hasPrefix("AGE-SECRET-KEY-PQ-1") },
-                    "\(name): unexpected unparseable identity")
-            }
-            if Self.hybridOnly.contains(name) {
-                hybridSeen.insert(name)
-                XCTAssertFalse(v.unparsedIdentities.isEmpty, "\(name) is allowlisted but has no PQ identity")
-                XCTAssertThrowsError(try AgeFile.decrypt(v.file, with: v.identities), "\(name): decrypted without PQ support")
-                counts["hybrid (unsupported, must fail)", default: 0] += 1
-                continue
-            }
-            XCTAssertTrue(
-                v.unparsedIdentities.isEmpty || name == "hybrid_x25519_arg",
-                "\(name): needs an identity we cannot parse")
+            XCTAssertTrue(v.unparsedIdentities.isEmpty, "\(name): needs an identity we cannot parse")
+            if v.identities.contains(where: { ($0 as? NativeIdentity)?.isPostQuantum == true }) { hybrid += 1 }
             check(v)
             counts[v.expect, default: 0] += 1
         }
-        XCTAssertEqual(hybridSeen, Self.hybridOnly)
+        // Every MLKEM768-X25519 vector (CCTV "hybrid*") ran with its PQ identity.
+        XCTAssertEqual(hybrid, 19)
         let total = counts.values.reduce(0, +)
         XCTAssertEqual(total, 147)
         let summary = counts.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: ", ")

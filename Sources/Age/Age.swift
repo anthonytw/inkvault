@@ -4,7 +4,8 @@ import Foundation
 /// Spec-exact implementation of the age v1 file format
 /// ([age-encryption.org/v1](https://c2sp.org/age)).
 ///
-/// Scope (task 0.1 in docs/plan.md): X25519 and scrypt recipients, header
+/// Scope (task 0.1 in docs/plan.md, plus the age v1.3 post-quantum type):
+/// MLKEM768-X25519, X25519 and scrypt recipients, header
 /// parsing and formatting, header HMAC, STREAM payload, ASCII armor, Bech32
 /// identity and recipient encoding. Validated against the C2SP CCTV vectors
 /// under Tests/AgeTests/Vectors and against the reference `age` CLI.
@@ -19,12 +20,20 @@ public enum AgeVersion {
 public enum AgeFile {
     /// Encrypts `plaintext` to `recipients`.
     ///
-    /// - Parameter armor: wrap the result in the PEM-style ASCII armor.
+    /// - Parameters:
+    ///   - armor: wrap the result in the PEM-style ASCII armor.
+    ///   - allowMixedPostQuantum: permit `mlkem768x25519` stanzas next to
+    ///     classic ones. The spec says a file SHOULD NOT mix them (the
+    ///     classic stanza voids the post-quantum protection) and `age`
+    ///     refuses; a vault opts in only while it moves between key types
+    ///     (format.md §3.3). `age` decrypts such files.
     /// - Throws: `AgeError.noRecipients` for an empty list,
     ///   `AgeError.scryptNotAlone` if a scrypt recipient is mixed with any
-    ///   other recipient, or whatever a recipient's `wrap` throws.
-    public static func encrypt(_ plaintext: Data, to recipients: [any AgeRecipient], armor: Bool = false) throws
-        -> Data
+    ///   other recipient, `AgeError.incompatibleRecipients` for a
+    ///   post-quantum / classic mix not allowed, or whatever a recipient's
+    ///   `wrap` throws.
+    public static func encrypt(_ plaintext: Data, to recipients: [any AgeRecipient], armor: Bool = false,
+                               allowMixedPostQuantum: Bool = false) throws -> Data
     {
         guard !recipients.isEmpty else { throw AgeError.noRecipients }
         let fileKey = FileKey()
@@ -33,6 +42,10 @@ public enum AgeFile {
         let hasScrypt: Bool = stanzas.contains { (s: Stanza) -> Bool in s.type == "scrypt" }
         if hasScrypt && stanzas.count != 1 {
             throw AgeError.scryptNotAlone
+        }
+        let pq = stanzas.filter { $0.type == pqStanzaType }.count
+        if !allowMixedPostQuantum && pq > 0 && pq != stanzas.count {
+            throw AgeError.incompatibleRecipients
         }
         var out = Data(try HeaderCodec.encodeWithoutMAC(stanzas))
         let mac = HeaderCodec.mac(fileKey: fileKey, macInput: out)
