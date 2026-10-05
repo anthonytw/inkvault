@@ -220,5 +220,5 @@ See `CLAUDE.md § Gotchas` (case-insensitive paths, FoundationXML, static
 link flags, test-output grepping, the app project). Also: GitHub's `macos-26` runner has an
 older compiler than local Xcode 27, so dense expressions that compile locally
 can time out there; swift-crypto types are not `Sendable` on Linux (store raw
-bytes); `PropertyListSerialization` returns keyed-archiver UIDs as an opaque
-object on both platforms (InkImport reads it via `Mirror`).
+bytes); InkImport reads binary plists with its own `BinaryPlist` reader, since
+`PropertyListSerialization` crashes on some hostile binary plists on Linux.
