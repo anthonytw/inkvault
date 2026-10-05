@@ -26,6 +26,11 @@ public final class ZipArchive {
         public var localHeaderOffset: UInt64
         /// General-purpose flags (bit 0: encrypted).
         var flags: UInt16
+        /// Last modification time: the extended-timestamp extra field (0x5455,
+        /// UTC) when present, else the MS-DOS date and time, which carry no
+        /// time zone and are read as UTC. Nil when the DOS fields are invalid.
+        /// Only good for ordering entries of one archive.
+        public var modified: Date?
 
         /// True for directory entries (path ends in `/`).
         public var isDirectory: Bool { path.hasSuffix("/") }
@@ -185,6 +190,7 @@ public final class ZipArchive {
             let flags = cd.u16(p + 8)
             let method = cd.u16(p + 10)
             let crc = cd.u32(p + 16)
+            var modified = dosDate(time: cd.u16(p + 12), date: cd.u16(p + 14))
             var csize = UInt64(cd.u32(p + 20))
             var usize = UInt64(cd.u32(p + 24))
             let nameLen = Int(cd.u16(p + 28)), extraLen = Int(cd.u16(p + 30)), commentLen = Int(cd.u16(p + 32))
@@ -207,14 +213,34 @@ public final class ZipArchive {
                     if usize == 0xFFFF_FFFF, f + 8 <= fieldEnd { usize = cd.u64(f); f += 8 }
                     if csize == 0xFFFF_FFFF, f + 8 <= fieldEnd { csize = cd.u64(f); f += 8 }
                     if offset == 0xFFFF_FFFF, f + 8 <= fieldEnd { offset = cd.u64(f); f += 8 }
+                } else if id == 0x5455, f + 5 <= fieldEnd, cd[cd.startIndex + f] & 1 != 0 {
+                    // Extended timestamp: flags byte, then the modification time (Unix seconds).
+                    modified = Date(timeIntervalSince1970: TimeInterval(Int32(bitPattern: cd.u32(f + 1))))
                 }
                 x += 4 + len
             }
             entries.append(Entry(path: path, method: method, crc32: crc, compressedSize: csize,
-                                 uncompressedSize: usize, localHeaderOffset: offset, flags: flags))
+                                 uncompressedSize: usize, localHeaderOffset: offset, flags: flags,
+                                 modified: modified))
             p = extraEnd + commentLen
         }
         return entries
+    }
+
+    /// An MS-DOS date and time (2-second resolution, no time zone) as UTC.
+    static func dosDate(time: UInt16, date: UInt16) -> Date? {
+        var c = DateComponents()
+        c.year = 1980 + Int(date >> 9)
+        c.month = Int(date >> 5 & 0x0F)
+        c.day = Int(date & 0x1F)
+        c.hour = Int(time >> 11)
+        c.minute = Int(time >> 5 & 0x3F)
+        c.second = Int(time & 0x1F) * 2
+        guard let m = c.month, (1...12).contains(m), let d = c.day, (1...31).contains(d),
+              let h = c.hour, h < 24, let mi = c.minute, mi < 60, let s = c.second, s < 60 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? calendar.timeZone
+        return calendar.date(from: c)
     }
 
     // MARK: - zlib

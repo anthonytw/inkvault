@@ -8,8 +8,8 @@ import XCTest
 /// Stage 1 of the import fidelity evaluation (`docs/import-notability.md`,
 /// "Fidelity evaluation"; driven by `scripts/import-eval.sh`). Skipped unless
 /// both `INKVAULT_NOTABILITY_SAMPLES` (a backup zip or directory of `.note`
-/// files) and `INKVAULT_EVAL_DIR` (a scratch directory, emptied first) are
-/// set; CI never has personal data.
+/// files, or several separated by `:`) and `INKVAULT_EVAL_DIR` (a scratch
+/// directory, emptied first) are set; CI never has personal data.
 ///
 /// Imports every note into a fresh scratch vault `<dir>/vault.inkvault`
 /// (identity `<dir>/identity.key`), then for every imported note writes
@@ -22,13 +22,19 @@ import XCTest
 ///   thumbnail's width (page width 612 pt → thumbnail width), cropped to one
 ///   `breakHeight`;
 /// - `page1.pdf` (+ `pdfPage` in the JSON): the PDF the first page sits on;
+/// - when the backup holds Notability's own PDF export of the note (a `.pdf`
+///   next to the `.note`): `notability.pdf`, `ours-page-NNN.png` for every
+///   export page (one `breakHeight` each, `evalScale` px/pt, no paper), and
+///   for notes made from a PDF the PDFs the pages sit on (`src-K.pdf`) with
+///   the PDF page of every Notability page (`pdfLayout` in the JSON);
 /// - `meta.json`: counts and geometry, no titles or text.
 ///
 /// `<dir>/import.json` holds the aggregate import report.
 final class ImportFidelityEvalTests: XCTestCase {
     func testExportEvaluationInputs() throws {
         let env = ProcessInfo.processInfo.environment
-        guard let samples = env["INKVAULT_NOTABILITY_SAMPLES"].map({ URL(fileURLWithPath: $0) }),
+        guard let samples = env["INKVAULT_NOTABILITY_SAMPLES"].map({
+                  $0.split(separator: ":").map { URL(fileURLWithPath: String($0)) } }),
               let dir = env["INKVAULT_EVAL_DIR"].map({ URL(fileURLWithPath: $0) }) else {
             throw XCTSkip("INKVAULT_NOTABILITY_SAMPLES and INKVAULT_EVAL_DIR not set")
         }
@@ -42,13 +48,25 @@ final class ImportFidelityEvalTests: XCTestCase {
         let vault = try Vault.create(at: dir.appendingPathComponent("vault.inkvault"),
                                      recipients: [identity.recipient], identities: [identity])
         var clock = HybridClock()
-        let report = try NotabilityImporter.import(paths: [samples], into: vault, device: DeviceID("e0a1e0a1")!,
+        let report = try NotabilityImporter.import(paths: samples, into: vault, device: DeviceID("e0a1e0a1")!,
                                                    clock: &clock)
-        let sources = Dictionary(try NotabilityImporter.sources(samples).map { ($0.label, $0) },
+        let sources = Dictionary(try samples.flatMap { try NotabilityImporter.sources($0) }.map { ($0.label, $0) },
                                  uniquingKeysWith: { a, _ in a })
+        let companions = try CompanionPDFs(samples)
+        var reasons: [String: Int] = [:]
+        for n in report.notes {
+            switch n.status {
+            case .ok: reasons[n.extraVersion ? "imported: separate version" : "imported: \(n.format.rawValue)", default: 0] += 1
+            case .skipped(let why): reasons["skipped: " + (why.split(separator: ":").first.map(String.init) ?? why), default: 0] += 1
+            case .failed: reasons["failed", default: 0] += 1
+            }
+        }
         let summary: [String: Any] = [
             "notes": report.notes.count, "imported": report.imported, "skipped": report.skipped,
-            "failed": report.failed, "strokes": report.strokes,
+            "failed": report.failed, "strokes": report.strokes, "inputs": samples.count,
+            "ntb": report.notes.filter { $0.format == .ntb }.count,
+            "extraVersions": report.notes.filter(\.extraVersion).count, "outcomes": reasons,
+            "withNotabilityPDF": report.notes.filter { $0.status == .ok && companions.has($0.source) }.count,
         ]
         try json(summary).write(to: dir.appendingPathComponent("import.json"))
 
@@ -63,9 +81,12 @@ final class ImportFidelityEvalTests: XCTestCase {
                 let out = dir.appendingPathComponent("oracle").appendingPathComponent(id8)
                 try fm.createDirectory(at: out, withIntermediateDirectories: true)
                 let pkg = try source.load()
-                let note = try NotabilityNote.parse(package: pkg)
+                let note = try source.parse()
                 let state = try vault.reconstruct(noteId: id)
                 try export(note: note, package: pkg, state: state, id: id, to: out)
+                if let pdf = try companions.read(result.source) {
+                    try exportPages(note: note, package: pkg, state: state, notabilityPDF: pdf, to: out)
+                }
                 return nil
                 } catch { return error }
             }
@@ -146,21 +167,97 @@ final class ImportFidelityEvalTests: XCTestCase {
         try json(meta).write(to: out.appendingPathComponent("meta.json"))
     }
 
+    /// Pixels per point of the full-page renders compared with Notability's PDF export.
+    static let evalScale = 1.5
+
+    /// Every export page of the note at `evalScale` (no paper, transparent),
+    /// Notability's own PDF of it, and for a note on PDF pages the source
+    /// PDFs and the PDF page under each Notability page.
+    func exportPages(note: NotabilityNote, package pkg: NotePackage, state: NoteState, notabilityPDF: Data,
+                     to out: URL) throws {
+        try notabilityPDF.write(to: out.appendingPathComponent("notability.pdf"))
+        var count = 0
+        for page in state.pages {
+            let pngs = try PNGWriter.render(page: page, meta: state.meta, options: RenderOptions(paper: false),
+                                            png: PNGOptions(scale: Self.evalScale))
+            for png in pngs {
+                count += 1
+                try png.write(to: out.appendingPathComponent(String(format: "ours-page-%03d.png", count)))
+            }
+        }
+        var files: [String: Int] = [:]
+        var layout: [Any] = []
+        if note.sourceFormat == .note {
+            for (name, page) in try pdfLayout(pkg) {
+                guard let name, let path = pkg.paths.first(where: { $0.hasSuffix("PDFs/" + name) }) else {
+                    layout.append(NSNull()); continue
+                }
+                if files[name] == nil {
+                    files[name] = files.count
+                    try pkg.read(path).write(to: out.appendingPathComponent("src-\(files[name] ?? 0).pdf"))
+                }
+                layout.append([files[name] ?? 0, page])
+            }
+        }
+        let info: [String: Any] = ["pages": count, "scale": Self.evalScale, "pdfLayout": layout,
+                                   "breakHeight": state.meta.pageSize.breakHeight ?? 0]
+        try json(info).write(to: out.appendingPathComponent("pages.json"))
+    }
+
     /// The PDF file name and 1-based page number of the note's first page,
     /// from `richText.pageLayoutArray`, if the note is made from a PDF.
     func firstPDFPage(_ pkg: NotePackage) throws -> (String, Int)? {
+        guard let first = try pdfLayout(pkg).first, let name = first.0 else { return nil }
+        return (name, first.1)
+    }
+
+    /// Per Notability page of a note made from a PDF: the PDF file name (nil
+    /// for an inserted paper page) and 1-based page number, from
+    /// `richText.pageLayoutArray`. Empty for a note on paper or an `.ntb`.
+    func pdfLayout(_ pkg: NotePackage) throws -> [(String?, Int)] {
         guard let sessionPath = pkg.paths.first(where: { $0.hasSuffix("/Session.plist") || $0 == "Session.plist" })
-        else { return nil }
+        else { return [] }
         let session = try KeyedArchive(data: pkg.read(sessionPath))
         let root = try session.root(anyOf: ["$0", "root"])
         let richText = try session.field(root, "richText")
-        let layouts = try session.elements(session.field(richText, "pageLayoutArray"))
-        guard let first = layouts.first else { return nil }
-        let name = try session.field(first, "kPageLayoutPDFFileNameKey").string
-            ?? (try? session.field(session.field(first, "kPageLayoutPDFFileKey"), "pdfFileName").string) ?? nil
-        guard let name else { return nil }
-        let page = Int(try session.field(first, "kPageLayoutPDFPageNumberKey").int ?? 1)
-        return (name, page)
+        return try session.elements(session.field(richText, "pageLayoutArray")).map { entry in
+            let name = try session.field(entry, "kPageLayoutPDFFileNameKey").string
+                ?? (try? session.field(session.field(entry, "kPageLayoutPDFFileKey"), "pdfFileName").string) ?? nil
+            return (name, Int(try session.field(entry, "kPageLayoutPDFPageNumberKey").int ?? 1))
+        }
+    }
+
+    /// Notability's own PDF export of each note in the backup: the `.pdf` with
+    /// the same path as the `.note` (Drive backups hold both).
+    struct CompanionPDFs {
+        var zips: [String: ZipArchive] = [:]
+
+        init(_ inputs: [URL]) throws {
+            for url in inputs where url.pathExtension.lowercased() == "zip" {
+                zips[url.path] = try ZipArchive(url: url)
+            }
+        }
+
+        func location(_ label: String) -> (ZipArchive, ZipArchive.Entry)? {
+            guard let bang = label.lastIndex(of: "!"), let zip = zips[String(label[..<bang])] else { return nil }
+            let entry = String(label[label.index(after: bang)...])
+            guard entry.lowercased().hasSuffix(".note") else { return nil }
+            guard let e = zip.entry(String(entry.dropLast(5)) + ".pdf") else { return nil }
+            return (zip, e)
+        }
+
+        func has(_ label: String) -> Bool {
+            if location(label) != nil { return true }
+            return label.lowercased().hasSuffix(".note")
+                && FileManager.default.fileExists(atPath: String(label.dropLast(5)) + ".pdf")
+        }
+
+        func read(_ label: String) throws -> Data? {
+            if let (zip, e) = location(label) { return try zip.read(e) }
+            let path = String(label.dropLast(5)) + ".pdf"
+            guard label.lowercased().hasSuffix(".note"), FileManager.default.fileExists(atPath: path) else { return nil }
+            return try Data(contentsOf: URL(fileURLWithPath: path))
+        }
     }
 
     func json(_ object: Any) throws -> Data {

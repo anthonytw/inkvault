@@ -63,16 +63,8 @@ struct NoteListView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if !model.pendingNoteIDs.isEmpty {
-                let n = model.pendingNoteIDs.count
-                Label(model.cloudFailure.map { "iCloud: \($0)" }
-                      ?? "Downloading \(n) note\(n == 1 ? "" : "s") from iCloud…",
-                      systemImage: "icloud.and.arrow.down")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .background(.bar)
+            if let sync = model.cloudSync, sync.isDownloading || sync.problem != nil {
+                CloudSyncBar(status: sync) { model.startCloudSync() }
             }
         }
         .refreshable {
@@ -171,12 +163,12 @@ private struct NoteRow: View {
 
     var body: some View {
         if placeholder {
-            Label {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
                 Text("Downloading from iCloud…").foregroundStyle(.secondary)
-            } icon: {
-                Image(systemName: "icloud.and.arrow.down").foregroundStyle(.secondary)
             }
             .font(.headline)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Note downloading from iCloud")
         } else {
             summary
@@ -189,7 +181,7 @@ private struct NoteRow: View {
                 Text(note.title.isEmpty ? "Untitled" : note.title)
                     .font(.headline)
                 if downloading {
-                    Image(systemName: "icloud.and.arrow.down").font(.caption).foregroundStyle(.secondary)
+                    ProgressView().controlSize(.mini)
                         .accessibilityLabel("Updating from iCloud")
                 }
             }
@@ -219,5 +211,37 @@ private struct NoteRow: View {
                 .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// The note list's iCloud progress: "Downloading from iCloud: 37 of 128
+/// notes" over a bar, files below; or why it stopped, with a retry. Hidden
+/// once everything is local.
+struct CloudSyncBar: View {
+    let status: CloudSyncStatus
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if status.isDownloading {
+                Text(status.headline).font(.footnote.weight(.semibold)).monospacedDigit()
+                ProgressView(value: status.fractionCompleted)
+                Text(status.detail).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            if let problem = status.problem {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(problem, systemImage: "exclamationmark.icloud")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Retry", action: retry).font(.caption)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
     }
 }

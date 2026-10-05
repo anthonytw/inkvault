@@ -11,6 +11,9 @@ enum CloudVault {
         case timedOut(CloudProgress, seconds: Int)
         /// iCloud refused or failed to download a file.
         case failed(name: String, reason: String)
+        /// A note was about to be read while `missing` of its `total` revision
+        /// files were not local (0 of 0: its folder is not listed yet).
+        case noteNotLocal(missing: Int, total: Int)
 
         var description: String {
             switch self {
@@ -20,6 +23,11 @@ enum CloudVault {
                     + "Check that this iPad is online and signed in to iCloud Drive, then try again."
             case let .failed(name, reason):
                 return "iCloud Drive could not download “\(name)”: \(reason)"
+            case let .noteNotLocal(missing, total) where total == 0:
+                return "iCloud Drive has not listed this note's files yet (\(missing) missing). Try again in a moment."
+            case let .noteNotLocal(missing, total):
+                return "\(missing) of this note's \(total) files are not downloaded from iCloud Drive yet, "
+                    + "so it was not opened (it would look empty or incomplete). Try again in a moment."
             }
         }
     }
@@ -67,6 +75,17 @@ enum CloudVault {
                 throw CloudError.failed(name: item.url.lastPathComponent, reason: error.localizedDescription)
             }
         })
+    }
+
+    /// Throws `noteNotLocal` unless every revision file of note `id` is
+    /// local, listing its folder fresh. Run inside the coordinated read that
+    /// loads the note, so a note is never shown from a partial log: plain
+    /// reads skip `.icloud` stand-ins, and a folder iCloud has not listed yet
+    /// reads as a note without pages.
+    static func requireLocal(note id: UUID, vault url: URL, hooks: Hooks) throws {
+        let items = try CloudScan.noteItems(inVault: url, id: id)
+        let missing = items.filter { !hooks.state($0).isSettled }.count
+        if items.isEmpty || missing > 0 { throw CloudError.noteNotLocal(missing: missing, total: items.count) }
     }
 
     /// Which files `download(vault:)` fetches.

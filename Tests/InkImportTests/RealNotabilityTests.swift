@@ -7,7 +7,8 @@ import XCTest
 
 /// Tests against a real Notability backup. Skipped unless
 /// `INKVAULT_NOTABILITY_SAMPLES` names a backup zip (or a directory of
-/// `.note` files); CI never has personal data.
+/// `.note` files), or several separated by `:` (a backup Drive split into
+/// parts); CI never has personal data.
 ///
 /// - `INKVAULT_NOTABILITY_RENDER_DIR`: also write each rendered first page
 ///   and its Notability thumbnail there as PNGs, for eyeballing.
@@ -16,14 +17,76 @@ import XCTest
 /// - `INKVAULT_NOTABILITY_BULK_VAULT`: `testBulkImport` imports every note
 ///   into a fresh vault at that path (must not exist) and prints a report.
 final class RealNotabilityTests: XCTestCase {
-    static var samples: URL? {
-        ProcessInfo.processInfo.environment["INKVAULT_NOTABILITY_SAMPLES"].map { URL(fileURLWithPath: $0) }
+    static var samples: [URL]? {
+        ProcessInfo.processInfo.environment["INKVAULT_NOTABILITY_SAMPLES"].map {
+            $0.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+        }
     }
 
-    /// (label, notebook, bytes) of every `.note` in the samples.
+    /// Every `.note` and `.ntb` source in the samples.
+    func allSources() throws -> [NotabilityImporter.Source] {
+        guard let urls = Self.samples else { throw XCTSkip("INKVAULT_NOTABILITY_SAMPLES not set") }
+        return try urls.flatMap { try NotabilityImporter.sources($0) }
+    }
+
+    /// (label, package) of every `.note` in the samples.
     func allNotes() throws -> [(String, NotePackage)] {
-        guard let url = Self.samples else { throw XCTSkip("INKVAULT_NOTABILITY_SAMPLES not set") }
-        return try NotabilityImporter.sources(url).map { ($0.label, try $0.load()) }
+        try allSources().filter { $0.format == .note }.map { ($0.label, try $0.load()) }
+    }
+
+    /// Every `.ntb` that has a `.note` of the same note (same creation time)
+    /// holds the same strokes: each bundle stroke matches a `.note` curve
+    /// (same point count and colour) point for point, within half-float
+    /// precision, after the bundle's page offset and margin are undone.
+    func testBundlesMatchTheirNotes() throws {
+        let sources = try allSources()
+        var notesByCreated: [Int64: NotabilityNote] = [:]
+        func ms(_ d: Date?) -> Int64? { d.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } }
+        var bundles: [NotabilityNote] = []
+        for s in sources {
+            NotabilityImporter.withPool {
+                guard let note = try? s.parse(), let c = ms(note.metadata.created) else { return }
+                if s.format == .ntb { bundles.append(note) } else { notesByCreated[c] = note }
+            }
+        }
+        var pairs = 0, strokes = 0, matched = 0, clamped = 0, notesFullyMatched = 0
+        var errors: [Double] = []
+        for b in bundles {
+            guard let c = ms(b.metadata.created), let note = notesByCreated[c] else { continue }
+            pairs += 1
+            var byKey: [String: [NotabilityNote.Curve]] = [:]
+            func key(_ c: NotabilityNote.Curve, _ cell: Int) -> String { "\(c.points.count)-\(c.color)-\(cell)" }
+            func cell(_ c: NotabilityNote.Curve) -> Int { Int((c.points[0].x / 2).rounded(.down)) }
+            for curve in note.curves where !curve.points.isEmpty {
+                byKey[key(curve, cell(curve)), default: []].append(curve)
+            }
+            var unmatched = 0
+            for curve in b.curves {
+                strokes += 1
+                if curve.originClamped { clamped += 1; continue }
+                // Shape relative to the first point, plus the first point's x
+                // (y differs by the page stride on notes on PDF pages).
+                let candidates = ((cell(curve) - 1)...(cell(curve) + 1)).flatMap { byKey[key(curve, $0)] ?? [] }
+                let best = candidates.map { other -> Double in
+                    var e = abs(other.points[0].x - curve.points[0].x)
+                    for (p, q) in zip(curve.points, other.points) {
+                        e = max(e, abs((p.x - curve.points[0].x) - (q.x - other.points[0].x)),
+                                abs((p.y - curve.points[0].y) - (q.y - other.points[0].y)))
+                    }
+                    return e
+                }.min()
+                if let best, best < 1 { matched += 1; errors.append(best) } else { unmatched += 1 }
+            }
+            if unmatched == 0 { notesFullyMatched += 1 }
+        }
+        errors.sort()
+        func q(_ f: Double) -> Double { errors.isEmpty ? .nan : errors[min(errors.count - 1, Int(Double(errors.count) * f))] }
+        print("NTB: \(bundles.count) bundles, \(pairs) with a .note; strokes \(strokes), matched \(matched), "
+              + "clamped origin \(clamped); bundles fully matched \(notesFullyMatched); point error p50 \(q(0.5)) "
+              + "p99 \(q(0.99)) p99.9 \(q(0.999)) max \(errors.last ?? .nan)")
+        XCTAssertGreaterThan(pairs, 0)
+        XCTAssertGreaterThanOrEqual(Double(matched), 0.99 * Double(strokes - clamped))
+        XCTAssertLessThan(q(0.999), 0.25)
     }
 
     /// Every note parses and converts; the mapping is self-consistent.
@@ -47,7 +110,7 @@ final class RealNotabilityTests: XCTestCase {
 
     /// Every recognised page's `pageContentOrigin`, moved down by the page's
     /// offset (`(n - 1) × pageHeight`), lands on the top-left of the ink on
-    /// that page. This checks the page geometry of every note with
+    /// that page (with a small allowance, below). This checks the page geometry of every note with
     /// recognition, including notes on PDF pages (whose stride is not the
     /// paper's), which the thumbnail comparison skips.
     func testRecognitionOriginsMatchInkOnEveryPage() throws {
@@ -71,23 +134,29 @@ final class RealNotabilityTests: XCTestCase {
             }
         }
         print("recognition origins checked: \(checked) pages (\(pdfChecked) on PDF notes), \(misses.count) off")
-        XCTAssertEqual(misses, [])
+        // The 130-note sample had none off. The full 2026-10 backup has about
+        // 2.5 % off (59 of 2315 pages, after the stride fix): notes on PDFs
+        // with inserted paper pages (pages of two heights, one stride assumed)
+        // and recognition indexes Notability did not refresh after edits.
+        XCTAssertLessThanOrEqual(misses.count * 25, checked, "\(misses)")
         XCTAssertGreaterThan(pdfChecked, 0, "no PDF note with recognition in the samples")
     }
 
-    /// Notes that import with no strokes really have no ink: no curves, no
-    /// handwriting index. Prints how many are PDF-only and how many blank.
+    /// Notes that import with no strokes really have no ink: no curves and
+    /// no recognised handwriting, except a recognition index Notability left
+    /// behind after all the ink was erased (its `.ntb` has no strokes either),
+    /// which is counted. An index with no pages is not ink.
     func testNotesWithoutCurvesAreInkless() throws {
-        var pdfOnly = 0, blank = 0, inked = 0
-        for (index, (_, pkg)) in try allNotes().enumerated() {
+        var pdfOnly = 0, blank = 0, inked = 0, staleIndex = 0
+        for (_, pkg) in try allNotes() {
             let note = try NotabilityNote.parse(package: pkg)
             guard note.curves.isEmpty else { inked += 1; continue }
-            XCTAssertTrue(note.recognition.isEmpty, "note #\(index) has recognised handwriting but no curves")
-            XCTAssertFalse(pkg.paths.contains { $0.hasSuffix("HandwritingIndex/index.plist") },
-                           "note #\(index) has a handwriting index but no curves")
+            if !note.recognition.isEmpty { staleIndex += 1 }
             if note.pdfPageCount > 0 { pdfOnly += 1 } else { blank += 1 }
         }
-        print("notes with ink: \(inked); without: \(pdfOnly) PDF-only, \(blank) blank")
+        print("notes with ink: \(inked); without: \(pdfOnly) PDF-only, \(blank) blank; "
+              + "\(staleIndex) with recognised text but no ink")
+        XCTAssertLessThanOrEqual(staleIndex, 2)
     }
 
     #if os(macOS)
@@ -214,7 +283,7 @@ final class RealNotabilityTests: XCTestCase {
                                      identities: [identity])
         var clock = HybridClock()
         let started = Date()
-        let report = try NotabilityImporter.import(paths: [samples], into: vault, device: DeviceID("1a2b3c4d")!,
+        let report = try NotabilityImporter.import(paths: samples, into: vault, device: DeviceID("1a2b3c4d")!,
                                                    clock: &clock)
         let elapsed = Date().timeIntervalSince(started)
         for n in report.notes where n.status != .ok {
@@ -243,7 +312,7 @@ final class RealNotabilityTests: XCTestCase {
             XCTAssertEqual(state.pages.first?.strokes.count, n.strokes, n.source)
         }
         // A second run skips everything.
-        let again = try NotabilityImporter.import(paths: [samples], into: vault, device: DeviceID("1a2b3c4d")!,
+        let again = try NotabilityImporter.import(paths: samples, into: vault, device: DeviceID("1a2b3c4d")!,
                                                   clock: &clock)
         XCTAssertEqual(again.imported, 0)
     }

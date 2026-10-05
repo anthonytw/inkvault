@@ -20,12 +20,21 @@ and macOS, static Linux binary published as a CI artifact.
 | #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
 | #13 | InkRender: PNG export (`Raster.swift` scanline filler with 8 sub-rows and exact horizontal coverage, non-zero union per draw command so a stroke blends once like the PDF; `PNGEncoder.swift` streamed zlib + adaptive filters; `PNGWriter.swift` paginates like the PDF; `--dpi`, 40 MP cap per image) + `inkvault export --format png` | merged |
 | (open) | App usability pass (`feat/app-usability`): `.inkvault` as one item in Files (`VaultLocator`), progressive iCloud loading (`ProgressiveLoad`; list fills without pull-to-refresh), full-width canvas toggle (`ColumnLayout`), tool palette show/hide + compact (`ToolPalette`; PencilKit has no minimise API), note rename, visible tag editor + chips, case-insensitive tags, same-title notes tested | PR open; untested against real iCloud and on the iPad (simulator has neither) |
+| (open) | Importer on the full 3-zip backup (`fix/import-full-backup`): copies/versions resolved across all inputs (newest `.note`, other ink imported as a separate version), `.ntb` reader (FlatBuffers; erase records), shapes, short per-curve arrays defaulted, folder tags (`--no-folder-tags`, `--tag`), thumbnail-aspect snapping (PDF stride fix), inset W/38.4; eval compares every page with Notability's PDF export | PR open, not merged |
 | (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
 
-Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
-imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
-612 pt width with breaks every 803.25 pt. Not imported yet: PDF/image page
-backgrounds (Phase 3) and dashed strokes (imported solid).
+Importer results on the user's full backup (2026-10-05, three Drive zips in
+git-ignored `data/`: 928 `.note` + 603 `.ntb`): 640 imported (629 `.note`,
+6 `.ntb`, 5 separate versions), 286 identical copies + 9 older versions +
+596 superseded `.ntb` skipped, 0 failed. Pass all zips in one run. Fidelity
+against Notability's own PDF export (`scripts/import-eval.sh --out
+data/eval-full <zips>`): 753 inked pages, F1 median 1.000 (p10 0.998),
+chamfer median 0.013 pt; no flagged note left with a suspected importer
+cause (`docs/import-notability.md`, "Fidelity evaluation"). Imports are
+scaled to 612 pt width. Not imported yet: PDF/image page backgrounds
+(Phase 3), typed text, dashed strokes (imported solid); notes mixing paper
+and PDF pages keep one `breakHeight`. The canvas stage has not been run on
+the full backup (hours on the simulator).
 
 Smoke test of the shipped CLI (works as of #7):
 
