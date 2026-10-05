@@ -189,6 +189,23 @@ one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
 - **macOS shell:** `rm` is aliased interactive — use `/bin/rm`; `grep -r` from
   `dev/` skips sub-repos.
 
+## CI
+
+CI (`.github/workflows/ci.yml`) is gated so that runs are not wasted. macOS
+runners are scarce: every run needs two of them, and on 2026-10-05 eleven runs
+queued for up to 30 minutes.
+
+- **Draft PRs run nothing.** Open work as a draft (`gh pr create --draft`) and
+  push as often as you like. Run `gh pr ready <n>` when you want CI or a
+  review; later pushes to a ready PR run CI again.
+- **A newer push to the same PR cancels the older run.**
+- **Only affected jobs run.** Docs-only changes run nothing. CLI, importer and
+  WebDAV changes skip the app job. App-only changes skip Linux and macOS.
+  `main` always runs everything.
+- **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
+- Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
+  the work is done and the local `swift test` passes.
+
 ## Lessons learned (technical, beyond CLAUDE.md gotchas)
 
 - "No ink on the iPad" was iCloud (dataless real-name files on 26.7.1, folders
