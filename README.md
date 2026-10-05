@@ -41,3 +41,11 @@ Everything under `Sources/` builds and tests on Linux and macOS with
 ## Status
 
 Phase 0 (core library and CLI) is nearly done: the `inkvault` CLI (keys, vault, verify, export, recover; see `docs/cli.md`) works on Linux and macOS. The iPad app is a scaffold: it opens and unlocks a vault and lists its notes; drawing comes next.
+
+## Releases, contributing, security
+
+Tagged releases publish the CLI for Linux (static, x86_64 and aarch64) and macOS (universal)
+with checksums and build provenance; see [CHANGELOG.md](CHANGELOG.md) and
+[docs/releasing.md](docs/releasing.md). To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md)
+(including the contributor agreement); to report a vulnerability, [SECURITY.md](SECURITY.md).
+Homebrew formula template: `packaging/homebrew/`. App Store preparation drafts: `docs/appstore/`.
