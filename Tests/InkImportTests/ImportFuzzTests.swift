@@ -99,6 +99,42 @@ final class ImportFuzzTests: XCTestCase {
         })
     }
 
+    /// `.ntb` bundles (merged from main, #31) through the whole scan an import
+    /// does: parse, the duplicate plan over two copies (dates turned into
+    /// milliseconds, stroke prints compared), conversion and JSON encoding,
+    /// under the harness's time and memory watchdog.
+    func testFuzzNtbBundles() throws {
+        let seeds = [NotabilityFuzzTests.seedBundle(),
+                     SyntheticBundle.noteBundle(strokes: SyntheticBundle.strokesMatchingSyntheticNote()),
+                     UntrustedImportTests.sharedTitleBundle(records: 3, titleBytes: 100)]
+        assertClean(Fuzz.run("ntb", seeds: seeds, quick: 1500, maxSize: 256 << 10) { input in
+            Self.typed {
+                let note = try NotabilityBundle.parse(bundle: input)
+                let source = NotabilityImporter.Source(label: "x.ntb", notebook: nil, format: .ntb, modified: nil,
+                                                       load: { NotePackage(zip: try ZipArchive(data: SyntheticBundle.package(input))) })
+                _ = NotabilityImporter.plan([source, source])
+                let state = NotabilityImporter.convert(note, key: "fuzz")
+                _ = try InkJSON.encoder().encode(NotabilityImporter.ops(for: state))
+            }
+        })
+    }
+
+    /// The `shapes` plist bytes (strict reader) through the shape converter.
+    func testFuzzShapes() throws {
+        let seeds = [NotabilityBackupTests.shapesPlist(), UntrustedImportTests.sharedShapesPlist(references: 4, segments: 6)]
+        assertClean(Fuzz.run("shapes", seeds: seeds, quick: 2000, maxSize: 64 << 10) { input in
+            var problem: String?
+            let untyped = Self.typed {
+                let (curves, _) = try NotabilityShapes.curves(input)
+                let points = curves.reduce(0) { $0 + $1.points.count }
+                if points > NotabilityShapes.pointsPerByte * input.count + NotabilityShapes.pointAllowance {
+                    problem = "\(input.count) bytes decoded into \(points) points"
+                }
+            }
+            return untyped ?? problem
+        })
+    }
+
     /// Curve arrays with lengths and values chosen to break the parser's
     /// arithmetic: counts that overflow when summed, NaN and infinite
     /// floats, huge widths, `numcurves` far beyond the arrays.
