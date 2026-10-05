@@ -98,6 +98,9 @@ public struct NotabilityNote: Hashable, Sendable {
         public var dashed: Bool
         /// `curveUUIDs` entry, when present.
         public var uuid: UUID?
+        /// `.ntb` only: the stroke's stored origin was clamped to the right page
+        /// edge, so its x position is wrong (its shape is right).
+        public var originClamped = false
 
         /// True for the highlighter style.
         public var isHighlighter: Bool { style == NotabilityNote.highlighterStyle }
@@ -149,6 +152,34 @@ public struct NotabilityNote: Hashable, Sendable {
     public var bundleVersion: String?
     /// `sessionFormatVersion` (5–9 seen).
     public var formatVersion: Int?
+    /// Per-curve attribute arrays that were shorter than `numcurves`: array
+    /// name → entries missing (filled with defaults: pen, black,
+    /// `defaultCurveWidth`).
+    public var defaultedCurveAttributes: [String: Int] = [:]
+    /// Curves with at least one defaulted attribute.
+    public var defaultedCurves = 0
+    /// Curves at the end of `curves` that came from shape-tool objects
+    /// (lines, circles, partial shapes) rather than handwriting.
+    public var shapeCount = 0
+    /// Shape-tool objects that could not be converted to curves.
+    public var unsupportedShapes = 0
+    /// `.ntb` strokes whose origin was clamped to the page edge (`Curve.originClamped`).
+    public var clampedStrokes = 0
+    /// Strokes whose geometry could not be decoded (`.ntb` stroke kinds other
+    /// than Bézier ink); 0 for `.note` packages.
+    public var unsupportedStrokes = 0
+    /// Where the note was read from: a `.note` package or a newer `.ntb` bundle.
+    public var sourceFormat: SourceFormat = .note
+    /// Last edit time recorded in an `.ntb` bundle (its newest record); nil for `.note` packages.
+    public var bundleModified: Date?
+
+    /// The container a note was read from.
+    public enum SourceFormat: String, Hashable, Sendable {
+        /// Notability's `.note` package (`Session.plist`, NSKeyedArchiver).
+        case note
+        /// Notability's newer `.ntb` bundle (`noteBundle`, FlatBuffers).
+        case ntb
+    }
 
     /// Largest accepted coordinate magnitude, document units (about 1000
     /// pages); anything beyond is treated as corrupt.
@@ -157,6 +188,8 @@ public struct NotabilityNote: Hashable, Sendable {
     public static let highlighterStyle = 4
     /// The pen value of `curvesstyles`.
     public static let penStyle = 3
+    /// Width for a curve whose `curveswidth` entry is missing (the most common pen width).
+    public static let defaultCurveWidth = 1.4
     /// Document width used when the note does not record one (an iPad
     /// note's locked width).
     public static let defaultWidth = 716.8
@@ -222,7 +255,14 @@ extension NotabilityNote {
         let richText = try session.field(root, "richText")
         let overlay = try session.field(richText, "Handwriting Overlay")
         let hash = try session.field(overlay, "SpatialHash")
-        let curves = hash.isNull ? [] : try parseCurves(session, hash)
+        var curves: [Curve] = []
+        var defaulted: [String: Int] = [:], defaultedCurves = 0
+        var shapes: (curves: [Curve], unsupported: Int) = ([], 0)
+        if !hash.isNull {
+            (curves, defaulted, defaultedCurves) = try parseCurves(session, hash)
+            // Shape-tool objects follow the curves (their z-order is not kept).
+            shapes = try NotabilityShapes.curves(session.field(hash, "shapes").data)
+        }
 
         let typed = try session.field(try session.field(richText, "attributedString"), "stringKey").string ?? ""
         let pdfCount = try session.elements(session.field(richText, "pdfFiles")).count
@@ -250,11 +290,16 @@ extension NotabilityNote {
 
         let paper = try parsePaper(session, root: root, richText: richText, thumbnail: thumb, curves: curves,
                                    pdfPages: pdfPageCount > 0)
-        return NotabilityNote(
-            metadata: meta, paper: paper, curves: curves, typedText: typed, recognition: recognition,
+        var note = NotabilityNote(
+            metadata: meta, paper: paper, curves: curves + shapes.curves, typedText: typed, recognition: recognition,
             pdfCount: pdfCount, pdfPageCount: pdfPageCount, mediaCount: mediaCount, recordingCount: recordings,
             bundleVersion: try session.field(root, "NBNoteTakingSessionBundleVersionNumberKey").string,
             formatVersion: try session.field(root, "sessionFormatVersion").int.map { Int($0) })
+        note.defaultedCurveAttributes = defaulted
+        note.defaultedCurves = defaultedCurves
+        note.shapeCount = shapes.curves.count
+        note.unsupportedShapes = shapes.unsupported
+        return note
     }
 
     static func parseMetadata(_ data: Data?, session: KeyedArchive, root: KeyedArchive.Node,
@@ -293,10 +338,14 @@ extension NotabilityNote {
 
     // MARK: Curves
 
-    static func parseCurves(_ a: KeyedArchive, _ hash: KeyedArchive.Node) throws -> [Curve] {
+    /// The curves of one `InkedSpatialHash`, the per-curve arrays that were
+    /// short (name → missing entries, defaulted) and the number of curves
+    /// with at least one defaulted attribute.
+    static func parseCurves(_ a: KeyedArchive, _ hash: KeyedArchive.Node) throws
+        -> (curves: [Curve], defaulted: [String: Int], defaultedCurves: Int) {
         func data(_ key: String) throws -> Data { try a.field(hash, key).data ?? Data() }
         let n = Int(try a.field(hash, "numcurves").int ?? 0)
-        guard n > 0 else { return [] }
+        guard n > 0 else { return ([], [:], 0) }
         let numPoints = Int(try a.field(hash, "numpoints").int ?? -1)
         let counts = try int32s(data("curvesnumpoints"), "curvesnumpoints")
         guard counts.count == n, counts.allSatisfy({ $0 >= 0 }) else {
@@ -308,21 +357,41 @@ extension NotabilityNote {
         }
         let xy = try float32s(data("curvespoints"), "curvespoints")
         guard xy.count == 2 * total else { throw ImportError.notability("curvespoints holds \(xy.count / 2) points, expected \(total)") }
-        let widths = try float32s(data("curveswidth"), "curveswidth")
-        guard widths.count == n else { throw ImportError.notability("curveswidth has \(widths.count) entries for \(n) curves") }
-        let colors = try data("curvescolors")
-        guard colors.count == 4 * n else { throw ImportError.notability("curvescolors has \(colors.count) bytes for \(n) curves") }
-        let stylesData = try data("curvesstyles")
-        let styles: [Int]
-        if stylesData.count == n {
-            styles = stylesData.map { Int($0) }
-        } else if stylesData.count == 4 * n {
-            styles = try int32s(stylesData, "curvesstyles").map { Int($0) }
-        } else if stylesData.isEmpty {
-            styles = Array(repeating: penStyle, count: n)
-        } else {
-            throw ImportError.notability("curvesstyles has \(stylesData.count) bytes for \(n) curves")
+        // Per-curve attribute arrays. Notability has written notes whose
+        // arrays are a few entries short of `numcurves` (`curvesstyles` 1–3
+        // short, format 5): the missing entries get defaults (pen, black,
+        // `defaultCurveWidth`) and are counted, so the ink still imports.
+        // Extra entries are ignored.
+        var defaulted = [String: Int]()
+        var defaultedCurves = Set<Int>()
+        func note(_ name: String, present: Int) {
+            guard present < n else { return }
+            defaulted[name] = n - present
+            defaultedCurves.formUnion(present..<n)
         }
+        let rawWidths = try float32s(data("curveswidth"), "curveswidth")
+        note("curveswidth", present: rawWidths.count)
+        let widths = (0..<n).map { $0 < rawWidths.count ? rawWidths[$0] : defaultCurveWidth }
+        let colorData = try data("curvescolors")
+        guard colorData.count % 4 == 0 else {
+            throw ImportError.notability("curvescolors has \(colorData.count) bytes, not whole RGBA values")
+        }
+        note("curvescolors", present: colorData.count / 4)
+        let colors: [Color] = (0..<n).map { i in
+            guard 4 * i + 3 < colorData.count else { return Color(r: 0, g: 0, b: 0, a: 255) }
+            let o = colorData.startIndex + 4 * i
+            return Color(r: colorData[o], g: colorData[o + 1], b: colorData[o + 2], a: colorData[o + 3])
+        }
+        let stylesData = try data("curvesstyles")
+        var rawStyles: [Int]
+        if stylesData.count == 4 * n || (stylesData.count > n && stylesData.count % 4 == 0) {
+            rawStyles = try int32s(stylesData, "curvesstyles")   // older notes: one int32 per curve
+        } else {
+            rawStyles = stylesData.map { Int($0) }
+        }
+        if stylesData.isEmpty { rawStyles = Array(repeating: penStyle, count: n) }   // no styles at all: pens
+        note("curvesstyles", present: rawStyles.count)
+        let styles = (0..<n).map { $0 < rawStyles.count ? rawStyles[$0] : penStyle }
 
         // Per-node arrays: one value per on-curve point (k + 1 per Bézier
         // curve of 3k + 1 points). Decided per curve: a curve whose count is
@@ -376,11 +445,9 @@ extension NotabilityNote {
                 pts = bz
             }
             let az = azimuth.map { v in (q..<(q + k)).map { atan2(v[2 * $0 + 1], v[2 * $0]) } }
-            let o = 4 * i
-            let color = Color(r: colors[colors.startIndex + o], g: colors[colors.startIndex + o + 1],
-                              b: colors[colors.startIndex + o + 2], a: colors[colors.startIndex + o + 3])
+            let color = colors[i]
             var uuid: UUID?
-            if uuids.count == 16 * n {
+            if uuids.count >= 16 * (i + 1) {
                 let s = uuids.startIndex + 16 * i
                 let b = Array(uuids[s..<(s + 16)])
                 uuid = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
@@ -394,7 +461,7 @@ extension NotabilityNote {
             p += c
             q += k
         }
-        return out
+        return (out, defaulted, defaultedCurves.count)
     }
 
     /// `dashStyles` is a nested binary plist: `{objectPatterns: {"<curve index>": {pattern: n}}}`.
