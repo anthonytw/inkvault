@@ -56,7 +56,38 @@ final class EditTests: VaultTestCase {
 
     func testNormalizers() {
         XCTAssertEqual(NoteOps.normalizedTags([" x", "x", "y ", "  "]), ["x", "y"])
+        // Case-insensitive duplicates (first spelling wins); inner whitespace collapses.
+        XCTAssertEqual(NoteOps.normalizedTags(["Math", "math", "  Fall   2026 ", "fall 2026"]), ["Math", "Fall 2026"])
+        XCTAssertEqual(NoteOps.tagKey(" Fall   2026"), "fall 2026")
         XCTAssertNil(NoteOps.normalizedNotebook("  "))
         XCTAssertEqual(NoteOps.normalizedNotebook(" A "), "A")
+    }
+
+    /// Titles are never keys: notes with the same title (in one notebook or
+    /// several) are separate notes, and a rename to a taken title is fine.
+    func testSameTitleNotesAreIndependent() throws {
+        let vault = try makeVault(X25519Identity())
+        let a = UUID(), b = UUID(), c = UUID()
+        try vault.apply(NoteOps.newNote(title: "Lecture", notebook: "School"), to: a, deviceState: stateURL, app: "t")
+        try vault.apply(NoteOps.newNote(title: "Lecture", notebook: "School"), to: b, deviceState: stateURL, app: "t")
+        try vault.apply(NoteOps.newNote(title: "Lecture", notebook: "Work"), to: c, deviceState: stateURL, app: "t")
+        XCTAssertEqual(Set(try vault.summaries().map(\.id)), [a, b, c])
+        try vault.apply([.setMeta(.title("Renamed"))], to: a, deviceState: stateURL, app: "t")
+        try vault.apply([.setMeta(.title("Lecture"))], to: a, deviceState: stateURL, app: "t")   // back to a taken title
+        let all = try vault.summaries()
+        XCTAssertEqual(all.filter { $0.title == "Lecture" }.count, 3)
+        // Editing one leaves the others alone.
+        try vault.apply([.setMeta(.tags(["x"]))], to: b, deviceState: stateURL, app: "t")
+        XCTAssertEqual(try vault.summary(of: a).tags, [])
+        XCTAssertEqual(try vault.summary(of: b).tags, ["x"])
+        // Lookup by title is ambiguous and says which; ids still work.
+        XCTAssertThrowsError(try NoteSummary.find("lecture", in: all)) {
+            guard case NoteSummary.LookupError.ambiguous(_, let ids) = $0 else { return XCTFail("\($0)") }
+            XCTAssertEqual(Set(ids), [a, b, c])
+        }
+        XCTAssertEqual(try NoteSummary.find(b.uuidString, in: all).id, b)
+        // Export names differ.
+        let stems = Set(all.map { ExportName.stem(title: $0.title, noteId: $0.id) })
+        XCTAssertEqual(stems.count, 3)
     }
 }

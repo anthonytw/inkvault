@@ -11,7 +11,7 @@ struct NoteListView: View {
 
     /// A text prompt for one note.
     private struct Prompt: Identifiable {
-        enum Kind { case tag, notebook }
+        enum Kind { case tag, notebook, rename }
         let kind: Kind
         let note: UUID
         var id: String { "\(kind)-\(note)" }
@@ -20,10 +20,15 @@ struct NoteListView: View {
     var body: some View {
         @Bindable var model = model
         List(model.visibleNotes, id: \.id, selection: $model.selectedNoteID) { note in
-            NoteRow(note: note)
-                .contextMenu { actions(for: note) }
+            NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
+                    downloading: model.pendingNoteIDs.contains(note.id))
+                // A placeholder's summary is empty: nothing to act on until it arrives
+                // (the model downloads a note before any edit anyway).
+                .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
                 .swipeActions(edge: .trailing) {
-                    if note.deleted {
+                    if model.placeholderNoteIDs.contains(note.id) {
+                        EmptyView()
+                    } else if note.deleted {
                         Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
                             .tint(.green)
                     } else {
@@ -57,6 +62,11 @@ struct NoteListView: View {
                 ProgressView()
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if let sync = model.cloudSync, sync.isDownloading || sync.problem != nil {
+                CloudSyncBar(status: sync) { model.startCloudSync() }
+            }
+        }
         .refreshable {
             await model.report { try await model.reload() }
         }
@@ -64,13 +74,14 @@ struct NoteListView: View {
             NewNoteView(notebook: currentNotebook)
         }
         .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
-            TextField(prompt?.kind == .tag ? "Tag" : "Notebook (School/Math for levels)", text: $promptText)
+            TextField(promptField, text: $promptText)
             Button("OK") {
                 if let p = prompt {
                     let text = promptText
                     switch p.kind {
                     case .tag: run { try await model.addTag(text, to: p.note) }
                     case .notebook: run { try await model.moveNote(p.note, toNotebook: text) }
+                    case .rename: run { try await model.renameNote(p.note, to: text) }
                     }
                 }
                 prompt = nil
@@ -94,7 +105,19 @@ struct NoteListView: View {
     }
 
     private var promptTitle: String {
-        prompt?.kind == .tag ? "Add Tag" : "Move to Notebook"
+        switch prompt?.kind {
+        case .tag: return "Add Tag"
+        case .rename: return "Rename Note"
+        default: return "Move to Notebook"
+        }
+    }
+
+    private var promptField: String {
+        switch prompt?.kind {
+        case .tag: return "Tag"
+        case .rename: return "Title"
+        default: return "Notebook (School/Math for levels)"
+        }
     }
 
     private func run(_ action: @escaping () async throws -> Void) {
@@ -106,6 +129,9 @@ struct NoteListView: View {
         if note.deleted {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
         } else {
+            Button("Rename…", systemImage: "pencil") {
+                promptText = note.title; prompt = Prompt(kind: .rename, note: note.id)
+            }
             Button("Add Tag…", systemImage: "tag") { promptText = ""; prompt = Prompt(kind: .tag, note: note.id) }
             if !note.tags.isEmpty {
                 Menu("Remove Tag", systemImage: "tag.slash") {
@@ -130,11 +156,35 @@ struct NoteListView: View {
 
 private struct NoteRow: View {
     let note: NoteSummary
+    /// Not downloaded from iCloud yet: nothing is known about it but its id.
+    var placeholder = false
+    /// Files are (still) downloading; the summary may be out of date.
+    var downloading = false
 
     var body: some View {
+        if placeholder {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Downloading from iCloud…").foregroundStyle(.secondary)
+            }
+            .font(.headline)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Note downloading from iCloud")
+        } else {
+            summary
+        }
+    }
+
+    private var summary: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(note.title.isEmpty ? "Untitled" : note.title)
-                .font(.headline)
+            HStack(spacing: 6) {
+                Text(note.title.isEmpty ? "Untitled" : note.title)
+                    .font(.headline)
+                if downloading {
+                    ProgressView().controlSize(.mini)
+                        .accessibilityLabel("Updating from iCloud")
+                }
+            }
             HStack(spacing: 6) {
                 if let modified = note.modified {
                     Text(modified, format: .dateTime.year().month().day())
@@ -151,6 +201,47 @@ private struct NoteRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if !note.tags.isEmpty {
+                HStack(spacing: 4) {
+                    // One chip per tag key: older notes may store two spellings.
+                    let tags = NoteOps.normalizedTags(note.tags)
+                    ForEach(tags.prefix(4), id: \.self) { TagChip(tag: $0) }
+                    if tags.count > 4 { Text("+\(tags.count - 4)").font(.caption2).foregroundStyle(.secondary) }
+                }
+                .foregroundStyle(.secondary)
+            }
         }
+    }
+}
+
+/// The note list's iCloud progress: "Downloading from iCloud: 37 of 128
+/// notes" over a bar, files below; or why it stopped, with a retry. Hidden
+/// once everything is local.
+struct CloudSyncBar: View {
+    let status: CloudSyncStatus
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if status.isDownloading {
+                Text(status.headline).font(.footnote.weight(.semibold)).monospacedDigit()
+                ProgressView(value: status.fractionCompleted)
+                Text(status.detail).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            if let problem = status.problem {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(problem, systemImage: "exclamationmark.icloud")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Retry", action: retry).font(.caption)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
     }
 }

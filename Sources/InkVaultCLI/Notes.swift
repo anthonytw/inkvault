@@ -51,7 +51,7 @@ struct NotesList: ParsableCommand {
     func run() throws {
         let vault = try access.openVault(.required)
         let notes = try vault.summaries().filter { n in
-            (deleted || !n.deleted) && (tag.map(n.tags.contains) ?? true) && (notebook.map { n.notebook == $0 } ?? true)
+            (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { n.notebook == $0 } ?? true)
         }
         if output.json { try output.emitJSON(notes.map(NoteJSON.init)); return }
         if notes.isEmpty { output.info("No notes."); return }

@@ -1,5 +1,6 @@
 import InkVault
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// The welcome screen until a vault is open, then three columns: sidebar
@@ -9,14 +10,17 @@ struct RootView: View {
     @Environment(VaultLibrary.self) private var library
     @State private var pickingVault = false
     @State private var creatingVault = false
-    #if DEBUG
-    @State private var columns: NavigationSplitViewVisibility = DebugLaunch.isActive ? .detailOnly : .all
-    #else
-    @State private var columns = NavigationSplitViewVisibility.all
-    #endif
+    @AppStorage(ColumnLayout.key) private var storedColumns = "all"
     /// Set when a failed reopen should end in the folder picker.
     @State private var pickAfterAlert = false
     @State private var triedAutoOpen = false
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
+
+    private var columns: Binding<NavigationSplitViewVisibility> {
+        Binding(get: { ColumnLayout.visibility(from: storedColumns) },
+                set: { storedColumns = ColumnLayout.stored($0) })
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -27,7 +31,7 @@ struct RootView: View {
                             openRecent: { entry in Task { await reopen(entry) } },
                             openURL: { url in Task { await open(url) } })
             } else {
-                NavigationSplitView(columnVisibility: $columns) {
+                NavigationSplitView(columnVisibility: columns) {
                     SidebarView()
                 } content: {
                     NoteListView()
@@ -36,13 +40,24 @@ struct RootView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $pickingVault, allowedContentTypes: [.folder]) { result in
+        .fileImporter(isPresented: $pickingVault, allowedContentTypes: UTType.vaultPickerTypes) { result in
             Task {
                 await model.report {
                     try await model.open(picked: try result.get(), library: library)
                 }
             }
         }
+        .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
+        .onChange(of: scenePhase) { _, phase in
+            // iCloud may have delivered files while the app was away; no
+            // polling while it is in the background.
+            if phase == .active, model.isCloudVault { model.startCloudSync() }
+            if phase == .background { model.pauseCloudSync() }
+            applyIdleTimer()
+        }
+        .onChange(of: model.editor != nil) { applyIdleTimer() }
+        .onChange(of: keepScreenOn) { applyIdleTimer() }
+        .onAppear { applyIdleTimer() }
         .overlay {
             if let progress = model.cloudProgress {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
@@ -57,7 +72,10 @@ struct RootView: View {
         }
         #if DEBUG
         .task {
-            if DebugLaunch.isActive { await DebugLaunch.run(model) }
+            if DebugLaunch.isActive {
+                storedColumns = DebugLaunch.environment["INKVAULT_DEBUG_COLUMNS"] ?? "detailOnly"
+                await DebugLaunch.run(model, library: library)
+            }
         }
         #endif
         .alert("InkVault", isPresented: Binding(get: { model.errorMessage != nil },
@@ -83,6 +101,15 @@ struct RootView: View {
             triedAutoOpen = true
             await reopen(last, pickOnFailure: false)
         }
+    }
+
+    private func applyIdleTimer() {
+        var debug = false
+        #if DEBUG
+        debug = DebugLaunch.isActive
+        #endif
+        UIApplication.shared.isIdleTimerDisabled = KeepScreenOn.idleTimerDisabled(
+            enabled: keepScreenOn, noteOpen: model.editor != nil, active: scenePhase == .active, debugLaunch: debug)
     }
 
     private func open(_ url: URL) async {

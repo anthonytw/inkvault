@@ -11,6 +11,9 @@ enum CloudVault {
         case timedOut(CloudProgress, seconds: Int)
         /// iCloud refused or failed to download a file.
         case failed(name: String, reason: String)
+        /// A note was about to be read while `missing` of its `total` revision
+        /// files were not local (0 of 0: its folder is not listed yet).
+        case noteNotLocal(missing: Int, total: Int)
 
         var description: String {
             switch self {
@@ -20,6 +23,11 @@ enum CloudVault {
                     + "Check that this iPad is online and signed in to iCloud Drive, then try again."
             case let .failed(name, reason):
                 return "iCloud Drive could not download “\(name)”: \(reason)"
+            case let .noteNotLocal(missing, total) where total == 0:
+                return "iCloud Drive has not listed this note's files yet (\(missing) missing). Try again in a moment."
+            case let .noteNotLocal(missing, total):
+                return "\(missing) of this note's \(total) files are not downloaded from iCloud Drive yet, "
+                    + "so it was not opened (it would look empty or incomplete). Try again in a moment."
             }
         }
     }
@@ -53,10 +61,48 @@ enum CloudVault {
         }
     }
 
-    /// Makes every file of the vault at `url` local before it is read: asks
+    /// The iCloud calls, replaceable in tests (the simulator has no iCloud).
+    struct Hooks: Sendable {
+        var isUbiquitous: @Sendable (URL) -> Bool
+        var state: @Sendable (CloudScan.Item) -> CloudItemState
+        /// Asks iCloud to download the file.
+        var request: @Sendable (CloudScan.Item) throws -> Void
+
+        static let live = Hooks(isUbiquitous: { CloudVault.isUbiquitous($0) },
+                                state: { CloudVault.state(of: $0) },
+                                request: { item in
+            do { try FileManager.default.startDownloadingUbiquitousItem(at: item.url) } catch {
+                throw CloudError.failed(name: item.url.lastPathComponent, reason: error.localizedDescription)
+            }
+        })
+    }
+
+    /// Throws `noteNotLocal` unless every revision file of note `id` is
+    /// local, listing its folder fresh. Run inside the coordinated read that
+    /// loads the note, so a note is never shown from a partial log: plain
+    /// reads skip `.icloud` stand-ins, and a folder iCloud has not listed yet
+    /// reads as a note without pages.
+    static func requireLocal(note id: UUID, vault url: URL, hooks: Hooks) throws {
+        let items = try CloudScan.noteItems(inVault: url, id: id)
+        let missing = items.filter { !hooks.state($0).isSettled }.count
+        if items.isEmpty || missing > 0 { throw CloudError.noteNotLocal(missing: missing, total: items.count) }
+    }
+
+    /// Which files `download(vault:)` fetches.
+    enum Scope: Sendable {
+        /// `vault.json`, the rewrap journal and `keys/`: enough to unlock.
+        case essentials
+        /// Everything, notes included.
+        case everything
+    }
+
+    /// Makes the files of the vault at `url` local before they are read: asks
     /// iCloud for each file that is a placeholder or out of date, then waits
     /// for the missing ones, reporting progress (only when something is
     /// missing). Out-of-date files are requested but not waited for.
+    ///
+    /// The app fetches `.essentials` first (unlocking needs only those) and
+    /// lets `ProgressiveLoad` bring the notes in as they arrive.
     ///
     /// Cancel the calling task to stop waiting (throws `CancellationError`).
     ///
@@ -64,22 +110,29 @@ enum CloudVault {
     /// - Throws: `CloudError.timedOut` when no file completes for
     ///   `stallTimeout`, `CloudError.failed` when iCloud reports an error,
     ///   or the listing error when a folder cannot be read.
-    static func download(vault url: URL, stallTimeout: Duration = .seconds(90),
-                                     pollInterval: Duration = .milliseconds(400),
-                                     progress: @Sendable (CloudProgress) async -> Void) async throws -> Bool {
-        guard isUbiquitous(url) else { return false }
-        let items = try CloudScan.items(inVault: url)
+    static func download(vault url: URL, scope: Scope = .everything, hooks: Hooks = .live,
+                         stallTimeout: Duration = .seconds(90), pollInterval: Duration = .milliseconds(400),
+                         progress: @Sendable (CloudProgress) async -> Void) async throws -> Bool {
+        guard hooks.isUbiquitous(url) else { return false }
+        let items = scope == .essentials ? try CloudScan.essentialItems(inVault: url) : try CloudScan.items(inVault: url)
+        try await download(items: items, hooks: hooks, stallTimeout: stallTimeout, pollInterval: pollInterval,
+                           progress: progress)
+        return true
+    }
+
+    /// `download(vault:)` for a given list of files (one note's, say).
+    static func download(items: [CloudScan.Item], hooks: Hooks = .live,
+                         stallTimeout: Duration = .seconds(90), pollInterval: Duration = .milliseconds(400),
+                         progress: @Sendable (CloudProgress) async -> Void) async throws {
         var pending: [CloudScan.Item] = []
         for item in items {
-            let state = state(of: item)
+            let state = hooks.state(item)
             if state == .current || state == .gone { continue }
-            do { try FileManager.default.startDownloadingUbiquitousItem(at: item.url) } catch {
-                throw CloudError.failed(name: item.url.lastPathComponent, reason: error.localizedDescription)
-            }
+            try hooks.request(item)
             if state != .stale { pending.append(item) }
         }
         let total = pending.count
-        guard total > 0 else { return true }
+        guard total > 0 else { return }
         await progress(CloudProgress(total: total, downloaded: 0))
         let clock = ContinuousClock()
         var lastProgress = clock.now
@@ -87,7 +140,7 @@ enum CloudVault {
             try await Task.sleep(for: pollInterval)
             var still: [CloudScan.Item] = []
             for item in pending {
-                switch state(of: item) {
+                switch hooks.state(item) {
                 case .failed(let reason):
                     throw CloudError.failed(name: item.url.lastPathComponent, reason: reason)
                 case .missing:
@@ -104,7 +157,6 @@ enum CloudVault {
                 throw CloudError.timedOut(now, seconds: Int(stallTimeout.components.seconds))
             }
         }
-        return true
     }
 
     /// Runs `body` inside a coordinated read of `url` (nil: no coordination,

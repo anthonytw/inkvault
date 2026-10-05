@@ -73,9 +73,71 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
    `notes/<id>/` folder (vault creation: of the new vault folder), so iCloud
    sees and uploads the new revision files.
 
-Every reload (pull to refresh) repeats steps 1–3, so revisions other devices
+Progressive loading: only the small unlocking files (`vault.json`, the
+rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are
+not. As soon as the vault opens (still locked) `AppModel.startCloudSync`
+starts passing over the notes, so they download while the user types the
+key. Each pass (`ProgressiveLoad`) lists each note's files and sorts notes
+into *ready* (all files local: the summary is read at once, once unlocked)
+and *pending* (some file not local). On iPadOS 26 (measured on 26.7.1) a
+file iCloud has not downloaded keeps its real name and is *dataless*:
+`ubiquitousItemDownloadingStatus` is "not downloaded", it allocates no
+blocks, and no `.icloud` stand-in exists; both forms count as pending. A
+note folder that lists no revision file at all is pending too ("not listed
+yet"), never an empty note: every note has at least one revision, and
+iCloud lists a folder's contents after the folder itself. The app asks for
+the folder (`startDownloadingUbiquitousItem` on it) and waits.
+
+Pending notes appear in the list as "Downloading from iCloud…" rows with a
+spinner, and are requested from iCloud at most 16 notes at a time, the
+note the user selected first. A bar under the list shows "Downloading from
+iCloud: n of m notes", a progress bar and "n of m files"
+(`CloudSyncStatus`); it disappears when every note is local. The loop
+passes every second while notes are pending or the note set is still
+changing, then every 15 s (doubling while nothing changes, at most every
+60 s) for as long as the vault is open, so revisions other devices write
+arrive without a pull to refresh; it pauses while the app is in the
+background, restarts when the app becomes active and on every reopen, and a
+pass of a loop replaced or paused meanwhile publishes nothing. 90 s without progress shows a
+problem line in the bar (not an alert) and the loop keeps trying; the line
+clears when files arrive.
+
+Opening a note, and every browser edit of one (rename, tags, move, delete,
+restore), first lists that note's folder afresh and downloads whatever is
+missing, repeating until a listing shows every revision file local
+(`downloadNote`; the detail pane shows "n of m files" meanwhile): a delta
+must never be written on top of a partial log, nor computed from a
+placeholder's empty summary. The editor's coordinated read checks again,
+before and after loading, that every listed file is local
+(`CloudVault.requireLocal`): a plain read skips `.icloud` stand-ins and an
+unlisted folder reads as a note without pages, which the user would see as
+a blank, editable note. Every browser edit's append (`NoteWriter.append`,
+which picks the delta's `seq` and observes the note's clock readings) runs
+the same check inside its coordinated read and writes nothing when a file
+is not local. A note that cannot be made local is shown as an
+error with Try Again in the detail pane, never as a blank canvas. Renaming
+a notebook waits until no note is pending.
+
+Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
+
+## Vaults as single items (app)
+
+The app exports the UTType `io.github.anthonytw.inkvault.vault` (extension
+`inkvault`, conforms to `com.apple.package` and `public.directory`;
+`Apps/InkVault/InkVaultInfo.plist`, merged into the generated Info.plist), so
+Files shows a vault folder as one document and opening it launches InkVault.
+The picker accepts that type and plain folders. `VaultLocator.resolve` turns
+what was picked into the vault folder: a folder holding exactly one
+`.inkvault` resolves to it (several: an error naming them). A file or folder
+inside a vault (`vault.json`, `notes/…`) is an error naming the vault: the
+access the picker grants covers the picked item and what is below it, never
+its parents, so the vault could not be read from it.
+New vaults are always created as `<name>.inkvault`. Security scope is held on
+the URL the user picked. On macOS, Finder shows `.inkvault` as a package
+(Show Package Contents opens the folder); the CLI and the on-disk layout are
+unaffected.
 
 ## Atomic writes
 
