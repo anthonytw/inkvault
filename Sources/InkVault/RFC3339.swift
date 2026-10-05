@@ -21,7 +21,8 @@ public enum RFC3339 {
     /// Parses `YYYY-MM-DDTHH:MM:SS[.fraction]` followed by `Z` or `±HH:MM`.
     /// The fraction has 1 to 9 digits and is truncated to milliseconds.
     /// Returns nil for anything else, including impossible dates (`02-30`),
-    /// hour 24 and leap seconds.
+    /// hour 24, leap seconds and an instant outside years 0001...9999 in UTC,
+    /// so every date it returns, `string(from:)` writes.
     public static func parse(_ string: String) -> Date? {
         let b = Array(string.utf8)
         guard b.count >= 20, b.count <= 35 else { return nil }
@@ -68,7 +69,11 @@ public enum RFC3339 {
         guard i == b.count else { return nil }
         let seconds = daysFromCivil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset
         // As ICU computes it: milliseconds since 1970 as a Double, then seconds since 2001.
-        return Date(timeIntervalSinceReferenceDate: Double(seconds * 1000 + millis) / 1000 - secondsFrom1970To2001)
+        let date = Date(timeIntervalSinceReferenceDate: Double(seconds * 1000 + millis) / 1000 - secondsFrom1970To2001)
+        // An offset can move a date at either end out of 0001...9999
+        // (`0001-01-01T00:00:00+01:00`): writers could not write it back.
+        guard date >= earliest, date < end else { return nil }
+        return date
     }
 
     /// `YYYY-MM-DDTHH:MM:SS.mmmZ`, or nil for a date outside 0001...9999

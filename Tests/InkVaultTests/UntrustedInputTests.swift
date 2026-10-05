@@ -90,6 +90,28 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertEqual(RFC3339.parse("2024-02-29T00:00:00Z").map(RFC3339.string), "2024-02-29T00:00:00.000Z")
     }
 
+    /// A local time inside 0001...9999 whose offset puts the instant outside
+    /// it was accepted: `0001-01-01T00:00:00+00:01` is year 0 in UTC, which
+    /// `RFC3339.string` (every writer) refuses, so a note holding such a
+    /// `created` decoded but could never be snapshotted or compacted again.
+    func testOffsetsCannotLeaveTheWritableYears() throws {
+        for s in ["0001-01-01T00:00:00+00:01", "0001-01-01T00:59:59.999+01:00", "9999-12-31T23:59:59-00:01",
+                  "9999-12-31T23:00:00-01:00"] {
+            XCTAssertNil(RFC3339.parse(s), s)
+        }
+        XCTAssertEqual(RFC3339.parse("0001-01-01T01:00:00+01:00").flatMap(RFC3339.string), "0001-01-01T00:00:00.000Z")
+        XCTAssertEqual(RFC3339.parse("9999-12-31T22:59:59.999-01:00").flatMap(RFC3339.string), "9999-12-31T23:59:59.999Z")
+        var log = LogBuilder()
+        let rev = log.delta(devA, 0, [.deleteNote])
+        let json = String(decoding: try InkJSON.encoder().encode(rev), as: UTF8.self)
+        let wall = try XCTUnwrap(RFC3339.string(from: rev.wall))
+        let hostile = json.replacingOccurrences(of: wall, with: "0001-01-01T00:00:00+00:01")
+        XCTAssertNotEqual(hostile, json)
+        XCTAssertThrowsError(try InkJSON.decoder().decode(Revision.self, from: Data(hostile.utf8))) {
+            XCTAssertTrue($0 is DecodingError, "\($0)")
+        }
+    }
+
     /// The arithmetic codec agrees with ISO8601DateFormatter for every
     /// millisecond-precise date from 1583 on, so existing files read and
     /// re-encode exactly as before.
