@@ -12,13 +12,17 @@ this document records *why*.
    A dead device must cost nothing.
 3. Sync through any storage the user already has, with no server of ours.
 4. Notes readable and exportable (PDF, SVG) without the app, from a backup.
-5. Small feature set: a few pens, a few papers, notebooks and tags, search.
-   No AI, no accounts, no telemetry, no subscriptions.
+5. Small feature set: a few pens, a few papers, notebooks and tags, search,
+   and attachments on pages: typed text boxes, images, PDF page backgrounds,
+   audio recordings (`docs/attachments.md`). No AI services (handwriting
+   recognition and transcription run on device only, opt-in), no accounts,
+   no telemetry, no subscriptions.
 
 ## Non-goals (for now)
 
 Collaboration between people, real-time sync, Android, Windows, typed text
-documents, audio recording.
+documents (reflowing text with ink anchored to it; text boxes placed on a page
+are in scope), video.
 
 ## Architecture
 
@@ -88,7 +92,8 @@ path simply skips the tag.
 A vault is a folder. The app reads and writes files; sync is whatever moves
 the folder: on-device, a Files-app provider (iCloud Drive, SMB, Nextcloud,
 Dropbox, ...), a built-in WebDAV client (phase 3), or a zip through the
-share sheet. Providers see UUID file names, sizes and times, nothing else.
+share sheet. Providers see UUID file names, keyed-hash blob names, sizes
+(blobs padded to a size class) and times, nothing else.
 
 ## Append-only note log
 
@@ -112,6 +117,17 @@ Consequences:
 
 Known limitation: two devices slicing the same stroke concurrently keep both
 sets of pieces (overlapping duplicates). Acceptable for one person.
+
+## Attachments
+
+Images, PDFs, audio and transcripts are immutable *blobs* in a vault-wide
+`blobs/` folder, named by an HMAC of their content hash under the vault
+secret (no plaintext hashes on storage; the name is also the integrity tag),
+deduplicated across notes, and collected only when no surviving revision
+references them. Text boxes, images and PDF pages are *placed items* on a
+page with LWW geometry and text, always drawn below the ink. Recordings
+belong to the note; strokes drawn while recording carry the recording time.
+Details and alternatives: `docs/attachments.md`; format: `format.md` §8.
 
 ## Export
 

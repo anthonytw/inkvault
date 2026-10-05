@@ -345,6 +345,10 @@ of the Bézier.
 
 ## Not imported
 
+Attachments (PDF backgrounds, images, typed text, recordings) are now
+designed (`docs/attachments.md` §11 maps each Notability structure and lists
+what is still unknown); until tasks D1–D4 land they are dropped as below.
+
 | What | Why |
 | --- | --- |
 | PDF backgrounds (`pdfFiles`, 26 of 130 sample notes) and PDF templates | the format has no page backgrounds yet; the ink is imported in place, so it floats on blank paper. The report counts the PDF pages (`dropped.pdfPages`). |

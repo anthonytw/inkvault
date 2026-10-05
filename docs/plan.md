@@ -34,7 +34,8 @@ is still open); compaction UI;
 ~~PNG export~~ (done: `inkvault export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/InkRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
-imported today as ink on blank paper); stroke
+imported today as ink on blank paper; now designed with text boxes and audio,
+see "Attachments" below); stroke
 dedupe after concurrent slicing; post-quantum recipient type; read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
 refuses any `format` other than `inkvault/1`).
@@ -48,6 +49,37 @@ Done from this list:
   `export --at`. Compacted revisions are not restore points. Still to do: the
   history browser UI in the app (Phase 1/2), on top of `Vault.restorePoints`,
   `Vault.state(noteId:at:)` and `Vault.restore`.
+
+## Attachments (typed text, images, audio, PDF pages)
+
+Design: `docs/attachments.md` (rationale, task details and acceptance
+criteria) and `docs/format.md` §8 (normative). Status: **design under
+review**; no task starts before the design PR merges. A0 goes first; after
+it, the rest run in parallel along the dependencies in
+`docs/attachments.md` §14.
+
+| # | Task | Owner target | Depends on | Done when (summary) |
+| --- | --- | --- | --- | --- |
+| A0 | Model types: items, recordings, blob refs, text, `rec`, six ops, open fields (`JSONValue`) | `Sources/InkVault` | — | every `format.md` §8 example round-trips; unknown kinds/fields re-emitted verbatim |
+| A1 | Merge, snapshots, tombstones, orphans, history/restore, summaries | `Sources/InkVault` | A0 | shuffled-order property test with items; concurrency scenarios of §14 |
+| B1 | Age streaming encrypt/decrypt, header-only rewrap | `Sources/Age` | — | CCTV via streaming; 300 MB bounded-memory round trip; `age` CLI interop |
+| B2 | Blob store: names, framing, Padmé, verify, rewrap + rename, collection, `inkvault blobs …` | `Sources/InkVault`, CLI | A0 (B1) | binding tests; stock-tool recovery test; GC rules 1–4 each tested |
+| B3 | WebDAV sync of `blobs/` (streaming, own size limit, GC-safe deletes) | `Sources/InkWebDAV` | B2 | write-once table tests with blobs; 300 MB blob with bounded memory |
+| C1 | Export images (DCT passthrough, PNG/JPEG decoders, SVG data URIs) | `Sources/InkRender` | A0 | golden tests for orientations/crops/rotation; decoder fixtures; fuzz |
+| C2 | Export text (bundled DejaVu, TrueType reader, `TextLayout`, PDF Type0 + ToUnicode) | `Sources/InkRender` | A0 | layout tests; `pdftotext` finds the text; goldens |
+| C3 | `InkPDF` minimal reader + PDF backgrounds as Form XObjects | `Sources/InkPDF`, `Sources/InkRender` | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; fuzz |
+| C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/InkRender`, CLI | C2 | `pdfdetach` lists audio |
+| D1 | Notability PDF backgrounds | `Sources/InkImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
+| D2 | Notability images | `Sources/InkImport` | A0, B2 | 4 image notes match thumbnails |
+| D3 | Notability typed text | `Sources/InkImport` | A0 | styled synthetic fixture maps to runs |
+| D4 | Notability recordings + ink sync | `Sources/InkImport` | A0, B2 | recordings import; strokes carry `rec` |
+| E0 | App plumbing: `NoteWriter.addBlob`, blob cache, lazy iCloud, item layer + selection | `Apps/` | A1, B2 | one delta per gesture; app tests |
+| E1 | App images (Photos, camera, paste, HEIC→JPEG, crop) | `Apps/` | E0, C1 | GPS-free JPEG blobs; orientation correct |
+| E2 | App text boxes (editor overlay, styles, `TextLayout` display) | `Apps/` | E0, C2 | identical line breaks app vs export |
+| E3 | App PDF import, tiled backgrounds, rasterizer | `Apps/` | E0, C3 | 200-page PDF, no memory warnings |
+| E4 | App recording + playback + ink sync | `Apps/` | E0 | interruption test; tested on the user's iPad |
+| E5 | App on-device transcription | `Apps/` | E4 | availability matrix on the user's iPad recorded |
+| F | CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/InkVaultCLI` | A1, B2, C* | end-to-end CLI test |
 
 ## Working agreements
 
