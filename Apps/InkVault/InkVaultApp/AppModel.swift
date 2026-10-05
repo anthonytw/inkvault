@@ -101,11 +101,13 @@ final class AppModel {
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
     /// Pause between progressive passes, passes with an unchanged note set
-    /// before the loop slows to `cloudIdleInterval`, and how long without
-    /// progress is a stall.
+    /// before the loop slows to `cloudIdleInterval` (doubling while nothing
+    /// changes, up to `cloudMaxIdleInterval`), and how long without progress
+    /// is a stall.
     var cloudPollInterval = Duration.seconds(1)
     var cloudSettlePasses = 3
     var cloudIdleInterval = Duration.seconds(15)
+    var cloudMaxIdleInterval = Duration.seconds(60)
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow

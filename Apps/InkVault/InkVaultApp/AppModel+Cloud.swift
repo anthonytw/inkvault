@@ -117,6 +117,8 @@ extension AppModel {
         let window = cloudWindow
         let pass = try await offMain { try ProgressiveLoad.pass(vault: url, priority: priority, window: window, hooks: hooks) }
         try ensureCurrent(gen)
+        // A replaced (or paused) sync loop's pass is stale: never publish it over a newer one.
+        try Task.checkCancellation()
         #if DEBUG
         NSLog("InkVaultProbe pass all=%d ready=%d pending=%d unlisted=%d files=%d local=%d failures=%d", pass.all.count,
               pass.ready.count, pass.pending.count, pass.unlisted.count, pass.files, pass.localFiles, pass.failures.count)
@@ -137,6 +139,7 @@ extension AppModel {
             try CloudVault.coordinatedRead(coordinate) { try toRead.map { try vault.summary(of: $0) } }
         }
         try ensureCurrent(gen)
+        try Task.checkCancellation()
         var byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         for summary in read { byID[summary.id] = summary }
         let present = Set(pass.all)
@@ -161,9 +164,11 @@ extension AppModel {
     /// Keeps the open iCloud vault in step: passes (`loadNotes`) every
     /// `cloudPollInterval` while notes are downloading or the note set is
     /// still changing (iCloud lists folder contents gradually, so one pass
-    /// can miss notes), then every `cloudIdleInterval` for as long as the
-    /// vault is open, so revisions other devices write arrive without a pull
-    /// to refresh. Nothing arriving for `cloudStallTimeout` sets
+    /// can miss notes), then every `cloudIdleInterval`, doubling while
+    /// nothing changes up to `cloudMaxIdleInterval` (`idleInterval`), for as
+    /// long as the vault is open, so revisions other devices write arrive
+    /// without a pull to refresh. Paused while the app is in the background
+    /// (`pauseCloudSync`). Nothing arriving for `cloudStallTimeout` sets
     /// `cloudSync.problem` (shown in the list) and slows to the idle pace;
     /// the problem clears when files arrive again. Starts when the vault
     /// opens (still locked: downloads are requested before the key is
@@ -175,6 +180,7 @@ extension AppModel {
         let gen = generation
         cloudSyncTask = Task { [weak self] in
             var quiet = 0
+            var idlePasses = 0
             var lastLocal = -1
             var lastKnown = -1
             let clock = ContinuousClock()
@@ -197,8 +203,13 @@ extension AppModel {
                     lastKnown = known
                     if pending == 0 { self.cloudSync?.problem = nil }
                     if quiet >= self.cloudSettlePasses {
-                        interval = self.cloudIdleInterval
-                    } else if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
+                        interval = Self.idleInterval(base: self.cloudIdleInterval, max: self.cloudMaxIdleInterval,
+                                                     idlePasses: idlePasses)
+                        idlePasses += 1
+                    } else {
+                        idlePasses = 0
+                    }
+                    if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
                         self.cloudSync?.problem = "iCloud Drive has not delivered \(pending) note\(pending == 1 ? "" : "s") for "
                             + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this iPad is online and "
                             + "signed in to iCloud Drive. InkVault keeps trying."
@@ -213,6 +224,21 @@ extension AppModel {
                 do { try await Task.sleep(for: interval) } catch { return }
             }
         }
+    }
+
+    /// The pause after the `idlePasses`-th unchanged pass at the idle pace:
+    /// `base`, doubled per unchanged pass, at most `max`.
+    nonisolated static func idleInterval(base: Duration, max: Duration, idlePasses: Int) -> Duration {
+        var interval = base
+        for _ in 0..<Swift.max(0, Swift.min(idlePasses, 32)) where interval < max { interval = interval * 2 }
+        return Swift.min(interval, max)
+    }
+
+    /// Stops the loop without forgetting what it found (the app went to the
+    /// background); `startCloudSync` resumes it.
+    func pauseCloudSync() {
+        cloudSyncTask?.cancel()
+        cloudSyncTask = nil
     }
 
     func stopCloudSync() {

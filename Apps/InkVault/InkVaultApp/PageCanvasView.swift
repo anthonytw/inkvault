@@ -309,12 +309,20 @@ enum PageExtent {
     ///   follows it.
     /// - Finite pages end at their height plus `footerHeight` (the Add Page /
     ///   Next Page button), and never less than a screen.
+    ///
+    /// Every term is clamped to `RenderLimits.maxExtent` (non-finite: 0), so
+    /// a stroke or page size far out of range cannot produce an absurd
+    /// content size.
     static func scrollHeight(pageSize: PageSize, inkMaxY: Double?, viewportHeight: Double, footerHeight: Double = 0) -> Double {
-        let screen = viewportHeight.isFinite ? max(viewportHeight, 0) : 0
-        if pageSize.infinite {
-            let ink = inkMaxY.flatMap { $0.isFinite ? $0 : nil } ?? 0
-            return max(pageSize.height, ink) + screen
+        func clamped(_ v: Double?) -> Double {
+            guard let v, v.isFinite else { return 0 }
+            return min(max(v, 0), RenderLimits.maxExtent)
         }
-        return max(pageSize.height + max(footerHeight, 0), screen)
+        let screen = clamped(viewportHeight)
+        let page = clamped(pageSize.height)
+        if pageSize.infinite {
+            return max(page, clamped(inkMaxY)) + screen
+        }
+        return max(page + clamped(footerHeight), screen)
     }
 }

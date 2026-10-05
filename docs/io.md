@@ -94,9 +94,11 @@ note the user selected first. A bar under the list shows "Downloading from
 iCloud: n of m notes", a progress bar and "n of m files"
 (`CloudSyncStatus`); it disappears when every note is local. The loop
 passes every second while notes are pending or the note set is still
-changing, then every 15 s for as long as the vault is open, so revisions
-other devices write arrive without a pull to refresh; it restarts when the
-app becomes active and on every reopen. 90 s without progress shows a
+changing, then every 15 s (doubling while nothing changes, at most every
+60 s) for as long as the vault is open, so revisions other devices write
+arrive without a pull to refresh; it pauses while the app is in the
+background, restarts when the app becomes active and on every reopen, and a
+pass of a loop replaced or paused meanwhile publishes nothing. 90 s without progress shows a
 problem line in the bar (not an alert) and the loop keeps trying; the line
 clears when files arrive.
 
@@ -109,7 +111,10 @@ placeholder's empty summary. The editor's coordinated read checks again,
 before and after loading, that every listed file is local
 (`CloudVault.requireLocal`): a plain read skips `.icloud` stand-ins and an
 unlisted folder reads as a note without pages, which the user would see as
-a blank, editable note. A note that cannot be made local is shown as an
+a blank, editable note. Every browser edit's append (`NoteWriter.append`,
+which picks the delta's `seq` and observes the note's clock readings) runs
+the same check inside its coordinated read and writes nothing when a file
+is not local. A note that cannot be made local is shown as an
 error with Try Again in the detail pane, never as a blank canvas. Renaming
 a notebook waits until no note is pending.
 

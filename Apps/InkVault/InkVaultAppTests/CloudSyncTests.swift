@@ -1,4 +1,5 @@
 import Foundation
+import InkRender
 import InkVault
 import PencilKit
 import Testing
@@ -145,8 +146,9 @@ struct CloudSyncTests {
     }
 
     /// A file that goes missing between the download and the read (iCloud
-    /// evicts it, another device adds one) is caught inside the read: the
-    /// note is downloaded again instead of opening incomplete.
+    /// evicts it, another device adds one) is caught inside the editor's
+    /// read (`verify`), which refuses to load the note; `openEditor` then
+    /// downloads it again.
     @Test func theEditorReadRefusesAFileThatWentMissing() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let cloud = FakeCloud(vault: url)
@@ -163,6 +165,110 @@ struct CloudSyncTests {
                                           verify: { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) })
         }
         model.close()
+    }
+
+    /// The browser's append re-checks inside its read: a note evicted since
+    /// `downloadNote` (or never downloaded, as in a notebook rename, which
+    /// relies on the last pass) gets no delta, whose seq and clock would come
+    /// from a partial log.
+    @Test func noteWriterAppendRefusesANoteThatIsNotLocal() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let text = try String(contentsOf: key, encoding: .utf8)
+        let vault = try Vault.open(at: url, identities: [IdentityFile.parse(text)])
+        let clock = try DeviceClock(url: TS.deviceStateURL())
+        try cloud.evictDataless(Self.lecture)
+        let before = try Self.revisionCount(url, Self.lecture)
+        let hooks = cloud.hooks
+        let id = Self.lecture
+        await #expect(throws: CloudVault.CloudError.self) {
+            try await NoteWriter.append([.setMeta(.title("X"))], to: id, vault: vault, clock: clock,
+                                        verify: { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) })
+        }
+        #expect(try Self.revisionCount(url, Self.lecture) == before)
+    }
+
+    @Test func aNotebookRenameWritesNothingIntoANoteEvictedSinceTheLastPass() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        try await model.moveNote(Self.lecture, toNotebook: "Old")
+        model.pauseCloudSync()                      // the loop has not seen the eviction yet
+        try cloud.evictDataless(Self.lecture)
+        #expect(model.pendingNoteIDs.isEmpty)
+        let before = try Self.revisionCount(url, Self.lecture)
+        await #expect(throws: CloudVault.CloudError.self) { try await model.renameNotebook("Old", to: "New") }
+        #expect(try Self.revisionCount(url, Self.lecture) == before)
+        model.close()
+    }
+
+    /// A pass of a loop that was replaced or paused meanwhile publishes
+    /// nothing (it could overwrite a newer pass's pending set).
+    @Test func aCancelledPassPublishesNothing() async throws {
+        final class Box: @unchecked Sendable {
+            let lock = NSLock()
+            var armed = false
+            weak var model: AppModel?
+        }
+        let box = Box()
+        let (url, _) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), afterIO: {
+            guard box.lock.withLock({ box.armed }) else { return }
+            await MainActor.run { box.model?.cloudSyncTask?.cancel() }
+        })
+        box.model = model
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        model.cloudIdleInterval = .milliseconds(20)
+        try await model.openVault(at: url)
+        #expect(await TS.waitUntil { model.cloudSync != nil })
+        model.pauseCloudSync()
+        model.cloudSync = nil
+        box.lock.withLock { box.armed = true }
+        model.startCloudSync()
+        let task = try #require(model.cloudSyncTask)
+        await task.value
+        #expect(model.cloudSync == nil)
+        box.lock.withLock { box.armed = false }
+        model.close()
+    }
+
+    /// In the background the loop stops (no polling, no battery); its status
+    /// stays, and becoming active resumes it.
+    @Test func pausingTheLoopKeepsItsStatusAndStartResumesIt() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(await TS.waitUntil { model.cloudSync?.readyNotes == 2 })
+        let task = try #require(model.cloudSyncTask)
+        model.pauseCloudSync()
+        await task.value                             // the loop ended
+        #expect(model.cloudSyncTask == nil)
+        #expect(model.cloudSync?.readyNotes == 2)
+        try cloud.evictDataless(Self.other)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(model.pendingNoteIDs.isEmpty)        // nobody looked
+        model.startCloudSync()
+        #expect(await TS.waitUntil { model.pendingNoteIDs == [Self.other] })
+        model.close()
+    }
+
+    /// Settled and unchanged, the loop slows from the idle pace to at most
+    /// `cloudMaxIdleInterval`.
+    @Test func theIdlePaceBacksOffWhileNothingChanges() {
+        let base = Duration.seconds(15), max = Duration.seconds(60)
+        #expect(AppModel.idleInterval(base: base, max: max, idlePasses: 0) == .seconds(15))
+        #expect(AppModel.idleInterval(base: base, max: max, idlePasses: 1) == .seconds(30))
+        #expect(AppModel.idleInterval(base: base, max: max, idlePasses: 2) == .seconds(60))
+        #expect(AppModel.idleInterval(base: base, max: max, idlePasses: 3) == .seconds(60))
+        #expect(AppModel.idleInterval(base: base, max: max, idlePasses: 1_000_000) == .seconds(60))
+        #expect(AppModel.idleInterval(base: base, max: max, idlePasses: -1) == .seconds(15))
+        #expect(AppModel(deviceStateURL: TS.deviceStateURL()).cloudMaxIdleInterval == .seconds(60))
     }
 
     // MARK: - Starting automatically
@@ -319,6 +425,20 @@ struct PageExtentTests {
         let ink = try #require(host.inkMaxY)
         let screen = Double(host.bounds.height / host.canvas.zoomScale)
         #expect(abs(Double(host.canvas.contentSize.height / host.canvas.zoomScale) - (max(2_000, ink) + screen)) < 1)
+    }
+
+    /// Ink or a page far out of range (a corrupt or hostile file) cannot
+    /// make the content size absurd: every term stops at `RenderLimits.maxExtent`.
+    @Test func hugeInkOrPagesAreClamped() {
+        let screen = 700.0
+        let maxE = RenderLimits.maxExtent
+        #expect(PageExtent.scrollHeight(pageSize: infinite, inkMaxY: 1e30, viewportHeight: screen) == maxE + screen)
+        #expect(PageExtent.scrollHeight(pageSize: infinite, inkMaxY: -1e30, viewportHeight: screen) == 3473 + screen)
+        let hugeInfinite = PageSize(width: 612, height: 1e300, infinite: true, breakHeight: nil)
+        #expect(PageExtent.scrollHeight(pageSize: hugeInfinite, inkMaxY: nil, viewportHeight: 1e300) == 2 * maxE)
+        let hugeFinite = PageSize(width: 612, height: 1e300, infinite: false, breakHeight: nil)
+        #expect(PageExtent.scrollHeight(pageSize: hugeFinite, inkMaxY: nil, viewportHeight: screen, footerHeight: 1e300)
+                == 2 * maxE)
     }
 
     @Test func keepScreenOnOnlyWhileANoteIsOpenAndTheAppIsActive() {
