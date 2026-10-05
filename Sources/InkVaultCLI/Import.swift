@@ -25,7 +25,7 @@ struct ImportNoteJSON: Encodable {
     var seconds: Double
 
     struct Dropped: Encodable {
-        var typedTextCharacters: Int, pdfs: Int, media: Int, recordings: Int
+        var typedTextCharacters: Int, pdfs: Int, pdfPages: Int, media: Int, recordings: Int
         var dashedStrokes: Int, unknownStyleStrokes: Int
     }
 
@@ -34,7 +34,7 @@ struct ImportNoteJSON: Encodable {
         strokes = r.strokes; recognizedPages = r.recognizedPages; originalWidth = r.originalWidth
         seconds = r.seconds
         let d = r.dropped
-        dropped = Dropped(typedTextCharacters: d.typedTextCharacters, pdfs: d.pdfs, media: d.media,
+        dropped = Dropped(typedTextCharacters: d.typedTextCharacters, pdfs: d.pdfs, pdfPages: d.pdfPages, media: d.media,
                           recordings: d.recordings, dashedStrokes: d.dashedStrokes,
                           unknownStyleStrokes: d.unknownStyleStrokes)
         switch r.status {
@@ -146,9 +146,13 @@ struct ImportNotability: ParsableCommand {
             case .failed(let why): printStderr("failed \(n.source): \(why)")
             default: break
             }
+            if n.status == .ok, n.strokes == 0, n.dropped.pdfPages > 0, !output.quiet {
+                print("no ink in \(n.source): its \(n.dropped.pdfPages) page(s) are PDF pages, which are not imported yet")
+            }
             if output.verbose, !n.dropped.isEmpty {
                 let d = n.dropped
-                let parts = [(d.typedTextCharacters, "typed text characters"), (d.pdfs, "pdfs"), (d.media, "media objects"),
+                let parts = [(d.typedTextCharacters, "typed text characters"), (d.pdfs, "pdfs"),
+                             (d.pdfPages, "pdf pages (imported as blank paper)"), (d.media, "media objects"),
                              (d.recordings, "recordings"), (d.dashedStrokes, "dashed strokes imported solid"),
                              (d.unknownStyleStrokes, "strokes of unknown style imported as pen")]
                     .filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }

@@ -241,7 +241,12 @@ enum SyntheticNote {
         return Float16Bits.encode(x)
     }
 
-    static func session(curves cs: [CurveSpec] = curves) -> Data {
+    /// - Parameters:
+    ///   - pdfPages: lay the note out on that many pages of one imported PDF
+    ///     (`pdfFiles` + `pageLayoutArray`), as Notability does for a note
+    ///     made from a PDF.
+    ///   - paperSize: the `paperSize` attribute (`letter`, `custom:<w/h>`, …).
+    static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter") -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
@@ -270,12 +275,24 @@ enum SyntheticNote {
         let attributed = a.dict([("stringKey", a.string("typed words")), ("subRangesKey", a.array([]))])
         let reflow = a.object("NBReflowStateLocked", [("pageWidthInDocumentCoordsKey", .real(width)),
                                                      ("nativeLayoutDeviceStringKey", a.string("iPad"))])
+        var pdfFiles: [BValue] = [], pageLayout: [BValue] = []
+        if pdfPages > 0 {
+            let name = "00000000-0000-4000-8000-0000000000AA.pdf"
+            let file = a.object("PDFFile", [("pdfFileName", a.string(name)), ("contentBoxVersion", .int(1)),
+                                            ("highlights", a.array([])), ("type", .int(0)), ("version", .int(2))])
+            pdfFiles = [file]
+            pageLayout = (1...pdfPages).map { n in
+                a.dict([("kPageLayoutDocumentPageNumberKey", .int(Int64(n))), ("kPageLayoutPageIsBookmarkedKey", .bool(false)),
+                        ("kPageLayoutPDFFileNameKey", a.string(name)), ("kPageLayoutPDFIsOriginalPageKey", .bool(true)),
+                        ("kPageLayoutPDFPageNumberKey", .int(Int64(n))), ("kPageLayoutPDFFileKey", file)])
+            }
+        }
         let rich = a.object("FormattedString", [
             ("attributedString", attributed), ("Handwriting Overlay", overlay), ("reflowState", reflow),
-            ("pdfFiles", a.array([])), ("mediaObjects", a.array([])),
+            ("pdfFiles", a.array(pdfFiles)), ("mediaObjects", a.array([])), ("pageLayoutArray", a.array(pageLayout)),
         ])
         let attrs = a.object("GLModel.PaperAttributes", [
-            ("paperIdentifier", a.string("Legacy:13")), ("paperSize", a.string("letter")),
+            ("paperIdentifier", a.string("Legacy:13")), ("paperSize", a.string(paperSize)),
             ("paperOrientation", a.string("portrait")),
             ("paperSizingBehavior", a.string("lockedWidth:716.8:iPad")),
             ("lineStyle2", a.string("Dots:false:true:0.25")),
@@ -341,26 +358,36 @@ enum SyntheticNote {
     }
 
     /// The package's files (path inside the package, bytes).
+    /// - Parameters:
+    ///   - thumbnails: `(name, width, height)` of the thumbnails to include.
+    ///   - handwriting: include the two-page handwriting index.
     static func files(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
-                      tags: String = "alpha, beta") -> [(String, Data)] {
+                      tags: String = "alpha, beta", pdfPages: Int = 0,
+                      thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)],
+                      handwriting: Bool = true, paperSize: String = "letter") -> [(String, Data)] {
         let dir = "Synthetic note/"
         let library = try! PropertyListSerialization.data(
             fromPropertyList: ["application version": "1", "library-format-version": "1.0", "recordings": [String: Any]()],
             format: .binary, options: 0)
-        return [
-            (dir + "Session.plist", session(curves: cs)),
+        var out = [
+            (dir + "Session.plist", session(curves: cs, pdfPages: pdfPages, paperSize: paperSize)),
             (dir + "metadata.plist", metadata(subject: subject, tags: tags)),
-            (dir + "HandwritingIndex/index.plist", handwritingIndex()),
             (dir + "Recordings/library.plist", library),
-            (dir + "thumb.png", png(width: 48, height: 63)),
         ]
+        if handwriting { out.append((dir + "HandwritingIndex/index.plist", handwritingIndex())) }
+        if pdfPages > 0 { out.append((dir + "PDFs/00000000-0000-4000-8000-0000000000AA.pdf", Data("%PDF-1.4\n".utf8))) }
+        for (name, w, h) in thumbnails { out.append((dir + name, png(width: w, height: h))) }
+        return out
     }
 
     /// The `.note` package bytes.
     static func package(curves cs: [CurveSpec] = curves, subject: String = "Fixtures",
-                        tags: String = "alpha, beta") -> Data {
+                        tags: String = "alpha, beta", pdfPages: Int = 0,
+                        thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)],
+                        handwriting: Bool = true, paperSize: String = "letter") -> Data {
         ZipWriter.write([.init(path: "Synthetic note/", data: Data(), deflate: false)]
-            + files(curves: cs, subject: subject, tags: tags).map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
+            + files(curves: cs, subject: subject, tags: tags, pdfPages: pdfPages, thumbnails: thumbnails,
+                    handwriting: handwriting, paperSize: paperSize).map { .init(path: $0.0, data: $0.1, deflate: !$0.0.hasSuffix(".png")) })
     }
 
     /// Writes the package unzipped, as a `.note` directory.

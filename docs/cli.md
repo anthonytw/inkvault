@@ -148,8 +148,11 @@ Each `PATH` is a `.note` file, an unzipped `.note` package directory, a folder
 searched recursively for `.note` files, or a zip of `.note` files (Notability's
 backup); see `docs/import-notability.md` for the mapping. One row is printed per
 note (status, title, notebook, strokes written, pages with recognised text,
-source) plus a summary line; `-v` lists what was left behind (typed text, PDFs,
-media, recordings, dashed strokes). A note already in the vault is skipped unless
+source) plus a summary line; `-v` lists what was left behind (typed text, PDFs
+and their page count, media, recordings, dashed strokes). A note with no ink
+whose pages are PDF pages (a PDF that was never written on) imports as an
+empty note and gets a `no ink in …` line, since PDF backgrounds are not imported
+yet. A note already in the vault is skipped unless
 `--overwrite`, which replaces its pages. `--notebook` files every note under one
 notebook; `--no-scale` keeps Notability's document units instead of scaling to
 612 pt width. The device id and clock come from `device.json` as for `snapshot`.
