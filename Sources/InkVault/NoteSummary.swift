@@ -174,6 +174,13 @@ public enum ExportName {
     /// path separators, control and reserved characters become `-`, runs
     /// collapse, length is capped, an empty title becomes `untitled`.
     public static func stem(title: String, noteId: UUID) -> String {
+        "\(component(title))-\(noteId.uuidString.lowercased().prefix(8))"
+    }
+
+    /// A title or notebook segment made safe as one file or folder name:
+    /// path separators, control and reserved characters become `-`, runs
+    /// collapse, length is capped, an empty result becomes `fallback`.
+    public static func component(_ title: String, fallback: String = "untitled") -> String {
         let bad = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters).union(.newlines)
         var out = ""
         for scalar in title.unicodeScalars {
@@ -182,8 +189,6 @@ public enum ExportName {
         while out.contains("--") { out = out.replacingOccurrences(of: "--", with: "-") }
         out = out.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
         if out.count > 60 { out = String(out.prefix(60)).trimmingCharacters(in: CharacterSet(charactersIn: "-.")) }
-        if out.isEmpty { out = "untitled" }
-        let short = noteId.uuidString.lowercased().prefix(8)
-        return "\(out)-\(short)"
+        return out.isEmpty ? fallback : out
     }
 }

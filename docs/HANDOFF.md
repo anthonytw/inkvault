@@ -22,6 +22,8 @@ and macOS, static Linux binary published as a CI artifact.
 | (open) | App usability pass (`feat/app-usability`): `.inkvault` as one item in Files (`VaultLocator`), progressive iCloud loading (`ProgressiveLoad`; list fills without pull-to-refresh), full-width canvas toggle (`ColumnLayout`), tool palette show/hide + compact (`ToolPalette`; PencilKit has no minimise API), note rename, visible tag editor + chips, case-insensitive tags, same-title notes tested | PR open; untested against real iCloud and on the iPad (simulator has neither) |
 | (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
 
+| (open) | Markdown + HTML export (`feat/export-markdown-html`): `inkvault export --format markdown|html` (`MarkdownExport.swift`, `HTMLExport.swift` in InkRender are pure string builders; `ExportTree.swift` in the CLI does layout, idempotent writes, `--clean` via the `.inkvault-export-<format>.json` manifest). Docs: `docs/cli.md` "Markdown and HTML exports". Writes PLAINTEXT; tests in `TextExportTests`, `CLIExportTreeTests` | PR open |
+
 Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
 imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
 612 pt width with breaks every 803.25 pt. Not imported yet: PDF/image page
