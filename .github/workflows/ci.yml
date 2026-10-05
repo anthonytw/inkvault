@@ -1,13 +1,57 @@
 name: CI
 
+# When CI runs (docs/HANDOFF.md "CI"):
+# - Draft PRs run nothing. Open work as a draft; `gh pr ready` (or "Ready for
+#   review") starts CI, and later pushes to a ready PR run it again.
+# - Any branch can be checked on demand: `gh workflow run CI --ref <branch>`.
+# - A newer push to the same PR cancels the older run.
+# - Only the jobs a change can affect run (the `changes` job); main runs all.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Decide which jobs to run
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    outputs:
+      package: ${{ steps.f.outputs.package }}
+      app: ${{ steps.f.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        name: Classify changed paths
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            echo "package=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}")"
+          echo "$files"
+          has() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
+          # Swift package: Linux + macOS build and test.
+          package=$(has '^(Sources/|Tests/|Package\.(swift|resolved)$|scripts/|\.github/workflows/ci\.yml$)')
+          # The app links Age, InkVault and InkRender (and CZlib under them), and its
+          # tests open the package's fixture vault; CLI, importer and WebDAV changes
+          # cannot affect it.
+          app=$(has '^(Apps/|Sources/(Age|InkVault|InkRender|CZlib)/|Tests/InkVaultTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "package=$package app=$app"
+
   linux:
     name: Linux (swift:6.4-noble)
+    needs: changes
+    if: needs.changes.outputs.package == 'true'
     runs-on: ubuntu-24.04
     container: swift:6.4-noble
     steps:
@@ -45,6 +89,8 @@ jobs:
 
   macos:
     name: macOS
+    needs: changes
+    if: needs.changes.outputs.package == 'true'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +107,8 @@ jobs:
 
   app:
     name: iPad app (simulator + Mac Catalyst)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
