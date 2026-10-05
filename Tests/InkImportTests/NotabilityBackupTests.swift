@@ -158,6 +158,23 @@ final class NotabilityBackupTests: XCTestCase {
         XCTAssertEqual(report.notes.first { $0.status != .ok }?.duplicateOf, report.notes[1].source)
     }
 
+    /// A `.note` without ink and an `.ntb` of the same note with ink: the
+    /// bundle is imported as the note (under the uuid), the empty `.note` skipped.
+    func testInkedBundleWinsOverEmptyNote() throws {
+        let createdMs = Int64((SyntheticNote.created.timeIntervalSince1970 * 1000).rounded())
+        let bundle = SyntheticBundle.noteBundle(strokes: SyntheticBundle.strokesMatchingSyntheticNote(), createdMs: createdMs)
+        let (report, vault) = try run([
+            .init(path: "Notability/A/x.note", data: SyntheticNote.package(curves: [], handwriting: false)),
+            .init(path: "Notability/A/x.ntb", data: SyntheticBundle.package(bundle)),
+        ])
+        let ntb = try XCTUnwrap(report.notes.first { $0.format == .ntb })
+        XCTAssertEqual(ntb.status, .ok)
+        XCTAssertEqual(ntb.selection, "chosen from 2 copies of this note: the .ntb holds ink and the .note none")
+        XCTAssertEqual(ntb.noteId, UUID.derived(from: "inkvault-notability:" + SyntheticNote.uuid))
+        XCTAssertEqual(report.notes.first { $0.format == .note }?.status.isSkipped, true)
+        XCTAssertEqual(try vault.reconstruct(noteId: XCTUnwrap(ntb.noteId)).pages[0].strokes.count, 2)
+    }
+
     // MARK: Tags
 
     /// Folder path segments become tags (case-insensitive, first spelling
@@ -322,6 +339,19 @@ final class NotabilityBackupTests: XCTestCase {
         XCTAssertEqual(note.curves[3].color, Color(r: 0xED, g: 0x36, b: 0x24, a: 0xFF))
     }
 
+    /// Bundle points are page coordinates whatever margin the document
+    /// record holds (newer letter notes record 36): the stroke lands at its
+    /// page x after import.
+    func testBundlePointsArePageCoordinates() throws {
+        let s = SyntheticBundle.StrokeSpec(origin: (100, 50), segments: [((1, 0), (2, 0), (3, 1), false)])
+        let note = try NotabilityBundle.parse(bundle: SyntheticBundle.noteBundle(strokes: [s], pageWidth: 612,
+                                                                                  pageHeight: 792, margin: 36))
+        XCTAssertEqual(note.paper.width, 612)
+        let state = NotabilityImporter.convert(note)
+        XCTAssertEqual(state.pages[0].strokes[0].points[0].x, 100, accuracy: 1e-3)
+        XCTAssertEqual(state.pages[0].strokes[0].points[0].y, 50, accuracy: 1e-3)
+    }
+
     func testBundleOriginClampedAtPageEdge() throws {
         let s = SyntheticBundle.StrokeSpec(origin: (SyntheticBundle.width, 50), segments: [((1, 0), (2, 0), (3, 1), false)])
         let note = try NotabilityBundle.parse(bundle: SyntheticBundle.noteBundle(strokes: [s]))
@@ -387,4 +417,8 @@ private func XCTAssertEqual(_ a: [Double], _ b: [Double], accuracy: Double, file
                             line: UInt = #line) {
     XCTAssertEqual(a.count, b.count, file: file, line: line)
     for (x, y) in zip(a, b) { XCTAssertEqual(x, y, accuracy: accuracy, file: file, line: line) }
+}
+
+private extension NotabilityImporter.Status {
+    var isSkipped: Bool { if case .skipped = self { return true }; return false }
 }

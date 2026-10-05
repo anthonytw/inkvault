@@ -529,11 +529,17 @@ public enum NotabilityImporter {
         for key in order {
             guard let members = groups[key], members.count > 1 else { continue }
             // The primary: a .note before an .ntb (it carries recognition, PDF
-            // layout and full-precision points), then the newest modification
+            // layout and full-precision points) unless only the .ntb has ink,
+            // then the newest modification
             // date, then the newest file, then the path.
             let ranked = members.sorted { a, b in
                 guard let x = summaries[a], let y = summaries[b] else { return a < b }
-                if (x.format == .note) != (y.format == .note) { return x.format == .note }
+                if (x.format == .note) != (y.format == .note) {
+                    // A .note wins unless it is empty and the .ntb is not.
+                    let xi = !x.strokes.isEmpty, yi = !y.strokes.isEmpty
+                    if xi != yi { return xi }
+                    return x.format == .note
+                }
                 let mx = x.modified ?? .distantPast, my = y.modified ?? .distantPast
                 if mx != my { return mx > my }
                 let fx = all[a].modified ?? .distantPast, fy = all[b].modified ?? .distantPast
@@ -544,7 +550,9 @@ public enum NotabilityImporter {
             let others = ranked.count - 1
             let runnerUp = ranked.dropFirst().compactMap { summaries[$0] }.first
             let why: String
-            if let r = runnerUp, r.format == .note, primary.modified != r.modified {
+            if primary.format == .ntb {
+                why = "the .ntb holds ink and the .note none"
+            } else if let r = runnerUp, r.format == .note, primary.modified != r.modified {
                 why = "newest modification date"
             } else if let r = runnerUp, r.format == .note, all[first].modified != all[ranked[1]].modified {
                 why = "same modification date; newest file"

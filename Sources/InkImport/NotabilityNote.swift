@@ -194,11 +194,13 @@ public struct NotabilityNote: Hashable, Sendable {
     /// note's locked width).
     public static let defaultWidth = 716.8
     /// Horizontal offset from Notability's ink coordinates to the page, as a
-    /// fraction of the document width: ink x = 0 is 18.8 units in from the
-    /// left edge of a 716.8-wide page (measured against Notability's own
-    /// thumbnails across every format version; ink reaches x ≈ -18 and
-    /// x ≈ 698 but never beyond).
-    public static let horizontalInsetFraction = 18.8 / 716.8
+    /// fraction of the document width: ink x = 0 is `W / 38.4` units in from
+    /// the left edge (18.667 on a 716.8-wide page, 14.896 on 572). Notability
+    /// records it as the page margin in `.ntb` bundles, whose points are page
+    /// coordinates: x(.ntb) − x(.note) is exactly that in 401 + 58 notes.
+    /// (It was 18.8 when measured against thumbnails, ±1 unit; the PDF
+    /// comparison confirms the 0.11 pt difference.)
+    public static let horizontalInsetFraction = 1 / 38.4
     /// Page aspect (height / width) used when nothing records one: what every
     /// "letter" note in the reference corpus shows (thumbnails 48 × 63).
     public static let defaultPageAspect = 21.0 / 16.0
@@ -579,7 +581,7 @@ extension NotabilityNote {
            r.isFinite, r > 0, let a = plausibleAspect(1 / r) {
             aspect = a
         } else if let (tw, th) = thumbnail, tw > 0, th > 0, let a = plausibleAspect(Double(th) / Double(tw)) {
-            aspect = a
+            aspect = snapAspect(a, thumbnailWidth: tw)
         }
 
         let (kind, spacing) = paperStyle(lineStyle2: lineStyle2, lineStyle: lineStyle, width: w, size: size)
@@ -604,6 +606,26 @@ extension NotabilityNote {
     static let widthRange = 16.0 ... 100_000.0
 
     static func plausibleAspect(_ a: Double) -> Double? { aspectRange.contains(a) ? a : nil }
+
+    /// Page aspects (height / width) of real paper and slide sizes: Notability's
+    /// own 21/16, US letter and A4 either way up, 4:3, 16:9 and square.
+    static let standardAspects: [Double] = [21.0 / 16, 11 / 8.5, 8.5 / 11, 297.0 / 210, 210.0 / 297,
+                                            3.0 / 4, 4.0 / 3, 9.0 / 16, 16.0 / 9, 1]
+
+    /// A thumbnail's height is a whole number of pixels, rounded down (letter
+    /// at 576 px: 745.4 → 744), so its aspect is off by up to 2 / width:
+    /// enough to put a PDF page's stride (⌈width × aspect⌉) 2 units short on a
+    /// letter PDF, a drift that grows page by page. When a standard aspect lies
+    /// within two pixels of the thumbnail's, the closest one is used (measured
+    /// against Notability's PDF export of letter PDFs: 612 × 792.32 pages,
+    /// stride 928 on a 716.8-wide note, 741 on a 572-wide one).
+    static func snapAspect(_ a: Double, thumbnailWidth: Int) -> Double {
+        let tolerance = 2.0 / Double(max(thumbnailWidth, 1))
+        guard let best = standardAspects.min(by: { abs($0 - a) < abs($1 - a) }), abs(best - a) <= tolerance else {
+            return a
+        }
+        return best
+    }
     static func plausibleWidth(_ w: Double) -> Double? { widthRange.contains(w) ? w : nil }
 
     /// Document units per legacy spacing unit (`Dots:0.5`, `Lines:0.5`),

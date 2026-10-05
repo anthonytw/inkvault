@@ -43,7 +43,6 @@ public enum NotabilityBundle {
 
         var title: String?
         var page: (w: Double, h: Double)?
-        var leftMargin = 0.0
         var paperPattern: Int?
         var paperSpacing: Double?
         var lastEdit: Int64?
@@ -73,7 +72,6 @@ public enum NotabilityBundle {
                     if let size = try fb.field(layout, 3) {
                         page = (Double(try fb.f32(size)), Double(try fb.f32(size + 4)))
                     }
-                    if let m = try fb.field(layout, 4) { leftMargin = Double(try fb.f32(m + 8)) }
                     if let p = try fb.field(layout, 0) {
                         let paper = try fb.table(atRef: p)
                         paperPattern = try fb.field(paper, 0).map { Int(try fb.u8($0)) }
@@ -105,11 +103,14 @@ public enum NotabilityBundle {
         let width = page.map(\.w).flatMap(NotabilityNote.plausibleWidth) ?? NotabilityNote.defaultWidth
         let pageHeight = page.flatMap { NotabilityNote.plausibleAspect($0.h / width).map { $0 * width } }
             ?? width * NotabilityNote.defaultPageAspect
-        // Bundle coordinates are page-relative with x = 0 at the page edge;
-        // `.note` coordinates are continuous with x = 0 at the left margin.
+        // Bundle coordinates are page coordinates (x from the page edge, y
+        // from the page's top); `.note` coordinates are continuous with x = 0
+        // at `insetX`. Not the bundle's recorded margin: newer letter-size
+        // notes record 36 there while their points are still page coordinates.
+        let inset = width * NotabilityNote.horizontalInsetFraction
         func place(_ c: inout NotabilityNote.Curve, page: Int) {
             let dy = Double(page) * pageHeight
-            c.points = c.points.map { NotabilityNote.Point(x: $0.x - leftMargin, y: $0.y + dy) }
+            c.points = c.points.map { NotabilityNote.Point(x: $0.x - inset, y: $0.y + dy) }
         }
         for (index, pg) in placed {
             if index >= 0 { place(&curves[index], page: pg) } else { place(&lines[-index - 1], page: pg) }

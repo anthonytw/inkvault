@@ -164,10 +164,11 @@ enum SyntheticBundle {
     }
 
     static func noteBundle(title: String = "Synthetic bundle", strokes: [StrokeSpec], lines: [((Float, Float), (Float, Float))] = [],
-                           extraRecords: [[Int: FBValue]] = [], createdMs: Int64 = createdMs) -> Data {
+                           extraRecords: [[Int: FBValue]] = [], createdMs: Int64 = createdMs,
+                           pageWidth: Float = width, pageHeight: Float = height, margin: Float = margin) -> Data {
         var records: [[Int: FBValue]] = []
         let paper: [Int: FBValue] = [0: .u8(1), 1: .f32(16.6)]
-        let layout: [Int: FBValue] = [0: .table(paper), 3: .structBytes(f32(width) + f32(height)),
+        let layout: [Int: FBValue] = [0: .table(paper), 3: .structBytes(f32(pageWidth) + f32(pageHeight)),
                                       4: .structBytes(f32(0) + f32(0) + f32(margin) + f32(margin))]
         records.append(record(0, type: 1, payload: [0: .table([0: .string(title)]), 1: .table([0: .table(layout)])]))
         for (i, s) in strokes.enumerated() {
