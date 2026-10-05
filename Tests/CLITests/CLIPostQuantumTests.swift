@@ -229,6 +229,8 @@ final class CLIPostQuantumTests: CLITestCase {
             ["notes", "restore", note, "--to", "1", "--vault", vault],
             ["export", note, "--format", "json", "--out", path("x.json"), "--vault", vault],
             ["export", "--all", "--format", "pdf", "--out", path("x.pdf"), "--vault", vault],
+            ["export", "--all", "--format", "markdown", "--out", path("md"), "--vault", vault],
+            ["export", "--all", "--format", "html", "--out", path("html"), "--vault", vault],
             ["search", "fixture", "--vault", vault],
             ["compact", "--all", "--vault", vault],
             ["snapshot", note, "--vault", vault],
@@ -237,6 +239,10 @@ final class CLIPostQuantumTests: CLITestCase {
             ["vault", "verify", "--vault", vault],
             ["keys", "export", "--vault", vault],
             ["sync", "webdav", "http://127.0.0.1:9/dav/", "--vault", vault],
+            ["keys", "paper", "--vault", vault, "--out", path("kit.pdf")],
+            ["backup", vault, "--to", path("pruned"), "--prune"],
+            ["backup", "verify", vault],
+            ["restore", vault, "--to", path("restored.inkvault")],
         ]
         for args in refused {
             for extra in [[String](), ["--identity", key]] {
@@ -247,6 +253,17 @@ final class CLIPostQuantumTests: CLITestCase {
             }
         }
         XCTAssertEqual(try stanzaTypes(vault), [["X25519"]], "nothing was written")
+        for made in ["md", "html", "kit.pdf", "pruned", "restored.inkvault"] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: path(made)), made)
+        }
+
+        // Copying the ciphertext is allowed (no decryption): a backup before migrating.
+        let backup = try cli(["backup", vault, "--to", path("bk")])
+        XCTAssertEqual(backup.status, 0, backup.err)
+        XCTAssertEqual(try cli(["backup", vault, "--archive", path("v.tar")]).status, 0)
+        // ...and the backup is a legacy vault too: verify and restore refuse it.
+        XCTAssertEqual(try cli(["backup", "verify", path("bk"), "--identity", key]).status, 5)
+        XCTAssertEqual(try cli(["restore", path("bk"), "--to", path("r2.inkvault")]).status, 5)
 
         // Allowed: info, recover (stock-age equivalent), and the migration itself.
         let info = try cli(["vault", "info", "--vault", vault])

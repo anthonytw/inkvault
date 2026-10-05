@@ -45,8 +45,13 @@ classic X25519 recipient, alone or next to post-quantum ones, only these run:
 `replace`, `vault rewrap-resume`, and `recover` (the stock-`age` equivalent,
 which reads one file and needs no migration). Every other command that opens
 a vault (`notes …`, `export`, `search`, `compact`, `snapshot`, `import`,
-`vault verify`, `keys export`, `sync webdav`) exits 5 before asking for a key
-or passphrase. `keys generate` and `keys show` do not touch a vault.
+`vault verify`, `keys export`, `keys paper --vault`, `sync webdav`,
+`backup --prune`, `backup verify`, `restore`) exits 5 before asking for a key
+or passphrase. `backup V --to DIR` (without `--prune`) and `backup V --archive`
+are allowed too: they copy the encrypted files without decrypting anything,
+and a copy before migrating is a good idea. `restore` is refused because it
+would hand back a legacy vault; migrate the backup folder (itself a vault)
+first. `keys generate` and `keys show` do not touch a vault.
 
 Errors go to stderr, one line each, prefixed `inkvault:`.
 
@@ -98,19 +103,22 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
   the sheet. With `--vault` the key must be one of the vault's recipients
   (else exit 4). Without `--identity` the key comes from the vault's stored key
   file (passphrase as for any command).
-  `--passphrase` prints the passphrase-wrapped key file instead (armored age,
-  scrypt; QR error correction M): the vault's `keys/<recipient>.key.age` when
-  it stores one for this key (its passphrase is checked), otherwise a new one
-  locked with a passphrase you choose (`--passphrase-env VAR` /
-  `$INKVAULT_PASSPHRASE` / the terminal, confirmed; `--work-factor`, default
-  18). Either way the command decrypts what it prints before writing the PDF.
+  `--passphrase` prints a passphrase-wrapped copy of the key instead (armored
+  age, scrypt, `--work-factor` default 18; QR error correction M). It wraps only
+  the secret key line, so a post-quantum key's 1959-character public key never
+  ends up in the QR code (it would not fit). The passphrase is the one of the
+  vault's stored key file for this key (checked by opening it), otherwise one
+  you choose (`--passphrase-env VAR` / `$INKVAULT_PASSPHRASE` / the terminal,
+  confirmed). Either way the command decrypts what it prints before writing the PDF.
   That sheet is safe to store less carefully, but useless without the
   passphrase. `--json` emits `path`, `variant` (`plain` or `passphrase`),
   `publicKey`, `vaultId`, `qrVersion`, `qrErrorCorrection` and `lines`.
   Delete the PDF once it is printed.
 
   **Post-quantum keys** (`AGE-SECRET-KEY-PQ-1…`, 77 characters, from
-  `age-keygen -pq`): the same sheet. The first line is the `AGE-SECRET-KEY-PQ-1`
+  `age-keygen -pq`): the same sheet. Kits are printed only for post-quantum
+  keys: a classic `AGE-SECRET-KEY-1…` key is refused ("create a new key", exit
+  2), and so is a legacy vault given with `--vault` (exit 5). The first line is the `AGE-SECRET-KEY-PQ-1`
   prefix, then 58 characters in lines of 20, and the QR code is version 7 at
   level Q (45×45 modules, against version 6 for an X25519 key). The public key is 1959 characters and cannot be
   read or typed from paper, so the sheet prints its first characters, its length and
