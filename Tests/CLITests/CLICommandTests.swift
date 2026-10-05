@@ -455,4 +455,27 @@ final class CLICommandTests: CLITestCase {
             XCTAssertTrue(root.out.contains(word), word)
         }
     }
+
+    func testSameTitledNotesExportToDistinctFilesAndTitleLookupIsAmbiguous() throws {
+        let copy = try copyFixtureVault()
+        let vault = try Vault.open(at: URL(fileURLWithPath: copy), identities: [try fixtureIdentity()])
+        let state = tmp.appendingPathComponent("dup-device.json")
+        let ids = [UUID(), UUID()]
+        for (i, id) in ids.enumerated() {
+            try vault.apply(NoteOps.newNote(title: "Same", notebook: i == 0 ? "A" : "B", tags: ["Math"]), to: id,
+                            deviceState: state, app: "test")
+        }
+        let out = path("dup-export")
+        let ex = try cli(["export", "--all", "--format", "json", "--out", out, "--vault", copy, "--identity", Self.fixtureKey])
+        XCTAssertEqual(ex.status, 0, ex.err)
+        let files = try FileManager.default.contentsOfDirectory(atPath: out)
+        XCTAssertEqual(Set(files).count, files.count)
+        XCTAssertEqual(files.filter { $0.hasPrefix("Same-") }.count, 2, "\(files)")
+        let ambiguous = try cli(["notes", "history", "Same", "--vault", copy, "--identity", Self.fixtureKey])
+        XCTAssertEqual(ambiguous.status, 1)
+        for id in ids { XCTAssertTrue(ambiguous.err.contains(id.uuidString.lowercased()), ambiguous.err) }
+        // The tag filter ignores case.
+        let tagged = try cli(["notes", "list", "--tag", "MATH", "--json", "--vault", copy, "--identity", Self.fixtureKey])
+        XCTAssertEqual((tagged.json as? [Any])?.count, 2)
+    }
 }

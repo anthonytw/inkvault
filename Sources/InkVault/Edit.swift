@@ -16,11 +16,21 @@ public enum NoteOps {
          .setMeta(.pageSize(pageSize))]
     }
 
-    /// Trims each tag, drops empty ones and exact duplicates, keeps order.
+    /// The tag as stored: trimmed, inner runs of whitespace collapsed to one space.
+    public static func normalizedTag(_ tag: String) -> String {
+        tag.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// The case-insensitive key tags are matched by: "Math" and "math" are one tag.
+    public static func tagKey(_ tag: String) -> String {
+        normalizedTag(tag).lowercased()
+    }
+
+    /// Normalises each tag (`normalizedTag`), drops empty ones and duplicates
+    /// that differ only in case (the first spelling wins), keeps order.
     public static func normalizedTags(_ tags: [String]) -> [String] {
         var seen = Set<String>()
-        return tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        return tags.map(normalizedTag).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
     }
 
     /// The trimmed notebook name, nil when empty.

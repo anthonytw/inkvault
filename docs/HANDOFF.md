@@ -19,6 +19,7 @@ and macOS, static Linux binary published as a CI artifact.
 | #7 | CLI: keys, vault, verify, export, recover, compact, snapshot (`docs/cli.md`) | merged |
 | #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
 | #13 | InkRender: PNG export (`Raster.swift` scanline filler with 8 sub-rows and exact horizontal coverage, non-zero union per draw command so a stroke blends once like the PDF; `PNGEncoder.swift` streamed zlib + adaptive filters; `PNGWriter.swift` paginates like the PDF; `--dpi`, 40 MP cap per image) + `inkvault export --format png` | merged |
+| (open) | App usability pass (`feat/app-usability`): `.inkvault` as one item in Files (`VaultLocator`), progressive iCloud loading (`ProgressiveLoad`; list fills without pull-to-refresh), full-width canvas toggle (`ColumnLayout`), tool palette show/hide + compact (`ToolPalette`; PencilKit has no minimise API), note rename, visible tag editor + chips, case-insensitive tags, same-title notes tested | PR open; untested against real iCloud and on the iPad (simulator has neither) |
 | (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
 
 Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127

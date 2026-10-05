@@ -11,6 +11,9 @@ struct PageCanvasView: UIViewRepresentable {
     let pageID: UUID
     let paper: Paper
     let pageSize: PageSize
+    /// The tool palette's shown/compact state (`ToolPalette`).
+    var paletteVisible = true
+    var paletteCompact = false
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -41,6 +44,8 @@ struct PageCanvasView: UIViewRepresentable {
             #endif
         }
         host.isReadOnly = editor.isReadOnly
+        host.paletteCompact = paletteCompact
+        host.paletteVisible = paletteVisible
         host.apply(paper: paper, pageSize: pageSize)
     }
 
@@ -74,10 +79,20 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
     /// Starts with the last-used eraser mode, the object eraser by default.
-    let toolPicker = EraserPreference.makeToolPicker()
+    private(set) var toolPicker = ToolPalette.makePicker(compact: ToolPalette.isCompact())
     private var pageSize = PageSize.letter
     private var paper = Paper.blank
     private var fittedWidth: CGFloat = 0
+
+    /// The palette is shown (the toolbar button) unless the note is read-only.
+    var paletteVisible = true {
+        didSet { if paletteVisible != oldValue { updateToolPicker() } }
+    }
+
+    /// The palette is the short one: pen, marker, eraser, lasso.
+    var paletteCompact = ToolPalette.isCompact() {
+        didSet { if paletteCompact != oldValue { rebuildToolPicker() } }
+    }
 
     var isReadOnly = false {
         didSet {
@@ -121,8 +136,27 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
 
     private func updateToolPicker() {
         guard window != nil else { return }
-        toolPicker.setVisible(!isReadOnly, forFirstResponder: canvas)
+        let show = !isReadOnly && paletteVisible
+        toolPicker.setVisible(show, forFirstResponder: canvas)
         if !isReadOnly { canvas.becomeFirstResponder() }
+    }
+
+    /// Swaps in a picker of the other size, keeping the selected tool when the
+    /// new picker has it.
+    private func rebuildToolPicker() {
+        let old = toolPicker
+        old.setVisible(false, forFirstResponder: canvas)
+        old.removeObserver(canvas)
+        old.removeObserver(self)
+        let new = ToolPalette.makePicker(compact: paletteCompact)
+        if new.toolItems.contains(where: { $0.identifier == old.selectedToolItemIdentifier }) {
+            new.selectedToolItemIdentifier = old.selectedToolItemIdentifier
+        }
+        new.colorUserInterfaceStyle = .light
+        new.addObserver(canvas)
+        new.addObserver(self)
+        toolPicker = new
+        updateToolPicker()
     }
 
     override func layoutSubviews() {

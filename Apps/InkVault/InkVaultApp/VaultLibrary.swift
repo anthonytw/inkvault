@@ -2,6 +2,70 @@ import Age
 import Foundation
 import InkVault
 import Observation
+import UniformTypeIdentifiers
+
+extension UTType {
+    /// A `.inkvault` folder, shown by Files as one document (a package). Declared
+    /// as an exported type in `InkVaultInfo.plist`.
+    static let inkVault = UTType(exportedAs: "io.github.anthonytw.inkvault.vault", conformingTo: .package)
+
+    /// What the "open vault" pickers accept: vault packages, and plain folders
+    /// (older vaults, or ones not named `.inkvault`).
+    static var vaultPickerTypes: [UTType] { [.inkVault, .folder] }
+}
+
+/// Turns whatever the user picked into the vault folder.
+enum VaultLocator {
+    enum LocatorError: Error, Equatable, CustomStringConvertible {
+        case severalVaults([String])
+        /// The pick is inside the vault named here. Access granted to a picked
+        /// folder covers that folder and what is in it, never its parents, so
+        /// the vault itself cannot be opened from it.
+        case insideVault(String)
+
+        var description: String {
+            switch self {
+            case .severalVaults(let names):
+                return "That folder holds several vaults (\(names.joined(separator: ", "))). Choose one of them."
+            case .insideVault(let name):
+                return "That is a folder inside the vault “\(name)”. Choose “\(name)” itself."
+            }
+        }
+    }
+
+    /// The vault folder for `picked`:
+    /// - a folder with a `vault.json`: itself;
+    /// - a folder holding exactly one `.inkvault` folder: that folder (the
+    ///   picked folder's access covers it);
+    /// - anything else: `picked` unchanged (opening it reports the problem).
+    ///
+    /// - Throws: `LocatorError.severalVaults` for a folder holding more than
+    ///   one vault; `LocatorError.insideVault` for a file or folder inside a
+    ///   vault (`notes/`, `notes/<id>/…`, `keys/…`, `vault.json`), whose
+    ///   security scope would not reach the vault.
+    static func resolve(_ picked: URL, fileManager fm: FileManager = .default) throws -> URL {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: picked.path, isDirectory: &isDir) else { return picked }
+        func isVault(_ dir: URL) -> Bool {
+            fm.fileExists(atPath: dir.appendingPathComponent("vault.json").path)
+                || fm.fileExists(atPath: dir.appendingPathComponent(CloudPlaceholder.placeholderName(for: "vault.json")).path)
+        }
+        if isDir.boolValue, isVault(picked) { return picked }
+        // Inside a vault: vault.json is at most `notes/<id>/<file>` above.
+        var candidate = picked.deletingLastPathComponent()
+        for _ in 0..<3 {
+            if isVault(candidate) { throw LocatorError.insideVault(candidate.lastPathComponent) }
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path { break }
+            candidate = parent
+        }
+        guard isDir.boolValue else { return picked }
+        let inside = VaultLibrary.vaults(in: picked)
+        if inside.count == 1 { return inside[0] }
+        if inside.count > 1 { throw LocatorError.severalVaults(inside.map(\.lastPathComponent)) }
+        return picked
+    }
+}
 
 /// A vault the app has opened before, reachable through a bookmark.
 struct RecentVault: Codable, Identifiable, Hashable, Sendable {
