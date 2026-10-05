@@ -504,7 +504,10 @@ where the table says how they degrade.
 | zip entry (import) | 1 GiB uncompressed, CRC and size checked | `ZipArchive` |
 | binary plist (import) | 64 levels; no cycles; each object parsed once; XML plists refused | `BinaryPlist` |
 | keyed-archive UID chain | 64 hops | `KeyedArchive` |
-| Notability coordinates and widths | ±10⁶ units, finite; recognised pages up to 100 000 | `NotabilityNote` |
+| Notability coordinates and widths | ±10⁶ units, finite; recognised pages up to 100 000; dates outside 0001…9999 dropped (`.note` and `.ntb`) | `NotabilityNote` |
+| `.ntb` bundle (import) | geometry, erase lists and titles decoded: 4 × the bundle's size + 64 KiB; pages below 100 000 | `NotabilityBundle.decodeBudgetFactor` |
+| shape objects (import) | 1 curve point per byte of the `shapes` plist + 65 536 | `NotabilityShapes.pointsPerByte` |
+| duplicate detection (import) | 256 stroke comparisons per stroke + 10⁶ per copy; beyond, the copy is imported as a separate version | `NotabilityImporter.PrintIndex` |
 | page size and stroke extent (render) | 200 000 pt | `RenderLimits.maxExtent` |
 | curve samples per stroke | 64 per control point + 1024 (sparser beyond) | `RenderLimits.samplesPerPoint` |
 | outline points per page | 40 M | `RenderLimits.maxOutlinePoints` |
