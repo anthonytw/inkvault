@@ -172,4 +172,27 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   minimises or docks the system palette by dragging it to an edge or tapping its
   collapse handle. Changing the compact option swaps the picker object.
 - Tags match case-insensitively (`NoteOps.tagKey`); titles are never keys.
-
+- Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
+  age identity text is stored only in the Keychain, never logged, never in
+  `UserDefaults` or files. Device-only items are
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` + `SecAccessControl`
+  `.biometryCurrentSet` (`.userPresence` without enrolled biometrics; a new
+  Face ID enrollment invalidates the item, which reads as "no key").
+  Synchronizable (iCloud Keychain) items cannot carry an access control or a
+  `ThisDeviceOnly` class: reading one is gated by `LAContext.evaluatePolicy`
+  in the app, and the UI says so. No entitlement is added: items use the
+  app's default access group (its application identifier), which free
+  personal-team builds have. Unsigned builds (CI, simulator tests) get
+  `errSecMissingEntitlement`, so tests use `FakeKeyStore`, never the real
+  Keychain. Face ID needs `INFOPLIST_KEY_NSFaceIDUsageDescription` (pbxproj).
+  Generic-password items from apps are generally not listed in the Passwords app.
+- The object eraser is the app's (`ObjectEraser.swift`, `EraserGeometry.swift`):
+  PencilKit's `.vector` eraser has no size. When the picker's eraser is in
+  object mode, `PageCanvasHost` disables `drawingGestureRecognizer` and
+  `ObjectEraserController` takes the touches (Pencil, plus one finger when
+  fingers draw; scrolling then needs two), removes every stroke whose sampled
+  outline the swept capsule touches by setting `canvas.drawing`, and registers
+  one undo step per gesture on the canvas's undo manager. The ledger turns
+  that into ordinary `removeStroke` ops. The pixel eraser stays PencilKit's.
+  Radius presets (`ObjectEraserSize`, page points) are in `UserDefaults`
+  under `InkVault.objectEraserRadius`; the size menu is in the editor toolbar.
