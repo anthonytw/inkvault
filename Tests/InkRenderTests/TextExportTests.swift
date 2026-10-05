@@ -71,6 +71,17 @@ final class TextExportTests: XCTestCase {
         XCTAssertTrue(md.contains("not encrypted"), md)
     }
 
+    /// A title with CR, U+2028 or U+0085 must not start a new Markdown line.
+    func testHeadingsCannotBeSplitByUnicodeLineBreaks() {
+        let md = MarkdownExport.note(info: info(title: "a\r## injected\u{2028}b\u{85}c"),
+                                     state: NoteState(meta: T.meta(title: ""), pages: []), pdfName: "x.pdf")
+        XCTAssertTrue(md.contains("\n# a ## injected b c\n"), md)
+        let idx = MarkdownExport.folderIndex(title: "t\r## x", subfolders: [("s\u{2028}## y", "s/README.md")],
+                                             notes: [ExportIndexEntry(title: "n\u{85}## z", href: "n.md")])
+        XCTAssertTrue(idx.hasPrefix("# t ## x\n"), idx)
+        XCTAssertFalse(idx.contains("\u{2028}") || idx.contains("\u{85}") || idx.contains("\r"), idx)
+    }
+
     // MARK: HTML
 
     final class Parse: NSObject, XMLParserDelegate {

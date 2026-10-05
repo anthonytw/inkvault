@@ -40,6 +40,22 @@ struct ExportManifest: Codable {
     var version = 1
     var files: [String: FileEntry] = [:]
     var notes: [String: NoteEntry] = [:]
+
+    /// A path component that stays inside its folder: not empty, not `.` or `..`,
+    /// no separator or control character.
+    static func isSafeComponent(_ c: String) -> Bool {
+        !c.isEmpty && c != "." && c != ".." && !c.unicodeScalars.contains { $0 == "/" || $0 == "\\" || $0.value < 0x20 }
+    }
+
+    /// The manifest is a file in a folder that may be shared, so it is not trusted: `--clean`
+    /// deletes and the indexes write the paths it names. Entries that would leave the output
+    /// folder (or are not what this exporter writes) are forgotten.
+    mutating func dropUnsafeEntries() {
+        files = files.filter { rel, _ in
+            !rel.hasPrefix("/") && rel.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { Self.isSafeComponent(String($0)) }
+        }
+        notes = notes.filter { _, n in Self.isSafeComponent(n.stem) && n.folder.allSatisfy(Self.isSafeComponent) }
+    }
 }
 
 /// Writes notes as a folder tree: Markdown (`.md` + PDF [+ PNG pages] + a
@@ -71,7 +87,7 @@ struct TreeExporter {
     /// case-insensitive file system cannot merge two folders by accident.
     static func folders(for notebooks: [String?]) -> [String?: [String]] {
         func sanitized(_ nb: String?) -> [String] {
-            NotebookPath.components(nb).map { ExportName.component($0) }
+            NotebookPath.components(nb).map { ExportName.folderComponent($0) }
         }
         var spelling: [String: String] = [:]
         for nb in Set(notebooks) {
@@ -105,6 +121,7 @@ struct TreeExporter {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let (enc, dec) = Self.coder()
         var manifest = (try? dec.decode(ExportManifest.self, from: Data(contentsOf: manifestURL))) ?? ExportManifest()
+        manifest.dropUnsafeEntries()
         let folderMap = Self.folders(for: notes.map { NotebookPath.canonical($0.1.meta.notebook) })
         var runFiles = Set<String>()
         var results: [TreeResult] = [], errors: [String] = []

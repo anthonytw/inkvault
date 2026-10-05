@@ -251,7 +251,12 @@ like a file name (`ExportName.component`) and names that differ only by case
 share one folder. Notes without a notebook sit in the root. File names are
 `ExportName.stem` (title + 8 id characters), so two notes with the same title
 never collide; for markdown `[ ] # ^` in the stem also become `-` (they break
-Obsidian wikilinks).
+Obsidian wikilinks). A segment or stem is at most 120 UTF-8 bytes (file names are
+limited in bytes, not characters); a notebook folder named like a Windows device
+(`CON`, `NUL`, `COM1`, ...) or like an index file the export writes (`README.md`,
+`index.html`) gets a `_` appended. The `.inkvault-export-<format>.json` manifest is
+not trusted: entries that would leave `--out` are ignored, so a doctored one in a
+shared folder cannot make an export write or `--clean` delete elsewhere.
 
 `--format markdown` writes, per note:
 

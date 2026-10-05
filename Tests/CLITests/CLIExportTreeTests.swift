@@ -182,6 +182,89 @@ final class CLIExportTreeTests: CLITestCase {
         XCTAssertTrue(again.out.contains("0 file(s) written"), again.out)
     }
 
+    // MARK: - Review regressions
+
+    /// Every file a tree export wrote, as absolute paths (the manifest included).
+    func allFiles(under dir: String) -> [String] {
+        (FileManager.default.enumerator(atPath: dir)?.allObjects as? [String] ?? []).map { dir + "/" + $0 }
+    }
+
+    /// Hostile titles and notebooks never leave the output folder, never make a
+    /// name the file system refuses, and never collide with the index files.
+    func testHostileNamesStayInsideTheOutputFolderAndExportCleanly() throws {
+        let zalgo = "e" + String(repeating: "\u{0301}", count: 300)    // one Character, 600+ bytes
+        let hostile: [(String, String)] = [
+            ("../../escape", "../../etc"), ("..", ".."), (".", "."), ("/abs/olute", "/abs//x"),
+            ("CON", "NUL/aux"), (String(repeating: "🙂", count: 60), "Folder"), (zalgo, zalgo),
+            ("README.md", "README.md"), ("index.html", "index.html"), ("a\u{0}b\u{202E}c", "d\\e:f"),
+        ]
+        for (i, (title, notebook)) in hostile.enumerated() {
+            let id = String(format: "a%07x-%04d-4000-8000-0000000000%02d", i, 7000 + i, i)
+            try add(id, [.setMeta(.title(title)), .setMeta(.notebook(notebook))])
+        }
+        for format in ["markdown", "html"] {
+            let parent = path("parent-" + format)
+            let out = parent + "/out"
+            let r = try export(["--all", "--format", format] + (format == "markdown" ? ["--images", "png", "--dpi", "20"] : []),
+                               out: out)
+            XCTAssertEqual(r.status, 0, "\(format): \(r.err)")
+            XCTAssertFalse(r.err.contains("error"), r.err)
+            // Nothing outside `out`, nothing hidden but the manifest.
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent), ["out"])
+            for f in allFiles(under: out) {
+                let rel = String(f.dropFirst(out.count + 1))
+                XCTAssertFalse(rel.split(separator: "/").contains { $0 == ".." || $0 == "." }, rel)
+                XCTAssertTrue(rel.split(separator: "/").allSatisfy { $0.utf8.count <= 200 }, rel)
+                let name = rel.split(separator: "/").last.map(String.init) ?? ""
+                XCTAssertTrue(!name.hasPrefix(".") || name == ".inkvault-export-\(format).json", rel)
+            }
+            // The index files are files, and every notebook named like one is a folder with a different name.
+            var isDir: ObjCBool = false
+            let index = format == "markdown" ? "README.md" : "index.html"
+            XCTAssertTrue(FileManager.default.fileExists(atPath: out + "/" + index, isDirectory: &isDir) && !isDir.boolValue)
+            // And a second run changes nothing.
+            let again = try export(["--all", "--format", format] + (format == "markdown" ? ["--images", "png", "--dpi", "20"] : []), out: out)
+            XCTAssertEqual(again.status, 0, again.err)
+            XCTAssertTrue(again.out.contains("0 file(s) written"), again.out)
+        }
+    }
+
+    /// `--clean` and the folder indexes trust `.inkvault-export-*.json`, a file in a
+    /// folder that may be shared: a doctored one cannot write or delete outside it.
+    func testDoctoredExportManifestCannotEscapeTheOutputFolder() throws {
+        let parent = path("parent")
+        let out = parent + "/out"
+        XCTAssertEqual(try export(["--all", "--format", "markdown"], out: out).status, 0)
+        let manifestPath = out + "/.inkvault-export-markdown.json"
+        func doctor(files extra: [String], note: Bool) throws {
+            var m = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: manifestPath))) as? [String: Any])
+            var files = m["files"] as? [String: Any] ?? [:]
+            for f in extra { files[f] = ["note": NSNull()] }
+            m["files"] = files
+            if note {
+                var notes = m["notes"] as? [String: Any] ?? [:]
+                notes["99999999-0000-4000-8000-000000000000"] = ["title": "x", "stem": "../../stem", "folder": ["..", "evil"],
+                                                                 "tags": [], "pages": 1]
+                m["notes"] = notes
+            }
+            try JSONSerialization.data(withJSONObject: m).write(to: URL(fileURLWithPath: manifestPath))
+        }
+        // The folder indexes write where a doctored note says it lives.
+        try doctor(files: [], note: true)
+        var r = try export(["--all", "--format", "markdown"], out: out)
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent).sorted(), ["out"], "nothing written outside out")
+        XCTAssertFalse(try read("README.md", in: out).contains("stem"), "the doctored note is dropped")
+        // --clean deletes what the manifest lists.
+        let victim = parent + "/victim.txt"
+        try "keep".write(toFile: victim, atomically: true, encoding: .utf8)
+        try doctor(files: ["../victim.txt", "a/../../victim.txt", "x/./../../victim.txt", victim], note: false)
+        r = try export(["--all", "--format", "markdown", "--clean"], out: out)
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertEqual(try String(contentsOfFile: victim, encoding: .utf8), "keep")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent).sorted(), ["out", "victim.txt"])
+    }
+
     func testOptionValidation() throws {
         let out = path("x")
         XCTAssertEqual(try export(["--all", "--format", "pdf", "--clean"], out: out).status, 2)

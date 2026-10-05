@@ -77,6 +77,14 @@ public enum MarkdownExport {
         return String(repeating: "0", count: max(0, width - h.count)) + h
     }
 
+    /// `s` on one line: every Unicode line break (CR, LF, NEL, U+2028/9) becomes a space, so
+    /// a title cannot start a new Markdown block.
+    static func oneLine(_ s: String) -> String {
+        String(String.UnicodeScalarView(s.unicodeScalars.map { u in
+            u == "\n" || u == "\r" || u.value == 0x85 || u.value == 0x2028 || u.value == 0x2029 ? " " : u
+        }))
+    }
+
     /// A tag as Obsidian accepts it: no `#`, whitespace becomes `-`. Nil when nothing is left.
     public static func obsidianTag(_ tag: String) -> String? {
         var t = tag.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -128,8 +136,8 @@ public enum MarkdownExport {
     /// Text safe inside `[...]` of a Markdown link, on one line.
     public static func linkText(_ s: String) -> String {
         var o = ""
-        for ch in s {
-            if ch == "\n" || ch == "\r" { o += " " } else if "\\[]".contains(ch) { o += "\\\(ch)" } else { o.append(ch) }
+        for ch in oneLine(s) {
+            if "\\[]".contains(ch) { o += "\\\(ch)" } else { o.append(ch) }
         }
         return o
     }
@@ -150,7 +158,7 @@ public enum MarkdownExport {
     public static func note(info: ExportNoteInfo, state: NoteState, pdfName: String,
                             pageImages: [[String]] = []) -> String {
         var md = frontMatter(info) + "\n"
-        md += "# \(info.displayTitle.replacingOccurrences(of: "\n", with: " "))\n\n"
+        md += "# \(oneLine(info.displayTitle))\n\n"
         md += "![[\(pdfName)]]\n\n"
         md += "[\(linkText(pdfName))](\(linkPath(pdfName)))\n"
         for (i, page) in state.pages.enumerated() {
@@ -161,7 +169,7 @@ public enum MarkdownExport {
             for img in images { md += "![Page \(i + 1)](\(linkPath(img)))\n" }
             if !text.isEmpty {
                 if !images.isEmpty { md += "\n" }
-                md += "Machine-recognized text (engine `\(page.recognition?.engine ?? "")`, may contain errors):\n\n"
+                md += "Machine-recognized text (engine `\(oneLine(page.recognition?.engine ?? "").replacingOccurrences(of: "`", with: "'"))`, may contain errors):\n\n"
                 md += fenced(text)
             }
         }
@@ -171,7 +179,7 @@ public enum MarkdownExport {
     /// A folder's `README.md`: sub-folders (name, link relative to the folder) and notes.
     public static func folderIndex(title: String, subfolders: [(name: String, href: String)],
                                    notes: [ExportIndexEntry]) -> String {
-        var md = "# \(title.replacingOccurrences(of: "\n", with: " "))\n"
+        var md = "# \(oneLine(title))\n"
         if !subfolders.isEmpty {
             md += "\n## Notebooks\n\n"
             for f in subfolders { md += "- [\(linkText(f.name))](\(linkPath(f.href)))\n" }
