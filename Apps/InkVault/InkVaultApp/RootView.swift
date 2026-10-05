@@ -1,5 +1,6 @@
 import InkVault
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// The welcome screen until a vault is open, then three columns: sidebar
@@ -13,6 +14,8 @@ struct RootView: View {
     /// Set when a failed reopen should end in the folder picker.
     @State private var pickAfterAlert = false
     @State private var triedAutoOpen = false
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
 
     private var columns: Binding<NavigationSplitViewVisibility> {
         Binding(get: { ColumnLayout.visibility(from: storedColumns) },
@@ -45,6 +48,16 @@ struct RootView: View {
             }
         }
         .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
+        .onChange(of: scenePhase) { _, phase in
+            // iCloud may have delivered files while the app was away; no
+            // polling while it is in the background.
+            if phase == .active, model.isCloudVault { model.startCloudSync() }
+            if phase == .background { model.pauseCloudSync() }
+            applyIdleTimer()
+        }
+        .onChange(of: model.editor != nil) { applyIdleTimer() }
+        .onChange(of: keepScreenOn) { applyIdleTimer() }
+        .onAppear { applyIdleTimer() }
         .overlay {
             if let progress = model.cloudProgress {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
@@ -61,7 +74,7 @@ struct RootView: View {
         .task {
             if DebugLaunch.isActive {
                 storedColumns = DebugLaunch.environment["INKVAULT_DEBUG_COLUMNS"] ?? "detailOnly"
-                await DebugLaunch.run(model)
+                await DebugLaunch.run(model, library: library)
             }
         }
         #endif
@@ -88,6 +101,15 @@ struct RootView: View {
             triedAutoOpen = true
             await reopen(last, pickOnFailure: false)
         }
+    }
+
+    private func applyIdleTimer() {
+        var debug = false
+        #if DEBUG
+        debug = DebugLaunch.isActive
+        #endif
+        UIApplication.shared.isIdleTimerDisabled = KeepScreenOn.idleTimerDisabled(
+            enabled: keepScreenOn, noteOpen: model.editor != nil, active: scenePhase == .active, debugLaunch: debug)
     }
 
     private func open(_ url: URL) async {

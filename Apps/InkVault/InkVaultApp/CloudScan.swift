@@ -117,6 +117,8 @@ enum CloudScan {
     struct NoteGroup: Sendable {
         /// The folder name.
         var directory: String
+        /// The folder.
+        var url: URL
         /// The note id when the folder is named like one (others are ignored by readers).
         var id: UUID? { UUID(uuidString: directory) }
         var items: [Item]
@@ -129,7 +131,7 @@ enum CloudScan {
         for dir in try list(notes, fileManager, allowMissing: true) where dir.isDirectory && !dir.name.hasPrefix(".") {
             let noteDir = notes.appendingPathComponent(dir.name, isDirectory: true)
             let items = try list(noteDir, fileManager, allowMissing: true).filter(\.isRevisionLike).map { $0.item(in: noteDir) }
-            groups.append(NoteGroup(directory: dir.name, items: items))
+            groups.append(NoteGroup(directory: dir.name, url: noteDir, items: items))
         }
         return groups
     }
@@ -137,8 +139,13 @@ enum CloudScan {
     /// The revision files of note `id` (`notes/<id>/`), listed fresh; empty
     /// when the note has no folder.
     static func noteItems(inVault root: URL, id: UUID, fileManager: FileManager = .default) throws -> [Item] {
-        let noteDir = root.appendingPathComponent("notes/\(id.uuidString.lowercased())", isDirectory: true)
+        let noteDir = noteFolder(inVault: root, id: id)
         return try list(noteDir, fileManager, allowMissing: true).filter(\.isRevisionLike).map { $0.item(in: noteDir) }
+    }
+
+    /// `notes/<id>/` of the vault at `root`.
+    static func noteFolder(inVault root: URL, id: UUID) -> URL {
+        root.appendingPathComponent("notes/\(id.uuidString.lowercased())", isDirectory: true)
     }
 
     private struct Entry {
