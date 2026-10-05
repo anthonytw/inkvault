@@ -356,8 +356,10 @@ struct TagMerge {
         added[id] = tag
     }
 
+    /// A snapshot's set. Its baseline instances (`seq` 0) are not taken:
+    /// they are derived from the winning legacy write alone (§5.4.1).
     mutating func add(_ set: TagSet) {
-        for i in set.instances { add(i.tag, i.origin) }
+        for i in set.instances where i.origin.seq >= 1 { add(i.tag, i.origin) }
         removed.formUnion(set.removed)
     }
 
@@ -375,9 +377,13 @@ struct TagMerge {
                 all[TagSet.Removal(key: key, origin: Origin(hlc: stamp.hlc, device: stamp.device, seq: 0, op: i))] = tag
             }
         }
+        // The legacy write replaced the whole set at its stamp: every older
+        // instance goes, whatever its key (the keys it lists live on as its
+        // baseline). A superseded instance can never come back, since the
+        // winning stamp only grows, so a snapshot may drop it (§5.4.1).
         let live = all.filter { id, _ in
             guard !removed.contains(id) else { return false }
-            if let legacyStamp, id.origin.stamp < legacyStamp, !legacyKeys.contains(id.key) { return false }
+            if let legacyStamp, id.origin.stamp < legacyStamp { return false }
             return true
         }
         let instances = live.map { TagSet.Instance(tag: $0.value, origin: $0.key.origin) }

@@ -369,14 +369,21 @@ its stamp. Then:
    Sequence number 0 never names a real revision, so baseline instances
    cannot collide with added ones. `removeTag` lists them like any instance.
 2. `L` replaced the whole set at `S`: every other instance whose
-   `(hlc, device)` is less than `S` and whose key is not in `L` is not live.
+   `(hlc, device)` is less than `S` is not live, whatever its key (the keys
+   `L` lists live on as its baseline instances, with `L`'s spelling).
    Comparison is by `(hlc, device)` only, so per-tag ops in the same revision
    as a legacy write are never superseded by it.
 
 So per-tag ops stamped after a legacy write apply on top of it, and a legacy
 write (from a device not yet updated) still removes older tags it does not
 list. A note that holds two spellings of one key in `L` has one tag with the
-first spelling.
+first spelling. Because the winning stamp only grows as revisions arrive, an
+instance superseded under one legacy write is superseded under every later
+winner too: it is never live again, so dropping it from a snapshot changes
+nothing. (Rule 2 must not spare older instances of keys in `L`: a snapshot
+written under an older winner would then keep that winner's baseline, or an
+older instance, alive beside the newer baseline, and a remove written from
+a view without that snapshot would not list it.)
 
 **Snapshots.** A snapshot written under this rule carries the set in
 `State`:
@@ -389,7 +396,9 @@ first spelling.
 }
 ```
 
-- `instances`: every live instance, sorted by `origin`.
+- `instances`: every live instance, sorted by `origin`. Baseline instances
+  (`seq` 0) are listed too, but readers ignore listed baselines and derive
+  them from the winning legacy write (rule 1) alone.
 - `removed`: every instance (key and origin) named by a `removeTag` or by an
   input snapshot's `removed`, sorted by `(origin, key)`; never pruned.
 - `legacy`: the winning legacy register `L` and its stamp `S`; absent when

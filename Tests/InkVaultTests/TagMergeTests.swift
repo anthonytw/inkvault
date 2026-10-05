@@ -173,19 +173,46 @@ final class TagMergeTests: VaultTestCase {
     }
 
     /// A legacy write (a device not yet updated) replaces the set at its
-    /// stamp: older instances of keys it does not list go, newer ones stay.
+    /// stamp: older instances go (the keys it lists live on as its baseline,
+    /// in its spelling), newer ones stay.
     func testLaterLegacyWriteRemovesOlderTagsItDoesNotList() throws {
         var log = LogBuilder()
         let older = log.delta(devA, 100, [.addTag("exam"), .addTag("math")])
         let legacy = log.delta(devB, 200, [.setMeta(.tags(["Math", "old"]))])
         let newer = log.delta(devA, 300, [.addTag("new")])
-        try assertEveryOrder([older, legacy], ["math", "old"])   // "math" keeps its earlier instance's spelling
-        try assertEveryOrder([older, legacy, newer], ["math", "old", "new"])
+        try assertEveryOrder([older, legacy], ["Math", "old"])
+        XCTAssertEqual(try NoteReducer.reconstruct([older, legacy]).tagSet?.instances(of: "math"),
+                       [Origin(hlc: legacy.hlc, device: devB, seq: 0, op: 0)])
+        try assertEveryOrder([older, legacy, newer], ["Math", "old", "new"])
         let snap = try log.snapshot(devC, 400, from: [older, newer])
-        try assertEveryOrder([snap, legacy], ["math", "old", "new"])
+        try assertEveryOrder([snap, legacy], ["Math", "old", "new"])
         // Two legacy writes: the later one wins, as a register.
         let legacy2 = log.delta(devC, 250, [.setMeta(.tags(["only"]))])
         try assertEveryOrder([older, legacy, legacy2, newer], ["only", "new"])
+    }
+
+    /// Regression: a snapshot that held an older legacy write's baseline
+    /// instance must not keep it alive once a newer legacy write wins. Before,
+    /// the snapshot listed the baseline among its instances and the newer
+    /// write only superseded keys it did not list, so a remove written from
+    /// a view without that snapshot (observing only the newer baseline) left
+    /// the tag on the note, and the spelling depended on compaction.
+    func testSupersededBaselineHeldBySnapshotDoesNotResurrect() throws {
+        var log = LogBuilder()
+        let l1 = log.delta(devA, 100, [.setMeta(.tags(["Math"]))])
+        let snap = try log.snapshot(devA, 150, from: [l1])     // holds l1's baseline
+        let l2 = log.delta(devB, 200, [.setMeta(.tags(["math"]))])
+        // Device C has l1 and l2 but not the snapshot, and removes the tag.
+        let viewC = try NoteReducer.reconstruct([l1, l2])
+        XCTAssertEqual(viewC.meta.tags, ["math"])
+        let rm = log.delta(devC, 300, [try XCTUnwrap(NoteOps.removeTag("math", from: viewC))])
+        try assertEveryOrder([l1, l2, rm], [])
+        try assertEveryOrder([snap, l1, l2, rm], [])
+        try assertEveryOrder([snap, l2, rm], [])                // l1 compacted away
+        // And without the remove, the spelling is the winning write's however compacted.
+        try assertEveryOrder([snap, l2], ["math"])
+        try assertEveryOrder([snap, l1, l2], ["math"])
+        XCTAssertEqual(try NoteReducer.reconstruct([snap, l2]).tagSet, try NoteReducer.reconstruct([l1, l2]).tagSet)
     }
 
     /// Per-tag ops in the same revision as a legacy write are never
