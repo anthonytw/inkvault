@@ -201,6 +201,7 @@ Adds `"ops": [Op, ...]`, applied in order. Ops:
 | `removePage` | `pageId` | remove page and its strokes; wins over adds |
 | `setPageOrder` | `pageId`, `order` | LWW on the page's order key |
 | `setPageRecognition` | `pageId`, `recognition` | LWW on the page's recognised text (§5.5); `null` clears it |
+| `setPagePaper` | `pageId`, `paper` | LWW on the page's own paper (§5.4.1); `null` makes the page follow the note's paper again |
 | `setMeta` | `field`, `value` | LWW per field (§5.4) |
 | `deleteNote` | | LWW with `restoreNote` on `deleted` |
 | `restoreNote` | | |
@@ -224,7 +225,7 @@ Adds:
 `included` names every revision the snapshot already reflects: for each
 device, all `seq ≤ upTo` plus the listed `extra` (seen out of order).
 `included` must list only deltas the snapshot applied in full: a delta with
-an `addStroke`, `setPageOrder` or `setPageRecognition` naming a page the
+an `addStroke`, `setPageOrder`, `setPageRecognition` or `setPagePaper` naming a page the
 writer has not seen is left out, so it is applied again once the page arrives. (Removals of unseen
 ids are recorded as tombstones instead, §5.4.)
 
@@ -290,7 +291,7 @@ notes may share a title, in one notebook or several.
   notebook shows the notes in it and in every notebook below it. Renaming or
   moving a notebook is one `setMeta` of `notebook` per affected note,
   replacing the old path prefix; there is no separate notebook object.
-- `paper.kind` ∈ `blank`, `ruled`, `grid`, `dot`. Lengths are points (1/72 in).
+- `paper` is the note's paper; see §5.4.1 for its kinds and parameters. Lengths are points (1/72 in).
 - `pageSize.infinite: true` means the page grows downward; `height` is then
   the current extent.
 - `pageSize.breakHeight` (optional, points): for an infinite page, the height
@@ -314,13 +315,98 @@ covered by `included`; once it is covered, the tombstone may be dropped.
 removed page is a no-op rather than an orphan (§5.3). Both fields are
 omitted when empty.
 
+#### 5.4.1 Paper
+
+`meta.paper` (and a page's own `paper`, below) describes the page background
+and ruling:
+
+```json
+{ "kind": "cornell", "spacing": 24, "background": "#FFF8E1FF", "lineColor": "#D0D8E8FF",
+  "lineWidth": 0.5, "cueWidth": 150, "summaryHeight": 120 }
+```
+
+`kind`, `spacing`, `background` and `lineColor` are always written. Every
+other field is written only when it differs from the default of its kind
+(table) and a missing field means that default, so a paper written before
+these fields existed (`blank`, `ruled`, `grid`, `dot` with the first four)
+decodes and renders exactly as before.
+
+| field | meaning | default | valid range |
+| --- | --- | --- | --- |
+| `kind` | pattern, below | | |
+| `spacing` | pitch of lines, grid and dots; for `isoDot` / `isoGrid` the dot pitch along a row | 24 | 4 … 200 |
+| `background` | page colour `#RRGGBB[AA]` (presets: white `#FFFFFFFF`, cream `#FFF8E1FF`, dark `#1C1C1EFF`) | white | |
+| `lineColor` | colour of rules and dots | `#D0D8E8FF` | |
+| `lineWidth` | width of rules | 0.5 | 0.1 … 4 |
+| `dotRadius` | radius of dots (`dot`, `isoDot`) | 0.9 | 0.3 … 4 |
+| `marginLeft` | distance of a vertical margin line from the left edge; 0 = none | 0 (`marginRuled`: 72) | 0 … 300 |
+| `marginTop` | distance of a horizontal margin line from the top; 0 = none | 0 | 0 … 300 |
+| `marginColor` | colour of the margin lines | `#F2A6A6FF` | |
+| `cueWidth` | `cornell`: width of the cue column | 150 | 40 … 400 |
+| `summaryHeight` | `cornell`: height of the summary band | 120 | 40 … 400 |
+| `staffSpacing` | `staff`: distance between the five lines of one staff | 7 | 3 … 20 |
+| `staffGap` | `staff`: gap between one staff's bottom line and the next staff's top line | 40 | 8 … 150 |
+
+Kinds (geometry is in page coordinates, origin top-left, y down; ruling is
+laid out from the page's top so it continues unchanged down an infinite
+page):
+
+- `blank`: background only.
+- `ruled`: a horizontal line at `y = k × spacing`, k ≥ 1, across the page.
+- `marginRuled`: `ruled` whose `marginLeft` defaults to 72.
+- `grid`: the `ruled` lines plus vertical lines at `x = k × spacing`, k ≥ 1.
+- `dot`: a dot at every `(k × spacing, j × spacing)`, k, j ≥ 1.
+- `isoDot`: dots in a triangular lattice: rows at `y = j × spacing × √3/2`
+  (j ≥ 1), the dots of a row at `x = k × spacing`, shifted by `spacing / 2` on
+  odd rows.
+- `isoGrid`: the triangular grid through those lattice points: the horizontal
+  rows plus the lines `x = n × spacing ± y / √3`, clipped to the page.
+- `cornell`: the page (or, on an infinite page, each `breakHeight`-high sheet
+  from the top) has a cue column `cueWidth` wide at the left, a summary band
+  `summaryHeight` high at the bottom, a vertical line between the cue column
+  and the notes area down to the summary band, a horizontal line along the top
+  of the summary band (both twice `lineWidth`), and `ruled` lines at
+  `spacing` across the notes area only. Cue width is limited to 60 % of the
+  page width and the summary band to half a sheet.
+- `staff`: staves of five lines `staffSpacing` apart, the first staff's top
+  line at `y = staffGap`, the next one `staffGap` below the bottom line of the
+  previous; `spacing` is ignored.
+
+`marginLeft` / `marginTop` apply to `ruled`, `marginRuled`, `grid` and `dot`
+and are ignored by the other kinds.
+
+Writers keep every parameter inside its valid range. Readers render whatever
+they find: they treat a non-finite or out-of-range parameter other than
+`spacing` as clamped to its range (non-finite: the default), and draw no
+ruling when `spacing` is below 4 or would need an unreasonable number of
+lines (the plain background, as before).
+
+**Unknown kinds.** A reader that does not know a `kind` treats the paper as
+`blank` (keeping `background`), so a note written by a newer app still opens
+and renders its strokes. (Readers older than this section reject the paper
+and so the whole revision, as §7 says of anything unknown; this section
+predates 1.0.) Such a reader that rewrites `paper` loses the unknown kind;
+apps should not rewrite paper they could not render.
+
+**Page paper.** A page may carry its own `"paper"`, which replaces the
+note's `meta.paper` for that page; absent, the page follows the note. It is
+an LWW register per page, set by `setPagePaper` (`null` clears it so the page
+follows the note again), stamped in snapshots by the page's `"paperClock"`,
+which works exactly like `recognitionClock` (§5.5): a page with neither
+`paper` nor `paperClock` has never had its paper set and does not compete
+with a `setPagePaper` the snapshot does not cover. `addPage` ignores any
+`paper` in its page object. "Apply to all pages" is a `setMeta` of `paper`
+plus a `setPagePaper` with `null` for each page that has its own. A page
+added later follows the note's paper.
+
 ### 5.5 Page
 
 ```json
-{ "id": "…", "order": "a0", "strokes": [ Stroke, ... ], "recognition": Recognition, "parent": "…" }
+{ "id": "…", "order": "a0", "strokes": [ Stroke, ... ], "recognition": Recognition, "parent": "…",
+  "paper": Paper, "paperClock": "…" }
 ```
 
-`recognition` is optional (below). `parent` is optional: the id of a removed
+`recognition` is optional (below). `paper` and `paperClock` are optional (§5.4.1). `parent` is optional: the id of a removed
 page this one re-creates (a restore from history, §5.7). It is
 informational, set by the `addPage` that adds the page and carried into
 snapshots; readers that do not know it may ignore it.
@@ -429,9 +515,9 @@ one delta whose ops turn the current state into the state as of R:
   `removeStroke`;
 - pages and strokes present as of R but removed since: re-added under new
   ids (`addPage`, `addStroke`; a re-added page gets its strokes and its
-  recognition from R), with `parent` set to the old id (§5.2);
-- `setPageOrder`, `setPageRecognition`, `setMeta` for every page order,
-  recognition and metadata register that differs, and `deleteNote` or
+  recognition and its own paper from R), with `parent` set to the old id (§5.2);
+- `setPageOrder`, `setPageRecognition`, `setPagePaper`, `setMeta` for every page order,
+  recognition, page paper and metadata register that differs, and `deleteNote` or
   `restoreNote` if `deleted` differs.
 
 A page or stroke counts as present when its id is, or when an item with

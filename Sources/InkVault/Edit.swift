@@ -71,3 +71,31 @@ extension Vault {
         return revision
     }
 }
+
+/// Which pages a paper change applies to.
+public enum PaperScope: Hashable, Sendable {
+    /// Only this page: it gets its own paper.
+    case page(UUID)
+    /// The whole note: every page follows the note's paper.
+    case allPages
+}
+
+extension NoteOps {
+    /// The ops that set `paper` (clamped to its valid ranges, format.md
+    /// §5.4.1) for `scope`. For `.allPages` that is the note's paper plus a
+    /// `setPagePaper(nil)` for each page that has its own, so none keeps an
+    /// older choice. Empty when nothing would change.
+    public static func setPaper(_ paper: Paper, scope: PaperScope, note: NoteMeta, pages: [Page]) -> [Op] {
+        let paper = paper.validated()
+        switch scope {
+        case .page(let id):
+            guard let page = pages.first(where: { $0.id == id }), page.paper ?? note.paper != paper else { return [] }
+            return [.setPagePaper(pageId: id, paper: paper)]
+        case .allPages:
+            var ops: [Op] = []
+            if note.paper != paper { ops.append(.setMeta(.paper(paper))) }
+            ops += pages.filter { $0.paper != nil }.map { .setPagePaper(pageId: $0.id, paper: nil) }
+            return ops
+        }
+    }
+}

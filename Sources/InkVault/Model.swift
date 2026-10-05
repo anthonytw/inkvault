@@ -226,16 +226,22 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
     /// The removed page this one re-creates, e.g. when restored from history
     /// (format.md §5.5). Informational; set once by `addPage`.
     public var parent: UUID?
+    /// This page's own paper, overriding the note's `meta.paper` (format.md
+    /// §5.4.1); nil follows the note.
+    public var paper: Paper?
+    /// `"<hlc>-<device>"` stamp of the op that last set `paper` (or cleared it).
+    public var paperClock: String?
 
     public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil,
                 origin: String? = nil, recognition: Recognition? = nil, recognitionClock: String? = nil,
-                parent: UUID? = nil) {
+                parent: UUID? = nil, paper: Paper? = nil, paperClock: String? = nil) {
         self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock; self.origin = origin
         self.recognition = recognition; self.recognitionClock = recognitionClock; self.parent = parent
+        self.paper = paper; self.paperClock = paperClock
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, order, strokes, orderClock, origin, recognition, recognitionClock, parent
+        case id, order, strokes, orderClock, origin, recognition, recognitionClock, parent, paper, paperClock
     }
 
     public init(from decoder: Decoder) throws {
@@ -248,6 +254,8 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         recognition = try c.decodeIfPresent(Recognition.self, forKey: .recognition)
         recognitionClock = try c.decodeIfPresent(String.self, forKey: .recognitionClock)
         parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
+        paper = try c.decodeIfPresent(Paper.self, forKey: .paper)
+        paperClock = try c.decodeIfPresent(String.self, forKey: .paperClock)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -260,27 +268,196 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         if let recognition { try c.encode(recognition, forKey: .recognition) }
         if let recognitionClock { try c.encode(recognitionClock, forKey: .recognitionClock) }
         if let parent { try c.encode(LowercaseUUID(parent), forKey: .parent) }
+        if let paper { try c.encode(paper, forKey: .paper) }
+        if let paperClock { try c.encode(paperClock, forKey: .paperClock) }
     }
 }
 
+/// The pattern a page is ruled with (format.md §5.4.1). Unknown names decode
+/// as `.blank`, so a vault written by a newer app still opens.
 public enum PaperKind: String, Hashable, Sendable, Codable, CaseIterable {
     case blank, ruled, grid, dot
+    /// Ruled with a left (and optionally top) margin line.
+    case marginRuled
+    /// Triangular lattice of dots (isometric dot paper).
+    case isoDot
+    /// Triangular grid: horizontals plus lines at ±30° from vertical.
+    case isoGrid
+    /// Cue column on the left, summary band at the bottom, ruled notes area.
+    case cornell
+    /// Music staves of five lines.
+    case staff
+
+    public init(from decoder: Decoder) throws {
+        let s = try decoder.singleValueContainer().decode(String.self)
+        self = PaperKind(rawValue: s) ?? .blank
+    }
+
+    /// Human-readable name.
+    public var title: String {
+        switch self {
+        case .blank: return "Blank"
+        case .ruled: return "Ruled"
+        case .marginRuled: return "Ruled with margin"
+        case .grid: return "Grid"
+        case .dot: return "Dots"
+        case .isoDot: return "Isometric dots"
+        case .isoGrid: return "Isometric grid"
+        case .cornell: return "Cornell"
+        case .staff: return "Music staff"
+        }
+    }
+
+    /// Kinds whose ruling can carry margin lines (`marginLeft` / `marginTop`).
+    public var supportsMargins: Bool { self == .ruled || self == .marginRuled || self == .grid || self == .dot }
 }
 
+/// Page background and ruling (format.md §5.4.1). Lengths are points.
+///
+/// `kind`, `spacing`, `background` and `lineColor` are always encoded (so
+/// older readers keep working on the original four kinds); the other fields
+/// are encoded only when they differ from the kind's default, and a missing
+/// field decodes as that default.
 public struct Paper: Hashable, Sendable, Codable {
     public var kind: PaperKind
-    /// Line/grid spacing in points.
+    /// Line, dot or grid spacing in points.
     public var spacing: Double
     public var background: Color
+    /// Colour of rules and dots.
     public var lineColor: Color
+    /// Width of rules, points.
+    public var lineWidth: Double
+    /// Dot radius (`dot`, `isoDot`), points.
+    public var dotRadius: Double
+    /// Distance of the left margin line from the left edge; 0 = none.
+    public var marginLeft: Double
+    /// Distance of the top margin line from the top edge; 0 = none.
+    public var marginTop: Double
+    public var marginColor: Color
+    /// Cornell cue-column width.
+    public var cueWidth: Double
+    /// Cornell summary-band height.
+    public var summaryHeight: Double
+    /// Distance between the five lines of a music staff.
+    public var staffSpacing: Double
+    /// Gap between the bottom line of one staff and the top line of the next.
+    public var staffGap: Double
 
-    public init(kind: PaperKind, spacing: Double = 24, background: Color = .white,
-                lineColor: Color = Color(r: 0xD0, g: 0xD8, b: 0xE8)) {
-        self.kind = kind; self.spacing = spacing; self.background = background; self.lineColor = lineColor
+    public static let defaultLineColor = Color(r: 0xD0, g: 0xD8, b: 0xE8)
+    public static let defaultMarginColor = Color(r: 0xF2, g: 0xA6, b: 0xA6)
+    public static let cream = Color(r: 0xFF, g: 0xF8, b: 0xE1)
+    public static let darkBackground = Color(r: 0x1C, g: 0x1C, b: 0x1E)
+
+    /// Paper of `kind` with that kind's defaults; any parameter can be overridden.
+    public init(kind: PaperKind, spacing: Double? = nil, background: Color = .white,
+                lineColor: Color = Paper.defaultLineColor, lineWidth: Double = 0.5, dotRadius: Double = 0.9,
+                marginLeft: Double? = nil, marginTop: Double = 0, marginColor: Color = Paper.defaultMarginColor,
+                cueWidth: Double = 150, summaryHeight: Double = 120,
+                staffSpacing: Double = 7, staffGap: Double = 40) {
+        self.kind = kind
+        self.spacing = spacing ?? 24
+        self.background = background; self.lineColor = lineColor
+        self.lineWidth = lineWidth; self.dotRadius = dotRadius
+        self.marginLeft = marginLeft ?? (kind == .marginRuled ? 72 : 0)
+        self.marginTop = marginTop; self.marginColor = marginColor
+        self.cueWidth = cueWidth; self.summaryHeight = summaryHeight
+        self.staffSpacing = staffSpacing; self.staffGap = staffGap
     }
 
     public static let blank = Paper(kind: .blank)
     public static let ruled = Paper(kind: .ruled)
+
+    /// Parameter limits (inclusive). Writers clamp to them (`validated`);
+    /// readers render whatever they find, clamping the parameters other than
+    /// `spacing` so a corrupt value cannot spin the renderer (§5.4.1).
+    public enum Limits {
+        public static let spacing = 4.0...200.0
+        public static let lineWidth = 0.1...4.0
+        public static let dotRadius = 0.3...4.0
+        public static let margin = 0.0...300.0
+        public static let cueWidth = 40.0...400.0
+        public static let summaryHeight = 40.0...400.0
+        public static let staffSpacing = 3.0...20.0
+        public static let staffGap = 8.0...150.0
+    }
+
+    /// The paper with every parameter clamped into `Limits` (NaN and
+    /// infinities become the default).
+    public func validated() -> Paper {
+        var p = rendered()
+        p.spacing = Paper.clamp(spacing, Limits.spacing, 24)
+        return p
+    }
+
+    /// Whether `validated()` would change nothing.
+    public var isValid: Bool { self == validated() }
+
+    /// Like `validated()` but leaves `spacing` alone (the renderer draws
+    /// nothing for spacing below `RenderLimits.minPaperSpacing`, as before).
+    public func rendered() -> Paper {
+        var p = self
+        p.lineWidth = Paper.clamp(lineWidth, Limits.lineWidth, 0.5)
+        p.dotRadius = Paper.clamp(dotRadius, Limits.dotRadius, 0.9)
+        p.marginLeft = Paper.clamp(marginLeft, Limits.margin, 0)
+        p.marginTop = Paper.clamp(marginTop, Limits.margin, 0)
+        p.cueWidth = Paper.clamp(cueWidth, Limits.cueWidth, 150)
+        p.summaryHeight = Paper.clamp(summaryHeight, Limits.summaryHeight, 120)
+        p.staffSpacing = Paper.clamp(staffSpacing, Limits.staffSpacing, 7)
+        p.staffGap = Paper.clamp(staffGap, Limits.staffGap, 40)
+        return p
+    }
+
+    private static func clamp(_ v: Double, _ r: ClosedRange<Double>, _ fallback: Double) -> Double {
+        v.isFinite ? min(max(v, r.lowerBound), r.upperBound) : fallback
+    }
+
+    /// The default paper of a kind as the picker starts it: the kind's own
+    /// spacing and parameters on white.
+    public static func template(_ kind: PaperKind) -> Paper {
+        switch kind {
+        case .grid, .dot: return Paper(kind: kind, spacing: 18)
+        case .isoDot, .isoGrid: return Paper(kind: kind, spacing: 20)
+        case .staff: return Paper(kind: kind, lineColor: Color(r: 0x9A, g: 0xA3, b: 0xB5))
+        case .cornell: return Paper(kind: kind, spacing: 24)
+        default: return Paper(kind: kind)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind, spacing, background, lineColor, lineWidth, dotRadius, marginLeft, marginTop, marginColor
+        case cueWidth, summaryHeight, staffSpacing, staffGap
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try c.decode(PaperKind.self, forKey: .kind)
+        self.init(kind: kind)
+        func get<T: Decodable>(_ k: CodingKeys, _ cur: inout T) throws {
+            if let v = try c.decodeIfPresent(T.self, forKey: k) { cur = v }
+        }
+        try get(.spacing, &spacing); try get(.background, &background); try get(.lineColor, &lineColor)
+        try get(.lineWidth, &lineWidth); try get(.dotRadius, &dotRadius)
+        try get(.marginLeft, &marginLeft); try get(.marginTop, &marginTop); try get(.marginColor, &marginColor)
+        try get(.cueWidth, &cueWidth); try get(.summaryHeight, &summaryHeight)
+        try get(.staffSpacing, &staffSpacing); try get(.staffGap, &staffGap)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(spacing, forKey: .spacing)
+        try c.encode(background, forKey: .background)
+        try c.encode(lineColor, forKey: .lineColor)
+        let d = Paper(kind: kind)
+        func put<T: Encodable & Equatable>(_ k: CodingKeys, _ v: T, _ def: T) throws {
+            if v != def { try c.encode(v, forKey: k) }
+        }
+        try put(.lineWidth, lineWidth, d.lineWidth); try put(.dotRadius, dotRadius, d.dotRadius)
+        try put(.marginLeft, marginLeft, d.marginLeft); try put(.marginTop, marginTop, d.marginTop)
+        try put(.marginColor, marginColor, d.marginColor)
+        try put(.cueWidth, cueWidth, d.cueWidth); try put(.summaryHeight, summaryHeight, d.summaryHeight)
+        try put(.staffSpacing, staffSpacing, d.staffSpacing); try put(.staffGap, staffGap, d.staffGap)
+    }
 }
 
 public struct PageSize: Hashable, Sendable, Codable {
@@ -435,13 +612,16 @@ public enum Op: Hashable, Sendable {
     case setPageOrder(pageId: UUID, order: String)
     /// LWW on the page's recognised text; nil clears it (format.md §5.5).
     case setPageRecognition(pageId: UUID, recognition: Recognition?)
+    /// LWW on the page's own paper; nil makes the page follow the note's
+    /// paper again (format.md §5.4.1).
+    case setPagePaper(pageId: UUID, paper: Paper?)
     case setMeta(MetaChange)
     case deleteNote
     case restoreNote
 }
 
 extension Op: Codable {
-    enum CodingKeys: String, CodingKey { case op, page, stroke, strokeId, pageId, order, recognition, field, value }
+    enum CodingKeys: String, CodingKey { case op, page, stroke, strokeId, pageId, order, recognition, paper, field, value }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -463,6 +643,9 @@ extension Op: Codable {
         case "setPageRecognition":
             self = .setPageRecognition(pageId: try c.decode(LowercaseUUID.self, forKey: .pageId).uuid,
                                        recognition: try c.decodeIfPresent(Recognition.self, forKey: .recognition))
+        case "setPagePaper":
+            self = .setPagePaper(pageId: try c.decode(LowercaseUUID.self, forKey: .pageId).uuid,
+                                 paper: try c.decodeIfPresent(Paper.self, forKey: .paper))
         case "setMeta":
             let field = try c.decode(String.self, forKey: .field)
             switch field {
@@ -507,6 +690,10 @@ extension Op: Codable {
             try c.encode("setPageRecognition", forKey: .op)
             try c.encode(LowercaseUUID(pageId), forKey: .pageId)
             try c.encode(recognition, forKey: .recognition)   // null when nil
+        case .setPagePaper(let pageId, let paper):
+            try c.encode("setPagePaper", forKey: .op)
+            try c.encode(LowercaseUUID(pageId), forKey: .pageId)
+            try c.encode(paper, forKey: .paper)   // null when nil
         case .setMeta(let change):
             try c.encode("setMeta", forKey: .op)
             try c.encode(change.field, forKey: .field)

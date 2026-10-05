@@ -56,6 +56,8 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
     public var pageOrderChanges = 0
     /// Pages whose recognised text is set back (or cleared).
     public var recognitionChanges = 0
+    /// Pages whose own paper is set back (or cleared).
+    public var pagePaperChanges = 0
     /// Metadata fields set back, by name (`title`, `tags`, ...).
     public var metaFields: [String] = []
     /// `true` when the restore deletes the note, `false` when it undeletes it.
@@ -77,6 +79,8 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
             case .setPageRecognition(let id, _):
                 // A re-created page's recognition is part of re-creating it.
                 if !newPages.contains(id) { recognitionChanges += 1 }
+            case .setPagePaper(let id, _):
+                if !newPages.contains(id) { pagePaperChanges += 1 }
             case .setMeta(let change): metaFields.append(change.field)
             case .deleteNote: deleted = true
             case .restoreNote: deleted = false
@@ -178,6 +182,7 @@ public enum NoteHistory {
                 ops.append(.addPage(page))
                 for s in t.strokes { ops.append(.addStroke(page: page.id, stroke: copy(s))) }
                 if let r = t.recognition { ops.append(.setPageRecognition(pageId: page.id, recognition: r)) }
+                if let p = t.paper { ops.append(.setPagePaper(pageId: page.id, paper: p)) }
                 continue
             }
             if c.order != t.order { ops.append(.setPageOrder(pageId: c.id, order: t.order)) }
@@ -199,6 +204,7 @@ public enum NoteHistory {
             if c.recognition != t.recognition {
                 ops.append(.setPageRecognition(pageId: c.id, recognition: t.recognition))
             }
+            if c.paper != t.paper { ops.append(.setPagePaper(pageId: c.id, paper: t.paper)) }
         }
         if !current.deleted && target.deleted { ops.append(.deleteNote) }
         return ops
