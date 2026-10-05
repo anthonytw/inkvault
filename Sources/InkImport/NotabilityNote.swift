@@ -265,7 +265,7 @@ extension NotabilityNote {
         var m = Metadata(name: try session.field(root, "name").string ?? fallbackName)
         m.subject = try session.field(root, "subject").string
         m.tags = tags(try session.field(root, "tags"), session)
-        m.created = try session.field(root, "creationDate").date
+        m.created = try session.field(root, "creationDate").date.flatMap(writable)
         m.packagePath = try session.field(root, "packagePath").string
         if let data {
             let a = try KeyedArchive(data: data)
@@ -274,13 +274,19 @@ extension NotabilityNote {
             if let s = try a.field(r, "noteSubject").string { m.subject = s }
             let t = tags(try a.field(r, "noteTags"), a)
             if !t.isEmpty { m.tags = t }
-            m.created = try a.field(r, "noteCreationDateKey").date ?? m.created
-            m.modified = try a.field(r, "noteModifiedDateKey").date
+            m.created = try a.field(r, "noteCreationDateKey").date.flatMap(writable) ?? m.created
+            m.modified = try a.field(r, "noteModifiedDateKey").date.flatMap(writable)
             m.uuid = try a.field(r, "uuidKey").string
             m.packagePath = try a.field(r, "notePackagePath").string ?? m.packagePath
         }
         if m.subject == "unsortedNotesKey" || m.subject?.isEmpty == true { m.subject = nil }
         return m
+    }
+
+    /// `date` if the vault format can store it (years 0001...9999), else nil:
+    /// a NaN or absurd NSDate would become a revision `wall` no reader can decode.
+    static func writable(_ date: Date) -> Date? {
+        date >= RFC3339.earliest && date < RFC3339.end ? date : nil
     }
 
     /// Tags arrive as a string (comma or newline separated) or an array of strings.

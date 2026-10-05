@@ -544,39 +544,40 @@ public struct LowercaseUUID: Codable, Hashable, Sendable {
 }
 
 public enum InkJSON {
-    /// Encoder for all format JSON: sorted keys, RFC 3339 dates with fractional seconds, no slash escaping.
+    /// Encoder for all format JSON: sorted keys, RFC 3339 dates with
+    /// fractional seconds (`RFC3339`), no slash escaping. A date outside
+    /// years 0001...9999 throws `EncodingError` rather than writing a file
+    /// no reader could decode.
     public static func encoder() -> JSONEncoder {
         let e = JSONEncoder()
         e.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         e.dateEncodingStrategy = .custom { date, enc in
+            guard let s = RFC3339.string(from: date) else {
+                throw EncodingError.invalidValue(date, .init(codingPath: enc.codingPath,
+                                                             debugDescription: "date outside years 0001...9999"))
+            }
             var c = enc.singleValueContainer()
-            try c.encode(rfc3339.string(from: date))
+            try c.encode(s)
         }
         return e
     }
 
+    /// Decoder for all format JSON; dates are RFC 3339 (`RFC3339.parse`).
     public static func decoder() -> JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .custom { dec in
             let s = try dec.singleValueContainer().decode(String.self)
-            if let date = rfc3339.date(from: s) ?? rfc3339NoFraction.date(from: s) { return date }
-            throw DecodingError.dataCorrupted(.init(codingPath: dec.codingPath, debugDescription: "bad date \(s)"))
+            if let date = RFC3339.parse(s) { return date }
+            throw DecodingError.dataCorrupted(.init(codingPath: dec.codingPath, debugDescription: "bad date \(s.prefix(64))"))
         }
         return d
     }
 
-    nonisolated(unsafe) private static let rfc3339: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    nonisolated(unsafe) private static let rfc3339NoFraction: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
-    /// Writers round coordinates to 3 decimals (format.md §5.6).
-    public static func round3(_ v: Double) -> Double { (v * 1000).rounded() / 1000 }
+    /// Writers round coordinates to 3 decimals (format.md §5.6). A value too
+    /// large to scale (beyond about 10^305) is written as it is rather than
+    /// as infinity, which JSON cannot hold.
+    public static func round3(_ v: Double) -> Double {
+        let scaled = v * 1000
+        return scaled.isFinite ? scaled.rounded() / 1000 : v
+    }
 }

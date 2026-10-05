@@ -69,4 +69,21 @@ final class UntrustedImportTests: XCTestCase {
         XCTAssertThrowsError(try NotePackage.readFile(big, maxSize: 4096)) { e in XCTAssertTrue(e is ImportError) }
         XCTAssertEqual(try NotePackage.readFile(big, maxSize: 4097).count, 4097)
     }
+
+    /// A NaN or far-future creation date became the delta's `wall`, which was
+    /// written as "" or a 7-digit year that no reader could decode. Such dates
+    /// are dropped (the import falls back to another date, or now).
+    func testUnwritableDatesAreDropped() throws {
+        for t in [Double.nan, .infinity, 1e300, -1e18] {
+            var b = KeyedArchiveBuilder()
+            let d = b.dict([("noteName", b.string("n")), ("noteCreationDateKey", .date(Date(timeIntervalSinceReferenceDate: t))),
+                            ("uuidKey", b.string(SyntheticNote.uuid))])
+            var files = SyntheticNote.files()
+            files = files.map { $0.0.hasSuffix("metadata.plist") ? ($0.0, b.archive(top: [("root", d)])) : $0 }
+            let zip = ZipWriter.write(files.map { .init(path: $0.0, data: $0.1) })
+            let note = try NotabilityNote.parse(data: zip)
+            // Session.plist's creation date is the fallback.
+            XCTAssertEqual(note.metadata.created, SyntheticNote.created, "\(t)")
+        }
+    }
 }

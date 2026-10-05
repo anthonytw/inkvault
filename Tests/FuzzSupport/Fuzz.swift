@@ -129,6 +129,8 @@ public enum Mutator {
         "addStroke", "removeStroke", "addPage", "removePage", "setPageOrder", "setPageRecognition", "setMeta",
         "deleteNote", "restoreNote", "pageSize", "paper", "notebook", "title", "tags", "favorite",
         String(repeating: "a/", count: 2000), String(repeating: "z", count: 5000),
+        "2026-10-05T13:20:16." + String(repeating: "9", count: 800) + "Z", "9999-12-31T23:59:59.999Z",
+        "0001-01-01T00:00:00Z", "2024-02-29T23:59:59.9995Z", "2026-10-04T18:20:00+23:59", "1582-10-10T00:00:00Z",
     ]
 
     static let byteValues: [UInt8] = [0, 1, 0x7F, 0x80, 0xFF, 0x0A, 0x0D, 0x20, 0x22, 0x2C, 0x2D, 0x30, 0x3A,
