@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(VaultLibrary.self) private var library
+    @Environment(RememberedKeys.self) private var keys
     @State private var pickingVault = false
     @State private var creatingVault = false
     @AppStorage(ColumnLayout.key) private var storedColumns = "all"
@@ -69,10 +70,11 @@ struct RootView: View {
         .sheet(isPresented: $creatingVault) {
             NewVaultView()
         }
-        .sheet(isPresented: .constant(model.phase == .locked)) {
+        .sheet(isPresented: .constant(model.phase == .locked || keys.holdsUnlockSheet(model))) {
             UnlockView()
                 .interactiveDismissDisabled()
         }
+        .onChange(of: model.vaultURL) { keys.discardStaleOffer(model) }
         #if DEBUG
         .task {
             if DebugLaunch.isActive {

@@ -43,6 +43,12 @@ refuses any `format` other than `inkvault/1`).
 
 Done from this list:
 
+- **Recovery kit and backups** (`docs/cli.md` "Keys" and "Backup and restore",
+  `DESIGN.md` "Recovery"): `inkvault keys paper` prints the key (or the
+  passphrase-wrapped key file) as a QR code and checked text with stock-tool
+  recovery steps; `inkvault backup` (incremental folder or tar), `backup
+  verify`, `restore`. Still to do: the same kit and a backup button in the app.
+
 - **History and restore, core + CLI** (`Sources/InkVault/History.swift`,
   `format.md` §5.7, `docs/cli.md`): restore points per revision, the note as of
   any revision, `Vault.restore` writing one delta (re-added items get new ids

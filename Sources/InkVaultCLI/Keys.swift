@@ -6,8 +6,8 @@ import InkVault
 struct KeysCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "keys",
-        abstract: "Generate, show and export age identities.",
-        subcommands: [KeysGenerate.self, KeysShow.self, KeysExport.self]
+        abstract: "Generate, show and export age identities, and print recovery kits.",
+        subcommands: [KeysGenerate.self, KeysShow.self, KeysExport.self, KeysPaper.self]
     )
 }
 

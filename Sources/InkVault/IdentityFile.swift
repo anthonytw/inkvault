@@ -159,6 +159,21 @@ extension Vault {
         try readIdentityFile(recipient: .x25519(recipient), passphrase: passphrase, maxWorkFactor: maxWorkFactor)
     }
 
+    /// The raw bytes of a `keys/` file (still passphrase-wrapped), for
+    /// printing or copying the file as it is.
+    ///
+    /// - Throws: `identityFileMissing`, `VaultError.io`.
+    public func identityFileData(recipient: NativeRecipient) throws -> Data {
+        let file = keysURL.appendingPathComponent(IdentityFile.fileName(for: recipient))
+        guard FileIO.exists(file) else { throw VaultError.identityFileMissing(file.lastPathComponent) }
+        return try FileIO.read(file)
+    }
+
+    /// `identityFileData` for an X25519 recipient.
+    public func identityFileData(recipient: X25519Recipient) throws -> Data {
+        try identityFileData(recipient: .x25519(recipient))
+    }
+
     /// Recipients of this vault (in the manifest) that have a
     /// passphrase-wrapped identity file in `keys/`, found by computing each
     /// recipient's file name (a post-quantum name holds only a hash).

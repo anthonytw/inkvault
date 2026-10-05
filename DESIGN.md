@@ -124,6 +124,39 @@ Consequences:
 Known limitation: two devices slicing the same stroke concurrently keep both
 sets of pieces (overlapping duplicates). Acceptable for one person.
 
+## Recovery
+
+The promise is that a dead device or a lost key never costs notes. Three
+things keep it, none of which need us, a server or the app:
+
+- **The key on paper.** `inkvault keys paper` prints a recovery kit: the age
+  identity as a QR code and as text, the public key, the vault id, and
+  recovery steps that need only the stock `age`, `tail`, `gunzip` and `jq`.
+  The QR encoder is our own (pure Swift, `Sources/InkRender/QRCode.swift`, no
+  imaging library) and is checked module for module against an independent
+  implementation and by decoding with zbar. Text is typed back, so every line
+  carries a 4-hex-digit SHA-256 checksum anyone can recompute with
+  `sha256sum`: the key's own Bech32 checksum already rejects a typo, but cannot
+  say where it is. The plain sheet *is* the key and says so in a box at the
+  top. The `--passphrase` variant prints the scrypt-wrapped key file instead
+  (the same one `keys/` may hold), for people who would rather keep a sheet
+  that is useless without a passphrase in a drawer than a bare key in a safe.
+- **Backups of the encrypted files.** A vault is a folder of write-once files,
+  so a backup is a copy that only ever grows: `inkvault backup --to DIR` copies
+  new files (atomically, each read back and hash-checked), keeps every
+  previous version of the few files that do change (`vault.json`, keys, and
+  revisions rewritten by a recipient change) under `versions/`, and deletes
+  nothing unless `--prune` proves with the compaction rules that a snapshot
+  in the backup covers it. A backup folder is itself a vault, so every
+  command, and the stock-tool path, works on it directly; `backup.json` records
+  every file's SHA-256 so it can be checked without the key. A tar
+  (`--archive`) is the single-file form for off-site copies. Backups never
+  hold plaintext, so they can go anywhere.
+- **Restore is verification.** `inkvault restore` rebuilds a vault from a
+  backup and runs the full verify on the result, and `backup verify` with a
+  key decrypts every revision, so a backup is known to be readable before it
+  is needed.
+
 ## Attachments
 
 Images, PDFs, audio and transcripts are immutable *blobs* in the note's own

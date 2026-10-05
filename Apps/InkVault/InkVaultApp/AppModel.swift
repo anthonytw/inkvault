@@ -316,18 +316,22 @@ final class AppModel {
     }
 
     /// Unlocks with the text of an identity file (or a bare
-    /// `AGE-SECRET-KEY-PQ-1…` or `AGE-SECRET-KEY-1…` line).
-    func unlock(identityText: String) async throws {
+    /// `AGE-SECRET-KEY-PQ-1…` or `AGE-SECRET-KEY-1…` line). Returns the identity (`RememberedKeys`).
+    @discardableResult
+    func unlock(identityText: String) async throws -> NativeIdentity {
         let identity: NativeIdentity
         do { identity = try IdentityFile.parse(identityText) } catch { throw ModelError.notAnIdentity }
         try await unlock(with: [identity])
+        return identity
     }
 
     /// Unlocks with the passphrase of the vault's stored key files
     /// (`keys/<key-name>.key.age`, format.md §3.2). Every stored key the
     /// passphrase opens is used: during a migration the vault lists the
     /// classic and the post-quantum key, and finishing it may need both.
-    func unlock(passphrase: String) async throws {
+    /// Returns the first (post-quantum first) for `RememberedKeys`.
+    @discardableResult
+    func unlock(passphrase: String) async throws -> NativeIdentity {
         guard let locked = vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
@@ -347,7 +351,9 @@ final class AppModel {
             }
         }
         try ensureCurrent(gen)
+        guard let first = identities.first else { throw ModelError.passphraseMatchesNoKey }
         try await unlock(with: identities)
+        return first
     }
 
     /// Re-reads every note summary from disk. In iCloud Drive, notes whose files
