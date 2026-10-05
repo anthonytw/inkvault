@@ -29,15 +29,18 @@ Do not use features newer than Swift 6.0 in `Sources/`.
   AppKit, PencilKit, CoreGraphics, Compression, CommonCrypto, Security.
   Apple-only code goes under `Apps/`. Apple-only *tests* (e.g. comparing
   against PencilKit) are allowed behind `#if canImport(PencilKit)`.
-- Files under a vault's `notes/` are write-once. Never add code that
-  modifies them in place except the recipient-change rewrap in `format.md` §3.3.
+- Files under a vault's `notes/` (revisions and each note's `att/` blobs) are
+  write-once. Never add code that modifies them in place except the
+  recipient-change rewrap (and blob rename) in `format.md` §3.3 and §8.1.5.
 - Crypto: use swift-crypto primitives; never hand-roll a cipher or MAC.
   scrypt and PBKDF2 are the only primitives implemented locally
   (swift-crypto lacks them); they must have RFC test vectors.
 - No network code in `Sources/` except the `InkWebDAV` target (`URLSession`, via
   `FoundationNetworking` on Linux). `scripts/check-portability.sh` enforces it.
 - Keep the stock-CLI recovery path working:
-  `age -d -i key FILE.age | tail -c +38 | gunzip | jq .`
+  `age -d -i key FILE.age | tail -c +38 | gunzip | jq .`, and for blobs
+  `age -d -i key notes/ID/att/NAME.KIND.age | tail -c +46 | head -c LEN`
+  (`format.md` §8.1.7).
 
 ## Style
 
@@ -52,7 +55,7 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 
 ## Gotchas
 
-- Untrusted input (`docs/format.md` §8): every byte from a vault folder, a
+- Untrusted input (`docs/format.md` §9): every byte from a vault folder, a
   sync server or an import may be hostile, and readers must fail with a typed
   error, never trap, hang or allocate without bound. Foundation's parsers are
   not safe on such bytes on Linux: `PropertyListSerialization` segfaults on a

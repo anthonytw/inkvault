@@ -1,120 +1,232 @@
-# Handoff: where InkVault stands and how to continue
+# Handoff: where the project stands and how to continue
 
-Written 2026-10-04 by the session that scaffolded the project. Read this,
-then `CLAUDE.md`, `DESIGN.md`, `docs/format.md`, `docs/plan.md`. Anything
-here that disagrees with those files is out of date; fix this file.
+**Start here in a new session.** Then read `CLAUDE.md` (hard rules + gotchas),
+`DESIGN.md`, `docs/format.md` (normative), `docs/plan.md`. Anything here that
+disagrees with those files or with `gh pr list` is out of date: fix this file.
+Last full rewrite: 2026-10-05, by the driving Opus session.
 
-## State
+## The project in one paragraph
 
-Phase 0 (core library + CLI) is **complete on `main`**, CI green on Linux
-and macOS, static Linux binary published as a CI artifact.
+Open-source (GPL-3.0-or-later + App Store exception), end-to-end-encrypted
+handwriting notes for iPad (iPadOS 26+) and Mac (Catalyst), a stripped-down
+Notability. Vault = a plain folder of write-once age-encrypted revision files
+(any storage: iCloud Drive, Files providers, WebDAV, a folder); user-owned keys;
+PencilKit canvas with vector strokes; Notability importer; CLI (`inkvault`,
+Linux + macOS) for recovery/export. Repo: github.com/anthonytw/inkvault
+(public, GitHub only — never Gitea).
 
-| PR | What | Status |
-| --- | --- | --- |
-| #1, #5 | InkRender: B-spline sampling, outlines, PDF/SVG, input hardening | merged |
-| #2 | Age: spec-exact age v1, 147 CCTV vectors, age-CLI interop | merged |
-| #3 | InkVault: note log, HLC, merge, snapshots, compaction | merged |
-| #4 | CI: static Linux CLI build (five explicit `-Xlinker -l…` libs) | merged |
-| #6 | InkVault: vault layout, body framing + tag, keys, NoteStore, verify, fixture vault | merged |
-| #7 | CLI: keys, vault, verify, export, recover, compact, snapshot (`docs/cli.md`) | merged |
-| #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
-| #13 | InkRender: PNG export (`Raster.swift` scanline filler with 8 sub-rows and exact horizontal coverage, non-zero union per draw command so a stroke blends once like the PDF; `PNGEncoder.swift` streamed zlib + adaptive filters; `PNGWriter.swift` paginates like the PDF; `--dpi`, 40 MP cap per image) + `inkvault export --format png` | merged |
-| (open) | App usability pass (`feat/app-usability`): `.inkvault` as one item in Files (`VaultLocator`), progressive iCloud loading (`ProgressiveLoad`; list fills without pull-to-refresh), full-width canvas toggle (`ColumnLayout`), tool palette show/hide + compact (`ToolPalette`; PencilKit has no minimise API), note rename, visible tag editor + chips, case-insensitive tags, same-title notes tested | PR open; untested against real iCloud and on the iPad (simulator has neither) |
-| (open) | Importer on the full 3-zip backup (`fix/import-full-backup`): copies/versions resolved across all inputs (newest `.note`, other ink imported as a separate version), `.ntb` reader (FlatBuffers; erase records), shapes, short per-curve arrays defaulted, folder tags (`--no-folder-tags`, `--tag`), thumbnail-aspect snapping (PDF stride fix), inset W/38.4; eval compares every page with Notability's PDF export | PR open, not merged |
-| (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
+**Renaming to "Sempere"** (nod to *La sombra del viento*; "InkVault" is taken
+on the App Store). See "Rename sweep" below; until it lands, code uses the old
+names.
 
-Importer results on the user's full backup (2026-10-05, three Drive zips in
-git-ignored `data/`: 928 `.note` + 603 `.ntb`): 640 imported (629 `.note`,
-6 `.ntb`, 5 separate versions), 286 identical copies + 9 older versions +
-596 superseded `.ntb` skipped, 0 failed. Pass all zips in one run. Fidelity
-against Notability's own PDF export (`scripts/import-eval.sh --out
-data/eval-full <zips>`): 753 inked pages, F1 median 1.000 (p10 0.998),
-chamfer median 0.013 pt; no flagged note left with a suspected importer
-cause (`docs/import-notability.md`, "Fidelity evaluation"). Imports are
-scaled to 612 pt width. Not imported yet: PDF/image page backgrounds
-(Phase 3), typed text, dashed strokes (imported solid); notes mixing paper
-and PDF pages keep one `breakHeight`. The canvas stage has not been run on
-the full backup (hours on the simulator).
+## Status (2026-10-05)
 
-Smoke test of the shipped CLI (works as of #7):
+Merged on `main` (squash, CI green): #1–#8 Phase 0 (render, age, note log,
+vault I/O, CLI, Notability importer), #10 app scaffold, #11 cloud setup script,
+#12 CLI import/search, #13 PNG export, #14 history/restore, #15 vault browser,
+#16 WebDAV sync, #17 PencilKit canvas, #18/#19/#31 importer fixes + fidelity
+evaluation + full multi-zip backup (.ntb, versions, shapes, folder tags),
+#20 debug-launch `~/` paths, #21 usability pass (vault as one item, progressive
+iCloud load, layout, palette, rename, tag editor), #29 iCloud sync fixes
+(auto-start, progress bar, no blank notes, scroll past ink, Keep Screen On),
+#9/#32 docs.
 
-```bash
-swift build -c release --product inkvault
-F=Tests/InkVaultTests/Fixtures/sample.inkvault; K=Tests/InkVaultTests/Fixtures/sample.key
-.build/release/inkvault vault info   --vault $F --identity $K
-.build/release/inkvault vault verify --vault $F --identity $K
-.build/release/inkvault export --all --format pdf --out /tmp/x --vault $F --identity $K
-```
+Open PRs (all reviewed-or-in-review by cloud sessions; the driver merges):
 
-Note: global options (`--vault`, `--identity`, …) go AFTER the subcommand.
+| PR | Branch | What | State |
+| --- | --- | --- | --- |
+| #22 | design/attachments | Attachments FORMAT DESIGN (text boxes, images, audio + transcripts, PDF backgrounds); maintainer decisions final (PR comment 2026-10-05) | final revision in cloud session |
+| #23 | feat/tag-set-merge | Tags as an observed-remove set (add wins), legacy `setMeta(tags)` compat; must adapt the importer's folder-tag helper | review session S1 |
+| #24 | feat/app-keys-rename-eraser | Keychain-remembered keys (Face ID), long-press title rename, app-side object eraser with sizes + cursor | review session S2 |
+| #25 | fix/untrusted-input-hardening | Parser hardening + seeded fuzz harness; adds `format.md` §9 "Untrusted input" (renumbered from §8 after #22 took §8) | review session S1 |
+| #26 | chore/release-engineering | Release workflow, Homebrew, CHANGELOG, CONTRIBUTING (App Store exception, no CLA), SECURITY, App Store docs | review session S3 |
+| #27 | feat/export-markdown-html | Obsidian Markdown + single-file HTML export | review session S3 |
+| #28 | feat/paper-templates | Parametric paper + visual paper picker | review session S2 |
+| #30 | feat/recovery-kit-backup | `keys paper` recovery PDF with QR, backup/verify/restore | review session S3 |
+| #33 | feat/pq-recipients | MLKEM768-X25519 hybrid recipients; vaults post-quantum ONLY | review session S1 |
+
+Cloud review sessions (started 2026-10-05 ~3:10 pm ET; prompts in
+`~/Documents/sempere-sessions/`): S1 core+crypto session_018MdrghAVBvEAmFhniW8DY9,
+S2 app session_01Aq6fucMojZT1mNSPWro6U2, S3 cli+release (Sonnet)
+session_01MZXBxdMScB8hq5J7x52FZ2, design #22 session_011NXVJR4jRtMgSKEVY4NvYi.
+Each merges main, reviews, fixes, gets CI green, comments on its PRs; none merges.
+
+**Merge order** once reviewed: #25 → #23 → #33 (core; `format.md`: #22 is §8, #25 §9
+after the renumbering), then #22 (design, docs), #24 → #28 (app), #30 → #27 → #26.
+After each merge, later PRs may conflict: resolve locally in a worktree or tell
+the owning session (`claude -p "…" --cloud <session_id>`).
+
+## Decisions (made by the user; do not relitigate)
+
+- **Post-quantum only:** vaults accept only the age hybrid ML-KEM-768 + X25519
+  recipient (newest age spec, interop with `age` ≥ the first PQ release).
+  Classic X25519-only keys are rejected ("create a new key"). Passphrases stay
+  (they only wrap the key file in `keys/`). ML-KEM from CryptoKit (Apple) /
+  swift-crypto (Linux), never hand-rolled.
+- **Key flow:** one secret (the key). Create vault → print recovery kit → on
+  each new device paste/scan/AirDrop the key once (or a passphrase if the user
+  chose one) → Face ID afterwards (Keychain, #24). Default: no passphrase.
+- **Licensing:** GPLv3 + App Store exception (§7 additional permission), no
+  CLA. All deps are Apache-2.0 (swift-crypto incl. vendored BoringSSL,
+  argument-parser, asn1) + zlib: GPL-compatible.
+- **Export compliance:** mass-market, standard published algorithms, full
+  strength.
+- **Attachments design (#22):** per-note storage `notes/<id>/att/`, keyed-hash
+  names, Padmé padding, LWW item fields, integer z-layers (0 background, 100
+  content, ink above), full Unicode (system fonts in app, glyph-subset
+  embedding in exports; Noto on Linux), Spanish localization + reserved `math`
+  (LaTeX) and `video` items, settings panel (audio codec/quality, EXIF strip on
+  by default, rewrap modes), auto rewrap policy (add device = header-only;
+  remove device / PQ migration = full re-encrypt) with settings, time-stamped
+  transcript segments, `rec: {id, at}` ink–audio sync, Poppler on Linux for PDF
+  backgrounds in SVG/PNG (else placeholder), "PDF + attachments" export option,
+  unused-attachments index in Settings, on-device AI only.
+- **Notes are keyed by UUID; duplicate titles are fine everywhere.** Notebooks
+  are `/`-separated paths shown as a tree. Folder names become tags on import.
+- **Pages vs pageless:** per-note choice (paged = reorderable fixed pages,
+  pageless = one infinite page) — app task, not started.
 
 ## Personal data
 
-`data/` is git-ignored and holds the user's full Notability backup as three
-Google Drive parts, `Notability-20261005T121200Z-1-00{1,2,3}.zip` (pass all
-three together: 928 `.note`, 603 `.ntb`, 395 Notability PDF exports), plus the
-latest fidelity report in `data/eval-full/`. `data/README.md` says the same.
-Never commit, quote or paste its contents anywhere (code, tests, docs, commit
-messages, PR bodies, chat with other agents). Real-data tests are gated on
-`INKVAULT_NOTABILITY_SAMPLES`; scratch output goes under `data/<name>/` and is
-deleted when done.
+`data/` is git-ignored: the user's full Notability backup as three Google Drive
+parts `Notability-20261005T121200Z-1-00{1,2,3}.zip` (pass all three together:
+928 `.note`, 603 `.ntb`, 395 Notability PDF exports) and the latest fidelity
+report `data/eval-full/`. `data/README.md` says the same. Never commit, quote or
+paste its contents (code, tests, docs, commits, PR bodies, other agents).
+Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`; scratch output goes
+under `data/<name>/` and is deleted when done. Keep `data/`: re-imports are
+needed after the PQ switch and for release.
 
-## Decided, not yet implemented
+Importer results on the full backup: 640 imported (629 `.note`, 6 `.ntb`-only,
+5 separate versions of divergent copies), 891 skipped (identical copies, older
+versions, superseded `.ntb`), 0 failed. Fidelity vs Notability's PDFs: 753
+inked pages, F1 median 1.000 (p10 0.998), chamfer median 0.013 pt. Not imported
+yet: PDF/image backgrounds, typed text, media/recordings (attachments work).
 
-- **Encryption is post-quantum only.** Vaults accept only the age hybrid
-  ML-KEM-768 + X25519 recipient (newest age spec). Classic X25519-only
-  recipients are rejected with "create a new key", not offered as an option.
-  Passphrases stay: they only wrap the key file in `keys/` (scrypt, symmetric).
-- **Licensing:** GPLv3 plus an App Store exception (§7 additional permission),
-  no CLA.
-- **Export compliance:** mass-market, standard published algorithms, full
-  strength.
+## Test vault and the user's iPad
 
-## How work gets done (what worked)
+- iPad: "antpad", iPad Pro 12.9" 4th gen (A12Z, Face ID, Pencil 2, no hover),
+  **iPadOS 26.7.1, cannot update to 27** — every feature must work on 26.
+  UDID 00008027-001D30E02131802E.
+- Test vault: iCloud Drive `InkVault/Notes.inkvault` (127 notes from an old
+  partial backup, classic X25519 key `~/.config/inkvault/identity.key`). To be
+  REBUILT after #33 + rename: new post-quantum key, full backup import with
+  folder tags. Put the key on the iPad with `pbcopy < key`, clear the clipboard
+  after ~3 min.
+- Device builds: `xcodebuild … -destination 'id=<UDID>' -allowProvisioningUpdates
+  DEVELOPMENT_TEAM=6X3PT3FXGA build` then `xcrun devicectl device install app`
+  / `process launch`. Never commit `DEVELOPMENT_TEAM`. A scratch worktree
+  `.worktrees/device` is used for this.
+- Debug on the device without the user: DEBUG launch env vars (`CLAUDE.md`),
+  `devicectl device copy to/from --domain-type appDataContainer`, `--console`
+  for logs. Ask the user to set Auto-Lock to Never while plugged in.
+
+## Apple developer / App Store / TestFlight
+
+Paid Apple Developer Program active (team 6X3PT3FXGA, individual; same ID as
+the old personal team). App Store Connect record **"Sempere"** (iOS + macOS),
+bundle id **`io.github.anthonytw.sempere`** (registered). API key: Key ID
+`3M856V593J`, Issuer `24e225fb-771e-4dc7-b322-632d16493446`, file
+`~/.config/sempere/AuthKey_3M856V593J.p8` (0600). Next: after the rename sweep,
+archive a signed Release build with the new bundle id, upload to TestFlight via
+the API key (`xcodebuild -exportArchive` / `xcrun altool` or `notarytool`-style
+upload), add the user as internal tester; set `ITSAppUsesNonExemptEncryption`
+per the export decision. Optional later: CI uploads on merge.
+
+## Rename sweep (do after the open PRs merge)
+
+One PR: app name "Sempere", bundle `io.github.anthonytw.sempere`, repo →
+`anthonytw/sempere` (GitHub rename keeps redirects; update remotes, the cloud
+environment's repo, docs), CLI `sempere`, Swift modules `Sempere*` (Sempere,
+SempereRender, SempereImport, SempereWebDAV, SempereCLI; app target),
+vault extension `.sempere` + UTType, format ids (`sempere/1`, new file magic,
+HMAC/KDF labels — breaks existing vaults, fine pre-1.0), Keychain service,
+UserDefaults keys, DEBUG env vars (`SEMPERE_DEBUG_*`), `~/.config/sempere/`,
+docs. Then rebuild the test vault and do the first TestFlight build. Then run
+one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
+
+## How work gets done (what worked, what didn't)
 
 - **One task → one branch → one PR → squash merge, CI green.** Agents never
-  merge; the driver reviews and merges.
-- **Local agents:** create the worktree yourself, then point the agent at it:
-  `git worktree add .worktrees/<name> -b feat/<name> main`. Do NOT use the
-  Agent tool's `isolation: worktree` from the `dev/` workspace root: it
-  branches the bootstrap repo, not inkvault. Remove the worktree after merge.
-- **Models:** Opus for crypto, merge/format logic, app architecture, format
-  reverse engineering; Sonnet for views, CLI commands, docs, tests, review
-  fix-ups. Fable is not needed for any remaining task.
-- **Review:** `/code-review <branch-name> medium`, run from the main checkout.
-  Passing a PR number from inside a worktree reviewed the wrong diff twice.
-  Every review so far found real bugs; always run one before merging.
-- **Cloud (preferred for Linux-only work, the user has ~$250 of credit):**
-  create a one-time routine with the `/schedule` skill / `RemoteTrigger`
-  (`run_once_at` 2–3 min out, environment `inkvault` =
-  `env_01H7jGd6eTr5MTV3zWPt19A5`, repo `https://github.com/anthonytw/inkvault`,
-  model `claude-sonnet-5-5` or `claude-opus-5-5`), then `list_runs` /
-  `get_run_log` to follow it. `claude --cloud` needs a TTY and cannot be run
-  from the Bash tool. The cloud VM is Ubuntu: it can do anything under
-  `Sources/`, `Tests/`, `docs/`, CI; it cannot build `Apps/`.
-  **Cloud sessions can only push/open PRs if the Claude GitHub App is
-  installed on `anthonytw/inkvault`** (https://github.com/apps/claude/installations/select_target).
-  The first routine did the whole static-build diagnosis and then got a 403
-  on push. Check this before dispatching cloud work; if still missing, ask
-  the user.
-- **Briefs** for agents and routines must be self-contained: reading list,
-  scope (directories they own), API shape, tests required, process (branch,
-  commit style, push, `gh pr create`, do not merge), and the Co-Authored-By
-  line the harness instructs.
+  merge; the driver session reviews and merges. Every review so far found real
+  bugs (several data-loss class) — never merge unreviewed code.
+- **Cost model (important):** the user's "Cloud session credit" (~$250) covers
+  ONLY cloud *sessions*. Routines (RemoteTrigger / `/schedule`), Projects,
+  remote control and local agents all draw the user's **plan limits**. Prefer
+  cloud sessions for big work; keep local agents for things that need the Mac
+  (Xcode, simulator, the iPad, private `data/`). Prefer Sonnet where enough;
+  don't fan out without asking.
+- **Starting a cloud session from the Bash tool:**
+  `PTY_SECS=180 PTY_STOP_ON_URL=1 python3 ~/.claude/scripts/cloud-session-pty.py
+  claude [--model sonnet] --cloud "$(cat prompt.txt)" --ref main`, run from a
+  CLEAN clone of the repo (no `data/`). The script provides a pty, answers the
+  folder-trust prompt, and strips inherited `CLAUDE_CODE_*`/`CLAUDECODE` env
+  vars — without that, `--cloud` silently uploads a "seed bundle" and the
+  session gets **403 on push** (its unpushed work is unrecoverable; teleport
+  only fetches pushed branches). Check `RemoteTrigger get_run_log <session_id>`:
+  "Fetching/Cloning repository" = good, "Cloned from seed bundle" = bad.
+- **Messaging a running session:** `claude -p "msg" --cloud <session_id>
+  --output-format json` (`-p` is required; without it the error says attaching
+  is "not enabled for your account").
+- **Cloud VM:** Ubuntu, no Xcode. It builds/tests `Sources/` + `Tests/`; app
+  code is compiled only by the GitHub Actions `app` job (push → `gh pr checks
+  --watch` → `gh run view --log-failed`). The `inkvault` environment's setup
+  script (`scripts/cloud-setup.sh`) installs Swift 6.4.0 into /usr/local/bin.
+  Sessions use GitHub MCP tools (the VM's `gh` token is invalid).
+- **Local agents:** create the worktree yourself
+  (`git worktree add .worktrees/<name> -b <branch> origin/main`) and point the
+  agent at it; never the Agent tool's `isolation: worktree` from `dev/` (it
+  branches the bootstrap repo). Remove worktrees after merge.
+- **Racing:** if a review session is still active on a branch, don't fix the
+  same branch locally — it will push first and you'll duplicate work.
+- **Briefs** must be self-contained: reading list, scope, API shape, tests,
+  process (branch, merge-not-rebase, push, PR, don't merge), privacy rules,
+  iPadOS 26 constraint, co-author line.
+- **Waiting:** use background commands / Monitor with until-loops; never chain
+  sleeps. `gh pr checks --watch` exits non-zero on failure — never chain
+  `gh pr merge` after it without checking.
+- **Docs-only PRs** have no CI checks; merge directly.
+- **macOS shell:** `rm` is aliased interactive — use `/bin/rm`; `grep -r` from
+  `dev/` skips sub-repos.
 
-## Next tasks (in order), with brief sketches
+## Lessons learned (technical, beyond CLAUDE.md gotchas)
 
-1. **CLI: `import notability` and `search`** — DONE on branch `feat/cli-import-search`
-   (CLI 0.5.0; `docs/cli.md`; tests in `Tests/CLITests/CLIImportSearchTests.swift` with
-   generated fixtures in `Tests/CLITests/Fixtures`; `--dry-run` imports into a temp copy of the
-   vault; `NoteSummary.recognizedPages` feeds `notes show`). Original sketch: Wire
-   `InkImport` into `Sources/InkVaultCLI` as `inkvault import notability
-   PATH… --vault V [--notebook N] [--overwrite] [--dry-run] [--no-scale]`
-   printing the `ImportReport`; add `inkvault search "term" [--json]` over
-   `Page.recognition` text (case-insensitive, word boxes in `--json`), and
-   `notes show` listing recognised text presence. Tests via the synthetic
-   `.note` fixture in `InkImportTests` and the sample vault. Update
-   `docs/cli.md`, plan rows 0.6/0.7.
+- "No ink on the iPad" was iCloud (dataless real-name files on 26.7.1, folders
+  listed before contents), not rendering: verify on the device with a DEBUG
+  snapshot from a local copy before theorising about renderers.
+- The simulator renders PencilKit faithfully; a 2020 iPad Pro on 26.7.1 drew a
+  real imported note identically.
+- Notability backups from Google Drive keep every old copy of moved/renamed
+  notes; pick the newest per uuid, keep divergent ink as a version note.
+- The first "backup" was only part 2 of a 3-part Drive download — always check
+  for `-00N` siblings.
+- Canvas snapshot tests flake on cold CI simulators (PencilKit draws tiles
+  async): retry per band, never widen tolerances.
+
+## Roadmap
+
+Next, in order:
+1. Merge the reviewed batch (above).
+2. Rename sweep → rebuild test vault (PQ key, full import) → first TestFlight.
+3. App round 2 (cloud sessions, CI-compiled; device checks by the user):
+   pages vs pageless (reorder/delete pages), share/export from the app (3e),
+   handwriting search in the app (3f: Vision `VNRecognizeTextRequest` on
+   rendered pages for iPadOS 26), settings panel, Spanish localization,
+   history browser UI, remote changes merged into an open canvas, note list
+   counts refresh, snapshots written by the app.
+4. Attachments implementation: ~20 parallel tasks per `docs/attachments.md`
+   §14 after #22 merges (batches of 3–4 cloud sessions). Start with task A0
+   (model types), then run the rest of `docs/plan.md` "Attachments" in
+   parallel; the settings panel and unused-attachments index are E6/E7 there.
+5. Phase 2 Mac (menus, keyboard, multi-window, drag-out export), then App
+   Store submission (privacy policy page, listing, screenshots; #26 drafts).
+6. `/ultrareview` before the first public release.
+
+Future ideas (user): LaTeX math typing + handwriting→LaTeX (on-device),
+video attachments, on-device AI only.
+
+Phase 1 task detail (historical, for reference):
+
 2. **Phase 1, iPad app** (needs Xcode on the Mac or the macOS CI runner;
    Opus for 3a/3c, Sonnet for the rest). Split:
    - 3a **done** (branch `feat/ipad-app-scaffold`): `Apps/InkVault/InkVault.xcodeproj`,
@@ -205,12 +317,6 @@ deleted when done.
    - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
      per page after edits; search field over recognition text with word-box
      highlights.
-3. **Phase 2, Mac via Catalyst**: menus, keyboard, multi-window, drag-out
-   export, bulk export, key management UI.
-4. **Phase 3** (`docs/plan.md`): history browser UI (the core and CLI are
-   done: `Sources/InkVault/History.swift`, `format.md` §5.7), WebDAV client,
-   compaction UI, PDF/image page backgrounds, read-only access to
-   newer formats, age CRLF diagnostic, PQ recipient type.
 
 ## History and restore (how it works)
 

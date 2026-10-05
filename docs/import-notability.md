@@ -123,7 +123,7 @@ them by Notability uuid (an `.ntb` by creation time, below). Per group:
      user decision.
 
    The comparison is budgeted (`PrintIndex`: 256 comparisons per stroke
-   plus 10⁶ per copy, `docs/format.md` §8): strokes that agree on
+   plus 10⁶ per copy, `docs/format.md` §9): strokes that agree on
    everything but their height share a lookup bucket, and a hostile pair of
    copies could otherwise make it quadratic. A stroke not decided within
    the budget counts as not matching, so such a copy is imported separately.
@@ -637,6 +637,10 @@ points; between samples it is a C² cubic within a small fraction of a unit
 of the Bézier.
 
 ## Not imported
+
+Attachments (PDF backgrounds, images, typed text, recordings) are now
+designed (`docs/attachments.md` §11 maps each Notability structure and lists
+what is still unknown); until tasks D1–D4 land they are dropped as below.
 
 | What | Why |
 | --- | --- |
