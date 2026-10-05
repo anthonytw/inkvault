@@ -73,11 +73,20 @@ struct CanvasHostRenderingTests {
     }
 
     /// Canvas and reference agree on how much ink a band shows.
+    /// PencilKit renders tiles asynchronously, and on a cold simulator the
+    /// first screen can take longer than `snapshot`'s wait: the band is
+    /// snapshotted again (up to four more times) until its ink matches, so
+    /// only ink that never appears fails.
     static func expectBandMatches(_ host: PageCanvasHost, _ strokes: [Stroke], top: Double, _ label: String) async throws {
-        let (shot, rect) = try await snapshot(host, top: top)
+        var (shot, rect) = try await snapshot(host, top: top)
         let px = CGSize(width: shot.size.width * shot.scale, height: shot.size.height * shot.scale)
-        let canvas = darkPixels(shot), ref = darkPixels(reference(strokes, rect: rect, pixels: px))
+        let ref = darkPixels(reference(strokes, rect: rect, pixels: px))
         #expect(ref > 0, "\(label): reference drew nothing at y \(rect.minY)")
+        var canvas = darkPixels(shot)
+        for _ in 0..<4 where !(0.75...1.33).contains(Double(canvas) / Double(max(ref, 1))) {
+            (shot, rect) = try await snapshot(host, top: top)
+            canvas = darkPixels(shot)
+        }
         let ratio = Double(canvas) / Double(max(ref, 1))
         #expect((0.75...1.33).contains(ratio), "\(label): canvas/reference ink \(canvas)/\(ref) at y \(rect.minY)")
     }
