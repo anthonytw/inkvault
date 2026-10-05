@@ -134,6 +134,13 @@ enum CloudScan {
         return groups
     }
 
+    /// The revision files of note `id` (`notes/<id>/`), listed fresh; empty
+    /// when the note has no folder.
+    static func noteItems(inVault root: URL, id: UUID, fileManager: FileManager = .default) throws -> [Item] {
+        let noteDir = root.appendingPathComponent("notes/\(id.uuidString.lowercased())", isDirectory: true)
+        return try list(noteDir, fileManager, allowMissing: true).filter(\.isRevisionLike).map { $0.item(in: noteDir) }
+    }
+
     private struct Entry {
         /// Real name (placeholder suffix removed).
         var name: String

@@ -150,20 +150,45 @@ extension AppModel {
         cloudFailure = nil
     }
 
-    /// Fetches one note ahead of the others (the user opened it), then reads
-    /// its summary. No-op for notes that are already local.
+    /// Makes every revision file of note `id` local before it is opened on
+    /// the canvas or edited from the browser: a delta written on top of a
+    /// partial log would be stamped and sequenced without the missing
+    /// revisions, and an edit computed from a placeholder's empty summary
+    /// (tags, title) would overwrite the real values. Not gated on
+    /// `pendingNoteIDs`, which can be out of date (another device may have
+    /// added a revision since the last pass): the note's folder is listed
+    /// fresh, the missing files are fetched ahead of the rest of the vault,
+    /// and the folder is listed again until a listing shows nothing missing.
+    /// The note's summary is then re-read. No-op outside iCloud Drive.
+    ///
+    /// - Throws: `CloudVault.CloudError` on a stall or download error,
+    ///   `ModelError.noteNotDownloaded` when new files keep appearing,
+    ///   `CancellationError` when the vault closed meanwhile.
     func downloadNote(_ id: UUID) async throws {
-        guard isCloudVault, let url = vaultURL, pendingNoteIDs.contains(id) else { return }
+        guard isCloudVault, let url = vaultURL else { return }
         let gen = generation
         let hooks = cloudHooks
-        let items = try await offMain {
-            try CloudScan.noteGroups(inVault: url).first { $0.id == id }?.items ?? []
+        let stall = cloudStallTimeout
+        var fetched = pendingNoteIDs.contains(id)
+        var settled = false
+        for _ in 0..<Self.noteListingRounds {
+            let missing = try await offMain {
+                try CloudScan.noteItems(inVault: url, id: id).filter { !hooks.state($0).isSettled }
+            }
+            try ensureCurrent(gen)
+            if missing.isEmpty { settled = true; break }
+            fetched = true
+            try await CloudVault.download(items: missing, hooks: hooks, stallTimeout: stall) { _ in }
+            try ensureCurrent(gen)
         }
-        try ensureCurrent(gen)
-        try await CloudVault.download(items: items, hooks: hooks) { _ in }
-        try ensureCurrent(gen)
+        guard settled else { throw ModelError.noteNotDownloaded }
+        guard fetched else { return }
         try await refresh([id])
         pendingNoteIDs.remove(id)
         placeholderNoteIDs.remove(id)
     }
+
+    /// How often `downloadNote` lists a note's folder before giving up on it
+    /// settling.
+    static let noteListingRounds = 5
 }

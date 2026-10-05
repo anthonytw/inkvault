@@ -24,7 +24,8 @@ enum ProgressiveLoad {
     }
 
     /// One pass over the vault at `root`. Requests downloads (idempotent) for
-    /// up to `window` pending notes, `priority` first, and refreshes
+    /// up to `window` pending notes, `priority` first and notes with a
+    /// download error last, and refreshes
     /// out-of-date local files of ready notes (not waited for).
     ///
     /// - Throws: when a folder cannot be listed.
@@ -51,7 +52,9 @@ enum ProgressiveLoad {
             }
             for item in stale { try? hooks.request(item) }
         }
-        var order = pass.pending
+        // Notes iCloud failed on go last, so they cannot hold the window
+        // (and every other note) hostage; they are still retried.
+        var order = pass.pending.filter { pass.failures[$0] == nil } + pass.pending.filter { pass.failures[$0] != nil }
         if let priority, let i = order.firstIndex(of: priority) { order.insert(order.remove(at: i), at: 0) }
         for id in order.prefix(max(1, window)) {
             for item in pendingItems[id] ?? [] {

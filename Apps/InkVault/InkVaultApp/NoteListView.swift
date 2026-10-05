@@ -22,9 +22,13 @@ struct NoteListView: View {
         List(model.visibleNotes, id: \.id, selection: $model.selectedNoteID) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id))
-                .contextMenu { actions(for: note) }
+                // A placeholder's summary is empty: nothing to act on until it arrives
+                // (the model downloads a note before any edit anyway).
+                .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
                 .swipeActions(edge: .trailing) {
-                    if note.deleted {
+                    if model.placeholderNoteIDs.contains(note.id) {
+                        EmptyView()
+                    } else if note.deleted {
                         Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
                             .tint(.green)
                     } else {
@@ -207,8 +211,10 @@ private struct NoteRow: View {
             .foregroundStyle(.secondary)
             if !note.tags.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(note.tags.prefix(4), id: \.self) { TagChip(tag: $0) }
-                    if note.tags.count > 4 { Text("+\(note.tags.count - 4)").font(.caption2).foregroundStyle(.secondary) }
+                    // One chip per tag key: older notes may store two spellings.
+                    let tags = NoteOps.normalizedTags(note.tags)
+                    ForEach(tags.prefix(4), id: \.self) { TagChip(tag: $0) }
+                    if tags.count > 4 { Text("+\(tags.count - 4)").font(.caption2).foregroundStyle(.secondary) }
                 }
                 .foregroundStyle(.secondary)
             }

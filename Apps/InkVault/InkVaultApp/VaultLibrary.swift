@@ -18,23 +18,31 @@ extension UTType {
 enum VaultLocator {
     enum LocatorError: Error, Equatable, CustomStringConvertible {
         case severalVaults([String])
+        /// The pick is inside the vault named here. Access granted to a picked
+        /// folder covers that folder and what is in it, never its parents, so
+        /// the vault itself cannot be opened from it.
+        case insideVault(String)
 
         var description: String {
             switch self {
             case .severalVaults(let names):
                 return "That folder holds several vaults (\(names.joined(separator: ", "))). Choose one of them."
+            case .insideVault(let name):
+                return "That is a folder inside the vault “\(name)”. Choose “\(name)” itself."
             }
         }
     }
 
     /// The vault folder for `picked`:
-    /// - a folder or file inside a vault (`vault.json`, `keys/…`, `notes/…`):
-    ///   the enclosing vault folder;
     /// - a folder with a `vault.json`: itself;
-    /// - a folder holding exactly one `.inkvault` folder: that folder;
+    /// - a folder holding exactly one `.inkvault` folder: that folder (the
+    ///   picked folder's access covers it);
     /// - anything else: `picked` unchanged (opening it reports the problem).
     ///
-    /// - Throws: `LocatorError.severalVaults` for a folder holding more than one vault.
+    /// - Throws: `LocatorError.severalVaults` for a folder holding more than
+    ///   one vault; `LocatorError.insideVault` for a file or folder inside a
+    ///   vault (`notes/`, `notes/<id>/…`, `keys/…`, `vault.json`), whose
+    ///   security scope would not reach the vault.
     static func resolve(_ picked: URL, fileManager fm: FileManager = .default) throws -> URL {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: picked.path, isDirectory: &isDir) else { return picked }
@@ -42,10 +50,11 @@ enum VaultLocator {
             fm.fileExists(atPath: dir.appendingPathComponent("vault.json").path)
                 || fm.fileExists(atPath: dir.appendingPathComponent(CloudPlaceholder.placeholderName(for: "vault.json")).path)
         }
-        // At or inside a vault: vault.json is at most `notes/<id>/<file>` deep.
-        var candidate = isDir.boolValue ? picked : picked.deletingLastPathComponent()
-        for _ in 0..<4 {
-            if isVault(candidate) { return candidate }
+        if isDir.boolValue, isVault(picked) { return picked }
+        // Inside a vault: vault.json is at most `notes/<id>/<file>` above.
+        var candidate = picked.deletingLastPathComponent()
+        for _ in 0..<3 {
+            if isVault(candidate) { throw LocatorError.insideVault(candidate.lastPathComponent) }
             let parent = candidate.deletingLastPathComponent()
             if parent.path == candidate.path { break }
             candidate = parent

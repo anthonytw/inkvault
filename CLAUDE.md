@@ -155,12 +155,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - Vaults are one item in Files: `InkVaultInfo.plist` (referenced by `INFOPLIST_FILE`,
   outside the synchronized group so it is not copied as a resource) exports the
   `.inkvault` package UTType. `VaultLocator.resolve` maps whatever was picked
-  to the vault folder; `openVault(at:accessing:)` holds the security scope of the
+  to the vault folder (never upward: a pick inside a vault is an error, its scope
+  does not cover the vault); `openVault(at:accessing:)` holds the security scope of the
   picked URL, not the derived one.
 - iCloud notes load progressively (`ProgressiveLoad`, `AppModel+Cloud`): never
   await the whole vault before listing. Tests fake placeholders with
   `FakeCloud` (`ProgressiveLoadTests.swift`) and `CloudVault.Hooks`; the model
-  takes `cloudHooks`, `cloudPollInterval`, `cloudWindow`.
+  takes `cloudHooks`, `cloudPollInterval`, `cloudWindow`. Anything that opens or
+  edits one note calls `downloadNote` first (a fresh listing of its folder, not
+  `pendingNoteIDs`): never write a delta while any of its revisions is missing.
 - `NavigationSplitView` ignores a programmatic column change that arrives
   while the view is first being built, so the stored choice (`ColumnLayout`,
   `@AppStorage`) is never made to depend on selection state.

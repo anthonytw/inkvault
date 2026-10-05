@@ -40,6 +40,10 @@ final class AppModel {
         case noStoredKeys
         case passphraseMatchesNoKey
         case noteNotFound
+        /// An iCloud note whose folder kept changing while it was being downloaded.
+        case noteNotDownloaded
+        /// An edit over many notes while some are still downloading from iCloud.
+        case notesStillDownloading
 
         var description: String {
             switch self {
@@ -48,6 +52,10 @@ final class AppModel {
             case .noStoredKeys: return "This vault has no passphrase-protected key file."
             case .passphraseMatchesNoKey: return "The passphrase opens none of this vault's key files."
             case .noteNotFound: return "That note is no longer in the vault."
+            case .noteNotDownloaded:
+                return "iCloud Drive is still delivering this note's files. Try again in a moment."
+            case .notesStillDownloading:
+                return "Some notes are still downloading from iCloud Drive. Try again once the list has finished loading."
             }
         }
     }

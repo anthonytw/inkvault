@@ -6,6 +6,14 @@ import Testing
 import UniformTypeIdentifiers
 @testable import InkVaultApp
 
+/// A one-way flag set from another task.
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+}
+
 /// A vault folder whose files can be evicted and delivered like iCloud's
 /// placeholders (`.<name>.icloud` stand-ins), with the iCloud calls faked.
 final class FakeCloud: @unchecked Sendable {
@@ -108,6 +116,23 @@ struct ProgressiveLoadTests {
         #expect(pass.ready == [Self.other])
     }
 
+    @Test func notesWithADownloadErrorDoNotHoldTheWindow() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let ids = (0..<3).map { _ in UUID() }.sorted { $0.uuidString < $1.uuidString }
+        for id in ids {
+            let dir = root.appendingPathComponent("notes/\(id.uuidString.lowercased())")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data().write(to: dir.appendingPathComponent(".1-a-1.delta.age.icloud"))
+        }
+        let cloud = FakeCloud(vault: root)
+        var hooks = cloud.hooks
+        let failing = ids[0].uuidString.lowercased()
+        hooks.state = { item in item.url.path.contains(failing) ? .failed("quota") : CloudVault.state(of: item) }
+        let pass = try ProgressiveLoad.pass(vault: root, window: 1, hooks: hooks)
+        #expect(pass.failures.keys.sorted { $0.uuidString < $1.uuidString } == [ids[0]])
+        #expect(cloud.requestedNotes == [ids[1].uuidString.lowercased()])
+    }
+
     @Test func essentialsAreTheManifestAndKeysOnly() throws {
         let root = try CloudTests.evictedVault()
         let essentials = try CloudScan.essentialItems(inVault: root).map { $0.url.lastPathComponent }
@@ -151,7 +176,11 @@ struct ProgressiveLoadTests {
         let arrived = try #require(model.notes.first { $0.id == Self.other })
         #expect(arrived.deleted)
         #expect(model.placeholderNoteIDs.isEmpty)
-        #expect(await TS.waitUntil { model.cloudSyncTask?.isCancelled == false })
+        // Once nothing is pending and the note set holds still, the loop ends.
+        let sync = try #require(model.cloudSyncTask)
+        let ended = Flag()
+        Task { await sync.value; ended.set() }
+        #expect(await TS.waitUntil { ended.isSet })
     }
 
     @MainActor
@@ -185,6 +214,69 @@ struct ProgressiveLoadTests {
         #expect(model.placeholderNoteIDs.isEmpty)
         model.close()
         #expect(model.pendingNoteIDs.isEmpty)
+    }
+
+    /// `pendingNoteIDs` is only as fresh as the last pass: a note whose files
+    /// became placeholders since (another device wrote a revision, iCloud
+    /// evicted it) must still be downloaded before the canvas opens on it.
+    @MainActor
+    @Test func openingANoteWaitsForFilesThatWentMissingSinceTheLastPass() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = try await Self.cloudModel(cloud, key: key)
+        #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
+        model.stopCloudSync()                       // no pass will notice the change
+        try cloud.evict(Self.lecture)
+        #expect(!model.pendingNoteIDs.contains(Self.lecture))
+
+        model.selectedNoteID = Self.lecture
+        let opening = Task { try await model.openEditor(for: Self.lecture) }
+        #expect(await TS.waitUntil { cloud.requestedNotes.contains(Self.lecture.uuidString.lowercased()) })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(model.editor == nil)                // not opened on a partial log
+        try cloud.deliver(Self.lecture)
+        try await opening.value
+        let editor = try #require(model.editor)
+        #expect(editor.noteID == Self.lecture)
+        #expect(editor.pages.count == 2)
+        model.close()
+    }
+
+    /// A browser edit of a note still downloading is computed from the real
+    /// summary, not the placeholder's empty one: adding a tag keeps the tags
+    /// the note already has.
+    @MainActor
+    @Test func editingAPlaceholderDownloadsItFirstAndKeepsItsTags() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.lecture)
+        let model = try await Self.cloudModel(cloud, key: key)
+        #expect(model.placeholderNoteIDs.contains(Self.lecture))
+        #expect(model.notes.first { $0.id == Self.lecture }?.tags == [])
+
+        let tagging = Task { try await model.addTag("new", to: Self.lecture) }
+        try await Task.sleep(for: .milliseconds(100))
+        let dir = url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())")
+        let before = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { !$0.hasPrefix(".") }
+        #expect(before.isEmpty)                     // nothing written while the note is missing
+        try cloud.deliver(Self.lecture)
+        try await tagging.value
+        #expect(model.notes.first { $0.id == Self.lecture }?.tags == ["fixture", "new"])
+        #expect(!model.placeholderNoteIDs.contains(Self.lecture))
+        model.close()
+    }
+
+    @MainActor
+    @Test func renamingANotebookWaitsForPendingNotes() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.other)
+        let model = try await Self.cloudModel(cloud, key: key)
+        try await model.moveNote(Self.lecture, toNotebook: "School")
+        await #expect(throws: AppModel.ModelError.notesStillDownloading) {
+            try await model.renameNotebook("School", to: "Work")
+        }
+        model.close()
     }
 
     @MainActor
@@ -238,12 +330,16 @@ struct VaultLocatorTests {
         #expect(try VaultLocator.resolve(plain) == plain)
     }
 
-    @Test func aFileInsideAVaultResolvesToTheVault() throws {
+    /// The picker's access covers the picked item and what is below it, not
+    /// its parents: a pick inside a vault cannot open the vault, so it names it.
+    @Test func aPickInsideAVaultIsAnErrorNamingTheVault() throws {
         let vault = try Self.temp().appendingPathComponent("A.inkvault")
         try Self.makeVault(vault)
-        #expect(try VaultLocator.resolve(vault.appendingPathComponent("vault.json")).path == vault.path)
-        #expect(try VaultLocator.resolve(vault.appendingPathComponent("notes/n/1-a-1.delta.age")).path == vault.path)
-        #expect(try VaultLocator.resolve(vault.appendingPathComponent("notes/n")).path == vault.path)
+        for inner in ["vault.json", "notes", "notes/n", "notes/n/1-a-1.delta.age"] {
+            #expect(throws: VaultLocator.LocatorError.insideVault("A.inkvault")) {
+                try VaultLocator.resolve(vault.appendingPathComponent(inner))
+            }
+        }
     }
 
     @Test func aFolderHoldingOneVaultResolvesToIt() throws {
