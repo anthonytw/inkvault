@@ -195,6 +195,27 @@ final class PNGWriterTests: XCTestCase {
         XCTAssertTrue(T.contains(pdf, "/ca 0.5"))
     }
 
+    /// Stroked paths (monoline, marker, ruling) are unions of segment quads
+    /// and cap/join circles. Every piece must wind the same way: a quad of the
+    /// opposite orientation cancelled a circle where only the two overlapped,
+    /// punching crescents into the ends of wide strokes (seen on imported
+    /// Notability highlighters).
+    func testStrokedPathCapsHaveNoHoles() throws {
+        let line = T.stroke([T.pt(40, 100), T.pt(160, 100)], tool: .monoline, width: 20)
+        let img = try XCTUnwrap(try render(T.note(pages: [[line]], meta: T.meta(paper: .blank))).first)
+        // Inside the first segment and the start cap only: (42, 100) pt -> device (84, 200).
+        XCTAssertEqual(img.px(84, 200), [0, 0, 0, 255], "start cap overlap")
+        XCTAssertEqual(img.px(316, 200), [0, 0, 0, 255], "end cap overlap")
+        XCTAssertEqual(img.px(70, 200), [0, 0, 0, 255], "cap beyond the segment")
+        for dir in [(1.0, 0.0), (0, 1), (-1, 0), (0, -1), (0.6, -0.8)] {
+            let sp = Subpath(points: [Point(x: 50, y: 50), Point(x: 50 + 30 * dir.0, y: 50 + 30 * dir.1),
+                                      Point(x: 50 + 30 * dir.0 + 3, y: 50 + 30 * dir.1 - 20)], closed: false)
+            for poly in PNGWriter.strokePolygons(sp, width: 6) {
+                XCTAssertGreaterThan(Subpath(points: poly, closed: true).signedArea, 0, "direction \(dir)")
+            }
+        }
+    }
+
     func testPenSampleOpacityAndPaintAlpha() throws {
         let half = T.stroke([T.pt(20, 50, w: 10, o: 0.5), T.pt(180, 50, w: 10, o: 0.5)])
         let img = try XCTUnwrap(try render(T.note(pages: [[half]], meta: T.meta(paper: .blank))).first)
