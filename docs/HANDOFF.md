@@ -189,6 +189,23 @@ one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
 - **macOS shell:** `rm` is aliased interactive — use `/bin/rm`; `grep -r` from
   `dev/` skips sub-repos.
 
+## CI
+
+CI (`.github/workflows/ci.yml`) is gated so that runs are not wasted. macOS
+runners are scarce: every run needs two of them, and on 2026-10-05 eleven runs
+queued for up to 30 minutes.
+
+- **Draft PRs run nothing.** Open work as a draft (`gh pr create --draft`) and
+  push as often as you like. Run `gh pr ready <n>` when you want CI or a
+  review; later pushes to a ready PR run CI again.
+- **A newer push to the same PR cancels the older run.**
+- **Only affected jobs run.** Docs-only changes run nothing. CLI, importer and
+  WebDAV changes skip the app job. App-only changes skip Linux and macOS.
+  `main` always runs everything.
+- **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
+- Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
+  the work is done and the local `swift test` passes.
+
 ## Lessons learned (technical, beyond CLAUDE.md gotchas)
 
 - "No ink on the iPad" was iCloud (dataless real-name files on 26.7.1, folders
@@ -215,7 +232,9 @@ Next, in order:
    history browser UI, remote changes merged into an open canvas, note list
    counts refresh, snapshots written by the app.
 4. Attachments implementation: ~20 parallel tasks per `docs/attachments.md`
-   after #22 merges (batches of 3–4 cloud sessions).
+   §14 after #22 merges (batches of 3–4 cloud sessions). Start with task A0
+   (model types), then run the rest of `docs/plan.md` "Attachments" in
+   parallel; the settings panel and unused-attachments index are E6/E7 there.
 5. Phase 2 Mac (menus, keyboard, multi-window, drag-out export), then App
    Store submission (privacy policy page, listing, screenshots; #26 drafts).
 6. `/ultrareview` before the first public release.

@@ -208,8 +208,36 @@ public enum Backup {
                 else { continue }
                 out.append("\(Vault.notesName)/\(d)/\(f)")
             }
+            // Attachment blobs (format.md §8.1.2): write-once like revisions.
+            let att = dir.appendingPathComponent(attachmentsName)
+            for f in try FileIO.entries(att) where isBlobFileName(f) && !FileIO.isDirectory(att.appendingPathComponent(f)) {
+                out.append("\(Vault.notesName)/\(d)/\(attachmentsName)/\(f)")
+            }
         }
         return out
+    }
+
+    /// A note's attachment folder (format.md §8.1.2).
+    static let attachmentsName = "att"
+
+    /// `<64 lowercase hex>.<kind>.age`, kind 1–16 lowercase ASCII letters or
+    /// digits (format.md §8.1.2); anything else in `att/` is an unknown file.
+    static func isBlobFileName(_ name: String) -> Bool {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[2] == "age", parts[0].count == 64, (1...16).contains(parts[1].count) else {
+            return false
+        }
+        let hex = parts[0].utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+        let kind = parts[1].utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7A).contains($0) }
+        return hex && kind
+    }
+
+    /// Whether `path` is an attachment blob, which a backup never prunes:
+    /// blob collection is per device and per note (format.md §8.1.6), not
+    /// something a backup can prove from the files it sees.
+    static func isBlobPath(_ path: String) -> Bool {
+        let parts = path.split(separator: "/")
+        return parts.count == 4 && parts[0] == Vault.notesName[...] && parts[2] == attachmentsName[...]
     }
 
     /// A `keys/` entry is any `<stem>.key.age`: whatever the stem (an `age1…`
@@ -421,7 +449,9 @@ public enum Backup {
 
         // Revision files the source no longer has: compaction, or loss.
         let present = Set(sourceFiles)
-        let gone = try formatFiles(in: dest).filter { $0.hasPrefix(Vault.notesName + "/") && !present.contains($0) }
+        let goneAll = try formatFiles(in: dest).filter { $0.hasPrefix(Vault.notesName + "/") && !present.contains($0) }
+        let gone = goneAll.filter { !isBlobPath($0) }
+        report.kept += goneAll.filter(isBlobPath).sorted()
         if options.prune && !gone.isEmpty {
             let backupVault = try? Vault.open(at: dest, identities: source.identities)
             let byNote = Dictionary(grouping: gone) { $0.split(separator: "/")[1] }
@@ -443,7 +473,7 @@ public enum Backup {
                 }
             }
         } else {
-            report.kept = gone.sorted()
+            report.kept += gone.sorted()
         }
         // Drop index entries for files that are gone from the mirror and
         // that this run did not delete (removed by hand): verify reports them.

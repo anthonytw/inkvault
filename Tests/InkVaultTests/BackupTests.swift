@@ -413,6 +413,51 @@ final class BackupTests: VaultTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: target.appendingPathComponent(Backup.restoreMarker).path))
     }
 
+    // MARK: - Attachments
+
+    func testAttachmentBlobsAreBackedUpRestoredArchivedAndNeverPruned() throws {
+        let note = testNote.uuidString.lowercased()
+        let att = vault.url.appendingPathComponent("notes/\(note)/att")
+        try FileManager.default.createDirectory(at: att, withIntermediateDirectories: true)
+        let blob = String(repeating: "ab", count: 32) + ".image.age"
+        let gone = String(repeating: "cd", count: 32) + ".pdf.age"
+        try Data("blob bytes".utf8).write(to: att.appendingPathComponent(blob))
+        try Data("old blob".utf8).write(to: att.appendingPathComponent(gone))
+        try Data("x".utf8).write(to: att.appendingPathComponent("notes.txt"))   // unknown: skipped
+        let blobPath = "notes/\(note)/att/\(blob)", gonePath = "notes/\(note)/att/\(gone)"
+
+        let first = try Backup.run(source: vault, to: dest)
+        XCTAssertTrue(first.copied.contains(blobPath))
+        XCTAssertTrue(first.copied.contains(gonePath))
+        XCTAssertFalse(first.copied.contains { $0.hasSuffix("notes.txt") })
+
+        // Collected from the vault: the backup keeps it, even with --prune.
+        try FileManager.default.removeItem(at: att.appendingPathComponent(gone))
+        let pruned = try Backup.run(source: vault, to: dest, options: BackupOptions(prune: true))
+        XCTAssertEqual(pruned.pruned, [])
+        XCTAssertEqual(pruned.kept, [gonePath])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: Backup.url(dest, gonePath).path))
+        XCTAssertTrue(Backup.verify(at: dest, identities: [id]).isHealthy)
+
+        let target = tmp.appendingPathComponent("WithAtt.inkvault")
+        let restored = try Backup.restore(from: dest, to: target, identities: [id])
+        XCTAssertTrue(restored.errors.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: Backup.url(target, blobPath)), Data("blob bytes".utf8))
+
+        let tar = try Backup.writeArchive(source: vault, to: tmp.appendingPathComponent("a.tar"))
+        let members = try TarReader.files(try Data(contentsOf: URL(fileURLWithPath: tar.archive)))
+        XCTAssertTrue(members.contains { $0.path == "Test.inkvault/\(blobPath)" })
+    }
+
+    func testBlobNames() {
+        XCTAssertTrue(Backup.isBlobFileName(String(repeating: "0f", count: 32) + ".transcript.age"))
+        XCTAssertFalse(Backup.isBlobFileName(String(repeating: "0F", count: 32) + ".image.age"))
+        XCTAssertFalse(Backup.isBlobFileName(String(repeating: "0f", count: 31) + ".image.age"))
+        XCTAssertFalse(Backup.isBlobFileName(String(repeating: "0f", count: 32) + ".Image.age"))
+        XCTAssertFalse(Backup.isBlobFileName(String(repeating: "0f", count: 32) + "..age"))
+        XCTAssertFalse(Backup.isBlobFileName(".inkvault-tmp-1234"))
+    }
+
     // MARK: - Archive
 
     func testArchiveHoldsExactlyTheEncryptedFiles() throws {

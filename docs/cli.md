@@ -167,7 +167,10 @@ for `--prune` and for a full `verify`.
   `--prune`, which deletes only those that a snapshot covers that the vault
   and the backup hold byte for byte identically (checked on disk, not from
   the index; the rules of `docs/format.md` §5.3, as `sync` applies them). A file lost from the vault without a covering snapshot is
-  never pruned. `--prune` needs the key (exit 4 without). An interrupted run
+  never pruned, and neither is an attachment blob
+  (`notes/<id>/att/`, `format.md` §8.1.6: collection is per device, so a
+  backup keeps every blob it has seen). `--prune` needs the key (exit 4
+  without). An interrupted run
   (crash, full disk, Ctrl-C) leaves only complete files; running it again
   finishes the job and removes leftover temporary files.
   `DIR` is itself a vault (`inkvault --vault DIR` reads it) plus
