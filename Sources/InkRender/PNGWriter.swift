@@ -135,9 +135,12 @@ public enum PNGWriter {
             let len = a.distance(to: b)
             guard len > 1e-9 else { continue }
             let nx = -(b.y - a.y) / len * r, ny = (b.x - a.x) / len * r
-            // Positive orientation by construction: a+n, b+n, b-n, a-n.
-            polys.append([Point(x: a.x + nx, y: a.y + ny), Point(x: b.x + nx, y: b.y + ny),
-                          Point(x: b.x - nx, y: b.y - ny), Point(x: a.x - nx, y: a.y - ny)])
+            // a-n, b-n, b+n, a+n has positive signed area for every direction,
+            // like the cap and join circles: under the non-zero rule a quad of
+            // the opposite orientation cancels a circle where only the two
+            // overlap and leaves a hole in the stroke.
+            polys.append([Point(x: a.x - nx, y: a.y - ny), Point(x: b.x - nx, y: b.y - ny),
+                          Point(x: b.x + nx, y: b.y + ny), Point(x: a.x + nx, y: a.y + ny)])
         }
         if !sp.closed {
             polys.append(StrokeOutline.circle(pts[0], radius: r).points)

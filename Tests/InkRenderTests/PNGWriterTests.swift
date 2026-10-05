@@ -182,7 +182,8 @@ final class PNGWriterTests: XCTestCase {
     func testMarkerOpacityMatchesPDFAndBlendsOnce() throws {
         let red = Color(r: 255, g: 0, b: 0)
         // A self-crossing X: one stroke command, so the crossing must be blended once (50 %), not twice.
-        let x = T.stroke([T.pt(40, 40), T.pt(160, 160), T.pt(160, 40), T.pt(40, 160)], tool: .marker, width: 16, color: red)
+        let x = T.stroke([T.pt(40, 40, w: 16), T.pt(160, 160, w: 16), T.pt(160, 40, w: 16), T.pt(40, 160, w: 16)],
+                         tool: .marker, width: 16, color: red)
         let blank = T.meta(paper: .blank)
         let img = try XCTUnwrap(try render(T.note(pages: [[x]], meta: blank)).first)
         // Centre of the X (100, 100) pt -> device (200, 200): crossing of two arms.
@@ -193,6 +194,27 @@ final class PNGWriterTests: XCTestCase {
         // PDF uses an ExtGState of 0.5 for the same stroke.
         let pdf = try PDFWriter.render(note: T.note(pages: [[x]], meta: blank), options: RenderOptions(compress: false))
         XCTAssertTrue(T.contains(pdf, "/ca 0.5"))
+    }
+
+    /// Stroked paths (monoline, marker, ruling) are unions of segment quads
+    /// and cap/join circles. Every piece must wind the same way: a quad of the
+    /// opposite orientation cancelled a circle where only the two overlapped,
+    /// punching crescents into the ends of wide strokes (seen on imported
+    /// Notability highlighters).
+    func testStrokedPathCapsHaveNoHoles() throws {
+        let line = T.stroke([T.pt(40, 100), T.pt(160, 100)], tool: .monoline, width: 20)
+        let img = try XCTUnwrap(try render(T.note(pages: [[line]], meta: T.meta(paper: .blank))).first)
+        // Inside the first segment and the start cap only: (42, 100) pt -> device (84, 200).
+        XCTAssertEqual(img.px(84, 200), [0, 0, 0, 255], "start cap overlap")
+        XCTAssertEqual(img.px(316, 200), [0, 0, 0, 255], "end cap overlap")
+        XCTAssertEqual(img.px(70, 200), [0, 0, 0, 255], "cap beyond the segment")
+        for dir in [(1.0, 0.0), (0, 1), (-1, 0), (0, -1), (0.6, -0.8)] {
+            let sp = Subpath(points: [Point(x: 50, y: 50), Point(x: 50 + 30 * dir.0, y: 50 + 30 * dir.1),
+                                      Point(x: 50 + 30 * dir.0 + 3, y: 50 + 30 * dir.1 - 20)], closed: false)
+            for poly in PNGWriter.strokePolygons(sp, width: 6) {
+                XCTAssertGreaterThan(Subpath(points: poly, closed: true).signedArea, 0, "direction \(dir)")
+            }
+        }
     }
 
     func testPenSampleOpacityAndPaintAlpha() throws {

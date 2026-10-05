@@ -64,6 +64,97 @@ INKVAULT_NOTABILITY_BULK_VAULT=data/scratch.inkvault \
   swift test --filter testBulkImport                 # full import, prints report
 ```
 
+## Fidelity evaluation
+
+A repeatable, exhaustive check of every imported note against Notability's
+own rendering, and of the app's canvas against the export, to re-run after
+any importer, renderer or canvas change:
+
+```bash
+scripts/import-eval.sh data/Notability-backup.zip      # writes data/eval/report.html, summary.json
+```
+
+It needs macOS, Xcode with an iPadOS 26+ simulator (`INKVAULT_SIM_ID`
+picks one; use an iPadOS 26.x one, the user's iPad cannot run 27) and `uv`.
+The output directory (default `data/eval`, git-ignored) must be ignored by
+git, since everything in it is derived from personal notes; the script
+refuses otherwise. Notes are named only by the first 8 hex digits of their
+vault id (a hash of Notability's uuid). Three stages:
+
+1. **Import oracle** (`ImportFidelityEvalTests`, gated on
+   `INKVAULT_NOTABILITY_SAMPLES` and `INKVAULT_EVAL_DIR`): imports the backup
+   into a fresh scratch vault (`work/vault.inkvault`, new key
+   `work/identity.key`) with the normal importer, reads every note back from
+   the vault, and renders its first Notability page (`PNGWriter`, no paper,
+   one `breakHeight` tall) at the width of each thumbnail in the package
+   (`thumb.png` 48 px … `thumb12x.png` 576 px), so the known geometry aligns
+   the two images with no search: 612 pt ↔ thumbnail width, y from the top.
+   It also copies the thumbnails and, for notes made from a PDF, the PDF and
+   the page number of the note's first page (`pageLayoutArray`).
+2. **Canvas vs export** (`CanvasExportEvalTests` in the app tests, gated on
+   `INKVAULT_EVAL_VAULT`, `INKVAULT_EVAL_IDENTITY`, `INKVAULT_EVAL_OUT`, passed
+   as `TEST_RUNNER_…` to `xcodebuild test`): for every band (export page,
+   one `breakHeight`) of every page of every note, including every band of
+   tall infinite pages, an on-screen snapshot of a `PageCanvasHost` showing
+   `NoteEditor.drawing(for:)` (Stroke → PKStroke → PKDrawing, what the editor
+   displays) in a window one band in size at fit-width zoom 1, scrolled to the
+   band; `PKDrawing.image` of the same rect; and `PNGWriter`'s page for the band.
+   The canvas page is extended to whole bands so the last band scrolls to the
+   top like the others. About 3 s per band plus about 20 s per note (PencilKit tiles settle for
+   `INKVAULT_EVAL_SETTLE_MS`, default 1200).
+3. **Metrics and report** (`scripts/import_eval.py`, run with `uv`): writes
+   `summary.json` (every metric per thumbnail and per band, aggregates,
+   thresholds) and a self-contained `report.html` (per-note table worst
+   first, distributions, and ours / reference / overlay images for the worst
+   20 notes and every flagged one, also saved under `img/`).
+
+**Ink masks.** Both images of a pair go through the same classifier. On
+paper, a pixel is ink when its luminance is below 170 (Notability's dot paper
+is 181 and lighter) or its chroma (max − min of RGB) is above 60 (coloured ink
+and highlighter); our renders are composited on white first. On a PDF page the
+reference is the PDF page rendered with pdfium at the thumbnail size, and a
+pixel is ink when its RGB distance from the page exceeds 60 for every page
+pixel in its 5 × 5 neighbourhood: Notability's own raster of the page is about
+a pixel off pdfium's, and without that tolerance page edges show up as ink.
+Our render is composited on the same PDF raster, so both sides are judged the
+same way. A thumbnail that differs from our PDF raster in under 1 % of its
+pixels counts as showing no ink.
+
+**Metrics** (oracle: our page 1 vs each thumbnail; canvas: canvas vs export
+per band, plus `PKDrawing.image` vs export and canvas vs `PKDrawing.image`):
+ink pixel ratio, IoU, F1 with one pixel of tolerance (precision: our ink
+pixels within a pixel of reference ink; recall the other way), symmetric mean
+chamfer distance in points (and the larger 95th percentile), ink bounding-box
+edge deltas in points, and, for thumbnails at least 288 px wide, the integer
+pixel shift within ±4 px that maximises IoU (the residual offset; zero means
+the geometry needs no correction). A darkness correlation (Pearson, after a
+one-pixel blur) covers the low-resolution thumbnails, where thin ink is too
+faint for a mask.
+
+**Which thumbnail.** Notability leaves some thumbnail sizes stale: blank
+paper, or an older state of the page, while other sizes are current. The
+primary thumbnail is the largest one at least 288 px wide that shows ink;
+sizes that are blank where we have ink are listed as stale. A note whose only
+current thumbnails are low resolution is judged by darkness correlation.
+
+**Flags.** Oracle: chamfer > 1.5 pt, F1 < 0.80, ink ratio outside 0.6–1.6, an
+ink bounding-box edge off by > 6 pt, every thumbnail blank, or the thumbnail
+showing content where we have no ink. Canvas, per band: F1 < 0.90, ink ratio
+outside 0.75–1.33 (as `CanvasHostRenderingTests`), a bounding-box edge off by
+> 3 pt, or a scroll position that does not reach the band. Informational, not
+failures: `stale-thumbnails`, `has-media`, `pdf-template`, `low-res-thumbnail-only` (judged by darkness correlation ≥ 0.6 instead). Each flagged note
+gets a first-guess root cause (canvas conversion, stale thumbnail,
+unsupported images or PDF template paper, else importer geometry) that the
+images confirm or correct.
+
+**Limits.** The oracle sees only the first page (thumbnails show nothing
+else) and none of the PDF notes in the sample backup has ink on its first
+page, so PDF page geometry beyond page 1 rests on
+`testRecognitionOriginsMatchInkOnEveryPage`. Thumbnails of notes with images
+or PDF template paper show content the importer drops; those notes'
+geometry metrics are not meaningful. `thumbnail` / `thumbnail2x` (binary
+plists, newer notes) are not read.
+
 ## Package layout
 
 A `.note` is a zip holding one directory named after the note:

@@ -7,8 +7,10 @@ import InkVault
 /// - `pen`, `fountainPen`: variable-width ribbon from the sample `w`; opacity
 ///   `ink.color.a * mean(o)`. The fountain pen is not nib-angle dependent.
 /// - `monoline`: constant `ink.width` stroked polyline.
-/// - `marker`: constant `ink.width` stroked polyline, opacity x 0.5
-///   (approximates the marker's translucent look).
+/// - `marker`: variable-width ribbon from the sample `w` (the drawn width,
+///   format.md §5.6, as PencilKit draws a marker's point sizes and Notability
+///   its highlighters), opacity x 0.5 (approximates the marker's translucent
+///   look); one fill, so overlaps within a stroke blend once.
 /// - `pencil` (x0.8), `crayon` (x0.85), `watercolor` (x0.5): rendered like
 ///   `pen` with the stated opacity factor; no grain or bleed.
 ///
@@ -43,7 +45,7 @@ public enum StrokeOutline {
         let paint = Paint(stroke.ink.color, opacity: opacityFactor(for: stroke, samples: samples))
 
         switch stroke.ink.tool {
-        case .monoline, .marker:
+        case .monoline:
             let width = max(stroke.ink.width * scale, 0.05)
             if isDot(samples) {
                 return [DrawCommand(.path([circle(samples[0].point, radius: width / 2)]), fill: paint)]
