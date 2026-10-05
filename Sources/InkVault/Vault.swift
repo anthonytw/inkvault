@@ -43,6 +43,9 @@ public enum VaultError: Error, Hashable, Sendable {
     case invalidNoteId(String)
     /// Another revision of this note already uses `(device, seq)`.
     case seqInUse(device: String, seq: Int)
+    /// A revision's `seq` is outside 1...`RevisionName.maxSeq`, so readers
+    /// would reject it.
+    case seqOutOfRange(Int)
     /// A revision could not be read; `name` is its file name.
     case revision(name: String, RevisionReadError)
     /// Writers use scrypt work factors 15...18 (format.md §3.2).
