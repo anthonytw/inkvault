@@ -23,6 +23,7 @@ and macOS, static Linux binary published as a CI artifact.
 | (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
 | (open) | Paper templates (`feat/paper-templates`): `Paper` is parametric (`format.md` §5.4.1: nine kinds, spacing, line width, dot radius, margins, Cornell, staff, page colour), a page can carry its own paper (`setPagePaper`, `Page.paper`/`paperClock`, LWW like recognition), `PaperRenderer` renders all kinds (goldens in `Tests/InkRenderTests/Fixtures/paper`), app: `PaperPickerView` (thumbnail grid, preview, sliders, colours; apply to page / all pages / default for new notes via `PaperPreference`), reachable from New Note and the note's toolbar overflow ("Paper…"); `PaperView` follows the picker live (`NoteEditor.showPaperPreview`). Unknown kinds decode as blank. Importer unchanged (Notability stores no paper colours). | PR open; app part only compiled/tested in CI, not yet tried on the iPad |
 
+
 Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
 imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
 612 pt width with breaks every 803.25 pt. Not imported yet: PDF/image page
