@@ -34,25 +34,40 @@ public enum PaperKey {
         }.joined()
     }
 
-    static let identityPrefix = "AGE-SECRET-KEY-1"
+    /// Prefixes of the two age identity types, longest first: the post-quantum
+    /// hybrid (`age-keygen -pq`, 77 characters) and X25519 (74 characters).
+    static let identityPrefixes = ["AGE-SECRET-KEY-PQ-1", "AGE-SECRET-KEY-1"]
 
-    /// The lines of an age identity: the fixed `AGE-SECRET-KEY-1` prefix,
+    /// First `digits` lowercase hex digits of SHA-256 of the UTF-8 bytes of
+    /// `text`. A post-quantum public key is 1959 characters, too long to print
+    /// or compare by eye; its fingerprint identifies it
+    /// (`age-keygen -y key.txt | tr -d '\n' | sha256sum | cut -c1-16`).
+    public static func fingerprint(_ text: String, digits: Int = 16) -> String {
+        let hex = SHA256.hash(data: Data(text.utf8)).map { b in
+            let s = String(b, radix: 16)
+            return s.count == 1 ? "0" + s : s
+        }.joined()
+        return String(hex.prefix(max(0, min(digits, hex.count))))
+    }
+
+    /// The lines of an age identity: the fixed `AGE-SECRET-KEY-1` or `AGE-SECRET-KEY-PQ-1` prefix,
     /// then the Bech32 data and checksum in lines of `perLine` characters,
     /// grouped by 5.
     public static func identityLines(_ identity: String, perLine: Int = 20) -> [Line] {
         let key = identity.trimmingCharacters(in: .whitespacesAndNewlines)
         var texts: [String] = []
         var rest = Substring(key)
-        if key.hasPrefix(identityPrefix) {
-            texts.append(identityPrefix)
-            rest = rest.dropFirst(identityPrefix.count)
+        let prefix = identityPrefixes.first { key.hasPrefix($0) }
+        if let prefix {
+            texts.append(prefix)
+            rest = rest.dropFirst(prefix.count)
         }
         while !rest.isEmpty {
             texts.append(String(rest.prefix(perLine)))
             rest = rest.dropFirst(perLine)
         }
         return texts.enumerated().map { i, t in
-            Line(number: i + 1, text: t, groups: i == 0 && t == identityPrefix ? [t] : group(t, by: 5),
+            Line(number: i + 1, text: t, groups: i == 0 && t == prefix ? [t] : group(t, by: 5),
                  checksum: checksum(t))
         }
     }

@@ -281,10 +281,10 @@ final class BackupTests: VaultTestCase {
         let backupVault = try Vault.open(at: dest, identities: [id])
         var paths = Set(try Backup.formatFiles(in: dest))
         XCTAssertEqual(Backup.prunable(note: testNote.uuidString.lowercased(), paths: gone, source: vault,
-                                       backup: backupVault, backupPaths: paths), Set(gone))
+                                       backup: backupVault, backupHolds: { paths.contains($0) }), Set(gone))
         paths.remove(revisionPath(testNote, s1.name))
         XCTAssertEqual(Backup.prunable(note: testNote.uuidString.lowercased(), paths: gone, source: vault,
-                                       backup: backupVault, backupPaths: paths), [])
+                                       backup: backupVault, backupHolds: { paths.contains($0) }), [])
     }
 
     func testPruneRemovesASupersededSnapshot() throws {
@@ -305,6 +305,112 @@ final class BackupTests: VaultTestCase {
         XCTAssertEqual(Set(report.pruned), Set(deleted.map { revisionPath(testNote, $0) }))
         XCTAssertTrue(report.copied.contains(revisionPath(testNote, s2.name)))
         XCTAssertEqual(try contents(dest), try contents(vault.url))
+    }
+
+    // MARK: - Review regressions
+
+    /// Replacing one key by another keeps every revision file the same size
+    /// (one X25519 stanza either way) but rewrites it: a size-only shortcut
+    /// would leave the backup encrypted to the key that was removed.
+    func testSameSizeRewrapIsNotSkippedBySizeShortcut() throws {
+        _ = try Backup.run(source: vault, to: dest, options: BackupOptions(now: wallAt(baseMillis)))
+        let before = try contents(dest)
+        let b = X25519Identity()
+        var v = try Vault.open(at: vault.url, identities: [id])
+        _ = try v.addRecipient(b.recipient, label: "new")
+        _ = try v.removeRecipient(id.recipient)
+        let after = try contents(v.url)
+        for p in before.keys where p.hasPrefix("notes/") {
+            XCTAssertEqual(before[p]?.count, after[p]?.count, "premise: same size, different bytes")
+            XCTAssertNotEqual(before[p], after[p])
+        }
+        let report = try Backup.run(source: v, to: dest, options: BackupOptions(now: wallAt(baseMillis + 60_000)))
+        XCTAssertEqual(Set(report.replaced), Set(before.keys.filter { $0.hasPrefix("notes/") || $0 == "vault.json" }))
+        XCTAssertEqual(try contents(dest), after)
+        XCTAssertTrue(Backup.verify(at: dest, identities: [b]).isHealthy)
+        // Once vault.json is in sync again, sizes are trusted: nothing is re-hashed or replaced.
+        XCTAssertEqual(try Backup.run(source: v, to: dest).replaced, [])
+    }
+
+    func testPruneIgnoresACoveringSnapshotDamagedInTheBackup() throws {
+        var clock = HybridClock()
+        let s1 = try vault.snapshot(noteId: testNote, device: devC, clock: &clock, wall: wallAt(baseMillis + 50),
+                                    app: "test/0")
+        _ = try Backup.run(source: vault, to: dest)
+        _ = try vault.compact(noteId: testNote, retention: 0, now: wallAt(baseMillis + 100_000))
+        // Same size, still listed in backup.json, but no longer the snapshot the vault holds.
+        try flipByte(Backup.url(dest, revisionPath(testNote, s1.name)), at: 4)
+        let report = try Backup.run(source: vault, to: dest, options: BackupOptions(prune: true))
+        XCTAssertEqual(report.pruned, [], "the damaged copy does not cover the deltas")
+        for r in sampleLog() {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: Backup.url(dest, revisionPath(testNote, r.name)).path))
+        }
+        // A checksum run repairs the snapshot; then pruning is allowed.
+        _ = try Backup.run(source: vault, to: dest, options: BackupOptions(checksum: true))
+        let again = try Backup.run(source: vault, to: dest, options: BackupOptions(prune: true))
+        XCTAssertEqual(Set(again.pruned), Set(sampleLog().map { revisionPath(testNote, $0.name) }))
+    }
+
+    func testVerifyNeverReadsPathsOutsideTheBackup() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        let outside = tmp.appendingPathComponent("outside.txt")
+        let bytes = Data("secret".utf8)
+        try bytes.write(to: outside)
+        var m = try BackupManifest.read(dest.appendingPathComponent(BackupManifest.fileName))
+        let entry = BackupManifest.Entry(sha256: Backup.sha256(bytes), size: bytes.count)
+        for p in ["../outside.txt", outside.path, "notes/../../outside.txt", "a//b", "./vault.json"] { m.files[p] = entry }
+        try m.write(to: dest.appendingPathComponent(BackupManifest.fileName))
+        let report = Backup.verify(at: dest)
+        XCTAssertFalse(report.isHealthy)
+        for p in ["../outside.txt", outside.path, "notes/../../outside.txt", "a//b", "./vault.json"] {
+            let f = report.files.first { $0.path == p }
+            XCTAssertEqual(f?.status, .modified, p)
+            XCTAssertTrue(f?.detail?.contains("outside the backup") == true, p)
+        }
+    }
+
+    func testPathSafety() {
+        for ok in ["vault.json", "notes/a/b.age", "versions/2026-01-01T00:00:00Z/keys/k.key.age"] {
+            XCTAssertTrue(Backup.isSafeRelativePath(ok), ok)
+        }
+        for bad in ["", "/etc/passwd", "../x", "a/../b", "a/./b", "a//b", "a/", "a\\b", "a\0b"] {
+            XCTAssertFalse(Backup.isSafeRelativePath(bad), bad)
+        }
+    }
+
+    /// Key files of a post-quantum recipient are named `age1pq-<hash>.key.age`:
+    /// the backup must not skip a key file because its name is not `age1…`.
+    func testBackupCopiesKeyFilesWhateverTheirRecipientType() throws {
+        let name = "age1pq-" + String(repeating: "ab", count: 32) + ".key.age"
+        let keys = vault.url.appendingPathComponent("keys")
+        try FileManager.default.createDirectory(at: keys, withIntermediateDirectories: true)
+        try Data("-----BEGIN AGE ENCRYPTED FILE-----\n".utf8).write(to: keys.appendingPathComponent(name))
+        try Data("not a key".utf8).write(to: keys.appendingPathComponent("notes.txt"))
+        try Data("tmp".utf8).write(to: keys.appendingPathComponent(".inkvault-tmp-1.key.age"))
+        let report = try Backup.run(source: vault, to: dest)
+        XCTAssertTrue(report.copied.contains("keys/\(name)"))
+        XCTAssertFalse(report.copied.contains("keys/notes.txt"))
+        XCTAssertFalse(report.copied.contains("keys/.inkvault-tmp-1.key.age"))
+        let target = tmp.appendingPathComponent("PQ.inkvault")
+        XCTAssertTrue(try Backup.restore(from: dest, to: target).restored.contains("keys/\(name)"))
+    }
+
+    func testRestoreWithMissingFilesIsFinishedByRunningItAgain() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        let target = tmp.appendingPathComponent("Again.inkvault")
+        let victim = try Backup.formatFiles(in: dest).first { $0.hasPrefix("notes/") }!
+        let good = try Data(contentsOf: Backup.url(dest, victim))
+        try FileManager.default.removeItem(at: Backup.url(dest, victim))
+        let first = try Backup.restore(from: dest, to: target, identities: [id])
+        XCTAssertEqual(first.errors.map(\.path), [victim])
+        // Another copy of the backup supplies the file; the same command finishes the job.
+        try good.write(to: Backup.url(dest, victim))
+        let second = try Backup.restore(from: dest, to: target, identities: [id])
+        XCTAssertEqual(second.errors.count, 0)
+        XCTAssertEqual(second.restored, [victim])
+        XCTAssertEqual(second.verify?.isHealthy, true)
+        XCTAssertEqual(try contents(target), try contents(vault.url))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.appendingPathComponent(Backup.restoreMarker).path))
     }
 
     // MARK: - Archive

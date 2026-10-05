@@ -107,6 +107,63 @@ final class RecoveryKitTests: XCTestCase {
         XCTAssertTrue(two.contains { $0.contains("age-keygen -y key.txt") })
     }
 
+    // A post-quantum identity and recipient have the real shapes (77 and 1959
+    // characters) but are random strings, not keys.
+    static let pqKey = "AGE-SECRET-KEY-PQ-15FERYXHRDZ9M6Y09MR8WRERWZGJ6F8NTXVHXYRDLM5AAHN0T09NL4UJY86"
+    static let pqRecipient = "age1pq124fl6zy54klay937yrnujckpak28lrdjg0eel92ue3gm36kcwf9tfwwqltsjqf6h5graeeeex7ervydu284rxqfxhpydcfskh788la77n9fx4s72pdhfpn9sh2kw4wv0ewvlkpp37svkukh9wxw7v4d7q7k98cv7tm49eae922gpfaf7kfgpqxgmvdpsdj05s6grka6gfputqftf78r57xr0v3zxupyu5v3u70svug68eu5y0mydn8fhfsgawxel2w2me46vk59hp4aupc4jy8wx9s3zt3gmsefl593rtmy3p9s9wys8aq463gz082srtvnndjut3kpszqpv70uxmlendw4vgekrgqysm2r9cj0jzat23uqsh450zndktq4c973v0q9s9fezepnnw9fc5lfjfzmgpw9pzghxcurp0lsqay9y7sys0dwalcy7jzvyf4sngq7rl3xdljjaaa8vn97pjayu3cddy9fshg38hwllep2qluenf6kc584q54e8vqjshyecyhm3r3xrjf03m5vhmped9r6ugjlrg2764jnsse0n7e822ydlwu4umgv09t4950hsvp6c6dc34rl3hgd930ceumnpgzm7lqyeau0xwffxa9zqgwzngsm8xynvcswqqna350700p6nrpvl69swmhwlz46hevqjydlvnvwawsjxltwl6rferdpf6rrteu58924vtaznch4u2xq939k68dcknm9r7vhuv5h7p60ezczayrsvy4h34zs53nqypwx7acsmlgltqnf055ah9ve206yz752mxys9dx6lutwg6a08jj33hssvu0t00fjv5yes0wxazxq7wuhzjw8rvvyhtusqxkdzh4fzdszdq56htnydzl7y6xef92e36jn6rnk66phveedqm2m89eha2gqrfe9h2fkj22yxclvngz75rc92wev7tdze2ck8f0vzz58can6n0mchuutpqla0uat7exygkmh9uzzg959rcgpy8vglj2wyks253afs7ds05hzvte235c2s8rhuxsehschfh49uwtrjsn5qzwfjm6hrglwzprqknxkw6ngdh72gq0fuxyf3esqrkul02qzrpet02rxqvf6v6tnynr7qcma9utwxswz84sr3msjd9q2s0v25vc40c77qpmwndey2fzp8x2kfppzgzyzyhvycx0dd8zz9j7xgxdj54mspksjrh57jp6pmxk7rd9j2mqvjrqklxltlks2jdwl289lx5kxee9mphdnsm2cwagzk5fu52auswg4a0v3nff05k205vsx2xvcffnnm3vxx3dcazqemwjapfseq0m6wwt8am5sx60e2sm7ap6t5qclxzsd2vkxad7ph46adte8krs3cerqy66ksxwnewead2gyv7wfk6ajg7kw3csmt7q3k0n57lm9hfncr95gkqqdyjsxfwtukfde29nvld9u88s6wg7lr7afl0l2q25aljahm6ythppz4x7lfzd6g4xh47djm4msrjjkle43kdl84v5ng9zeerenxqzv7rcf9dzatxtz6xqhgnsnt6z5pmrlz86euyqcf76x97dfqmqq89d8g7p30utrhf9jlasrzqrq9cnn2lr5hu72f8h267cu34j3r4qfnm0cccwujq5s3m2zjff3lk9lcvwnreadsqca9kywes57vvdv9tjhkef0zlhxha9f5pk3pxzdlds3mxugsz4vtc9przhalye89s5w9etu2h0wtzskrprs7rxf5qvnux75hsc8h7c2u0fqavz2wyhguxcpyu45w78hf4wrtufuf3660fp3j42slx5a78frd7j8svhms00xcj62rjfpu4guqjthmz6d3tgtwtv99l3tdgvnvqy6rk4jl9q67g30thz2hqkuy8k05crjxlupgp09wt2xnsppxvspa0uxkxtz38al3888egwwf"
+
+    /// The hybrid key: a 1959-character public key must not run off the page,
+    /// the QR code is version 7 at level Q, and page 2 says `age` 1.3 is needed.
+    func testPostQuantumKitFitsThePage() throws {
+        let k = RecoveryKit(secret: .identity(Self.pqKey), recipient: Self.pqRecipient,
+                            vault: .init(name: "School", id: "5a3b1e00-1000-4000-8000-000000000001",
+                                         created: Date(timeIntervalSince1970: 1_790_000_000), recipientCount: 1),
+                            printed: Date(timeIntervalSince1970: 1_791_000_000))
+        XCTAssertTrue(k.isPostQuantum)
+        let pages = streams(try k.pdf())
+        let one = texts(pages[0]), two = texts(pages[1])
+        // Courier is 0.6 em per character: the 504 pt column holds 93 characters at 9 pt, 112 at 7.5 pt.
+        for t in one + two where !t.contains("zbarimg") { XCTAssertLessThanOrEqual(t.count, 112, t) }
+        XCTAssertTrue(one.allSatisfy { $0.allSatisfy { $0.isASCII } }, "the PDF fonts are WinAnsi: no ellipsis")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(one.first { $0.hasPrefix("Public key:") }).count, 93)
+        let fingerprint = PaperKey.fingerprint(Self.pqRecipient)
+        XCTAssertEqual(fingerprint.count, 16)
+        XCTAssertTrue(one.contains { $0.hasPrefix("Public key: age1pq1") && $0.contains("1959 characters")
+                                     && $0.contains(fingerprint) })
+        XCTAssertFalse((one + two).contains { $0.contains(String(Self.pqRecipient.dropFirst(20).prefix(40))) },
+                       "the full public key is never printed")
+        let lines = k.lines
+        XCTAssertEqual(lines.map(\.text).first, "AGE-SECRET-KEY-PQ-1")
+        XCTAssertEqual(lines.map(\.text).joined(), Self.pqKey)
+        for l in lines { XCTAssertTrue(one.contains(l.checksum), l.checksum) }
+
+        let code = try k.qrCode()
+        XCTAssertEqual(code.errorCorrection, .quartile)
+        XCTAssertEqual(code.version, 7)
+        XCTAssertEqual(code, try QRCode.encode(text: Self.pqKey, correction: .quartile))
+        XCTAssertEqual(try qrModules(pages[0], size: code.size), code.modules)
+
+        XCTAssertTrue(two.contains { $0.contains("age 1.3 or newer") })
+        XCTAssertTrue(two.contains { $0.contains("sha256sum | cut -c1-16") })
+        XCTAssertTrue(two.contains { $0.contains(fingerprint) })
+        XCTAssertFalse(two.contains { $0.contains("must print the public key on page 1") })
+    }
+
+    func testPassphraseKitOfAPostQuantumKey() throws {
+        let k = RecoveryKit(secret: .passphraseWrapped(Self.armored), recipient: Self.pqRecipient, vault: nil,
+                            printed: Date(timeIntervalSince1970: 1_791_000_000))
+        let pages = streams(try k.pdf())
+        for t in texts(pages[0]) + texts(pages[1]) where !t.contains("zbarimg") { XCTAssertLessThanOrEqual(t.count, 112, t) }
+        XCTAssertTrue(texts(pages[1]).contains { $0.contains("age 1.3 or newer") })
+    }
+
+    func testClassicKitStillPrintsTheWholePublicKeyAndNoVersionNote() throws {
+        let k = kit(.identity(Self.key))
+        XCTAssertFalse(k.isPostQuantum)
+        XCTAssertEqual(k.publicKeyDescription, Self.recipient)
+        XCTAssertFalse(texts(streams(try k.pdf())[1]).contains { $0.contains("age 1.3") })
+    }
+
     func testPassphraseKitNeverHoldsAPlainKey() throws {
         let k = kit(.passphraseWrapped(Self.armored), vault: false)
         let pdf = try k.pdf()

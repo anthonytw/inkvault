@@ -95,7 +95,9 @@ final class QRCodeTests: XCTestCase {
     func testMatchesReferenceVectors() throws {
         let data = try Data(contentsOf: try T.fixtureURL("qr-vectors.json"))
         let vectors = try JSONDecoder().decode([Vector].self, from: data)
-        XCTAssertGreaterThanOrEqual(vectors.count, 19)
+        XCTAssertGreaterThanOrEqual(vectors.count, 21)
+        XCTAssertTrue(vectors.contains { $0.text.hasPrefix("AGE-SECRET-KEY-PQ-1") && $0.ecc == "Q" && $0.version == 7 },
+                      "a post-quantum identity (77 characters) needs version 7 at level Q")
         for v in vectors {
             let level = try XCTUnwrap(Self.levels[v.ecc])
             let mask = v.mask < 0 ? nil : v.mask

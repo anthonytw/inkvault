@@ -66,12 +66,11 @@ struct KeysPaper: ParsableCommand {
         let secret: RecoveryKit.Secret
         if passphrase {
             let stored = try locked?.identityFiles() ?? []
-            var source: X25519Recipient?
-            if let identity {
-                source = stored.first { $0 == identity.recipient }
-            } else if stored.count == 1 {
-                source = stored[0]
-            } else {
+            // The element type is inferred: X25519 recipients today, any recipient
+            // type the vault accepts (post-quantum) without a change here.
+            let source = identity.flatMap { id in stored.first { $0 == id.recipient } }
+                ?? (identity == nil ? stored.first : nil)
+            if identity == nil, stored.count != 1 {
                 throw CLIError.usage(stored.isEmpty
                     ? "no key: pass --identity FILE (or --vault V holding a stored key file)"
                     : "the vault holds several key files; choose one with --identity")

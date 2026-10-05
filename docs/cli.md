@@ -95,6 +95,18 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
   `publicKey`, `vaultId`, `qrVersion`, `qrErrorCorrection` and `lines`.
   Delete the PDF once it is printed.
 
+  **Post-quantum keys** (`AGE-SECRET-KEY-PQ-1…`, 77 characters, from
+  `age-keygen -pq`): the same sheet. The first line is the `AGE-SECRET-KEY-PQ-1`
+  prefix, then 58 characters in lines of 20, and the QR code is version 7 at
+  level Q (45×45 modules, against version 6 for an X25519 key). The public key is 1959 characters and cannot be
+  read or typed from paper, so the sheet prints its first characters, its length and
+  the first 16 hex digits of its SHA-256 instead; page 2 gives
+  `age-keygen -y key.txt | tr -d '\n' | sha256sum | cut -c1-16` to check the rebuilt
+  key against it. Page 2 also says that `age` 1.3 or newer is needed (Ubuntu's apt
+  package is older). `backup`, `restore` and the archive copy `keys/*.key.age`
+  whatever the file name, so the hash-named key files of post-quantum recipients
+  (`age1pq-<64 hex>.key.age`) are included.
+
 ### Vault
 
 ```
@@ -143,14 +155,18 @@ for `--prune` and for a full `verify`.
   directory, `fsync`, rename) and read back to compare its SHA-256 with the
   source. Revision files are write-once, so a later run copies only new ones
   and skips a file whose size and recorded hash already match (`--checksum`
-  re-hashes them all). A file whose content changed (`vault.json`,
+  re-hashes them all). That size shortcut is switched off for a run whenever
+  the vault's `vault.json` differs from the backed-up one or a
+  `rewrap-journal.json` exists on either side, because a recipient change
+  rewrites revision files without changing their size (replacing one key by
+  another); then every file is compared by hash. A file whose content changed (`vault.json`,
   `rewrap-journal.json`, `keys/`, every revision after a recipient change) is
   replaced and its previous copy kept under `DIR/versions/<UTC time>/<path>`;
   a journal the vault no longer has moves there too. Nothing else is ever
   deleted: revisions the vault no longer has (compaction) stay, unless
-  `--prune`, which deletes only those that a snapshot present in both the
-  vault and the backup covers (the rules of `docs/format.md` §5.3, as `sync`
-  applies them). A file lost from the vault without a covering snapshot is
+  `--prune`, which deletes only those that a snapshot covers that the vault
+  and the backup hold byte for byte identically (checked on disk, not from
+  the index; the rules of `docs/format.md` §5.3, as `sync` applies them). A file lost from the vault without a covering snapshot is
   never pruned. `--prune` needs the key (exit 4 without). An interrupted run
   (crash, full disk, Ctrl-C) leaves only complete files; running it again
   finishes the job and removes leftover temporary files.

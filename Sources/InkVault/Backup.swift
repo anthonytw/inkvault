@@ -196,7 +196,7 @@ public enum Backup {
         }
         let keys = root.appendingPathComponent(Vault.keysName)
         for e in try FileIO.entries(keys)
-        where IdentityFile.recipient(fromFileName: e) != nil && !FileIO.isDirectory(keys.appendingPathComponent(e)) {
+        where isKeyFileName(e) && !FileIO.isDirectory(keys.appendingPathComponent(e)) {
             out.append("\(Vault.keysName)/\(e)")
         }
         let notes = root.appendingPathComponent(Vault.notesName)
@@ -210,6 +210,23 @@ public enum Backup {
             }
         }
         return out
+    }
+
+    /// A `keys/` entry is any `<stem>.key.age`: whatever the stem (an `age1…`
+    /// recipient, or the hash name post-quantum recipients use, since their
+    /// public key is too long for a file name), so key files of a newer
+    /// recipient type are never skipped. Temporary files are hidden.
+    static func isKeyFileName(_ name: String) -> Bool {
+        let suffix = ".key.age"
+        return name.hasSuffix(suffix) && name.count > suffix.count && !name.hasPrefix(".")
+    }
+
+    /// Whether `path` from a (possibly hostile) `backup.json` stays inside the
+    /// backup: relative, `/`-separated, no empty, `.` or `..` component.
+    static func isSafeRelativePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !path.contains("\0") else { return false }
+        return path.split(separator: "/", omittingEmptySubsequences: false)
+            .allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
     static func url(_ root: URL, _ path: String) -> URL {
@@ -337,6 +354,19 @@ public enum Backup {
         // is checked against the source by hash before it is trusted.
         defer { try? save() }
         let sourceFiles = try formatFiles(in: source.url)
+        // A recipient change rewrites revision files in place, and replacing one
+        // key with another leaves their size unchanged (format.md §3.3). It writes
+        // the journal and vault.json before any revision, and vault.json is the
+        // last file a backup run copies: if either differs from what the backup
+        // holds, sizes prove nothing and every file is compared by hash.
+        var trustSizes = !options.checksum
+        if trustSizes {
+            let sourceManifest = try? FileIO.read(url(source.url, Vault.manifestName))
+            if sourceManifest.map(sha256) != manifest.files[Vault.manifestName]?.sha256
+                || sourceFiles.contains(Vault.journalName) || FileIO.exists(url(dest, Vault.journalName)) {
+                trustSizes = false
+            }
+        }
         // Revisions first, the small mutable files last, so a backup whose
         // run was cut short never holds a vault.json newer than its notes.
         let ordered = sourceFiles.filter { $0.hasPrefix(Vault.notesName + "/") }
@@ -348,7 +378,7 @@ public enum Backup {
                 let dst = url(dest, path)
                 let isRevision = path.hasPrefix(Vault.notesName + "/")
                 if FileIO.exists(dst) {
-                    if isRevision, !options.checksum, let entry = manifest.files[path],
+                    if isRevision, trustSizes, let entry = manifest.files[path],
                        let size = fileSize(src), entry.size == size, fileSize(dst) == size {
                         report.unchanged += 1
                         continue
@@ -397,7 +427,7 @@ public enum Backup {
             let byNote = Dictionary(grouping: gone) { $0.split(separator: "/")[1] }
             for (note, paths) in byNote.sorted(by: { $0.key < $1.key }) {
                 let allowed = prunable(note: String(note), paths: paths, source: source, backup: backupVault,
-                                       backupPaths: Set(manifest.files.keys).union(try formatFiles(in: dest)))
+                                       backupHolds: { backupHolds($0, source: source, dest: dest) })
                 for path in paths.sorted() {
                     if allowed.contains(path) {
                         do {
@@ -421,16 +451,25 @@ public enum Backup {
         return report
     }
 
+    /// Whether the backup holds `path` byte for byte as the source does. The
+    /// index is not enough: a copy damaged or removed since it was written
+    /// must not count as the snapshot that justifies deleting other files.
+    static func backupHolds(_ path: String, source: Vault, dest: URL) -> Bool {
+        guard let mine = try? FileIO.read(url(dest, path)), let theirs = try? FileIO.read(url(source.url, path))
+        else { return false }
+        return mine == theirs
+    }
+
     /// The paths (all under `notes/<note>/`, absent from the source) that
     /// compaction allows deleting: covered by a snapshot that both the source
-    /// and the backup hold (format.md §5.3, retention already applied by the
-    /// source's compaction). Anything unreadable is kept.
+    /// and the backup hold, identically (format.md §5.3, retention already
+    /// applied by the source's compaction). Anything unreadable is kept.
     static func prunable(note: String, paths: [String], source: Vault, backup: Vault?,
-                         backupPaths: Set<String>) -> Set<String> {
+                         backupHolds: (String) -> Bool) -> Set<String> {
         guard let id = UUID(uuidString: note), let loaded = try? source.loadNote(id) else { return [] }
         let epoch = Date(timeIntervalSince1970: 0)
         let cover = loaded.revisions
-            .filter { backupPaths.contains("\(Vault.notesName)/\(note)/\($0.name.filename)") }
+            .filter { $0.name.kind == .snapshot && backupHolds("\(Vault.notesName)/\(note)/\($0.name.filename)") }
             .compactMap(SnapshotCoverage.init)
         guard !cover.isEmpty else { return [] }
         var out = Set<String>()
@@ -469,6 +508,11 @@ public enum Backup {
         }
         if let manifest {
             for (path, entry) in manifest.files.sorted(by: { $0.key < $1.key }) {
+                guard isSafeRelativePath(path) else {
+                    report.files.append(.init(path: path, status: .modified,
+                                              detail: "backup.json lists a path outside the backup; not read"))
+                    continue
+                }
                 let u = url(dir, path)
                 guard FileIO.exists(u) else {
                     report.files.append(.init(path: path, status: .missing, detail: nil))
@@ -582,7 +626,9 @@ public enum Backup {
         report.errors.sort { $0.path < $1.path }
         if FileIO.exists(target.appendingPathComponent(Vault.manifestName)) {
             for d in [Vault.keysName, Vault.notesName] { try FileIO.createDirectory(target.appendingPathComponent(d)) }
-            try FileIO.remove(marker)
+            // With files missing the restore is unfinished: keep the marker so the
+            // same command can be run again against another copy of the backup.
+            if report.errors.isEmpty { try FileIO.remove(marker) }
             let restored = try Vault.open(at: target, identities: identities)
             report.verify = restored.verify()
         }

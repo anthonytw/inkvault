@@ -31,4 +31,24 @@ final class PaperKeyTests: XCTestCase {
         XCTAssertEqual(lines.map(\.text), ["-----BEGIN AGE ENCRYPTED FILE-----", "YWdl", "-----END AGE ENCRYPTED FILE-----"])
         XCTAssertEqual(lines.map(\.number), [1, 2, 3])
     }
+
+    func testPostQuantumIdentityKeepsItsPrefixOnItsOwnLine() {
+        // Shape of `age-keygen -pq` output (77 characters); not a real key.
+        let pq = "AGE-SECRET-KEY-PQ-15FERYXHRDZ9M6Y09MR8WRERWZGJ6F8NTXVHXYRDLM5AAHN0T09NL4UJY86"
+        XCTAssertEqual(pq.count, 77)
+        let lines = PaperKey.identityLines(pq)
+        XCTAssertEqual(lines.map(\.text), ["AGE-SECRET-KEY-PQ-1", String(pq.dropFirst(19).prefix(20)),
+                                           String(pq.dropFirst(39).prefix(20)), String(pq.dropFirst(59))])
+        XCTAssertEqual(lines.map(\.text).joined(), pq)
+        XCTAssertEqual(lines[0].groups, ["AGE-SECRET-KEY-PQ-1"])
+        for l in lines.dropFirst() { XCTAssertTrue(l.groups.dropLast().allSatisfy { $0.count == 5 }, l.text) }
+    }
+
+    func testFingerprintIsTheSha256PrefixStockToolsPrint() {
+        // printf '' | sha256sum → e3b0c44298fc1c14...
+        XCTAssertEqual(PaperKey.fingerprint(""), "e3b0c44298fc1c14")
+        XCTAssertEqual(PaperKey.fingerprint("", digits: 4), "e3b0")
+        XCTAssertEqual(PaperKey.fingerprint("", digits: 500).count, 64)
+        XCTAssertEqual(PaperKey.fingerprint("", digits: -1), "")
+    }
 }

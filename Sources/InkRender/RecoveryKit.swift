@@ -52,6 +52,18 @@ public struct RecoveryKit: Sendable {
         }
     }
 
+    /// True for the post-quantum hybrid (MLKEM768-X25519) key type.
+    public var isPostQuantum: Bool { recipient.hasPrefix("age1pq1") }
+
+    /// The public key as printed: in full when it fits a line (X25519,
+    /// 62 characters), else, for the 1959-character post-quantum key, its length and
+    /// SHA-256 fingerprint. The full key is derived from the secret key
+    /// (`age-keygen -y`), so nothing is lost.
+    public var publicKeyDescription: String {
+        guard recipient.count > 100 else { return recipient }
+        return "\(recipient.prefix(10))... (\(recipient.count) characters), SHA-256 \(PaperKey.fingerprint(recipient))..."
+    }
+
     /// The printed lines with their checksums.
     public var lines: [PaperKey.Line] {
         switch secret {
@@ -138,7 +150,7 @@ public struct RecoveryKit: Sendable {
             w.line("Vault:      (not given; this key may open several vaults)")
         }
         w.line("Printed:    \(Self.utcDate(printed))")
-        w.line("Public key: \(recipient)")
+        w.line("Public key: \(publicKeyDescription)")
         w.space(8)
 
         // Warning box.
@@ -214,9 +226,20 @@ public struct RecoveryKit: Sendable {
             w.paragraph("The key has its own checksum too: an age key is Bech32, and its last 6 characters are "
                         + "a BCH checksum over the whole key. Any typo of up to 4 characters is always detected "
                         + "(age refuses the key), but Bech32 cannot say where the typo is; the line checksums "
-                        + "can. `age-keygen -y key.txt` must print the public key above.", size: 8.5)
+                        + "can. `age-keygen -y key.txt` must give the public key above"
+                        + (isPostQuantum ? " (its fingerprint, see page 2)." : "."), size: 8.5)
         }
         return w.page
+    }
+
+    /// How to check the rebuilt key against the public key on page 1.
+    private func checkKeyLines(_ w: inout Writer) {
+        if isPostQuantum {
+            w.line("age-keygen -y key.txt | tr -d '\\n' | sha256sum | cut -c1-16", indent: 14)
+            w.line("# must print \(PaperKey.fingerprint(recipient)) (the SHA-256 on page 1)", indent: 14)
+        } else {
+            w.line("age-keygen -y key.txt     # must print the public key on page 1", indent: 14)
+        }
     }
 
     private func pageTwo() -> PDFPage {
@@ -233,12 +256,16 @@ public struct RecoveryKit: Sendable {
             w.paragraph("Type the key lines into key.txt as one line with no spaces (or scan the QR code "
                         + "offline). Then check it:")
             w.line("chmod 600 key.txt", indent: 14)
-            w.line("age-keygen -y key.txt     # must print the public key on page 1", indent: 14)
+            checkKeyLines(&w)
         } else {
             w.paragraph("Type the locked key file into key.age line by line (or scan the QR code offline), "
                         + "then unlock it with your passphrase:")
             w.line("age -d -o key.txt key.age && chmod 600 key.txt", indent: 14)
-            w.line("age-keygen -y key.txt     # must print the public key on page 1", indent: 14)
+            checkKeyLines(&w)
+        }
+        if isPostQuantum {
+            w.paragraph("This is a post-quantum key: age 1.3 or newer is needed for every `age` command here "
+                        + "(github.com/FiloSottile/age/releases; the version in Ubuntu's apt is older).", size: 8.5)
         }
         w.space(6)
         w.line("2a. With the inkvault tool (github.com/anthonytw/inkvault)", size: 11, font: .helveticaBold)
@@ -270,7 +297,7 @@ public struct RecoveryKit: Sendable {
         w.space(10)
         w.page.hline(y: w.y, from: margin, to: pageWidth - margin)
         w.space(4)
-        w.paragraph("Public key \(recipient)" + (vault.map { "   vault \($0.id)" } ?? ""), size: 7.5)
+        w.paragraph("Public key \(publicKeyDescription)" + (vault.map { "   vault \($0.id)" } ?? ""), size: 7.5)
         return w.page
     }
 }
