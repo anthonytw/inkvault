@@ -44,8 +44,9 @@ whatever happens to it: nothing is silently ignored.
   `options.notebook`); then `extraTags` (`--tag`, repeatable). The set is
   normalised as `format.md` §5.4 says (`NoteOps.normalizedTags`: whitespace
   collapsed, matched case-insensitively, first spelling kept) and written
-  whole, so an overwrite of a note that moved folders drops the old folder's
-  tags. The notebook is unchanged by this. One function builds the set
+  as one `addTag` per tag; an overwrite first removes every tag instance it
+  sees (`removeTag`), so it drops the old folder's tags when a note moved,
+  while a tag another device added concurrently survives (§5.4.1). The notebook is unchanged by this. One function builds the set
   (`NotabilityImporter.tags(for:folder:options:)`).
 - **Idempotent**: the note id is `UUID.derived(from: "inkvault-notability:"
   + uuidKey)` (SHA-256, RFC 9562 version 8). A note already in the vault is
@@ -53,7 +54,9 @@ whatever happens to it: nothing is silently ignored.
   fresh page and stroke ids salted with the overwriting delta's
   `<device>-<seq>`, so no overwrite from any device re-mints a removed
   (tombstoned) id (`format.md` §5.2). Tags and notebook are always written,
-  so an overwrite can clear them.
+  so an overwrite can clear them. The overwrite's clock first observes the
+  note's revisions, so its writes win LWW (and are not superseded by a
+  legacy tags write) even when another device's clock was ahead.
   Several sources of one note in a run are resolved as "Duplicates and
   versions" below says.
 - **Created date**: the delta's `wall` is Notability's creation date, so the

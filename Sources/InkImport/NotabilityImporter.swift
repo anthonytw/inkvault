@@ -664,7 +664,13 @@ public enum NotabilityImporter {
             var seq = 1
             var salt: String?
             if exists {
-                let old = try vault.reconstruct(noteId: id)
+                let loaded = try vault.loadNote(id)
+                let old = try vault.reconstruct(loaded)
+                // Observe the note first (as `Vault.apply` does), so the
+                // overwrite's ops win LWW and are not superseded by a legacy
+                // tags write stamped ahead of this clock (format.md §5.4.1).
+                let wall = now()
+                for r in loaded.revisions { clock.observe(r.hlc, wall: wall) }
                 seq = try vault.nextSeq(noteId: id, device: device)
                 // Unique per (device, seq), so no two overwrites, from any
                 // device, mint the same (possibly tombstoned) ids.
