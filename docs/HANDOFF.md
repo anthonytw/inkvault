@@ -213,8 +213,10 @@ deleted when done.
    newer formats, age CRLF diagnostic, PQ recipient type.
 5. **Attachments** (typed text boxes, images, PDF page backgrounds, audio
    with transcripts): designed in `docs/attachments.md` and `format.md` §8
-   (design PR `design/attachments`). Once it merges, start with task A0, then
-   run the tasks of `docs/plan.md` "Attachments" in parallel.
+   (design PR `design/attachments`, decisions final: per-note `att/` blobs,
+   automatic rewrap policy with two settings, full Unicode text, configurable
+   audio, an unused-attachments index). Once it merges, start with task A0,
+   then run the tasks of `docs/plan.md` "Attachments" in parallel.
 
 ## History and restore (how it works)
 

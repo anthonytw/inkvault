@@ -14,15 +14,17 @@ this document records *why*.
 4. Notes readable and exportable (PDF, SVG) without the app, from a backup.
 5. Small feature set: a few pens, a few papers, notebooks and tags, search,
    and attachments on pages: typed text boxes, images, PDF page backgrounds,
-   audio recordings (`docs/attachments.md`). No AI services (handwriting
-   recognition and transcription run on device only, opt-in), no accounts,
-   no telemetry, no subscriptions.
+   audio recordings (`docs/attachments.md`). No AI services: handwriting
+   recognition and transcription run on device only, opt-in, and any future
+   smart feature (handwriting to LaTeX, say) will be on-device AI only. No
+   accounts, no telemetry, no subscriptions.
 
 ## Non-goals (for now)
 
 Collaboration between people, real-time sync, Android, Windows, typed text
 documents (reflowing text with ink anchored to it; text boxes placed on a page
-are in scope), video.
+are in scope). Video and typeset equations are reserved in the format for
+later (`format.md` §8.2.7).
 
 ## Architecture
 
@@ -92,8 +94,9 @@ path simply skips the tag.
 A vault is a folder. The app reads and writes files; sync is whatever moves
 the folder: on-device, a Files-app provider (iCloud Drive, SMB, Nextcloud,
 Dropbox, ...), a built-in WebDAV client (phase 3), or a zip through the
-share sheet. Providers see UUID file names, keyed-hash blob names, sizes
-(blobs padded to a size class) and times, nothing else.
+share sheet. Providers see UUID file names, keyed-hash blob names with their
+kind (image, pdf, audio, …), sizes (blobs padded to a size class) and times,
+nothing else.
 
 ## Append-only note log
 
@@ -120,14 +123,17 @@ sets of pieces (overlapping duplicates). Acceptable for one person.
 
 ## Attachments
 
-Images, PDFs, audio and transcripts are immutable *blobs* in a vault-wide
-`blobs/` folder, named by an HMAC of their content hash under the vault
-secret (no plaintext hashes on storage; the name is also the integrity tag),
-deduplicated across notes, and collected only when no surviving revision
-references them. Text boxes, images and PDF pages are *placed items* on a
-page with LWW geometry and text, always drawn below the ink. Recordings
-belong to the note; strokes drawn while recording carry the recording time.
-Details and alternatives: `docs/attachments.md`; format: `format.md` §8.
+Images, PDFs, audio and transcripts are immutable *blobs* in the note's own
+`att/` folder, named by an HMAC of their content hash under the vault secret
+(no plaintext hashes on storage; the name is also the integrity tag),
+deduplicated within the note, and collected per note only when no surviving
+revision of that note references them. Text boxes (full Unicode), images and
+PDF pages are *placed items* on a page with LWW geometry and text, on integer
+z-layers, always drawn below the ink. Recordings belong to the note; strokes
+drawn while recording carry the recording time. A recipient (device key)
+change rewrites blob headers when a device is added and re-encrypts blobs
+when one is removed or keys move to post-quantum. Details and alternatives:
+`docs/attachments.md`; format: `format.md` §8.
 
 ## Export
 

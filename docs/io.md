@@ -256,8 +256,8 @@ A remote `vault.json` with another `vaultId` aborts the run before any
 change.
 
 **What is synced.** `vault.json`, `rewrap-journal.json` and
-`notes/<uuid>/<name>.age` (`blobs/` is designed but not synced yet:
-`docs/attachments.md` §4, task B3). Remote entries that are not a lowercase-UUID note
+`notes/<uuid>/<name>.age` (each note's `att/` blobs are designed but not
+synced yet: `docs/attachments.md` §4, task B3). Remote entries that are not a lowercase-UUID note
 directory or a canonical revision file name (format.md §5) are ignored and
 listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
 and unknown files are not synced. A downloaded revision must start with the
