@@ -136,7 +136,7 @@ struct CanvasHostRenderingTests {
         var strokes: [Stroke] = []
         for i in 0..<4_000 {
             let x = 30 + Double(i % 40) * 13.5, y = 40 + Double(i / 40) * 30
-            strokes.append(R.importedPen(x: x / R.k - 18.8, y: y / R.k, glyphs: 1, base: 1.4))
+            strokes.append(R.importedPen(x: x / R.k - R.inset, y: y / R.k, glyphs: 1, base: 1.4))
         }
         let height = 40 + 100 * 30 + 60.0
         let (window, host) = Self.host(strokes, height: height)

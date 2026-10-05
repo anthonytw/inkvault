@@ -144,6 +144,126 @@ final class NotabilityBackupTests: XCTestCase {
         XCTAssertEqual(Set(again.notes.compactMap(\.noteId)), Set(report.notes.compactMap(\.noteId)))
     }
 
+    /// A straight line at the given height (same shape and x as any other).
+    func line(y: Float, rgba: [UInt8] = [0, 0, 0, 255]) -> SyntheticNote.CurveSpec {
+        .init(points: [(100, y), (200, y), (300, y), (400, y)], fw: [1, 1], width: 1.4, rgba: rgba, style: 3)
+    }
+
+    /// Regression: the containment check ignored y, so an older copy holding
+    /// a second, identical-looking line further down (erased later) was
+    /// skipped as an "older version" and that line was lost.
+    func testOlderCopyWithSameShapeAtAnotherHeightIsKept() throws {
+        let (report, vault) = try run([
+            .init(path: "Notability/A/new.note", data: SyntheticNote.package(curves: [line(y: 100)],
+                                                                             modified: t0.addingTimeInterval(20))),
+            .init(path: "Notability/A/old.note", data: SyntheticNote.package(curves: [line(y: 100), line(y: 500)],
+                                                                             modified: t0.addingTimeInterval(10))),
+        ])
+        XCTAssertEqual(report.imported, 2, "\(report.notes.map(\.status))")
+        let extra = try XCTUnwrap(report.notes.first { $0.source.hasSuffix("old.note") })
+        XCTAssertTrue(extra.extraVersion)
+        XCTAssertEqual(try vault.reconstruct(noteId: XCTUnwrap(extra.noteId)).pages[0].strokes.count, 2)
+    }
+
+    /// Two older copies that differ in ink but share format, modification
+    /// date and stroke count used to derive the same id: the second was then
+    /// skipped as "duplicate of an earlier note in this import" and its ink
+    /// lost. Ids are content-addressed now, and do not depend on file times.
+    func testExtraVersionsWithSameDateAndCountGetDistinctStableIds() throws {
+        let same = t0.addingTimeInterval(10)
+        func files(_ dos: (UInt16, UInt16)) -> [ZipWriter.File] { [
+            .init(path: "Notability/A/new.note", data: SyntheticNote.package(curves: [line(y: 100)],
+                                                                             modified: t0.addingTimeInterval(20)),
+                  dosTime: dos.0, dosDate: dos.1),
+            .init(path: "Notability/B/v1.note", data: SyntheticNote.package(curves: [line(y: 100), line(y: 300, rgba: [255, 0, 0, 255])],
+                                                                            modified: same), dosTime: dos.0, dosDate: dos.1),
+            .init(path: "Notability/C/v2.note", data: SyntheticNote.package(curves: [line(y: 100), line(y: 700, rgba: [0, 0, 255, 255])],
+                                                                            modified: same), dosTime: dos.0, dosDate: dos.1),
+        ] }
+        let (report, vault) = try run(files(ZipWriter.dos(2024, 1, 2)))
+        XCTAssertEqual(report.imported, 3, "\(report.notes.map(\.status))")
+        XCTAssertEqual(Set(report.notes.compactMap(\.noteId)).count, 3)
+        // A later download of the same backup (other file times, other order):
+        // every note is found again, nothing new is written.
+        let (again, _) = try run(Array(files(ZipWriter.dos(2025, 6, 7)).reversed()), vault: vault, name: "later.zip")
+        XCTAssertEqual(again.notes.map(\.status), Array(repeating: .skipped("already in the vault"), count: 3))
+        XCTAssertEqual(Set(again.notes.compactMap(\.noteId)), Set(report.notes.compactMap(\.noteId)))
+        XCTAssertEqual(try vault.noteIDs().count, 3)
+    }
+
+    /// The same sources in any order and any split over zips give the same
+    /// choices, ids and vault content.
+    func testOrderOfInputsDoesNotChangeTheResult() throws {
+        let createdMs = Int64((SyntheticNote.created.timeIntervalSince1970 * 1000).rounded())
+        let entries: [ZipWriter.File] = [
+            .init(path: "Notability/A/x.note", data: SyntheticNote.package(curves: fewerCurves, modified: t0.addingTimeInterval(20))),
+            .init(path: "Notability/B/x.note", data: SyntheticNote.package(modified: t0.addingTimeInterval(30))),
+            .init(path: "Notability/C/x.note", data: SyntheticNote.package(curves: SyntheticNote.curves + [otherCurve],
+                                                                           modified: t0.addingTimeInterval(10))),
+            .init(path: "Notability/C/x.ntb", data: SyntheticBundle.package(SyntheticBundle.noteBundle(
+                strokes: SyntheticBundle.strokesMatchingSyntheticNote(), createdMs: createdMs))),
+            .init(path: "Notability/D/lone.ntb", data: SyntheticBundle.package(SyntheticBundle.noteBundle(
+                title: "Lone", strokes: SyntheticBundle.strokesMatchingSyntheticNote()))),
+        ]
+        func outcome(_ parts: [[ZipWriter.File]]) throws -> [String] {
+            let vault = try makeVault()
+            var urls: [URL] = []
+            for (i, part) in parts.enumerated() {
+                let url = tmp.appendingPathComponent("part-\(UUID().uuidString)-\(i).zip")
+                try ZipWriter.write(part).write(to: url)
+                urls.append(url)
+            }
+            var clock = HybridClock()
+            let report = try NotabilityImporter.import(paths: urls, into: vault, device: DeviceID("0a0b0c0d")!, clock: &clock)
+            XCTAssertEqual(report.failed, 0)
+            // Per written note: id, title, notebook, tags and every stroke's id and first point.
+            return try vault.noteIDs().sorted { $0.uuidString < $1.uuidString }.map { id in
+                let st = try vault.reconstruct(noteId: id)
+                let strokes = st.pages.flatMap(\.strokes).map { "\($0.id) \($0.points[0].x) \($0.points[0].y)" }
+                return "\(id) \(st.meta.title) \(st.meta.notebook ?? "-") \(st.meta.tags) \(strokes)"
+            }
+        }
+        let reference = try outcome([entries])
+        XCTAssertEqual(reference.count, 3)   // the note, the version with other ink, the lone bundle
+        XCTAssertEqual(try outcome([Array(entries.reversed())]), reference)
+        XCTAssertEqual(try outcome([[entries[4], entries[2]], [entries[1]], [entries[3], entries[0]]]), reference)
+        XCTAssertEqual(try outcome([[entries[0]], [entries[3], entries[1]], [entries[4], entries[2]]]), reference)
+    }
+
+    /// Regression: the ranking compared ".note before .ntb unless the .note is
+    /// empty" pairwise, which is not a consistent order when a group holds an
+    /// empty newest `.note`, an inked older `.note` and an inked `.ntb`: the
+    /// note chosen (and so every id) depended on the order of the inputs.
+    func testRankingIsIndependentOfInputOrder() throws {
+        let createdMs = Int64((SyntheticNote.created.timeIntervalSince1970 * 1000).rounded())
+        let entries: [ZipWriter.File] = [
+            .init(path: "Notability/A/x.note", data: SyntheticNote.package(curves: [], handwriting: false,
+                                                                           modified: t0.addingTimeInterval(30))),
+            .init(path: "Notability/B/x.ntb", data: SyntheticBundle.package(SyntheticBundle.noteBundle(
+                strokes: SyntheticBundle.strokesMatchingSyntheticNote(), createdMs: createdMs))),
+            .init(path: "Notability/C/x.note", data: SyntheticNote.package(modified: t0.addingTimeInterval(10))),
+        ]
+        // One zip per copy (entries inside a zip are read in path order), passed in every order.
+        let zips = try entries.enumerated().map { i, e -> URL in
+            let url = tmp.appendingPathComponent("copy-\(i).zip")
+            try ZipWriter.write([e]).write(to: url)
+            return url
+        }
+        var outcomes = Set<String>()
+        for order in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            var clock = HybridClock()
+            let report = try NotabilityImporter.import(paths: order.map { zips[$0] }, into: makeVault(),
+                                                       device: DeviceID("0a0b0c0d")!, clock: &clock)
+            outcomes.insert(report.notes.sorted { $0.source < $1.source }
+                .map { "\($0.source) \($0.status) \($0.noteId?.uuidString ?? "-")" }.joined(separator: "\n"))
+        }
+        XCTAssertEqual(outcomes.count, 1, outcomes.joined(separator: "\n---\n"))
+        // The inked .note is the note; the empty newer .note and the .ntb are not written.
+        let only = try XCTUnwrap(outcomes.first)
+        XCTAssertTrue(only.contains("C/x.note ok \(UUID.derived(from: "inkvault-notability:" + SyntheticNote.uuid).uuidString)"),
+                      only)
+    }
+
     /// Copies split over several zips (Drive splits large backups) are resolved together.
     func testCopiesAcrossZips() throws {
         let a = tmp.appendingPathComponent("part-1.zip"), b = tmp.appendingPathComponent("part-2.zip")

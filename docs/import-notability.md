@@ -90,24 +90,36 @@ later). In the four, an older copy holds strokes the newest does not have
 The importer therefore reads every source before writing anything and groups
 them by Notability uuid (an `.ntb` by creation time, below). Per group:
 
-1. **Primary** (imported as the note, id from the uuid as before): a `.note`
-   before an `.ntb` (unless the `.note` has no strokes and the `.ntb` has);
+1. **Primary** (imported as the note, id from the uuid as before): a copy
+   with strokes before an empty one; among those, a `.note` before an `.ntb`;
    then the newest `noteModifiedDateKey` (the `.ntb`'s newest record); then
    the newest file (zip entry modification time); then the path, ascending.
-   Its row's `selection` says which rule decided.
+   Each copy gets one sort key from these, so the choice does not depend on
+   the order of the inputs. (The earlier pairwise rule, "a `.note` unless it
+   is empty and the `.ntb` is not", was not a consistent order: with an
+   empty newest `.note`, an older inked `.note` and an inked `.ntb`, the
+   primary depended on which zip was passed first.) Its row's `selection`
+   says which rule decided.
 2. **Every other source**, newest first, is compared stroke by stroke with
    what is already imported for the group. A stroke matches when point count
    and colour are equal and its first x and its first-to-last vector agree
    within 0.3 units plus 1/512 of the value (half-float precision of an
-   `.ntb`; y offsets are not compared, so a page stride difference cannot
-   cause a mismatch). Then:
+   `.ntb`), and, between two sources of the same format, its first y as
+   well. Between an `.ntb` and a `.note` y is not compared: the bundle
+   places later pages of a PDF note at its own page stride, not the
+   `.note`'s, so an `.ntb` whose only extra ink repeats a stroke of the
+   `.note` at another height on the same x is still reported as superseded.
+   (Before y was compared, an older `.note` holding a second copy of a
+   shape further down, erased later, was skipped and that ink lost.) Then:
    - every stroke matches → **skipped**, naming the primary: `duplicate:`
      (same strokes: the same note in another folder), `older version:` (a
      subset), or `superseded:` (an `.ntb` copy);
    - otherwise → **imported as a separate note** (`extraVersion`), title
      `<title> (version modified <ISO date>)`, id derived from the uuid plus
-     format, modification date and stroke count, filed in its own folder's
-     notebook. Nothing a user drew is lost; deleting the extra note is a
+     format and the SHA-256 of its ink (every curve's style, colour, width
+     and points: two versions with different ink never share an id, and
+     file times, which change between downloads of a backup, play no part),
+     filed in its own folder's notebook. Nothing a user drew is lost; deleting the extra note is a
      user decision.
 
 Deterministic: the same inputs give the same choices and ids, so a second

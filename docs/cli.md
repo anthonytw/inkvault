@@ -150,7 +150,7 @@ directory, a folder searched recursively for both, or a zip of them
 (Notability's Google Drive backup; pass **every part** of a backup Drive split
 into several zips in one run); see `docs/import-notability.md` for the
 mapping. All inputs are read before anything is written, so copies of one
-note anywhere in them are resolved together: the newest `.note` is imported,
+note anywhere in them are resolved together: the newest `.note` with ink is imported,
 copies whose strokes it already has are skipped (`duplicate:`, `older
 version:`, or `superseded:` for an `.ntb` copy, each naming the source that
 was imported), and a copy holding strokes the chosen one lacks is imported as

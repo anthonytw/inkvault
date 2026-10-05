@@ -63,7 +63,7 @@ struct ImportNotability: ParsableCommand {
         discussion: """
             Each PATH is a .note or .ntb file, an unzipped .note package directory, a folder searched
             recursively for both, or a zip of them (Notability's backup; pass every part of a split
-            backup). Copies of one note are resolved across all paths: the newest .note is imported,
+            backup). Copies of one note are resolved across all paths: the newest .note with ink is imported,
             copies with no other ink are skipped, and a copy holding ink the chosen one lacks is
             imported as a separate note. Notes already in the vault are skipped unless --overwrite. The device id and clock come from
             $XDG_STATE_HOME/inkvault/device.json; --dry-run leaves both and the vault untouched.

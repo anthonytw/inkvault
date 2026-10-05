@@ -58,7 +58,7 @@ final class NotabilityPDFTests: XCTestCase {
     /// px: 745.4 → 744), which made the stride of letter PDF pages 739 instead
     /// of 741 on a 572-wide note (and 926 instead of 928 at 716.8), drifting
     /// two units per page against Notability's own PDF export. A standard
-    /// aspect within one pixel is used instead.
+    /// aspect within two thumbnail pixels is used instead.
     func testThumbnailAspectSnapsToLetter() throws {
         let thumbs = [("thumb.png", 48, 62), ("thumb8x.png", 384, 496), ("thumb12x.png", 576, 744)]
         let files = SyntheticNote.files(pdfPages: 3, thumbnails: thumbs).map { path, data in

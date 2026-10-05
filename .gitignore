@@ -15,3 +15,5 @@ DerivedData/
 
 # Xcode per-user state
 **/xcuserdata/
+__pycache__/
+*.pyc

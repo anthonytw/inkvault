@@ -1,3 +1,4 @@
+import Crypto
 import Foundation
 import InkVault
 
@@ -330,7 +331,7 @@ public enum NotabilityImporter {
     /// Every source is read before anything is written, so copies of one
     /// note anywhere in the inputs are resolved together
     /// (`docs/import-notability.md`, "Duplicates and versions"): the newest
-    /// `.note` is imported as the note; a copy whose strokes are all in it is
+    /// `.note` with ink is imported as the note; a copy whose strokes are all in it is
     /// skipped and says which source was used; a copy holding strokes the
     /// chosen one lacks is imported as a separate note, so no ink is lost.
     /// `.ntb` files are matched to `.note` files by creation time.
@@ -404,24 +405,31 @@ public enum NotabilityImporter {
         var curveCount: Int
     }
 
-    /// A stroke's shape, independent of its page offset: point count, colour,
-    /// first x, and the vector from its first to its last point. Two copies of
-    /// a note store the same stroke within float precision (an `.ntb` uses
-    /// half floats and page-relative y), so prints are compared with a tolerance.
+    /// A stroke's shape and place: point count, colour, first point, and the
+    /// vector from its first to its last point. Two copies of a note store the
+    /// same stroke within float precision (an `.ntb` uses half floats), so
+    /// prints are compared with a tolerance. The first y is compared only
+    /// between sources of the same format: an `.ntb` places later pages of a
+    /// PDF note at its own page stride, not the `.note`'s.
     struct StrokePrint: Hashable {
         var points: Int
         var rgba: UInt32
-        var x: Float, dx: Float, dy: Float
+        var x: Float, y: Float, dx: Float, dy: Float
+        var format: NotabilityNote.SourceFormat
         /// The x position is unreliable (`Curve.originClamped`): match on the rest.
         var anyX: Bool
 
-        init(_ c: NotabilityNote.Curve) {
+        init(_ c: NotabilityNote.Curve, format: NotabilityNote.SourceFormat) {
             anyX = c.originClamped
+            self.format = format
             points = c.points.count
             rgba = UInt32(c.color.r) << 24 | UInt32(c.color.g) << 16 | UInt32(c.color.b) << 8 | UInt32(c.color.a)
             let a = c.points.first ?? NotabilityNote.Point(x: 0, y: 0), b = c.points.last ?? a
-            x = Float(a.x); dx = Float(b.x - a.x); dy = Float(b.y - a.y)
+            x = Float(a.x); y = Float(a.y); dx = Float(b.x - a.x); dy = Float(b.y - a.y)
         }
+
+        /// Same height, when both heights are in the same coordinates.
+        func sameY(_ o: StrokePrint) -> Bool { format != o.format || PrintIndex.close(y, o.y) }
 
         /// Bucket for lookups: everything but the continuous values, plus x in 4-unit cells.
         var bucket: Bucket { Bucket(points: points, rgba: rgba, cell: Int((x / 4).rounded(.down))) }
@@ -449,12 +457,12 @@ public enum NotabilityImporter {
             let b = p.bucket
             if p.anyX {
                 return (byShape[StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: 0)] ?? []).contains {
-                    Self.close($0.dx, p.dx) && Self.close($0.dy, p.dy)
+                    Self.close($0.dx, p.dx) && Self.close($0.dy, p.dy) && $0.sameY(p)
                 }
             }
             for cell in (b.cell - 1)...(b.cell + 1) {
                 for q in buckets[StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: cell)] ?? []
-                where Self.close(q.x, p.x) && Self.close(q.dx, p.dx) && Self.close(q.dy, p.dy) {
+                where Self.close(q.x, p.x) && Self.close(q.dx, p.dx) && Self.close(q.dy, p.dy) && q.sameY(p) {
                     return true
                 }
             }
@@ -485,7 +493,8 @@ public enum NotabilityImporter {
                         title: note.metadata.name, subject: note.metadata.subject, format: note.sourceFormat,
                         created: note.metadata.created, modified: note.metadata.modified ?? note.bundleModified,
                         uuid: note.metadata.uuid.flatMap { $0.isEmpty ? nil : $0 }, originalWidth: note.paper.width,
-                        dropped: dropped(note), strokes: note.curves.map(StrokePrint.init), curveCount: note.curves.count))
+                        dropped: dropped(note), strokes: note.curves.map { StrokePrint($0, format: note.sourceFormat) },
+                        curveCount: note.curves.count))
                 } catch { return .failure(error) }
             }
             seconds.append(Date().timeIntervalSince(started))
@@ -528,18 +537,15 @@ public enum NotabilityImporter {
 
         for key in order {
             guard let members = groups[key], members.count > 1 else { continue }
-            // The primary: a .note before an .ntb (it carries recognition, PDF
-            // layout and full-precision points) unless only the .ntb has ink,
-            // then the newest modification
-            // date, then the newest file, then the path.
+            // The primary: a copy with ink before an empty one, a .note
+            // before an .ntb (it carries recognition, PDF layout and
+            // full-precision points), then the newest modification date,
+            // then the newest file, then the path. One key per copy, so the
+            // order is total and the choice does not depend on input order.
+            func tier(_ s: Summary) -> Int { (s.strokes.isEmpty ? 2 : 0) + (s.format == .note ? 0 : 1) }
             let ranked = members.sorted { a, b in
                 guard let x = summaries[a], let y = summaries[b] else { return a < b }
-                if (x.format == .note) != (y.format == .note) {
-                    // A .note wins unless it is empty and the .ntb is not.
-                    let xi = !x.strokes.isEmpty, yi = !y.strokes.isEmpty
-                    if xi != yi { return xi }
-                    return x.format == .note
-                }
+                if tier(x) != tier(y) { return tier(x) < tier(y) }
                 let mx = x.modified ?? .distantPast, my = y.modified ?? .distantPast
                 if mx != my { return mx > my }
                 let fx = all[a].modified ?? .distantPast, fy = all[b].modified ?? .distantPast
@@ -550,16 +556,20 @@ public enum NotabilityImporter {
             let others = ranked.count - 1
             let runnerUp = ranked.dropFirst().compactMap { summaries[$0] }.first
             let why: String
-            if primary.format == .ntb {
-                why = "the .ntb holds ink and the .note none"
-            } else if let r = runnerUp, r.format == .note, primary.modified != r.modified {
+            if let r = runnerUp, tier(r) != tier(primary) {
+                if r.format == primary.format {
+                    why = "a copy with ink is preferred over empty copies"
+                } else if primary.format == .ntb {
+                    why = "the .ntb holds ink and the .note none"
+                } else {
+                    why = "a .note is preferred over .ntb copies"
+                }
+            } else if let r = runnerUp, primary.modified != r.modified {
                 why = "newest modification date"
-            } else if let r = runnerUp, r.format == .note, all[first].modified != all[ranked[1]].modified {
+            } else if runnerUp != nil, all[first].modified != all[ranked[1]].modified {
                 why = "same modification date; newest file"
-            } else if let r = runnerUp, r.format == .note {
-                why = "same modification date and file time; first path"
             } else {
-                why = "a .note is preferred over .ntb copies"
+                why = "same modification date and file time; first path"
             }
             decisions[first].selection = "chosen from \(others + 1) copies of this note: \(why)"
 
@@ -627,7 +637,9 @@ public enum NotabilityImporter {
         if case .extraVersion = decision.action {
             let stamp = (note.metadata.modified ?? note.bundleModified ?? source.modified)
                 .map { ISO8601DateFormatter().string(from: $0) } ?? "unknown date"
-            key += ":version:\(source.format.rawValue):\(stamp):\(note.curves.count)"
+            // Content-addressed: stable across runs and zips (file times
+            // change), distinct for any two versions that differ in ink.
+            key += ":version:\(source.format.rawValue):\(contentDigest(note))"
             title += " (version modified \(stamp))"
             result.extraVersion = true
         }
@@ -676,6 +688,21 @@ public enum NotabilityImporter {
             result.status = .failed(describe(error))
         }
         return result
+    }
+
+    /// SHA-256 (hex) of a note's ink: per curve its style, colour, width
+    /// and every point. Names an extra version (`import`).
+    static func contentDigest(_ note: NotabilityNote) -> String {
+        var h = SHA256()
+        func put(_ v: UInt64) { withUnsafeBytes(of: v.littleEndian) { h.update(bufferPointer: $0) } }
+        put(UInt64(note.curves.count))
+        for c in note.curves {
+            put(UInt64(c.points.count)); put(UInt64(bitPattern: Int64(c.style)))
+            put(UInt64(c.color.r) << 24 | UInt64(c.color.g) << 16 | UInt64(c.color.b) << 8 | UInt64(c.color.a))
+            put(c.width.bitPattern)
+            for p in c.points { put(p.x.bitPattern); put(p.y.bitPattern) }
+        }
+        return h.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// The tags an import writes (the whole set, so an overwrite drops tags
