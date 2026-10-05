@@ -21,6 +21,9 @@ public enum VaultError: Error, Hashable, Sendable {
     /// take only post-quantum `age1pq1...` recipients (format.md §3.1);
     /// legacy X25519 recipients can only be replaced or removed.
     case classicRecipient(String)
+    /// Only classic X25519 identities were offered to a vault that lists no
+    /// X25519 recipient: such a key can never open it (format.md §3.1).
+    case classicIdentity
     /// The recipient is already listed.
     case duplicateRecipient(String)
     /// The recipient is not listed.
@@ -193,7 +196,8 @@ public struct Vault: Sendable {
     /// first that matches; with none, opens locked (names only).
     ///
     /// - Throws: `notAVault`, `manifestCorrupt`, `unsupportedFormat`,
-    ///   `vaultSecretUndecryptable`, `invalidVaultSecret`.
+    ///   `vaultSecretUndecryptable`, `invalidVaultSecret`; `classicIdentity`
+    ///   when only X25519 identities are given to a post-quantum-only vault.
     public static func open(at url: URL, identities: [any AgeIdentity] = []) throws -> Vault {
         let manifestURL = url.appendingPathComponent(manifestName)
         guard FileIO.exists(manifestURL) else { throw VaultError.notAVault(url.path) }
@@ -201,7 +205,15 @@ public struct Vault: Sendable {
         var vault = Vault(url: url, manifest: manifest, identities: identities, secret: nil, previousSecret: nil,
                           journalProblem: nil)
         guard !identities.isEmpty else { return vault }
-        vault.secret = try decryptSecret(manifest.vaultSecret, with: identities)
+        do { vault.secret = try decryptSecret(manifest.vaultSecret, with: identities) } catch {
+            // A classic key offered to a post-quantum vault: say so, rather
+            // than only "no key matches".
+            if identities.allSatisfy(Self.isClassic),
+                (try? vault.ageRecipients())?.allSatisfy(\.isPostQuantum) == true {
+                throw VaultError.classicIdentity
+            }
+            throw error
+        }
         if vault.pendingRewrap {
             // Recorded, not thrown: the vault stays usable, verify() and
             // tag mismatches surface it, and resumeRewrap() throws it.
@@ -259,6 +271,13 @@ public struct Vault: Sendable {
         }
         guard let s = try? VaultSecret(bytes: plain) else { throw VaultError.invalidVaultSecret }
         return s
+    }
+
+    /// An X25519 (not post-quantum) age identity.
+    static func isClassic(_ identity: any AgeIdentity) -> Bool {
+        if identity is X25519Identity { return true }
+        if let native = identity as? NativeIdentity { return !native.isPostQuantum }
+        return false
     }
 
     static func firstDuplicate(_ keys: [String]) -> String? {

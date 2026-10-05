@@ -159,18 +159,24 @@ extension Vault {
         try readIdentityFile(recipient: .x25519(recipient), passphrase: passphrase, maxWorkFactor: maxWorkFactor)
     }
 
-    /// Recipients that have a passphrase-wrapped identity file in `keys/`:
-    /// every X25519 file name, and post-quantum file names that match a
-    /// recipient in the manifest (the name holds only a hash).
+    /// Recipients of this vault (in the manifest) that have a
+    /// passphrase-wrapped identity file in `keys/`, found by computing each
+    /// recipient's file name (a post-quantum name holds only a hash).
+    ///
+    /// Key files of recipients no longer listed are left out: after a
+    /// migration (`replaceRecipient`) the old X25519 key file stays in
+    /// `keys/` (format.md §3.3.2), and offering it would make a passphrase
+    /// that opens both files unlock with a key that no longer opens the vault.
+    /// `readIdentityFile(recipient:)` still reads such a file when asked.
     ///
     /// - Throws: `VaultError.io` if `keys/` exists but cannot be listed.
     public func identityFiles() throws -> [NativeRecipient] {
-        let pq = Dictionary(
-            ((try? ageRecipients()) ?? []).filter(\.isPostQuantum).map { (IdentityFile.fileName(for: $0), $0) },
+        let listed = Dictionary(
+            ((try? ageRecipients()) ?? []).map { (IdentityFile.fileName(for: $0), $0) },
             uniquingKeysWith: { a, _ in a })
         return try FileIO.entries(keysURL).compactMap { n in
             if FileIO.isDirectory(keysURL.appendingPathComponent(n)) { return nil }
-            return IdentityFile.recipient(fromFileName: n) ?? pq[n]
+            return listed[n]
         }
     }
 }

@@ -1,5 +1,6 @@
 import Age
 import Foundation
+import InkVault
 import XCTest
 
 /// Post-quantum keys through the CLI: key generation, the refusal of
@@ -137,6 +138,76 @@ final class CLIPostQuantumTests: CLITestCase {
         let rep = try cli(["vault", "recipients", "replace", mine, classic, "--vault", vault.path, "--identity", key])
         XCTAssertEqual(rep.status, 2, rep.err)
         XCTAssertEqual(try stanzaTypes(vault.path), [["mlkem768x25519"]])
+    }
+
+    /// A classic key is refused before anything else happens: no
+    /// passphrase is asked for (none is available here, which used to end in
+    /// exit 4 "no passphrase" instead of the real reason).
+    func testClassicRecipientRefusedBeforeUnlocking() throws {
+        let classicID = X25519Identity()
+        let classic = classicID.recipient.string
+        try IdentityFile.render(classicID, created: Date()).write(toFile: path("classic.key"), atomically: true,
+                                                                  encoding: .utf8)
+        let vault = try copyFixtureVault()
+        let old = try fixtureIdentity().recipient.string
+        for args in [["vault", "recipients", "add", classic, "--vault", vault],
+                     ["vault", "recipients", "replace", old, classic, "--vault", vault],
+                     ["vault", "init", path("n.inkvault"), "--recipient", classic, "--store-key", path("classic.key")]] {
+            let r = try cli(args)
+            XCTAssertEqual(r.status, 2, "\(args): \(r.err)")
+            XCTAssertTrue(r.err.contains("create a new key"), r.err)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path("n.inkvault")))
+        XCTAssertEqual(try stanzaTypes(vault), [["X25519"]])
+    }
+
+    /// A classic identity offered to a post-quantum vault fails with the
+    /// reason (exit 4), not only "no key matches".
+    func testClassicIdentityExplained() throws {
+        let (made, _, _) = try makeVault()
+        let classic = X25519Identity()
+        try IdentityFile.render(classic, created: Date()).write(toFile: path("classic.key"), atomically: true,
+                                                                encoding: .utf8)
+        let r = try cli(["notes", "list", "--vault", made.url.path, "--identity", path("classic.key")])
+        XCTAssertEqual(r.status, 4, r.err)
+        XCTAssertTrue(r.err.contains("classic X25519 key") && r.err.contains("create a new key"), r.err)
+    }
+
+    /// Migrating a vault unlocked by passphrase (the fixture's stored
+    /// X25519 key): without `--store-key` the old key file must not be
+    /// offered any more (it used to be, and the vault then failed with "none
+    /// of the given keys can decrypt"); with it, the same passphrase opens the
+    /// new key.
+    func testReplaceKeepsPassphraseUnlock() throws {
+        let old = try fixtureIdentity().recipient.string
+        let pass = ["INKVAULT_PASSPHRASE": Self.passphrase]
+        _ = try generate("pq.key")
+
+        let plain = try copyFixtureVault(as: "plain.inkvault")
+        XCTAssertEqual(try cli(["notes", "list", "--vault", plain], env: pass).status, 0)
+        XCTAssertEqual(try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", plain],
+                               env: pass).status, 0)
+        let after = try cli(["notes", "list", "--vault", plain], env: pass)
+        XCTAssertEqual(after.status, 4, after.err)
+        XCTAssertTrue(after.err.contains("stores no passphrase-wrapped key"), after.err)
+
+        let stored = try copyFixtureVault(as: "stored.inkvault")
+        let r = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", stored,
+                         "--store-key", path("pq.key"), "--work-factor", "15"], env: pass)
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertEqual(try stanzaTypes(stored), [["mlkem768x25519"]])
+        let list = try cli(["notes", "list", "--vault", stored], env: pass)
+        XCTAssertEqual(list.status, 0, list.err)
+        XCTAssertTrue(list.out.contains("Fixture lecture"), list.out)
+        let info = try cli(["vault", "info", "--vault", stored, "--json"])
+        XCTAssertEqual(((info.json as? [String: Any])?["keyFiles"] as? [String])?.count, 1, info.out)
+
+        // --store-key must be the new recipient's key, checked before any change.
+        let other = try copyFixtureVault(as: "other.inkvault")
+        let wrong = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", other,
+                             "--store-key", Self.fixtureKey], env: pass)
+        XCTAssertEqual(wrong.status, 2, wrong.err)
+        XCTAssertEqual(try stanzaTypes(other), [["X25519"]])
     }
 
     /// The first `age` on PATH (or in the usual places) that is 1.3 or later.

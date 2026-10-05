@@ -61,6 +61,7 @@ struct VaultInit: ParsableCommand {
 
     func run() throws {
         let recipients = try recipient.map(parseRecipient)
+        try requirePostQuantum(recipients)
         var stored: (NativeIdentity, String)?
         if let storeKey {
             let id = try readIdentityFile(storeKey)
@@ -205,13 +206,18 @@ struct RecipientsAdd: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp("A label shown in `vault info`.", valueName: "text"))
     var label: String = ""
 
+    @OptionGroup var store: StoreKeyOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func run() throws {
         let key = try parseRecipient(recipient)
+        try requirePostQuantum([key])
         var vault = try access.openVault(.required)
-        try reportRewrap(try vault.addRecipient(key, label: label), output: output)
+        let stored = try store.prepare(for: key)
+        let report = try vault.addRecipient(key, label: label)
+        try store.write(stored, into: vault, output: output)
+        try reportRewrap(report, output: output)
     }
 }
 
@@ -260,13 +266,75 @@ struct RecipientsReplace: ParsableCommand {
                                             valueName: "text"))
     var label: String?
 
+    @OptionGroup var store: StoreKeyOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func run() throws {
         let oldKey = try parseRecipient(old), newKey = try parseRecipient(new)
+        try requirePostQuantum([newKey])
         var vault = try access.openVault(.required)
-        try reportRewrap(try vault.replaceRecipient(oldKey, with: newKey, label: label), output: output)
+        let stored = try store.prepare(for: newKey)
+        let report = try vault.replaceRecipient(oldKey, with: newKey, label: label)
+        try store.write(stored, into: vault, output: output)
+        try reportRewrap(report, output: output)
+    }
+}
+
+/// Refuses a classic X25519 key as a new vault recipient before anything
+/// else happens (no passphrase prompt, no vault opened): vaults take only
+/// post-quantum keys (format.md §3.1).
+func requirePostQuantum(_ recipients: [NativeRecipient]) throws {
+    if let classic = recipients.first(where: { !$0.isPostQuantum }) {
+        throw VaultError.classicRecipient(classic.string)
+    }
+}
+
+/// `--store-key` for `recipients add` / `replace`: also store the new
+/// recipient's identity, passphrase-wrapped, in `keys/`, so the vault keeps
+/// opening with a passphrase after a migration (the old key file no longer
+/// opens it).
+struct StoreKeyOptions: ParsableArguments {
+    @Option(name: .customLong("store-key"),
+            help: ArgumentHelp("Also store this identity file (the new recipient's key), passphrase-wrapped, in keys/.",
+                               valueName: "file"))
+    var storeKey: String?
+
+    @Option(name: .customLong("store-passphrase-env"),
+            help: ArgumentHelp("Variable holding the passphrase for --store-key.",
+                               discussion: "Without it $INKVAULT_PASSPHRASE is used, else the terminal is asked.",
+                               valueName: "var"))
+    var passphraseEnv: String?
+
+    @Option(name: .customLong("work-factor"),
+            help: ArgumentHelp("scrypt work factor of the stored key, 15...18.", valueName: "n"))
+    var workFactor = 18
+
+    func validate() throws {
+        guard IdentityFile.writerWorkFactors.contains(workFactor) else {
+            throw ValidationError("--work-factor must be in \(IdentityFile.writerWorkFactors)")
+        }
+        if passphraseEnv != nil && storeKey == nil { throw ValidationError("--store-passphrase-env needs --store-key") }
+    }
+
+    /// Reads the identity (which must be `recipient`'s) and its passphrase,
+    /// before the vault changes.
+    func prepare(for recipient: NativeRecipient) throws -> (NativeIdentity, String)? {
+        guard let storeKey else { return nil }
+        let id = try readIdentityFile(storeKey)
+        guard id.recipient == recipient else {
+            throw CLIError.usage("\(storeKey) is not the key of the new recipient \(abbreviateKey(recipient.string))")
+        }
+        let pass = try obtainPassphrase(envName: passphraseEnv, prompt: "New key passphrase: ", confirm: true,
+                                        asError: CLIError.failure)
+        return (id, pass)
+    }
+
+    /// Writes the key file prepared by `prepare` (replacing one for the same key).
+    func write(_ stored: (NativeIdentity, String)?, into vault: Vault, output: OutputOptions) throws {
+        guard let (id, pass) = stored else { return }
+        let file = try vault.writeIdentityFile(id, passphrase: pass, workFactor: workFactor, replace: true)
+        output.info("Stored passphrase-wrapped key: \(file.path)")
     }
 }
 

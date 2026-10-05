@@ -91,7 +91,7 @@ struct BrowserTests {
             in: parent, library: library)
         #expect(try Vault.open(at: created.url).recipients.map(\.key) == [identity.recipient.string])
         #expect(model.phase == .locked)
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: VaultError.classicIdentity) {
             try await model.unlock(identityText: IdentityFile.render(X25519Identity(), created: Date()))
         }
         try await model.unlock(identityText: identity.string)

@@ -54,7 +54,7 @@ enum CLIError: Error {
         switch error {
         case AgeError.noMatchingIdentity, AgeError.noIdentities,
              VaultError.vaultSecretUndecryptable, VaultError.wrongPassphrase,
-             VaultError.locked, VaultError.noIdentities:
+             VaultError.locked, VaultError.noIdentities, VaultError.classicIdentity:
             return .cannotDecrypt(text)
         case VaultError.classicRecipient:
             return .usage(text)

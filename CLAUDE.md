@@ -202,7 +202,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   BoringSSL on Linux); never implement ML-KEM here. `postQuantumAvailable` is
   false on Apple OSes before 26 or SDKs before Xcode 26, so gate PQ tests
   with it. PQ recipients are 1959 characters: abbreviate in UI, and PQ key
-  files are `keys/age1pq-<sha256 hex>.key.age` (`IdentityFile.fileName`).
+  files are `keys/age1pq-<sha256 hex>.key.age` (`IdentityFile.fileName`);
+  `identityFiles()` lists only current recipients' key files (a migrated
+  vault keeps its old X25519 key file, which must not be offered).
   Vault writes use `Vault.encrypt` (mixed PQ + X25519 allowed during a
   migration); plain `AgeFile.encrypt` refuses that mix, as `age` does.
   Interop tests need `age` ≥ 1.3 on PATH (the official release; Ubuntu ships

@@ -14,6 +14,10 @@ extension VaultError: CustomStringConvertible {
         case .classicRecipient(let r):
             return "\(r.prefix(16))… is a classic X25519 key, which is not quantum-safe; vaults take only "
                 + "post-quantum age1pq1... keys: create a new key (inkvault keys generate, or age-keygen -pq)"
+        case .classicIdentity:
+            return "that is a classic X25519 key (AGE-SECRET-KEY-1...), and this vault takes only post-quantum keys: "
+                + "use its AGE-SECRET-KEY-PQ-1... key, or create a new key (inkvault keys generate, or "
+                + "age-keygen -pq) and have it added to the vault"
         case .duplicateRecipient(let r): return "recipient \(r) is listed twice"
         case .unknownRecipient(let r): return "recipient \(r) is not part of this vault"
         case .lastRecipient: return "cannot remove the only recipient: the vault would become unreadable"

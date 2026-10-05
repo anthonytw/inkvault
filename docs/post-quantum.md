@@ -111,7 +111,8 @@ Single device (one rewrap, no mixed files):
 ```bash
 inkvault keys generate --out ~/.config/inkvault/pq.key
 inkvault vault recipients replace age1old... ~/.config/inkvault/pq.key \
-    --vault notes.inkvault --identity ~/.config/inkvault/key.txt
+    --vault notes.inkvault --identity ~/.config/inkvault/key.txt \
+    --store-key ~/.config/inkvault/pq.key   # only if you unlock with a passphrase
 inkvault vault info --vault notes.inkvault        # Post-quantum: yes
 ```
 
@@ -135,7 +136,9 @@ removal and replacement also rotate the vault secret. An interrupted
 - **Removing a key does not revoke** what its holder already decrypted.
 - Passphrase-wrapped key files (`keys/*.key.age`) use scrypt and need no
   change; the old X25519 key file stays in `keys/` until deleted, and is only
-  as safe as its passphrase.
+  as safe as its passphrase. It is no longer offered for passphrase
+  unlocking (only key files of current recipients are), so a vault unlocked
+  by passphrase needs the new key stored too (`--store-key`).
 
 ## Recovery kit and QR codes
 

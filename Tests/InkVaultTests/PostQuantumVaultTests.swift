@@ -150,6 +150,49 @@ final class PostQuantumVaultTests: VaultTestCase {
         XCTAssertEqual(try types(vault, revs), [["mlkem768x25519"]])
     }
 
+    /// After a replace the old X25519 key file stays in `keys/`; it must not
+    /// be offered for unlocking, or a passphrase shared by both files picks a
+    /// key that no longer opens the vault (whichever file lists first).
+    func testStaleKeyFileAfterReplaceIsNotOffered() throws {
+        let old = X25519Identity(), new = try pq()
+        var vault = try Vault.create(at: vaultURL(), recipients: [old.recipient], identities: [old])
+        try vault.writeIdentityFile(old, passphrase: "pw", workFactor: 15)
+        try vault.replaceRecipient(.x25519(old.recipient), with: new.recipient)
+        XCTAssertEqual(try vault.identityFiles(), [], "the old key file no longer opens the vault")
+        try vault.writeIdentityFile(new, passphrase: "pw", workFactor: 15)
+        let locked = try Vault.open(at: vault.url)
+        XCTAssertEqual(try locked.identityFiles(), [new.recipient])
+        for r in try locked.identityFiles() {
+            let id = try locked.readIdentityFile(recipient: r, passphrase: "pw")
+            XCTAssertFalse(try Vault.open(at: vault.url, identities: [id]).isLocked)
+        }
+        // The old file is still there, readable on request (format.md §3.3.2).
+        XCTAssertEqual(try locked.readIdentityFile(recipient: .x25519(old.recipient), passphrase: "pw"), .x25519(old))
+        XCTAssertEqual(locked.verify().counts[.unknownFile] ?? 0, 0)
+    }
+
+    /// Classic identities given to a post-quantum vault fail with
+    /// `classicIdentity` ("create a new key"); a legacy or mixed vault, or a
+    /// PQ key among them, keeps the ordinary error.
+    func testClassicIdentityExplained() throws {
+        let id = try pq(), classic = X25519Identity()
+        let vault = try Vault.create(at: vaultURL(), recipients: [id.recipient], identities: [id])
+        XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [classic])) {
+            XCTAssertEqual($0 as? VaultError, .classicIdentity)
+            XCTAssertTrue("\($0)".contains("create a new key"), "\($0)")
+        }
+        XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [NativeIdentity.x25519(classic)])) {
+            XCTAssertEqual($0 as? VaultError, .classicIdentity)
+        }
+        XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [classic, try pq()])) {
+            guard case .vaultSecretUndecryptable = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        let legacy = try Vault.create(at: vaultURL("L"), recipients: [X25519Identity().recipient])
+        XCTAssertThrowsError(try Vault.open(at: legacy.url, identities: [classic])) {
+            guard case .vaultSecretUndecryptable = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+    }
+
     /// Passphrase-wrapped PQ key files: a hashed name (the recipient is too
     /// long for one), found through the manifest, round trip unchanged.
     func testIdentityFileForPostQuantumKey() throws {

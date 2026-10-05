@@ -77,9 +77,9 @@ inkvault keys export --vault V [--recipient age1...] [--out FILE]
 inkvault vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...]
                          [--store-key FILE [--passphrase-env VAR] [--work-factor 15...18]]
 inkvault vault info
-inkvault vault recipients add age1... [--label TEXT]
+inkvault vault recipients add age1pq1... [--label TEXT] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
 inkvault vault recipients remove age1...
-inkvault vault recipients replace age1old... age1pq1new... [--label TEXT]
+inkvault vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
 inkvault vault rewrap-resume
 inkvault vault verify
 ```
@@ -97,8 +97,17 @@ inkvault vault verify
   `rewrap-resume`. Removing a key does not revoke what it already decrypted.
 - Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
   and the new key of `replace` refuse a classic `age1...` key with "create a
-  new key" (exit 2). Legacy vaults that still list X25519 keys open as before
-  and are migrated with `replace` or `add` + `remove` (format.md §3.3.2).
+  new key" (exit 2), before asking for any passphrase. Legacy vaults that
+  still list X25519 keys open as before and are migrated with `replace` or
+  `add` + `remove` (format.md §3.3.2). A classic identity given to a
+  post-quantum vault fails with the same advice (exit 4).
+- `recipients add` / `replace --store-key FILE` also store the new
+  recipient's identity (FILE, which must be that key) passphrase-wrapped in
+  `keys/`, with the passphrase from `--store-passphrase-env VAR`, else
+  `$INKVAULT_PASSPHRASE`, else the terminal (confirmed). Use it when the
+  vault is unlocked by passphrase: only key files of current recipients are
+  offered for passphrase unlocking, so after a `replace` the old key file
+  (left in `keys/`) no longer is.
 - `recipients replace` swaps one recipient for another with a single rewrap
   and a secret rotation: the post-quantum migration (format.md §3.3.2). An
   interrupted replace is finished by `rewrap-resume` with **both** keys
