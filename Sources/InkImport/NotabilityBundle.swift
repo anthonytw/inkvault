@@ -17,6 +17,7 @@ public enum NotabilityBundle {
         case stroke = 15
         case shape = 18
         case media = 22
+        case erase = 25
     }
 
     /// Parses an `.ntb` package (already opened as a zip or directory).
@@ -52,7 +53,25 @@ public enum NotabilityBundle {
         var originX: [Float] = []   // per stroke, as stored
         var pdfs = 0, media = 0, unsupportedStrokes = 0, unsupportedShapes = 0, dashed = Set<Int>()
 
+        // Erase records list the ids of the stroke and shape records they
+        // remove (bundles written as a log, without a `.note` next to them;
+        // bundles next to a `.note` are compacted and hold none).
+        var erased = Set<UInt64>()
         for record in records {
+            guard let tf = try fb.field(record, 4), try fb.u8(tf) == RecordType.erase.rawValue,
+                  let pf = try fb.field(record, 5) else { continue }
+            let payload = try fb.table(atRef: pf)
+            guard let list = try fb.field(payload, 0) else { continue }
+            let (start, count) = try fb.vector(atRef: list, elementSize: 8)
+            for i in 0..<count { erased.insert(try fb.recordID(start + 8 * i)) }
+        }
+        var erasedCount = 0
+
+        for record in records {
+            if !erased.isEmpty, let idField = try fb.field(record, 0), erased.contains(try fb.recordID(idField)) {
+                erasedCount += 1
+                continue
+            }
             if let t = try fb.field(record, 1) {
                 let ms = try fb.i64(t)
                 lastEdit = max(lastEdit ?? ms, ms)
@@ -82,6 +101,8 @@ public enum NotabilityBundle {
                 pdfs += 1
             case .media:
                 media += 1
+            case .erase:
+                break
             case .stroke:
                 guard let pieces = try stroke(fb, payload) else { unsupportedStrokes += 1; continue }
                 let isDashed = try fb.field(payload, 5).map { try fb.u8($0) != 0 } ?? false
@@ -147,6 +168,7 @@ public enum NotabilityBundle {
         note.unsupportedShapes = unsupportedShapes
         note.unsupportedStrokes = unsupportedStrokes
         note.clampedStrokes = curves.filter(\.originClamped).count
+        note.erasedRecords = erasedCount
         return note
     }
 
@@ -298,6 +320,8 @@ struct FlatBuffer {
         Int64(bitPattern: UInt64(try u32(p)) | UInt64(try u32(p + 4)) << 32)
     }
     func f32(_ p: Int) throws -> Float { Float(bitPattern: try u32(p)) }
+    /// A record id: the (u32, u32) struct at `p` as one 64-bit key.
+    func recordID(_ p: Int) throws -> UInt64 { UInt64(try u32(p)) << 32 | UInt64(try u32(p + 4)) }
 
     /// The root table's position.
     func root() throws -> Int { try table(Int(try u32(0))) }

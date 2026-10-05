@@ -163,6 +163,9 @@ public struct NotabilityNote: Hashable, Sendable {
     public var shapeCount = 0
     /// Shape-tool objects that could not be converted to curves.
     public var unsupportedShapes = 0
+    /// `.ntb` only: stroke and shape records left out because a later erase
+    /// record removes them (informational; erased ink is not "dropped").
+    public var erasedRecords = 0
     /// `.ntb` strokes whose origin was clamped to the page edge (`Curve.originClamped`).
     public var clampedStrokes = 0
     /// Strokes whose geometry could not be decoded (`.ntb` stroke kinds other

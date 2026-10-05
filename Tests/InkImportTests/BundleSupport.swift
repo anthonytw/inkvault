@@ -15,6 +15,8 @@ indirect enum FBValue {
     case table([Int: FBValue])
     case tables([[Int: FBValue]])
     case bytes([UInt8])
+    /// A vector of 8-byte structs, given as raw bytes (count = bytes / 8).
+    case structVector([UInt8])
     case string(String)
 }
 
@@ -50,7 +52,7 @@ final class FBWriter {
             case .u32, .f32: n = 4
             case .i64: n = 8
             case .structBytes(let b): n = b.count
-            case .table, .tables, .bytes, .string: n = 4
+            case .table, .tables, .bytes, .string, .structVector: n = 4
             }
             if n >= 4 { while size % 4 != 0 { size += 1 } }
             layout[i] = size
@@ -80,7 +82,7 @@ final class FBWriter {
             case .i64(let x):
                 put32(at: p, UInt32(truncatingIfNeeded: x)); put32(at: p + 4, UInt32(truncatingIfNeeded: x >> 32))
             case .structBytes(let b): for (k, byte) in b.enumerated() { out[p + k] = byte }
-            case .table, .tables, .bytes, .string: refs.append((p, v))
+            case .table, .tables, .bytes, .string, .structVector: refs.append((p, v))
             }
         }
         for (p, v) in refs.sorted(by: { $0.0 < $1.0 }) {
@@ -99,6 +101,8 @@ final class FBWriter {
                 target = start
             case .bytes(let b):
                 align(); target = out.count; append32(UInt32(b.count)); out += b
+            case .structVector(let b):
+                align(); target = out.count; append32(UInt32(b.count / 8)); out += b
             case .string(let s):
                 align(); target = out.count; append32(UInt32(s.utf8.count)); out += Array(s.utf8); out.append(0)
             default: continue
@@ -157,6 +161,12 @@ enum SyntheticBundle {
             g += node
         }
         return g
+    }
+
+    /// An erase record removing the records with these sequence numbers.
+    static func erase(_ seqs: [UInt32]) -> [Int: FBValue] {
+        // A vector of 8-byte structs (0, seq), written as a byte vector of the same layout.
+        record(500, type: 25, payload: [0: .structVector(seqs.flatMap { [0, 0, 0, 0] + f32(Float(bitPattern: $0)) })])
     }
 
     static func record(_ seq: UInt32, type: UInt8, payload: [Int: FBValue], ms: Int64 = createdMs) -> [Int: FBValue] {

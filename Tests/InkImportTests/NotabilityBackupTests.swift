@@ -352,6 +352,19 @@ final class NotabilityBackupTests: XCTestCase {
         XCTAssertEqual(state.pages[0].strokes[0].points[0].y, 50, accuracy: 1e-3)
     }
 
+    /// Bundles written as a log carry erase records listing removed record
+    /// ids: those strokes are not imported.
+    func testBundleEraseRecordsRemoveStrokes() throws {
+        let a = SyntheticBundle.StrokeSpec(origin: (100, 50), segments: [((1, 0), (2, 0), (3, 1), false)])
+        let b = SyntheticBundle.StrokeSpec(origin: (200, 50), segments: [((1, 0), (2, 0), (3, 1), false)])
+        // Strokes are records 1 and 2 (see SyntheticBundle.noteBundle); erase record 1.
+        let bundle = SyntheticBundle.noteBundle(strokes: [a, b], extraRecords: [SyntheticBundle.erase([1])])
+        let note = try NotabilityBundle.parse(bundle: bundle)
+        XCTAssertEqual(note.curves.count, 1)
+        XCTAssertEqual(note.erasedRecords, 1)
+        XCTAssertEqual(note.curves[0].points[0].x, 200 - 716.8 / 38.4, accuracy: 1e-3)
+    }
+
     func testBundleOriginClampedAtPageEdge() throws {
         let s = SyntheticBundle.StrokeSpec(origin: (SyntheticBundle.width, 50), segments: [((1, 0), (2, 0), (3, 1), false)])
         let note = try NotabilityBundle.parse(bundle: SyntheticBundle.noteBundle(strokes: [s]))
