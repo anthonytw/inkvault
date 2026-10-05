@@ -55,8 +55,10 @@ and no platform for others (WebDAV and any HTTPS use the system's URLSession/TLS
 - Apple may ask for self-classification documentation and return an
   `ITSEncryptionExportComplianceCode`; add that key too when you receive one.
 - **US annual self-classification report:** a mass-market (5D992.c) product under ENC
-  § 740.17(b)(1) is not subject to the annual report (it is for (b)(2)/(b)(3) items). Keep the
-  classification record (this page, the algorithm table) with your files.
+  § 740.17(b)(1) needs no annual self-classification report: the March 2021 amendment dropped
+  that report for mass-market items other than components, chipsets and toolkits (it still
+  applies to non-mass-market (b)(1) items). Keep the classification record (this page, the
+  algorithm table) with your files.
 - **France** requires a declaration for some encryption products unless an exemption applies;
   Apple needs documentation only if the app is distributed there with non-exempt encryption.
   TODO(user): either confirm the exemption covers this app or leave France out of availability
