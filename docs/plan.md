@@ -34,7 +34,8 @@ is still open); compaction UI;
 ~~PNG export~~ (done: `inkvault export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/InkRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
-imported today as ink on blank paper); stroke
+imported today as ink on blank paper; now designed with text boxes and audio,
+see "Attachments" below); stroke
 dedupe after concurrent slicing; ~~post-quantum recipient type~~ (done:
 MLKEM768-X25519, `docs/post-quantum.md`); read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
@@ -49,6 +50,42 @@ Done from this list:
   `export --at`. Compacted revisions are not restore points. Still to do: the
   history browser UI in the app (Phase 1/2), on top of `Vault.restorePoints`,
   `Vault.state(noteId:at:)` and `Vault.restore`.
+
+## Attachments (typed text, images, audio, PDF pages)
+
+Design: `docs/attachments.md` (rationale, task details and acceptance
+criteria) and `docs/format.md` §8 (normative). Status: **decisions final**
+(`docs/attachments.md` §16); no task starts before the design PR merges. A0
+goes first; after it, the rest run in parallel along the dependencies in
+`docs/attachments.md` §14. G1, G2 and L are future work and block nothing.
+
+| # | Task | Owner target | Depends on | Done when (summary) |
+| --- | --- | --- | --- | --- |
+| A0 | Model types: items (integer layers), recordings, transcripts, blob refs, text (Unicode, `breaks`), `rec`, six ops, open fields (`JSONValue`) | `Sources/InkVault` | — | every `format.md` §8 example round-trips; unknown kinds/fields/layers re-emitted verbatim |
+| A1 | Merge, snapshots, tombstones, orphans, history/restore, summaries | `Sources/InkVault` | A0 | shuffled-order property test with items; concurrency scenarios of §14 |
+| B1 | Age streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt | `Sources/Age` | — | CCTV via streaming; 300 MB bounded-memory round trip; `age` CLI interop |
+| B2 | Per-note blob store (`notes/<id>/att/`): names, kinds, framing, Padmé, verify, copy, rewrap policy (header-only on add, re-encrypt on removal/PQ) + rename, per-note collection, `inkvault blobs …` | `Sources/InkVault`, CLI | A0 (B1) | binding tests; stock-tool recovery test; both rewrap methods resumable; GC rules 1–4 each tested per note |
+| B3 | WebDAV sync of each note's `att/` (streaming, own size limit, GC-safe deletes) | `Sources/InkWebDAV` | B2 | write-once table tests with blobs; 300 MB blob with bounded memory |
+| C1 | Export images (DCT passthrough with metadata stripped, PNG/JPEG decoders, SVG data URIs, HEIC placeholder) | `Sources/InkRender` | A0 | golden tests for orientations/crops/rotation; decoder fixtures; fuzz |
+| C2 | Export text: full Unicode (Noto + optional font packs, OpenType reader, UAX #9/#14/#29, small shaper, stored `breaks`, font **subsets** in PDF/SVG, missing-script report) | `Sources/InkRender` | A0 | layout tests incl. RTL; CJK via font pack in `pdftotext`; subset-only fonts; goldens |
+| C3 | `InkPDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning | `Sources/InkPDF`, `Sources/InkRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
+| C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/InkRender`, CLI | C2 | `pdfdetach` lists audio |
+| D1 | Notability PDF backgrounds | `Sources/InkImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
+| D2 | Notability images | `Sources/InkImport` | A0, B2 | 4 image notes match thumbnails |
+| D3 | Notability typed text | `Sources/InkImport` | A0 | styled synthetic fixture maps to runs |
+| D4 | Notability recordings + ink sync | `Sources/InkImport` | A0, B2 | recordings import; strokes carry `rec` |
+| E0 | App plumbing: `NoteWriter.addBlob`/`copyBlob`, blob cache, lazy per-kind iCloud download, item layer + selection | `Apps/` | A1, B2 | one delta per gesture; app tests |
+| E1 | App images (Photos, camera, paste, privacy setting: HEIC→JPEG + metadata stripping on by default, crop) | `Apps/` | E0, C1 | GPS-free JPEG blobs by default; orientation correct |
+| E2 | App text boxes (system fonts, any script, RTL, `breaks` from TextKit, CoreText `TextShaper` for exports) | `Apps/` | E0, C2 | same line breaks app vs app export vs CLI export |
+| E3 | App PDF import, tiled backgrounds, PDFKit rasterizer | `Apps/` | E0, C3 | 200-page PDF, no memory warnings |
+| E4 | App recording (configurable codec/quality) + playback + ink sync; export sheet "PDF" / "PDF + attachments" | `Apps/` | E0 | interruption test; tested on the user's iPad |
+| E5 | App on-device transcription (segments + word timings/confidence, read-back highlighting) | `Apps/` | E4 | availability matrix on the user's iPad recorded |
+| E6 | App **Settings panel**: recording format, photo privacy, transcription, device-key rewrap modes (add; remove/PQ), storage | `Apps/` | E0 (E7 for storage) | defaults match `docs/attachments.md` §15; each setting tested |
+| E7 | App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days) | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested |
+| F | CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/InkVaultCLI` | A1, B2, C* | end-to-end CLI test |
+| G1 | *Future:* `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob); handwriting→LaTeX later, on device | `Apps/`, `Sources/` | C3, E2 | format §8.2.7 defined; exports embed the rendering |
+| G2 | *Future:* `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments") | `Apps/`, `Sources/` | E4 | format §8.2.7 defined |
+| L | *Future:* app UI localization with String Catalogs, Spanish first; contributions welcome | `Apps/` | — | Spanish catalog complete; contributor guide |
 
 ## Working agreements
 
