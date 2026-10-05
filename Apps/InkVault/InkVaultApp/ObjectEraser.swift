@@ -26,6 +26,8 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
     private let hover = UIHoverGestureRecognizer()
     private let cursor = EraserCursorView()
     private var savedMinimumTouches: Int?
+    /// The scroll view's pan touch types before the eraser took the Pencil.
+    private var savedPanTouchTypes: [NSNumber]?
 
     // One gesture's state.
     private var before: PKDrawing?
@@ -58,6 +60,11 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
     func setActive(_ active: Bool) {
         guard let canvas else { return }
         if active {
+            // The Pencil erases and never scrolls.
+            if savedPanTouchTypes == nil {
+                savedPanTouchTypes = canvas.panGestureRecognizer.allowedTouchTypes
+                canvas.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+            }
             let fingers = Self.fingersDraw(canvas)
             press.allowedTouchTypes = fingers
                 ? [NSNumber(value: UITouch.TouchType.pencil.rawValue), NSNumber(value: UITouch.TouchType.direct.rawValue)]
@@ -70,6 +77,10 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
                 savedMinimumTouches = nil
             }
         } else {
+            if let saved = savedPanTouchTypes {
+                canvas.panGestureRecognizer.allowedTouchTypes = saved
+                savedPanTouchTypes = nil
+            }
             if let saved = savedMinimumTouches {
                 canvas.panGestureRecognizer.minimumNumberOfTouches = saved
                 savedMinimumTouches = nil
