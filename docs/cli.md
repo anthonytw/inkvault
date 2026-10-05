@@ -142,26 +142,47 @@ an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 
 ```
 inkvault import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
+                                   [--no-folder-tags] [--tag T ...]
 ```
 
-Each `PATH` is a `.note` file, an unzipped `.note` package directory, a folder
-searched recursively for `.note` files, or a zip of `.note` files (Notability's
-backup); see `docs/import-notability.md` for the mapping. One row is printed per
-note (status, title, notebook, strokes written, pages with recognised text,
-source) plus a summary line; `-v` lists what was left behind (typed text, PDFs
-and their page count, media, recordings, dashed strokes). A note with no ink
-whose pages are PDF pages (a PDF that was never written on) imports as an
-empty note and gets a `no ink in …` line, since PDF backgrounds are not imported
-yet. A note already in the vault is skipped unless
-`--overwrite`, which replaces its pages. `--notebook` files every note under one
-notebook; `--no-scale` keeps Notability's document units instead of scaling to
-612 pt width. The device id and clock come from `device.json` as for `snapshot`.
+Each `PATH` is a `.note` or `.ntb` file, an unzipped `.note` package
+directory, a folder searched recursively for both, or a zip of them
+(Notability's Google Drive backup; pass **every part** of a backup Drive split
+into several zips in one run); see `docs/import-notability.md` for the
+mapping. All inputs are read before anything is written, so copies of one
+note anywhere in them are resolved together: the newest `.note` is imported,
+copies whose strokes it already has are skipped (`duplicate:`, `older
+version:`, or `superseded:` for an `.ntb` copy, each naming the source that
+was imported), and a copy holding strokes the chosen one lacks is imported as
+a separate note titled `<title> (version modified <date>)` and gets a
+`separate version …` line. An `.ntb` without a `.note` is imported from the
+bundle.
+
+One row is printed per input file (status, title, notebook, strokes written,
+pages with recognised text, source) plus a summary line; `-v` lists what was
+left behind (typed text, PDFs and their page count, media, recordings, dashed
+strokes, strokes with defaulted attributes, shapes or `.ntb` strokes not
+decoded, `.ntb` strokes placed at the page edge). A note with no ink whose
+pages are PDF pages (a PDF that was never written on) imports as an empty
+note and gets a `no ink in …` line, since PDF backgrounds are not imported
+yet. A note already in the vault is skipped unless `--overwrite`, which
+replaces its pages. `--notebook` files every note under one notebook;
+`--no-scale` keeps Notability's document units instead of scaling to 612 pt
+width. Notes are tagged with their Notability folder names (`Research/Daily
+log` → `Research`, `Daily log`, besides Notability's own tags; matched
+case-insensitively) unless `--no-folder-tags`; `--tag T` (repeatable) adds T
+to every imported note. Tags are written as a whole, so `--overwrite` of a
+note that moved folders drops the old folder's tags. The device id and clock
+come from `device.json` as for `snapshot`.
 
 `--dry-run` imports into a throwaway copy of the vault with a throwaway device,
 so the report is exact but neither the vault nor `device.json` is touched.
-`--json` emits `summary` and `notes` (with `status` `imported`, `skipped` or
-`failed`, `reason`, `id`, `dropped`, ...). Exit 1 if any note failed, a path
-does not exist, or no `.note` file was found.
+`--json` emits `summary` (`notes`, `imported`, `skipped`, `failed`,
+`strokes`, `ntb`, `extraVersions`, `dryRun`) and `notes` (with `status`
+`imported`, `skipped` or `failed`, `reason`, `id`, `format` `note`/`ntb`,
+`shapes`, `duplicateOf`, `extraVersion`, `selection`, `dropped`, ...). Exit 1
+if any note failed, a path does not exist, or no `.note` or `.ntb` file was
+found.
 
 ### Search
 
