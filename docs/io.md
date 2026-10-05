@@ -75,21 +75,43 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
 
 Progressive loading: only the small unlocking files (`vault.json`, the
 rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are
-not. After unlock, `ProgressiveLoad` lists each note's files and sorts notes
-into *ready* (all files local: the summary is read at once) and *pending*
-(placeholders). Pending notes appear in the list as "Downloading from
-iCloud…" rows and are requested from iCloud at most 6 notes at a time, the
-note the user selected first; `AppModel.startCloudSync` repeats the pass
-(every second) until nothing is pending and the note set has held still for 3
-passes (iCloud lists a folder's contents gradually, which is why the list
-once stayed blank until a pull to refresh), then stops; 90 s without
-progress ends it with a message. Opening a note, and every browser edit of one
-(rename, tags, move, delete, restore), first lists that note's folder afresh
-and downloads whatever is missing, repeating until a listing shows every
-revision file local (`downloadNote`): a delta must never be written on top
-of a partial log, nor computed from a placeholder's empty summary. Renaming
-a notebook waits until no note is pending. The app also restarts the loop
-when it becomes active again.
+not. As soon as the vault opens (still locked) `AppModel.startCloudSync`
+starts passing over the notes, so they download while the user types the
+key. Each pass (`ProgressiveLoad`) lists each note's files and sorts notes
+into *ready* (all files local: the summary is read at once, once unlocked)
+and *pending* (some file not local). On iPadOS 26 (measured on 26.7.1) a
+file iCloud has not downloaded keeps its real name and is *dataless*:
+`ubiquitousItemDownloadingStatus` is "not downloaded", it allocates no
+blocks, and no `.icloud` stand-in exists; both forms count as pending. A
+note folder that lists no revision file at all is pending too ("not listed
+yet"), never an empty note: every note has at least one revision, and
+iCloud lists a folder's contents after the folder itself. The app asks for
+the folder (`startDownloadingUbiquitousItem` on it) and waits.
+
+Pending notes appear in the list as "Downloading from iCloud…" rows with a
+spinner, and are requested from iCloud at most 16 notes at a time, the
+note the user selected first. A bar under the list shows "Downloading from
+iCloud: n of m notes", a progress bar and "n of m files"
+(`CloudSyncStatus`); it disappears when every note is local. The loop
+passes every second while notes are pending or the note set is still
+changing, then every 15 s for as long as the vault is open, so revisions
+other devices write arrive without a pull to refresh; it restarts when the
+app becomes active and on every reopen. 90 s without progress shows a
+problem line in the bar (not an alert) and the loop keeps trying; the line
+clears when files arrive.
+
+Opening a note, and every browser edit of one (rename, tags, move, delete,
+restore), first lists that note's folder afresh and downloads whatever is
+missing, repeating until a listing shows every revision file local
+(`downloadNote`; the detail pane shows "n of m files" meanwhile): a delta
+must never be written on top of a partial log, nor computed from a
+placeholder's empty summary. The editor's coordinated read checks again,
+before and after loading, that every listed file is local
+(`CloudVault.requireLocal`): a plain read skips `.icloud` stand-ins and an
+unlisted folder reads as a note without pages, which the user would see as
+a blank, editable note. A note that cannot be made local is shown as an
+error with Try Again in the detail pane, never as a blank canvas. Renaming
+a notebook waits until no note is pending.
 
 Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults

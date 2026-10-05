@@ -52,15 +52,59 @@ extension AppModel {
 
 // MARK: - Progressive note loading
 
-extension AppModel {
-    /// How the cloud sync loop ends.
-    private enum SyncEnd { case settled, stalled }
+/// What the note list shows while an iCloud vault syncs: notes and files
+/// that are local out of those listed, and why it stopped, if it did.
+struct CloudSyncStatus: Equatable, Sendable {
+    var notes = 0
+    var readyNotes = 0
+    var files = 0
+    var localFiles = 0
+    /// Notes whose folder iCloud has not listed yet.
+    var unlistedNotes = 0
+    /// Set when nothing arrived for the stall timeout, or iCloud reported an
+    /// error; cleared when files arrive again.
+    var problem: String?
 
+    init(notes: Int = 0, readyNotes: Int = 0, files: Int = 0, localFiles: Int = 0, unlistedNotes: Int = 0,
+         problem: String? = nil) {
+        self.notes = notes
+        self.readyNotes = readyNotes
+        self.files = files
+        self.localFiles = localFiles
+        self.unlistedNotes = unlistedNotes
+        self.problem = problem
+    }
+
+    init(pass: ProgressiveLoad.Pass) {
+        self.init(notes: pass.all.count, readyNotes: pass.ready.count, files: pass.files, localFiles: pass.localFiles,
+                  unlistedNotes: pass.unlisted.count)
+    }
+
+    var pendingNotes: Int { notes - readyNotes }
+    /// Something is still to arrive: the progress bar is shown.
+    var isDownloading: Bool { pendingNotes > 0 }
+    var fractionCompleted: Double { notes == 0 ? 1 : Double(readyNotes) / Double(notes) }
+
+    /// "Downloading from iCloud: 37 of 128 notes".
+    var headline: String {
+        "Downloading from iCloud: \(readyNotes) of \(notes) note\(notes == 1 ? "" : "s")"
+    }
+
+    /// "212 of 277 files", plus the notes not listed yet.
+    var detail: String {
+        var text = "\(localFiles) of \(files) file\(files == 1 ? "" : "s")"
+        if unlistedNotes > 0 { text += ", \(unlistedNotes) note folder\(unlistedNotes == 1 ? "" : "s") not listed yet" }
+        return text
+    }
+}
+
+extension AppModel {
     /// One progressive pass over the notes (`ProgressiveLoad`): summaries of
     /// the notes whose files are local are read and merged into `notes`, the
     /// rest are listed as placeholders (`placeholderNoteIDs`) until their files
     /// arrive. `full` re-reads every ready note (a reload); otherwise only
-    /// notes not yet summarised are read.
+    /// notes not yet summarised are read. While the vault is locked only the
+    /// downloads are requested and the progress updated (nothing can be read).
     ///
     /// - Returns: how many notes are still downloading.
     @discardableResult
@@ -73,8 +117,20 @@ extension AppModel {
         let window = cloudWindow
         let pass = try await offMain { try ProgressiveLoad.pass(vault: url, priority: priority, window: window, hooks: hooks) }
         try ensureCurrent(gen)
+        #if DEBUG
+        NSLog("InkVaultProbe pass all=%d ready=%d pending=%d unlisted=%d files=%d local=%d failures=%d", pass.all.count,
+              pass.ready.count, pass.pending.count, pass.unlisted.count, pass.files, pass.localFiles, pass.failures.count)
+        #endif
+        var status = CloudSyncStatus(pass: pass)
+        status.problem = cloudSync?.problem
+        if let failure = pass.failures.first?.value { status.problem = "iCloud Drive: \(failure)" }
+        cloudSync = status
+        guard vault.canRead else {
+            pendingNoteIDs = Set(pass.pending)
+            return pass.pending.count
+        }
         let have = Set(notes.map(\.id)).subtracting(placeholderNoteIDs)
-        let wasPending = pendingNoteIDs
+        let wasPending = loadedPendingIDs
         let toRead = full ? pass.ready : pass.ready.filter { !have.contains($0) || wasPending.contains($0) }
         let coordinate = coordinationURL
         let read = try await offMain {
@@ -94,50 +150,67 @@ extension AppModel {
         }
         for id in pass.ready { placeholders.remove(id) }
         notes = byID.values.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
+        // Published together, so a note is never "not pending" while still a placeholder.
         placeholderNoteIDs = placeholders
         pendingNoteIDs = Set(pass.pending)
+        loadedPendingIDs = Set(pass.pending)
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
-        if let failure = pass.failures.first?.value, cloudFailure != failure { cloudFailure = failure }
         return pass.pending.count
     }
 
-    /// Keeps passing (`loadNotes`) until no note is pending and the note set
-    /// has held still for `cloudSettlePasses` passes (iCloud lists folder
-    /// contents gradually, so one pass can miss notes), or until nothing has
-    /// arrived for `cloudStallTimeout`. Replaces a loop already running.
+    /// Keeps the open iCloud vault in step: passes (`loadNotes`) every
+    /// `cloudPollInterval` while notes are downloading or the note set is
+    /// still changing (iCloud lists folder contents gradually, so one pass
+    /// can miss notes), then every `cloudIdleInterval` for as long as the
+    /// vault is open, so revisions other devices write arrive without a pull
+    /// to refresh. Nothing arriving for `cloudStallTimeout` sets
+    /// `cloudSync.problem` (shown in the list) and slows to the idle pace;
+    /// the problem clears when files arrive again. Starts when the vault
+    /// opens (still locked: downloads are requested before the key is
+    /// entered) and is restarted by unlocking, reloading and the app becoming
+    /// active. Replaces a loop already running.
     func startCloudSync() {
         guard isCloudVault else { return }
         cloudSyncTask?.cancel()
         let gen = generation
         cloudSyncTask = Task { [weak self] in
             var quiet = 0
-            var lastPending = Int.max
+            var lastLocal = -1
             var lastKnown = -1
             let clock = ContinuousClock()
             var lastChange = clock.now
             while !Task.isCancelled {
                 guard let self, self.generation == gen else { return }
+                var interval = self.cloudPollInterval
                 do {
                     let pending = try await self.loadNotes(full: false)
-                    let known = self.notes.count
-                    if pending != lastPending || known != lastKnown { lastChange = clock.now }
-                    quiet = (pending == 0 && known == lastKnown) ? quiet + 1 : 0
-                    lastPending = pending
-                    lastKnown = known
-                    if quiet >= self.cloudSettlePasses { return }
-                    if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
-                        self.errorMessage = "iCloud Drive has not delivered \(pending) note\(pending == 1 ? "" : "s") for "
-                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this iPad is online and "
-                            + "signed in to iCloud Drive; pull down on the list to try again."
-                        return
+                    let known = self.cloudSync?.notes ?? 0
+                    let local = self.cloudSync?.localFiles ?? 0
+                    if local != lastLocal || known != lastKnown {
+                        lastChange = clock.now
+                        if lastLocal >= 0, self.cloudSync?.problem != nil, pending > 0 || local > lastLocal {
+                            self.cloudSync?.problem = nil   // moving again
+                        }
                     }
-                    try await Task.sleep(for: self.cloudPollInterval)
+                    quiet = (pending == 0 && known == lastKnown) ? quiet + 1 : 0
+                    lastLocal = local
+                    lastKnown = known
+                    if pending == 0 { self.cloudSync?.problem = nil }
+                    if quiet >= self.cloudSettlePasses {
+                        interval = self.cloudIdleInterval
+                    } else if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
+                        self.cloudSync?.problem = "iCloud Drive has not delivered \(pending) note\(pending == 1 ? "" : "s") for "
+                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this iPad is online and "
+                            + "signed in to iCloud Drive. InkVault keeps trying."
+                        interval = self.cloudIdleInterval
+                    }
                 } catch is CancellationError {
                     return
                 } catch {
-                    self.errorMessage = "\(error)"
-                    return
+                    self.cloudSync?.problem = "\(error)"
+                    interval = self.cloudIdleInterval
                 }
+                do { try await Task.sleep(for: interval) } catch { return }
             }
         }
     }
@@ -147,7 +220,8 @@ extension AppModel {
         cloudSyncTask = nil
         pendingNoteIDs = []
         placeholderNoteIDs = []
-        cloudFailure = nil
+        loadedPendingIDs = []
+        cloudSync = nil
     }
 
     /// Makes every revision file of note `id` local before it is opened on
@@ -159,36 +233,62 @@ extension AppModel {
     /// added a revision since the last pass): the note's folder is listed
     /// fresh, the missing files are fetched ahead of the rest of the vault,
     /// and the folder is listed again until a listing shows nothing missing.
-    /// The note's summary is then re-read. No-op outside iCloud Drive.
+    /// A folder that lists no file at all is not an empty note (every note
+    /// has a revision) but one iCloud has not listed yet: it is waited for
+    /// too. The note's summary is then re-read. No-op outside iCloud Drive.
     ///
     /// - Throws: `CloudVault.CloudError` on a stall or download error,
-    ///   `ModelError.noteNotDownloaded` when new files keep appearing,
-    ///   `CancellationError` when the vault closed meanwhile.
+    ///   `ModelError.noteNotDownloaded` when new files keep appearing or the
+    ///   folder stays unlisted, `CancellationError` when the vault closed meanwhile.
     func downloadNote(_ id: UUID) async throws {
         guard isCloudVault, let url = vaultURL else { return }
         let gen = generation
         let hooks = cloudHooks
         let stall = cloudStallTimeout
-        var fetched = pendingNoteIDs.contains(id)
-        var settled = false
-        for _ in 0..<Self.noteListingRounds {
-            let missing = try await offMain {
-                try CloudScan.noteItems(inVault: url, id: id).filter { !hooks.state($0).isSettled }
+        let poll = cloudPollInterval
+        var fetched = pendingNoteIDs.contains(id) || placeholderNoteIDs.contains(id)
+        var rounds = 0
+        let clock = ContinuousClock()
+        let started = clock.now
+        while true {
+            let items = try await offMain { try CloudScan.noteItems(inVault: url, id: id) }
+            try ensureCurrent(gen)
+            let missing = items.filter { !hooks.state($0).isSettled }
+            #if DEBUG
+            NSLog("InkVaultProbe downloadNote %@ listed=%d missing=%d", String(id.uuidString.prefix(8)), items.count, missing.count)
+            #endif
+            if !items.isEmpty && missing.isEmpty { break }
+            fetched = true
+            if items.isEmpty {
+                // Not listed yet: ask for the folder and look again.
+                guard clock.now - started < stall else { throw ModelError.noteNotDownloaded }
+                let folder = CloudScan.Item(url: CloudScan.noteFolder(inVault: url, id: id), placeholder: false)
+                try? hooks.request(folder)
+                try await Task.sleep(for: poll)
+                try ensureCurrent(gen)
+                continue
+            }
+            rounds += 1
+            guard rounds <= Self.noteListingRounds else { throw ModelError.noteNotDownloaded }
+            noteDownload = (id, CloudProgress(total: missing.count, downloaded: 0))
+            defer { if noteDownload?.id == id { noteDownload = nil } }
+            try await CloudVault.download(items: missing, hooks: hooks, stallTimeout: stall, pollInterval: poll) { progress in
+                await self.showNoteDownload(id, progress)
             }
             try ensureCurrent(gen)
-            if missing.isEmpty { settled = true; break }
-            fetched = true
-            try await CloudVault.download(items: missing, hooks: hooks, stallTimeout: stall) { _ in }
-            try ensureCurrent(gen)
         }
-        guard settled else { throw ModelError.noteNotDownloaded }
         guard fetched else { return }
         try await refresh([id])
         pendingNoteIDs.remove(id)
         placeholderNoteIDs.remove(id)
+        loadedPendingIDs.remove(id)
     }
 
-    /// How often `downloadNote` lists a note's folder before giving up on it
-    /// settling.
+    private func showNoteDownload(_ id: UUID, _ progress: CloudProgress) {
+        if noteDownload?.id == id { noteDownload = (id, progress) }
+    }
+
+    /// How often `downloadNote` downloads a note's newly listed files before
+    /// giving up on it settling.
     static let noteListingRounds = 5
 }

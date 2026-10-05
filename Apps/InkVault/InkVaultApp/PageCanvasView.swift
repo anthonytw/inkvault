@@ -34,6 +34,7 @@ struct PageCanvasView: UIViewRepresentable {
             host.canvas.drawing = editor.drawing(for: pageID)
             host.canvas.undoManager?.removeAllActions()   // undo must not cross pages or notes
             c.isLoading = false
+            host.inkDidChange()
             host.scrollToTop()
             #if DEBUG
             if DebugLaunch.isActive {
@@ -44,6 +45,14 @@ struct PageCanvasView: UIViewRepresentable {
             #endif
         }
         host.isReadOnly = editor.isReadOnly
+        let index = editor.pages.firstIndex { $0.id == pageID }
+        let isLast = index == editor.pages.count - 1
+        host.footer = pageSize.infinite ? .none
+            : (isLast ? (editor.isReadOnly ? .none : .addPage) : .nextPage)
+        host.footerAction = { [weak editor] in
+            guard let editor else { return }
+            if isLast { editor.addPage() } else if let index { editor.selectPage(index + 1) }
+        }
         host.paletteCompact = paletteCompact
         host.paletteVisible = paletteVisible
         host.apply(paper: paper, pageSize: pageSize)
@@ -66,6 +75,7 @@ struct PageCanvasView: UIViewRepresentable {
             if let type = EraserPreference.eraserType(of: canvasView.tool) { EraserPreference.save(type) }
             guard !isLoading, let editor, let pageID else { return }
             editor.drawingDidChange(pageID: pageID, drawing: canvasView.drawing, tool: canvasView.tool)
+            host?.inkDidChange()
         }
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
@@ -83,6 +93,16 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     private var pageSize = PageSize.letter
     private var paper = Paper.blank
     private var fittedWidth: CGFloat = 0
+    /// Bottom of the ink on the page (page points), nil without ink.
+    private(set) var inkMaxY: Double?
+    /// The Add Page / Next Page button below a finite page.
+    let footerButton = UIButton(configuration: .bordered())
+
+    /// What the button below a finite page does (`PageExtent`).
+    var footer = PageExtent.Footer.none {
+        didSet { if footer != oldValue { updateFooter() } }
+    }
+    var footerAction: (() -> Void)?
 
     /// The palette is shown (the toolbar button) unless the note is read-only.
     var paletteVisible = true {
@@ -113,6 +133,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         canvas.alwaysBounceVertical = true
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
+        footerButton.isHidden = true
+        footerButton.addAction(UIAction { [weak self] _ in self?.footerAction?() }, for: .primaryActionTriggered)
+        canvas.addSubview(footerButton)
         addSubview(canvas)
         toolPicker.addObserver(canvas)
         toolPicker.addObserver(self)
@@ -178,7 +201,40 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     func apply(paper: Paper, pageSize: PageSize) {
         self.paper = paper
         self.pageSize = Self.displayable(pageSize)
+        if inkMaxY == nil { inkMaxY = Self.inkBottom(canvas.drawing) }
         fitWidth(force: true)
+    }
+
+    /// The drawing changed (loaded, drawn on, erased): the scrollable extent follows its ink.
+    func inkDidChange() {
+        inkMaxY = Self.inkBottom(canvas.drawing)
+        zoomChanged()
+    }
+
+    private static func inkBottom(_ drawing: PKDrawing) -> Double? {
+        let bounds = drawing.bounds
+        return bounds.isNull || bounds.isEmpty ? nil : Double(bounds.maxY)
+    }
+
+    private func updateFooter() {
+        var config = UIButton.Configuration.bordered()
+        switch footer {
+        case .none:
+            footerButton.isHidden = true
+        case .addPage:
+            config.title = "Add Page"
+            config.image = UIImage(systemName: "doc.badge.plus")
+            footerButton.isHidden = false
+        case .nextPage:
+            config.title = "Next Page"
+            config.image = UIImage(systemName: "chevron.down")
+            footerButton.isHidden = false
+        }
+        config.imagePadding = 8
+        config.buttonSize = .large
+        footerButton.configuration = config
+        footerButton.accessibilityIdentifier = "pageFooter"
+        zoomChanged()
     }
 
     /// `size` with width and height clamped to 1 ... `RenderLimits.maxExtent`
@@ -212,15 +268,53 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         zoomChanged()
     }
 
-    /// Content size and paper follow the zoom. An infinite page always
-    /// scrolls at least a screen beyond its stored height.
+    /// Content size and paper follow the zoom (`PageExtent`): an infinite
+    /// page scrolls a screen beyond its ink and its stored height; a finite
+    /// page ends with room for the Add Page / Next Page button.
     func zoomChanged() {
         let z = canvas.zoomScale
-        var height = CGFloat(pageSize.height)
-        if pageSize.infinite, fittedWidth > 0 { height = max(height, bounds.height / fittedWidth) }
-        let size = CGSize(width: CGFloat(pageSize.width), height: height)
+        guard z > 0 else { return }
+        let height = PageExtent.scrollHeight(pageSize: pageSize, inkMaxY: inkMaxY,
+                                             viewportHeight: Double(bounds.height / z),
+                                             footerHeight: footer == .none ? 0 : Double(PageExtent.footerScreenHeight / z))
+        let paperHeight = pageSize.infinite ? height : pageSize.height
+        let size = CGSize(width: CGFloat(pageSize.width), height: CGFloat(paperHeight))
         paperView.configure(paper: paper, size: size)
         paperView.setZoom(z)
-        canvas.contentSize = CGSize(width: size.width * z, height: size.height * z)
+        canvas.contentSize = CGSize(width: size.width * z, height: CGFloat(height) * z)
+        if footer != .none {
+            footerButton.sizeToFit()
+            let b = footerButton.bounds.size
+            footerButton.frame = CGRect(x: (canvas.contentSize.width - b.width) / 2,
+                                        y: CGFloat(pageSize.height) * z + (PageExtent.footerScreenHeight - b.height) / 2,
+                                        width: b.width, height: b.height)
+        }
+    }
+}
+
+/// How far a page scrolls.
+enum PageExtent {
+    /// The control below a finite page.
+    enum Footer: Equatable { case none, addPage, nextPage }
+
+    /// Screen points below a finite page for its footer button.
+    static let footerScreenHeight: CGFloat = 120
+
+    /// The scrollable height of a page in page points.
+    ///
+    /// - Infinite pages always scroll at least one screen (`viewportHeight`,
+    ///   in page points at the current zoom) below both the ink and the
+    ///   stored height, so there is always room to keep writing; the stored
+    ///   height grows as the user writes (`NoteEditor.growPage`) and this
+    ///   follows it.
+    /// - Finite pages end at their height plus `footerHeight` (the Add Page /
+    ///   Next Page button), and never less than a screen.
+    static func scrollHeight(pageSize: PageSize, inkMaxY: Double?, viewportHeight: Double, footerHeight: Double = 0) -> Double {
+        let screen = viewportHeight.isFinite ? max(viewportHeight, 0) : 0
+        if pageSize.infinite {
+            let ink = inkMaxY.flatMap { $0.isFinite ? $0 : nil } ?? 0
+            return max(pageSize.height, ink) + screen
+        }
+        return max(pageSize.height + max(footerHeight, 0), screen)
     }
 }
