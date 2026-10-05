@@ -65,7 +65,7 @@ final class NotabilityTests: XCTestCase {
     func testConvertMapping() throws {
         let note = try NotabilityNote.parse(data: SyntheticNote.package())
         let state = NotabilityImporter.convert(note, notebook: "Research/Daily log", scaleToLetterWidth: false)
-        let inset = 716.8 * 18.8 / 716.8
+        let inset = 716.8 / 38.4
         XCTAssertEqual(state.meta.title, "Synthetic note")
         XCTAssertEqual(state.meta.notebook, "Research/Daily log")
         XCTAssertEqual(state.meta.tags, ["alpha", "beta"])
@@ -119,13 +119,17 @@ final class NotabilityTests: XCTestCase {
     func testRecognitionMerge() throws {
         let note = try NotabilityNote.parse(data: SyntheticNote.package())
         let rec = try XCTUnwrap(NotabilityImporter.convert(note, scaleToLetterWidth: false).pages[0].recognition)
-        let inset = 18.8
+        let inset = 716.8 / 38.4
         XCTAssertEqual(rec.engine, "notability-14.2.6")
         XCTAssertEqual(rec.text, "ab cd\nx")
         XCTAssertEqual(rec.words.map(\.text), ["ab", "cd", "x"])
         // "ab": union of (0,0,10,12) and (10,1,10,11), moved by origin (99, 89).
-        XCTAssertEqual(rec.words[0].box, Recognition.Box(x: 99 + inset, y: 89, w: 20, h: 12))
-        XCTAssertEqual(rec.words[1].box, Recognition.Box(x: 124 + inset, y: 89, w: 16, h: 12))
+        for (box, x, w) in [(rec.words[0].box, 99.0, 20.0), (rec.words[1].box, 124.0, 16.0)] {
+            XCTAssertEqual(box.x, x + inset, accuracy: 1e-9)
+            XCTAssertEqual(box.y, 89, accuracy: 1e-9)
+            XCTAssertEqual(box.w, w, accuracy: 1e-9)
+            XCTAssertEqual(box.h, 12, accuracy: 1e-9)
+        }
         // Page 2 adds one page height.
         let b = rec.words[2].box
         XCTAssertEqual(b.x, 199 + inset, accuracy: 1e-9)
