@@ -120,6 +120,10 @@ public enum RenderLimits {
     public static let samplesPerPoint = 64
     /// See `samplesPerPoint`.
     public static let baseSamples = 1024
+    /// Widest nib drawn, in points (after the stroke's transform): wider ones
+    /// are drawn this wide. Real tools are well under 100 pt; a nib as wide
+    /// as the page would make every band rasterize every outline polygon.
+    public static let maxNibWidth = 1000.0
     /// Most outline points (polygon vertices) one page may produce; more throws
     /// `RenderError.tooComplex`. A dense page of handwriting needs well under
     /// a tenth of this.

@@ -70,7 +70,7 @@ struct PreparedPage {
                 lo = min(lo, q.y); hi = max(hi, q.y)
                 radius = max(radius, p.w.magnitude, p.h.magnitude)
             }
-            let pad = radius * xf.meanScale / 2 + 1
+            let pad = min(radius * xf.meanScale, RenderLimits.maxNibWidth) / 2 + 1   // drawn no wider (StrokeOutline)
             guard pad.isFinite, pad <= maxE else { throw RenderError.extentTooLarge(pad) }
             let commands = StrokeOutline.commands(for: stroke, tolerance: options.tolerance)
             outlinePoints += commands.reduce(0) { $0 + $1.pointCount }

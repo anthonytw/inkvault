@@ -60,4 +60,31 @@ final class UntrustedRenderTests: XCTestCase {
                                                                                   breakHeight: 792))
         XCTAssertEqual(try PreparedPage(page: Page(order: "a"), meta: normal, options: RenderOptions()).drawnPaper.kind, .dot)
     }
+
+    /// 510 bytes (found by the long fuzz run): a two-point pencil stroke whose
+    /// nib grows to 199 999 pt on a 300 pt wide infinite page. Every outline
+    /// polygon covered every one of the 260 bands, so each band rasterized all
+    /// of them: over a minute. Nibs are now drawn at most 1 000 pt wide.
+    func testHugeNibIsClampedNotRasterizedEverywhere() throws {
+        let stroke = T.stroke([StrokePoint(x: -1, y: 1000, w: 0, h: 1000, o: 1e300),
+                               StrokePoint(x: 199_999, y: 0, w: 199_999, h: 1000, o: 0.5)], tool: .pencil, width: 1)
+        let note = T.note(pages: [[stroke]], meta: T.meta(paper: .blank, size: PageSize(width: 300, height: 400, infinite: true)))
+        let prepared = try PreparedPage(page: note.pages[0], meta: note.meta, options: RenderOptions())
+        XCTAssertLessThanOrEqual(prepared.extent, 1000 + RenderLimits.maxNibWidth)
+        for c in prepared.allStrokeCommands() {
+            guard case .path(let subs) = c.primitive else { continue }
+            for sp in subs {
+                let ys = sp.points.map(\.y)
+                XCTAssertLessThanOrEqual((ys.max() ?? 0) - (ys.min() ?? 0), 2 * RenderLimits.maxNibWidth + 400)
+            }
+        }
+        let t0 = Date()
+        _ = try PNGWriter.render(note: note, png: PNGOptions(scale: 0.5, maxPixels: 1_000_000))
+        _ = try PDFWriter.render(note: note)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 20)
+        // A normal marker is unaffected.
+        let marker = T.stroke([T.pt(10, 10, w: 30), T.pt(200, 10, w: 30)], tool: .marker, width: 30)
+        let r = StrokeOutline.ribbon(StrokeSampler.samples(for: marker), fallbackWidth: 30)
+        XCTAssertEqual(r.flatMap(\.points).map(\.y).max() ?? 0, 25, accuracy: 0.01)
+    }
 }
