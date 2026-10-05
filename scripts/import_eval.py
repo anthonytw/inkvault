@@ -321,7 +321,7 @@ def oracle_flags(meta: dict, res: dict) -> list[str]:
     return flags
 
 
-INFO_FLAGS = {"stale-thumbnails", "has-media", "pdf-template"}  # context, not failures
+INFO_FLAGS = {"stale-thumbnails", "has-media", "pdf-template", "low-res-thumbnail-only"}  # context, not failures
 
 
 def categorize(row: dict, flags: list[str]) -> str:
@@ -334,6 +334,12 @@ def categorize(row: dict, flags: list[str]) -> str:
         return "canvas conversion"
     if "thumbnails-all-blank" in failing:
         return "stale thumbnail"
+    if "thumbnail-content-not-imported" in failing and row["strokesOnPage1"] == 0 and row["pdfPages"]:
+        return "PDF page raster differs (no ink on page 1)"
+    o = row.get("oracle") or {}
+    if set(failing) <= {"oracle-bbox"} and (o.get("f1") or 0) >= 0.95 and (o.get("chamfer") or 9) <= 0.5:
+        # Shapes agree; one faint stroke end sits on either side of the mask threshold.
+        return "measurement: faint ink at the mask threshold"
     if "has-media" in flags:
         return "unsupported: images"
     if "pdf-template" in flags:

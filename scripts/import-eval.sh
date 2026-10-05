@@ -24,11 +24,13 @@ fi
 samples="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 out="${2:-data/eval}"
 mkdir -p "$out"
-if ! git check-ignore -q "$out"; then
+out="$(cd "$out" && pwd)"
+# Inside any git work tree (this one, or the main checkout's data/ from a
+# worktree) the directory must be ignored there.
+if git -C "$out" rev-parse --show-toplevel > /dev/null 2>&1 && ! git -C "$out" check-ignore -q "$out"; then
   echo "error: $out is not git-ignored; the evaluation writes data derived from personal notes" >&2
   exit 2
 fi
-out="$(cd "$out" && pwd)"
 work="$out/work"
 
 echo "== stage 1: import into a scratch vault, render page 1 at every thumbnail size" >&2

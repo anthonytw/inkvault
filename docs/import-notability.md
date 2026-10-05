@@ -142,7 +142,7 @@ ink bounding-box edge off by > 6 pt, every thumbnail blank, or the thumbnail
 showing content where we have no ink. Canvas, per band: F1 < 0.90, ink ratio
 outside 0.75–1.33 (as `CanvasHostRenderingTests`), a bounding-box edge off by
 > 3 pt, or a scroll position that does not reach the band. Informational, not
-failures: `stale-thumbnails`, `has-media`, `pdf-template`. Each flagged note
+failures: `stale-thumbnails`, `has-media`, `pdf-template`, `low-res-thumbnail-only` (judged by darkness correlation ≥ 0.6 instead). Each flagged note
 gets a first-guess root cause (canvas conversion, stale thumbnail,
 unsupported images or PDF template paper, else importer geometry) that the
 images confirm or correct.
