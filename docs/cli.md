@@ -378,8 +378,9 @@ prints `No matches.` (an empty list with `--json`) and exits 0.
 ### Export
 
 ```
-inkvault export (ID|TITLE | --all) --format pdf|svg|png|json --out PATH
+inkvault export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
+                [--notebook NAME] [--images none|png] [--clean]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -401,6 +402,10 @@ inkvault export (ID|TITLE | --all) --format pdf|svg|png|json --out PATH
   transparent.
 - `json`: the reconstructed note (`NoteState`, `docs/format.md` §6).
 
+- `markdown` and `html`: a folder tree, see "Markdown and HTML exports" below.
+  `--notebook NAME` (with `--all`, any format) keeps only notes in that
+  notebook or below it (whole segments, case-sensitive, `NotebookPath`).
+
 File names are the sanitised title plus the first 8 characters of the note id
 (`Physics-Week-3-0d1c6a1e.pdf`). `--out` is a directory (created if needed),
 except that a single note's pdf/json goes to the file when `--out` ends in
@@ -408,6 +413,71 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
 written is printed.
+
+#### Markdown and HTML exports
+
+> **These formats write your notes as PLAINTEXT.** The vault is end-to-end
+> encrypted; `--format markdown|html` decrypts it into ordinary files (text,
+> PDF, PNG, SVG) that anyone with access to the folder can read, and that
+> cloud-sync or backup tools will copy. Choose the output folder accordingly
+> (an encrypted volume, not a synced public folder). Nothing is encrypted again.
+
+`--out` is always a directory. Notebooks mirror as folders: the notebook
+`School/Math` (`format.md` §5.4) is `School/Math/`; each segment is sanitised
+like a file name (`ExportName.component`) and names that differ only by case
+share one folder. Notes without a notebook sit in the root. File names are
+`ExportName.stem` (title + 8 id characters), so two notes with the same title
+never collide; for markdown `[ ] # ^` in the stem also become `-` (they break
+Obsidian wikilinks). A segment or stem is at most 120 UTF-8 bytes (file names are
+limited in bytes, not characters); a notebook folder named like a Windows device
+(`CON`, `NUL`, `COM1`, ...) or like an index file the export writes (`README.md`,
+`index.html`) gets a `_` appended. The `.inkvault-export-<format>.json` manifest is
+not trusted: entries that would leave `--out` are ignored, so a doctored one in a
+shared folder cannot make an export write or `--clean` delete elsewhere.
+
+`--format markdown` writes, per note:
+
+- `<stem>.md`: YAML front matter, then the PDF, then one section per page that
+  has an image or recognised text. Front matter keys: `title`, `id`, `created`,
+  `modified` (UTC, `...Z`; `modified` is the newest revision's wall time),
+  `tags` (a list; `[]` when none; Obsidian-safe: `#` dropped, whitespace
+  becomes `-`, case-insensitive duplicates merged), `notebook` (canonical
+  path, omitted when none), `favorite` (only when true), `pages`, `source`
+  (`inkvault:<vault id>`). Every string is a double-quoted YAML scalar with
+  `"` `\` newlines, control characters and U+0085/U+2028/U+2029 escaped; other
+  Unicode is kept as is.
+- `<stem>.pdf` (the PDF writer), embedded as `![[<stem>.pdf]]` and linked as a
+  standard Markdown link.
+- With `--images png`: `<stem>-assets/p001.png`, ... (the PNG writer, `--dpi`
+  and `--no-paper` apply; a page that spans several images adds
+  `p001-2.png`, ...), embedded as `![Page N](...)` under `## Page N`.
+- Recognised text (`format.md` §5.5), when a page has it, under that page as
+  `Machine-recognized text (engine ..., may contain errors):` followed by a
+  fenced `text` block, so it stays literal and Obsidian or `grep` finds it.
+- `README.md` in the root and every folder: sub-notebooks and notes (title,
+  pages, modified, tags). These list every note the output folder has been
+  exported with, not only this run's.
+
+`--format html` writes one self-contained `<stem>.html` per note (inline SVG
+pages from the SVG writer; light and dark CSS; title, notebook, dates and
+tags; a link back to the index) and `index.html`: notes grouped by notebook
+and a search box filtering as you type over title, notebook, tags and
+recognised text (a few lines of inline script; the page works without it,
+unfiltered). Recognised words are also laid over the ink as an invisible
+selectable SVG text layer, and each page's text is listed below it in a
+collapsed "Machine-recognized text" block. There are no external resources:
+no scripts, fonts, stylesheets or images are fetched, and the file is
+well-formed XML as well as HTML.
+
+**Re-export.** Each file is rewritten only if its content would change
+(`Wrote ...` lists those; the last line counts written and unchanged files), so
+re-running is cheap for sync tools and keeps timestamps. The export records
+what it wrote in `.inkvault-export-<format>.json` in `--out`. Renamed, moved or
+deleted notes leave their old files until `--clean` (needs `--all`): it removes
+files recorded there that this run did not produce (restricted to the
+`--notebook` filter, if any), and the folders that leaves empty. It never
+touches files it did not write. A note that fails to export keeps its old files.
+`--json` lists `note`, `files` and `changed` per note.
 
 ### Recover
 
