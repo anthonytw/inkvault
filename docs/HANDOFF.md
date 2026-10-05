@@ -215,7 +215,9 @@ Next, in order:
    history browser UI, remote changes merged into an open canvas, note list
    counts refresh, snapshots written by the app.
 4. Attachments implementation: ~20 parallel tasks per `docs/attachments.md`
-   after #22 merges (batches of 3–4 cloud sessions).
+   §14 after #22 merges (batches of 3–4 cloud sessions). Start with task A0
+   (model types), then run the rest of `docs/plan.md` "Attachments" in
+   parallel; the settings panel and unused-attachments index are E6/E7 there.
 5. Phase 2 Mac (menus, keyboard, multi-window, drag-out export), then App
    Store submission (privacy policy page, listing, screenshots; #26 drafts).
 6. `/ultrareview` before the first public release.
