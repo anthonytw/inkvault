@@ -57,7 +57,7 @@ let package = Package(
         .testTarget(name: "InkVaultTests", dependencies: ["InkVault", "FuzzSupport"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "InkRenderTests", dependencies: ["InkRender", "FuzzSupport"],
-                    exclude: ["generate_sample_note.py"],
+                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "InkImportTests",
                     dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib", "FuzzSupport"]),
