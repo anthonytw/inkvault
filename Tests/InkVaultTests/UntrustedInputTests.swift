@@ -1,5 +1,6 @@
 import Age
 import Foundation
+import FuzzSupport
 import XCTest
 @testable import InkVault
 
@@ -121,5 +122,89 @@ final class UntrustedInputTests: VaultTestCase {
         let big = Stroke(ink: Ink(tool: .pen, color: .black, width: 1e306), points: [StrokePoint(x: 1e306, y: -1e306, w: 1, h: 1)])
         let decoded = try InkJSON.decoder().decode(Stroke.self, from: InkJSON.encoder().encode(big))
         XCTAssertEqual(decoded.points[0].x, 1e306)
+    }
+
+    /// A snapshot listing 100 000 `extra` seqs plus 500 deltas: restore points
+    /// re-merged every snapshot and scanned every extra with a linear
+    /// `covers` per point (cubic: 203 s for only 10 000 extras and 100 deltas).
+    /// `covers` is now a binary search and `Completeness` one sweep.
+    func testHistoryOfHugeIncludedIsFast() throws {
+        var log = LogBuilder()
+        let page = UUID()
+        let first = log.delta(devA, 0, [.addPage(Page(id: page, order: "a"))])
+        let strokes = (0..<2000).map { i in
+            Stroke(id: UUID(), ink: Ink(tool: .pen, color: .black, width: 1), points: [StrokePoint(x: 1, y: 2, w: 1, h: 1)],
+                   origin: "17596320000000000-bbbbbbbb-\(2 * i + 200_010)-0")
+        }
+        let snap = Revision(noteId: testNote, device: devC, seq: 1, hlc: HLC(millis: baseMillis + 5, counter: 0)!,
+                            wall: wallAt(baseMillis + 5), app: "x",
+                            body: .snapshot(included: Included([devB: .init(upTo: 1, extra: Array(stride(from: 3, to: 200_003, by: 2))),
+                                                                devA: .init(upTo: 1)]),
+                                            state: NoteState(meta: NoteMeta(created: wallAt(0)),
+                                                             pages: [Page(id: page, order: "a", strokes: strokes)])))
+        let deltas = (0..<500).map { i in log.delta(devA, Int64(10 + i), [.setMeta(.title("t\(i)"))]) }
+        let t0 = Date()
+        let points = NoteHistory.restorePoints([first, snap] + deltas)
+        _ = try NoteReducer.reconstruct([first, snap] + deltas)
+        XCTAssertEqual(points.count, 502)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 20)
+    }
+
+    /// The one-sweep `Completeness` agrees with the per-point definition it
+    /// replaced, on adversarial logs with revisions dropped (compacted) and
+    /// some marked unreadable.
+    func testCompletenessMatchesReference() throws {
+        var rng = FuzzRNG(seed: 99)
+        for _ in 0..<300 {
+            var revs = InkVaultFuzzTests.adversarialLog(&rng)
+            // Unique (device, seq), as a vault directory holds them.
+            var seen = Set<String>()
+            revs = revs.filter { seen.insert("\($0.device)-\($0.seq)").inserted }
+            var kept: [Revision] = [], unreadable: [RevisionName] = []
+            for r in revs {
+                switch rng.below(5) {
+                case 0: continue                       // compacted away
+                case 1: unreadable.append(r.name)
+                default: kept.append(r)
+                }
+            }
+            let points = kept.map(\.name).sorted()
+            let fast = Completeness(kept, unreadable: unreadable).isComplete(at: points)
+            let slow = points.map { Self.referenceIsComplete(kept, unreadable: unreadable, at: $0) }
+            XCTAssertEqual(fast, slow, "\(revs.map(\.name))")
+        }
+    }
+
+    /// The definition `Completeness` implemented before it became a sweep.
+    static func referenceIsComplete(_ revisions: [Revision], unreadable: [RevisionName], at point: RevisionName) -> Bool {
+        let listed = revisions.map(\.name) + unreadable
+        var present: [DeviceID: Set<Int>] = [:]
+        for n in listed { present[n.device, default: []].insert(n.seq) }
+        var snapshots: [(name: RevisionName, included: Included)] = []
+        var covered = Included()
+        for r in revisions {
+            guard case .snapshot(let included, _) = r.body else { continue }
+            snapshots.append((r.name, included))
+            covered = covered.union(included)
+        }
+        if unreadable.contains(where: { $0 <= point || $0.kind == .snapshot }) { return false }
+        let before = snapshots.filter { $0.name <= point }.reduce(Included()) { $0.union($1.included) }
+        var firstAtOrAfter: [DeviceID: Int] = [:]
+        for n in listed where n >= point { firstAtOrAfter[n.device] = min(firstAtOrAfter[n.device] ?? .max, n.seq) }
+        for (device, all) in covered.entries {
+            let have = present[device] ?? []
+            let known = before.entries[device] ?? Included.Entry()
+            let limit = firstAtOrAfter[device] ?? .max
+            func needs(_ seq: Int) -> Bool { seq < limit && !have.contains(seq) && !known.covers(seq) }
+            if all.extra.contains(where: needs) { return false }
+            let top = min(all.upTo, limit - 1)
+            if known.upTo < top {
+                let length = top - known.upTo
+                let filled = have.count { $0 > known.upTo && $0 <= top }
+                    + known.extra.count { $0 > known.upTo && $0 <= top && !have.contains($0) }
+                if filled < length { return false }
+            }
+        }
+        return true
     }
 }

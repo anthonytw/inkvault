@@ -113,10 +113,9 @@ public enum NoteHistory {
     /// - Parameter unreadable: listed revisions that could not be read; any
     ///   point at or after one of them is incomplete.
     public static func restorePoints(_ revisions: [Revision], unreadable: [RevisionName] = []) -> [RestorePoint] {
-        let check = Completeness(revisions, unreadable: unreadable)
-        return revisions.sorted { $0.name < $1.name }.map { r in
-            RestorePoint(name: r.name, wall: r.wall, app: r.app, complete: check.isComplete(at: r.name))
-        }
+        let sorted = revisions.sorted { $0.name < $1.name }
+        let complete = Completeness(revisions, unreadable: unreadable).isComplete(at: sorted.map(\.name))
+        return zip(sorted, complete).map { r, ok in RestorePoint(name: r.name, wall: r.wall, app: r.app, complete: ok) }
     }
 
     /// The note as of restore point `point`: the merge of every revision
@@ -129,7 +128,7 @@ public enum NoteHistory {
         guard revisions.contains(where: { $0.name == point }) else {
             throw HistoryError.unknownRevision(point.filename)
         }
-        guard Completeness(revisions, unreadable: unreadable).isComplete(at: point) else {
+        guard Completeness(revisions, unreadable: unreadable).isComplete(at: [point]) == [true] else {
             throw HistoryError.incompleteHistory(point)
         }
         return try NoteReducer.reconstruct(revisions.filter { $0.name <= point })
@@ -260,6 +259,11 @@ public enum NoteHistory {
 /// An unreadable snapshot may be the only record of revisions compacted
 /// away, so it makes every point incomplete. Coverage is compared as ranges,
 /// never enumerated: `upTo` comes from a file and may be huge.
+///
+/// Every input may be hostile, so all points are decided in one sweep: the
+/// union of snapshots at or before the point, each device's next file name at
+/// or after it and its smallest uncovered gone `extra` only ever move forward.
+/// The cost is about (points × devices + extras) × log, not points × extras.
 struct Completeness {
     var snapshots: [(name: RevisionName, included: Included)] = []
     var listed: [RevisionName]
@@ -278,31 +282,99 @@ struct Completeness {
             snapshots.append((r.name, included))
             covered = covered.union(included)
         }
+        snapshots.sort { $0.name < $1.name }
     }
 
-    func isComplete(at point: RevisionName) -> Bool {
-        if unreadable.contains(where: { $0 <= point || $0.kind == .snapshot }) { return false }
-        let before = snapshots.filter { $0.name <= point }.reduce(Included()) { $0.union($1.included) }
-        // Smallest seq per device at or after `point`: its device's higher seqs come later.
-        var firstAtOrAfter: [DeviceID: Int] = [:]
-        for n in listed where n >= point { firstAtOrAfter[n.device] = min(firstAtOrAfter[n.device] ?? .max, n.seq) }
-        for (device, all) in covered.entries {
-            let have = present[device] ?? []
-            let known = before.entries[device] ?? Included.Entry()
-            // Gone seqs that matter: covered somewhere, no file, below `limit`.
-            let limit = firstAtOrAfter[device] ?? .max
-            func needs(_ seq: Int) -> Bool { seq < limit && !have.contains(seq) && !known.covers(seq) }
-            if all.extra.contains(where: needs) { return false }
+    /// The per-device state of the sweep.
+    private struct Device {
+        let all: Included.Entry
+        let have: Set<Int>
+        /// `have`, ascending.
+        let haveSorted: [Int]
+        /// `all.extra` without a file, ascending; `gone[..<next]` are known.
+        let gone: [Int]
+        var next = 0
+        /// This device's listed names, ascending, and the smallest seq from each index on.
+        let names: [RevisionName]
+        let suffixMin: [Int]
+        /// First index of `names` at or after the current point.
+        var cursor = 0
+
+        init(all: Included.Entry, have: Set<Int>, names: [RevisionName]) {
+            self.all = all
+            self.have = have
+            haveSorted = have.sorted()
+            gone = all.extra.filter { !have.contains($0) }
+            self.names = names.sorted()
+            var mins = [Int](repeating: .max, count: self.names.count)
+            var m = Int.max
+            for i in stride(from: self.names.count - 1, through: 0, by: -1) {
+                m = min(m, self.names[i].seq)
+                mins[i] = m
+            }
+            suffixMin = mins
+        }
+
+        /// Whether the note as of `point` lacks nothing of this device;
+        /// `known` is the coverage of the snapshots at or before `point`.
+        mutating func complete(at point: RevisionName, known: Included.Entry) -> Bool {
+            while cursor < names.count, names[cursor] < point { cursor += 1 }
+            // Smallest seq at or after `point`: the device's higher seqs come later.
+            let limit = cursor < names.count ? suffixMin[cursor] : .max
+            // Gone extras that matter: no file, below `limit`, not known by then.
+            while next < gone.count, known.covers(gone[next]) { next += 1 }
+            if next < gone.count, gone[next] < limit { return false }
             // The run (known.upTo, min(all.upTo, limit - 1)] must be all files or known extras.
             let top = min(all.upTo, limit - 1)
-            if known.upTo < top {
-                let length = top - known.upTo
-                let filled = have.count { $0 > known.upTo && $0 <= top }
-                    + known.extra.count { $0 > known.upTo && $0 <= top && !have.contains($0) }
-                if filled < length { return false }
-            }
+            guard known.upTo < top else { return true }
+            let length = top - known.upTo
+            let files = Self.countAbove(known.upTo, upTo: top, in: haveSorted)
+            let extras = Self.countAbove(known.upTo, upTo: top, in: known.extra)
+            if files + extras < length { return false }
+            // Exact: known extras that are also files count once.
+            let shared = known.extra.prefix(extras).count { have.contains($0) }
+            return files + extras - shared >= length
         }
-        return true
+
+        /// How many of the ascending `xs` lie in `(low, high]` (all of `known.extra` is above `known.upTo`).
+        static func countAbove(_ low: Int, upTo high: Int, in xs: [Int]) -> Int {
+            func firstAbove(_ v: Int) -> Int {
+                var lo = 0, hi = xs.count
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2
+                    if xs[mid] <= v { lo = mid + 1 } else { hi = mid }
+                }
+                return lo
+            }
+            return max(firstAbove(high) - firstAbove(low), 0)
+        }
+    }
+
+    /// For `points` in ascending order, whether the note as of each can be rebuilt.
+    func isComplete(at points: [RevisionName]) -> [Bool] {
+        var byDevice: [DeviceID: [RevisionName]] = [:]
+        for n in listed { byDevice[n.device, default: []].append(n) }
+        var devices = covered.entries.map { device, all in
+            (device, Device(all: all, have: present[device] ?? [], names: byDevice[device] ?? []))
+        }
+        let unreadableSnapshot = unreadable.contains { $0.kind == .snapshot }
+        let firstUnreadable = unreadable.min()
+        var before = Included()
+        var merged = 0
+        return points.map { point in
+            while merged < snapshots.count, snapshots[merged].name <= point {
+                before = before.union(snapshots[merged].included)
+                merged += 1
+            }
+            if unreadableSnapshot { return false }
+            if let firstUnreadable, firstUnreadable <= point { return false }
+            for i in devices.indices {
+                let known = before.entries[devices[i].0] ?? Included.Entry()
+                // Cursors catch up lazily, so stopping at the first gap is fine.
+                if !devices[i].1.complete(at: point, known: known) { return false }
+            }
+            return true
+        }
     }
 }
 

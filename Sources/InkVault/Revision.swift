@@ -119,9 +119,10 @@ public struct Included: Hashable, Sendable {
     /// Coverage for one device.
     public struct Entry: Hashable, Sendable, Codable {
         /// Every `seq` from 1 through `upTo` is covered (inclusive; may be 0).
-        public var upTo: Int
-        /// Sorted, all greater than `upTo + 1`.
-        public var extra: [Int]
+        public internal(set) var upTo: Int
+        /// Sorted, all greater than `upTo + 1`. Read-only outside the module:
+        /// `covers` relies on the order (binary search).
+        public internal(set) var extra: [Int]
 
         public init(upTo: Int = 0, extra: [Int] = []) {
             self.upTo = upTo
@@ -129,13 +130,40 @@ public struct Included: Hashable, Sendable {
             normalize()
         }
 
-        /// True for a covered `seq`; never for `seq < 1`.
-        public func covers(_ seq: Int) -> Bool { seq >= 1 && (seq <= upTo || extra.contains(seq)) }
+        /// True for a covered `seq`; never for `seq < 1`. O(log extra.count):
+        /// merging calls this per item and snapshot, and a hostile snapshot
+        /// may list millions of extras.
+        public func covers(_ seq: Int) -> Bool {
+            guard seq >= 1 else { return false }
+            if seq <= upTo { return true }
+            let i = insertionIndex(seq)
+            return i < extra.count && extra[i] == seq
+        }
 
+        /// The first index of `extra` whose value is not below `seq`.
+        func insertionIndex(_ seq: Int) -> Int {
+            var lo = 0, hi = extra.count
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2
+                if extra[mid] < seq { lo = mid + 1 } else { hi = mid }
+            }
+            return lo
+        }
+
+        /// Adds one `seq` without re-sorting `extra`.
         mutating func insert(_ seq: Int) {
             guard seq >= 1, !covers(seq) else { return }
-            extra.append(seq)
-            normalize()
+            guard seq == upTo + 1 else {   // seq > upTo here, so upTo < Int.max
+                extra.insert(seq, at: insertionIndex(seq))
+                return
+            }
+            upTo = seq
+            var absorbed = 0
+            while absorbed < extra.count, upTo < Int.max, extra[absorbed] == upTo + 1 {
+                upTo += 1
+                absorbed += 1
+            }
+            extra.removeFirst(absorbed)
         }
 
         mutating func normalize() {
