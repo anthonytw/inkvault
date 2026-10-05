@@ -32,9 +32,21 @@ public enum NotabilityBundle {
         return try parse(bundle: pkg.read(path))
     }
 
+    /// How many bytes of geometry and erase lists one parse may decode, per
+    /// byte of bundle. FlatBuffers references can point many records at one
+    /// payload, so without a limit a small buffer could decode into
+    /// gigabytes of points. A real bundle decodes each payload once (at most
+    /// its own size); the factor leaves room for a writer that shares some.
+    static let decodeBudgetFactor = 4
+
     /// Parses the bytes of a `noteBundle`.
+    ///
+    /// - Throws: `ImportError.notability` when the bundle is malformed or
+    ///   references its payloads so often that decoding would exceed
+    ///   `decodeBudgetFactor` times its size.
     public static func parse(bundle data: Data) throws -> NotabilityNote {
         let fb = FlatBuffer(data)
+        var budget = Budget(limit: decodeBudgetFactor * data.count + 65_536)
         let root = try fb.root()
         guard let recordsField = try fb.field(root, 6) else {
             throw ImportError.notability(".ntb: no record list")
@@ -63,6 +75,7 @@ public enum NotabilityBundle {
             let payload = try fb.table(atRef: pf)
             guard let list = try fb.field(payload, 0) else { continue }
             let (start, count) = try fb.vector(atRef: list, elementSize: 8)
+            try budget.spend(8 * count)
             for i in 0..<count { erased.insert(try fb.recordID(start + 8 * i)) }
         }
         var erasedCount = 0
@@ -104,7 +117,7 @@ public enum NotabilityBundle {
             case .erase:
                 break
             case .stroke:
-                guard let pieces = try stroke(fb, payload) else { unsupportedStrokes += 1; continue }
+                guard let pieces = try stroke(fb, payload, budget: &budget) else { unsupportedStrokes += 1; continue }
                 let isDashed = try fb.field(payload, 5).map { try fb.u8($0) != 0 } ?? false
                 let pg = try pageIndex(fb, payload)
                 let ox = try fb.field(payload, 1).map { try fb.f32($0) } ?? 0
@@ -115,6 +128,7 @@ public enum NotabilityBundle {
                     curves.append(curve)
                 }
             case .shape:
+                try budget.spend(64)
                 guard let curve = try line(fb, payload) else { unsupportedShapes += 1; continue }
                 placed.append((-(lines.count + 1), try pageIndex(fb, payload)))
                 lines.append(curve)
@@ -184,9 +198,10 @@ public enum NotabilityBundle {
     /// colour RGBA (7), width (8) and the geometry bytes (9). One curve per
     /// piece (an erased gap splits a stroke into pieces, where a `.note` has
     /// separate curves). Nil for a geometry this reader does not decode.
-    static func stroke(_ fb: FlatBuffer, _ p: Int) throws -> [NotabilityNote.Curve]? {
+    static func stroke(_ fb: FlatBuffer, _ p: Int, budget: inout Budget) throws -> [NotabilityNote.Curve]? {
         guard let o = try fb.field(p, 1), let g = try fb.field(p, 9) else { return nil }
         let x0 = Double(try fb.f32(o)), y0 = Double(try fb.f32(o + 4))
+        try budget.spend(try fb.vector(atRef: g, elementSize: 1).count)
         let blob = try fb.bytes(atVectorRef: g)
         guard let pieces = geometry(blob, x0: x0, y0: y0) else { return nil }
         let color = try fb.field(p, 7).map { f in
@@ -293,6 +308,21 @@ public enum NotabilityBundle {
         guard width.isFinite, width > 0 else { return nil }
         return NotabilityNote.Curve(points: NotabilityShapes.line(a, b), fractionalWidths: [1, 1], width: width,
                                     color: color, style: NotabilityNote.penStyle)
+    }
+}
+
+extension NotabilityBundle {
+    /// Decoding work left for one parse (`decodeBudgetFactor`).
+    struct Budget {
+        var limit: Int
+        var used = 0
+
+        mutating func spend(_ n: Int) throws {
+            used += n
+            guard used <= limit else {
+                throw ImportError.notability(".ntb: decode budget exceeded (payloads referenced repeatedly)")
+            }
+        }
     }
 }
 

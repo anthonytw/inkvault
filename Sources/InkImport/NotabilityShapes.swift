@@ -13,7 +13,12 @@ enum NotabilityShapes {
     /// that could not be converted.
     static func curves(_ data: Data?) throws -> (curves: [NotabilityNote.Curve], unsupported: Int) {
         guard let data, !data.isEmpty else { return ([], 0) }
-        guard case .dict(let root) = try PlistValue.parse(data), case .array(let shapes)? = root["shapes"] else {
+        return curves(plist: try PlistValue.parse(data))
+    }
+
+    /// `curves(_:)` on the parsed plist.
+    static func curves(plist: PlistValue) -> (curves: [NotabilityNote.Curve], unsupported: Int) {
+        guard case .dict(let root) = plist, case .array(let shapes)? = root["shapes"] else {
             return ([], 0)
         }
         var kinds: [String] = []
