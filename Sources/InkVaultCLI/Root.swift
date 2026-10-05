@@ -14,7 +14,7 @@ struct InkVaultCLI: ParsableCommand {
 
             Environment: INKVAULT_VAULT, INKVAULT_IDENTITY, INKVAULT_PASSPHRASE, XDG_STATE_HOME.
             """,
-        version: "0.5.0",
+        version: inkvaultVersion,
         subcommands: [
             KeysCommand.self, VaultCommand.self, NotesCommand.self, ExportCommand.self,
             RecoverCommand.self, CompactCommand.self, SnapshotCommand.self, ImportCommand.self, SearchCommand.self,
