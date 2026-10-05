@@ -104,6 +104,16 @@ extension Vault {
         return id
     }
 
+    /// The raw bytes of `keys/<recipient>.key.age` (still passphrase-wrapped),
+    /// for printing or copying the file as it is.
+    ///
+    /// - Throws: `identityFileMissing`, `VaultError.io`.
+    public func identityFileData(recipient: X25519Recipient) throws -> Data {
+        let file = keysURL.appendingPathComponent(IdentityFile.fileName(for: recipient))
+        guard FileIO.exists(file) else { throw VaultError.identityFileMissing(file.lastPathComponent) }
+        return try FileIO.read(file)
+    }
+
     /// Recipients that have a passphrase-wrapped identity file in `keys/`.
     ///
     /// - Throws: `VaultError.io` if `keys/` exists but cannot be listed.

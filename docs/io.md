@@ -140,6 +140,26 @@ snapshot's `included`, so a device whose old revisions were compacted away
 does not reissue a `seq` that a snapshot already claims to cover (which
 would make readers drop the new delta).
 
+## Backups
+
+`Backup` (`Sources/InkVault/Backup.swift`) copies a vault's format files
+(`vault.json`, `rewrap-journal.json`, `keys/*.key.age`, `notes/<id>/<revision>`;
+nothing else) with the same atomic-write helper, then reads each copy back
+and compares SHA-256. The backup folder is a vault plus `backup.json`
+(`format: inkvault-backup/1`, `vaultId`, and `files`: path → `sha256`, `size`)
+and `versions/<UTC time>/` (previous copies of files a run replaced or, for
+the journal, removed). Revisions are copied first and `vault.json` last, so a
+run cut short never leaves a manifest newer than its notes; `restore` writes
+`vault.json` last for the same reason, behind a `.inkvault-restore.json`
+marker that lets the same command resume. `backup.json` is saved every 100
+files and at the end; a file on disk that it does not list is hashed against
+the source before it is trusted. `--prune` uses `CompactionPlanner` with
+retention 0 over snapshots present in both the source and the backup (a
+pruned snapshot's own coverage is read from the backup's copy), as WebDAV sync
+does for deletions. The tar writer is POSIX ustar (names up to 255 bytes via
+the prefix field); the archive is verified with a small reader before it is
+renamed into place.
+
 ## Listing errors
 
 A directory that does not exist lists as empty (sync tools drop empty
