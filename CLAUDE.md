@@ -145,7 +145,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   scripted simulator or Catalyst runs (`DebugLaunch.swift`):
   `INKVAULT_DEBUG_VAULT`, `INKVAULT_DEBUG_IDENTITY`, `INKVAULT_DEBUG_NOTE`
   (id prefix), `INKVAULT_DEBUG_SCROLL_Y`, `INKVAULT_DEBUG_ZOOM`,
-  `INKVAULT_DEBUG_SNAPSHOT` (PNG of the canvas). With `xcrun simctl launch`
+  `INKVAULT_DEBUG_SNAPSHOT` (PNG of the canvas); paths may start with `~/` (the
+  app's data container: on a real device, copy a vault in with `xcrun devicectl
+  device copy to --domain-type appDataContainer`). With `xcrun simctl launch`
   prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
   autosaves.
 - `PKCanvasView` inverts ink colours in dark mode; the canvas forces

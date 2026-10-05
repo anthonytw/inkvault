@@ -12,3 +12,6 @@ DerivedData/
 
 # Personal sample data for importer development (never commit)
 /data/
+
+# Xcode per-user state
+**/xcuserdata/

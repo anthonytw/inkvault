@@ -19,6 +19,12 @@ import UIKit
 enum DebugLaunch {
     static var environment: [String: String] { ProcessInfo.processInfo.environment }
 
+    /// Expands a leading `~/` to the app's home (its data container), so a
+    /// device launch can name files copied in with `devicectl device copy to`.
+    static func expand(_ path: String) -> String {
+        path.hasPrefix("~/") ? NSHomeDirectory() + "/" + path.dropFirst(2) : path
+    }
+
     /// True when the launch environment names a vault.
     static var isActive: Bool { environment["INKVAULT_DEBUG_VAULT"] != nil }
 
@@ -31,9 +37,9 @@ enum DebugLaunch {
         let env = environment
         guard let vaultPath = env["INKVAULT_DEBUG_VAULT"] else { return }
         await model.report {
-            let url = URL(fileURLWithPath: vaultPath)
+            let url = URL(fileURLWithPath: expand(vaultPath))
             if let keyPath = env["INKVAULT_DEBUG_IDENTITY"] {
-                let text = try String(contentsOfFile: keyPath, encoding: .utf8)
+                let text = try String(contentsOfFile: expand(keyPath), encoding: .utf8)
                 try await model.openVault(at: url)
                 try await model.unlock(identityText: text)
             } else {
@@ -67,7 +73,7 @@ enum DebugLaunch {
                 let image = UIGraphicsImageRenderer(bounds: host.bounds).image { _ in
                     host.drawHierarchy(in: host.bounds, afterScreenUpdates: true)
                 }
-                try? image.pngData()?.write(to: URL(fileURLWithPath: path))
+                try? image.pngData()?.write(to: URL(fileURLWithPath: expand(path)))
                 NSLog("InkVaultDebug snapshot %@", path)
             }
         }
