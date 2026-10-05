@@ -22,6 +22,16 @@ final class UntrustedWebDAVTests: XCTestCase {
                         + Data("</d:href></d:response></d:multistatus>".utf8))
     }
 
+    /// A processing instruction without data (`<?xml?>`, `<?x?>`) made
+    /// FoundationXML call strlen(NULL) and segfault (found by the long fuzz
+    /// run). Only a leading XML declaration is accepted now.
+    func testProcessingInstructionWithoutDataIsRefused() {
+        assertMalformed(Data(#"<?xml?><d:multistatus xmlns:d="DAV:"/>"#.utf8))
+        assertMalformed(Data(#"<d:multistatus xmlns:d="DAV:"><?x?></d:multistatus>"#.utf8))
+        assertMalformed(Data(#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/><?x?>"#.utf8))
+        XCTAssertNoThrow(try PropfindParser.parse(Data("\u{FEFF}<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\"/>".utf8)))
+    }
+
     /// Entity declarations (billion laughs, external entities) are refused
     /// outright: a multistatus never needs a DTD.
     func testDTDIsRefused() {

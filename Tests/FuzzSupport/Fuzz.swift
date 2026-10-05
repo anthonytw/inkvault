@@ -22,6 +22,8 @@ import Darwin
 //   INKVAULT_FUZZ_SEED=S          base seed (default 0); each target mixes in its name
 //   INKVAULT_FUZZ_DUMP=dir        write each input to dir/<target>.last before running it
 //   INKVAULT_FUZZ_VERBOSE=1       print every case index
+//   INKVAULT_FUZZ_REPRO=file      run only that saved input (`<target>-<case>.bin` or
+//                                 `<target>.last`), on the test thread, in the target it names
 
 /// SplitMix64: tiny, fast and deterministic on every platform.
 public struct FuzzRNG: RandomNumberGenerator {
@@ -358,6 +360,19 @@ public enum Fuzz {
                            generate: ((inout FuzzRNG) -> Data)? = nil,
                            body: @escaping @Sendable (Data) -> String?) -> FuzzReport {
         var report = FuzzReport(target: target)
+        if let repro = ProcessInfo.processInfo.environment["INKVAULT_FUZZ_REPRO"] {
+            let url = URL(fileURLWithPath: repro)
+            let name = url.deletingPathExtension().lastPathComponent
+            report.cases = 1
+            guard name == target || name.hasPrefix(target + "-"), let input = try? Data(contentsOf: url) else { return report }
+            print("fuzz \(target): reproducing \(url.path) (\(input.count) bytes)")
+            let t0 = Date()
+            if let problem = body(input) {
+                report.failures.append(FuzzFailure(target: target, iteration: 0, kind: .invariant, detail: problem, saved: url))
+            }
+            print("fuzz \(target): done in \(Date().timeIntervalSince(t0)) s")
+            return report
+        }
         let corpus = seeds.map { [UInt8]($0) }
         var rng = FuzzRNG(seed: config.seed ^ hash(target))
         let total = config.iterations(quick: quick)

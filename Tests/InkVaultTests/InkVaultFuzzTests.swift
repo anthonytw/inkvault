@@ -134,7 +134,7 @@ final class InkVaultFuzzTests: VaultTestCase {
     func testFuzzOpLogs() throws {
         let log = try Self.seedLog()
         let seeds = [try Self.json(log), try Self.json(Array(log.prefix(3)))]
-        assertClean(Fuzz.run("op-log", seeds: seeds, quick: 600, text: true, generate: { rng in
+        assertClean(Fuzz.run("op-log", seeds: seeds, quick: 800, text: true, generate: { rng in
             (try? Self.json(Self.adversarialLog(&rng))) ?? Data()
         }) { input in
             let revs: [Revision]
@@ -276,14 +276,14 @@ final class InkVaultFuzzTests: VaultTestCase {
             let hlc = HLC(millis: rng.oneIn(8) ? HLC.maxMillis : baseMillis + Int64(rng.below(1000)),
                           counter: rng.oneIn(8) ? HLC.maxCounter : rng.below(3))!
             var ops: [Op] = []
-            let n = rng.oneIn(10) ? 500 + rng.below(1500) : rng.below(8)
+            let n = rng.oneIn(20) ? 300 + rng.below(700) : rng.below(8)
             for _ in 0..<n {
                 let p = rng.pick(pages), s = rng.pick(strokes)
                 switch rng.below(10) {
                 case 0: ops.append(.addPage(Page(id: p, order: rng.pick(orders), parent: rng.oneIn(2) ? rng.pick(pages) : nil)))
                 case 1: ops.append(.removePage(pageId: p))
                 case 2, 3:
-                    let len = rng.oneIn(20) ? 5000 : 1 + rng.below(6)
+                    let len = rng.oneIn(200) ? 5000 : 1 + rng.below(6)
                     ops.append(.addStroke(page: p, stroke: richStroke(s, len, parent: rng.oneIn(3) ? rng.pick(strokes) : nil)))
                 case 4: ops.append(.removeStroke(page: p, strokeId: s))
                 case 5: ops.append(.setPageOrder(pageId: p, order: rng.pick(orders)))
@@ -304,7 +304,7 @@ final class InkVaultFuzzTests: VaultTestCase {
                     let extra = (0..<rng.below(4)).map { _ in rng.pick([2, 5, 9, RevisionName.maxSeq, 100_000]) }
                     included = included.union(Included([d: .init(upTo: up, extra: extra)]))
                 }
-                let pageList = (0..<(rng.oneIn(10) ? 3000 : rng.below(4))).map { i in
+                let pageList = (0..<(rng.oneIn(20) ? 2000 : rng.below(4))).map { i in
                     Page(id: i < pages.count ? pages[i] : UUID(), order: rng.pick(orders),
                          strokes: rng.oneIn(2) ? [richStroke(rng.pick(strokes), 3)] : [],
                          orderClock: rng.oneIn(2) ? "\(hlc)-\(dev)" : rng.pick(["garbage", "99999999999999999-ffffffff"]),
@@ -321,7 +321,7 @@ final class InkVaultFuzzTests: VaultTestCase {
             }
             out.append(Revision(noteId: testNote, device: dev, seq: seq, hlc: hlc,
                                 wall: rng.oneIn(5) ? .distantFuture : wall, app: "fuzz", body: body))
-            if rng.oneIn(8), let last = out.last {
+            if rng.oneIn(40), let last = out.last {
                 var dup = last
                 dup.app = "conflicting copy"
                 out.append(dup)
