@@ -31,6 +31,10 @@ final class AppModel {
         case locked
         /// Notes are readable.
         case unlocked
+        /// Unlocked, but the vault still lists a classic X25519 key (or a key
+        /// change was interrupted): only the migration screen is shown and no
+        /// note is read until it finishes (`AppModel+Migration`, format.md §3.3.2).
+        case migrating
     }
 
     /// Errors the shell reports to the user.
@@ -121,6 +125,11 @@ final class AppModel {
     private(set) var editor: NoteEditor?
 
     private(set) var vault: Vault?
+    /// The migration of a legacy vault while `phase == .migrating`.
+    var migration: VaultMigration?
+    /// The identities the vault was unlocked with, for reopening it after a
+    /// migration that kept its key (`AppModel+Migration`).
+    var unlockIdentities: [any AgeIdentity] = []
     private var scopedURL: URL?
     /// Bumped by `close()` (and so by every `openVault`): async work started
     /// under an older generation must not publish its result (the vault it
@@ -258,6 +267,50 @@ final class AppModel {
         }
         try ensureCurrent(gen)
         vault = opened
+        unlockIdentities = identities
+        if opened.isLegacy || opened.pendingRewrap {
+            // Migrate-only (format.md §3.3.2): no note is listed or read.
+            beginMigration(identities: identities)
+            return
+        }
+        phase = .unlocked
+        try await reload()
+    }
+
+    /// Enters the migration screen for the vault just unlocked with
+    /// `identities`. The target key is a post-quantum identity among them
+    /// that the vault already lists (a migration interrupted after its key
+    /// was added), else a freshly generated one.
+    func beginMigration(identities: [any AgeIdentity]) {
+        guard let vault else { return }
+        let classic = vault.classicRecipients
+        let listed = Set(vault.recipients.map(\.key))
+        let held = identities.compactMap { $0 as? NativeIdentity }
+            .first { $0.isPostQuantum && listed.contains($0.recipient.string) }
+        var migration = VaultMigration(classicRecipients: classic, key: held, keyIsNew: false)
+        if held == nil && !classic.isEmpty {
+            do {
+                migration.key = try NativeIdentity.generate(.postQuantum)
+                migration.keyIsNew = true
+            } catch {
+                migration.step = .failed("\(error)")
+            }
+        }
+        self.migration = migration
+        phase = .migrating
+    }
+
+    /// The vault as a migration step left it (`AppModel+Migration`).
+    func replaceMigratingVault(_ next: Vault) {
+        guard phase == .migrating else { return }
+        vault = next
+    }
+
+    /// Makes `opened` the open vault and shows the notes (after a migration).
+    func finishUnlock(_ opened: Vault, identities: [any AgeIdentity]) async throws {
+        vault = opened
+        unlockIdentities = identities
+        migration = nil
         phase = .unlocked
         try await reload()
     }
@@ -270,26 +323,31 @@ final class AppModel {
         try await unlock(with: [identity])
     }
 
-    /// Unlocks with the passphrase of one of the vault's stored key files
-    /// (`keys/<recipient>.key.age`, format.md §3.2).
+    /// Unlocks with the passphrase of the vault's stored key files
+    /// (`keys/<key-name>.key.age`, format.md §3.2). Every stored key the
+    /// passphrase opens is used: during a migration the vault lists the
+    /// classic and the post-quantum key, and finishing it may need both.
     func unlock(passphrase: String) async throws {
         guard let locked = vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
-        let identity: NativeIdentity = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { () throws -> NativeIdentity in
+        let identities: [NativeIdentity] = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) { () throws -> [NativeIdentity] in
                 let stored = try locked.identityFiles()
                 guard !stored.isEmpty else { throw ModelError.noStoredKeys }
+                var opened: [NativeIdentity] = []
                 for recipient in stored {
-                    do { return try locked.readIdentityFile(recipient: recipient, passphrase: passphrase) } catch VaultError.wrongPassphrase {
+                    do { opened.append(try locked.readIdentityFile(recipient: recipient, passphrase: passphrase)) } catch VaultError.wrongPassphrase {
                         continue
                     }
                 }
-                throw ModelError.passphraseMatchesNoKey
+                guard !opened.isEmpty else { throw ModelError.passphraseMatchesNoKey }
+                // Post-quantum keys first: they are the ones the vault keeps.
+                return opened.filter(\.isPostQuantum) + opened.filter { !$0.isPostQuantum }
             }
         }
         try ensureCurrent(gen)
-        try await unlock(with: [identity])
+        try await unlock(with: identities)
     }
 
     /// Re-reads every note summary from disk. In iCloud Drive, notes whose files
@@ -297,6 +355,7 @@ final class AppModel {
     /// arrive (`startCloudSync`), instead of the call waiting for all of them.
     func reload() async throws {
         guard let vault else { throw ModelError.noVaultOpen }
+        guard phase != .migrating else { return }   // nothing is read before the migration
         let gen = generation
         isBusy = true
         defer { if gen == generation { isBusy = false } }
@@ -414,6 +473,8 @@ final class AppModel {
         }
         scopedURL = nil
         vault = nil
+        migration = nil
+        unlockIdentities = []
         vaultURL = nil
         notes = []
         selectedNoteID = nil
