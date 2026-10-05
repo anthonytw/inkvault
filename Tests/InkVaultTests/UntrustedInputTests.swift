@@ -178,6 +178,33 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(t0), 20)
     }
 
+    /// A snapshot whose `included` lists 300 000 `extra` seqs that a later
+    /// snapshot folds into `upTo`, with 2 000 deltas in between: the sweep
+    /// still counted the known extras that are also files with a linear scan
+    /// per restore point and device (points × extras, 6·10⁸ set lookups,
+    /// over a minute in a debug build). That count is now kept per merged
+    /// snapshot state and looked up by binary search.
+    func testRestorePointsBetweenHugeSnapshotsAreFast() throws {
+        let n = 300_000
+        var log = LogBuilder()
+        let b1 = log.delta(devB, 1, [.setMeta(.title("b1"))])
+        let b2 = log.delta(devB, 2, [.setMeta(.title("b2"))])
+        func snapshot(_ seq: Int, at ms: Int64, _ entry: Included.Entry) -> Revision {
+            Revision(noteId: testNote, device: devC, seq: seq, hlc: HLC(millis: baseMillis + ms, counter: 0)!,
+                     wall: wallAt(baseMillis + ms), app: "x",
+                     body: .snapshot(included: Included([devB: entry]), state: NoteState(meta: NoteMeta(created: wallAt(0)))))
+        }
+        let early = snapshot(1, at: 5, Included.Entry(upTo: 1, extra: Array(3...n)))
+        let deltas = (0..<2000).map { i in log.delta(devA, Int64(10 + i), [.setMeta(.title("a\(i)"))]) }
+        let late = snapshot(2, at: 100_000, Included.Entry(upTo: n))
+        let all = [b1, b2, early, late] + deltas
+        let t0 = Date()
+        let points = NoteHistory.restorePoints(all)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 10)
+        XCTAssertEqual(points.count, all.count)
+        XCTAssertTrue(points.allSatisfy(\.complete))
+    }
+
     /// The one-sweep `Completeness` agrees with the per-point definition it
     /// replaced, on adversarial logs with revisions dropped (compacted) and
     /// some marked unreadable.

@@ -263,7 +263,8 @@ public enum NoteHistory {
 /// Every input may be hostile, so all points are decided in one sweep: the
 /// union of snapshots at or before the point, each device's next file name at
 /// or after it and its smallest uncovered gone `extra` only ever move forward.
-/// The cost is about (points × devices + extras) × log, not points × extras.
+/// The cost is about points × devices × log plus snapshots × extras, not
+/// points × extras.
 struct Completeness {
     var snapshots: [(name: RevisionName, included: Included)] = []
     var listed: [RevisionName]
@@ -299,6 +300,11 @@ struct Completeness {
         let suffixMin: [Int]
         /// First index of `names` at or after the current point.
         var cursor = 0
+        /// The `known.extra` values that are also files, ascending, for the
+        /// known coverage numbered `sharedVersion` (it only changes when a
+        /// snapshot is merged, so this is rebuilt at most once per snapshot).
+        var shared: [Int] = []
+        var sharedVersion = -1
 
         init(all: Included.Entry, have: Set<Int>, names: [RevisionName]) {
             self.all = all
@@ -317,7 +323,8 @@ struct Completeness {
 
         /// Whether the note as of `point` lacks nothing of this device;
         /// `known` is the coverage of the snapshots at or before `point`.
-        mutating func complete(at point: RevisionName, known: Included.Entry) -> Bool {
+        /// `version` numbers `known`: equal versions mean equal coverage.
+        mutating func complete(at point: RevisionName, known: Included.Entry, version: Int) -> Bool {
             while cursor < names.count, names[cursor] < point { cursor += 1 }
             // Smallest seq at or after `point`: the device's higher seqs come later.
             let limit = cursor < names.count ? suffixMin[cursor] : .max
@@ -331,9 +338,14 @@ struct Completeness {
             let files = Self.countAbove(known.upTo, upTo: top, in: haveSorted)
             let extras = Self.countAbove(known.upTo, upTo: top, in: known.extra)
             if files + extras < length { return false }
-            // Exact: known extras that are also files count once.
-            let shared = known.extra.prefix(extras).count { have.contains($0) }
-            return files + extras - shared >= length
+            // Exact: known extras that are also files count once. Not a scan
+            // per point: `known.extra` may be huge and points many.
+            if sharedVersion != version {
+                shared = known.extra.filter { have.contains($0) }
+                sharedVersion = version
+            }
+            let both = Self.countAbove(known.upTo, upTo: top, in: shared)
+            return files + extras - both >= length
         }
 
         /// How many of the ascending `xs` lie in `(low, high]` (all of `known.extra` is above `known.upTo`).
@@ -371,7 +383,7 @@ struct Completeness {
             for i in devices.indices {
                 let known = before.entries[devices[i].0] ?? Included.Entry()
                 // Cursors catch up lazily, so stopping at the first gap is fine.
-                if !devices[i].1.complete(at: point, known: known) { return false }
+                if !devices[i].1.complete(at: point, known: known, version: merged) { return false }
             }
             return true
         }
