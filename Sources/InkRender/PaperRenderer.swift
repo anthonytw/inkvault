@@ -52,7 +52,8 @@ public enum PaperRenderer {
         let usesSpacing = paper.kind != .staff
         guard paper.kind != .blank, !usesSpacing || (s.isFinite && s >= RenderLimits.minPaperSpacing),
               width.isFinite, width > 0, bottom.isFinite, yOffset.isFinite,
-              width <= RenderLimits.maxExtent, abs(bottom) <= RenderLimits.maxExtent * 2 else { return out }
+              width <= RenderLimits.maxExtent, abs(bottom) <= RenderLimits.maxExtent * 2,
+              abs(yOffset) <= RenderLimits.maxExtent * 2 else { return out }
 
         let band = max(bottom - yOffset, 0)
         let line = Paint(paper.lineColor)
@@ -132,8 +133,10 @@ public enum PaperRenderer {
                 }
             }
         case .cornell:
+            // At least 1 pt: with |yOffset| and |bottom| bounded above, the
+            // sheet indices below then always fit in an Int.
             let sheet = sheetHeight ?? max(height, 1)
-            guard sheet > 0, sheet.isFinite else { return out }
+            guard sheet.isFinite, sheet >= 1 else { return out }
             let firstSheet = Int(max((yOffset / sheet).rounded(.down), 0))
             let lastSheet = Int(max((bottom / sheet).rounded(.up), 1))
             guard Double(lastSheet - firstSheet) * (sheet / s + 4) <= RenderLimits.maxPaperCommands else { return out }

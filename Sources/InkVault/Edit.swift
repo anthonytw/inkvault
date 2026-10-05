@@ -4,7 +4,9 @@ import Foundation
 public enum NoteOps {
     /// The ops that create a note: one empty page plus all metadata fields.
     ///
-    /// Tags are trimmed and de-duplicated, and an empty notebook is nil.
+    /// Tags are trimmed and de-duplicated, an empty notebook is nil, and the
+    /// paper is clamped to its valid ranges (format.md §5.4.1: writers keep
+    /// every parameter in range).
     public static func newNote(title: String, paper: Paper = .ruled, pageSize: PageSize = .letter,
                                notebook: String? = nil, tags: [String] = [],
                                pageId: UUID = UUID()) -> [Op] {
@@ -12,7 +14,7 @@ public enum NoteOps {
          .setMeta(.title(title)),
          .setMeta(.tags(normalizedTags(tags))),
          .setMeta(.notebook(normalizedNotebook(notebook))),
-         .setMeta(.paper(paper)),
+         .setMeta(.paper(paper.validated())),
          .setMeta(.pageSize(pageSize))]
     }
 

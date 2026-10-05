@@ -43,6 +43,48 @@ final class PaperModelTests: XCTestCase {
         XCTAssertEqual(meta.paper.kind, .blank)
     }
 
+    /// Regression: a new note never writes paper outside the valid ranges.
+    func testNewNoteWritesValidPaper() {
+        let ops = NoteOps.newNote(title: "x", paper: Paper(kind: .grid, spacing: 1, lineWidth: 99, marginTop: .nan))
+        let paper = ops.compactMap { op -> Paper? in
+            if case .setMeta(.paper(let p)) = op { return p }
+            return nil
+        }
+        XCTAssertEqual(paper.count, 1)
+        XCTAssertTrue(paper[0].isValid)
+        XCTAssertEqual(paper[0].spacing, Paper.Limits.spacing.lowerBound)
+        XCTAssertEqual(paper[0].kind, .grid)
+    }
+
+    /// Regression: a snapshot (or restore) written by this reader must not turn
+    /// a newer app's paper kind into `blank`.
+    func testUnknownKindSurvivesARewrite() throws {
+        let json = ##"{"background":"#FFF8E1FF","kind":"hexagons","lineColor":"#D0D8E8FF","spacing":10}"##
+        let p = try decode(json)
+        XCTAssertEqual(p.kind, .blank)
+        XCTAssertEqual(p.kindName, "hexagons")
+        XCTAssertEqual(try encode(p), json)
+        XCTAssertEqual(try encode(p.validated()), json)
+        XCTAssertNotEqual(p, Paper(kind: .blank, spacing: 10, background: Paper.cream))
+
+        // Through an op and the note's metadata (what a snapshot writes).
+        let meta = NoteMeta(title: "x", created: Date(timeIntervalSince1970: 0), paper: p)
+        let metaBack = try InkJSON.decoder().decode(NoteMeta.self, from: try InkJSON.encoder().encode(meta))
+        XCTAssertEqual(metaBack.paper.kindName, "hexagons")
+        let op = try InkJSON.decoder().decode(Op.self, from: Data(
+            ##"{"op":"setMeta","field":"paper","value":\##(json)}"##.utf8))
+        guard case .setMeta(.paper(let fromOp)) = op else { return XCTFail("not a paper op") }
+        XCTAssertEqual(fromOp.kindName, "hexagons")
+        let reencoded = try InkJSON.decoder().decode(Op.self, from: try InkJSON.encoder().encode(op))
+        XCTAssertEqual(reencoded, op)
+
+        // Choosing a kind replaces the unknown one.
+        var chosen = p
+        chosen.kind = .grid
+        XCTAssertEqual(chosen.kindName, "grid")
+        XCTAssertEqual(try decode(try encode(chosen)).kind, .grid)
+    }
+
     func testFullPaperRoundTrips() throws {
         let p = Paper(kind: .cornell, spacing: 30, background: Paper.cream, lineColor: Color(r: 1, g: 2, b: 3, a: 128),
                       lineWidth: 1.25, dotRadius: 1.5, marginLeft: 50, marginTop: 40, marginColor: .black,

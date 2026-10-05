@@ -319,7 +319,16 @@ public enum PaperKind: String, Hashable, Sendable, Codable, CaseIterable {
 /// are encoded only when they differ from the kind's default, and a missing
 /// field decodes as that default.
 public struct Paper: Hashable, Sendable, Codable {
-    public var kind: PaperKind
+    /// The pattern. A kind this reader does not know reads as `.blank`
+    /// (§5.4.1); setting it replaces the kind name.
+    public var kind: PaperKind {
+        get { PaperKind(rawValue: kindName) ?? .blank }
+        set { kindName = newValue.rawValue }
+    }
+    /// `kind` as written, kept when it names a kind this reader does not
+    /// know, so that rewriting the paper (a snapshot, a restore) does not
+    /// turn a newer app's paper into blank (format.md §5.4.1).
+    public private(set) var kindName: String
     /// Line, dot or grid spacing in points.
     public var spacing: Double
     public var background: Color
@@ -354,7 +363,7 @@ public struct Paper: Hashable, Sendable, Codable {
                 marginLeft: Double? = nil, marginTop: Double = 0, marginColor: Color = Paper.defaultMarginColor,
                 cueWidth: Double = 150, summaryHeight: Double = 120,
                 staffSpacing: Double = 7, staffGap: Double = 40) {
-        self.kind = kind
+        self.kindName = kind.rawValue
         self.spacing = spacing ?? 24
         self.background = background; self.lineColor = lineColor
         self.lineWidth = lineWidth; self.dotRadius = dotRadius
@@ -430,8 +439,9 @@ public struct Paper: Hashable, Sendable, Codable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try c.decode(PaperKind.self, forKey: .kind)
-        self.init(kind: kind)
+        let name = try c.decode(String.self, forKey: .kind)
+        self.init(kind: PaperKind(rawValue: name) ?? .blank)
+        kindName = name
         func get<T: Decodable>(_ k: CodingKeys, _ cur: inout T) throws {
             if let v = try c.decodeIfPresent(T.self, forKey: k) { cur = v }
         }
@@ -444,7 +454,7 @@ public struct Paper: Hashable, Sendable, Codable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(kind, forKey: .kind)
+        try c.encode(kindName, forKey: .kind)
         try c.encode(spacing, forKey: .spacing)
         try c.encode(background, forKey: .background)
         try c.encode(lineColor, forKey: .lineColor)

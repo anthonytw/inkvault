@@ -385,8 +385,10 @@ lines (the plain background, as before).
 `blank` (keeping `background`), so a note written by a newer app still opens
 and renders its strokes. (Readers older than this section reject the paper
 and so the whole revision, as §7 says of anything unknown; this section
-predates 1.0.) Such a reader that rewrites `paper` loses the unknown kind;
-apps should not rewrite paper they could not render.
+predates 1.0.) Such a reader keeps the unknown `kind` name and the fields
+it knows when it rewrites `paper` (a snapshot or a restore), so compaction
+on an older device does not turn the paper into `blank`; fields it does not
+know are not kept. Apps should not offer to edit paper they could not render.
 
 **Page paper.** A page may carry its own `"paper"`, which replaces the
 note's `meta.paper` for that page; absent, the page follows the note. It is

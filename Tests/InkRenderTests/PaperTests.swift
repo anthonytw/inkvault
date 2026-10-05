@@ -188,4 +188,20 @@ final class PaperTests: XCTestCase {
         let tiny = PaperRenderer.commands(paper: Paper(kind: .staff, staffSpacing: 0, staffGap: 0), width: 612, height: 792)
         XCTAssertLessThan(tiny.count, 1000)
     }
+
+    /// Regression: hostile band arguments never trap (an `Int` conversion of
+    /// a huge row or sheet index) and never draw ruling.
+    func testHostileBandsNeitherTrapNorDraw() {
+        for kind in PaperKind.allCases {
+            let paper = Paper.template(kind)
+            for (y0, y1) in [(1e300, 100.0), (-1e300, 100.0), (1e18, 1e18), (RenderLimits.maxExtent * 3, 10)] {
+                let cmds = PaperRenderer.commands(paper: paper, width: 612, height: 792, yOffset: y0, yEnd: y1)
+                XCTAssertEqual(cmds.count, 1, "\(kind) \(y0)...\(y1)")   // the background only
+            }
+            for sheet in [1e-300, 0, -5, .nan, .infinity] {
+                _ = PaperRenderer.commands(paper: paper, width: 612, height: 792, yOffset: 700, yEnd: 900,
+                                           sheetHeight: sheet)
+            }
+        }
+    }
 }
