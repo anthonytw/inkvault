@@ -58,9 +58,13 @@ public enum HTMLExport {
     /// no XML prolog or namespace URL, no duplicate ids, and an invisible
     /// selectable layer with the recognised words on top of the ink.
     static func inlineSVG(_ svg: String, page: Page, number: Int) -> String {
-        var lines = svg.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-        lines.removeAll { $0.hasPrefix("<?xml") || $0.hasPrefix("<title>") }
-        var s = lines.joined(separator: "\n")
+        var s = svg
+        // The title may span lines (it holds the note title), so cut it by its tags.
+        if let open = s.range(of: "<title>"), let close = s.range(of: "</title>", range: open.upperBound..<s.endIndex) {
+            s.removeSubrange(open.lowerBound..<close.upperBound)
+        }
+        let lines = s.split(separator: "\n", omittingEmptySubsequences: true).filter { !$0.hasPrefix("<?xml") }
+        s = lines.joined(separator: "\n")
         s = s.replacingOccurrences(of: " xmlns=\"http://www.w3.org/2000/svg\"", with: "")
         s = s.replacingOccurrences(of: "<g id=\"paper\">", with: "<g class=\"paper\">")
         s = s.replacingOccurrences(of: "<g id=\"strokes\">", with: "<g class=\"strokes\">")

@@ -94,7 +94,8 @@ final class TextExportTests: XCTestCase {
     }
 
     func testNotePageIsWellFormedAndSelfContained() throws {
-        let state = recognizedNote()
+        var state = recognizedNote()
+        state.meta.title = "Two\nlines & <b> ☃"   // SVGWriter puts this in a multi-line <title>
         let svgs = try SVGWriter.render(note: state)
         let html = HTMLExport.notePage(info: info(title: "Tom & <Jerry> \"x\"", tags: ["a&b"], notebook: "N/M"),
                                        state: state, svgs: svgs, indexHref: "../index.html")
@@ -106,6 +107,8 @@ final class TextExportTests: XCTestCase {
         XCTAssertTrue(html.contains("prefers-color-scheme:dark"), html)
         Self.assertNoExternalResources(html, parsed: d)
         XCTAssertFalse(html.contains("id=\"paper\""), "duplicate ids across pages")
+        XCTAssertEqual(html.components(separatedBy: "</title>").count, 2, "only the document title")
+        XCTAssertFalse(html.contains("Two\nlines"), "the SVG's own title is dropped")
     }
 
     func testIndexPageIsWellFormedWithSearchData() {
