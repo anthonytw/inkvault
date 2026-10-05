@@ -16,9 +16,9 @@ struct WelcomeView: View {
             List {
                 Section {
                     Button("New Vault…", systemImage: "plus.circle", action: newVault)
-                    Button("Open Folder…", systemImage: "folder", action: openFolder)
+                    Button("Open Vault…", systemImage: "folder", action: openFolder)
                 } footer: {
-                    Text("A vault is a .inkvault folder: on this device, in iCloud Drive, or anywhere in Files.")
+                    Text("A vault is one .inkvault item in Files: on this device, in iCloud Drive, or anywhere else. Choose the .inkvault item itself (a plain folder works too).")
                 }
                 if !library.recents.isEmpty {
                     Section("Recent") {

@@ -9,9 +9,14 @@ extension AppModel {
 
     // MARK: - Opening and creating
 
-    /// Opens a folder chosen in the document picker and remembers it.
+    /// Opens what the user picked (a `.inkvault` vault, a plain folder, a folder
+    /// holding one vault, or a file inside a vault: `VaultLocator`) and
+    /// remembers it.
     func open(picked url: URL, library: VaultLibrary) async throws {
-        try await openVault(at: url)
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let vaultURL = try VaultLocator.resolve(url)
+        try await openVault(at: vaultURL, accessing: vaultURL == url ? nil : url)
         remember(in: library)
     }
 
@@ -92,6 +97,8 @@ extension AppModel {
         guard let old = NotebookPath.canonical(old) else { return }
         let target = NotebookPath.canonical(new)
         guard target != old else { return }
+        // Notes not downloaded yet have no known notebook and would be left behind.
+        guard pendingNoteIDs.isEmpty else { throw ModelError.notesStillDownloading }
         let edits: [(id: UUID, ops: [Op])] = notes.compactMap { note in
             guard NotebookPath.name(note.notebook, isWithin: old) else { return nil }
             let renamed = NotebookPath.renamed(note.notebook, from: old, to: target)
@@ -106,26 +113,47 @@ extension AppModel {
     /// Puts a note into the notebook path `notebook` (nil or blank: none).
     func moveNote(_ id: UUID, toNotebook notebook: String?) async throws {
         let target = NotebookPath.canonical(notebook)
+        try await downloadNote(id)
         guard try summary(id).notebook != target else { return }
         try await commit([(id: id, ops: [.setMeta(.notebook(target))])])
     }
 
+    /// Renames a note (one `setMeta(.title)` delta). Titles are labels, not keys:
+    /// any title, including one another note has, is fine.
+    func renameNote(_ id: UUID, to title: String) async throws {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await downloadNote(id)
+        guard try summary(id).title != title else { return }
+        try await commit([(id: id, ops: [.setMeta(.title(title))])])
+    }
+
+    /// Adds a tag. Matching ignores case: a tag the note has already (in any
+    /// case) is not added again, and the spelling of a tag already used in the
+    /// vault wins over the typed one.
     func addTag(_ tag: String, to id: UUID) async throws {
-        let tags = NoteOps.normalizedTags(try summary(id).tags + [tag])
-        guard tags != (try summary(id).tags) else { return }
-        try await commit([(id: id, ops: [.setMeta(.tags(tags))])])
+        let typed = NoteOps.normalizedTag(tag)
+        guard !typed.isEmpty else { return }
+        try await downloadNote(id)
+        let current = try summary(id).tags
+        guard !current.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(typed) }) else { return }
+        let spelling = tags.first { NoteOps.tagKey($0) == NoteOps.tagKey(typed) } ?? typed
+        try await commit([(id: id, ops: [.setMeta(.tags(NoteOps.normalizedTags(current + [spelling])))])])
     }
 
     func removeTag(_ tag: String, from id: UUID) async throws {
+        try await downloadNote(id)
         let current = try summary(id).tags
-        let tags = current.filter { $0 != tag }
+        let tags = current.filter { NoteOps.tagKey($0) != NoteOps.tagKey(tag) }
         guard tags != current else { return }
         try await commit([(id: id, ops: [.setMeta(.tags(tags))])])
-        if sidebarSelection == .tag(tag), !self.tags.contains(tag) { sidebarSelection = .allNotes }
+        if case .tag(let selected)? = sidebarSelection, !self.tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(selected) }) {
+            sidebarSelection = .allNotes
+        }
     }
 
     /// Moves a note to Recently Deleted; open on the canvas, it reopens read-only.
     func deleteNote(_ id: UUID) async throws {
+        try await downloadNote(id)
         guard !(try summary(id).deleted) else { return }
         try await commit([(id: id, ops: [.deleteNote])])
         try await reopenEditor(ifShowing: id)
@@ -133,6 +161,7 @@ extension AppModel {
 
     /// Restores a note; open on the canvas, it reopens editable.
     func restoreNote(_ id: UUID) async throws {
+        try await downloadNote(id)
         guard try summary(id).deleted else { return }
         try await commit([(id: id, ops: [.restoreNote])])
         try await reopenEditor(ifShowing: id)
@@ -150,6 +179,9 @@ extension AppModel {
     /// `close()` waits for one being written before access to the folder
     /// ends). Deltas go through `NoteWriter.append` with the canvas's device
     /// clock; in iCloud Drive each is a coordinated write on its note's folder.
+    /// Callers that compute ops from a note's summary make the note local
+    /// first (`downloadNote`), so a placeholder's empty summary is never
+    /// written back over the real one.
     private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
         await editGate.acquire()
         defer { editGate.release() }
