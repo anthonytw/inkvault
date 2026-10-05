@@ -83,6 +83,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     private var pageSize = PageSize.letter
     private var paper = Paper.blank
     private var fittedWidth: CGFloat = 0
+    /// The sized object eraser that replaces PencilKit's (`ObjectEraser.swift`).
+    private let objectEraser = ObjectEraserController()
 
     /// The palette is shown (the toolbar button) unless the note is read-only.
     var paletteVisible = true {
@@ -97,7 +99,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     var isReadOnly = false {
         didSet {
             guard isReadOnly != oldValue else { return }
-            canvas.drawingGestureRecognizer.isEnabled = !isReadOnly
+            updateEraser()
             updateToolPicker()
         }
     }
@@ -117,13 +119,29 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         toolPicker.addObserver(canvas)
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
+        objectEraser.attach(to: self, canvas: canvas)
     }
 
-    /// Remembers the eraser mode the user picks, for the next canvas.
+    /// Remembers the eraser mode the user picks, for the next canvas, and
+    /// hands the object eraser to `ObjectEraserController`.
     func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
         if let eraser = toolPicker.selectedToolItem as? PKToolPickerEraserItem {
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
+        updateEraser()
+    }
+
+    /// Whether the picker's selected tool is the object eraser.
+    var objectEraserSelected: Bool {
+        (toolPicker.selectedToolItem as? PKToolPickerEraserItem)?.eraserTool.eraserType == .vector
+    }
+
+    /// The app's sized object eraser stands in for PencilKit's `.vector` one;
+    /// every other tool (pixel eraser included) is PencilKit's.
+    private func updateEraser() {
+        let ours = !isReadOnly && objectEraserSelected
+        objectEraser.setActive(ours)
+        canvas.drawingGestureRecognizer.isEnabled = !isReadOnly && !ours
     }
 
     @available(*, unavailable)
@@ -136,6 +154,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
 
     private func updateToolPicker() {
         guard window != nil else { return }
+        defer { updateEraser() }
         let show = !isReadOnly && paletteVisible
         toolPicker.setVisible(show, forFirstResponder: canvas)
         if !isReadOnly { canvas.becomeFirstResponder() }
