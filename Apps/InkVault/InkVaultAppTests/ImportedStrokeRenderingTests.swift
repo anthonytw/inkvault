@@ -193,7 +193,7 @@ struct ImportedStrokeRenderingTests {
         let r = Self.compare(strokes)
         // PencilKit's marker nib is not round: allow more slack than for pens.
         Self.expectSimilar(r, ratio: 0.6...1.6, edgeSlack: 6, "highlighter")
-        #expect(abs(r.canvas.bounds.height - r.inkRender.bounds.height) <= 0.25 * r.inkRender.bounds.height,
+        #expect(abs(r.canvas.bounds.height - r.inkRender.bounds.height) <= 0.15 * r.inkRender.bounds.height,
                 "highlighter band height \(r.canvas.bounds.height) vs \(r.inkRender.bounds.height)")
     }
 

@@ -5,7 +5,7 @@ import InkVault
 ///
 /// Layout: `<g id="paper">` holds the background `<rect>` and `<line>` /
 /// `<circle>` ruling; `<g id="strokes">` holds exactly one `<path>` (filled
-/// ribbon) or `<polyline>` (monoline / marker) per non-empty stroke, in order.
+/// ribbon, marker) or `<polyline>` (monoline) per non-empty stroke, in order.
 /// Infinite pages become a single tall SVG (no chunking).
 public enum SVGWriter {
     /// Renders one page. Width and height carry a `pt` unit so viewers show the

@@ -182,7 +182,8 @@ final class PNGWriterTests: XCTestCase {
     func testMarkerOpacityMatchesPDFAndBlendsOnce() throws {
         let red = Color(r: 255, g: 0, b: 0)
         // A self-crossing X: one stroke command, so the crossing must be blended once (50 %), not twice.
-        let x = T.stroke([T.pt(40, 40), T.pt(160, 160), T.pt(160, 40), T.pt(40, 160)], tool: .marker, width: 16, color: red)
+        let x = T.stroke([T.pt(40, 40, w: 16), T.pt(160, 160, w: 16), T.pt(160, 40, w: 16), T.pt(40, 160, w: 16)],
+                         tool: .marker, width: 16, color: red)
         let blank = T.meta(paper: .blank)
         let img = try XCTUnwrap(try render(T.note(pages: [[x]], meta: blank)).first)
         // Centre of the X (100, 100) pt -> device (200, 200): crossing of two arms.

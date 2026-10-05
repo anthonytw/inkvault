@@ -55,10 +55,29 @@ final class OutlineTests: XCTestCase {
         let pen = StrokeOutline.commands(for: T.stroke(pts, tool: .pen, color: col))
         XCTAssertEqual(pen[0].fill?.alpha ?? 0, 128.0 / 255 * 0.5, accuracy: 1e-9)
         let marker = StrokeOutline.commands(for: T.stroke(pts, tool: .marker, width: 8, color: col))
-        XCTAssertEqual(marker[0].stroke?.alpha ?? 0, 128.0 / 255 * 0.5 * 0.5, accuracy: 1e-9)
-        XCTAssertEqual(marker[0].lineWidth, 8, accuracy: 1e-9)
+        XCTAssertEqual(marker[0].fill?.alpha ?? 0, 128.0 / 255 * 0.5 * 0.5, accuracy: 1e-9)
         let pencil = StrokeOutline.commands(for: T.stroke(pts, tool: .pencil, color: col))
         XCTAssertLessThan(pencil[0].fill?.alpha ?? 1, pen[0].fill?.alpha ?? 0)
+    }
+
+    /// A marker is drawn at its points' widths (format.md §5.6), not at
+    /// `ink.width`: an imported highlighter of nominal width 23.9 whose points
+    /// are 16 wide drew 1.5x too thick in exports, and thicker than the canvas.
+    func testMarkerFollowsSampleWidth() throws {
+        let pts = [T.pt(0, 50, w: 16), T.pt(40, 50, w: 16), T.pt(80, 50, w: 10)]
+        let cmds = StrokeOutline.commands(for: T.stroke(pts, tool: .marker, width: 24))
+        let c = try XCTUnwrap(cmds.first)
+        XCTAssertNil(c.stroke)
+        guard case let .path(subs) = c.primitive else { return XCTFail("not a path") }
+        let ys = subs.flatMap(\.points).filter { abs($0.x - 40) < 0.5 }.map(\.y)
+        XCTAssertEqual(ys.max() ?? 0, 58, accuracy: 0.2)
+        XCTAssertEqual(ys.min() ?? 0, 42, accuracy: 0.2)
+        let all = subs.flatMap(\.points)
+        XCTAssertEqual(all.map(\.x).max() ?? 0, 85, accuracy: 0.2)   // end cap radius 5
+        // A point without a width falls back to ink.width, as for pens.
+        let zero = StrokeOutline.commands(for: T.stroke([T.pt(0, 0, w: 0), T.pt(30, 0, w: 0)], tool: .marker, width: 6))
+        guard case let .path(zs) = zero.first?.primitive else { return XCTFail("not a path") }
+        XCTAssertEqual(zs.flatMap(\.points).map(\.y).max() ?? 0, 3, accuracy: 0.2)
     }
 
     func testMonolineIgnoresSampleWidth() {

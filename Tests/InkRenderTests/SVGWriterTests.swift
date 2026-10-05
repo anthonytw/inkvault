@@ -49,7 +49,7 @@ final class SVGWriterTests: XCTestCase {
         XCTAssertEqual(c.svgAttrs["height"], "300pt")
         XCTAssertEqual(c.strokeChildren, 4)
         XCTAssertEqual((c.counts["path"] ?? 0) + (c.counts["polyline"] ?? 0), 4)
-        XCTAssertEqual(c.counts["polyline"], 2)   // monoline + marker
+        XCTAssertEqual(c.counts["polyline"], 1)   // monoline (a marker is a ribbon path)
         XCTAssertEqual(c.counts["rect"], 1)
         XCTAssertEqual(c.counts["line"], 5 + 3)   // rows y=50..250, cols x=50..150
         XCTAssertTrue(svg.contains("<title>A &amp; B &lt;c&gt;</title>"))
