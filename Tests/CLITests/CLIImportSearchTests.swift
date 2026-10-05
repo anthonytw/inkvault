@@ -113,6 +113,15 @@ final class CLIImportSearchTests: CLITestCase {
         let r = try cli(["import", "notability", tmp.appendingPathComponent("Notability").path, "--json"] + vaultArgs(vault))
         XCTAssertEqual(r.status, 0, r.err)
         XCTAssertEqual(((r.json as? [String: Any])?["notes"] as? [[String: Any]])?.first?["notebook"] as? String, "Research")
+        // Folder tags are on by default; --tag adds fixed ones.
+        let tagged = try cli(["notes", "list", "--tag", "research", "--json"] + vaultArgs(vault))
+        XCTAssertEqual((tagged.json as? [[String: Any]])?.count, 1, tagged.out)
+        let third = try copyFixtureVault(as: "third.inkvault")
+        let t = try cli(["import", "notability", tmp.appendingPathComponent("Notability").path, "--no-folder-tags",
+                         "--tag", "from-notability"] + vaultArgs(third))
+        XCTAssertEqual(t.status, 0, t.err)
+        XCTAssertEqual((try cli(["notes", "list", "--tag", "Research", "--json"] + vaultArgs(third)).json as? [[String: Any]])?.count, 0)
+        XCTAssertEqual((try cli(["notes", "list", "--tag", "from-notability", "--json"] + vaultArgs(third)).json as? [[String: Any]])?.count, 1)
 
         let other = try copyFixtureVault(as: "other.inkvault")
         let n = try cli(["import", "notability", Self.zipNote, "--notebook", "Mine", "--no-scale"] + vaultArgs(other))

@@ -158,6 +158,41 @@ final class NotabilityBackupTests: XCTestCase {
         XCTAssertEqual(report.notes.first { $0.status != .ok }?.duplicateOf, report.notes[1].source)
     }
 
+    // MARK: Tags
+
+    /// Folder path segments become tags (case-insensitive, first spelling
+    /// wins, Notability's own tags first), fixed tags are added, and an
+    /// overwrite after the note moved drops the old folder's tags.
+    func testFolderAndExtraTags() throws {
+        let pkg = SyntheticNote.package(tags: "alpha, Research")
+        let first = tmp.appendingPathComponent("first.zip"), moved = tmp.appendingPathComponent("moved.zip")
+        try ZipWriter.write([.init(path: "Notability/research/Daily  log/A.note", data: pkg)]).write(to: first)
+        try ZipWriter.write([.init(path: "Notability/Archive/A.note", data: pkg)]).write(to: moved)
+        let vault = try makeVault()
+        var clock = HybridClock()
+        let options = NotabilityImporter.Options(tagsFromFolders: true, extraTags: ["imported", "ALPHA"])
+        let report = try NotabilityImporter.import(paths: [first], into: vault, device: DeviceID("0a0b0c0d")!,
+                                                   clock: &clock, options: options)
+        let id = try XCTUnwrap(report.notes[0].noteId)
+        var state = try vault.reconstruct(noteId: id)
+        XCTAssertEqual(state.meta.tags, ["alpha", "Research", "Daily log", "imported"])
+        XCTAssertEqual(state.meta.notebook, "research/Daily  log")   // the notebook path is unchanged
+
+        var over = options
+        over.overwrite = true
+        _ = try NotabilityImporter.import(paths: [moved], into: vault, device: DeviceID("0a0b0c0d")!, clock: &clock,
+                                          options: over)
+        state = try vault.reconstruct(noteId: id)
+        XCTAssertEqual(state.meta.tags, ["alpha", "Research", "Archive", "imported"])
+
+        // Off (the library default): only Notability's tags.
+        let plain = try NotabilityImporter.import(paths: [first], into: makeVault(), device: DeviceID("0a0b0c0d")!,
+                                                  clock: &clock)
+        XCTAssertEqual(plain.notes[0].status, .ok)
+        XCTAssertEqual(NotabilityImporter.tags(for: try NotabilityNote.parse(data: pkg), folder: "X/Y",
+                                               options: .init()), ["alpha", "Research"])
+    }
+
     // MARK: Per-curve arrays
 
     /// `curvesstyles` (and `curveswidth`, `curvescolors`) shorter than the

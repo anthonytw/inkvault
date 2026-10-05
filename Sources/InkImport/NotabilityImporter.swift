@@ -19,11 +19,18 @@ public enum NotabilityImporter {
         /// width in points and exports paginate as letter-width pages.
         /// Off keeps Notability's document units (716.8 wide for iPad notes).
         public var scaleToLetterWidth: Bool
+        /// Add one tag per segment of the note's Notability folder path
+        /// (`Research/Daily log` → `Research`, `Daily log`), besides Notability's
+        /// own tags. Off by default in the library; the CLI turns it on.
+        public var tagsFromFolders: Bool
+        /// Tags added to every imported note.
+        public var extraTags: [String]
 
         public init(overwrite: Bool = false, notebook: String? = nil, app: String = "inkvault-import/0.1",
-                    scaleToLetterWidth: Bool = true) {
+                    scaleToLetterWidth: Bool = true, tagsFromFolders: Bool = false, extraTags: [String] = []) {
             self.overwrite = overwrite; self.notebook = notebook; self.app = app
             self.scaleToLetterWidth = scaleToLetterWidth
+            self.tagsFromFolders = tagsFromFolders; self.extraTags = extraTags
         }
     }
 
@@ -647,6 +654,7 @@ public enum NotabilityImporter {
             var state = convert(note, notebook: notebook, idSalt: salt,
                                 scaleToLetterWidth: options.scaleToLetterWidth, key: key)
             state.meta.title = title
+            state.meta.tags = tags(for: note, folder: source.notebook ?? note.metadata.subject, options: options)
             ops += Self.ops(for: state)
             let wall = note.metadata.created ?? now()
             let hlc = clock.tick(wall: now())
@@ -660,6 +668,19 @@ public enum NotabilityImporter {
             result.status = .failed(describe(error))
         }
         return result
+    }
+
+    /// The tags an import writes (the whole set, so an overwrite drops tags
+    /// of a folder the note has left): Notability's tags, then one per
+    /// folder path segment when `tagsFromFolders`, then `extraTags`,
+    /// normalised and deduplicated case-insensitively, first spelling kept
+    /// (`NoteOps.normalizedTags`, format.md §5.4).
+    public static func tags(for note: NotabilityNote, folder: String?, options: Options) -> [String] {
+        var tags = note.metadata.tags
+        if options.tagsFromFolders, let folder {
+            tags += folder.split(separator: "/").map(String.init)
+        }
+        return NoteOps.normalizedTags(tags + options.extraTags)
     }
 
     static func describe(_ error: Error) -> String {

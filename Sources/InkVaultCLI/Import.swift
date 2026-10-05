@@ -86,6 +86,12 @@ struct ImportNotability: ParsableCommand {
     @Flag(name: .long, help: "Keep Notability's document units instead of scaling to 612 pt width.")
     var noScale = false
 
+    @Flag(name: .long, help: "Do not tag notes with their Notability folder names (tagging is on by default).")
+    var noFolderTags = false
+
+    @Option(name: .customLong("tag"), help: ArgumentHelp("Add this tag to every imported note (repeatable).", valueName: "tag"))
+    var tags: [String] = []
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -94,7 +100,8 @@ struct ImportNotability: ParsableCommand {
     }
 
     func run() throws {
-        let options = NotabilityImporter.Options(overwrite: overwrite, notebook: notebook, scaleToLetterWidth: !noScale)
+        let options = NotabilityImporter.Options(overwrite: overwrite, notebook: notebook, scaleToLetterWidth: !noScale,
+                                                 tagsFromFolders: !noFolderTags, extraTags: tags)
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let report: NotabilityImporter.ImportReport
         if dryRun {
