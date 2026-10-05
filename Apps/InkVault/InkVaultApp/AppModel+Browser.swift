@@ -210,7 +210,7 @@ extension AppModel {
     /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
     /// and the check each note's append runs inside its coordinated read.
     private func commit(ids: [UUID],
-                        write: (Vault, DeviceClock, Bool, (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
+                        write: (Vault, DeviceClock, Bool, @Sendable (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
         async throws {
         await editGate.acquire()
         defer { editGate.release() }
@@ -225,7 +225,7 @@ extension AppModel {
         // iCloud: every revision file must still be local when the delta's
         // seq is picked (a file can be evicted, or a new one listed, after
         // `downloadNote`; a notebook rename does not download at all).
-        let verifier: (UUID) -> (@Sendable () throws -> Void)? = { id in
+        let verifier: @Sendable (UUID) -> (@Sendable () throws -> Void)? = { id in
             guard cloud else { return nil }
             return { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
         }

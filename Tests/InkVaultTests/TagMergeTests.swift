@@ -291,6 +291,17 @@ final class TagMergeTests: VaultTestCase {
         }
     }
 
+    /// Hardening: a blank or unnormalised `addTag` (a buggy or hostile
+    /// writer) never shows an empty tag, and reads normalised everywhere.
+    func testBlankAndUnnormalisedAddTagFromAWriter() throws {
+        var log = LogBuilder()
+        let d = log.delta(devA, 100, [.addTag(""), .addTag("  \t "), .addTag("  Fall\n  Term ")])
+        XCTAssertEqual(try tags([d]), ["Fall Term"])
+        let snap = try log.snapshot(devB, 200, from: [d])
+        XCTAssertEqual(try NoteReducer.reconstruct([snap]).tagSet?.instances.map(\.tag), ["Fall Term"])
+        XCTAssertEqual(try tags([snap, d]), ["Fall Term"])
+    }
+
     // MARK: - Wire format
 
     func testOpsAndTagSetRoundTripJSON() throws {

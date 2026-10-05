@@ -328,7 +328,8 @@ A `removeTag` op removes exactly the instances it lists:
 
 - `addTag.tag`: the tag as written: whitespace runs collapsed to one space,
   trimmed, not empty. A writer adds a tag only when the note has no live
-  instance of its key.
+  instance of its key. Readers normalise `tag` the same way (in deltas and
+  in snapshots) and ignore an instance whose tag is then empty.
 - `removeTag.tag`: any spelling of the key; `observed`: every live instance of
   that key the writer sees (a writer removes a tag by listing all of them).
   Instances of other keys are never affected, even if listed.
