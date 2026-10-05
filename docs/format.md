@@ -162,10 +162,13 @@ Each file under `notes/<noteId>/` is one revision. Name:
   revision still merges using its `hlc` exactly as written.
 - `device`: 8 lowercase hex chars, random per app installation. Never a
   hardware identifier.
-- `seq`: per (note, device) counter, decimal, starting at 1, gap-free.
-  A writer chooses `seq` greater than every `seq` for its device that
-  appears in a file name of the note or is covered by any snapshot's
-  `included` (§5.3), so a seq whose file was compacted away is never reused.
+- `seq`: per (note, device) counter, decimal, starting at 1, gap-free,
+  at most 2^53 − 1 (9007199254740991, the largest integer every JSON
+  implementation holds exactly). A writer chooses `seq` greater than every
+  `seq` for its device that appears in a file name of the note or is covered
+  by any snapshot's `included` (§5.3), so a seq whose file was compacted away
+  is never reused. Readers reject a larger `seq` in a file name, a revision
+  or `included` (§8).
 
 Ordering key for anything that needs a total order: `(hlc, device, seq)`.
 
@@ -434,8 +437,13 @@ anything on a page the restore removes is removed with it.
 
 ## 6. Identifiers and encodings
 
-UUIDs are lowercase, hyphenated. Times are RFC 3339 UTC. JSON writers must
-not emit NaN or infinities. Numbers in `points` are plain JSON numbers.
+UUIDs are lowercase, hyphenated. Times are RFC 3339 `date-time` in years
+0001 to 9999: `YYYY-MM-DDTHH:MM:SS`, an optional fraction of 1 to 9 digits
+(readers keep milliseconds), then `Z` (writers) or `±HH:MM` (readers
+accept). Writers emit milliseconds, `2026-10-04T16:20:00.123Z`. JSON writers
+must not emit NaN or infinities, and refuse a value they cannot represent
+(a date outside those years) rather than write a file readers cannot decode.
+Numbers in `points` are plain JSON numbers.
 
 ## 7. Versioning
 
@@ -447,3 +455,56 @@ Until the first tagged release the format is pre-1.0: it may change without
 a version bump or a migration path. Throughout, readers reject a revision
 holding an op type they do not know (fail closed, reported like any other
 unreadable revision); they never silently drop the op and apply the rest.
+
+## 8. Untrusted input
+
+Everything in a vault folder may come from a hostile sync server, a shared
+folder or a crafted import, and is untrusted until its age header, body tag
+(§4) and content have been checked; even then a recipient may be malicious.
+A reader must fail on bad input with an error it reports (§4, §5), never by
+crashing, hanging, or allocating without a bound. Concretely, readers:
+
+- reject a `seq` above 2^53 − 1 anywhere (§5) and a date that is not the
+  RFC 3339 form of §6, including impossible ones (`02-30`, hour 24, second 60);
+- treat sizes, counts and coordinates as claims to check against the bytes
+  actually present before allocating for them;
+- never follow a reference chain, nesting or `parent` link without a bound,
+  and never expand shared references (a plist object used many times, an
+  XML entity) into copies;
+- bound the work a renderer or importer does by the size of its input, not
+  by the distances, extents or counts the input names.
+
+The reference implementation (`Sources/`) enforces these limits; other
+readers may choose their own. Larger inputs fail with a typed error, except
+where the table says how they degrade.
+
+| What | Limit | Where |
+| --- | --- | --- |
+| revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
+| `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
+| identity file, device state | 1 MiB | `BoundedRead` |
+| files read at all | regular files only (no FIFOs or devices; symlinks followed in a vault, not in an imported package) | `BoundedRead` |
+| JSON nesting | 512 levels (Foundation's decoder) | |
+| `seq`, `included` `upTo` / `extra` | 1 … 2^53 − 1 | `RevisionName.maxSeq` |
+| age header | 2 MiB, 1024 stanzas | Age `HeaderCodec` |
+| scrypt work factor (identity files) | 2^20 by default (1 GiB), at most 2^22 | `IdentityFile` |
+| WebDAV response | 256 MiB for a revision, 16 MiB otherwise; PROPFIND bodies must be UTF-8 with no DTD or processing instruction | `WebDAVClient` |
+| zip entry (import) | 1 GiB uncompressed, CRC and size checked | `ZipArchive` |
+| binary plist (import) | 64 levels; no cycles; each object parsed once; XML plists refused | `BinaryPlist` |
+| keyed-archive UID chain | 64 hops | `KeyedArchive` |
+| Notability coordinates and widths | ±10⁶ units, finite; recognised pages up to 100 000 | `NotabilityNote` |
+| page size and stroke extent (render) | 200 000 pt | `RenderLimits.maxExtent` |
+| curve samples per stroke | 64 per control point + 1024 (sparser beyond) | `RenderLimits.samplesPerPoint` |
+| outline points per page | 40 M | `RenderLimits.maxOutlinePoints` |
+| nib width | 1 000 pt (drawn no wider) | `RenderLimits.maxNibWidth` |
+| paper ruling | 40 000 commands per band, 1 M per page (plain background beyond) | `RenderLimits.maxPaperCommands…` |
+| PNG image | 40 M pixels by default | `PNGOptions.maxPixels` |
+| notebook levels shown | 64 | `NotebookNode.maxDepth` |
+
+Foundation's own parsers are not safe on hostile bytes on every platform:
+on Linux, `PropertyListSerialization` crashes on a binary plist holding a
+set, `ISO8601DateFormatter` dies in ICU on a long fraction, and `XMLParser`
+crashes on an element name that is not UTF-8 or on a processing
+instruction without data. The library parses dates and binary plists
+itself and checks PROPFIND bodies before `XMLParser` sees them.
+`Tests/FuzzSupport` fuzzes every parser above on each test run.

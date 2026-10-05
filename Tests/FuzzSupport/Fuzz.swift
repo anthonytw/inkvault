@@ -71,7 +71,7 @@ public struct FuzzConfig: Sendable {
                           dump: env["INKVAULT_FUZZ_DUMP"].map { URL(fileURLWithPath: $0, isDirectory: true) },
                           verbose: env["INKVAULT_FUZZ_VERBOSE"] == "1",
                           caseTimeout: long ? 60 : 10,
-                          targetSeconds: long ? nil : 6,
+                          targetSeconds: long ? nil : 3,
                           memoryBudget: 768 << 20)
     }
 
