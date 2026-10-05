@@ -38,8 +38,22 @@ struct CanvasHostRenderingTests {
         host.canvas.setContentOffset(CGPoint(x: 0, y: y), animated: false)
         host.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(1500))
-        let image = UIGraphicsImageRenderer(bounds: host.canvas.bounds).image { _ in
-            host.canvas.drawHierarchy(in: host.canvas.bounds, afterScreenUpdates: true)
+        func shot() -> UIImage {
+            UIGraphicsImageRenderer(bounds: host.canvas.bounds).image { _ in
+                host.canvas.drawHierarchy(in: host.canvas.bounds, afterScreenUpdates: true)
+            }
+        }
+        // PencilKit draws tiles asynchronously; on a cold simulator the first
+        // screens can take longer than the wait above (blank snapshots on
+        // main and PRs). Snapshot again until ink shows and stops changing,
+        // for at most six more 750 ms waits; a band without ink just ends blank.
+        var image = shot(), ink = darkPixels(image)
+        for _ in 0..<6 {
+            try await Task.sleep(for: .milliseconds(750))
+            let next = shot(), nextInk = darkPixels(next)
+            let settled = ink > 0 && nextInk == ink
+            image = next; ink = nextInk
+            if settled { break }
         }
         let rect = CGRect(x: host.canvas.contentOffset.x / z, y: host.canvas.contentOffset.y / z,
                           width: host.canvas.bounds.width / z, height: host.canvas.bounds.height / z)
