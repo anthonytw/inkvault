@@ -276,6 +276,16 @@ final class PropfindParser: NSObject, XMLParserDelegate {
     private var failed: String?
 
     static func parse(_ data: Data) throws -> [PropfindItem] {
+        // swift-corelibs-foundation's XMLParser traps on an element name that
+        // is not valid UTF-8 (`<a><b\u{C3}/></a>`), so check the encoding
+        // first. A multistatus has no use for a DTD; refusing one rules out
+        // entity expansion whatever libxml2's own limits are.
+        guard isValidUTF8(data) else {
+            throw WebDAVError.malformedResponse("PROPFIND body is not valid UTF-8")
+        }
+        guard data.firstRange(of: Data("<!DOCTYPE".utf8)) == nil else {
+            throw WebDAVError.malformedResponse("PROPFIND body has a DTD")
+        }
         let p = PropfindParser()
         let xml = XMLParser(data: data)
         xml.delegate = p
@@ -284,6 +294,18 @@ final class PropfindParser: NSObject, XMLParserDelegate {
             throw WebDAVError.malformedResponse("PROPFIND body is not valid XML: \(p.failed ?? xml.parserError?.localizedDescription ?? "?")")
         }
         return p.items
+    }
+
+    static func isValidUTF8(_ data: Data) -> Bool {
+        var it = data.makeIterator()
+        var decoder = UTF8()
+        while true {
+            switch decoder.decode(&it) {
+            case .scalarValue: continue
+            case .emptyInput: return true
+            case .error: return false
+            }
+        }
     }
 
     private func local(_ name: String) -> String {
