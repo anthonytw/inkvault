@@ -117,7 +117,7 @@ struct KeychainVaultKeyStore: VaultKeyStore {
         if storage == .iCloudKeychain {
             // The item has no access control: the app asks before reading it.
             do {
-                try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+                _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
             } catch let error as LAError {
                 switch error.code {
                 case .userCancel, .appCancel, .systemCancel, .userFallback: throw KeyStoreError.cancelled

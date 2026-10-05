@@ -71,7 +71,7 @@ struct RememberedKeysTests {
         try await keys.answer(offer, storage: .thisDevice)
         #expect(keys.offer == nil)
         #expect(!keys.holdsUnlockSheet(model))
-        #expect(await store.items[vaultID] == .init(identity: offer.identity, name: "sample", storage: .thisDevice))
+        #expect(await store.items[vaultID] == FakeKeyStore.Item(identity: offer.identity, name: "sample", storage: .thisDevice))
         #expect(keys.storage(for: model) == .thisDevice)
     }
 
