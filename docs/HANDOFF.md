@@ -20,13 +20,22 @@ and macOS, static Linux binary published as a CI artifact.
 | #8 | InkImport: Notability `.note` importer + page `recognition` field + `pageSize.breakHeight` (`docs/import-notability.md`) | merged |
 | #13 | InkRender: PNG export (`Raster.swift` scanline filler with 8 sub-rows and exact horizontal coverage, non-zero union per draw command so a stroke blends once like the PDF; `PNGEncoder.swift` streamed zlib + adaptive filters; `PNGWriter.swift` paginates like the PDF; `--dpi`, 40 MP cap per image) + `inkvault export --format png` | merged |
 | (open) | App usability pass (`feat/app-usability`): `.inkvault` as one item in Files (`VaultLocator`), progressive iCloud loading (`ProgressiveLoad`; list fills without pull-to-refresh), full-width canvas toggle (`ColumnLayout`), tool palette show/hide + compact (`ToolPalette`; PencilKit has no minimise API), note rename, visible tag editor + chips, case-insensitive tags, same-title notes tested | PR open; untested against real iCloud and on the iPad (simulator has neither) |
+| (open) | Importer on the full 3-zip backup (`fix/import-full-backup`): copies/versions resolved across all inputs (newest `.note`, other ink imported as a separate version), `.ntb` reader (FlatBuffers; erase records), shapes, short per-curve arrays defaulted, folder tags (`--no-folder-tags`, `--tag`), thumbnail-aspect snapping (PDF stride fix), inset W/38.4; eval compares every page with Notability's PDF export | PR open, not merged |
 | (open) | History and restore, core + CLI: `NoteHistory`/`Vault.restorePoints`/`state(noteId:at:)`/`restore`, page `parent`, `format.md` §5.7, `notes history`, `notes restore`, `export --at` | branch `feat/history-restore` |
 | (open) | Recovery kit + backups (`feat/recovery-kit-backup`): `inkvault keys paper` (2-page PDF: QR code from a pure-Swift encoder `InkRender/QRCode.swift`, checked against Nayuki qrcodegen vectors in `Fixtures/qr-vectors.json` and, where installed, `zbarimg`; key lines with SHA-256 line checksums `InkVault/PaperKey.swift`; `--passphrase` prints the scrypt-wrapped key file; text via `InkRender/PDFDocument.swift`, standard-14 fonts), `inkvault backup --to DIR [--prune]` / `--archive FILE.tar` / `backup verify` / `restore` (`InkVault/Backup.swift`: incremental, atomic + hash-checked copies, `backup.json` index, `versions/`, prune only under compaction cover), scheduling examples in `docs/cli.md` | PR open |
 
-Importer results on the user's backup (git-ignored `data/`): 130 parsed, 127
-imported, 3 same-uuid duplicates skipped, 0 failed; imports are scaled to
-612 pt width with breaks every 803.25 pt. Not imported yet: PDF/image page
-backgrounds (Phase 3) and dashed strokes (imported solid).
+Importer results on the user's full backup (2026-10-05, three Drive zips in
+git-ignored `data/`: 928 `.note` + 603 `.ntb`): 640 imported (629 `.note`,
+6 `.ntb`, 5 separate versions), 286 identical copies + 9 older versions +
+596 superseded `.ntb` skipped, 0 failed. Pass all zips in one run. Fidelity
+against Notability's own PDF export (`scripts/import-eval.sh --out
+data/eval-full <zips>`): 753 inked pages, F1 median 1.000 (p10 0.998),
+chamfer median 0.013 pt; no flagged note left with a suspected importer
+cause (`docs/import-notability.md`, "Fidelity evaluation"). Imports are
+scaled to 612 pt width. Not imported yet: PDF/image page backgrounds
+(Phase 3), typed text, dashed strokes (imported solid); notes mixing paper
+and PDF pages keep one `breakHeight`. The canvas stage has not been run on
+the full backup (hours on the simulator).
 
 Smoke test of the shipped CLI (works as of #7):
 
@@ -42,11 +51,25 @@ Note: global options (`--vault`, `--identity`, …) go AFTER the subcommand.
 
 ## Personal data
 
-`data/` is git-ignored and holds the user's full Notability backup
-(`Notability-…zip`, 130 notes) plus `data/samples/` and the bulk-import
-scratch vault `data/bulk.inkvault`. Never commit, quote or paste its contents
-anywhere (code, tests, docs, commit messages, PR bodies, chat with other
-agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
+`data/` is git-ignored and holds the user's full Notability backup as three
+Google Drive parts, `Notability-20261005T121200Z-1-00{1,2,3}.zip` (pass all
+three together: 928 `.note`, 603 `.ntb`, 395 Notability PDF exports), plus the
+latest fidelity report in `data/eval-full/`. `data/README.md` says the same.
+Never commit, quote or paste its contents anywhere (code, tests, docs, commit
+messages, PR bodies, chat with other agents). Real-data tests are gated on
+`INKVAULT_NOTABILITY_SAMPLES`; scratch output goes under `data/<name>/` and is
+deleted when done.
+
+## Decided, not yet implemented
+
+- **Encryption is post-quantum only.** Vaults accept only the age hybrid
+  ML-KEM-768 + X25519 recipient (newest age spec). Classic X25519-only
+  recipients are rejected with "create a new key", not offered as an option.
+  Passphrases stay: they only wrap the key file in `keys/` (scrypt, symmetric).
+- **Licensing:** GPLv3 plus an App Store exception (§7 additional permission),
+  no CLA.
+- **Export compliance:** mass-market, standard published algorithms, full
+  strength.
 
 ## How work gets done (what worked)
 
