@@ -150,7 +150,7 @@ final class CLIImportSearchTests: CLITestCase {
         try FileManager.default.createDirectory(atPath: path("empty"), withIntermediateDirectories: true)
         let empty = try cli(["import", "notability", path("empty")] + vaultArgs(vault))
         XCTAssertEqual(empty.status, 1)
-        XCTAssertTrue(empty.err.contains("no .note files"), empty.err)
+        XCTAssertTrue(empty.err.contains("no .note or .ntb files"), empty.err)
         XCTAssertEqual(try cli(["import", "notability"] + vaultArgs(vault)).status, 2)
     }
 }

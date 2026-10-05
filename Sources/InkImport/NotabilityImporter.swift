@@ -44,6 +44,16 @@ public enum NotabilityImporter {
         public var dashedStrokes = 0
         /// Strokes of a `curvesstyles` value other than pen or highlighter (imported as pen).
         public var unknownStyleStrokes = 0
+        /// Strokes imported with a default style, colour or width because
+        /// Notability's per-curve array was shorter than its curve count.
+        public var defaultedAttributeStrokes = 0
+        /// Shape-tool objects that could not be converted to strokes.
+        public var unsupportedShapes = 0
+        /// `.ntb` strokes whose geometry kind is not decoded.
+        public var unsupportedStrokes = 0
+        /// `.ntb` strokes imported at the right page edge because the bundle
+        /// clamps the origin of a stroke that starts beyond it.
+        public var clampedStrokes = 0
 
         public init() {}
 
@@ -81,6 +91,18 @@ public enum NotabilityImporter {
         public var dropped = Dropped()
         /// Wall time spent on this note, seconds.
         public var seconds = 0.0
+        /// The container the note came from.
+        public var format: NotabilityNote.SourceFormat = .note
+        /// Strokes written that came from shape-tool objects (included in `strokes`).
+        public var shapes = 0
+        /// When several sources hold the same Notability note: the source
+        /// that was imported as the note (for a skipped copy or an extra version).
+        public var duplicateOf: String?
+        /// True when this source was imported as a separate note because it
+        /// holds ink the chosen version of the same note lacks.
+        public var extraVersion = false
+        /// For a note with several sources: why this one was chosen, or why it was not.
+        public var selection: String?
 
         public init(source: String, status: Status) { self.source = source; self.status = status }
     }
@@ -133,10 +155,13 @@ public enum NotabilityImporter {
     ///   - idSalt: nil for a first import; distinct values mint fresh page and
     ///     stroke ids (an overwrite uses `"<device>-<seq>"` of its delta).
     ///   - scaleToLetterWidth: scale every length by `612 / width` (see `Options`).
+    ///   - key: the identity the ids are derived from (default: Notability's
+    ///     uuid, `sourceKey`); the importer passes its own for `.ntb` notes and
+    ///     extra versions.
     public static func convert(_ note: NotabilityNote, notebook: String? = nil, idSalt: String? = nil,
-                               scaleToLetterWidth: Bool = true) -> NoteState {
+                               scaleToLetterWidth: Bool = true, key sourceKeyOverride: String? = nil) -> NoteState {
         let k = scaleToLetterWidth ? letterWidth / note.paper.width : 1
-        let key = "inkvault-notability:" + sourceKey(note) + (idSalt.map { ":gen:" + $0 } ?? "")
+        let key = "inkvault-notability:" + (sourceKeyOverride ?? sourceKey(note)) + (idSalt.map { ":gen:" + $0 } ?? "")
         let pageId = UUID.derived(from: key + ":page")
 
         // Highlighter first so it sits behind the ink, as Notability draws it.
@@ -236,6 +261,10 @@ public enum NotabilityImporter {
         d.unknownStyleStrokes = note.curves.filter {
             $0.style != NotabilityNote.penStyle && $0.style != NotabilityNote.highlighterStyle
         }.count
+        d.defaultedAttributeStrokes = note.defaultedCurves
+        d.unsupportedShapes = note.unsupportedShapes
+        d.unsupportedStrokes = note.unsupportedStrokes
+        d.clampedStrokes = note.clampedStrokes
         return d
     }
 
@@ -263,21 +292,41 @@ public enum NotabilityImporter {
 
     // MARK: - Import
 
-    /// One `.note` found in the inputs.
+    /// One `.note` or `.ntb` found in the inputs.
     struct Source {
         var label: String
         var notebook: String?
+        var format: NotabilityNote.SourceFormat = .note
+        /// Modification time of the file or zip entry (a tie-breaker between copies).
+        var modified: Date?
         var load: () throws -> NotePackage
+
+        /// Parses the source in its format.
+        func parse() throws -> NotabilityNote {
+            switch format {
+            case .note: return try NotabilityNote.parse(package: load())
+            case .ntb: return try NotabilityBundle.parse(package: load())
+            }
+        }
     }
 
     /// Imports Notability notes into `vault`, one delta per note.
     ///
-    /// Each path may be a `.note` file, a directory (searched recursively for
-    /// `.note` files), or a zip holding `.note` files (Notability's Google
-    /// Drive backup). The notebook is the directory under `Notability/` in the
-    /// path (e.g. `Research/Daily log`), else the directory relative to an
-    /// input directory, else the note's Notability subject; `options.notebook`
+    /// Each path may be a `.note` or `.ntb` file, a directory (searched
+    /// recursively for both), or a zip holding them (Notability's Google
+    /// Drive backup, possibly split over several zips: pass them all). The
+    /// notebook is the directory under `Notability/` in the path (e.g.
+    /// `Research/Daily log`), else the directory relative to an input
+    /// directory, else the note's Notability subject; `options.notebook`
     /// overrides all of them.
+    ///
+    /// Every source is read before anything is written, so copies of one
+    /// note anywhere in the inputs are resolved together
+    /// (`docs/import-notability.md`, "Duplicates and versions"): the newest
+    /// `.note` is imported as the note; a copy whose strokes are all in it is
+    /// skipped and says which source was used; a copy holding strokes the
+    /// chosen one lacks is imported as a separate note, so no ink is lost.
+    /// `.ntb` files are matched to `.note` files by creation time.
     ///
     /// A note whose derived id already exists is skipped unless
     /// `options.overwrite`. Per-note problems are reported, not thrown. The
@@ -288,20 +337,19 @@ public enum NotabilityImporter {
     ///   opened; `VaultError` when the vault cannot be listed.
     public static func `import`(paths: [URL], into vault: Vault, device: DeviceID, clock: inout HybridClock,
                                 options: Options = Options(), now: () -> Date = Date.init) throws -> ImportReport {
+        let all = try paths.flatMap { try sources($0) }
+        let plan = self.plan(all)
         var report = ImportReport()
         var existing = Set(try vault.noteIDs())
         var seen = Set<UUID>()
-        for url in paths {
-            for source in try sources(url) {
-                let started = Date()
-                // Drain Foundation's autoreleased plist objects per note on Darwin.
-                var result = withPool {
-                    importOne(source, into: vault, device: device, clock: &clock, options: options, now: now,
-                              existing: &existing, seen: &seen)
-                }
-                result.seconds = Date().timeIntervalSince(started)
-                report.notes.append(result)
+        for (i, source) in all.enumerated() {
+            let started = Date()
+            var result = withPool {
+                importOne(source, plan: plan.decisions[i], into: vault, device: device, clock: &clock,
+                          options: options, now: now, existing: &existing, seen: &seen)
             }
+            result.seconds = Date().timeIntervalSince(started) + plan.scanSeconds[i]
+            report.notes.append(result)
         }
         return report
     }
@@ -314,17 +362,263 @@ public enum NotabilityImporter {
         #endif
     }
 
-    static func importOne(_ source: Source, into vault: Vault, device: DeviceID, clock: inout HybridClock,
-                          options: Options, now: () -> Date, existing: inout Set<UUID>,
+    /// What happens to one source.
+    struct Decision {
+        enum Action {
+            /// Import as the note (`key` gives its id).
+            case primary
+            /// Import as a separate note: it holds ink the primary lacks.
+            case extraVersion
+            /// Do not write: the reason says why.
+            case skip(String)
+            /// Could not be read.
+            case fail(String)
+        }
+        var action: Action
+        /// Identity the note and stroke ids derive from.
+        var key = ""
+        var duplicateOf: String?
+        var selection: String?
+        /// Parsed-note facts for the report of a source that is not written.
+        var summary: Summary?
+    }
+
+    /// Facts about a parsed source kept between the scan and the write.
+    struct Summary {
+        var title: String
+        var subject: String?
+        var format: NotabilityNote.SourceFormat
+        var created: Date?
+        var modified: Date?
+        var uuid: String?
+        var originalWidth: Double
+        var dropped: Dropped
+        var strokes: [StrokePrint]
+        var curveCount: Int
+    }
+
+    /// A stroke's shape, independent of its page offset: point count, colour,
+    /// first x, and the vector from its first to its last point. Two copies of
+    /// a note store the same stroke within float precision (an `.ntb` uses
+    /// half floats and page-relative y), so prints are compared with a tolerance.
+    struct StrokePrint: Hashable {
+        var points: Int
+        var rgba: UInt32
+        var x: Float, dx: Float, dy: Float
+        /// The x position is unreliable (`Curve.originClamped`): match on the rest.
+        var anyX: Bool
+
+        init(_ c: NotabilityNote.Curve) {
+            anyX = c.originClamped
+            points = c.points.count
+            rgba = UInt32(c.color.r) << 24 | UInt32(c.color.g) << 16 | UInt32(c.color.b) << 8 | UInt32(c.color.a)
+            let a = c.points.first ?? NotabilityNote.Point(x: 0, y: 0), b = c.points.last ?? a
+            x = Float(a.x); dx = Float(b.x - a.x); dy = Float(b.y - a.y)
+        }
+
+        /// Bucket for lookups: everything but the continuous values, plus x in 4-unit cells.
+        var bucket: Bucket { Bucket(points: points, rgba: rgba, cell: Int((x / 4).rounded(.down))) }
+        struct Bucket: Hashable { var points: Int; var rgba: UInt32; var cell: Int }
+    }
+
+    /// Prints of the strokes already imported for one note, for containment
+    /// tests. Two prints match within 0.3 units plus 1/512 of the offset
+    /// (an `.ntb` stores offsets from the stroke's origin as half floats,
+    /// whose spacing is 1/1024 to 1/2048 of the value).
+    struct PrintIndex {
+        static let tolerance: Float = 0.3
+        static func close(_ a: Float, _ b: Float) -> Bool { abs(a - b) <= tolerance + max(abs(a), abs(b)) / 512 }
+        var buckets: [StrokePrint.Bucket: [StrokePrint]] = [:]
+        var byShape: [StrokePrint.Bucket: [StrokePrint]] = [:]   // cell 0: x ignored
+
+        mutating func insert(_ prints: [StrokePrint]) {
+            for p in prints {
+                buckets[p.bucket, default: []].append(p)
+                byShape[StrokePrint.Bucket(points: p.points, rgba: p.rgba, cell: 0), default: []].append(p)
+            }
+        }
+
+        func contains(_ p: StrokePrint) -> Bool {
+            let b = p.bucket
+            if p.anyX {
+                return (byShape[StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: 0)] ?? []).contains {
+                    Self.close($0.dx, p.dx) && Self.close($0.dy, p.dy)
+                }
+            }
+            for cell in (b.cell - 1)...(b.cell + 1) {
+                for q in buckets[StrokePrint.Bucket(points: b.points, rgba: b.rgba, cell: cell)] ?? []
+                where Self.close(q.x, p.x) && Self.close(q.dx, p.dx) && Self.close(q.dy, p.dy) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        /// Strokes of `prints` not in the index.
+        func missing(_ prints: [StrokePrint]) -> Int { prints.filter { !contains($0) }.count }
+    }
+
+    /// The scan: every source parsed once, grouped by note, a decision per source.
+    struct Plan {
+        var decisions: [Decision]
+        var scanSeconds: [Double]
+    }
+
+    /// Reads every source and decides what to import (see `import`).
+    static func plan(_ all: [Source]) -> Plan {
+        var decisions: [Decision] = []
+        var seconds: [Double] = []
+        var summaries: [Summary?] = []
+        for source in all {
+            let started = Date()
+            let outcome: Result<Summary, Error> = withPool {
+                do {
+                    let note = try source.parse()
+                    return .success(Summary(
+                        title: note.metadata.name, subject: note.metadata.subject, format: note.sourceFormat,
+                        created: note.metadata.created, modified: note.metadata.modified ?? note.bundleModified,
+                        uuid: note.metadata.uuid.flatMap { $0.isEmpty ? nil : $0 }, originalWidth: note.paper.width,
+                        dropped: dropped(note), strokes: note.curves.map(StrokePrint.init), curveCount: note.curves.count))
+                } catch { return .failure(error) }
+            }
+            seconds.append(Date().timeIntervalSince(started))
+            switch outcome {
+            case .success(let s):
+                summaries.append(s)
+                decisions.append(Decision(action: .primary, summary: s))
+            case .failure(let e):
+                summaries.append(nil)
+                decisions.append(Decision(action: .fail(describe(e))))
+            }
+        }
+
+        // Keys: Notability's uuid for a .note; an .ntb takes the uuid of a
+        // .note created at the same millisecond (the bundle has no uuid).
+        func ms(_ d: Date?) -> Int64? { d.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } }
+        var uuidByCreated: [Int64: String] = [:]
+        for case let s? in summaries where s.format == .note {
+            guard let u = s.uuid, let c = ms(s.created) else { continue }
+            // Two notes created in the same millisecond: keep the smallest uuid, deterministically.
+            if let old = uuidByCreated[c], old <= u { continue }
+            uuidByCreated[c] = u
+        }
+        var groups: [String: [Int]] = [:]
+        var order: [String] = []
+        for (i, s) in summaries.enumerated() {
+            guard let s else { continue }
+            let key: String
+            if let u = s.uuid {
+                key = u
+            } else if s.format == .ntb, let c = ms(s.created) {
+                key = uuidByCreated[c] ?? "ntb-created:\(c)"
+            } else {
+                key = "name:\(s.title)|created:\(s.created?.timeIntervalSinceReferenceDate ?? 0)"
+            }
+            decisions[i].key = key
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(i)
+        }
+
+        for key in order {
+            guard let members = groups[key], members.count > 1 else { continue }
+            // The primary: a .note before an .ntb (it carries recognition, PDF
+            // layout and full-precision points), then the newest modification
+            // date, then the newest file, then the path.
+            let ranked = members.sorted { a, b in
+                guard let x = summaries[a], let y = summaries[b] else { return a < b }
+                if (x.format == .note) != (y.format == .note) { return x.format == .note }
+                let mx = x.modified ?? .distantPast, my = y.modified ?? .distantPast
+                if mx != my { return mx > my }
+                let fx = all[a].modified ?? .distantPast, fy = all[b].modified ?? .distantPast
+                if fx != fy { return fx > fy }
+                return all[a].label < all[b].label
+            }
+            guard let first = ranked.first, let primary = summaries[first] else { continue }
+            let others = ranked.count - 1
+            let runnerUp = ranked.dropFirst().compactMap { summaries[$0] }.first
+            let why: String
+            if let r = runnerUp, r.format == .note, primary.modified != r.modified {
+                why = "newest modification date"
+            } else if let r = runnerUp, r.format == .note, all[first].modified != all[ranked[1]].modified {
+                why = "same modification date; newest file"
+            } else if let r = runnerUp, r.format == .note {
+                why = "same modification date and file time; first path"
+            } else {
+                why = "a .note is preferred over .ntb copies"
+            }
+            decisions[first].selection = "chosen from \(others + 1) copies of this note: \(why)"
+
+            var index = PrintIndex()
+            index.insert(primary.strokes)
+            var importedFrom: [(label: String, prints: [StrokePrint])] = [(all[first].label, primary.strokes)]
+            for i in ranked.dropFirst() {
+                guard let s = summaries[i] else { continue }
+                decisions[i].duplicateOf = all[first].label
+                let missing = index.missing(s.strokes)
+                if missing == 0 {
+                    let identical = s.strokes.count == primary.strokes.count
+                    let what: String
+                    if s.format == .ntb {
+                        what = "superseded: .ntb copy of the note imported from \(all[first].label) (the .note is used)"
+                    } else if identical {
+                        what = "duplicate: same note (same Notability uuid, same strokes) as \(all[first].label), which was imported"
+                    } else {
+                        what = "older version: every stroke is in the version imported from "
+                            + (importedFrom.count == 1 ? all[first].label : "the versions imported")
+                    }
+                    decisions[i].action = .skip(what)
+                    decisions[i].selection = what
+                } else {
+                    decisions[i].action = .extraVersion
+                    decisions[i].selection = "imported separately: \(missing) of its \(s.strokes.count) strokes are not in "
+                        + "the version imported from \(all[first].label)"
+                    index.insert(s.strokes)
+                    importedFrom.append((all[i].label, s.strokes))
+                }
+            }
+        }
+        return Plan(decisions: decisions, scanSeconds: seconds)
+    }
+
+    static func importOne(_ source: Source, plan decision: Decision, into vault: Vault, device: DeviceID,
+                          clock: inout HybridClock, options: Options, now: () -> Date, existing: inout Set<UUID>,
                           seen: inout Set<UUID>) -> NoteResult {
         var result = NoteResult(source: source.label, status: .ok)
+        result.format = source.format
+        result.duplicateOf = decision.duplicateOf
+        result.selection = decision.selection
+        if let s = decision.summary {
+            result.title = s.title
+            result.notebook = options.notebook ?? source.notebook ?? s.subject
+            result.dropped = s.dropped
+            result.originalWidth = s.originalWidth
+        }
+        switch decision.action {
+        case .fail(let why):
+            result.status = .failed(why); return result
+        case .skip(let why):
+            result.status = .skipped(why)
+            result.noteId = UUID.derived(from: "inkvault-notability:" + decision.key)
+            return result
+        case .primary, .extraVersion:
+            break
+        }
         let note: NotabilityNote
-        do { note = try NotabilityNote.parse(package: source.load()) } catch {
+        do { note = try source.parse() } catch {
             result.status = .failed(describe(error)); return result
         }
-        let id = noteId(for: note)
+        var key = decision.key.isEmpty ? sourceKey(note) : decision.key
+        var title = note.metadata.name
+        if case .extraVersion = decision.action {
+            let stamp = (note.metadata.modified ?? note.bundleModified ?? source.modified)
+                .map { ISO8601DateFormatter().string(from: $0) } ?? "unknown date"
+            key += ":version:\(source.format.rawValue):\(stamp):\(note.curves.count)"
+            title += " (version modified \(stamp))"
+            result.extraVersion = true
+        }
+        let id = UUID.derived(from: "inkvault-notability:" + key)
         result.noteId = id
-        result.title = note.metadata.name
+        result.title = title
         let notebook = options.notebook ?? source.notebook ?? note.metadata.subject
         result.notebook = notebook
         result.dropped = dropped(note)
@@ -350,8 +644,9 @@ public enum NotabilityImporter {
                 ops += old.pages.map { .removePage(pageId: $0.id) }
                 if old.deleted { ops.append(.restoreNote) }
             }
-            let state = convert(note, notebook: notebook, idSalt: salt,
-                                scaleToLetterWidth: options.scaleToLetterWidth)
+            var state = convert(note, notebook: notebook, idSalt: salt,
+                                scaleToLetterWidth: options.scaleToLetterWidth, key: key)
+            state.meta.title = title
             ops += Self.ops(for: state)
             let wall = note.metadata.created ?? now()
             let hlc = clock.tick(wall: now())
@@ -359,6 +654,7 @@ public enum NotabilityImporter {
                                      app: options.app, body: .delta(ops: ops)))
             existing.insert(id)
             result.strokes = state.pages.reduce(0) { $0 + $1.strokes.count }
+            result.shapes = note.shapeCount
             result.recognizedPages = note.recognition.count
         } catch {
             result.status = .failed(describe(error))
@@ -376,50 +672,63 @@ public enum NotabilityImporter {
         }
     }
 
-    /// Expands one input path into `.note` sources. A `.note` may be a zip
-    /// file or an unzipped package directory; a directory is searched
-    /// recursively (without descending into packages); anything else is
-    /// opened as a zip of `.note` files.
+    /// Expands one input path into `.note` and `.ntb` sources. A `.note` may
+    /// be a zip file or an unzipped package directory (an `.ntb` is always a
+    /// zip); a directory is searched recursively (without descending into
+    /// packages); anything else is opened as a zip holding them.
     static func sources(_ url: URL) throws -> [Source] {
         func isDirectory(_ u: URL) -> Bool {
             var isDir: ObjCBool = false
             return FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir) && isDir.boolValue
         }
-        func source(_ f: URL, notebook: String?) -> Source {
+        func format(_ ext: String) -> NotabilityNote.SourceFormat? {
+            switch ext.lowercased() {
+            case "note": return .note
+            case "ntb": return .ntb
+            default: return nil
+            }
+        }
+        func source(_ f: URL, _ fmt: NotabilityNote.SourceFormat, notebook: String?) -> Source {
             let dir = isDirectory(f)
-            return Source(label: f.path, notebook: notebook,
+            let modified = (try? f.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return Source(label: f.path, notebook: notebook, format: fmt, modified: modified,
                           load: { dir ? try NotePackage(directory: f) : try NotePackage(data: readFile(f)) })
         }
         guard FileManager.default.fileExists(atPath: url.path) else { throw ImportError.io("no such file: \(url.path)") }
-        if url.pathExtension.lowercased() == "note" {
+        if let fmt = format(url.pathExtension) {
             let comps = Array(url.standardizedFileURL.pathComponents.dropLast())
-            return [source(url, notebook: notebook(fromDirectories: comps))]
+            return [source(url, fmt, notebook: notebook(fromDirectories: comps))]
         }
         if isDirectory(url) {
             guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) else {
                 throw ImportError.io("cannot list \(url.path)")
             }
-            var found: [URL] = []
-            for case let f as URL in walker where f.pathExtension.lowercased() == "note" {
-                found.append(f)
+            var found: [(URL, NotabilityNote.SourceFormat)] = []
+            for case let f as URL in walker {
+                guard let fmt = format(f.pathExtension) else { continue }
+                found.append((f, fmt))
                 if isDirectory(f) { walker.skipDescendants() }
             }
             let base = url.standardizedFileURL.pathComponents
-            return found.sorted { $0.path < $1.path }.map { f in
+            return found.sorted { $0.0.path < $1.0.path }.map { f, fmt in
                 let comps = Array(f.standardizedFileURL.pathComponents.dropLast())
                 let rel = comps.count > base.count ? Array(comps[base.count...]) : []
-                return source(f, notebook: notebook(fromDirectories: comps) ?? join(rel))
+                return source(f, fmt, notebook: notebook(fromDirectories: comps) ?? join(rel))
             }
         }
-        // A zip of .note files (Notability's backup). The sources keep it open.
+        // A zip of .note / .ntb files (Notability's backup). The sources keep it open.
         let zip = try ZipArchive(url: url)
-        return zip.entries.filter { !$0.isDirectory && $0.path.lowercased().hasSuffix(".note") }
-            .sorted { $0.path < $1.path }
-            .map { e in
-                let comps = e.path.split(separator: "/").map(String.init).dropLast()
-                return Source(label: "\(url.path)!\(e.path)", notebook: notebook(fromDirectories: Array(comps)),
-                              load: { try NotePackage(data: zip.read(e)) })
-            }
+        return zip.entries.compactMap { e -> (ZipArchive.Entry, NotabilityNote.SourceFormat)? in
+            guard !e.isDirectory, let dot = e.path.lastIndex(of: "."),
+                  let fmt = format(String(e.path[e.path.index(after: dot)...])) else { return nil }
+            return (e, fmt)
+        }
+        .sorted { $0.0.path < $1.0.path }
+        .map { e, fmt in
+            let comps = e.path.split(separator: "/").map(String.init).dropLast()
+            return Source(label: "\(url.path)!\(e.path)", notebook: notebook(fromDirectories: Array(comps)),
+                          format: fmt, modified: e.modified, load: { try NotePackage(data: zip.read(e)) })
+        }
     }
 
     /// The directories after the last `Notability` component, joined by `/`.
