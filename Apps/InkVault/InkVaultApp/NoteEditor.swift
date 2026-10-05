@@ -59,13 +59,21 @@ final class NoteEditor {
     /// Loads and reconstructs a note off the main actor. A note with
     /// unreadable revisions, or in Recently Deleted, opens read-only.
     /// `coordinated` (a vault in iCloud Drive): the note is read, and its
-    /// deltas written, under `NSFileCoordinator` (`CloudVault`).
+    /// deltas written, under `NSFileCoordinator` (`CloudVault`). `verify`
+    /// runs inside that read before and after the note is loaded and throws
+    /// to refuse a note whose files are not all local (`CloudVault.requireLocal`).
     static func open(vault: Vault, noteID: UUID, clock: DeviceClock,
                      debounce: Duration = NoteEditor.defaultDebounce,
-                     coordinated: Bool = false) async throws -> NoteEditor {
+                     coordinated: Bool = false,
+                     verify: (@Sendable () throws -> Void)? = nil) async throws -> NoteEditor {
         let device = clock.device
         let (state, failures, nextSeq, readings) = try await Task.detached(priority: .userInitiated) {
-            let loaded = try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { try vault.loadNote(noteID) }
+            let loaded = try CloudVault.coordinatedRead(coordinated ? vault.url : nil) {
+                try verify?()
+                let loaded = try vault.loadNote(noteID)
+                try verify?()
+                return loaded
+            }
             let state = try NoteReducer.reconstruct(loaded.revisions)
             return (state, loaded.failures.count, Vault.nextSeq(from: loaded.revisions, device: device),
                     loaded.revisions.map(\.hlc))

@@ -50,11 +50,25 @@ Note: global options (`--vault`, `--identity`, …) go AFTER the subcommand.
 
 ## Personal data
 
-`data/` is git-ignored and holds the user's full Notability backup
-(`Notability-…zip`, 130 notes) plus `data/samples/` and the bulk-import
-scratch vault `data/bulk.inkvault`. Never commit, quote or paste its contents
-anywhere (code, tests, docs, commit messages, PR bodies, chat with other
-agents). Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`.
+`data/` is git-ignored and holds the user's full Notability backup as three
+Google Drive parts, `Notability-20261005T121200Z-1-00{1,2,3}.zip` (pass all
+three together: 928 `.note`, 603 `.ntb`, 395 Notability PDF exports), plus the
+latest fidelity report in `data/eval-full/`. `data/README.md` says the same.
+Never commit, quote or paste its contents anywhere (code, tests, docs, commit
+messages, PR bodies, chat with other agents). Real-data tests are gated on
+`INKVAULT_NOTABILITY_SAMPLES`; scratch output goes under `data/<name>/` and is
+deleted when done.
+
+## Decided, not yet implemented
+
+- **Encryption is post-quantum only.** Vaults accept only the age hybrid
+  ML-KEM-768 + X25519 recipient (newest age spec). Classic X25519-only
+  recipients are rejected with "create a new key", not offered as an option.
+  Passphrases stay: they only wrap the key file in `keys/` (scrypt, symmetric).
+- **Licensing:** GPLv3 plus an App Store exception (§7 additional permission),
+  no CLA.
+- **Export compliance:** mass-market, standard published algorithms, full
+  strength.
 
 ## How work gets done (what worked)
 
