@@ -329,6 +329,20 @@ Phase 1 task detail (historical, for reference):
      file UTType), export (QR, share sheet), Keychain storage behind
      Face ID, passphrase-wrapped key file option; add second recipient
      flow ("add this Mac's key").
+     **Keychain storage done** (branch `feat/app-keys-rename-eraser`):
+     after a manual unlock (passphrase or pasted key) the unlock sheet offers
+     "Remember on this iPad" (on) and "Also sync via iCloud Keychain" (off);
+     a vault with a remembered key unlocks after Face ID as soon as it opens,
+     falling back to the form when cancelled, missing or broken (a key that
+     no longer opens the vault is offered for replacement). Sidebar key menu:
+     "Forget Key for This Vault". `VaultKeyStore` (protocol) /
+     `KeychainVaultKeyStore` (one generic-password item per vault id, service
+     `io.github.anthonytw.inkvault.vault-key`, label "InkVault — <name>"),
+     `RememberedKeys` (observable, separate from `AppModel`), tests with
+     `FakeKeyStore`. Untested on hardware: Face ID prompts, iCloud Keychain
+     sync, Catalyst keychain (needs a signed build). Still open in 3d: key
+     generation/export/QR/AirDrop, add-recipient flow, offering to remember
+     the key of a newly created vault.
    - 3e Export: PDF via `InkRender` through the share sheet; whole-vault zip
      dump; `verify` screen.
    - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
