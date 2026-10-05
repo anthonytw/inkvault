@@ -27,7 +27,11 @@ top of it.
 device id and hybrid clock come from a `DeviceState` file (saved before the
 revision is written), the clock first observes every readable revision of the
 note so the new ops win LWW, and `seq` comes from `nextSeq`. `NoteOps.newNote`
-builds the ops for a new note (one page plus all metadata fields).
+builds the ops for a new note (one page, all metadata fields, one `addTag` per
+tag). Tag edits use `NoteOps.addTag` / `removeTag` / `setTags`, which take the
+note's reconstructed state: a `removeTag` lists the instances it observed
+(`format.md` §5.4.1); the app's `NoteWriter.append(to:building:)` builds them
+from the note as read at write time.
 
 The app does the same with its own `DeviceClock` actor (`NoteWriter.append`
 for browser edits, `NoteWriter.write` for canvas autosave), so one process

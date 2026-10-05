@@ -85,19 +85,47 @@ actor NoteWriter {
     @discardableResult
     static func append(_ ops: [Op], to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
                        coordinated: Bool = false) async throws -> RevisionName {
-        let device = clock.device
-        let (readings, seq) = try await Task.detached(priority: .userInitiated) {
-            try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { () throws -> ([HLC], Int) in
+        let (readings, seq, _) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
+                                                build: nil)
+        await clock.observe(readings)
+        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
+        return try await writer.write(ops)
+    }
+
+    /// Like `append(_:to:...)`, but `build` computes the ops from the note as
+    /// it is on disk at write time (nil: no readable revision). Writes nothing
+    /// when it returns no ops. Tag edits use this: a `removeTag` observes
+    /// every instance on disk, not just those in a possibly stale summary
+    /// (format.md §5.4.1).
+    @discardableResult
+    static func append(to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
+                       coordinated: Bool = false,
+                       building build: @escaping @Sendable (NoteState?) -> [Op]) async throws -> RevisionName? {
+        let (readings, seq, ops) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
+                                                  build: build)
+        guard !ops.isEmpty else { return nil }
+        await clock.observe(readings)
+        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
+        return try await writer.write(ops)
+    }
+
+    /// The note's revision clocks, this device's next `seq`, and the ops
+    /// `build` makes from its reconstructed state (empty without `build`).
+    private static func read(_ noteID: UUID, vault: Vault, device: DeviceID, coordinated: Bool,
+                             build: (@Sendable (NoteState?) -> [Op])?) async throws -> ([HLC], Int, [Op]) {
+        try await Task.detached(priority: .userInitiated) {
+            try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { () throws -> ([HLC], Int, [Op]) in
                 let loaded = try vault.loadNote(noteID)
                 let seq = loaded.failures.isEmpty
                     ? Vault.nextSeq(from: loaded.revisions, device: device)
                     : try vault.nextSeq(noteId: noteID, device: device)
-                return (loaded.revisions.map(\.hlc), seq)
+                var ops: [Op] = []
+                if let build {
+                    ops = build(loaded.revisions.isEmpty ? nil : try NoteReducer.reconstruct(loaded.revisions))
+                }
+                return (loaded.revisions.map(\.hlc), seq, ops)
             }
         }.value
-        await clock.observe(readings)
-        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
-        return try await writer.write(ops)
     }
 
     /// Writes one delta holding `ops`. A `seq` already taken (another window

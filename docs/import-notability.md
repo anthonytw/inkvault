@@ -24,8 +24,9 @@ Each path may be a single `.note` (a zip, or an unzipped package directory),
 a directory (searched recursively, not descending into packages), or
 the zip Notability's Google Drive backup produces (`Notability/<Subject>/
 <Folder>/<name>.note`, plus PDFs that are ignored). Each note becomes one
-delta: `addPage`, one `addStroke` per stroke, `setMeta` for title, tags,
-notebook, paper and page size, and `setPageRecognition`.
+delta: `addPage`, one `addStroke` per stroke, `setMeta` for title,
+notebook, paper and page size, one `addTag` per tag (`format.md` §5.4.1), and
+`setPageRecognition`. An overwrite also removes the old tags (`removeTag`).
 
 - **Notebook**: the directories under `Notability/` (`Research/Daily log`);
   for a directory input without one, the path relative to it; otherwise

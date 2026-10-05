@@ -78,6 +78,7 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
                 // A re-created page's recognition is part of re-creating it.
                 if !newPages.contains(id) { recognitionChanges += 1 }
             case .setMeta(let change): metaFields.append(change.field)
+            case .addTag, .removeTag: if !metaFields.contains("tags") { metaFields.append("tags") }
             case .deleteNote: deleted = true
             case .restoreNote: deleted = false
             }
@@ -147,11 +148,12 @@ public enum NoteHistory {
                                   newID: () -> UUID = { UUID() }) -> [Op] {
         var ops: [Op] = []
         if current.deleted && !target.deleted { ops.append(.restoreNote) }
-        for key in NoteState.ClockKey.allCases {
+        for key in NoteState.ClockKey.allCases where key != .tags {
             guard case .meta(let want) = RegisterValue(key, in: target),
                   case .meta(let have) = RegisterValue(key, in: current), want != have else { continue }
             ops.append(.setMeta(want))
         }
+        ops += NoteOps.setTags(target.meta.tags, on: current)
 
         // Pages: exact ids first, then earlier restores' copies.
         var counterpart: [UUID: Page] = [:]

@@ -92,6 +92,18 @@ public struct Origin: Hashable, Comparable, Sendable, CustomStringConvertible {
         self.init(hlc: h, device: d, seq: seq, op: op)
     }
 
+    /// Parses a tag instance id (format.md §5.4.1): an origin whose `seq` may
+    /// be 0, which marks a legacy baseline instance.
+    static func tagInstance(_ string: String) -> Origin? {
+        let p = string.split(separator: "-", omittingEmptySubsequences: false)
+        guard p.count == 4, let h = HLC(String(p[0])), let d = DeviceID(String(p[1])),
+              let seq = Origin.decimal(p[2]), let op = Origin.decimal(p[3]) else { return nil }
+        return Origin(hlc: h, device: d, seq: seq, op: op)
+    }
+
+    /// The `(hlc, device)` of the revision this origin names.
+    var stamp: Stamp { Stamp(hlc: hlc, device: device) }
+
     private static func decimal(_ s: Substring) -> Int? {
         guard !s.isEmpty, s.utf8.allSatisfy({ (0x30...0x39).contains($0) }), s == "0" || s.first != "0" else { return nil }
         return Int(s)

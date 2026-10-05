@@ -163,6 +163,24 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(String(decoding: json, as: UTF8.self).contains("\"parent\":\"\(p2.uuidString.lowercased())\""))
     }
 
+    /// Restoring tags (format.md §5.7, §5.4.1): keys gone since are re-added,
+    /// keys added since are removed (every instance observed), a changed
+    /// spelling is removed and re-added; restoring again writes nothing.
+    func testRestoreSetsTagsBackWithPerTagOps() throws {
+        var log = LogBuilder()
+        let d1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0")), .addTag("math"), .addTag("exam")])
+        // Since then: "exam" removed, "new" added, "math" respelt "Math".
+        let d2 = log.delta(devB, 10, [.removeTag("exam", observed: [Origin(d1.name, op: 2)]), .addTag("new"),
+                                      .removeTag("math", observed: [Origin(d1.name, op: 1)]), .addTag("Math")])
+        let revs = [d1, d2]
+        XCTAssertEqual(try NoteReducer.reconstruct(revs).meta.tags, ["new", "Math"])
+        let delta = try XCTUnwrap(try restore(revs, to: d1.name, at: 30))
+        XCTAssertEqual(RestoreSummary(delta.ops).metaFields, ["tags"])
+        XCTAssertFalse(delta.ops.contains { if case .setMeta = $0 { return true } else { return false } })
+        XCTAssertEqual(try NoteReducer.reconstruct(revs + [delta]).meta.tags, ["math", "exam"])
+        XCTAssertNil(try restore(revs + [delta], to: d1.name, at: 40))
+    }
+
     func testRestoreSetsMetadataOrderRecognitionAndDeletedBack() throws {
         var log = LogBuilder()
         let rec = Recognition(engine: "test", text: "old")
