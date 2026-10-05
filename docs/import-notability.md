@@ -636,6 +636,10 @@ of the Bézier.
 
 ## Not imported
 
+Attachments (PDF backgrounds, images, typed text, recordings) are now
+designed (`docs/attachments.md` §11 maps each Notability structure and lists
+what is still unknown); until tasks D1–D4 land they are dropped as below.
+
 | What | Why |
 | --- | --- |
 | Pages of two heights (paper pages inserted into a note made from a PDF: 4 of the notes with a Notability PDF export) | the note has one `breakHeight`, so exports break where the PDF pages do throughout; ink positions are exact, page breaks after an inserted page and recognition boxes on later pages are not |
