@@ -1,0 +1,326 @@
+import Foundation
+import InkVault
+import PencilKit
+import SwiftUI
+import Testing
+import UniformTypeIdentifiers
+@testable import InkVaultApp
+
+/// A vault folder whose files can be evicted and delivered like iCloud's
+/// placeholders (`.<name>.icloud` stand-ins), with the iCloud calls faked.
+final class FakeCloud: @unchecked Sendable {
+    let vault: URL
+    private let lock = NSLock()
+    private var held: [URL: Data] = [:]
+    private var log: [String] = []
+    /// Deliver a file the moment it is requested (like a fast connection).
+    var autoDeliver = false
+
+    init(vault: URL) { self.vault = vault }
+
+    private func noteURL(_ id: UUID) -> URL {
+        vault.appendingPathComponent("notes/\(id.uuidString.lowercased())")
+    }
+
+    /// Turns every revision file of the note into a placeholder.
+    func evict(_ id: UUID) throws {
+        let dir = noteURL(id)
+        for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) where name.hasSuffix(".age") && !name.hasPrefix(".") {
+            let url = dir.appendingPathComponent(name)
+            lock.withLock { held[url] = try? Data(contentsOf: url) }
+            try FileManager.default.removeItem(at: url)
+            try Data().write(to: CloudPlaceholder.placeholderURL(for: url))
+        }
+    }
+
+    /// The note's files arrive.
+    func deliver(_ id: UUID) throws {
+        let dir = noteURL(id).standardizedFileURL.path
+        let files = lock.withLock { held.filter { $0.key.deletingLastPathComponent().standardizedFileURL.path == dir } }
+        for (url, data) in files {
+            try data.write(to: url)
+            try? FileManager.default.removeItem(at: CloudPlaceholder.placeholderURL(for: url))
+            lock.withLock { held[url] = nil }
+        }
+    }
+
+    /// Note directory names in the order their files were first requested.
+    var requestedNotes: [String] {
+        lock.withLock { log.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } } }
+    }
+
+    var hooks: CloudVault.Hooks {
+        CloudVault.Hooks(isUbiquitous: { _ in true },
+                         state: { CloudVault.state(of: $0) },
+                         request: { [self] item in
+            let note = item.url.deletingLastPathComponent().lastPathComponent
+            if item.url.path.contains("/notes/") { lock.withLock { log.append(note) } }
+            if autoDeliver, let id = UUID(uuidString: note) { try? deliver(id) }
+        })
+    }
+}
+
+@MainActor
+struct ProgressiveLoadTests {
+    static let lecture = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+    static let other = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
+
+    @Test func passSortsNotesIntoReadyAndPendingAndRequestsOnlyPendingFiles() throws {
+        let (url, _) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.other)
+        let pass = try ProgressiveLoad.pass(vault: url, hooks: cloud.hooks)
+        #expect(pass.all == [Self.lecture, Self.other])
+        #expect(pass.ready == [Self.lecture])
+        #expect(pass.pending == [Self.other])
+        #expect(pass.failures.isEmpty)
+        #expect(cloud.requestedNotes == [Self.other.uuidString.lowercased()])
+    }
+
+    @Test func theOpenedNoteIsRequestedFirstAndRequestsAreWindowed() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let ids = (0..<5).map { _ in UUID() }.sorted { $0.uuidString < $1.uuidString }
+        for id in ids {
+            let dir = root.appendingPathComponent("notes/\(id.uuidString.lowercased())")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data().write(to: dir.appendingPathComponent(".1-a-1.delta.age.icloud"))
+        }
+        let cloud = FakeCloud(vault: root)
+        let pass = try ProgressiveLoad.pass(vault: root, priority: ids[3], window: 2, hooks: cloud.hooks)
+        #expect(pass.pending.count == 5)
+        #expect(pass.ready.isEmpty)
+        #expect(cloud.requestedNotes == [ids[3], ids[0]].map { $0.uuidString.lowercased() })
+        // Without a priority: listing order.
+        let plain = FakeCloud(vault: root)
+        _ = try ProgressiveLoad.pass(vault: root, window: 3, hooks: plain.hooks)
+        #expect(plain.requestedNotes == ids.prefix(3).map { $0.uuidString.lowercased() })
+    }
+
+    @Test func downloadErrorsAreReportedPerNote() throws {
+        let (url, _) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.lecture)
+        var hooks = cloud.hooks
+        hooks.state = { item in item.url.path.contains("1111") ? .failed("quota") : CloudVault.state(of: item) }
+        let pass = try ProgressiveLoad.pass(vault: url, hooks: hooks)
+        #expect(pass.failures == [Self.lecture: "quota"])
+        #expect(pass.pending == [Self.lecture])
+        #expect(pass.ready == [Self.other])
+    }
+
+    @Test func essentialsAreTheManifestAndKeysOnly() throws {
+        let root = try CloudTests.evictedVault()
+        let essentials = try CloudScan.essentialItems(inVault: root).map { $0.url.lastPathComponent }
+        #expect(essentials == ["vault.json", "age1abc.key.age"])
+        let groups = try CloudScan.noteGroups(inVault: root)
+        #expect(groups.map(\.directory) == ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"])
+        #expect(groups.map(\.items.count) == [2, 2])
+    }
+
+    // MARK: - The model
+
+    @MainActor
+    static func cloudModel(_ cloud: FakeCloud, key: URL) async throws -> AppModel {
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        try await model.openVault(at: cloud.vault)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        return model
+    }
+
+    @MainActor
+    @Test func notesAppearAsTheirFilesArriveAndTheListFillsWithoutARefresh() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.other)
+        let model = try await Self.cloudModel(cloud, key: key)
+        #expect(model.isCloudVault)
+        // The unlocked vault lists the local note at once; the other is a placeholder.
+        #expect(model.phase == .unlocked)
+        #expect(model.notes.count == 2)
+        let local = try #require(model.notes.first { $0.id == Self.lecture })
+        #expect(!local.title.isEmpty)
+        #expect(model.placeholderNoteIDs == [Self.other])
+        #expect(model.pendingNoteIDs == [Self.other])
+        #expect(Set(model.visibleNotes.map(\.id)) == [Self.lecture, Self.other])   // the placeholder row is listed
+
+        try cloud.deliver(Self.other)
+        // No pull-to-refresh: the sync loop picks it up.
+        #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
+        let arrived = try #require(model.notes.first { $0.id == Self.other })
+        #expect(arrived.deleted)
+        #expect(model.placeholderNoteIDs.isEmpty)
+        #expect(await TS.waitUntil { model.cloudSyncTask?.isCancelled == false })
+    }
+
+    @MainActor
+    @Test func openingAPendingNoteDownloadsItFirstThenOpensIt() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.lecture)
+        try cloud.evict(Self.other)
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        model.cloudWindow = 1
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(model.placeholderNoteIDs == [Self.lecture, Self.other])
+        #expect(cloud.requestedNotes == [Self.lecture.uuidString.lowercased()])   // window of one: the first only
+
+        // The user opens the second note: it is requested ahead of the rest.
+        model.selectedNoteID = Self.other
+        let opening = Task { try await model.openEditor(for: Self.other) }
+        #expect(await TS.waitUntil { cloud.requestedNotes.contains(Self.other.uuidString.lowercased()) })
+        #expect(model.editor == nil)
+        try cloud.deliver(Self.other)
+        try await opening.value
+        #expect(model.editor?.noteID == Self.other)
+        #expect(!model.pendingNoteIDs.contains(Self.other))
+        #expect(model.notes.first { $0.id == Self.other }?.deleted == true)
+        // The rest still arrives later.
+        try cloud.deliver(Self.lecture)
+        #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
+        #expect(model.placeholderNoteIDs.isEmpty)
+        model.close()
+        #expect(model.pendingNoteIDs.isEmpty)
+    }
+
+    @MainActor
+    @Test func aStalledDownloadEndsTheLoopWithAMessage() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.other)
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        model.cloudStallTimeout = .milliseconds(100)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(await TS.waitUntil { model.errorMessage != nil })
+        #expect(model.errorMessage?.contains("1 note ") == true, "\(model.errorMessage ?? "nil")")
+        #expect(model.placeholderNoteIDs == [Self.other])   // still listed; pull to refresh retries
+    }
+
+    @MainActor
+    @Test func aNoteDeletedRemotelyLeavesTheList() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        try cloud.evict(Self.other)
+        let model = try await Self.cloudModel(cloud, key: key)
+        try FileManager.default.removeItem(at: url.appendingPathComponent("notes/\(Self.other.uuidString.lowercased())"))
+        #expect(await TS.waitUntil { model.notes.count == 1 })
+        #expect(model.pendingNoteIDs.isEmpty)
+    }
+}
+
+/// Opening a vault from whatever the picker returned.
+struct VaultLocatorTests {
+    static func temp() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.standardizedFileURL
+    }
+
+    static func makeVault(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: url.appendingPathComponent("notes/n"), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: url.appendingPathComponent("vault.json"))
+        try Data("x".utf8).write(to: url.appendingPathComponent("notes/n/1-a-1.delta.age"))
+    }
+
+    @Test func aVaultFolderResolvesToItself() throws {
+        let vault = try Self.temp().appendingPathComponent("A.inkvault")
+        try Self.makeVault(vault)
+        #expect(try VaultLocator.resolve(vault) == vault)
+        let plain = try Self.temp().appendingPathComponent("Old")   // an older vault without the extension
+        try Self.makeVault(plain)
+        #expect(try VaultLocator.resolve(plain) == plain)
+    }
+
+    @Test func aFileInsideAVaultResolvesToTheVault() throws {
+        let vault = try Self.temp().appendingPathComponent("A.inkvault")
+        try Self.makeVault(vault)
+        #expect(try VaultLocator.resolve(vault.appendingPathComponent("vault.json")).path == vault.path)
+        #expect(try VaultLocator.resolve(vault.appendingPathComponent("notes/n/1-a-1.delta.age")).path == vault.path)
+        #expect(try VaultLocator.resolve(vault.appendingPathComponent("notes/n")).path == vault.path)
+    }
+
+    @Test func aFolderHoldingOneVaultResolvesToIt() throws {
+        let parent = try Self.temp()
+        let vault = parent.appendingPathComponent("A.inkvault")
+        try Self.makeVault(vault)
+        try Data("x".utf8).write(to: parent.appendingPathComponent("readme.txt"))
+        #expect(try VaultLocator.resolve(parent).path == vault.path)
+    }
+
+    @Test func severalVaultsAreAnErrorAndNoVaultIsLeftAlone() throws {
+        let parent = try Self.temp()
+        try Self.makeVault(parent.appendingPathComponent("A.inkvault"))
+        try Self.makeVault(parent.appendingPathComponent("B.inkvault"))
+        #expect(throws: VaultLocator.LocatorError.severalVaults(["A.inkvault", "B.inkvault"])) {
+            try VaultLocator.resolve(parent)
+        }
+        let empty = try Self.temp()
+        #expect(try VaultLocator.resolve(empty) == empty)
+        let missing = empty.appendingPathComponent("nope")
+        #expect(try VaultLocator.resolve(missing) == missing)
+    }
+
+    @Test func newVaultsGetTheExtensionAndThePickerAcceptsPackagesAndFolders() throws {
+        #expect(try VaultLibrary.folderName(for: " Notes ") == "Notes.inkvault")
+        #expect(UTType.vaultPickerTypes.contains(.inkVault))
+        #expect(UTType.vaultPickerTypes.contains(.folder))
+        #expect(UTType.inkVault.conforms(to: .package))
+        #expect(UTType.inkVault.conforms(to: .directory))
+    }
+}
+
+@MainActor
+struct LayoutAndPaletteTests {
+    @Test func columnLayoutRoundTripsAndToggles() {
+        for v in [NavigationSplitViewVisibility.all, .doubleColumn, .detailOnly] {
+            #expect(ColumnLayout.visibility(from: ColumnLayout.stored(v)) == v)
+        }
+        #expect(ColumnLayout.visibility(from: "garbage") == .all)
+        #expect(ColumnLayout.toggled("all") == "detailOnly")
+        #expect(ColumnLayout.toggled("doubleColumn") == "detailOnly")
+        #expect(ColumnLayout.toggled("detailOnly") == "doubleColumn")
+    }
+
+    @Test func compactPaletteKeepsPenMarkerEraserLasso() {
+        let full = EraserPreference.makeToolPicker().toolItems
+        let compact = ToolPalette.compactItems(from: full)
+        #expect(compact.count < full.count)
+        #expect(compact.contains { $0 is PKToolPickerEraserItem })
+        #expect(compact.contains { $0 is PKToolPickerLassoItem })
+        let inks = compact.compactMap { ($0 as? PKToolPickerInkingItem)?.inkingTool.inkType }
+        #expect(Set(inks) == [.pen, .marker])
+        #expect(ToolPalette.compactItems(from: []).isEmpty)
+        let picker = ToolPalette.makePicker(compact: true)
+        #expect(picker.toolItems.count == compact.count)
+        #expect(!picker.showsDrawingPolicyControls)
+        #expect(ToolPalette.makePicker(compact: false).toolItems.count == full.count)
+    }
+
+    @Test func paletteDefaultsToShownAndFull() {
+        let d = UserDefaults(suiteName: "inkvault-palette-tests")!
+        d.removePersistentDomain(forName: "inkvault-palette-tests")
+        #expect(ToolPalette.isVisible(in: d))
+        #expect(!ToolPalette.isCompact(in: d))
+        d.set(false, forKey: ToolPalette.visibleKey)
+        d.set(true, forKey: ToolPalette.compactKey)
+        #expect(!ToolPalette.isVisible(in: d))
+        #expect(ToolPalette.isCompact(in: d))
+    }
+
+    @Test func hostSwapsPickersWithoutLosingTheCanvasObserver() {
+        let host = PageCanvasHost()
+        let full = host.toolPicker.toolItems.count
+        host.paletteCompact = true
+        #expect(host.toolPicker.toolItems.count < full)
+        host.paletteCompact = false
+        #expect(host.toolPicker.toolItems.count == full)
+        host.paletteVisible = false   // no window: nothing to show or hide, must not crash
+    }
+}

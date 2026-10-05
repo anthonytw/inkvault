@@ -95,6 +95,13 @@ enum CloudScan {
     /// - Throws: when the vault folder or one of its folders exists but
     ///   cannot be listed ("could not read" never looks like "nothing there").
     static func items(inVault root: URL, fileManager: FileManager = .default) throws -> [Item] {
+        try essentialItems(inVault: root, fileManager: fileManager)
+            + noteGroups(inVault: root, fileManager: fileManager).flatMap(\.items)
+    }
+
+    /// `vault.json`, `rewrap-journal.json` and `keys/*.age`: what unlocking
+    /// needs, small enough to fetch before anything else.
+    static func essentialItems(inVault root: URL, fileManager: FileManager = .default) throws -> [Item] {
         var items: [Item] = []
         for entry in try list(root, fileManager) where rootFiles.contains(entry.name) && !entry.isDirectory {
             items.append(entry.item(in: root))
@@ -103,14 +110,28 @@ enum CloudScan {
         for entry in try list(keys, fileManager, allowMissing: true) where entry.isRevisionLike {
             items.append(entry.item(in: keys))
         }
+        return items
+    }
+
+    /// The files of one `notes/<dir>` folder.
+    struct NoteGroup: Sendable {
+        /// The folder name.
+        var directory: String
+        /// The note id when the folder is named like one (others are ignored by readers).
+        var id: UUID? { UUID(uuidString: directory) }
+        var items: [Item]
+    }
+
+    /// Every `notes/<dir>` folder with its revision files, in folder-name order.
+    static func noteGroups(inVault root: URL, fileManager: FileManager = .default) throws -> [NoteGroup] {
         let notes = root.appendingPathComponent("notes", isDirectory: true)
+        var groups: [NoteGroup] = []
         for dir in try list(notes, fileManager, allowMissing: true) where dir.isDirectory && !dir.name.hasPrefix(".") {
             let noteDir = notes.appendingPathComponent(dir.name, isDirectory: true)
-            for entry in try list(noteDir, fileManager, allowMissing: true) where entry.isRevisionLike {
-                items.append(entry.item(in: noteDir))
-            }
+            let items = try list(noteDir, fileManager, allowMissing: true).filter(\.isRevisionLike).map { $0.item(in: noteDir) }
+            groups.append(NoteGroup(directory: dir.name, items: items))
         }
-        return items
+        return groups
     }
 
     private struct Entry {

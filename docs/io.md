@@ -73,9 +73,38 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
    `notes/<id>/` folder (vault creation: of the new vault folder), so iCloud
    sees and uploads the new revision files.
 
-Every reload (pull to refresh) repeats steps 1–3, so revisions other devices
+Progressive loading: only the small unlocking files (`vault.json`, the
+rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are
+not. After unlock, `ProgressiveLoad` lists each note's files and sorts notes
+into *ready* (all files local: the summary is read at once) and *pending*
+(placeholders). Pending notes appear in the list as "Downloading from
+iCloud…" rows and are requested from iCloud at most 6 notes at a time, the
+note the user selected first; `AppModel.startCloudSync` repeats the pass
+(every second) until nothing is pending and the note set has held still for 3
+passes (iCloud lists a folder's contents gradually, which is why the list
+once stayed blank until a pull to refresh), then stops; 90 s without
+progress ends it with a message. Opening a pending note downloads it first
+(`downloadNote`) before the canvas opens. The app also restarts the loop
+when it becomes active again.
+
+Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
+
+## Vaults as single items (app)
+
+The app exports the UTType `io.github.anthonytw.inkvault.vault` (extension
+`inkvault`, conforms to `com.apple.package` and `public.directory`;
+`Apps/InkVault/InkVaultInfo.plist`, merged into the generated Info.plist), so
+Files shows a vault folder as one document and opening it launches InkVault.
+The picker accepts that type and plain folders. `VaultLocator.resolve` turns
+what was picked into the vault folder: a file or folder inside a vault
+(`vault.json`, `notes/…`) resolves to the enclosing vault, a folder holding
+exactly one `.inkvault` resolves to it (several: an error naming them).
+New vaults are always created as `<name>.inkvault`. Security scope is held on
+the URL the user picked. On macOS, Finder shows `.inkvault` as a package
+(Show Package Contents opens the folder); the CLI and the on-disk layout are
+unaffected.
 
 ## Atomic writes
 

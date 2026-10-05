@@ -77,6 +77,22 @@ final class AppModel {
     /// coordinated and reloads fetch new files first.
     var isCloudVault = false
     var cloudTask: Task<Bool, any Error>?
+    /// Notes of an iCloud vault whose files are still downloading.
+    var pendingNoteIDs: Set<UUID> = []
+    /// The pending notes that have no summary yet (listed as placeholders).
+    var placeholderNoteIDs: Set<UUID> = []
+    /// iCloud's last download error for a note, for the list's status line.
+    var cloudFailure: String?
+    var cloudSyncTask: Task<Void, Never>?
+    /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
+    var cloudHooks = CloudVault.Hooks.live
+    /// Pause between progressive passes, passes with an unchanged note set
+    /// that end the loop, and how long without progress is a stall.
+    var cloudPollInterval = Duration.seconds(1)
+    var cloudSettlePasses = 3
+    var cloudStallTimeout = Duration.seconds(90)
+    /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
+    var cloudWindow = ProgressiveLoad.defaultWindow
 
 
     /// Where this install keeps its device id and hybrid clock.
@@ -126,9 +142,14 @@ final class AppModel {
         NotebookNode.flatten(notebookTree)
     }
 
-    /// Tags in use by live notes, sorted.
+    /// Tags in use by live notes, sorted. Tags match case-insensitively
+    /// ("Math" and "math" are one); the spelling shown is the first seen.
     var tags: [String] {
-        Set(notes.filter { !$0.deleted }.flatMap(\.tags)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var byKey: [String: String] = [:]
+        for tag in notes.filter({ !$0.deleted }).flatMap(\.tags) where byKey[NoteOps.tagKey(tag)] == nil {
+            byKey[NoteOps.tagKey(tag)] = tag
+        }
+        return byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     /// The note list for the current sidebar selection, title search and sort order.
@@ -137,7 +158,7 @@ final class AppModel {
         switch sidebarSelection ?? .allNotes {
         case .allNotes: inSelection = notes.filter { !$0.deleted }
         case .notebook(let n): inSelection = notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
-        case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains(t) }
+        case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: inSelection = notes.filter(\.deleted)
         }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,22 +195,27 @@ final class AppModel {
     /// security-scoped access for URLs from the document picker and keeps
     /// it until the vault is closed. A vault in iCloud Drive is downloaded
     /// first (`fetchFromICloud`).
-    func openVault(at url: URL) async throws {
+    ///
+    /// - Parameter scope: the URL whose security scope covers `url` when it is
+    ///   not `url` itself (the folder the user picked, when `url` was found
+    ///   inside it). Held instead of `url`'s own.
+    func openVault(at url: URL, accessing scope: URL? = nil) async throws {
         close()
         let gen = generation
-        let scoped = url.startAccessingSecurityScopedResource()
+        let holder = scope ?? url
+        let scoped = holder.startAccessingSecurityScopedResource()
         do {
-            let cloud = try await fetchFromICloud(url)
+            let cloud = try await fetchFromICloud(url, scope: .essentials)
             try ensureCurrent(gen)
             let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             try ensureCurrent(gen)
-            if scoped { scopedURL = url }
+            if scoped { scopedURL = holder }
             isCloudVault = cloud
             vault = opened
             vaultURL = url
             phase = .locked
         } catch {
-            if scoped { url.stopAccessingSecurityScopedResource() }
+            if scoped { holder.stopAccessingSecurityScopedResource() }
             throw error
         }
     }
@@ -244,16 +270,21 @@ final class AppModel {
         try await unlock(with: [identity])
     }
 
-    /// Re-reads every note summary from disk (after fetching new files when
-    /// the vault is in iCloud Drive).
+    /// Re-reads every note summary from disk. In iCloud Drive, notes whose files
+    /// are not downloaded yet are listed as placeholders and fill in as they
+    /// arrive (`startCloudSync`), instead of the call waiting for all of them.
     func reload() async throws {
         guard let vault else { throw ModelError.noVaultOpen }
         let gen = generation
         isBusy = true
         defer { if gen == generation { isBusy = false } }
         if isCloudVault {
+            // Unlocking files first (small), then the notes as they arrive.
             _ = try await fetchFromICloud(vault.url)
             try ensureCurrent(gen)
+            try await loadNotes(full: true)
+            startCloudSync()
+            return
         }
         let coordinate = coordinationURL
         let loaded = try await offMain { try CloudVault.coordinatedRead(coordinate) { try vault.summaries() } }
@@ -278,6 +309,7 @@ final class AppModel {
         try ensureCurrent(gen)
         guard let noteID else { return }
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
+        try await downloadNote(noteID)   // iCloud: this note first, before the rest of the vault
         let clock = try deviceClockForWriting()
         let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
                                                coordinated: isCloudVault)
@@ -313,6 +345,7 @@ final class AppModel {
     func close() {
         generation += 1
         cancelCloudDownload()
+        stopCloudSync()
         isCloudVault = false
         isBusy = false
         let editor = self.editor

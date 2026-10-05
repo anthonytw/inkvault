@@ -247,6 +247,13 @@ the window; of two snapshots with equal `included`, keep at least one.
 
 ### 5.4 State and metadata
 
+Tags are matched case-insensitively ("Math" and "math" are one tag) with
+inner whitespace runs collapsed (multi-word tags are fine). Writers must not
+put two tags that differ only in case on one note (the first spelling wins),
+and apps list a tag with its first-seen spelling; readers must accept any
+stored `tags` array unchanged. Titles are labels, never keys: any number of
+notes may share a title, in one notebook or several.
+
 ```json
 {
   "deleted": false,

@@ -9,9 +9,14 @@ extension AppModel {
 
     // MARK: - Opening and creating
 
-    /// Opens a folder chosen in the document picker and remembers it.
+    /// Opens what the user picked (a `.inkvault` vault, a plain folder, a folder
+    /// holding one vault, or a file inside a vault: `VaultLocator`) and
+    /// remembers it.
     func open(picked url: URL, library: VaultLibrary) async throws {
-        try await openVault(at: url)
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let vaultURL = try VaultLocator.resolve(url)
+        try await openVault(at: vaultURL, accessing: vaultURL == url ? nil : url)
         remember(in: library)
     }
 
@@ -110,18 +115,34 @@ extension AppModel {
         try await commit([(id: id, ops: [.setMeta(.notebook(target))])])
     }
 
+    /// Renames a note (one `setMeta(.title)` delta). Titles are labels, not keys:
+    /// any title, including one another note has, is fine.
+    func renameNote(_ id: UUID, to title: String) async throws {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard try summary(id).title != title else { return }
+        try await commit([(id: id, ops: [.setMeta(.title(title))])])
+    }
+
+    /// Adds a tag. Matching ignores case: a tag the note has already (in any
+    /// case) is not added again, and the spelling of a tag already used in the
+    /// vault wins over the typed one.
     func addTag(_ tag: String, to id: UUID) async throws {
-        let tags = NoteOps.normalizedTags(try summary(id).tags + [tag])
-        guard tags != (try summary(id).tags) else { return }
-        try await commit([(id: id, ops: [.setMeta(.tags(tags))])])
+        let typed = NoteOps.normalizedTag(tag)
+        guard !typed.isEmpty else { return }
+        let current = try summary(id).tags
+        guard !current.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(typed) }) else { return }
+        let spelling = tags.first { NoteOps.tagKey($0) == NoteOps.tagKey(typed) } ?? typed
+        try await commit([(id: id, ops: [.setMeta(.tags(NoteOps.normalizedTags(current + [spelling])))])])
     }
 
     func removeTag(_ tag: String, from id: UUID) async throws {
         let current = try summary(id).tags
-        let tags = current.filter { $0 != tag }
+        let tags = current.filter { NoteOps.tagKey($0) != NoteOps.tagKey(tag) }
         guard tags != current else { return }
         try await commit([(id: id, ops: [.setMeta(.tags(tags))])])
-        if sidebarSelection == .tag(tag), !self.tags.contains(tag) { sidebarSelection = .allNotes }
+        if case .tag(let selected)? = sidebarSelection, !self.tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(selected) }) {
+            sidebarSelection = .allNotes
+        }
     }
 
     /// Moves a note to Recently Deleted; open on the canvas, it reopens read-only.

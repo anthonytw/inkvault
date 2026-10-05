@@ -9,14 +9,15 @@ struct RootView: View {
     @Environment(VaultLibrary.self) private var library
     @State private var pickingVault = false
     @State private var creatingVault = false
-    #if DEBUG
-    @State private var columns: NavigationSplitViewVisibility = DebugLaunch.isActive ? .detailOnly : .all
-    #else
-    @State private var columns = NavigationSplitViewVisibility.all
-    #endif
+    @AppStorage(ColumnLayout.key) private var storedColumns = "all"
     /// Set when a failed reopen should end in the folder picker.
     @State private var pickAfterAlert = false
     @State private var triedAutoOpen = false
+
+    private var columns: Binding<NavigationSplitViewVisibility> {
+        Binding(get: { ColumnLayout.visibility(from: storedColumns) },
+                set: { storedColumns = ColumnLayout.stored($0) })
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -27,7 +28,7 @@ struct RootView: View {
                             openRecent: { entry in Task { await reopen(entry) } },
                             openURL: { url in Task { await open(url) } })
             } else {
-                NavigationSplitView(columnVisibility: $columns) {
+                NavigationSplitView(columnVisibility: columns) {
                     SidebarView()
                 } content: {
                     NoteListView()
@@ -36,13 +37,14 @@ struct RootView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $pickingVault, allowedContentTypes: [.folder]) { result in
+        .fileImporter(isPresented: $pickingVault, allowedContentTypes: UTType.vaultPickerTypes) { result in
             Task {
                 await model.report {
                     try await model.open(picked: try result.get(), library: library)
                 }
             }
         }
+        .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
         .overlay {
             if let progress = model.cloudProgress {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
@@ -57,7 +59,10 @@ struct RootView: View {
         }
         #if DEBUG
         .task {
-            if DebugLaunch.isActive { await DebugLaunch.run(model) }
+            if DebugLaunch.isActive {
+                storedColumns = DebugLaunch.environment["INKVAULT_DEBUG_COLUMNS"] ?? "detailOnly"
+                await DebugLaunch.run(model)
+            }
         }
         #endif
         .alert("InkVault", isPresented: Binding(get: { model.errorMessage != nil },
