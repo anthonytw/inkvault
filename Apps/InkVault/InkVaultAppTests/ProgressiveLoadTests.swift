@@ -21,6 +21,8 @@ final class FakeCloud: @unchecked Sendable {
     private let lock = NSLock()
     private var held: [URL: Data] = [:]
     private var log: [String] = []
+    private var folderLog: [String] = []
+    private var dataless: Set<String> = []
     /// Deliver a file the moment it is requested (like a fast connection).
     var autoDeliver = false
 
@@ -41,6 +43,41 @@ final class FakeCloud: @unchecked Sendable {
         }
     }
 
+    /// iPadOS 26 style: every revision file of the note stays under its real
+    /// name but is dataless (empty here, status "not downloaded").
+    func evictDataless(_ id: UUID) throws {
+        let dir = noteURL(id)
+        for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) where name.hasSuffix(".age") && !name.hasPrefix(".") {
+            let url = dir.appendingPathComponent(name)
+            lock.withLock {
+                held[url] = try? Data(contentsOf: url)
+                dataless.insert(url.standardizedFileURL.path)
+            }
+            try Data().write(to: url)
+        }
+    }
+
+    /// The note's folder is there but iCloud has not listed what is in it.
+    func unlist(_ id: UUID) throws {
+        let dir = noteURL(id)
+        for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) {
+            let url = dir.appendingPathComponent(name)
+            if name.hasSuffix(".age") && !name.hasPrefix(".") { lock.withLock { held[url] = try? Data(contentsOf: url) } }
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Folders asked for (`startDownloadingUbiquitousItem` on a note folder).
+    var requestedFolders: [String] {
+        lock.withLock { folderLog }
+    }
+
+    /// The real-name state of a file: dataless ones are missing.
+    func state(_ item: CloudScan.Item) -> CloudItemState {
+        if lock.withLock({ dataless.contains(item.url.standardizedFileURL.path) }) { return .missing }
+        return CloudVault.state(of: item)
+    }
+
     /// The note's files arrive.
     func deliver(_ id: UUID) throws {
         let dir = noteURL(id).standardizedFileURL.path
@@ -48,7 +85,10 @@ final class FakeCloud: @unchecked Sendable {
         for (url, data) in files {
             try data.write(to: url)
             try? FileManager.default.removeItem(at: CloudPlaceholder.placeholderURL(for: url))
-            lock.withLock { held[url] = nil }
+            lock.withLock {
+                held[url] = nil
+                dataless.remove(url.standardizedFileURL.path)
+            }
         }
     }
 
@@ -59,8 +99,14 @@ final class FakeCloud: @unchecked Sendable {
 
     var hooks: CloudVault.Hooks {
         CloudVault.Hooks(isUbiquitous: { _ in true },
-                         state: { CloudVault.state(of: $0) },
+                         state: { [self] in state($0) },
                          request: { [self] item in
+            if item.url.deletingLastPathComponent().lastPathComponent == "notes" {
+                let note = item.url.lastPathComponent
+                lock.withLock { folderLog.append(note) }
+                if autoDeliver, let id = UUID(uuidString: note) { try? deliver(id) }
+                return
+            }
             let note = item.url.deletingLastPathComponent().lastPathComponent
             if item.url.path.contains("/notes/") { lock.withLock { log.append(note) } }
             if autoDeliver, let id = UUID(uuidString: note) { try? deliver(id) }
@@ -176,8 +222,12 @@ struct ProgressiveLoadTests {
         let arrived = try #require(model.notes.first { $0.id == Self.other })
         #expect(arrived.deleted)
         #expect(model.placeholderNoteIDs.isEmpty)
-        // Once nothing is pending and the note set holds still, the loop ends.
+        // Once nothing is pending the progress bar goes away; the loop keeps
+        // watching at the idle pace while the vault is open.
+        #expect(model.cloudSync?.isDownloading == false)
+        #expect(model.cloudSync?.readyNotes == 2)
         let sync = try #require(model.cloudSyncTask)
+        model.close()
         let ended = Flag()
         Task { await sync.value; ended.set() }
         #expect(await TS.waitUntil { ended.isSet })
@@ -280,7 +330,7 @@ struct ProgressiveLoadTests {
     }
 
     @MainActor
-    @Test func aStalledDownloadEndsTheLoopWithAMessage() async throws {
+    @Test func aStalledDownloadShowsAProblemAndKeepsTrying() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let cloud = FakeCloud(vault: url)
         try cloud.evict(Self.other)
@@ -288,11 +338,20 @@ struct ProgressiveLoadTests {
         model.cloudHooks = cloud.hooks
         model.cloudPollInterval = .milliseconds(10)
         model.cloudStallTimeout = .milliseconds(100)
+        model.cloudIdleInterval = .milliseconds(20)
         try await model.openVault(at: url)
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
-        #expect(await TS.waitUntil { model.errorMessage != nil })
-        #expect(model.errorMessage?.contains("1 note ") == true, "\(model.errorMessage ?? "nil")")
-        #expect(model.placeholderNoteIDs == [Self.other])   // still listed; pull to refresh retries
+        #expect(await TS.waitUntil { model.cloudSync?.problem != nil })
+        let problem = model.cloudSync?.problem ?? ""
+        #expect(problem.contains("1 note "), "\(problem)")
+        #expect(model.errorMessage == nil)                   // shown in the list's bar, not an alert
+        #expect(model.placeholderNoteIDs == [Self.other])   // still listed
+        #expect(model.cloudSync?.isDownloading == true)
+        // The loop keeps trying: when the files come, the problem clears by itself.
+        try cloud.deliver(Self.other)
+        #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty && model.cloudSync?.problem == nil })
+        #expect(model.cloudSync?.isDownloading == false)
+        model.close()
     }
 
     @MainActor

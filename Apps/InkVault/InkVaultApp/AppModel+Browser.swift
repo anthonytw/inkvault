@@ -184,12 +184,15 @@ extension AppModel {
     /// clock; in iCloud Drive each is a coordinated write on its note's folder.
     /// Callers that compute ops from a note's summary make the note local
     /// first (`downloadNote`), so a placeholder's empty summary is never
-    /// written back over the real one.
+    /// written back over the real one; in iCloud Drive each append re-checks
+    /// inside its coordinated read that the note is still all local
+    /// (`CloudVault.requireLocal`) and refuses to write otherwise.
     private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
         let batch = edits
-        try await commit(ids: batch.map(\.id)) { vault, clock, cloud in
+        try await commit(ids: batch.map(\.id)) { vault, clock, cloud, verifier in
             for edit in batch {
-                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud)
+                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud,
+                                            verify: verifier(edit.id))
             }
         }
     }
@@ -198,12 +201,17 @@ extension AppModel {
     /// is on disk when written (`NoteWriter.append(to:building:)`); nothing
     /// is written when it returns none.
     private func commit(_ id: UUID, building build: @escaping @Sendable (NoteState?) -> [Op]) async throws {
-        try await commit(ids: [id]) { vault, clock, cloud in
-            try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud, building: build)
+        try await commit(ids: [id]) { vault, clock, cloud, verifier in
+            try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud,
+                                        verify: verifier(id), building: build)
         }
     }
 
-    private func commit(ids: [UUID], write: (Vault, DeviceClock, Bool) async throws -> Void) async throws {
+    /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
+    /// and the check each note's append runs inside its coordinated read.
+    private func commit(ids: [UUID],
+                        write: (Vault, DeviceClock, Bool, (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
+        async throws {
         await editGate.acquire()
         defer { editGate.release() }
         guard let vault else { throw ModelError.noVaultOpen }
@@ -211,8 +219,18 @@ extension AppModel {
         let clock = try deviceClockForWriting()
         isEditing = true
         defer { isEditing = false }
+        let cloud = isCloudVault
+        let hooks = cloudHooks
+        let url = vault.url
+        // iCloud: every revision file must still be local when the delta's
+        // seq is picked (a file can be evicted, or a new one listed, after
+        // `downloadNote`; a notebook rename does not download at all).
+        let verifier: (UUID) -> (@Sendable () throws -> Void)? = { id in
+            guard cloud else { return nil }
+            return { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
+        }
         do {
-            try await write(vault, clock, isCloudVault)
+            try await write(vault, clock, cloud, verifier)
         } catch {
             try? await refresh(ids)   // some deltas may have landed
             throw error

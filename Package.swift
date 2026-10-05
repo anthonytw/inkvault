@@ -36,7 +36,7 @@ let package = Package(
         ),
         .target(
             name: "InkImport",
-            dependencies: ["InkVault", "CZlib"]
+            dependencies: ["InkVault", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
         // The only target allowed network code (CLAUDE.md).
         .target(

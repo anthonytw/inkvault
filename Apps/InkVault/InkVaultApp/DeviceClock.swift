@@ -81,12 +81,16 @@ actor NoteWriter {
     /// Writes one delta of `ops` to a note that is not loaded (the browser's
     /// edits): the clock first observes every readable revision of the note,
     /// so these ops win last-writer-wins races against what is already there.
-    /// Creates the note when it has no revisions yet.
+    /// Creates the note when it has no revisions yet. `verify` runs inside
+    /// that read, before and after the note is loaded, and throws to refuse a
+    /// note whose files are not all local (`CloudVault.requireLocal`): `seq`
+    /// and the clock must never come from a partial log.
     @discardableResult
     static func append(_ ops: [Op], to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
-                       coordinated: Bool = false) async throws -> RevisionName {
+                       coordinated: Bool = false,
+                       verify: (@Sendable () throws -> Void)? = nil) async throws -> RevisionName {
         let (readings, seq, _) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
-                                                build: nil)
+                                                verify: verify, build: nil)
         await clock.observe(readings)
         let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
         return try await writer.write(ops)
@@ -96,13 +100,14 @@ actor NoteWriter {
     /// it is on disk at write time (nil: no readable revision). Writes nothing
     /// when it returns no ops. Tag edits use this: a `removeTag` observes
     /// every instance on disk, not just those in a possibly stale summary
-    /// (format.md §5.4.1).
+    /// (format.md §5.4.1). `verify` is as for `append(_:to:...)`.
     @discardableResult
     static func append(to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
                        coordinated: Bool = false,
+                       verify: (@Sendable () throws -> Void)? = nil,
                        building build: @escaping @Sendable (NoteState?) -> [Op]) async throws -> RevisionName? {
         let (readings, seq, ops) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
-                                                  build: build)
+                                                  verify: verify, build: build)
         guard !ops.isEmpty else { return nil }
         await clock.observe(readings)
         let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
@@ -111,11 +116,15 @@ actor NoteWriter {
 
     /// The note's revision clocks, this device's next `seq`, and the ops
     /// `build` makes from its reconstructed state (empty without `build`).
+    /// `verify` runs inside the coordinated read, before and after loading.
     private static func read(_ noteID: UUID, vault: Vault, device: DeviceID, coordinated: Bool,
+                             verify: (@Sendable () throws -> Void)?,
                              build: (@Sendable (NoteState?) -> [Op])?) async throws -> ([HLC], Int, [Op]) {
         try await Task.detached(priority: .userInitiated) {
             try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { () throws -> ([HLC], Int, [Op]) in
+                try verify?()
                 let loaded = try vault.loadNote(noteID)
+                try verify?()
                 let seq = loaded.failures.isEmpty
                     ? Vault.nextSeq(from: loaded.revisions, device: device)
                     : try vault.nextSeq(noteId: noteID, device: device)
