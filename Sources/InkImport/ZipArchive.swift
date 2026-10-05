@@ -59,7 +59,8 @@ public final class ZipArchive {
     ///   `ImportError.zip` when no valid central directory is found.
     public init(url: URL) throws {
         let handle: FileHandle
-        do { handle = try FileHandle(forReadingFrom: url) } catch {
+        // Not FileHandle(forReadingFrom:): opening a FIFO named `*.note` would block forever.
+        do { handle = try BoundedRead.openRegularFile(url) } catch {
             throw ImportError.io("cannot open \(url.path): \(error.localizedDescription)")
         }
         let end: UInt64

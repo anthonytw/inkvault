@@ -43,7 +43,8 @@ struct SyncState: Codable, Equatable {
     /// Nil when there is no state file; throws when it exists but is unreadable.
     static func load(_ url: URL) throws -> SyncState? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let state = try JSONDecoder().decode(SyncState.self, from: Data(contentsOf: url))
+        let data = try BoundedRead.contents(of: url, maxBytes: BoundedRead.maxRevisionBytes)
+        let state = try JSONDecoder().decode(SyncState.self, from: data)
         guard state.version == 1 else { throw WebDAVError.io("sync state \(url.path) has version \(state.version)") }
         return state
     }

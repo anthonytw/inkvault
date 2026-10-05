@@ -2,6 +2,12 @@ import Age
 import Foundation
 import FuzzSupport
 import XCTest
+
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 @testable import InkVault
 
 /// Regression tests for hostile or corrupt input found by review and by the
@@ -206,5 +212,54 @@ final class UntrustedInputTests: VaultTestCase {
             }
         }
         return true
+    }
+
+    /// Files from a shared folder or sync server can be any size or kind:
+    /// readers refuse an oversized file before holding it, and refuse a FIFO
+    /// (whose open would otherwise block forever) instead of hanging.
+    func testBoundedReadsRefuseHugeFilesAndFIFOs() throws {
+        let big = tmp.appendingPathComponent("big")
+        try Data(count: 4097).write(to: big)
+        XCTAssertEqual(try BoundedRead.contents(of: big, maxBytes: 4097).count, 4097)
+        XCTAssertThrowsError(try BoundedRead.contents(of: big, maxBytes: 4096)) {
+            XCTAssertEqual($0 as? VaultError, .fileTooLarge(big.path, limit: 4096))
+        }
+        let fifo = tmp.appendingPathComponent("fifo")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+        let t0 = Date()
+        XCTAssertThrowsError(try BoundedRead.contents(of: fifo, maxBytes: 10)) { XCTAssertTrue($0 is VaultError) }
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 5)
+
+        // Through the vault: an oversized vault.json and a revision that is a FIFO.
+        let id = X25519Identity()
+        let vault = try makeVault(id)
+        let rev = sampleLog()[0]
+        try vault.write(rev)
+        let file = fileURL(vault, rev.noteId, rev.name)
+        try FileManager.default.removeItem(at: file)
+        XCTAssertEqual(mkfifo(file.path, 0o600), 0)
+        XCTAssertThrowsError(try vault.readRevision(noteId: rev.noteId, name: rev.name)) { e in
+            guard case RevisionReadError.unreadable? = e as? RevisionReadError else { return XCTFail("\(e)") }
+        }
+        XCTAssertFalse(vault.verify().isHealthy)
+        let manifest = vault.url.appendingPathComponent("vault.json")
+        try (Data("{".utf8) + Data(repeating: 0x20, count: BoundedRead.maxManifestBytes)).write(to: manifest)
+        XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [id])) { e in
+            guard case VaultError.fileTooLarge? = e as? VaultError else { return XCTFail("\(e)") }
+        }
+    }
+
+    /// A notebook name of 200 000 levels made `NotebookNode.tree` recurse once
+    /// per level (a stack overflow); the sidebar tree stops at `maxDepth`.
+    func testDeepNotebookPathDoesNotRecurseWithoutBound() {
+        let deep = String(repeating: "a/", count: 200_000)
+        let t0 = Date()
+        var nodes = NotebookNode.tree([deep, "a/b"])
+        var depth = 0
+        while let first = nodes.first { depth += 1; nodes = first.children }
+        XCTAssertEqual(depth, NotebookNode.maxDepth)
+        XCTAssertEqual(NotebookPath.components(deep).count, 200_000)
+        XCTAssertTrue(NotebookPath.name(deep, isWithin: "a/a"))
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 20)
     }
 }

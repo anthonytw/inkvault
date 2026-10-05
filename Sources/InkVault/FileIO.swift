@@ -73,8 +73,9 @@ enum FileIO {
         }
     }
 
-    static func read(_ url: URL) throws -> Data {
-        do { return try Data(contentsOf: url) } catch { throw VaultError.io("read \(url.path): \(error)") }
+    /// Reads a whole regular file of at most `maxBytes` (`BoundedRead`).
+    static func read(_ url: URL, maxBytes: Int) throws -> Data {
+        try BoundedRead.contents(of: url, maxBytes: maxBytes)
     }
 
     static func exists(_ url: URL) -> Bool { fm.fileExists(atPath: url.path) }
@@ -105,5 +106,48 @@ enum FileIO {
     static func remove(_ url: URL) throws {
         do { try fm.removeItem(at: url) } catch { throw VaultError.io("remove \(url.path): \(error)") }
         try syncDirectory(url.deletingLastPathComponent())
+    }
+}
+
+/// Reading files that may come from a sync server or a shared folder: only
+/// regular files (a FIFO would block the open forever, a device never end),
+/// and never more than a stated size, checked before the bytes are held.
+public enum BoundedRead {
+    /// The largest revision file a reader opens (the WebDAV client's download limit too).
+    public static let maxRevisionBytes = 256 << 20
+    /// The largest `vault.json` or `rewrap-journal.json` a reader opens.
+    public static let maxManifestBytes = 16 << 20
+    /// The largest identity file (`keys/*.key.age`) or device-state file a reader opens.
+    public static let maxSmallFileBytes = 1 << 20
+
+    /// Opens `url` for reading if it is a regular file (following symlinks),
+    /// without blocking on a FIFO.
+    ///
+    /// - Throws: `VaultError.io` if it cannot be opened or is not a regular file.
+    public static func openRegularFile(_ url: URL) throws -> FileHandle {
+        let fd = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY | O_NONBLOCK)
+        }
+        guard fd >= 0 else { throw VaultError.io("open \(url.path): errno \(errno)") }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
+            _ = close(fd)
+            throw VaultError.io("\(url.path) is not a regular file")
+        }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    /// The whole file, or `VaultError.fileTooLarge` if it holds more than
+    /// `maxBytes` (decided without reading more than `maxBytes + 1`).
+    public static func contents(of url: URL, maxBytes: Int) throws -> Data {
+        let h = try openRegularFile(url)
+        defer { try? h.close() }
+        let data: Data
+        do { data = try h.read(upToCount: max(maxBytes, 0) + 1) ?? Data() } catch {
+            throw VaultError.io("read \(url.path): \(error)")
+        }
+        guard data.count <= maxBytes else { throw VaultError.fileTooLarge(url.path, limit: maxBytes) }
+        return data
     }
 }

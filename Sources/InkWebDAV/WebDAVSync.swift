@@ -111,7 +111,8 @@ public final class WebDAVSync {
 
     private func checkSameVault(_ remoteRoot: [String: RemoteEntry]) throws {
         guard remoteRoot[Self.manifestName] != nil,
-              let local = try? Data(contentsOf: root.appendingPathComponent(Self.manifestName)),
+              let local = try? BoundedRead.contents(of: root.appendingPathComponent(Self.manifestName),
+                                                    maxBytes: BoundedRead.maxManifestBytes),
               let localId = Self.vaultId(local) else { return }
         let remote = try client.get([Self.manifestName]).data
         guard let remoteId = Self.vaultId(remote) else {
@@ -129,7 +130,9 @@ public final class WebDAVSync {
 
     private func syncMutable(_ name: String, remote: RemoteEntry?) throws {
         let localURL = root.appendingPathComponent(name)
-        let local = try? Data(contentsOf: localURL)
+        // Absent is nil; present but unreadable or oversized is an error, not "absent".
+        let local = FileManager.default.fileExists(atPath: localURL.path)
+            ? try BoundedRead.contents(of: localURL, maxBytes: BoundedRead.maxManifestBytes) : nil
         let record = state.mutable[name]
 
         guard let local else {
@@ -208,7 +211,9 @@ public final class WebDAVSync {
         var copy: String?
         if !options.dryRun {
             let existing = try LocalFS.entries(root).filter { $0.hasPrefix(base + ".conflict-") }
-            let identical = existing.first { (try? Data(contentsOf: root.appendingPathComponent($0))) == remote }
+            let identical = existing.first {
+                (try? BoundedRead.contents(of: root.appendingPathComponent($0), maxBytes: BoundedRead.maxManifestBytes)) == remote
+            }
             if let identical {
                 copy = identical
             } else {
@@ -382,7 +387,8 @@ public final class WebDAVSync {
         let path = "notes/\(key(id, n))"
         report.uploaded.append(path)
         guard !options.dryRun else { return }
-        let data = try Data(contentsOf: root.appendingPathComponent("notes/\(id)/\(n.filename)"))
+        let data = try BoundedRead.contents(of: root.appendingPathComponent("notes/\(id)/\(n.filename)"),
+                                            maxBytes: options.maxFileBytes)
         try ensureCollection(["notes", id])
         // A 412 means the server already has it: write-once, so it is the same file.
         try client.put(["notes", id, n.filename], data, condition: .create)

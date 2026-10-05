@@ -1,4 +1,5 @@
 import Foundation
+import InkVault
 
 /// The files of one Notability `.note` package: a zip (the usual form) or
 /// an unzipped package directory. Paths are `/`-separated and relative to the
@@ -55,7 +56,7 @@ public struct NotePackage {
     /// allocating for it (a file in a shared folder can be any size).
     static func readFile(_ url: URL, maxSize: UInt64) throws -> Data {
         do {
-            let h = try FileHandle(forReadingFrom: url)
+            let h = try BoundedRead.openRegularFile(url)
             defer { try? h.close() }
             let data = try h.read(upToCount: Int(min(maxSize, UInt64(Int.max - 1))) + 1) ?? Data()
             guard UInt64(data.count) <= maxSize else {

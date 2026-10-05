@@ -56,7 +56,9 @@ extension Vault {
         let secret = try requireReadable()
         let note = noteId.uuidString.lowercased()
         let data: Data
-        do { data = try FileIO.read(noteURL(noteId).appendingPathComponent(name.filename)) } catch {
+        do {
+            data = try FileIO.read(noteURL(noteId).appendingPathComponent(name.filename), maxBytes: BoundedRead.maxRevisionBytes)
+        } catch {
             throw RevisionReadError.unreadable("\(error)")
         }
         return try decodeRevisionFile(data, note: note, name: name, secret: secret)
