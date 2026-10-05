@@ -209,6 +209,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `errSecMissingEntitlement`, so tests use `FakeKeyStore`, never the real
   Keychain. Face ID needs `INFOPLIST_KEY_NSFaceIDUsageDescription` (pbxproj).
   Generic-password items from apps are generally not listed in the Passwords app.
+  Saving never deletes before the new key is stored: `KeychainVaultKeyStore.replace`
+  adds (or updates the same-storage item) first and only then deletes the
+  other storage's copy (`KeychainReplaceTests` pin the order with
+  `FakeKeychainItems`). Device-only keys are Face ID only, no passcode
+  fallback: after a lockout the user unlocks with the key or passphrase, and
+  the remember sheet says so (`RememberedKeys.deviceOnlyFooter`).
 - The object eraser is the app's (`ObjectEraser.swift`, `EraserGeometry.swift`):
   PencilKit's `.vector` eraser has no size. When the picker's eraser is in
   object mode, `PageCanvasHost` disables `drawingGestureRecognizer` and

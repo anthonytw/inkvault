@@ -1,6 +1,7 @@
 import Age
 import Foundation
 import InkVault
+import LocalAuthentication
 import Observation
 
 /// Vault keys remembered in the Keychain (task 3d): offers to remember the key
@@ -55,6 +56,33 @@ final class RememberedKeys {
     /// "this iPad", or "this Mac" under Mac Catalyst.
     static var deviceName: String {
         ProcessInfo.processInfo.isMacCatalystApp ? "this Mac" : "this iPad"
+    }
+
+    /// The device's biometry ("Face ID", "Touch ID", "Optic ID") when one is
+    /// enrolled, else nil (a device-only key is then read with the passcode).
+    static var biometryName: String? {
+        let context = LAContext()
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return nil }
+        switch context.biometryType {
+        case .faceID: return "Face ID"
+        case .touchID: return "Touch ID"
+        case .opticID: return "Optic ID"
+        default: return nil
+        }
+    }
+
+    /// The footer under "Remember on this device". A device-only key is
+    /// `.biometryCurrentSet` (`KeychainVaultKeyStore`): only that biometry
+    /// reads it, never the passcode, so after a lockout the user unlocks with
+    /// the key or passphrase. Without biometrics it is `.userPresence`.
+    static func deviceOnlyFooter(vaultName: String, biometry: String?) -> String {
+        let kept = "The key stays in this device's Keychain and is not included in backups."
+        guard let biometry else {
+            return "Next time, \(vaultName) opens after your device passcode. \(kept)"
+        }
+        return "Next time, \(vaultName) opens after \(biometry), and only \(biometry): the passcode cannot "
+            + "read the saved key. If \(biometry) is locked out after failed attempts, turned off, or "
+            + "re-enrolled, unlock with the key or the passphrase instead. \(kept)"
     }
 
     /// The remembered storage for the open vault, if known.
