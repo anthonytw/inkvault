@@ -265,6 +265,34 @@ final class CLIExportTreeTests: CLITestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent).sorted(), ["out", "victim.txt"])
     }
 
+    /// The export folder may be synced or shared (format.md §9): a manifest
+    /// with a hostile date or one that is a FIFO is ignored, never read with
+    /// Foundation's ISO 8601 parser (which dies in ICU on a long fraction on
+    /// Linux) or blocked on.
+    func testHostileExportManifestIsIgnored() throws {
+        let out = path("md")
+        let args = ["--all", "--format", "markdown"]
+        XCTAssertEqual(try export(args, out: out).status, 0)
+        let manifestPath = out + "/.inkvault-export-markdown.json"
+        var m = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: manifestPath)))
+                              as? [String: Any])
+        var notes = m["notes"] as? [String: Any] ?? [:]
+        notes["99999999-0000-4000-8000-000000000000"] = [
+            "title": "x", "stem": "x", "folder": [], "tags": [], "pages": 1,
+            "modified": "2025-10-09T14:03:20." + String(repeating: "1", count: 100_000) + "Z"]
+        m["notes"] = notes
+        try JSONSerialization.data(withJSONObject: m).write(to: URL(fileURLWithPath: manifestPath))
+        var r = try export(args, out: out)
+        XCTAssertEqual(r.status, 0, r.err)
+
+        try FileManager.default.removeItem(atPath: manifestPath)
+        XCTAssertEqual(mkfifo(manifestPath, 0o600), 0)
+        let t0 = Date()
+        r = try export(args, out: out)
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 60)
+    }
+
     func testOptionValidation() throws {
         let out = path("x")
         XCTAssertEqual(try export(["--all", "--format", "pdf", "--clean"], out: out).status, 2)

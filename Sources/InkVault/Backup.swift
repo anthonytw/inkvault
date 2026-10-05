@@ -830,14 +830,14 @@ enum TarReader {
             var check = 0
             for i in 0..<512 { check += (148..<156).contains(i) ? 32 : Int(bytes[off + i]) }
             guard stored == check else { throw VaultError.io("tar header checksum mismatch at \(off)") }
-            guard let size = Int(field(124, 12).trimmingCharacters(in: .whitespaces), radix: 8) else {
+            guard let size = Int(field(124, 12).trimmingCharacters(in: .whitespaces), radix: 8), size >= 0 else {
                 throw VaultError.io("bad tar size at \(off)")
             }
             let name = field(0, 100), prefix = field(345, 155)
             let path = prefix.isEmpty ? name : prefix + "/" + name
             let type = bytes[off + 156]
             let start = off + 512
-            guard start + size <= bytes.count else { throw VaultError.io("truncated tar member \(path)") }
+            guard size <= bytes.count - start else { throw VaultError.io("truncated tar member \(path)") }
             if type == UInt8(ascii: "0") || type == 0 {
                 out.append(Member(path: path, data: Data(bytes[start..<(start + size)])))
             }
