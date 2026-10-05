@@ -510,7 +510,7 @@ public enum NotabilityImporter {
 
         // Keys: Notability's uuid for a .note; an .ntb takes the uuid of a
         // .note created at the same millisecond (the bundle has no uuid).
-        func ms(_ d: Date?) -> Int64? { d.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } }
+        func ms(_ d: Date?) -> Int64? { d.flatMap { Int64(exactly: ($0.timeIntervalSince1970 * 1000).rounded()) } }
         var uuidByCreated: [Int64: String] = [:]
         for case let s? in summaries where s.format == .note {
             guard let u = s.uuid, let c = ms(s.created) else { continue }
