@@ -38,8 +38,22 @@ struct CanvasHostRenderingTests {
         host.canvas.setContentOffset(CGPoint(x: 0, y: y), animated: false)
         host.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(1500))
-        let image = UIGraphicsImageRenderer(bounds: host.canvas.bounds).image { _ in
-            host.canvas.drawHierarchy(in: host.canvas.bounds, afterScreenUpdates: true)
+        func shot() -> UIImage {
+            UIGraphicsImageRenderer(bounds: host.canvas.bounds).image { _ in
+                host.canvas.drawHierarchy(in: host.canvas.bounds, afterScreenUpdates: true)
+            }
+        }
+        // PencilKit draws tiles asynchronously; on a cold simulator the first
+        // screens can take longer than the wait above (blank snapshots on
+        // main and PRs). Snapshot again until ink shows and stops changing,
+        // for at most six more 750 ms waits; a band without ink just ends blank.
+        var image = shot(), ink = darkPixels(image)
+        for _ in 0..<6 {
+            try await Task.sleep(for: .milliseconds(750))
+            let next = shot(), nextInk = darkPixels(next)
+            let settled = ink > 0 && nextInk == ink
+            image = next; ink = nextInk
+            if settled { break }
         }
         let rect = CGRect(x: host.canvas.contentOffset.x / z, y: host.canvas.contentOffset.y / z,
                           width: host.canvas.bounds.width / z, height: host.canvas.bounds.height / z)
@@ -72,14 +86,24 @@ struct CanvasHostRenderingTests {
         return drawing.image(from: rect, scale: pixels.width / rect.width)
     }
 
-    /// Canvas and reference agree on how much ink a band shows.
-    static func expectBandMatches(_ host: PageCanvasHost, _ strokes: [Stroke], top: Double, _ label: String) async throws {
-        let (shot, rect) = try await snapshot(host, top: top)
-        let px = CGSize(width: shot.size.width * shot.scale, height: shot.size.height * shot.scale)
-        let canvas = darkPixels(shot), ref = darkPixels(reference(strokes, rect: rect, pixels: px))
-        #expect(ref > 0, "\(label): reference drew nothing at y \(rect.minY)")
+    /// Canvas and reference agree on how much ink a band shows. PencilKit
+    /// draws its tiles asynchronously (the first canvas of a cold simulator
+    /// can take several seconds), so the canvas is snapshotted again, up to
+    /// `attempts` times, until it agrees; the tolerance never widens.
+    static func expectBandMatches(_ host: PageCanvasHost, _ strokes: [Stroke], top: Double, _ label: String,
+                                  attempts: Int = 5) async throws {
+        var canvas = 0, ref = 0, y = 0.0
+        for _ in 0..<attempts {
+            let (shot, rect) = try await snapshot(host, top: top)
+            let px = CGSize(width: shot.size.width * shot.scale, height: shot.size.height * shot.scale)
+            canvas = darkPixels(shot)
+            ref = darkPixels(reference(strokes, rect: rect, pixels: px))
+            y = rect.minY
+            if ref > 0, (0.75...1.33).contains(Double(canvas) / Double(ref)) { break }
+        }
+        #expect(ref > 0, "\(label): reference drew nothing at y \(y)")
         let ratio = Double(canvas) / Double(max(ref, 1))
-        #expect((0.75...1.33).contains(ratio), "\(label): canvas/reference ink \(canvas)/\(ref) at y \(rect.minY)")
+        #expect((0.75...1.33).contains(ratio), "\(label): canvas/reference ink \(canvas)/\(ref) at y \(y)")
     }
 
     @Test func tallImportedPageShowsInkFarBelowTheFirstScreen() async throws {
@@ -123,12 +147,20 @@ struct CanvasHostRenderingTests {
         defer { window.isHidden = true }
         for (i, tool) in InkTool.allCases.enumerated() {
             let y = 5_000 + Double(i) * 60
-            let (shot, rect) = try await Self.snapshot(host, top: y - 25)
-            // Only this stroke's band: the top 50 points of the screen.
-            let band = CGRect(x: 0, y: 0, width: shot.size.width * shot.scale,
-                              height: 50 * host.canvas.zoomScale * shot.scale)
-            let crop = try #require(shot.cgImage?.cropping(to: band))
-            #expect(Self.darkPixels(UIImage(cgImage: crop)) > 0, "\(tool) drew nothing at y \(rect.minY)")
+            // Only this stroke's band: the top 50 points of the screen. Its tile
+            // can arrive after the rest of the screen has settled (snapshot
+            // waits on the whole screen), so the band is snapshotted again,
+            // up to five times, until it shows ink.
+            var ink = 0, top = 0.0
+            for _ in 0..<5 where ink == 0 {
+                let (shot, rect) = try await Self.snapshot(host, top: y - 25)
+                let band = CGRect(x: 0, y: 0, width: shot.size.width * shot.scale,
+                                  height: 50 * host.canvas.zoomScale * shot.scale)
+                let crop = try #require(shot.cgImage?.cropping(to: band))
+                ink = Self.darkPixels(UIImage(cgImage: crop))
+                top = rect.minY
+            }
+            #expect(ink > 0, "\(tool) drew nothing at y \(top)")
         }
     }
 
@@ -136,7 +168,7 @@ struct CanvasHostRenderingTests {
         var strokes: [Stroke] = []
         for i in 0..<4_000 {
             let x = 30 + Double(i % 40) * 13.5, y = 40 + Double(i / 40) * 30
-            strokes.append(R.importedPen(x: x / R.k - 18.8, y: y / R.k, glyphs: 1, base: 1.4))
+            strokes.append(R.importedPen(x: x / R.k - R.inset, y: y / R.k, glyphs: 1, base: 1.4))
         }
         let height = 40 + 100 * 30 + 60.0
         let (window, host) = Self.host(strokes, height: height)
