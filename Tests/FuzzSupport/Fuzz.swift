@@ -317,7 +317,13 @@ final class FuzzWorker: @unchecked Sendable {
             go.wait()
             lock.lock(); let j = job; lock.unlock()
             guard let j else { return }
+            // Darwin: a secondary thread has no autorelease pool of its own, so
+            // Foundation temporaries would pile up across cases.
+            #if canImport(Darwin)
+            let r = autoreleasepool { j() }
+            #else
             let r = j()
+            #endif
             lock.lock(); result = r; lock.unlock()
             done.signal()
         }

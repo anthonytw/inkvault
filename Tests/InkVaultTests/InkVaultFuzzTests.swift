@@ -163,12 +163,12 @@ final class InkVaultFuzzTests: VaultTestCase {
             }
         })
         // Raw gzip members, including ones that inflate far past the limit.
-        let big = try Gzip.compress(Data(count: 40 << 20))
+        let big = try Gzip.compress(Data(count: 12 << 20))
         let gz = try seeds.map { _ = $0; return try Gzip.compress(Self.json(log)) } + [big]
         assertClean(Fuzz.run("gzip", seeds: gz, quick: 2000, maxSize: 256 << 10) { input in
             Self.typed {
-                _ = try Gzip.decompress(input, maxOutput: 32 << 20)
-                _ = try Gzip.inflateRaw(input.dropFirst(10), maxOutput: 32 << 20)
+                _ = try Gzip.decompress(input, maxOutput: 8 << 20)
+                _ = try Gzip.inflateRaw(input.dropFirst(10), maxOutput: 8 << 20)
             }
         })
     }
