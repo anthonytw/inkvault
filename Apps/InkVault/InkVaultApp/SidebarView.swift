@@ -5,6 +5,8 @@ import SwiftUI
 /// Selecting a notebook shows the notes in it and in its sub-notebooks.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
+    @Environment(RememberedKeys.self) private var keys
+    @State private var forgettingKey = false
     @State private var renaming: String?
     @State private var newName = ""
 
@@ -41,6 +43,28 @@ struct SidebarView: View {
             ToolbarItem {
                 Button("Close Vault", systemImage: "xmark.circle") { model.close() }
             }
+            ToolbarItem {
+                Menu("Vault Key", systemImage: "key") {
+                    if let storage = keys.storage(for: model) {
+                        Text(storage == .iCloudKeychain ? "Saved in iCloud Keychain" : "Saved on \(RememberedKeys.deviceName)")
+                        Button("Forget Key for This Vault…", systemImage: "key.slash", role: .destructive) {
+                            forgettingKey = true
+                        }
+                    } else {
+                        Text("The key is not saved. Unlock with a passphrase or pasted key to save it.")
+                    }
+                }
+            }
+        }
+        .task(id: model.vault?.vaultId) { await keys.refresh(model) }
+        .confirmationDialog("Forget this vault's key?", isPresented: $forgettingKey, titleVisibility: .visible) {
+            Button("Forget Key", role: .destructive) {
+                Task { await model.report { try await keys.forget(model) } }
+            }
+        } message: {
+            Text(keys.storage(for: model) == .iCloudKeychain
+                 ? "The key is removed from iCloud Keychain on all your devices. Keep another copy (key file or passphrase) to open the vault again."
+                 : "The key is removed from \(RememberedKeys.deviceName). Keep another copy (key file or passphrase) to open the vault again.")
         }
         .alert("Rename or Move Notebook", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Path", text: $newName)

@@ -1,41 +1,71 @@
 import SwiftUI
 
-/// Asks for a key to the open vault: a stored key file's passphrase, or a
-/// pasted `AGE-SECRET-KEY-1…` identity. (Key management proper is task 3d.)
+/// Asks for a key to the open vault: the remembered key (Face ID first), a
+/// stored key file's passphrase, or a pasted `AGE-SECRET-KEY-1…` identity.
+/// After a manual unlock it offers to remember the key (`RememberedKeys`).
 struct UnlockView: View {
     @Environment(AppModel.self) private var model
+    @Environment(RememberedKeys.self) private var keys
     @State private var passphrase = ""
     @State private var identityText = ""
     @State private var failure: String?
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Passphrase of a stored key") {
-                    SecureField("Passphrase", text: $passphrase)
-                        .onSubmit { unlock { try await model.unlock(passphrase: passphrase) } }
-                    Button("Unlock") { unlock { try await model.unlock(passphrase: passphrase) } }
-                        .disabled(passphrase.isEmpty)
-                }
-                Section("Or paste a secret key") {
-                    TextField("AGE-SECRET-KEY-1…", text: $identityText, axis: .vertical)
-                        .font(.body.monospaced())
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    Button("Unlock with Key") { unlock { try await model.unlock(identityText: identityText) } }
-                        .disabled(identityText.isEmpty)
-                }
-                if let failure {
-                    Text(failure).foregroundStyle(.red)
+            if let offer = keys.offer, offer.vaultID == model.vault?.vaultId {
+                RememberKeyView(offer: offer)
+            } else {
+                unlockForm
+            }
+        }
+    }
+
+    private var unlockForm: some View {
+        Form {
+            if keys.storage(for: model) != nil {
+                Section {
+                    Button("Unlock with Saved Key", systemImage: "faceid") { Task { await tryRememberedKey() } }
+                        .disabled(keys.isUnlocking)
+                } footer: {
+                    Text("The key is saved in the Keychain on \(RememberedKeys.deviceName).")
                 }
             }
-            .navigationTitle("Unlock \(model.vaultName ?? "Vault")")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close Vault") { model.close() }
-                }
+            Section("Passphrase of a stored key") {
+                SecureField("Passphrase", text: $passphrase)
+                    .onSubmit { unlock { try await keys.unlock(model, passphrase: passphrase) } }
+                Button("Unlock") { unlock { try await keys.unlock(model, passphrase: passphrase) } }
+                    .disabled(passphrase.isEmpty)
             }
-            .disabled(model.isBusy)
+            Section("Or paste a secret key") {
+                TextField("AGE-SECRET-KEY-1…", text: $identityText, axis: .vertical)
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Button("Unlock with Key") { unlock { try await keys.unlock(model, identityText: identityText) } }
+                    .disabled(identityText.isEmpty)
+            }
+            if let failure {
+                Text(failure).foregroundStyle(.red)
+            }
+        }
+        .navigationTitle("Unlock \(model.vaultName ?? "Vault")")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close Vault") { model.close() }
+            }
+        }
+        .disabled(model.isBusy || keys.isUnlocking)
+        .task(id: model.vault?.vaultId) {
+            // A remembered key unlocks at once, after Face ID.
+            await tryRememberedKey()
+        }
+    }
+
+    private func tryRememberedKey() async {
+        failure = nil
+        switch await keys.unlockWithRememberedKey(model) {
+        case .failed(let message): failure = message + "\nUse the passphrase or paste the key instead."
+        case .unlocked, .noKey, .cancelled: break
         }
     }
 
@@ -43,6 +73,62 @@ struct UnlockView: View {
         failure = nil
         Task {
             do { try await action() } catch { failure = "\(error)" }
+        }
+    }
+}
+
+/// After a manual unlock: remember the key on this device (default on) and,
+/// optionally, in iCloud Keychain (default off).
+private struct RememberKeyView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(RememberedKeys.self) private var keys
+    let offer: RememberedKeys.Offer
+    @State private var remember = true
+    @State private var sync = false
+    @State private var saving = false
+    @State private var failure: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Remember on \(RememberedKeys.deviceName)", isOn: $remember)
+            } footer: {
+                Text("Next time, \(offer.vaultName) opens after Face ID (or your passcode). The key stays in this device's Keychain and is not included in backups.")
+            }
+            Section {
+                Toggle("Also sync via iCloud Keychain", isOn: $sync)
+                    .disabled(!remember)
+            } footer: {
+                Text("Your other devices signed in to the same Apple Account get the key too. The Keychain cannot require Face ID for synced items, so InkVault asks for Face ID or your passcode itself before using it; the key is otherwise protected by iCloud Keychain's end-to-end encryption and your device passcode. Synced keys may not be listed in the Passwords app.")
+            }
+            if let failure {
+                Text(failure).foregroundStyle(.red)
+            }
+        }
+        .navigationTitle("Remember Key?")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Not Now") { answer(nil) }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { answer(remember ? (sync ? .iCloudKeychain : .thisDevice) : nil) }
+            }
+        }
+        .disabled(saving)
+    }
+
+    private func answer(_ storage: KeyStorage?) {
+        failure = nil
+        saving = true
+        Task {
+            defer { saving = false }
+            do {
+                try await keys.answer(offer, storage: storage)
+            } catch {
+                // Keep the vault unlocked; say why the key was not saved.
+                keys.offer = nil
+                model.errorMessage = "The vault is unlocked, but its key could not be saved: \(error)"
+            }
         }
     }
 }

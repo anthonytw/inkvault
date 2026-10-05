@@ -189,6 +189,23 @@ one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
 - **macOS shell:** `rm` is aliased interactive — use `/bin/rm`; `grep -r` from
   `dev/` skips sub-repos.
 
+## CI
+
+CI (`.github/workflows/ci.yml`) is gated so that runs are not wasted. macOS
+runners are scarce: every run needs two of them, and on 2026-10-05 eleven runs
+queued for up to 30 minutes.
+
+- **Draft PRs run nothing.** Open work as a draft (`gh pr create --draft`) and
+  push as often as you like. Run `gh pr ready <n>` when you want CI or a
+  review; later pushes to a ready PR run CI again.
+- **A newer push to the same PR cancels the older run.**
+- **Only affected jobs run.** Docs-only changes run nothing. CLI, importer and
+  WebDAV changes skip the app job. App-only changes skip Linux and macOS.
+  `main` always runs everything.
+- **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
+- Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
+  the work is done and the local `swift test` passes.
+
 ## Lessons learned (technical, beyond CLAUDE.md gotchas)
 
 - "No ink on the iPad" was iCloud (dataless real-name files on 26.7.1, folders
@@ -205,25 +222,8 @@ one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
 
 ## Roadmap
 
-Next, in order:
-1. Merge the reviewed batch (above).
-2. Rename sweep → rebuild test vault (PQ key, full import) → first TestFlight.
-3. App round 2 (cloud sessions, CI-compiled; device checks by the user):
-   pages vs pageless (reorder/delete pages), share/export from the app (3e),
-   handwriting search in the app (3f: Vision `VNRecognizeTextRequest` on
-   rendered pages for iPadOS 26), settings panel, Spanish localization,
-   history browser UI, remote changes merged into an open canvas, note list
-   counts refresh, snapshots written by the app.
-4. Attachments implementation: ~20 parallel tasks per `docs/attachments.md`
-   §14 after #22 merges (batches of 3–4 cloud sessions). Start with task A0
-   (model types), then run the rest of `docs/plan.md` "Attachments" in
-   parallel; the settings panel and unused-attachments index are E6/E7 there.
-5. Phase 2 Mac (menus, keyboard, multi-window, drag-out export), then App
-   Store submission (privacy policy page, listing, screenshots; #26 drafts).
-6. `/ultrareview` before the first public release.
-
-Future ideas (user): LaTeX math typing + handwriting→LaTeX (on-device),
-video attachments, on-device AI only.
+The roadmap is in `docs/ROADMAP.md`: tables by component (shared library,
+CLI, iPad app, macOS app) and the order of work.
 
 Phase 1 task detail (historical, for reference):
 
@@ -312,6 +312,20 @@ Phase 1 task detail (historical, for reference):
      file UTType), export (QR, share sheet), Keychain storage behind
      Face ID, passphrase-wrapped key file option; add second recipient
      flow ("add this Mac's key").
+     **Keychain storage done** (branch `feat/app-keys-rename-eraser`):
+     after a manual unlock (passphrase or pasted key) the unlock sheet offers
+     "Remember on this iPad" (on) and "Also sync via iCloud Keychain" (off);
+     a vault with a remembered key unlocks after Face ID as soon as it opens,
+     falling back to the form when cancelled, missing or broken (a key that
+     no longer opens the vault is offered for replacement). Sidebar key menu:
+     "Forget Key for This Vault". `VaultKeyStore` (protocol) /
+     `KeychainVaultKeyStore` (one generic-password item per vault id, service
+     `io.github.anthonytw.inkvault.vault-key`, label "InkVault — <name>"),
+     `RememberedKeys` (observable, separate from `AppModel`), tests with
+     `FakeKeyStore`. Untested on hardware: Face ID prompts, iCloud Keychain
+     sync, Catalyst keychain (needs a signed build). Still open in 3d: key
+     generation/export/QR/AirDrop, add-recipient flow, offering to remember
+     the key of a newly created vault.
    - 3e Export: PDF via `InkRender` through the share sheet; whole-vault zip
      dump; `verify` screen.
    - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`

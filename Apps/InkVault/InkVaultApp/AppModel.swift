@@ -263,16 +263,20 @@ final class AppModel {
     }
 
     /// Unlocks with the text of an identity file (or a bare
-    /// `AGE-SECRET-KEY-1…` line).
-    func unlock(identityText: String) async throws {
+    /// `AGE-SECRET-KEY-1…` line). Returns the identity (`RememberedKeys`).
+    @discardableResult
+    func unlock(identityText: String) async throws -> X25519Identity {
         let identity: X25519Identity
         do { identity = try IdentityFile.parse(identityText) } catch { throw ModelError.notAnIdentity }
         try await unlock(with: [identity])
+        return identity
     }
 
     /// Unlocks with the passphrase of one of the vault's stored key files
-    /// (`keys/<recipient>.key.age`, format.md §3.2).
-    func unlock(passphrase: String) async throws {
+    /// (`keys/<recipient>.key.age`, format.md §3.2). Returns the identity it
+    /// held (`RememberedKeys`).
+    @discardableResult
+    func unlock(passphrase: String) async throws -> X25519Identity {
         guard let locked = vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
@@ -290,6 +294,7 @@ final class AppModel {
         }
         try ensureCurrent(gen)
         try await unlock(with: [identity])
+        return identity
     }
 
     /// Re-reads every note summary from disk. In iCloud Drive, notes whose files

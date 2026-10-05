@@ -174,6 +174,13 @@ public enum ExportName {
     /// path separators, control and reserved characters become `-`, runs
     /// collapse, length is capped, an empty title becomes `untitled`.
     public static func stem(title: String, noteId: UUID) -> String {
+        "\(component(title))-\(noteId.uuidString.lowercased().prefix(8))"
+    }
+
+    /// A title or notebook segment made safe as one file or folder name:
+    /// path separators, control and reserved characters become `-`, runs
+    /// collapse, length is capped, an empty result becomes `fallback`.
+    public static func component(_ title: String, fallback: String = "untitled") -> String {
         let bad = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters).union(.newlines)
         var out = ""
         for scalar in title.unicodeScalars {
@@ -182,8 +189,28 @@ public enum ExportName {
         while out.contains("--") { out = out.replacingOccurrences(of: "--", with: "-") }
         out = out.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
         if out.count > 60 { out = String(out.prefix(60)).trimmingCharacters(in: CharacterSet(charactersIn: "-.")) }
-        if out.isEmpty { out = "untitled" }
-        let short = noteId.uuidString.lowercased().prefix(8)
-        return "\(out)-\(short)"
+        // File names are limited in bytes (255 on most file systems), not characters: 60 emoji
+        // are 240 bytes and one letter with many combining marks is unbounded. Leave room for
+        // `-<8 hex>` and `.html`, `-assets` or `.pdf`.
+        while out.utf8.count > maxBytes, !out.isEmpty { out.removeLast() }
+        out = out.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return out.isEmpty ? fallback : out
+    }
+
+    /// Longest `component` result in UTF-8 bytes.
+    public static let maxBytes = 120
+
+    /// `component(_:)` for a folder: also avoids names that are reserved on Windows
+    /// (`CON`, `NUL`, `COM1`, ...) and the names of the index files an export writes
+    /// into a folder (`README.md`, `index.html`), which would otherwise collide with a
+    /// notebook of that name.
+    public static func folderComponent(_ name: String) -> String {
+        let c = component(name)
+        let lower = c.lowercased()
+        let stem = lower.split(separator: ".", maxSplits: 1).first.map(String.init) ?? lower
+        let reserved: Set<String> = ["con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6",
+                                     "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6",
+                                     "lpt7", "lpt8", "lpt9"]
+        return reserved.contains(stem) || lower == "readme.md" || lower == "index.html" ? c + "_" : c
     }
 }

@@ -18,7 +18,7 @@ struct NoteCanvasView: View {
             if let note = model.selectedNote {
                 if let editor = model.editor, editor.noteID == note.id {
                     EditorView(editor: editor)
-                        .navigationTitle(note.title.isEmpty ? "Untitled" : note.title)
+                        .navigationTitle(NoteTitle.display(note.title))
                 } else if let failure = model.editorFailure, failure.id == note.id {
                     ContentUnavailableView {
                         Label("Could Not Open Note", systemImage: "exclamationmark.icloud")
@@ -43,12 +43,6 @@ struct NoteCanvasView: View {
                 ContentUnavailableView("No Note Selected", systemImage: "square.and.pencil")
             }
         }
-        .toolbarTitleMenu {
-            if let note = model.selectedNote {
-                Button("Rename…", systemImage: "pencil") { newTitle = note.title; renaming = true }
-                Button("Tags…", systemImage: "tag") { editingTags = true }
-            }
-        }
         .alert("Rename Note", isPresented: $renaming) {
             TextField("Title", text: $newTitle)
             Button("Rename") {
@@ -64,8 +58,24 @@ struct NoteCanvasView: View {
         }
         .toolbar {
             if let note = model.selectedNote {
+                // The title itself: tap it, or press and hold it, to rename the note.
+                ToolbarItem(placement: .principal) {
+                    Button {
+                        startRename(note)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(NoteTitle.display(note.title)).font(.headline).lineLimit(1)
+                            Image(systemName: "pencil").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in startRename(note) })
+                    .accessibilityLabel("Note title: \(NoteTitle.display(note.title))")
+                    .accessibilityHint("Renames the note")
+                }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("Rename…", systemImage: "pencil") { newTitle = note.title; renaming = true }
+                    Button("Rename…", systemImage: "pencil") { startRename(note) }
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)
@@ -95,12 +105,20 @@ struct NoteCanvasView: View {
             }
         }
     }
+
+    /// Opens the rename alert (`AppModel.renameNote`, one `setMeta(.title)` delta).
+    private func startRename(_ note: NoteSummary) {
+        guard !renaming else { return }
+        newTitle = note.title
+        renaming = true
+    }
 }
 
 private struct EditorView: View {
     let editor: NoteEditor
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
+    @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
 
     var body: some View {
         VStack(spacing: 0) {
@@ -140,6 +158,22 @@ private struct EditorView: View {
                     }
                 }
             }
+            if !editor.isReadOnly {
+                ToolbarItem(placement: .primaryAction) {
+                    // PencilKit's object eraser has no size; the app's does (ObjectEraser.swift).
+                    Menu {
+                        Picker("Object Eraser Size", selection: $eraserRadius) {
+                            ForEach(ObjectEraserSize.radii, id: \.self) { r in
+                                Text("\(ObjectEraserSize.name(of: r)) – \(Int(r)) pt").tag(r)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        Label("Object Eraser Size", systemImage: "eraser.line.dashed")
+                    }
+                    .help("Size of the object eraser; the pixel eraser's size is in the tool palette")
+                }
+            }
             if editor.pages.count > 1 || !editor.isReadOnly {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
@@ -170,5 +204,13 @@ private struct Banner: View {
             .padding(.horizontal)
             .padding(.vertical, 6)
             .background(.bar)
+    }
+}
+
+/// How a note's title is shown.
+enum NoteTitle {
+    static func display(_ title: String) -> String {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? "Untitled" : t
     }
 }
