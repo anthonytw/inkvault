@@ -147,12 +147,20 @@ struct CanvasHostRenderingTests {
         defer { window.isHidden = true }
         for (i, tool) in InkTool.allCases.enumerated() {
             let y = 5_000 + Double(i) * 60
-            let (shot, rect) = try await Self.snapshot(host, top: y - 25)
-            // Only this stroke's band: the top 50 points of the screen.
-            let band = CGRect(x: 0, y: 0, width: shot.size.width * shot.scale,
-                              height: 50 * host.canvas.zoomScale * shot.scale)
-            let crop = try #require(shot.cgImage?.cropping(to: band))
-            #expect(Self.darkPixels(UIImage(cgImage: crop)) > 0, "\(tool) drew nothing at y \(rect.minY)")
+            // Only this stroke's band: the top 50 points of the screen. Its tile
+            // can arrive after the rest of the screen has settled (snapshot
+            // waits on the whole screen), so the band is snapshotted again,
+            // up to five times, until it shows ink.
+            var ink = 0, top = 0.0
+            for _ in 0..<5 where ink == 0 {
+                let (shot, rect) = try await Self.snapshot(host, top: y - 25)
+                let band = CGRect(x: 0, y: 0, width: shot.size.width * shot.scale,
+                                  height: 50 * host.canvas.zoomScale * shot.scale)
+                let crop = try #require(shot.cgImage?.cropping(to: band))
+                ink = Self.darkPixels(UIImage(cgImage: crop))
+                top = rect.minY
+            }
+            #expect(ink > 0, "\(tool) drew nothing at y \(top)")
         }
     }
 
