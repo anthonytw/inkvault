@@ -105,9 +105,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `NotebookPath` / `NotebookNode` (`Sources/InkVault/Notebooks.swift`), never
   `==` on raw names (`" A//B "` and `A/B` are the same notebook; `A/Bc` is not
   inside `A/B`).
-- iCloud Drive vaults: evicted files are `.<name>.icloud` placeholders (or
-  dataless files with a "not downloaded" status) that a plain listing skips,
-  so the vault looks empty. The app downloads them first and coordinates
+- iCloud Drive vaults: evicted files are `.<name>.icloud` placeholders, or,
+  on iPadOS 26 (seen on 26.7.1), dataless files under their real names with
+  status "not downloaded" (`FakeCloud.evictDataless` in tests). A plain
+  listing skips the stand-ins, so the vault or a note looks empty; a note
+  folder iCloud has not listed yet is empty too and must be treated as
+  pending, never as an empty note (`FakeCloud.unlist`). The app downloads them first and coordinates
   reads/writes (`CloudVault.swift`, `docs/io.md` "iCloud Drive"); this is
   app-only code, `Sources/` stays plain `FileManager`. The simulator has no
   iCloud: only the pure logic (`CloudScan.swift`) is tested there; the
@@ -164,6 +167,23 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   takes `cloudHooks`, `cloudPollInterval`, `cloudWindow`. Anything that opens or
   edits one note calls `downloadNote` first (a fresh listing of its folder, not
   `pendingNoteIDs`): never write a delta while any of its revisions is missing.
+  The editor's read re-checks with `CloudVault.requireLocal`, and a note that
+  cannot be opened shows `editorFailure` in the detail pane, never a blank
+  canvas. The sync loop never ends while a vault is open (idle pace after it
+  settles) and starts when the vault opens, before unlocking; stalls go to
+  `cloudSync.problem` (the list's bar), not an alert. Set
+  `cloudIdleInterval` short in tests that wait for a recovery.
+- Debug device runs against the user's iCloud vault: `INKVAULT_DEBUG_RECENT=1`
+  opens the most recent vault through its bookmark (the picker's scope), with
+  `INKVAULT_DEBUG_PROBE=1` (log how iCloud presents the files),
+  `INKVAULT_DEBUG_EVICT=1|dirs|notes` (evict from this device first),
+  `INKVAULT_DEBUG_WATCH=<s>` and `INKVAULT_DEBUG_OPEN_ALL=<n>` (open n notes,
+  log page and stroke counts only). Read the log with `devicectl device
+  process launch --console`. Never put note titles or content in logs.
+- Infinite pages scroll one screen beyond both their ink and their stored
+  height (`PageExtent.scrollHeight`); finite pages end with an Add Page / Next
+  Page button below the page. "Keep Screen On" (`KeepScreenOn`) disables the
+  idle timer only while a note is open and the scene is active.
 - `NavigationSplitView` ignores a programmatic column change that arrives
   while the view is first being built, so the stored choice (`ColumnLayout`,
   `@AppStorage`) is never made to depend on selection state.

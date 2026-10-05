@@ -11,6 +11,7 @@ struct NoteCanvasView: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var editingTags = false
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
 
     var body: some View {
         Group {
@@ -18,10 +19,25 @@ struct NoteCanvasView: View {
                 if let editor = model.editor, editor.noteID == note.id {
                     EditorView(editor: editor)
                         .navigationTitle(NoteTitle.display(note.title))
+                } else if let failure = model.editorFailure, failure.id == note.id {
+                    ContentUnavailableView {
+                        Label("Could Not Open Note", systemImage: "exclamationmark.icloud")
+                    } description: {
+                        Text(failure.message)
+                    } actions: {
+                        Button("Try Again") { Task { await model.showSelectedNote() } }
+                    }
+                } else if let download = model.noteDownload, download.id == note.id {
+                    VStack(spacing: 10) {
+                        ProgressView(value: download.progress.fractionCompleted).frame(width: 240)
+                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of "
+                             + "\(download.progress.total) file\(download.progress.total == 1 ? "" : "s")")
+                            .font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                    }
                 } else if model.pendingNoteIDs.contains(note.id) {
                     ProgressView("Downloading this note from iCloud…")
                 } else {
-                    ProgressView()
+                    ProgressView("Opening…")
                 }
             } else {
                 ContentUnavailableView("No Note Selected", systemImage: "square.and.pencil")
@@ -61,6 +77,9 @@ struct NoteCanvasView: View {
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Rename…", systemImage: "pencil") { startRename(note) }
                 }
+                ToolbarItem(placement: .secondaryAction) {
+                    Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { editingTags = true }
                 }
@@ -78,14 +97,12 @@ struct NoteCanvasView: View {
             }
         }
         .task(id: model.phase == .unlocked ? model.selectedNoteID : nil) {
-            await model.report { try await model.openEditor(for: model.selectedNoteID) }
+            await model.showSelectedNote()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active, let editor = model.editor {
                 Task { await editor.flush() }
             }
-            // iCloud may have delivered files while the app was away.
-            if phase == .active, model.isCloudVault, model.phase == .unlocked { model.startCloudSync() }
         }
     }
 
