@@ -81,20 +81,30 @@ The spec says a file SHOULD NOT be encrypted to both PQ and classic
 recipients (the classic stanza voids the protection), and `age` refuses to
 encrypt such a mix. `AgeFile.encrypt` refuses it too unless
 `allowMixedPostQuantum: true`. A vault passes that flag for its own writes,
-because a vault in transition (several devices, each switching keys) lists
-both types; `vault info` then says `Post-quantum: NO`. `age` decrypts mixed
-files fine.
+because a legacy vault mid-migration (several devices, each switching keys)
+lists both types; `vault info` then says `Post-quantum: NO`. `age` decrypts
+mixed files fine. A vault created today can never be mixed.
 
-## Defaults
+## Policy: post-quantum only
 
-New keys are post-quantum by default: `inkvault keys generate` (`--x25519`
-for a classic key) and the app's "generate a key" when creating a vault.
-Recommended because the vectors and interop pass on every platform the
-project ships to, and the costs are small: about 1.2 KB more per file
-header, and `age` ≥ 1.3 for stock-CLI recovery (Ubuntu 24.04's package is
-1.1.1, so the recovery notes point at the official release).
+Project decision (docs/HANDOFF.md, "Decided"): vaults take only
+MLKEM768-X25519 recipients. `inkvault keys generate` and the app's "generate
+a key" make only post-quantum keys (no classic option); `Vault.create`,
+`addRecipient` and the target of `replaceRecipient` throw
+`VaultError.classicRecipient` ("create a new key") for an `age1...` key, and
+so do `vault init`, `recipients add` / `replace` (exit 2) and the app's
+"use an existing recipient". X25519 identities still open **legacy** vaults
+(created before this rule, like the test fixture), whose X25519 recipients
+can only be replaced or removed. The Age module itself keeps full X25519
+support, as the age spec requires.
 
-## Migrating an existing vault
+This is safe to make the only option because the vectors and interop pass
+on every platform the project ships to, and the costs are small: about
+1.2 KB more per file header, and `age` ≥ 1.3 for stock-CLI recovery (Ubuntu
+24.04's package is 1.1.1, so the recovery notes point at the official
+release).
+
+## Migrating a legacy vault
 
 Single device (one rewrap, no mixed files):
 

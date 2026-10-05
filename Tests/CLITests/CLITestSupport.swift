@@ -77,8 +77,8 @@ class CLITestCase: XCTestCase {
 
     /// Creates a vault through the library and writes a two-page note plus a
     /// one-page note. Returns the vault, the identity and the key file path.
-    func makeVault(named name: String = "mine.inkvault") throws -> (vault: Vault, identity: X25519Identity, keyPath: String) {
-        let id = X25519Identity()
+    func makeVault(named name: String = "mine.inkvault") throws -> (vault: Vault, identity: NativeIdentity, keyPath: String) {
+        let id = try NativeIdentity.generate(.postQuantum)
         let keyPath = path("\(name).key")
         try IdentityFile.render(id, created: Date()).write(toFile: keyPath, atomically: true, encoding: .utf8)
         let vault = try Vault.create(at: tmp.appendingPathComponent(name), recipients: [id.recipient],

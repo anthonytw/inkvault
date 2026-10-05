@@ -61,11 +61,11 @@ inkvault keys export --vault V [--recipient age1...] [--out FILE]
 
 - `generate` writes an `age-keygen`-style identity (mode 0600, refuses to
   overwrite) and prints the public key. Without `--out` the identity goes to
-  stdout and the public key to stderr. The default is a post-quantum
-  MLKEM768-X25519 key (`AGE-SECRET-KEY-PQ-1...`, recipient `age1pq1...`, as
-  `age-keygen -pq` makes); `--x25519` makes a classic key, `--pq` is the
-  explicit default. Decrypting post-quantum files with the stock CLI needs
-  `age` 1.3 or later; on Apple platforms the key type needs macOS / iPadOS 26.
+  stdout and the public key to stderr. Keys are always post-quantum
+  MLKEM768-X25519 (`AGE-SECRET-KEY-PQ-1...`, recipient `age1pq1...`, as
+  `age-keygen -pq` makes); vaults take no other kind. Decrypting their files
+  with the stock CLI needs `age` 1.3 or later; on Apple platforms the key
+  type needs macOS 26.
 - `show` prints the public key (`age1...` or `age1pq1...`) of an identity file.
 - `export` decrypts the vault's passphrase-wrapped key file
   (`keys/<key-name>.key.age`, format.md §3.2) to a plain identity file, to move a key to
@@ -95,6 +95,10 @@ inkvault vault verify
   (`remove` also rotates the vault secret) and print a report. If any file
   cannot be rewrapped the exit code is 3 and the message says to run
   `rewrap-resume`. Removing a key does not revoke what it already decrypted.
+- Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
+  and the new key of `replace` refuse a classic `age1...` key with "create a
+  new key" (exit 2). Legacy vaults that still list X25519 keys open as before
+  and are migrated with `replace` or `add` + `remove` (format.md §3.3.2).
 - `recipients replace` swaps one recipient for another with a single rewrap
   and a secret rotation: the post-quantum migration (format.md §3.3.2). An
   interrupted replace is finished by `rewrap-resume` with **both** keys

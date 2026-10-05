@@ -38,10 +38,11 @@ Unknown files and directories must be ignored, never deleted.
 }
 ```
 
-- `recipients[].key`: an age native recipient (§3.1): MLKEM768-X25519
-  (Bech32, HRP `age1pq`) or X25519 (Bech32, HRP `age`). At least one.
-  A list may hold both types only while a vault moves from X25519 to
-  post-quantum keys (§3.3.2).
+- `recipients[].key`: an age MLKEM768-X25519 recipient (§3.1, Bech32, HRP
+  `age1pq`). At least one. Writers MUST NOT create a vault with, or add, an
+  X25519 recipient (HRP `age`). Readers accept X25519 recipients in vaults
+  written before this rule (legacy vaults); writers may only replace or
+  remove them (§3.3.2).
 - `vaultSecret`: 32 random bytes, age-encrypted and armored, to exactly the
   listed recipients. It keys the inner authentication tag (§4) and nothing
   else. It is rotated whenever a recipient is removed.
@@ -50,8 +51,9 @@ Unknown files and directories must be ignored, never deleted.
 
 ### 3.1 Identity
 
-An age native identity, exactly as the reference `age-keygen` produces it,
-of one of two types (c2sp.org/age, "Native recipient types"):
+An age native identity, exactly as the reference `age-keygen` produces it
+(c2sp.org/age, "Native recipient types"). New keys are always
+MLKEM768-X25519; X25519 identities exist only to open legacy vaults:
 
 - **MLKEM768-X25519** (hybrid post-quantum, `age-keygen -pq`, age v1.3+): a
   32-byte seed, Bech32 with HRP `AGE-SECRET-KEY-PQ-` (77 characters). Its
@@ -65,12 +67,12 @@ of one of two types (c2sp.org/age, "Native recipient types"):
   encapsulation, the body the 32-byte sealed file key. Secure against
   "harvest now, decrypt later" by a future quantum computer, provided no
   stanza of another type sits next to it.
-- **X25519** (classic, `age-keygen`): Bech32 with HRP `AGE-SECRET-KEY-`;
-  recipient HRP `age`; one `X25519` stanza per recipient.
+- **X25519** (classic, `age-keygen`, legacy vaults only): Bech32 with HRP
+  `AGE-SECRET-KEY-`; recipient HRP `age`; one `X25519` stanza per recipient.
 
-The corresponding recipient is derived from the identity. Writers SHOULD
-create MLKEM768-X25519 identities for new keys. Reading files encrypted to
-them with the stock CLI needs `age` 1.3 or later.
+The corresponding recipient is derived from the identity. Reading files
+encrypted to an MLKEM768-X25519 recipient with the stock CLI needs `age` 1.3
+or later.
 
 ### 3.2 Passphrase-wrapped identity file
 
@@ -157,15 +159,16 @@ A change may also **replace** one recipient by another in a single pass
 not yet rewrapped are encrypted only to the outgoing recipient, so finishing
 it needs an identity of the outgoing key as well as one of the new set.
 
-#### 3.3.2 Moving to post-quantum keys
+#### 3.3.2 Migrating legacy X25519 vaults
 
 All files of a vault are quantum-safe only once every recipient is
 MLKEM768-X25519: an `X25519` stanza next to an `mlkem768x25519` one lets a
 quantum adversary recover the file key. Writers encrypt every file (and
-`vaultSecret`) to the full recipient list, so a vault whose list holds both
-types writes files with both stanza types. The spec says files SHOULD NOT
-mix them and `age` refuses to encrypt such a mix, but `age` 1.3+ decrypts
-them; the format allows the mix only as a transition.
+`vaultSecret`) to the full recipient list, so a legacy vault that has gained
+a post-quantum recipient but still lists an X25519 one writes files with
+both stanza types. The spec says files SHOULD NOT mix them and `age` refuses
+to encrypt such a mix, but `age` 1.3+ decrypts them; the format allows the
+mix only during this migration.
 
 To migrate, generate an MLKEM768-X25519 identity per device, then either
 

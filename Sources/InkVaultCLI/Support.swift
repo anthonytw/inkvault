@@ -56,6 +56,8 @@ enum CLIError: Error {
              VaultError.vaultSecretUndecryptable, VaultError.wrongPassphrase,
              VaultError.locked, VaultError.noIdentities:
             return .cannotDecrypt(text)
+        case VaultError.classicRecipient:
+            return .usage(text)
         case VaultError.rewrapIncomplete:
             return .unhealthy(text + "; run `inkvault vault rewrap-resume`")
         case let e as NoteSummary.LookupError:

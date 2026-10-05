@@ -39,6 +39,26 @@ final class PostQuantumVaultTests: VaultTestCase {
         XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [try pq()]))
     }
 
+    /// Vaults are post-quantum only: no classic recipient enters through
+    /// the public API (create, add, replace), and nothing is written.
+    func testClassicRecipientsRefused() throws {
+        let classic = NativeRecipient.x25519(X25519Identity().recipient), id = try pq()
+        XCTAssertThrowsError(try Vault.create(at: vaultURL("C"), recipients: [classic])) {
+            XCTAssertEqual($0 as? VaultError, .classicRecipient(classic.string))
+        }
+        XCTAssertThrowsError(try Vault.create(at: vaultURL("M"), recipients: [id.recipient, classic]))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vaultURL("C").path))
+        var vault = try Vault.create(at: vaultURL(), recipients: [id.recipient], identities: [id])
+        XCTAssertThrowsError(try vault.addRecipient(classic, label: "old")) {
+            XCTAssertEqual($0 as? VaultError, .classicRecipient(classic.string))
+        }
+        XCTAssertThrowsError(try vault.replaceRecipient(id.recipient, with: classic)) {
+            XCTAssertEqual($0 as? VaultError, .classicRecipient(classic.string))
+        }
+        XCTAssertEqual(vault.recipients.map(\.key), [id.recipient.string])
+        XCTAssertFalse(vault.pendingRewrap)
+    }
+
     /// The one-step migration: an X25519 vault becomes PQ-only with a single
     /// rewrap; an interruption is finished by repeating the call, and no
     /// file ever carries both stanza types.
@@ -78,8 +98,8 @@ final class PostQuantumVaultTests: VaultTestCase {
 
     func testReplaceRejectsDuplicateAndUnknown() throws {
         let a = X25519Identity(), b = try pq()
-        var vault = try Vault.create(at: vaultURL(), recipients: [.x25519(a.recipient), b.recipient],
-                                     identities: [a])
+        var vault = try Vault.createUnchecked(at: vaultURL(), recipients: [.x25519(a.recipient), b.recipient],
+                                              labels: [], identities: [a], vaultId: UUID(), created: Date())
         XCTAssertThrowsError(try vault.replaceRecipient(.x25519(a.recipient), with: b.recipient)) {
             XCTAssertEqual($0 as? VaultError, .duplicateRecipient(b.recipient.string))
         }

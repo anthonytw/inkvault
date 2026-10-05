@@ -52,7 +52,8 @@ deleted when done.
 
 ## Decided, not yet implemented
 
-- **Encryption is post-quantum only.** Vaults accept only the age hybrid
+- **Encryption is post-quantum only** (implemented: `feat/pq-recipients`,
+  `docs/post-quantum.md`). Vaults accept only the age hybrid
   ML-KEM-768 + X25519 recipient (newest age spec). Classic X25519-only
   recipients are rejected with "create a new key", not offered as an option.
   Passphrases stay: they only wrap the key file in `keys/` (scrypt, symmetric).

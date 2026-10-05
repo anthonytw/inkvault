@@ -209,7 +209,7 @@ final class RealNotabilityTests: XCTestCase {
             throw XCTSkip("INKVAULT_NOTABILITY_BULK_VAULT not set")
         }
         guard let samples = Self.samples else { throw XCTSkip("INKVAULT_NOTABILITY_SAMPLES not set") }
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: URL(fileURLWithPath: target), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()

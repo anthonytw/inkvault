@@ -22,31 +22,21 @@ struct KeysGenerate: ParsableCommand {
         abstract: "Create a new age identity file (mode 0600) and print its public key.",
         discussion: """
             Without --out the identity is written to standard output and the public key to standard error.
-            The default is a post-quantum MLKEM768-X25519 key (AGE-SECRET-KEY-PQ-1..., recipient age1pq1...),
-            as `age-keygen -pq` makes; reading its files with the stock CLI needs age 1.3 or later. --x25519
-            makes a classic key instead, for age 1.2 and older or macOS before 26.
+            The key is post-quantum, MLKEM768-X25519 (AGE-SECRET-KEY-PQ-1..., recipient age1pq1...), as
+            `age-keygen -pq` makes; vaults take no other kind. Reading its files with the stock CLI needs
+            age 1.3 or later.
             """
     )
 
     @Option(name: .long, help: ArgumentHelp("Where to write the identity. Refuses to overwrite.", valueName: "file"))
     var out: String?
 
-    @Flag(name: .long, help: "Post-quantum MLKEM768-X25519 key (the default).")
-    var pq = false
-
-    @Flag(name: .long, help: "Classic X25519 key instead of a post-quantum one.")
-    var x25519 = false
-
     @OptionGroup var output: OutputOptions
-
-    func validate() throws {
-        if pq && x25519 { throw ValidationError("--pq and --x25519 are exclusive") }
-    }
 
     func run() throws {
         let identity: NativeIdentity
-        do { identity = try NativeIdentity.generate(x25519 ? .x25519 : .postQuantum) } catch {
-            throw CLIError.failure("\(error); use --x25519 for a classic key")
+        do { identity = try NativeIdentity.generate(.postQuantum) } catch {
+            throw CLIError.failure("\(error)")
         }
         let text = IdentityFile.render(identity, created: Date())
         let key = identity.recipient.string

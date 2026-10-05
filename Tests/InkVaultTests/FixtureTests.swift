@@ -39,9 +39,11 @@ enum SampleFixture {
 
     /// Writes the fixture vault at `url` (which must not exist yet).
     static func generate(at url: URL, identity: NativeIdentity) throws {
-        let vault = try Vault.create(at: url, recipients: [identity.recipient],
-                                     labels: ["InkVault test fixture (throwaway, test-only key)"],
-                                     identities: [identity], vaultId: vaultId, created: at(0))
+        // A legacy X25519 vault: the fixture predates post-quantum-only vaults
+        // and doubles as the migration test input (format.md §3.3.2).
+        let vault = try Vault.createUnchecked(at: url, recipients: [identity.recipient],
+                                              labels: ["InkVault test fixture (throwaway, test-only key)"],
+                                              identities: [identity], vaultId: vaultId, created: at(0))
         let p1 = id(1), p2 = id(2), q1 = id(3)
         // Lecture: devices A and B, a snapshot by A, then one uncovered delta.
         try vault.write(delta(lecture, devA, 1, 1000, [

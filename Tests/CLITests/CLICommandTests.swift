@@ -132,7 +132,8 @@ final class CLICommandTests: CLITestCase {
             XCTAssertTrue(unset.err.contains("NOT_SET_ANYWHERE"), unset.err)
         }
         // Library errors read as sentences, not enum dumps.
-        let notVault = try cli(["vault", "init", path("notes"), "--recipient", try fixtureIdentity().recipient.string])
+        let notVault = try cli(["vault", "init", path("notes"), "--recipient",
+                                try NativeIdentity.generate(.postQuantum).recipient.string])
         XCTAssertEqual(notVault.status, 1)
         XCTAssertTrue(notVault.err.contains("must end in .inkvault"), notVault.err)
         // Environment variables stand in for the options.

@@ -238,9 +238,9 @@ struct RecipientsRemove: ParsableCommand {
 struct RecipientsReplace: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "replace",
-        abstract: "Replace one recipient by another in a single rewrap (e.g. an X25519 key by a post-quantum one).",
+        abstract: "Replace one recipient by a post-quantum one in a single rewrap (migrates legacy X25519 vaults).",
         discussion: """
-            The post-quantum migration: `inkvault keys generate --out new.key` (post-quantum by default), then
+            The post-quantum migration: `inkvault keys generate --out new.key`, then
             `inkvault vault recipients replace age1old... new.key` with the old key unlocking (a recipient
             argument may be a file; only its public key is read). Rotates the
             vault secret and re-encrypts every note file once, so no file ever holds both stanza types.

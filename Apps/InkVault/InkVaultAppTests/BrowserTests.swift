@@ -71,18 +71,14 @@ struct BrowserTests {
         #expect(model.phase == .unlocked)
     }
 
-    @Test func recipientOnlyVaultOpensLockedUntilKeyIsGiven() async throws {
+    @Test func classicRecipientIsRefused() async throws {
         let parent = try Self.tempDir()
-        let identity = X25519Identity()
-        let library = try Self.library()
-        let model = AppModel(deviceStateURL: try Self.tempDir().appendingPathComponent("device.json"))
-        let created = try await model.createVault(
-            NewVaultRequest(name: "Theirs", keySource: .recipient(" \(identity.recipient.string)\n"), passphrase: nil),
-            in: parent, library: library)
-        #expect(created.secretKey == nil)
-        #expect(model.phase == .locked)
-        try await model.unlock(identityText: IdentityFile.render(identity, created: Date()))
-        #expect(model.phase == .unlocked)
+        let classic = X25519Identity().recipient.string
+        #expect(throws: VaultLibrary.LibraryError.classicRecipient) {
+            try VaultLibrary.createVault(NewVaultRequest(name: "Old", keySource: .recipient(classic), passphrase: nil),
+                                         folder: "Old.inkvault", in: parent)
+        }
+        #expect(!FileManager.default.fileExists(atPath: parent.appendingPathComponent("Old.inkvault").path))
     }
 
     @Test func postQuantumRecipientOnlyVaultUnlocksWithPastedKey() async throws {

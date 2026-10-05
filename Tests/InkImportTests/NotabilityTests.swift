@@ -167,7 +167,7 @@ final class NotabilityTests: XCTestCase {
         try SyntheticNote.package().write(to: notePath)
         try Data("not a zip".utf8).write(to: noteDir.appendingPathComponent("Broken.note"))
 
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("V.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         let device = DeviceID("0a0b0c0d")!
@@ -224,7 +224,7 @@ final class NotabilityTests: XCTestCase {
         ], zip64: true)
         let url = tmp.appendingPathComponent("backup.zip")
         try backup.write(to: url)
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("Z.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()
@@ -241,7 +241,7 @@ final class NotabilityTests: XCTestCase {
     func testOverwriteFromTwoDevices() throws {
         let notePath = tmp.appendingPathComponent("Synthetic.note")
         try SyntheticNote.package().write(to: notePath)
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("T.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         let a = DeviceID("aaaaaaaa")!, b = DeviceID("bbbbbbbb")!
@@ -260,7 +260,7 @@ final class NotabilityTests: XCTestCase {
 
     /// An overwrite re-sets tags and notebook even when they are now empty.
     func testOverwriteClearsTagsAndNotebook() throws {
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("C.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()
@@ -285,7 +285,7 @@ final class NotabilityTests: XCTestCase {
         let note = try NotabilityNote.parse(package: NotePackage(directory: dir))
         XCTAssertEqual(note.curves.count, 4)
         XCTAssertEqual(note.recognition.count, 2)
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("D.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()
@@ -328,7 +328,7 @@ final class NotabilityTests: XCTestCase {
 
         let path = tmp.appendingPathComponent("bad.note")
         try data.write(to: path)
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("H.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()

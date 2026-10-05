@@ -173,9 +173,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   minimises or docks the system palette by dragging it to an edge or tapping its
   collapse handle. Changing the compact option swaps the picker object.
 - Tags match case-insensitively (`NoteOps.tagKey`); titles are never keys.
-- Keys are `NativeIdentity` / `NativeRecipient` (Sources/Age/NativeKeys.swift):
-  MLKEM768-X25519 post-quantum (`age1pq1…`, the default for new keys) or
-  X25519. X-Wing comes from swift-crypto 4 (CryptoKit on Apple 26+,
+- Vaults are post-quantum only: new keys and recipients are MLKEM768-X25519
+  (`age1pq1…`); public `Vault` API throws `classicRecipient` for X25519.
+  Legacy X25519 vaults (like the fixture) still open and migrate. Tests
+  that need a legacy vault use the internal X25519 `Vault.create` overload or
+  `Vault.createUnchecked` (`@testable`). Keys are `NativeIdentity` /
+  `NativeRecipient` (Sources/Age/NativeKeys.swift). X-Wing comes from swift-crypto 4 (CryptoKit on Apple 26+,
   BoringSSL on Linux); never implement ML-KEM here. `postQuantumAvailable` is
   false on Apple OSes before 26 or SDKs before Xcode 26, so gate PQ tests
   with it. PQ recipients are 1959 characters: abbreviate in UI, and PQ key

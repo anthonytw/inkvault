@@ -11,6 +11,9 @@ extension VaultError: CustomStringConvertible {
         case .unsupportedFormat(let f): return "this vault uses format '\(f)', which this version cannot read"
         case .noRecipients: return "a vault needs at least one recipient"
         case .invalidRecipient(let r): return "'\(r)' is not an age recipient (age1...)"
+        case .classicRecipient(let r):
+            return "\(r.prefix(16))… is a classic X25519 key, which is not quantum-safe; vaults take only "
+                + "post-quantum age1pq1... keys: create a new key (inkvault keys generate, or age-keygen -pq)"
         case .duplicateRecipient(let r): return "recipient \(r) is listed twice"
         case .unknownRecipient(let r): return "recipient \(r) is not part of this vault"
         case .lastRecipient: return "cannot remove the only recipient: the vault would become unreadable"

@@ -84,7 +84,7 @@ final class NotabilityPDFTests: XCTestCase {
         XCTAssertTrue(note.recognition.isEmpty)
         XCTAssertEqual(note.pdfPageCount, 94)
 
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("V.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()

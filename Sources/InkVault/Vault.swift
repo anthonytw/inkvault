@@ -17,6 +17,10 @@ public enum VaultError: Error, Hashable, Sendable {
     case noRecipients
     /// Not a Bech32 `age1...` (X25519) or `age1pq1...` (MLKEM768-X25519) recipient.
     case invalidRecipient(String)
+    /// A classic X25519 (`age1...`) key offered as a new recipient. Vaults
+    /// take only post-quantum `age1pq1...` recipients (format.md §3.1);
+    /// legacy X25519 recipients can only be replaced or removed.
+    case classicRecipient(String)
     /// The recipient is already listed.
     case duplicateRecipient(String)
     /// The recipient is not listed.
@@ -142,12 +146,25 @@ public struct Vault: Sendable {
     /// - Parameters:
     ///   - url: a directory whose name ends in `.inkvault`; it may exist but
     ///     must not hold a `vault.json`.
+    ///   - recipients: post-quantum (`age1pq1...`) only; an X25519 one throws
+    ///     `classicRecipient` (format.md §3.1).
     ///   - labels: empty, or one label per recipient.
     ///   - identities: kept for reading; may be empty (write-only use).
     ///   - vaultId, created: fixed values for reproducible fixtures.
     public static func create(at url: URL, recipients: [NativeRecipient], labels: [String] = [],
                               identities: [any AgeIdentity] = [], vaultId: UUID = UUID(),
                               created: Date = Date()) throws -> Vault {
+        if let classic = recipients.first(where: { !$0.isPostQuantum }) {
+            throw VaultError.classicRecipient(classic.string)
+        }
+        return try createUnchecked(at: url, recipients: recipients, labels: labels, identities: identities,
+                                   vaultId: vaultId, created: created)
+    }
+
+    /// `create` without the post-quantum rule: legacy X25519 vaults for
+    /// tests and fixtures.
+    static func createUnchecked(at url: URL, recipients: [NativeRecipient], labels: [String],
+                                identities: [any AgeIdentity], vaultId: UUID, created: Date) throws -> Vault {
         guard url.lastPathComponent.hasSuffix(".inkvault"), url.lastPathComponent.count > ".inkvault".count else {
             throw VaultError.invalidVaultName(url.lastPathComponent)
         }
@@ -298,10 +315,14 @@ public struct Vault: Sendable {
     /// Adds a recipient: re-encrypts `vaultSecret` and then every revision
     /// to the new set (payload unchanged). Finishes an interrupted change
     /// first; repeating an interrupted `addRecipient` call completes it.
+    ///
+    /// - Throws: `classicRecipient` for an X25519 recipient (post-quantum
+    ///   only, format.md §3.1).
     @discardableResult
     public mutating func addRecipient(_ recipient: NativeRecipient, label: String,
                                       added: Date = Date()) throws -> RewrapReport {
-        try addRecipient(recipient, label: label, added: added, stopAfter: nil)
+        guard recipient.isPostQuantum else { throw VaultError.classicRecipient(recipient.string) }
+        return try addRecipient(recipient, label: label, added: added, stopAfter: nil)
     }
 
     /// Removes a recipient: rotates the vault secret, re-encrypts it to the
@@ -324,7 +345,8 @@ public struct Vault: Sendable {
     @discardableResult
     public mutating func replaceRecipient(_ old: NativeRecipient, with new: NativeRecipient, label: String? = nil,
                                           added: Date = Date()) throws -> RewrapReport {
-        try replaceRecipient(old, with: new, label: label, added: added, stopAfter: nil)
+        guard new.isPostQuantum else { throw VaultError.classicRecipient(new.string) }
+        return try replaceRecipient(old, with: new, label: label, added: added, stopAfter: nil)
     }
 
     /// Finishes an interrupted recipient change: rewraps every file not yet
@@ -560,22 +582,23 @@ public struct Vault: Sendable {
     }
 }
 
-// MARK: - X25519 conveniences
+// MARK: - Legacy X25519 vaults (tests and fixtures)
 
 extension Vault {
-    /// `create` with X25519 recipients only.
-    public static func create(at url: URL, recipients: [X25519Recipient], labels: [String] = [],
-                              identities: [any AgeIdentity] = [], vaultId: UUID = UUID(),
-                              created: Date = Date()) throws -> Vault {
-        try create(at: url, recipients: recipients.map(NativeRecipient.x25519), labels: labels,
-                   identities: identities, vaultId: vaultId, created: created)
+    /// A legacy X25519-only vault, as created before vaults became
+    /// post-quantum only: the fixture vault, and tests of the rewrap logic.
+    static func create(at url: URL, recipients: [X25519Recipient], labels: [String] = [],
+                       identities: [any AgeIdentity] = [], vaultId: UUID = UUID(),
+                       created: Date = Date()) throws -> Vault {
+        try createUnchecked(at: url, recipients: recipients.map(NativeRecipient.x25519), labels: labels,
+                            identities: identities, vaultId: vaultId, created: created)
     }
 
-    /// `addRecipient` for an X25519 recipient.
+    /// Adds an X25519 recipient, bypassing the post-quantum rule (tests).
     @discardableResult
-    public mutating func addRecipient(_ recipient: X25519Recipient, label: String,
-                                      added: Date = Date()) throws -> RewrapReport {
-        try addRecipient(.x25519(recipient), label: label, added: added)
+    mutating func addRecipient(_ recipient: X25519Recipient, label: String,
+                               added: Date = Date()) throws -> RewrapReport {
+        try addRecipient(.x25519(recipient), label: label, added: added, stopAfter: nil)
     }
 
     /// `removeRecipient` for an X25519 recipient.
