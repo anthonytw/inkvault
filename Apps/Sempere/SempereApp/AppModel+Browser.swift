@@ -243,13 +243,12 @@ extension AppModel {
         guard let vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
+        let cache = summaryCache
         let fresh = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try ids.map { try vault.summary(of: $0) } }
+            try CloudVault.coordinatedRead(coordinate) { try vault.summaries(of: ids, cache: cache) }
         }
         try ensureCurrent(gen)
-        var list = notes.filter { old in !fresh.contains { $0.id == old.id } }
-        list += fresh
-        notes = list.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
+        merge(fresh)
     }
 }
 

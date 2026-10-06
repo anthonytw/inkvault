@@ -100,17 +100,24 @@ struct CloudSyncStatus: Equatable, Sendable {
 
 extension AppModel {
     /// One progressive pass over the notes (`ProgressiveLoad`): summaries of
-    /// the notes whose files are local are read and merged into `notes`, the
-    /// rest are listed as placeholders (`placeholderNoteIDs`) until their files
-    /// arrive. `full` re-reads every ready note (a reload); otherwise only
-    /// notes not yet summarised are read. While the vault is locked only the
-    /// downloads are requested and the progress updated (nothing can be read).
+    /// the notes whose files are local are read in batches and merged into
+    /// `notes` as they arrive (`readSummaries`, with the summary cache), the
+    /// rest are listed with their cached summary if there is one, else as
+    /// placeholders (`placeholderNoteIDs`), until their files arrive. `full`
+    /// re-checks every ready note (a reload; unchanged ones come from the
+    /// cache); otherwise only notes not yet summarised are read. While the
+    /// vault is locked only the downloads are requested and the progress
+    /// updated (nothing can be read). Passes never overlap (`loadGate`).
     ///
     /// - Returns: how many notes are still downloading.
     @discardableResult
     func loadNotes(full: Bool) async throws -> Int {
         guard let vault else { throw ModelError.noVaultOpen }
         let gen = generation
+        await loadGate.acquire()
+        defer { loadGate.release() }
+        try ensureCurrent(gen)
+        try Task.checkCancellation()
         let hooks = cloudHooks
         let url = vault.url
         let priority = selectedNoteID
@@ -133,32 +140,44 @@ extension AppModel {
             pendingNoteIDs = Set(pass.pending)
             return pass.pending.count
         }
-        let have = Set(notes.map(\.id)).subtracting(placeholderNoteIDs)
+        let present = Set(pass.all)
+        notes.removeAll { !present.contains($0.id) }   // deleted remotely
+        // Pending notes: the cached summary if any (marked downloading), else a placeholder.
+        var placeholders = placeholderNoteIDs.intersection(present)
+        let shown = Set(notes.map(\.id))
+        let cached = Dictionary((summaryCache?.storedSummaries ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var added: [NoteSummary] = []
+        for id in pass.pending where !shown.contains(id) {
+            if let c = cached[id] { added.append(c) } else {
+                added.append(NoteSummary(id: id, title: "", tags: [], notebook: nil, deleted: false, pages: 0, strokes: 0,
+                                         modified: nil, problem: nil))
+                placeholders.insert(id)
+            }
+        }
+        merge(added)
+        // A placeholder stays "pending" until its summary is in, so a note is
+        // never "not pending" while still a placeholder.
+        let stillPending = Set(pass.pending)
+        placeholderNoteIDs = placeholders
+        pendingNoteIDs = stillPending.union(placeholders)
+        let have = Set(notes.map(\.id)).subtracting(placeholders)
         let wasPending = loadedPendingIDs
         let toRead = full ? pass.ready : pass.ready.filter { !have.contains($0) || wasPending.contains($0) }
-        let coordinate = coordinationURL
-        let read = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try toRead.map { try vault.summary(of: $0) } }
+        try await readSummaries(toRead) { [weak self] batch in
+            guard let self else { return }
+            for s in batch where !stillPending.contains(s.id) {
+                self.placeholderNoteIDs.remove(s.id)
+                self.pendingNoteIDs.remove(s.id)
+            }
         }
         try ensureCurrent(gen)
         try Task.checkCancellation()
-        var byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-        for summary in read { byID[summary.id] = summary }
-        let present = Set(pass.all)
-        for id in byID.keys where !present.contains(id) { byID[id] = nil }   // deleted remotely
-        var placeholders = Set<UUID>()
-        let previousPlaceholders = placeholderNoteIDs
-        for id in pass.pending where byID[id] == nil || previousPlaceholders.contains(id) {
-            byID[id] = NoteSummary(id: id, title: "", tags: [], notebook: nil, deleted: false, pages: 0, strokes: 0,
-                                   modified: nil, problem: nil)
-            placeholders.insert(id)
-        }
-        for id in pass.ready { placeholders.remove(id) }
-        notes = byID.values.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
-        // Published together, so a note is never "not pending" while still a placeholder.
-        placeholderNoteIDs = placeholders
-        pendingNoteIDs = Set(pass.pending)
-        loadedPendingIDs = Set(pass.pending)
+        placeholderNoteIDs.subtract(pass.ready)
+        pendingNoteIDs = stillPending
+        loadedPendingIDs = stillPending
+        summaryCache?.retain(only: present)
+        saveSummaryCache()
+        listLoaded = true
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
         return pass.pending.count
     }
