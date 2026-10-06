@@ -20,13 +20,15 @@ final class ImageCodecTests: XCTestCase {
         zip(a, b).reduce(0) { max($0, abs(Int($1.0) - Int($1.1))) }
     }
 
+    /// Bit-exact: the decoder follows libjpeg-turbo's integer IDCT,
+    /// upsampling and colour tables (the task's bar was ±2 per channel).
     func testJPEGMatchesLibjpegTurbo() throws {
-        for name in Self.jpegs {
+        for name in Self.jpegs + ["quadrants"] {
             let data = try Self.fixture(name + ".jpg")
             let ref = [UInt8](try Self.fixture(name + ".rgba"))
             let image = try JPEG.decode(data)
             XCTAssertEqual(image.width * image.height * 4, ref.count, name)
-            XCTAssertLessThanOrEqual(Self.maxDiff(image.pixels, ref), 2, name)
+            XCTAssertEqual(Self.maxDiff(image.pixels, ref), 0, name)
         }
     }
 

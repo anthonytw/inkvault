@@ -394,6 +394,7 @@ final class ImageExportTests: XCTestCase {
         XCTAssertEqual(report.placeholders, 3)
         XCTAssertTrue(report.issues[0].message.contains("missing"), report.issues[0].message)
         XCTAssertTrue(report.issues[2].message.contains("40 × 30"), report.issues[2].message)
+        XCTAssertEqual(RenderOptions().maxImagePixels, 100_000_000, "format.md §8.4")
     }
 
     /// A background item (layer 0) hides the ruling inside its frame; ink and
