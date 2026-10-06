@@ -216,7 +216,7 @@ extension AppModel {
 
     /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
     /// and the check each note's append runs inside its coordinated read.
-    private func commit(ids: [UUID],
+    func commit(ids: [UUID],
                         write: (Vault, DeviceClock, Bool, @Sendable (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
         async throws {
         await editGate.acquire()
