@@ -122,6 +122,12 @@ them by Notability uuid (an `.ntb` by creation time, below). Per group:
      filed in its own folder's notebook. Nothing a user drew is lost; deleting the extra note is a
      user decision.
 
+   The comparison is budgeted (`PrintIndex`: 256 comparisons per stroke
+   plus 10⁶ per copy, `docs/format.md` §9): strokes that agree on
+   everything but their height share a lookup bucket, and a hostile pair of
+   copies could otherwise make it quadratic. A stroke not decided within
+   the budget counts as not matching, so such a copy is imported separately.
+
 Deterministic: the same inputs give the same choices and ids, so a second
 run reports everything as "already in the vault". With the 2026-10-05
 backup (`--dry-run` over all three zips: 1531 sources): 640 notes imported —

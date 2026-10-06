@@ -13,6 +13,7 @@ swift test --filter AgeTests
 scripts/test-linux.sh       # on a Mac with Docker, or in a cloud VM: run tests in swift:6.4-noble
 scripts/app.sh test         # iPad app: xcodebuild test on the newest iPadOS 26+ simulator
 scripts/app.sh catalyst     # iPad app: unsigned Mac Catalyst build
+INKVAULT_FUZZ_LONG=1 swift test --filter Fuzz   # deep fuzz run (quick mode runs in every swift test)
 ```
 
 The app lives in `Apps/InkVault/InkVault.xcodeproj` (open it in Xcode; scheme
@@ -53,6 +54,25 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 `area: imperative summary`. Co-author line as the harness instructs.
 
 ## Gotchas
+
+- Untrusted input (`docs/format.md` §9): every byte from a vault folder, a
+  sync server or an import may be hostile, and readers must fail with a typed
+  error, never trap, hang or allocate without bound. Foundation's parsers are
+  not safe on such bytes on Linux: `PropertyListSerialization` segfaults on a
+  binary plist with a set, `ISO8601DateFormatter` dies in ICU on a long
+  fraction, `XMLParser` crashes on non-UTF-8 names or data-less processing
+  instructions. Use `BinaryPlist` (InkImport), `RFC3339` / `InkJSON` and the
+  `PropfindParser` pre-checks; read files with `BoundedRead`, never
+  `Data(contentsOf:)`. Range-check decoded integers before arithmetic
+  (`seq + 1`, count × size, `Int(someDouble)`), and bound work by input size,
+  not by the extents or counts the input claims.
+- Fuzzing: `Tests/FuzzSupport` is a seeded mutation fuzzer used by a
+  `*FuzzTests` class in each test target (quick mode, at most 3 s per target, in
+  every `swift test`). `INKVAULT_FUZZ_DUMP=dir` keeps the input being run as
+  `dir/<target>.last` (a trap kills the process, so that file is the culprit);
+  `INKVAULT_FUZZ_REPRO=dir/<target>.last` replays just it. A new parser of
+  untrusted bytes gets a fuzz target; each fixed crash gets a regression test
+  in that target's `Untrusted*Tests`.
 
 - macOS file systems are case-insensitive: never create two paths that differ
   only by case (`Sources/inkvault` vs `Sources/InkVault` collide). The CLI

@@ -50,15 +50,18 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
-        .testTarget(name: "AgeTests", dependencies: ["Age", "CZlib"],
+        // Seeded mutation fuzzer shared by the test targets (Foundation only).
+        .target(name: "FuzzSupport", path: "Tests/FuzzSupport"),
+        .testTarget(name: "AgeTests", dependencies: ["Age", "CZlib", "FuzzSupport"],
                     resources: [.copy("Vectors")]),
-        .testTarget(name: "InkVaultTests", dependencies: ["InkVault"],
+        .testTarget(name: "InkVaultTests", dependencies: ["InkVault", "FuzzSupport"],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "InkRenderTests", dependencies: ["InkRender"],
+        .testTarget(name: "InkRenderTests", dependencies: ["InkRender", "FuzzSupport"],
                     exclude: ["generate_sample_note.py", "generate_qr_vectors.py"],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "InkImportTests", dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib"]),
-        .testTarget(name: "InkWebDAVTests", dependencies: ["InkWebDAV", "InkVault", "Age"]),
+        .testTarget(name: "InkImportTests",
+                    dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib", "FuzzSupport"]),
+        .testTarget(name: "InkWebDAVTests", dependencies: ["InkWebDAV", "InkVault", "Age", "FuzzSupport"]),
         .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"], exclude: ["Fixtures"]),
     ],
     swiftLanguageModes: [.v6]

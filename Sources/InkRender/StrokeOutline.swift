@@ -46,7 +46,7 @@ public enum StrokeOutline {
 
         switch stroke.ink.tool {
         case .monoline:
-            let width = max(stroke.ink.width * scale, 0.05)
+            let width = min(max(stroke.ink.width * scale, 0.05), RenderLimits.maxNibWidth)
             if isDot(samples) {
                 return [DrawCommand(.path([circle(samples[0].point, radius: width / 2)]), fill: paint)]
             }
@@ -68,7 +68,7 @@ public enum StrokeOutline {
         guard !samples.isEmpty else { return [] }
         func radius(_ s: StrokeSample) -> Double {
             let w = s.w > 0 ? s.w : fallbackWidth
-            return max(w, 0.05) / 2
+            return min(max(w, 0.05), RenderLimits.maxNibWidth) / 2
         }
         if isDot(samples) {
             return [circle(samples[0].point, radius: samples.map(radius).max() ?? 0.025)]

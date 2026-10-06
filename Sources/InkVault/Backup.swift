@@ -50,7 +50,9 @@ public struct BackupManifest: Codable, Hashable, Sendable {
 
     static func read(_ url: URL) throws -> BackupManifest {
         let data: Data
-        do { data = try Data(contentsOf: url) } catch { throw BackupError.manifestUnreadable("\(error)") }
+        do { data = try FileIO.read(url, maxBytes: BoundedRead.maxBackupManifestBytes) } catch {
+            throw BackupError.manifestUnreadable("\(error)")
+        }
         let m: BackupManifest
         do { m = try InkJSON.decoder().decode(BackupManifest.self, from: data) } catch {
             throw BackupError.manifestUnreadable("\(error)")
@@ -220,6 +222,23 @@ public enum Backup {
     /// A note's attachment folder (format.md §8.1.2).
     static let attachmentsName = "att"
 
+    /// The most a reader takes of the format file at `path` (relative to a
+    /// vault or backup root, possibly under `versions/<time>/`), by kind:
+    /// backup and vault folders may come from anywhere (format.md §9).
+    static func maxBytes(forPath path: String) -> Int {
+        let parts = path.split(separator: "/").map(String.init)
+        guard let last = parts.last else { return BoundedRead.maxRevisionBytes }
+        if last == Vault.manifestName || last == Vault.journalName { return BoundedRead.maxManifestBytes }
+        if parts.count >= 2, parts[parts.count - 2] == Vault.keysName { return BoundedRead.maxSmallFileBytes }
+        if parts.count >= 2, parts[parts.count - 2] == attachmentsName { return BoundedRead.maxBlobFileBytes }
+        return BoundedRead.maxRevisionBytes
+    }
+
+    /// Reads the format file at `path` under `root` within its kind's limit.
+    static func readFormatFile(_ root: URL, _ path: String) throws -> Data {
+        try FileIO.read(url(root, path), maxBytes: maxBytes(forPath: path))
+    }
+
     /// `<64 lowercase hex>.<kind>.age`, kind 1–16 lowercase ASCII letters or
     /// digits (format.md §8.1.2); anything else in `att/` is an unknown file.
     static func isBlobFileName(_ name: String) -> Bool {
@@ -285,7 +304,7 @@ public enum Backup {
     static func copyVerified(_ data: Data, hash: String, to url: URL, replacing: Bool) throws {
         try FileIO.createDirectory(url.deletingLastPathComponent())
         try FileIO.writeAtomically(data, to: url, replacing: replacing)
-        let back = try FileIO.read(url)
+        let back = try FileIO.read(url, maxBytes: data.count)
         guard sha256(back) == hash else {
             try? FileIO.remove(url)
             throw VaultError.io("\(url.path): the copy does not read back identical (SHA-256 differs)")
@@ -360,7 +379,7 @@ public enum Backup {
         /// Keeps the backup's current copy of `path` under versions/<time>/.
         func keepPrevious(_ path: String) throws {
             let current = url(dest, path)
-            let old = try FileIO.read(current)
+            let old = try readFormatFile(dest, path)
             let folder: String
             if let versionDir {
                 folder = versionDir
@@ -389,7 +408,7 @@ public enum Backup {
         // holds, sizes prove nothing and every file is compared by hash.
         var trustSizes = !options.checksum
         if trustSizes {
-            let sourceManifest = try? FileIO.read(url(source.url, Vault.manifestName))
+            let sourceManifest = try? readFormatFile(source.url, Vault.manifestName)
             if sourceManifest.map(sha256) != manifest.files[Vault.manifestName]?.sha256
                 || sourceFiles.contains(Vault.journalName) || FileIO.exists(url(dest, Vault.journalName)) {
                 trustSizes = false
@@ -411,9 +430,9 @@ public enum Backup {
                         report.unchanged += 1
                         continue
                     }
-                    let data = try FileIO.read(src)
+                    let data = try readFormatFile(source.url, path)
                     let hash = sha256(data)
-                    let existing = try FileIO.read(dst)
+                    let existing = try readFormatFile(dest, path)
                     if sha256(existing) == hash {
                         manifest.files[path] = .init(sha256: hash, size: data.count)
                         report.unchanged += 1
@@ -424,7 +443,7 @@ public enum Backup {
                     report.replaced.append(path)
                     try wrote(path, data, hash)
                 } else {
-                    let data = try FileIO.read(src)
+                    let data = try readFormatFile(source.url, path)
                     let hash = sha256(data)
                     try copyVerified(data, hash: hash, to: dst, replacing: false)
                     report.copied.append(path)
@@ -485,7 +504,7 @@ public enum Backup {
     /// index is not enough: a copy damaged or removed since it was written
     /// must not count as the snapshot that justifies deleting other files.
     static func backupHolds(_ path: String, source: Vault, dest: URL) -> Bool {
-        guard let mine = try? FileIO.read(url(dest, path)), let theirs = try? FileIO.read(url(source.url, path))
+        guard let mine = try? readFormatFile(dest, path), let theirs = try? readFormatFile(source.url, path)
         else { return false }
         return mine == theirs
     }
@@ -549,7 +568,7 @@ public enum Backup {
                     continue
                 }
                 do {
-                    let data = try FileIO.read(u)
+                    let data = try FileIO.read(u, maxBytes: maxBytes(forPath: path))
                     if data.count != entry.size || sha256(data) != entry.sha256 {
                         report.files.append(.init(path: path, status: .modified,
                                                   detail: "\(data.count) bytes, expected \(entry.size); SHA-256 differs"))
@@ -614,7 +633,7 @@ public enum Backup {
 
         let marker = target.appendingPathComponent(restoreMarker)
         if FileIO.exists(marker) {
-            let data = try FileIO.read(marker)
+            let data = try FileIO.read(marker, maxBytes: BoundedRead.maxSmallFileBytes)
             let recorded = (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["vaultId"]
             guard recorded == vaultId else { throw BackupError.targetNotEmpty(target.path) }
         } else {
@@ -630,14 +649,14 @@ public enum Backup {
         let files = try formatFiles(in: backup).filter { $0 != Vault.manifestName } + [Vault.manifestName]
         for path in files {
             do {
-                let data = try FileIO.read(url(backup, path))
+                let data = try readFormatFile(backup, path)
                 let hash = sha256(data)
                 if let entry = manifest?.files[path], entry.sha256 != hash || entry.size != data.count {
                     report.errors.append(.init(path: path, message: "does not match backup.json (damaged); not restored"))
                     continue
                 }
                 let dst = url(target, path)
-                if FileIO.exists(dst), let have = try? FileIO.read(dst), sha256(have) == hash {
+                if FileIO.exists(dst), let have = try? readFormatFile(target, path), sha256(have) == hash {
                     report.alreadyPresent += 1
                     continue
                 }
@@ -703,7 +722,7 @@ public enum Backup {
                 try writer.directory("\(root)/\(d)")
             }
             for path in paths {
-                let data = try FileIO.read(url(source.url, path))
+                let data = try readFormatFile(source.url, path)
                 let member = "\(root)/\(path)"
                 try ensureDirs(member)
                 try writer.file(member, data)
@@ -714,7 +733,7 @@ public enum Backup {
             try out.close()
 
             // Read back and compare before the archive takes its name.
-            let written = try FileIO.read(tmp)
+            let written = try FileIO.read(tmp, maxBytes: fileSize(tmp) ?? 0)
             let members = try TarReader.files(written)
             guard members.count == expected.count,
                   members.allSatisfy({ expected[$0.path] == sha256($0.data) }) else {
@@ -811,14 +830,14 @@ enum TarReader {
             var check = 0
             for i in 0..<512 { check += (148..<156).contains(i) ? 32 : Int(bytes[off + i]) }
             guard stored == check else { throw VaultError.io("tar header checksum mismatch at \(off)") }
-            guard let size = Int(field(124, 12).trimmingCharacters(in: .whitespaces), radix: 8) else {
+            guard let size = Int(field(124, 12).trimmingCharacters(in: .whitespaces), radix: 8), size >= 0 else {
                 throw VaultError.io("bad tar size at \(off)")
             }
             let name = field(0, 100), prefix = field(345, 155)
             let path = prefix.isEmpty ? name : prefix + "/" + name
             let type = bytes[off + 156]
             let start = off + 512
-            guard start + size <= bytes.count else { throw VaultError.io("truncated tar member \(path)") }
+            guard size <= bytes.count - start else { throw VaultError.io("truncated tar member \(path)") }
             if type == UInt8(ascii: "0") || type == 0 {
                 out.append(Member(path: path, data: Data(bytes[start..<(start + size)])))
             }

@@ -73,13 +73,16 @@ struct TreeExporter {
 
     private var manifestURL: URL { root.appendingPathComponent(".inkvault-export-\(format.rawValue).json") }
 
+    /// The largest export manifest read back (one entry per note and file).
+    static let maxManifestBytes = 256 << 20
+
     private static func coder() -> (JSONEncoder, JSONDecoder) {
         let e = JSONEncoder()
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
         e.dateEncodingStrategy = .iso8601
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return (e, d)
+        // The output folder may be synced or shared (format.md §9): its manifest
+        // is read like format JSON (RFC 3339 dates), never Foundation's ISO 8601 parser.
+        return (e, InkJSON.decoder())
     }
 
     /// Folder components for each notebook: segments sanitised, and names
@@ -120,7 +123,9 @@ struct TreeExporter {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let (enc, dec) = Self.coder()
-        var manifest = (try? dec.decode(ExportManifest.self, from: Data(contentsOf: manifestURL))) ?? ExportManifest()
+        var manifest = (try? dec.decode(ExportManifest.self,
+                                        from: BoundedRead.contents(of: manifestURL, maxBytes: Self.maxManifestBytes)))
+            ?? ExportManifest()
         manifest.dropUnsafeEntries()
         let folderMap = Self.folders(for: notes.map { NotebookPath.canonical($0.1.meta.notebook) })
         var runFiles = Set<String>()
@@ -131,7 +136,7 @@ struct TreeExporter {
         /// Writes `data` unless the file already holds exactly that.
         func put(_ rel: String, _ data: Data) throws -> Bool {
             let url = root.appendingPathComponent(rel)
-            if let old = try? Data(contentsOf: url), old == data { return false }
+            if let old = try? BoundedRead.contents(of: url, maxBytes: data.count), old == data { return false }
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             do { try data.write(to: url, options: .atomic) } catch {
                 throw CLIError.failure("cannot write \(url.path): \(error.localizedDescription)")

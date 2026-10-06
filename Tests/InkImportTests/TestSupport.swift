@@ -258,8 +258,11 @@ enum SyntheticNote {
     ///   - paperSize: the `paperSize` attribute (`letter`, `custom:<w/h>`, …).
     ///   - styles: replaces `curvesstyles` (e.g. a short array).
     ///   - shapes: a `shapes` plist for the spatial hash.
+    ///   - numcurvesOverride: a `numcurves` / `numpoints` value that disagrees
+    ///     with the arrays (for corrupt-input tests).
     static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter",
-                        styles: Data? = nil, shapes: Data? = nil, created: Date = created) -> Data {
+                        styles: Data? = nil, shapes: Data? = nil, created: Date = created,
+                        numcurvesOverride: Int? = nil) -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
@@ -267,8 +270,8 @@ enum SyntheticNote {
         for _ in 0..<nodes { unit += [0, 1] }   // azimuth unit vector (0, 1): π/2
         let dash = BPlist.encode(.dict([("objectPatterns", .dict([("3", .dict([("pattern", .int(1))]))]))]))
         let hash = a.object("InkedSpatialHash", [
-            ("numcurves", .int(Int64(cs.count))),
-            ("numpoints", .int(Int64(totalPoints))),
+            ("numcurves", .int(Int64(numcurvesOverride ?? cs.count))),
+            ("numpoints", .int(Int64(numcurvesOverride ?? totalPoints))),
             ("numfractionalwidths", .int(Int64(nodes))),
             ("curvesnumpoints", a.data(i32(cs.map { Int32($0.points.count) }))),
             ("curvespoints", a.data(f32(cs.flatMap { $0.points.flatMap { [$0.0, $0.1] } }))),

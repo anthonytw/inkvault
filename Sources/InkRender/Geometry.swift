@@ -140,6 +140,14 @@ public enum StrokeSampler {
             return s
         }
 
+        // At most 2^maxDepth samples per segment, and about
+        // `RenderLimits.samplesPerPoint` per control point in all: long
+        // segments between few control points (hostile input) get coarser.
+        let segments = pts.count - 1
+        let budget = RenderLimits.samplesPerPoint * pts.count + RenderLimits.baseSamples
+        var maxDepth = 12
+        while maxDepth > 1, segments > budget >> maxDepth { maxDepth -= 1 }
+
         var out: [StrokeSample] = [eval(0)]
         if pts.count > 1 {
             func subdivide(_ t0: Double, _ s0: StrokeSample, _ t1: Double, _ s1: StrokeSample, _ depth: Int) {
@@ -150,7 +158,7 @@ public enum StrokeSampler {
                 let deviation = sm.point.distance(to: mid)
                 let flat = deviation <= tol
                 let limit = flat ? cap * 4 : cap
-                if depth < 12 && (depth == 0 || !flat || chord > limit) {
+                if depth < maxDepth && (depth == 0 || !flat || chord > limit) {
                     subdivide(t0, s0, tm, sm, depth + 1)
                     subdivide(tm, sm, t1, s1, depth + 1)
                 } else {

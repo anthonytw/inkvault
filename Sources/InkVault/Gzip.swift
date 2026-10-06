@@ -75,8 +75,14 @@ public enum Gzip {
 
     /// The shared inflate loop; `windowBits` selects the framing (zlib's
     /// convention: `15 + 16` gzip, `-15` raw deflate).
-    static func inflateStream(_ data: Data, windowBits: Int32, maxOutput: Int) throws -> Data {
+    /// The input is fed to zlib in slices of at most `maxInputSlice` bytes:
+    /// `avail_in` is 32-bit, so a single slice of 4 GiB or more (a hostile
+    /// zip64 entry) would trap converting its length. Tests pass a small
+    /// slice to exercise the refill.
+    static func inflateStream(_ data: Data, windowBits: Int32, maxOutput: Int,
+                              maxInputSlice: Int = Int(UInt32.max)) throws -> Data {
         guard !data.isEmpty else { throw GzipError.inflate(Z_DATA_ERROR) }
+        let slice = max(1, min(maxInputSlice, Int(UInt32.max)))
         var stream = z_stream()
         var rc = inflateInit2_(&stream, windowBits, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
         guard rc == Z_OK else { throw GzipError.inflate(rc) }
@@ -87,9 +93,15 @@ public enum Gzip {
         var input = [UInt8](data)
         var overflow = false
         rc = input.withUnsafeMutableBufferPointer { inp -> Int32 in
-            stream.next_in = inp.baseAddress
-            stream.avail_in = uInt(inp.count)
+            guard let base = inp.baseAddress else { return Z_DATA_ERROR }
+            var fed = 0
             while true {
+                if stream.avail_in == 0 && fed < inp.count {
+                    let n = min(inp.count - fed, slice)
+                    stream.next_in = base + fed
+                    stream.avail_in = uInt(n)
+                    fed += n
+                }
                 let r: Int32 = buffer.withUnsafeMutableBufferPointer { b in
                     stream.next_out = b.baseAddress
                     stream.avail_out = uInt(b.count)
@@ -103,12 +115,13 @@ public enum Gzip {
                 out.append(contentsOf: buffer[0..<produced])
                 switch r {
                 case Z_STREAM_END:
-                    return stream.avail_in == 0 ? Z_OK : Z_DATA_ERROR
+                    return stream.avail_in == 0 && fed == inp.count ? Z_OK : Z_DATA_ERROR
                 case Z_OK:
                     continue
                 case Z_BUF_ERROR:
-                    // A fresh output buffer every round, so no progress means
-                    // the input ended before the member did (truncation).
+                    // A fresh output buffer every round and the input refilled
+                    // whenever a slice is used up, so no progress means the
+                    // input ended before the member did (truncation).
                     return Z_DATA_ERROR
                 default:
                     return r

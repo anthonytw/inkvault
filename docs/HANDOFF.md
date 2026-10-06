@@ -38,7 +38,7 @@ Open PRs (all reviewed-or-in-review by cloud sessions; the driver merges):
 | #22 | design/attachments | Attachments FORMAT DESIGN (text boxes, images, audio + transcripts, PDF backgrounds); maintainer decisions final (PR comment 2026-10-05) | final revision in cloud session |
 | #23 | feat/tag-set-merge | Tags as an observed-remove set (add wins), legacy `setMeta(tags)` compat; must adapt the importer's folder-tag helper | review session S1 |
 | #24 | feat/app-keys-rename-eraser | Keychain-remembered keys (Face ID), long-press title rename, app-side object eraser with sizes + cursor | review session S2 |
-| #25 | fix/untrusted-input-hardening | Parser hardening + seeded fuzz harness; adds `format.md` §8 "Untrusted input" (numbering clash with #22) | review session S1 |
+| #25 | fix/untrusted-input-hardening | Parser hardening + seeded fuzz harness; adds `format.md` §9 "Untrusted input" (renumbered from §8 after #22 took §8) | review session S1 |
 | #26 | chore/release-engineering | Release workflow, Homebrew, CHANGELOG, CONTRIBUTING (App Store exception, no CLA), SECURITY, App Store docs | review session S3 |
 | #27 | feat/export-markdown-html | Obsidian Markdown + single-file HTML export | review session S3 |
 | #28 | feat/paper-templates | Parametric paper + visual paper picker | review session S2 |
@@ -51,8 +51,8 @@ S2 app session_01Aq6fucMojZT1mNSPWro6U2, S3 cli+release (Sonnet)
 session_01MZXBxdMScB8hq5J7x52FZ2, design #22 session_011NXVJR4jRtMgSKEVY4NvYi.
 Each merges main, reviews, fixes, gets CI green, comments on its PRs; none merges.
 
-**Merge order** once reviewed: #25 → #23 → #33 (core; resolve `format.md` §8
-numbering with #22), then #22 (design, docs), #24 → #28 (app), #30 → #27 → #26.
+**Merge order** once reviewed: #25 → #23 → #33 (core; `format.md`: #22 is §8, #25 §9
+after the renumbering), then #22 (design, docs), #24 → #28 (app), #30 → #27 → #26.
 After each merge, later PRs may conflict: resolve locally in a worktree or tell
 the owning session (`claude -p "…" --cloud <session_id>`).
 
@@ -364,5 +364,5 @@ See `CLAUDE.md § Gotchas` (case-insensitive paths, FoundationXML, static
 link flags, test-output grepping, the app project). Also: GitHub's `macos-26` runner has an
 older compiler than local Xcode 27, so dense expressions that compile locally
 can time out there; swift-crypto types are not `Sendable` on Linux (store raw
-bytes); `PropertyListSerialization` returns keyed-archiver UIDs as an opaque
-object on both platforms (InkImport reads it via `Mirror`).
+bytes); InkImport reads binary plists with its own `BinaryPlist` reader, since
+`PropertyListSerialization` crashes on some hostile binary plists on Linux.
