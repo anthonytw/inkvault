@@ -35,21 +35,8 @@ public enum AgeFile {
     public static func encrypt(_ plaintext: Data, to recipients: [any AgeRecipient], armor: Bool = false,
                                allowMixedPostQuantum: Bool = false) throws -> Data
     {
-        guard !recipients.isEmpty else { throw AgeError.noRecipients }
         let fileKey = FileKey()
-        var stanzas = [Stanza]()
-        for r in recipients { stanzas += try r.wrap(fileKey: fileKey) }
-        let hasScrypt: Bool = stanzas.contains { (s: Stanza) -> Bool in s.type == "scrypt" }
-        if hasScrypt && stanzas.count != 1 {
-            throw AgeError.scryptNotAlone
-        }
-        let pq = stanzas.filter { $0.type == pqStanzaType }.count
-        if !allowMixedPostQuantum && pq > 0 && pq != stanzas.count {
-            throw AgeError.incompatibleRecipients
-        }
-        var out = Data(try HeaderCodec.encodeWithoutMAC(stanzas))
-        let mac = HeaderCodec.mac(fileKey: fileKey, macInput: out)
-        out += Data(" \(Base64.encodeRaw(mac))\n".utf8)
+        var out = try header(fileKey: fileKey, recipients: recipients, allowMixedPostQuantum: allowMixedPostQuantum)
         let nonce = Data(secureRandomBytes(Stream.nonceSize))
         out += nonce
         out += try Stream.encrypt(plaintext, key: Stream.payloadKey(fileKey: fileKey, nonce: nonce))
@@ -82,6 +69,55 @@ public enum AgeFile {
         -> FileKey
     {
         let (header, start) = try HeaderCodec.parse(data)
+        let fileKey = try unwrapFileKey(header: header, identities: identities)
+
+        let payload = data.dropFirst(start)
+        // A file that ends before the nonce is a header-level failure in
+        // the reference implementation (and the CCTV vectors).
+        guard payload.count >= Stream.nonceSize else { throw AgeError.headerParse }
+        let nonce = payload.prefix(Stream.nonceSize)
+        let key = Stream.payloadKey(fileKey: fileKey, nonce: nonce)
+        try Stream.decrypt(payload.dropFirst(Stream.nonceSize), key: key, released: &released)
+        return fileKey
+    }
+
+    /// Wraps `fileKey` to `recipients` and returns the encoded header, MAC
+    /// line included (age spec "Header": the stanzas, then `---` and the
+    /// base64 HMAC-SHA-256 under `HKDF(file key, "header")` of everything
+    /// before it). Every encryption path builds its header here, so the
+    /// recipient rules below hold for all of them.
+    ///
+    /// - Throws: `noRecipients` for an empty list; `scryptNotAlone` when an
+    ///   scrypt stanza is not the only one (spec "scrypt recipient stanza":
+    ///   it MUST be the only stanza); `incompatibleRecipients` for a
+    ///   post-quantum / classic mix not allowed (spec "MLKEM768-X25519":
+    ///   such files SHOULD NOT mix types); whatever a recipient's `wrap`
+    ///   throws.
+    static func header(fileKey: FileKey, recipients: [any AgeRecipient], allowMixedPostQuantum: Bool) throws -> Data {
+        guard !recipients.isEmpty else { throw AgeError.noRecipients }
+        var stanzas = [Stanza]()
+        for r in recipients { stanzas += try r.wrap(fileKey: fileKey) }
+        let hasScrypt: Bool = stanzas.contains { (s: Stanza) -> Bool in s.type == "scrypt" }
+        if hasScrypt && stanzas.count != 1 {
+            throw AgeError.scryptNotAlone
+        }
+        let pq = stanzas.filter { $0.type == pqStanzaType }.count
+        if !allowMixedPostQuantum && pq > 0 && pq != stanzas.count {
+            throw AgeError.incompatibleRecipients
+        }
+        var out = Data(try HeaderCodec.encodeWithoutMAC(stanzas))
+        let mac = HeaderCodec.mac(fileKey: fileKey, macInput: out)
+        out += Data(" \(Base64.encodeRaw(mac))\n".utf8)
+        return out
+    }
+
+    /// Recovers the file key of a parsed header with the first identity that
+    /// unwraps a stanza, then checks the header MAC (age spec "Header": a
+    /// reader MUST verify the MAC before using the file key).
+    ///
+    /// - Throws: `scryptNotAlone`, `noIdentities`, `noMatchingIdentity`,
+    ///   `headerMAC`, or whatever an identity throws.
+    static func unwrapFileKey(header: Header, identities: [any AgeIdentity]) throws -> FileKey {
         // An scrypt stanza must be the only stanza (spec "scrypt recipient
         // stanza"). Enforced here, not only in ScryptIdentity, so that a
         // mixed header is rejected whichever identity would match.
@@ -97,14 +133,6 @@ public enum AgeFile {
         }
         guard let fileKey else { throw AgeError.noMatchingIdentity }
         guard HeaderCodec.verifyMAC(fileKey: fileKey, header: header) else { throw AgeError.headerMAC }
-
-        let payload = data.dropFirst(start)
-        // A file that ends before the nonce is a header-level failure in
-        // the reference implementation (and the CCTV vectors).
-        guard payload.count >= Stream.nonceSize else { throw AgeError.headerParse }
-        let nonce = payload.prefix(Stream.nonceSize)
-        let key = Stream.payloadKey(fileKey: fileKey, nonce: nonce)
-        try Stream.decrypt(payload.dropFirst(Stream.nonceSize), key: key, released: &released)
         return fileKey
     }
 }

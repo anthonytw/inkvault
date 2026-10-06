@@ -23,6 +23,12 @@ enum Stream {
         return nonce
     }
 
+    /// Seals one chunk: ciphertext followed by the 16-byte Poly1305 tag.
+    static func seal(_ chunk: some DataProtocol, key: SymmetricKey, counter: UInt64, last: Bool) throws -> Data {
+        let box = try ChaChaPoly.seal(chunk, using: key, nonce: chunkNonce(counter, last: last))
+        return box.ciphertext + box.tag
+    }
+
     static func encrypt(_ plaintext: Data, key: SymmetricKey) throws -> Data {
         var out = Data()
         out.reserveCapacity(plaintext.count + (plaintext.count / chunkSize + 1) * tagSize)
@@ -75,7 +81,9 @@ enum Stream {
         }
     }
 
-    private static func open(_ chunk: Data, key: SymmetricKey, counter: UInt64, last: Bool) -> Data? {
+    /// Opens one sealed chunk; nil if it does not authenticate under this
+    /// counter and final-chunk flag.
+    static func open(_ chunk: Data, key: SymmetricKey, counter: UInt64, last: Bool) -> Data? {
         let ct = chunk.prefix(chunk.count - tagSize), tag = chunk.suffix(tagSize)
         guard let box = try? ChaChaPoly.SealedBox(nonce: chunkNonce(counter, last: last), ciphertext: ct, tag: tag)
         else { return nil }
