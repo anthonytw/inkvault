@@ -212,6 +212,30 @@ struct HistoryTests {
         #expect(finalIDs == ids)
     }
 
+    @Test func pendingCanvasChangesAreSavedBeforeTheHistoryIsRead() async throws {
+        let model = try await Self.unlockedModel()
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        // Ink drawn but not yet saved (the debounce is a minute).
+        let page = try #require(editor.currentPage)
+        var drawing = editor.drawing(for: page.id)
+        let before = Set(editor.liveStrokes(of: page.id).map(\.id))
+        drawing.strokes.append(TS.canvasStroke(TS.stroke(y: 500)))
+        editor.drawingDidChange(pageID: page.id, drawing: drawing, tool: nil)
+        #expect(editor.deltasWritten == 0)
+
+        let data = try await model.loadHistory(for: Self.lecture)
+        #expect(editor.deltasWritten == 1)
+        let added = try #require(Set(editor.liveStrokes(of: page.id).map(\.id)).subtracting(before).first)
+        // The "Current" row is what the canvas shows, pending ink included.
+        let current = try #require(data.entries.first)
+        #expect(current.isLatest)
+        let currentIDs = Self.strokeIDs(try data.state(at: current.id))
+        #expect(currentIDs.contains(added))
+        #expect(data.points.count == data.entries.count)
+    }
+
     @Test func restoringBeforeADeleteUndeletesTheNoteAndReopensItEditable() async throws {
         let model = try await Self.unlockedModel()
         let vault = try #require(model.vault)

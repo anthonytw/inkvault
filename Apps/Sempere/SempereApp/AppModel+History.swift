@@ -10,12 +10,20 @@ struct HistoryData: Sendable {
     let unreadable: [RevisionName]
     /// This installation's device id, for "This device" labels.
     let thisDevice: DeviceID?
-
-    /// Restore points, oldest first (`NoteHistory.restorePoints`).
-    var points: [RestorePoint] { NoteHistory.restorePoints(revisions, unreadable: unreadable) }
-
+    /// Restore points, oldest first (`NoteHistory.restorePoints`). Computed
+    /// once: the views read it on every update.
+    let points: [RestorePoint]
     /// The rows to show, newest first.
-    var entries: [HistoryEntry] { HistoryEntry.entries(points, thisDevice: thisDevice) }
+    let entries: [HistoryEntry]
+
+    init(noteID: UUID, revisions: [Revision], unreadable: [RevisionName], thisDevice: DeviceID?) {
+        self.noteID = noteID
+        self.revisions = revisions
+        self.unreadable = unreadable
+        self.thisDevice = thisDevice
+        points = NoteHistory.restorePoints(revisions, unreadable: unreadable)
+        entries = HistoryEntry.entries(points, thisDevice: thisDevice)
+    }
 
     /// The note as of `point`; throws `HistoryError.incompleteHistory` for a
     /// point compaction or an unreadable file made unrebuildable.
@@ -71,13 +79,17 @@ struct HistoryEntry: Identifiable, Hashable, Sendable {
 }
 
 extension AppModel {
-    /// Reads every revision of note `id` for the history browser. In iCloud
-    /// Drive the note is downloaded first and the read, coordinated, refuses a
-    /// note whose files are not all local (`CloudVault.requireLocal`).
+    /// Reads every revision of note `id` for the history browser. The open
+    /// canvas's pending changes are saved first, so the newest row ("Current")
+    /// is what the canvas shows. In iCloud Drive the note is downloaded first
+    /// and the read, coordinated, refuses a note whose files are not all local
+    /// (`CloudVault.requireLocal`).
     func loadHistory(for id: UUID) async throws -> HistoryData {
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
-        try await downloadNote(id)
         let gen = generation
+        if let editor, editor.noteID == id { await editor.flush() }
+        try ensureCurrent(gen)
+        try await downloadNote(id)
         let cloud = isCloudVault
         let hooks = cloudHooks
         let url = vault.url
