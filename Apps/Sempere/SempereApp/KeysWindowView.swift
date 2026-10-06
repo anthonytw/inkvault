@@ -40,7 +40,7 @@ struct KeysWindowView: View {
             }
         }
         .sheet(isPresented: $adding) {
-            AddDeviceKeyView(work: run)
+            AddDeviceKeyView()
         }
         .confirmationDialog("Remove this key?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             titleVisibility: .visible, presenting: removing) { key in
@@ -154,8 +154,6 @@ struct PDFFile: FileDocument {
 private struct AddDeviceKeyView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    let work: (String, () async throws -> Void) async -> Void
-
     private enum Mode: String, CaseIterable, Identifiable {
         case paste = "Paste a Public Key"
         case generate = "Generate a Key"
@@ -166,6 +164,8 @@ private struct AddDeviceKeyView: View {
     @State private var label = ""
     @State private var recipient = ""
     @State private var generated: String?
+    @State private var working: String?
+    @State private var failure: String?
 
     var body: some View {
         NavigationStack {
@@ -207,20 +207,43 @@ private struct AddDeviceKeyView: View {
             }
         }
         .frame(minWidth: 460, minHeight: 320)
-        .interactiveDismissDisabled(generated != nil)
+        .interactiveDismissDisabled(generated != nil || working != nil)
+        .disabled(working != nil)
+        .overlay {
+            if let working {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text(working).font(.callout).foregroundStyle(.secondary)
+                }
+                .padding(24)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .alert("Sempere", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
+        }
     }
 
     private func add() async {
         let name = label
         let text = recipient
-        switch mode {
-        case .paste:
-            await work("Adding the key and re-encrypting every note…") { try await model.addDeviceKey(recipient: text, label: name) }
-            if model.deviceKeys.contains(where: { $0.recipient == text.trimmingCharacters(in: .whitespacesAndNewlines) }) { dismiss() }
-        case .generate:
-            var secret: String?
-            await work("Generating the key and re-encrypting every note…") { secret = try await model.generateDeviceKey(label: name) }
-            generated = secret
+        do {
+            switch mode {
+            case .paste:
+                working = "Adding the key and re-encrypting every note…"
+                defer { working = nil }
+                try await model.addDeviceKey(recipient: text, label: name)
+                dismiss()
+            case .generate:
+                working = "Generating the key and re-encrypting every note…"
+                defer { working = nil }
+                generated = try await model.generateDeviceKey(label: name)
+            }
+        } catch is CancellationError {
+        } catch {
+            failure = "\(error)"
         }
     }
 
