@@ -668,6 +668,12 @@ final class NoteEditor {
     /// The writer, for attachment blobs (`NoteEditor+Items`); nil when read-only.
     var attachmentWriter: NoteWriter? { isShutDown ? nil : writer }
 
+    /// iCloud Drive: makes this note's copy of a blob local before the blob is
+    /// written or copied into the note (set by the model; nil elsewhere). A
+    /// copy iCloud lists but has not downloaded would otherwise not be found,
+    /// and a second file written under the same write-once name.
+    @ObservationIgnored var prepareBlobWrite: (@Sendable (BlobRef) async throws -> Void)?
+
     /// Takes an item gesture's page and queues its ops, then saves them as
     /// one delta (with any ink still pending). False when the note cannot
     /// be edited or the page is gone.

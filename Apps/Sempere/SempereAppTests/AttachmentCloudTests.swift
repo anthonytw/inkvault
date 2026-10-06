@@ -190,4 +190,39 @@ struct AttachmentCloudTests {
         #expect(!cloud.requested.contains(audioName), "audio waits until it is played")
         model.close()
     }
+
+    /// Adding content the note already has as an evicted blob: the blob is
+    /// downloaded and reused, never written a second time under its
+    /// write-once name next to iCloud's placeholder.
+    @Test func addingContentWhoseBlobIsEvictedDownloadsAndReusesIt() async throws {
+        let (url, key, image, _) = try Self.vaultWithBlobs()
+        let identity = try IdentityFile.parse(try String(contentsOf: key, encoding: .utf8))
+        let name = try Vault.open(at: url, identities: [identity]).blobFileName(for: image)
+        let cloud = FakeBlobCloud(vault: url)
+        let file = cloud.attURL(Self.lecture).appendingPathComponent(name)
+        let original = try Data(contentsOf: file)
+        try cloud.evictBlobs(of: Self.lecture)
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        model.cloudIdleInterval = .milliseconds(20)
+        model.blobCacheFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        model.selectedNoteID = Self.lecture
+        await model.showSelectedNote()
+        let editor = try #require(model.editor)
+        #expect(editor.prepareBlobWrite != nil)
+        let page = try #require(editor.currentPage).id
+        let item = try await editor.addAttachment(data: AttachmentEditorTests.png(), type: "image/png", on: page) {
+            AttachmentEditorTests.imageItem($0)
+        }
+        #expect(item.blob == image)
+        #expect(cloud.requested.contains(name), "the evicted copy was downloaded first")
+        #expect(try Data(contentsOf: file) == original, "the write-once blob was reused, not rewritten")
+        let names = try FileManager.default.contentsOfDirectory(atPath: cloud.attURL(Self.lecture).path)
+        #expect(!names.contains(".\(name).icloud"), "no placeholder left beside a second copy")
+        #expect(try BlobPlanning.ref(ofFile: file, type: "x").size == Int64(original.count))
+        model.close()
+    }
 }

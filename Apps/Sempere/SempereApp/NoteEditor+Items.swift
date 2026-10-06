@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Sempere
 
@@ -61,6 +62,10 @@ extension NoteEditor {
                        item make: @Sendable (BlobRef) throws -> Item) async throws -> Item {
         _ = try page(pageID)
         guard let writer = attachmentWriter else { throw ItemError.notEditable }
+        if let prepare = prepareBlobWrite {
+            let planned = try await Task.detached(priority: .userInitiated) { try BlobPlanning.ref(ofFile: file, type: type) }.value
+            try await prepare(planned)
+        }
         let ref = try await writer.addBlob(from: file, type: type)
         return try addItems([try make(ref)], on: pageID)[0]
     }
@@ -71,6 +76,7 @@ extension NoteEditor {
                        item make: @Sendable (BlobRef) throws -> Item) async throws -> Item {
         _ = try page(pageID)
         guard let writer = attachmentWriter else { throw ItemError.notEditable }
+        if let prepare = prepareBlobWrite { try await prepare(BlobRef(content: data, type: type)) }
         let ref = try await writer.addBlob(data, type: type)
         return try addItems([try make(ref)], on: pageID)[0]
     }
@@ -154,11 +160,31 @@ extension NoteEditor {
             guard let writer = attachmentWriter else { throw ItemError.notEditable }
             for ref in NoteOps.blobs(of: items) {
                 try await prepare(ref)
+                try await prepareBlobWrite?(ref)   // this note's own copy, if iCloud has one
                 try await writer.copyBlob(ref, from: source)
             }
         }
         let edit = try NoteOps.copyItems(items, to: try page(pageID), dx: dx, dy: dy)
         guard applyItemEdit(edit) else { throw ItemError.notEditable }
         return edit.page.items.filter { edit.added.contains($0.id) }
+    }
+}
+
+
+/// The reference a file will have as a blob, computed before it is written
+/// (the name of the blob file depends only on it).
+enum BlobPlanning {
+    /// SHA-256 and size of the file at `url`, streamed in 1 MiB pieces.
+    static func ref(ofFile url: URL, type: String) throws -> BlobRef {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var size: Int64 = 0
+        while let piece = try handle.read(upToCount: 1 << 20), !piece.isEmpty {
+            hasher.update(data: piece)
+            size += Int64(piece.count)
+        }
+        let hex = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return BlobRef(sha256: hex, size: size, type: type)
     }
 }

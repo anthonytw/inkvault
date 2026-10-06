@@ -64,6 +64,20 @@ extension AppModel {
         }
     }
 
+    /// What an editor of `note` runs before writing or copying a blob into it
+    /// (`NoteEditor.prepareBlobWrite`): in iCloud Drive, this note's copy of
+    /// the blob, if iCloud lists one, is downloaded so the write reuses it
+    /// (blob files are write-once, format.md §8.1.4); nil outside iCloud.
+    func blobWritePreparer(note: UUID) -> (@Sendable (BlobRef) async throws -> Void)? {
+        guard isCloudVault, let vault else { return nil }
+        let hooks = cloudHooks, stall = cloudStallTimeout, poll = cloudPollInterval
+        return { ref in
+            let name = try vault.blobFileName(for: ref)
+            try await CloudVault.downloadBlob(note: note, fileName: name, vault: vault.url, hooks: hooks,
+                                              stallTimeout: stall, pollInterval: poll)
+        }
+    }
+
     /// Makes the blob `ref` of `note` local (iCloud Drive), waiting for it.
     func ensureBlobLocal(_ ref: BlobRef, of note: UUID) async throws {
         guard isCloudVault, let vault else { return }
