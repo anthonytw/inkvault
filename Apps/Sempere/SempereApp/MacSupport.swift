@@ -137,7 +137,7 @@ enum ExportFileName {
             }
         }
         var words = cleaned.split(whereSeparator: { $0 == " " }).joined(separator: " ")
-        while words.hasPrefix(".") { words.removeFirst() }
+        while let first = words.first, first == "." || first == " " { words.removeFirst() }
         var base = ""
         for character in words {
             if base.utf8.count + String(character).utf8.count > maxBytes { break }

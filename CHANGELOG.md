@@ -7,6 +7,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [Unreleased]
 
+### Added
+
+- Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
+  note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
+  or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works
+  with a pointer), an access check for saved vault folders, and sandbox entitlements for Mac builds.
+
 ### Changed
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7

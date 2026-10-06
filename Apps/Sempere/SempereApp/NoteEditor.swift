@@ -30,6 +30,8 @@ final class NoteEditor {
     var isReadOnly: Bool { readOnlyReason != nil }
     var currentPage: Page? { pages.indices.contains(pageIndex) ? pages[pageIndex] : nil }
 
+    /// The canvas showing this note, for menu commands (`CanvasCommandTarget`).
+    @ObservationIgnored weak var canvasTarget: (any CanvasCommandTarget)?
     @ObservationIgnored private var ledgers: [UUID: StrokeLedger] = [:]
     @ObservationIgnored private var committedPageSize: PageSize
     /// Page additions and paper changes not yet written (written before any stroke ops).

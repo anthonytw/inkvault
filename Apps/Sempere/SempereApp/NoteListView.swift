@@ -1,11 +1,13 @@
 import Sempere
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The notes matching the sidebar selection, with title search, sorting and
 /// per-note actions.
 struct NoteListView: View {
     @Environment(AppModel.self) private var model
-    @State private var creating = false
+    @Environment(WindowUI.self) private var ui
+    @Environment(\.openWindow) private var openWindow
     @State private var prompt: Prompt?
     @State private var promptText = ""
 
@@ -19,9 +21,12 @@ struct NoteListView: View {
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var ui = ui
         List(model.visibleNotes, id: \.id, selection: $model.selectedNoteID) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id))
+                .modifier(NoteDragOut(note: note, enabled: Platform.isMac && model.phase == .unlocked
+                                      && !model.placeholderNoteIDs.contains(note.id)))
                 // A placeholder's summary is empty: nothing to act on until it arrives
                 // (the model downloads a note before any edit anyway).
                 .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
@@ -37,7 +42,7 @@ struct NoteListView: View {
                 }
         }
         .navigationTitle(title)
-        .searchable(text: $model.searchText, prompt: "Search titles")
+        .searchable(text: $model.searchText, isPresented: $ui.searchPresented, prompt: "Search titles")
         .toolbar {
             ToolbarItem {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
@@ -47,7 +52,7 @@ struct NoteListView: View {
                 }
             }
             ToolbarItem {
-                Button("New Note", systemImage: "square.and.pencil") { creating = true }
+                Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
                     .disabled(model.phase != .unlocked)
             }
         }
@@ -69,9 +74,6 @@ struct NoteListView: View {
         }
         .refreshable {
             await model.report { try await model.reload() }
-        }
-        .sheet(isPresented: $creating) {
-            NewNoteView(notebook: currentNotebook)
         }
         .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
             TextField(promptField, text: $promptText)
@@ -99,11 +101,6 @@ struct NoteListView: View {
         }
     }
 
-    private var currentNotebook: String? {
-        if case .notebook(let n)? = model.sidebarSelection { return n }
-        return nil
-    }
-
     private var promptTitle: String {
         switch prompt?.kind {
         case .tag: return "Add Tag"
@@ -129,6 +126,11 @@ struct NoteListView: View {
         if note.deleted {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
         } else {
+            if Platform.isMac, let vault = model.vault?.vaultId {
+                Button("Open in New Window", systemImage: "macwindow") {
+                    openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: note.id))
+                }
+            }
             Button("Rename…", systemImage: "pencil") {
                 promptText = note.title; prompt = Prompt(kind: .rename, note: note.id)
             }
@@ -151,6 +153,43 @@ struct NoteListView: View {
             }
             Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
         }
+    }
+}
+
+/// Drag a note out of the list to the Finder (or any app) as a PDF (Mac). The
+/// PDF is rendered when the drop asks for it (`AppModel.exportPDF`), not when
+/// the drag starts.
+private struct NoteDragOut: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let note: NoteSummary
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.onDrag { provider() }
+        } else {
+            content
+        }
+    }
+
+    private func provider() -> NSItemProvider {
+        let provider = NSItemProvider()
+        let id = note.id
+        let model = model
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
+                                            visibility: .all) { completion in
+            let progress = Progress(totalUnitCount: 1)
+            Task { @MainActor in
+                do {
+                    completion(try await model.exportPDF(noteID: id), false, nil)
+                } catch {
+                    completion(nil, false, error)
+                }
+                progress.completedUnitCount = 1
+            }
+            return progress
+        }
+        return provider
     }
 }
 

@@ -45,7 +45,7 @@ extension AppModel {
             let hooks = cloudHooks
             verify = { try CloudVault.requireLocal(note: noteID, vault: url, hooks: hooks) }
         }
-        let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounceInterval,
+        let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
                                                coordinated: isCloudVault, verify: verify)
         try ensureCurrent(gen)
         if let open = windowEditors[noteID] {   // a concurrent call won
@@ -70,6 +70,29 @@ extension AppModel {
         let all = Array(windowEditors.values)
         windowEditors = [:]
         for editor in all { await editor.close() }
+    }
+
+    // MARK: - State restoration
+
+    /// Applies a selection saved with the library window (`RestorableSelection`):
+    /// its notebook or tag if the vault still has it (else All Notes), and its
+    /// note if the vault still has it. Ignored for another vault.
+    @discardableResult
+    func restore(_ saved: RestorableSelection) -> Bool {
+        guard phase == .unlocked, saved.vault == vault?.vaultId else { return false }
+        var item = saved.sidebarItem
+        switch item {
+        case .notebook(let path):
+            let wanted = NotebookPath.canonical(path)
+            if !notebooks.contains(where: { NotebookPath.canonical($0) == wanted }) { item = .allNotes }
+        case .tag(let tag):
+            if !tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(tag) }) { item = .allNotes }
+        case .allNotes, .deleted:
+            break
+        }
+        sidebarSelection = item
+        if let id = saved.note, notes.contains(where: { $0.id == id }) { selectedNoteID = id }
+        return true
     }
 
     // MARK: - PDF export
@@ -101,7 +124,8 @@ extension AppModel {
             try CloudVault.coordinatedRead(coordinate) { try NotePDFExport.render(vault: vault, noteID: noteID) }
         }
         try ensureCurrent(gen)
-        return try NotePDFExport.write(rendered)
+        NotePDFExport.purge(olderThan: 3600)   // folders of earlier runs that never closed a vault
+        return try NotePDFExport.write(rendered, in: exportFolder)
     }
 }
 

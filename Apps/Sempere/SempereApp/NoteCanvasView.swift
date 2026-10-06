@@ -8,15 +8,16 @@ struct NoteCanvasView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ColumnLayout.key) private var storedColumns = "all"
-    @State private var renaming = false
-    @State private var newTitle = ""
-    @State private var editingTags = false
+    @Environment(WindowUI.self) private var ui
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
 
     var body: some View {
         Group {
             if let note = model.selectedNote {
-                if let editor = model.editor, editor.noteID == note.id {
+                if model.windowClaims.contains(note.id) {
+                    ContentUnavailableView("Open in Its Own Window", systemImage: "macwindow",
+                                           description: Text("This note is shown in a window of its own."))
+                } else if let editor = model.editor, editor.noteID == note.id {
                     EditorView(editor: editor)
                         .navigationTitle(NoteTitle.display(note.title))
                 } else if let failure = model.editorFailure, failure.id == note.id {
@@ -43,19 +44,6 @@ struct NoteCanvasView: View {
                 ContentUnavailableView("No Note Selected", systemImage: "square.and.pencil")
             }
         }
-        .alert("Rename Note", isPresented: $renaming) {
-            TextField("Title", text: $newTitle)
-            Button("Rename") {
-                if let id = model.selectedNoteID {
-                    let title = newTitle
-                    Task { await model.report { try await model.renameNote(id, to: title) } }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .sheet(isPresented: $editingTags) {
-            if let id = model.selectedNoteID { TagEditorView(noteID: id) }
-        }
         .toolbar {
             if let note = model.selectedNote {
                 // The title itself: tap it, or press and hold it, to rename the note.
@@ -81,7 +69,7 @@ struct NoteCanvasView: View {
                     Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { editingTags = true }
+                    Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
                 }
             }
             do {
@@ -96,7 +84,9 @@ struct NoteCanvasView: View {
                 }
             }
         }
-        .task(id: model.phase == .unlocked ? model.selectedNoteID : nil) {
+        .task(id: ShowKey(note: model.phase == .unlocked ? model.selectedNoteID : nil,
+                          claimed: model.selectedNoteID.map { model.windowClaims.contains($0) } ?? false,
+                          epoch: model.keyEpoch)) {
             await model.showSelectedNote()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -106,22 +96,32 @@ struct NoteCanvasView: View {
         }
     }
 
+    /// What the detail pane has to show: another note, a window taking or
+    /// giving a note back, or a key change (every editor was closed).
+    private struct ShowKey: Hashable {
+        var note: UUID?
+        var claimed: Bool
+        var epoch: Int
+    }
+
     /// Opens the rename alert (`AppModel.renameNote`, one `setMeta(.title)` delta).
     private func startRename(_ note: NoteSummary) {
-        guard !renaming else { return }
-        newTitle = note.title
-        renaming = true
+        guard ui.renameNoteID == nil else { return }
+        ui.renameNoteID = note.id
     }
 }
 
-private struct EditorView: View {
+/// The canvas of one note with its toolbar: the library window's detail pane
+/// and the note windows (`NoteWindowView`) both show it.
+struct EditorView: View {
     let editor: NoteEditor
+    @Environment(WindowUI.self) private var ui
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
-    @State private var choosingPaper = false
     @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
 
     var body: some View {
+        @Bindable var ui = ui
         VStack(spacing: 0) {
             if let reason = editor.readOnlyReason {
                 Banner(text: reason, systemImage: "lock", tint: .secondary)
@@ -145,7 +145,7 @@ private struct EditorView: View {
                 }
             }
         }
-        .sheet(isPresented: $choosingPaper) {
+        .sheet(isPresented: $ui.choosingPaper) {
             if let page = editor.currentPage {
                 PaperPickerView(paper: editor.displayedPaper(of: page),
                                 purpose: .page(number: editor.pageIndex + 1, count: editor.pages.count),
@@ -156,7 +156,7 @@ private struct EditorView: View {
         .toolbar {
             if !editor.isReadOnly {
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("Paper…", systemImage: "square.grid.3x3") { choosingPaper = true }
+                    Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
                         .disabled(editor.currentPage == nil)
                 }
                 ToolbarItem(placement: .primaryAction) {

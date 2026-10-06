@@ -17,6 +17,14 @@ struct RootView: View {
     @State private var triedAutoOpen = false
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
+    @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
+    @Environment(\.openWindow) private var openWindow
+    @State private var ui = WindowUI()
+    /// The library window's selection, restored with the scene (Mac only).
+    @SceneStorage(RestorableSelection.key) private var storedSelection = ""
+    /// The vault whose saved selection was applied (or found missing); until
+    /// then nothing is saved, so the first selections do not overwrite it.
+    @State private var restoredVault: UUID?
 
     private var columns: Binding<NavigationSplitViewVisibility> {
         Binding(get: { ColumnLayout.visibility(from: storedColumns) },
@@ -51,6 +59,19 @@ struct RootView: View {
                 }
             }
         }
+        .environment(ui)
+        .windowSheets(ui)
+        .focusedSceneValue(\.commandRouter, router)
+        .sheet(isPresented: $ui.creatingNote) {
+            NewNoteView(notebook: currentNotebook)
+        }
+        .onAppear { model.libraryWindowCount += 1 }
+        .onDisappear { model.libraryWindowCount -= 1 }
+        .onChange(of: model.phase == .unlocked && !model.isBusy) { _, ready in
+            if ready { restoreSelection() }
+        }
+        .onChange(of: model.selectedNoteID) { saveSelection() }
+        .onChange(of: model.sidebarSelection) { saveSelection() }
         .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
         .onChange(of: scenePhase) { _, phase in
             // iCloud may have delivered files while the app was away; no
@@ -105,6 +126,78 @@ struct RootView: View {
             #endif
             triedAutoOpen = true
             await reopen(last, pickOnFailure: false)
+        }
+    }
+
+    private var currentNotebook: String? {
+        if case .notebook(let n)? = model.sidebarSelection { return n }
+        return nil
+    }
+
+    /// Applies the selection saved with this scene once the vault is unlocked
+    /// (Mac only; the iPad keeps starting empty).
+    private func restoreSelection() {
+        guard Platform.isMac, let vaultID = model.vault?.vaultId, restoredVault != vaultID else { return }
+        restoredVault = vaultID
+        if let saved = RestorableSelection(stored: storedSelection) { model.restore(saved) }
+    }
+
+    private func saveSelection() {
+        guard Platform.isMac, model.phase == .unlocked, let vaultID = model.vault?.vaultId, restoredVault == vaultID else { return }
+        storedSelection = RestorableSelection(sidebar: model.sidebarSelection, note: model.selectedNoteID, vault: vaultID).stored
+    }
+
+    // MARK: - Menu commands (Mac)
+
+    private var router: CommandRouter {
+        var context = MenuCommand.Context()
+        context.window = .library
+        switch model.phase {
+        case .noVault: context.vault = .none
+        case .locked: context.vault = .locked
+        case .migrating: context.vault = .migrating
+        case .unlocked: context.vault = .unlocked
+        }
+        let note = model.selectedNote
+        context.hasNote = note != nil && !model.placeholderNoteIDs.contains(note?.id ?? UUID())
+        context.noteDeleted = note?.deleted ?? false
+        context.hasRecents = !library.recents.isEmpty
+        let shown = model.editor?.noteID == model.selectedNoteID ? model.editor : nil
+        EditorCommands.fill(&context, from: shown)
+        return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
+                             paletteVisible: paletteVisible,
+                             perform: { command in perform(command, editor: shown) },
+                             openRecent: { id in
+                                 if let entry = library.recents.first(where: { $0.id == id }) { Task { await reopen(entry) } }
+                             })
+    }
+
+    private func perform(_ command: MenuCommand, editor: NoteEditor?) {
+        if EditorCommands.perform(command, editor: editor, ui: ui) { return }
+        let selected = model.selectedNoteID
+        switch command {
+        case .newNote: ui.creatingNote = true
+        case .openNoteInWindow:
+            if let selected, let vault = model.vault?.vaultId {
+                openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: selected))
+            }
+        case .newVault: creatingVault = true
+        case .openVault: pickingVault = true
+        case .reopenVault:
+            if let last = library.recents.first { Task { await reopen(last) } }
+        case .closeVault: model.close()
+        case .reloadVault: Task { await model.report { try await model.reload() } }
+        case .renameNote: ui.renameNoteID = selected
+        case .editTags: ui.tagsNoteID = selected
+        case .deleteNote:
+            if let selected { Task { await model.report { try await model.deleteNote(selected) } } }
+        case .restoreNote:
+            if let selected { Task { await model.report { try await model.restoreNote(selected) } } }
+        case .find:
+            if ColumnLayout.visibility(from: storedColumns) == .detailOnly { storedColumns = "doubleColumn" }
+            ui.searchPresented = true
+        case .toggleNoteList: storedColumns = ColumnLayout.toggled(storedColumns)
+        default: break
         }
     }
 

@@ -41,8 +41,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
             self.modifiers = modifiers
         }
 
-        /// ⌫, the delete key.
-        static let backspace: Character = "\u{8}"
+        /// ⌫, the delete key (`KeyEquivalent.delete`).
+        static let backspace: Character = "\u{7F}"
     }
 
     /// Who handles the command.
@@ -159,6 +159,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var pageCount = 0
         /// A vault was opened before and can be reopened.
         var hasRecents = false
+        /// A library window exists (Window > Library opens one when not).
+        var libraryWindowOpen = true
         /// The note list is in the window (library windows only).
         var hasNoteList: Bool { window == .library }
     }
@@ -167,12 +169,13 @@ enum MenuCommand: String, CaseIterable, Sendable {
     func isEnabled(in context: Context) -> Bool {
         let unlocked = context.vault == .unlocked
         switch self {
-        case .openVault, .newVault: return true
-        case .reopenVault: return context.vault == .none && context.hasRecents
+        // The vault pickers, the note list and the sheets they open live in the library window.
+        case .openVault, .newVault: return context.hasNoteList
+        case .reopenVault: return context.hasNoteList && context.vault == .none && context.hasRecents
         case .closeVault: return context.vault != .none
-        case .reloadVault: return unlocked
-        case .newNote: return unlocked
-        case .openNoteInWindow: return unlocked && context.hasNote && !context.noteDeleted
+        case .reloadVault: return unlocked && context.hasNoteList
+        case .newNote: return unlocked && context.hasNoteList
+        case .openNoteInWindow: return unlocked && context.hasNoteList && context.hasNote && !context.noteDeleted
         case .renameNote, .editTags: return unlocked && context.hasNote && !context.noteDeleted
         case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
@@ -185,7 +188,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .toolPen, .toolMarker, .toolPencil, .toolEraser, .toolLasso, .toggleRuler, .togglePalette:
             return context.canEditNote
         case .zoomIn, .zoomOut, .fitWidth, .actualSize: return context.hasPage
-        case .showLibrary: return true
+        case .showLibrary: return !context.libraryWindowOpen
         case .showKeys: return unlocked
         }
     }

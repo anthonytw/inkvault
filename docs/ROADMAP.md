@@ -86,10 +86,11 @@ behaviour and testing on a real Mac.
 | Builds and launches under Catalyst (CI `app` job) | ✅ |
 | Everything in the iPad table | same status as the iPad |
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
-| Saved folder access in a sandboxed Mac build (bookmarks untested) | 📋 |
-| Menus and keyboard shortcuts | 📋 Phase 2 |
-| Multiple windows (one note per window) | 📋 Phase 2 |
-| Drag-and-drop export, bulk export | 📋 Phase 2 |
-| Key management window | 📋 Phase 2 |
-| Drawing with mouse/trackpad (PencilKit works; tuning for no pencil) | 📋 Phase 2 |
+| Saved folder access in a sandboxed Mac build | 🔀 access check, entitlements and a DEBUG probe done; the plain bookmark under the sandbox is unverified until a signed build is tried (`docs/io.md`) |
+| Menus and keyboard shortcuts | 🔀 `docs/mac.md` |
+| Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md` |
+| Drag a note to the Finder as PDF | 🔀 `docs/mac.md` |
+| Bulk export from the app | 📋 with the share/export work (the CLI has it) |
+| Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
+| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |

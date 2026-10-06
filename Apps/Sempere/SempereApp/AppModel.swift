@@ -134,6 +134,10 @@ final class AppModel {
     /// Bumped when the vault's keys changed under the open editors
     /// (`AppModel+Keys`): views reopen their notes.
     var keyEpoch = 0
+    /// Where this model's PDF exports (drag to Finder) are written; emptied when the vault closes.
+    let exportFolder = NotePDFExport.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    /// Library windows on screen (a note window restored alone opens one).
+    var libraryWindowCount = 0
     /// The migration of a legacy vault while `phase == .migrating`.
     var migration: VaultMigration?
     /// The identities the vault was unlocked with, for reopening it after a
@@ -243,6 +247,12 @@ final class AppModel {
         let holder = scope ?? url
         let scoped = holder.startAccessingSecurityScopedResource()
         do {
+            // A sandboxed Mac refuses a folder whose saved permission did not come back.
+            #if DEBUG
+            NSLog("SempereDebug folderAccess scoped=%d listable=%d", scoped ? 1 : 0,
+                  (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil ? 1 : 0)
+            #endif
+            try FolderAccess.check(url, scoped: scoped)
             let cloud = try await fetchFromICloud(url, scope: .essentials)
             try ensureCurrent(gen)
             let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
@@ -487,7 +497,7 @@ final class AppModel {
         windowClaims = []
         let scoped = scopedURL
         self.editor = nil
-        NotePDFExport.purge(olderThan: 0)   // plaintext PDFs dragged out of this vault
+        NotePDFExport.purge(in: exportFolder, olderThan: 0)   // plaintext PDFs dragged out of this vault
         if editor != nil || scoped != nil || !windowed.isEmpty {
             let earlier = closingEditor
             let gate = editGate
