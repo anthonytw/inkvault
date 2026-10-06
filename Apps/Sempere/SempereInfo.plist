@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<!-- Merged with the generated Info.plist (INFOPLIST_KEY_* build settings). -->
-	<!-- Standard, published algorithms (docs/appstore/export-compliance.md). No compliance
-	     code is needed while France is excluded; add ITSEncryptionExportComplianceCode once
-	     the French declaration is approved (docs/appstore/france-declaration.md). -->
+	<!-- Mirrors the maintainer's App Store Connect answer (build 2): standard, mass-market
+	     encryption that qualifies for the exemption, so no per-build question
+	     (docs/appstore/export-compliance.md). -->
 	<key>ITSAppUsesNonExemptEncryption</key>
-	<true/>
+	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
