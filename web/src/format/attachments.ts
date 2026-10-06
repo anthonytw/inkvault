@@ -221,10 +221,10 @@ function textContent(v: unknown, path: string, c: Ctx): JSONObject {
 // MARK: - Items (§8.2)
 
 /** The fields every kind has (§8.2.1). */
-const commonItemFields = ["id", "kind", "layer", "frame", "rotation", "z", "parent", "rec", "origin", "clocks"];
+export const commonItemFields = ["id", "kind", "layer", "frame", "rotation", "z", "parent", "rec", "origin", "clocks"];
 
 /** The fields of a defined kind beyond the common ones; none for others. */
-function kindFields(kind: string): string[] {
+export function kindFields(kind: string): string[] {
   switch (kind) {
     case "text": return ["text"];
     case "image": return ["blob", "pixelSize", "orientation", "crop"];
@@ -234,11 +234,11 @@ function kindFields(kind: string): string[] {
 }
 
 /** Fields `setItem` may not name (§8.2.2): immutable fields of every kind, and `origin`, `clocks`. */
-const immutableItemFields: ReadonlySet<string> = new Set(["id", "kind", "layer", "parent", "rec", "origin", "clocks",
+export const immutableItemFields: ReadonlySet<string> = new Set(["id", "kind", "layer", "parent", "rec", "origin", "clocks",
   "blob", "pixelSize", "orientation", "pageIndex", "pageSize"]);
 
 /** Decodes and validates a placed item; returns it as parsed JSON. */
-export function decodeItem(v: unknown, path: string, budget: Budget): unknown {
+export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject {
   const c: Ctx = { depth: pathDepth(path), budget };
   const o = obj(v, path);
   reqWith(o, "id", path, uuid);
@@ -335,14 +335,14 @@ export function checkItemChange(field: string, value: unknown, path: string, bud
 
 // MARK: - Recordings (§8.3.1)
 
-const recordingFields = ["id", "blob", "started", "duration", "codec", "sampleRate", "channels", "bitRate", "title",
+export const recordingFields = ["id", "blob", "started", "duration", "codec", "sampleRate", "channels", "bitRate", "title",
   "transcript", "parent", "origin", "clocks"];
 const recordingKeys: ReadonlySet<string> = new Set(recordingFields);
 /** All but the registers `title` and `transcript`. */
 const immutableRecordingFields: ReadonlySet<string> = new Set(recordingFields.filter((f) => f !== "title" && f !== "transcript"));
 
 /** Decodes and validates a recording; returns it as parsed JSON. */
-export function decodeRecording(v: unknown, path: string, budget: Budget): unknown {
+export function decodeRecording(v: unknown, path: string, budget: Budget): JSONObject {
   const c: Ctx = { depth: pathDepth(path), budget };
   const fc = child(c);
   const o = obj(v, path);

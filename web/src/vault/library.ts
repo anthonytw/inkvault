@@ -3,6 +3,7 @@
 // reported with the note (format.md §4), never silently dropped.
 
 import { type NoteState, type Revision } from "../format/model.ts";
+import { itemText } from "../format/registers.ts";
 import { NoteLogError, reconstruct } from "../format/reducer.ts";
 import { type UnlockedVault, RevisionReadError, limits } from "./vault.ts";
 import { SourceError, type VaultSource } from "./source.ts";
@@ -112,8 +113,10 @@ export function summarize(n: LoadedNote): NoteSummary {
     id: n.id, title: s?.meta.title ?? "", tags: s?.meta.tags ?? [], favorite: s?.meta.favorite ?? false,
     deleted: s?.deleted ?? false, created: s?.meta.created ?? 0, pageCount: s?.pages.length ?? 0,
     pageTexts: (s?.pages ?? []).flatMap((p, i) => {
-      const text = p.recognition?.text ?? "";
-      return text.length > 0 ? [{ number: i + 1, text }] : [];
+      // Recognised handwriting, then each text box in drawing order (Swift `PageText.texts`).
+      const parts = [p.recognition?.text ?? "", ...p.items.filter((it) => it.kind === "text").map(itemText)]
+        .filter((t) => t.length > 0);
+      return parts.length > 0 ? [{ number: i + 1, text: parts.join("\n") }] : [];
     }),
     failures: n.failures.length, hasAttachments: n.hasAttachments,
   };

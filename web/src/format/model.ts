@@ -107,8 +107,8 @@ export interface Page {
   parent?: string;
   paper?: Paper;
   paperClock?: string;
-  /** Placed items (§8.2), decoded and validated but not merged yet (as in Swift, task A1). */
-  items: unknown[];
+  /** Placed items (§8.2) as validated JSON objects, in drawing order `(layer, z, id)`. */
+  items: JSONObject[];
 }
 
 export interface TagInstance {
@@ -141,7 +141,8 @@ export interface NoteState {
   clocks?: Record<string, string>;
   tombstones?: Tombstones;
   tagSet?: TagSet;
-  recordings: unknown[];
+  /** Recordings (§8.3) as validated JSON objects, sorted by `(started, id)`. */
+  recordings: JSONObject[];
 }
 
 export type MetaChange =
@@ -165,7 +166,13 @@ export type Op =
   | { op: "removeTag"; tag: string; observed: Origin[] }
   | { op: "deleteNote" }
   | { op: "restoreNote" }
-  | { op: "addItem" | "removeItem" | "setItem" | "addRecording" | "removeRecording" | "setRecording" };
+  | { op: "addItem"; page: string; item: JSONObject }
+  | { op: "removeItem"; page: string; itemId: string }
+  /** `value` is `null` when the op has none (a reset). */
+  | { op: "setItem"; page: string; itemId: string; field: string; value: unknown }
+  | { op: "addRecording"; recording: JSONObject }
+  | { op: "removeRecording"; recordingId: string }
+  | { op: "setRecording"; recordingId: string; field: string; value: unknown };
 
 export type RevisionBody =
   | { type: "delta"; ops: Op[] }
@@ -504,32 +511,30 @@ export function decodeOp(v: unknown, path: string, budget: Budget): Op {
     case "deleteNote":
     case "restoreNote":
       return { op };
-    case "addItem":
-      reqWith(o, "page", path, uuid);
-      reqWith(o, "item", path, (i, p) => decodeItem(i, p, budget));
-      return { op };
+    case "addItem": {
+      const page = reqWith(o, "page", path, uuid);
+      return { op, page, item: reqWith(o, "item", path, (i, p) => decodeItem(i, p, budget)) };
+    }
     case "removeItem":
-      reqWith(o, "page", path, uuid);
-      reqWith(o, "itemId", path, uuid);
-      return { op };
+      return { op, page: reqWith(o, "page", path, uuid), itemId: reqWith(o, "itemId", path, uuid) };
     case "setItem": {
       const field = reqWith(o, "field", path, str);
-      reqWith(o, "page", path, uuid);
-      reqWith(o, "itemId", path, uuid);
-      checkItemChange(field, opt(o, "value") ?? null, `${path}.value`, budget);
-      return { op };
+      const page = reqWith(o, "page", path, uuid);
+      const itemId = reqWith(o, "itemId", path, uuid);
+      const value = opt(o, "value") ?? null;
+      checkItemChange(field, value, `${path}.value`, budget);
+      return { op, page, itemId, field, value };
     }
     case "addRecording":
-      reqWith(o, "recording", path, (r, p) => decodeRecording(r, p, budget));
-      return { op };
+      return { op, recording: reqWith(o, "recording", path, (r, p) => decodeRecording(r, p, budget)) };
     case "removeRecording":
-      reqWith(o, "recordingId", path, uuid);
-      return { op };
+      return { op, recordingId: reqWith(o, "recordingId", path, uuid) };
     case "setRecording": {
       const field = reqWith(o, "field", path, str);
-      reqWith(o, "recordingId", path, uuid);
-      checkRecordingChange(field, opt(o, "value") ?? null, `${path}.value`, budget);
-      return { op };
+      const recordingId = reqWith(o, "recordingId", path, uuid);
+      const value = opt(o, "value") ?? null;
+      checkRecordingChange(field, value, `${path}.value`, budget);
+      return { op, recordingId, field, value };
     }
     default:
       // Fail closed on an op this reader does not know (format.md §7).
@@ -616,12 +621,14 @@ function encodePage(p: Page): JSONObject {
   if (p.parent !== undefined) o.parent = p.parent;
   if (p.paper) o.paper = encodePaper(p.paper);
   if (p.paperClock !== undefined) o.paperClock = p.paperClock;
+  if (p.items.length > 0) o.items = p.items;
   return o;
 }
 
 /**
- * A reconstructed note as `sempere export --format json` writes it (the
- * reducer's output carries no items or recordings, as in Swift).
+ * A reconstructed note as `sempere export --format json` writes it. Items and
+ * recordings are emitted as the reducer holds them (validated JSON; writers
+ * already round numbers to 3 decimals).
  */
 export function encodeState(s: NoteState, formatDate: (ms: number) => string): JSONObject {
   const m = s.meta;
@@ -647,6 +654,7 @@ export function encodeState(s: NoteState, formatDate: (ms: number) => string): J
     if (s.tagSet.legacy) ts.legacy = s.tagSet.legacy;
     o.tagSet = ts;
   }
+  if (s.recordings.length > 0) o.recordings = s.recordings;
   return o;
 }
 

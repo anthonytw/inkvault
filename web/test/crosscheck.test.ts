@@ -27,6 +27,11 @@ function canonical(v: unknown): unknown {
   return v;
 }
 
+/** An SVG export without its `<g id="items">` group (format.md §8.2.3: it sits between paper and strokes). */
+function withoutItems(svg: string): string {
+  return svg.replace(/<g id="items">[\s\S]*?<\/g>\n(?=<g id="strokes">|<\/svg>)/, "");
+}
+
 for (const [name, dir] of vaults.filter(([, d]) => existsSync(d))) {
   describe(`cross-check ${name}`, async () => {
     const source = new NodeDirSource(dir);
@@ -56,7 +61,9 @@ for (const [name, dir] of vaults.filter(([, d]) => existsSync(d))) {
         expect(pageFiles.length).toBe(state.pages.length);
         state.pages.forEach((page, i) => {
           const want = readFileSync(join(golden, name, id, pageFiles[i] ?? ""), "utf8");
-          expect(renderSVG(page, state.meta)).toBe(want);
+          // The viewer does not draw placed items yet (docs/web-viewer.md): compare
+          // everything else, without the Swift export's `items` group.
+          expect(renderSVG(page, state.meta)).toBe(page.items.length > 0 ? withoutItems(want) : want);
         });
       });
     }
