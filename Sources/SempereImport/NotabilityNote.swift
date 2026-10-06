@@ -155,6 +155,8 @@ public struct NotabilityNote: Hashable, Sendable {
     public var pdfHighlights = 0
     /// `richText.mediaObjects`, read without a schema.
     public var mediaObjects: [MediaObject] = []
+    /// `richText.attributedString` with its styles (`typedText` is its string).
+    public var typed = TypedText()
     /// Audio recordings listed in `Recordings/library.plist`.
     public var recordingCount: Int
     /// `NBNoteTakingSessionBundleVersionNumberKey`, e.g. `14.2.6`.
@@ -323,6 +325,9 @@ extension NotabilityNote {
         }
         note.pdfLayout = layout
         note.mediaObjects = media.map { MediaObject.read(session, $0) }
+        note.typed = typedText(session, try session.field(richText, "attributedString"))
+        if note.typed.string.isEmpty { note.typed.string = typed }
+        if note.typedText.isEmpty { note.typedText = note.typed.string }
         return note
     }
 

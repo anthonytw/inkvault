@@ -55,6 +55,10 @@ public enum NotabilityImporter {
         public var templatePages = 0
         /// Images placed as `image` items.
         public var images = 0
+        /// Text items (typed text blocks and text boxes).
+        public var textItems = 0
+        /// Characters in them.
+        public var textCharacters = 0
         /// Blobs written (distinct contents).
         public var blobs = 0
         /// Their total size in bytes.
@@ -68,7 +72,8 @@ public enum NotabilityImporter {
 
     /// Content of a Notability note that the import leaves behind.
     public struct Dropped: Hashable, Sendable {
-        /// Characters of typed text.
+        /// Characters of typed text not imported (all of it with attachments
+        /// off; with them, what did not fit the text limits).
         public var typedTextCharacters = 0
         /// Imported PDFs the ink was written on.
         public var pdfs = 0
@@ -258,6 +263,14 @@ public enum NotabilityImporter {
             case let .pdfPage(blob, pageIndex, pageSize):
                 item = .pdfPage(id: id, blob: blob, pageIndex: pageIndex, pageSize: pageSize, frame: frame, z: z,
                                 layer: p.layer)
+            case .text(var content):
+                // Sizes are lengths: scaled with everything else, within the format's range.
+                func fit(_ s: Double) -> Double { min(max(s * k, 0.01), TextContent.Limits.size) }
+                content.size = fit(content.size)
+                for r in content.runs.indices { content.runs[r].size = content.runs[r].size.map(fit) }
+                var i = Item.text(id: id, content, frame: frame, z: z, layer: p.layer)
+                i.rotation = p.rotation
+                item = i
             case let .image(blob, pixelSize, orientation, crop):
                 var i = Item.image(id: id, blob: blob, pixelSize: pixelSize, orientation: orientation, crop: crop,
                                    frame: frame, z: z, layer: p.layer)
@@ -339,6 +352,7 @@ public enum NotabilityImporter {
         var d = Dropped()
         d.typedTextCharacters = note.typedText.trimmingCharacters(in: .whitespacesAndNewlines).count
         if let a = attachments, note.sourceFormat == .note {
+            d.typedTextCharacters = a.dropped.typedTextCharacters
             d.pdfs = a.dropped.pdfs
             d.pdfPages = a.dropped.pdfPages
             d.media = a.dropped.media

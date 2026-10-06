@@ -25,6 +25,8 @@ public struct NotabilityAttachments: Sendable {
             case pdfPage(blob: BlobRef, pageIndex: Int, pageSize: Size)
             /// An image: `pixelSize` after `orientation`; `crop` in oriented pixels.
             case image(blob: BlobRef, pixelSize: Size, orientation: Int?, crop: Rect?)
+            /// Typed text; sizes in document units.
+            case text(TextContent)
         }
         public var content: Content
         public var layer: ItemLayer
@@ -88,6 +90,7 @@ public struct NotabilityAttachments: Sendable {
         let prefix = NotabilityNote.packagePrefix(pkg) ?? ""
         r.resolvePDFs(note, pkg, prefix: prefix)
         r.resolveImages(note, pkg, prefix: prefix, keepMetadata: keepImageMetadata)
+        r.resolveTypedText(note)
         return r
     }
 
@@ -308,6 +311,10 @@ public struct NotabilityAttachments: Sendable {
                                 + "media objects or \(Self.maxItems) items on the page")
                 break
             }
+            if m.className.lowercased().contains("text") {
+                resolveTextBox(m, label: label, note: note, index: i)
+                continue
+            }
             guard let path = Self.file(for: m, in: files) else {
                 drop("no file of the package named in it (fields: \(m.fieldNames.joined(separator: ", ")))")
                 continue
@@ -362,6 +369,41 @@ public struct NotabilityAttachments: Sendable {
             warnings.append("\(label): placed from \(m.geometrySource ?? "?") (field names unconfirmed on real notes)")
             extent = max(extent, Self.lowest(frame, rotation: rotation))
         }
+    }
+
+    /// A media object of a text class: its longest string as a text item in
+    /// its frame, in the default style (the box's own styles are not known).
+    mutating func resolveTextBox(_ m: NotabilityNote.MediaObject, label: String, note: NotabilityNote, index: Int) {
+        let keys: Set<String> = ["stringkey", "string", "text", "nsstring", "plaintext", "contents"]
+        let text = zip(m.strings, m.stringPaths)
+            .filter { keys.contains(NotabilityNote.MediaObject.semanticKey($0.1.split(separator: ".").map(String.init)) ?? "") }
+            .map(\.0).max { $0.count < $1.count }
+        guard let text, text.contains(where: { !$0.isWhitespace }) else {
+            dropped.media += 1
+            warnings.append("\(label): a text object without text (fields: \(m.fieldNames.joined(separator: ", ")))")
+            return
+        }
+        guard var frame = m.frame, [frame.x, frame.y, frame.w, frame.h].allSatisfy({ $0.isFinite && abs($0) <= NotabilityNote.maxCoordinate }),
+              frame.w >= 1, frame.h >= 1 else {
+            dropped.media += 1
+            warnings.append("\(label): text found, but no usable frame (fields: \(m.fieldNames.joined(separator: ", ")))")
+            return
+        }
+        frame.x += note.paper.insetX
+        let scalars = text.unicodeScalars.map { ($0, Int32(-1)) }
+        var placed = 0
+        for chunk in Self.chunks(scalars) {
+            let (content, cut) = Self.content(chunk, runs: [])
+            dropped.typedTextCharacters += cut
+            guard let content else { continue }
+            placements.append(Placement(content: .text(content), layer: .content, frame: frame, rotation: m.rotation,
+                                        tag: "textbox:\(index):\(placed)"))
+            placed += 1
+            imported.textItems += 1
+            imported.textCharacters += content.string.count
+        }
+        extent = max(extent, Self.lowest(frame, rotation: m.rotation))
+        warnings.append("\(label): text box placed from \(m.geometrySource ?? "?") in the default style (field names unconfirmed)")
     }
 
     /// Lowest y of `frame` rotated by `rotation` degrees about its centre.
