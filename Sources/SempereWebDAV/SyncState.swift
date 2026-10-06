@@ -20,10 +20,25 @@ struct SyncState: Codable, Equatable {
         var included: Included?
     }
 
+    /// A blob download that was interrupted: its partial file
+    /// (`att/.sempere-tmp-part-<name>`) continues only from the same remote
+    /// version.
+    struct PartialRecord: Codable, Equatable {
+        /// The ETag the download started from (sent as `If-Range`).
+        var etag: String
+    }
+
     var version = 1
     var mutable: [String: MutableRecord] = [:]
-    /// Keyed `<noteId>/<file name>`.
+    /// Keyed `<noteId>/<file name>` for revisions and
+    /// `<noteId>/att/<file name>` for blobs.
     var files: [String: FileRecord] = [:]
+    /// Interrupted blob downloads, keyed `<noteId>/att/<file name>`.
+    /// Optional so state files written before blob sync still decode.
+    var partials: [String: PartialRecord]?
+    /// Temporary upload names (paths below the collection) this device
+    /// created on the server and has not removed yet; the next run deletes them.
+    var remoteTemps: [String]?
 
     /// The default state file for one (remote, local vault) pair.
     static func defaultURL(remote: URL, vault: URL,

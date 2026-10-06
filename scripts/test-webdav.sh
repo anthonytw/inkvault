@@ -35,4 +35,4 @@ done
 export SEMPERE_WEBDAV_TEST_URL="http://127.0.0.1:$PORT/"
 export SEMPERE_WEBDAV_TEST_USER=sempere
 export SEMPERE_WEBDAV_TEST_PASSWORD=test-password
-swift test --filter 'WebDAVIntegrationTests|CLIWebDAVTests' "$@"
+swift test --filter 'WebDAVIntegrationTests|BlobIntegrationTests|CLIWebDAVTests' "$@"
