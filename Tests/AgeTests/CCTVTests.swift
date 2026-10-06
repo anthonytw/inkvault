@@ -89,6 +89,7 @@ final class CCTVTests: XCTestCase {
             .sorted()
         XCTAssertEqual(names.count, 147, "expected the full CCTV set")
 
+        streamed = 0
         var counts: [String: Int] = [:]
         var hybrid = 0
         for name in names {
@@ -102,6 +103,8 @@ final class CCTVTests: XCTestCase {
         XCTAssertEqual(hybrid, 19)
         let total = counts.values.reduce(0, +)
         XCTAssertEqual(total, 147)
+        // Every vector whose armor (if any) decodes ran through the streaming decryptor.
+        XCTAssertEqual(streamed, (147 - counts["armor failure", default: 0]) * Self.readPatterns.count)
         let summary = counts.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
         print("CCTV: \(total) vectors exercised (\(summary))")
     }
@@ -128,6 +131,8 @@ final class CCTVTests: XCTestCase {
             while let l = norm.last, Armor.isSpace(l) { norm.removeLast() }
             XCTAssertEqual(Armor.encode(binary), Data(norm + [0x0A]), "\(name): armor round trip")
         }
+
+        checkStreaming(v, binary: binary)
 
         var released = Data()
         do {
@@ -170,5 +175,96 @@ final class CCTVTests: XCTestCase {
 
     func checkPublicAPIFails(_ v: Vector) {
         XCTAssertThrowsError(try AgeFile.decrypt(v.file, with: v.identities), "\(v.name): public API should fail")
+    }
+
+    // MARK: - Streaming (attachments B1)
+
+    /// Read sizes handed to the streaming decryptor's source: whole reads,
+    /// an odd size (chunk boundaries fall inside reads), and single bytes
+    /// (0) for the first 8 KiB, which covers every header, the nonce and the
+    /// start of the first chunk, then 4099-byte reads (single bytes over a
+    /// whole payload take seconds in a debug build).
+    static let readPatterns = [Int.max, 7_919, 0]
+    var streamed = 0
+
+    /// Runs `binary` through `AgeDecryptor` with each read pattern and
+    /// checks the same outcome as the reference harness: success with the
+    /// payload and file key, or a failure of the expected class having
+    /// released exactly the reference's partial payload. For success vectors
+    /// also re-encrypts with `AgeEncryptor` (vector key, nonce and header;
+    /// odd piece sizes) to the identical bytes, and rewraps the header.
+    func checkStreaming(_ v: Vector, binary: Data) {
+        let name = v.name
+        let expected = expectedErrors(v.expect)
+        for pattern in Self.readPatterns {
+            streamed += 1
+            var offset = 0
+            var released = Data()
+            var decryptor: AgeDecryptor?
+            do {
+                let d = try AgeDecryptor(identities: v.identities) { n in
+                    let size = pattern > 0 ? pattern : (offset < 8192 ? 1 : 4099)
+                    let k = min(n, size, binary.count - offset)
+                    defer { offset += k }
+                    return binary.subdata(in: offset..<offset + k)
+                }
+                decryptor = d
+                while let chunk = try d.next() {
+                    XCTAssertLessThanOrEqual(chunk.count, 64 * 1024, "\(name): chunk size")
+                    released += chunk
+                }
+                XCTAssertNil(try d.next(), "\(name): stays finished")
+                XCTAssertNil(expected, "\(name) [stream \(pattern)]: expected \(v.expect), got success")
+                XCTAssertEqual(d.fileKey.bytes, v.fileKey, "\(name) [stream]: file key")
+                XCTAssertEqual(Data(SHA256.hash(data: released)), v.payloadHash, "\(name) [stream]: payload")
+            } catch {
+                guard let expected else {
+                    XCTFail("\(name) [stream \(pattern)]: expected success, got \(error)")
+                    continue
+                }
+                XCTAssertTrue((error as? AgeError).map(expected.contains) ?? false,
+                              "\(name) [stream \(pattern)]: expected \(v.expect), got \(error)")
+                if v.expect == "payload failure" {
+                    XCTAssertEqual(Data(SHA256.hash(data: released)), v.payloadHash,
+                                   "\(name) [stream \(pattern)]: partial payload (\(released.count) bytes)")
+                    // Errors are sticky.
+                    if let d = decryptor {
+                        XCTAssertThrowsError(try d.next(), "\(name): sticky error") {
+                            XCTAssertEqual($0 as? AgeError, error as? AgeError)
+                        }
+                    }
+                }
+            }
+        }
+        guard expected == nil, let fileKey = v.fileKey,
+              let (_, start) = try? AgeFile.parseHeader(binary),
+              let key = try? FileKey(bytes: fileKey)
+        else { return }
+
+        // STREAM re-encryption through AgeEncryptor, fed in uneven pieces.
+        var plain = Data()
+        _ = try? AgeFile.decrypt(binary: binary, with: v.identities, released: &plain)
+        let nonce = binary.subdata(in: start..<start + 16)
+        let encryptor = AgeEncryptor(header: binary.prefix(start), fileKey: key, nonce: nonce)
+        var out = Data()
+        var i = 0, step = 1
+        while i < plain.count {
+            let end = min(i + step, plain.count)
+            out += (try? encryptor.update(plain.subdata(in: i..<end))) ?? Data()
+            i = end
+            step = step * 3 + 1
+        }
+        out += (try? encryptor.finish()) ?? Data()
+        XCTAssertEqual(out, binary, "\(name): streaming re-encryption")
+
+        // Header-only rewrap to a new recipient: same nonce and payload bytes,
+        // new single stanza, opens with the new key only.
+        let fresh = X25519Identity()
+        guard let rewrapped = try? AgeFile.rewrapHeader(binary, identities: v.identities, recipients: [fresh.recipient])
+        else { return XCTFail("\(name): rewrap failed") }
+        guard let (newHeader, newStart) = try? AgeFile.parseHeader(rewrapped) else { return XCTFail("\(name): rewrap header") }
+        XCTAssertEqual(newHeader.stanzas.map(\.type), ["X25519"], name)
+        XCTAssertEqual(rewrapped.dropFirst(newStart), binary.dropFirst(start), "\(name): payload copied unchanged")
+        XCTAssertEqual(try? AgeFile.decrypt(rewrapped, with: [fresh]), plain, "\(name): rewrapped decrypts")
     }
 }

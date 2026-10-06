@@ -7,8 +7,11 @@ import Foundation
 /// Scope (task 0.1 in docs/plan.md, plus the age v1.3 post-quantum type):
 /// MLKEM768-X25519, X25519 and scrypt recipients, header
 /// parsing and formatting, header HMAC, STREAM payload, ASCII armor, Bech32
-/// identity and recipient encoding. Validated against the C2SP CCTV vectors
-/// under Tests/AgeTests/Vectors and against the reference `age` CLI.
+/// identity and recipient encoding; streaming encryption and decryption,
+/// header-only rewrap and re-encryption (`Streaming.swift`, attachments task
+/// B1). Validated against the C2SP CCTV vectors under Tests/AgeTests/Vectors
+/// (through both the buffer and the streaming paths) and against the
+/// reference `age` CLI.
 public enum AgeVersion {
     public static let header = "age-encryption.org/v1"
 }

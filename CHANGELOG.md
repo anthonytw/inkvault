@@ -7,6 +7,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [Unreleased]
 
+### Added
+
+- Age library: streaming encryption and decryption in constant memory (`AgeEncryptor`,
+  `AgeDecryptor`, file-to-file `AgeFile.encrypt` / `decrypt`), header-only rewrap that keeps the
+  file key and payload (`AgeFile.rewrapHeader`) and streaming full re-encryption
+  (`AgeFile.reencrypt`), for attachments.
+
 ### Changed
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7

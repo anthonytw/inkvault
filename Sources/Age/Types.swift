@@ -3,7 +3,7 @@ import Foundation
 
 /// Errors thrown by the age implementation. The cases follow the failure
 /// classes of the C2SP CCTV test vectors.
-public enum AgeError: Error, Equatable, Sendable {
+public enum AgeError: Error, Hashable, Sendable {
     /// The header is malformed (version line, stanza syntax, MAC line), or
     /// the file ends before the 16-byte payload nonce.
     case headerParse
