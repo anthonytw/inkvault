@@ -29,7 +29,55 @@ public enum NotabilityBundle {
                 ?? pkg.paths.first(where: { $0.hasSuffix("/noteBundle") && $0.split(separator: "/").count == 2 }) else {
             throw ImportError.notability("no noteBundle in .ntb package")
         }
-        return try parse(bundle: pkg.read(path))
+        var note = try parse(bundle: pkg.read(path))
+        let index = pkg.paths.first(where: { $0 == "ios/HandwritingIndex.fb" })
+            ?? pkg.paths.first(where: { $0.hasSuffix("/ios/HandwritingIndex.fb") && $0.split(separator: "/").count == 3 })
+        // Recognition is auxiliary: a malformed index loses the text, never the ink.
+        if let index, let data = try? pkg.read(index),
+           let pages = try? parseHandwritingIndex(data, inset: note.paper.insetX) {
+            note.recognition = pages
+        }
+        return note
+    }
+
+    /// Notability's handwriting recognition in an `.ntb` (`ios/HandwritingIndex.fb`,
+    /// FlatBuffers; `docs/import-notability.md`): root field 2 is a table whose
+    /// field 0 lists one table per recognised page. A page table holds field 0,
+    /// three words whose third is the 0-based page index (as in stroke
+    /// records), field 1 the text, field 2 one 8-byte box per UTF-16 unit (four
+    /// IEEE half floats, the `.note` `characterRects` encoding) and field 3 a
+    /// 32-byte hash. Boxes are page coordinates; the origin `(-inset, 0)` maps
+    /// them through `NotabilityImporter.recognition` exactly as the bundle's
+    /// strokes are placed.
+    ///
+    /// - Throws: `ImportError.notability` for a malformed buffer.
+    static func parseHandwritingIndex(_ data: Data, inset: Double) throws -> [Int: NotabilityNote.RecognizedPage] {
+        let fb = FlatBuffer(data)
+        let root = try fb.root()
+        guard let listField = try fb.field(root, 2) else { return [:] }
+        let list = try fb.table(atRef: listField)
+        guard let pagesField = try fb.field(list, 0) else { return [:] }
+        var out: [Int: NotabilityNote.RecognizedPage] = [:]
+        for page in try fb.tables(atVectorRef: pagesField) {
+            guard let header = try fb.field(page, 0), let textField = try fb.field(page, 1) else { continue }
+            let index = Int(try fb.u32(header + 8))
+            let number = index + 1
+            guard (1...NotabilityNote.maxRecognizedPage).contains(number), out[number] == nil else { continue }
+            let text = try fb.string(atRef: textField)
+            var boxes: [Recognition.Box?] = []
+            if let boxField = try fb.field(page, 2) {
+                let (start, count) = try fb.vector(atRef: boxField, elementSize: 8)
+                guard count <= text.utf16.count else {
+                    throw ImportError.notability(".ntb: more character boxes than characters on page \(number)")
+                }
+                boxes = NotabilityNote.halfRects(Data(fb.bytes[start..<(start + 8 * count)]))
+                    .map { $0.flatMap { b in
+                        [b.x, b.y, b.w, b.h].allSatisfy { abs($0) <= NotabilityNote.maxCoordinate } ? b : nil } }
+            }
+            out[number] = NotabilityNote.RecognizedPage(text: text, origin: NotabilityNote.Point(x: -inset, y: 0),
+                                                        characterBoxes: boxes)
+        }
+        return out
     }
 
     /// How many bytes of geometry and erase lists one parse may decode, per
