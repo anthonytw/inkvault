@@ -169,7 +169,9 @@ enum NotePDFExport {
         let loaded = try vault.loadNote(noteID)
         guard loaded.failures.isEmpty else { throw AppModel.ExportError.unreadableRevisions(loaded.failures.count) }
         let state = try NoteReducer.reconstruct(loaded.revisions)
-        return Rendered(title: state.meta.title, pdf: try PDFWriter.render(note: state))
+        // PDF page backgrounds are copied from the note's attachments (docs/attachments.md §10).
+        let options = RenderOptions(blobs: vault.blobSource(note: noteID), pdfRasterizer: PDFKitRasterizer())
+        return Rendered(title: state.meta.title, pdf: try PDFWriter.render(note: state, options: options))
     }
 
     /// Folder under the temporary directory holding exported files, one

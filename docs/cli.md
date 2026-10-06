@@ -62,6 +62,7 @@ Errors go to stderr, one line each, prefixed `sempere:`.
 | `SEMPERE_VAULT` | Default for `--vault`. |
 | `SEMPERE_IDENTITY` | Default identity file. |
 | `SEMPERE_PASSPHRASE` | Passphrase for the vault's stored key file, for scripts and tests. |
+| `SEMPERE_PDFTOPPM` | Poppler's `pdftoppm` for PDF page backgrounds in SVG/PNG exports (default: `pdftoppm` on `PATH`). |
 | `XDG_STATE_HOME` | Where `device.json` lives (default `~/.local/state`). |
 
 ## Commands
@@ -508,6 +509,7 @@ in parallel and without stroke geometry, as for `notes list`.
 sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
                 [--notebook NAME] [--images none|png] [--clean]
+                [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -539,7 +541,49 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 `.pdf`/`.json`. `--all` skips deleted notes unless `--deleted`; a deleted note
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
-written is printed.
+written is printed. With `--json`, each entry has `note`, `files` and, when
+some items were drawn as placeholders, `placeholders` (their number).
+
+#### PDF page backgrounds
+
+A `pdfPage` item (an annotated PDF, `docs/format.md` §8.2.6) is read from the
+note's attachments, verified (`docs/format.md` §8.1.4), and drawn under the ink:
+
+- `pdf` copies the original page into the export as a Form XObject: exact
+  vectors, text and images, on every platform, with no renderer. The file is
+  PDF 1.7 when it holds such pages. Only the page's content and resources are
+  copied (annotations, form fields and metadata are not). A page whose content
+  uses a stream filter the reader does not decode (anything but Flate, LZW,
+  ASCII85, ASCIIHex and RunLength) is rasterized by the renderer below, or is a
+  placeholder.
+- `svg` and `png` need the page as pixels. `--pdf-renderer auto` (the default)
+  uses Poppler's `pdftoppm` when it is installed (`$SEMPERE_PDFTOPPM`, else
+  `pdftoppm` on `PATH`; `apt install poppler-utils`, `brew install poppler`);
+  `poppler` requires it (exit 1 when it is missing); `none` never runs it. SVG
+  embeds the page as a PNG data URI clipped to the item's frame (at 2 pixels
+  per drawn point); PNG composites it at `--dpi`. A page is drawn with at most
+  16 million pixels, and one export rasterizes at most 256 million.
+- Poppler runs as a separate process on a private temporary copy of the
+  verified PDF (deleted afterwards), started with an argument vector (never a
+  shell) and under resource limits: `--pdf-timeout` seconds of wall-clock time
+  per page (default 30; then SIGTERM, then SIGKILL), as much CPU time, 3 GiB
+  of address space where the OS enforces it, an output file no larger than the
+  requested pixels need, no core dumps. A PDF that makes Poppler hang, crash
+  or write garbage costs at most one timeout and becomes a placeholder.
+- Anything that cannot be drawn (no renderer, a missing or invalid
+  attachment, an unreadable or encrypted PDF, a failed render, an item kind
+  this export does not draw yet) is a placeholder: the item's frame outlined in
+  grey with both diagonals (`docs/format.md` §8.5.2). The export still
+  succeeds (exit 0) and prints one warning per kind of problem, e.g.
+
+  ```
+  sempere: warning: 0d1c6a1e: 12 PDF background pages drawn as placeholders: install poppler (pdftoppm) to render them, or export as PDF, which keeps them exactly
+  sempere: warning: 0d1c6a1e: pdfPage item drawn as a placeholder (PDF renderer failed: pdftoppm timed out after 30 s)
+  ```
+
+Notes hold `pdfPage` items once item ops are merged (attachments task A1);
+until then this applies to no note in a vault. `markdown` and `html` exports
+do not read attachments yet.
 
 #### Markdown and HTML exports
 

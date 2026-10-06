@@ -5,7 +5,7 @@ import Sempere
 
 /// An independent PNG reader for the tests: table CRC-32 (not zlib's), chunk
 /// walk, IDAT inflate and un-filtering.
-private struct DecodedPNG {
+struct DecodedPNG {
     var width = 0, height = 0
     var rgba: [UInt8] = []
     var chunkTypes: [String] = []

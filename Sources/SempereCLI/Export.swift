@@ -18,6 +18,16 @@ enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
 
 extension ExportImages: ExpressibleByArgument {}
 
+/// `--pdf-renderer`: what draws PDF page backgrounds in SVG and PNG exports.
+enum PDFRendererChoice: String, ExpressibleByArgument, CaseIterable {
+    /// Poppler when installed, else placeholders.
+    case auto
+    /// Poppler, or fail when it is not installed.
+    case poppler
+    /// Placeholders.
+    case none
+}
+
 struct ExportCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
@@ -36,6 +46,11 @@ struct ExportCommand: ParsableCommand {
             self-contained <name>.html per note and an index.html with a search box. Re-running
             rewrites only files whose content changed; --clean (with --all) removes files an earlier
             run wrote that this run did not. WARNING: these formats write your notes as PLAINTEXT.
+
+            PDF page backgrounds: pdf copies the original pages exactly. svg and png need the pages as
+            pixels: --pdf-renderer auto (the default) runs Poppler's pdftoppm (or SEMPERE_PDFTOPPM) in a
+            separate, resource-limited process, at most --pdf-timeout seconds per page; without it, or
+            when it fails, the page is drawn as a placeholder and a warning says why.
             """
     )
 
@@ -76,6 +91,14 @@ struct ExportCommand: ParsableCommand {
                                             valueName: "revision"))
     var at: String?
 
+    @Option(name: .customLong("pdf-renderer"),
+            help: "svg/png: what draws PDF page backgrounds: auto (Poppler's pdftoppm when installed), poppler, none.")
+    var pdfRenderer: PDFRendererChoice = .auto
+
+    @Option(name: .customLong("pdf-timeout"),
+            help: ArgumentHelp("Seconds Poppler may take per PDF page before it is stopped.", valueName: "seconds"))
+    var pdfTimeout: Double = 30
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -94,9 +117,48 @@ struct ExportCommand: ParsableCommand {
         if format == .png, !(dpi.isFinite && dpi > 0 && dpi <= 2400) {
             throw ValidationError("--dpi must be greater than 0 and at most 2400")
         }
+        if !(pdfTimeout.isFinite && pdfTimeout > 0 && pdfTimeout <= 3600) {
+            throw ValidationError("--pdf-timeout must be greater than 0 and at most 3600")
+        }
     }
 
-    private struct Written: Encodable { var note: String; var files: [String]; var changed: [String]? = nil }
+    /// The rasterizer for SVG and PNG (and for PDF pages that cannot be copied).
+    func rasterizer() throws -> PopplerRasterizer? {
+        switch pdfRenderer {
+        case .none: return nil
+        case .auto: return PopplerRasterizer.locate().map { PopplerRasterizer(executable: $0, timeout: pdfTimeout) }
+        case .poppler:
+            guard let tool = PopplerRasterizer.locate() else {
+                throw CLIError.failure("--pdf-renderer poppler: pdftoppm not found (install poppler-utils, or set SEMPERE_PDFTOPPM)")
+            }
+            return PopplerRasterizer(executable: tool, timeout: pdfTimeout)
+        }
+    }
+
+    /// Warnings for the items drawn as placeholders (`docs/cli.md`).
+    static func warnings(_ report: RenderReport, format: ExportFormat) -> [String] {
+        var out: [String] = []
+        let noRenderer = report.count(.noRasterizer)
+        if noRenderer > 0 {
+            out.append("\(noRenderer) PDF background page\(noRenderer == 1 ? "" : "s") drawn as placeholder\(noRenderer == 1 ? "" : "s"): "
+                + "install poppler (pdftoppm) to render them, or export as PDF, which keeps them exactly")
+        }
+        var groups: [(String, Int)] = []
+        for p in report.placeholders where p.reason != .noRasterizer {
+            let key = "\(p.kind.rawValue) item drawn as a placeholder (\(p.reason.description))"
+            if let i = groups.firstIndex(where: { $0.0 == key }) { groups[i].1 += 1 } else { groups.append((key, 1)) }
+        }
+        for (key, n) in groups { out.append(n == 1 ? key : "\(n) × \(key)") }
+        return out + report.warnings
+    }
+
+    private struct Written: Encodable {
+        var note: String
+        var files: [String]
+        var changed: [String]? = nil
+        /// Items drawn as placeholders (omitted when none).
+        var placeholders: Int? = nil
+    }
 
     func run() throws {
         let vault = try access.openVault(.required)
@@ -129,7 +191,12 @@ struct ExportCommand: ParsableCommand {
         }
         if states.isEmpty { throw CLIError.failure("no notes to export") }
 
-        let options = RenderOptions(paper: !noPaper)
+        let options = RenderOptions(paper: !noPaper, pdfRasterizer: try rasterizer())
+        var placeholders = 0
+        func warn(_ report: RenderReport, note: String) {
+            placeholders += report.placeholders.count
+            for w in Self.warnings(report, format: format) { printStderr("sempere: warning: \(note): \(w)") }
+        }
         let fm = FileManager.default
         func mkdir(_ path: String) throws {
             try fm.createDirectory(atPath: path, withIntermediateDirectories: true)
@@ -141,8 +208,10 @@ struct ExportCommand: ParsableCommand {
         }
 
         var written: [Written] = []
-        func report(_ s: NoteSummary, _ files: [String]) {
-            written.append(Written(note: s.id.uuidString.lowercased(), files: files))
+        func report(_ s: NoteSummary, _ files: [String], _ items: RenderReport) {
+            warn(items, note: String(s.id.uuidString.lowercased().prefix(8)))
+            written.append(Written(note: s.id.uuidString.lowercased(), files: files,
+                                   placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count))
             if !output.json { for f in files { output.info("Wrote \(f)") } }
         }
 
@@ -169,32 +238,39 @@ struct ExportCommand: ParsableCommand {
             output.info("\(r.results.count) note(s): \(counts.written) file(s) written, \(counts.unchanged) unchanged (PLAINTEXT in \(out))")
         } else if merge {
             try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path)
-            try write(try PDFWriter.render(notes: states.map(\.1), options: options), to: out)
-            written.append(Written(note: "*", files: [out]))
+            var items = RenderReport()
+            try write(try PDFWriter.render(notes: states.map(\.1), blobs: states.map { vault.blobSource(note: $0.0.id) },
+                                           options: options, report: &items), to: out)
+            warn(items, note: "merged")
+            written.append(Written(note: "*", files: [out], placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count))
             output.info("Wrote \(out) (\(states.count) note(s))")
         } else {
             if !singleFile { try mkdir(out) } else { try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path) }
             for (s, state) in states {
                 let stem = ExportName.stem(title: state.meta.title, noteId: s.id)
                 func path(_ name: String) -> String { URL(fileURLWithPath: out).appendingPathComponent(name).path }
+                var noteOptions = options
+                noteOptions.blobs = vault.blobSource(note: s.id)
+                var items = RenderReport()
                 do {
                     switch format {
                     case .pdf:
                         let file = singleFile ? out : path(stem + ".pdf")
-                        try write(try PDFWriter.render(note: state, options: options), to: file)
-                        report(s, [file])
+                        try write(try PDFWriter.render(note: state, options: noteOptions, report: &items), to: file)
+                        report(s, [file], items)
                     case .json:
                         let file = singleFile ? out : path(stem + ".json")
                         try write(try InkJSON.encoder().encode(state), to: file)
-                        report(s, [file])
+                        report(s, [file], items)
                     case .markdown, .html:
                         break
                     case .svg, .png:
                         let pages: [Data]
                         if format == .png {
-                            pages = try PNGWriter.render(note: state, options: options, png: PNGOptions(dpi: dpi))
+                            pages = try PNGWriter.render(note: state, options: noteOptions, png: PNGOptions(dpi: dpi),
+                                                         report: &items)
                         } else {
-                            pages = try SVGWriter.render(note: state, options: options).map { Data($0.utf8) }
+                            pages = try SVGWriter.render(note: state, options: noteOptions, report: &items).map { Data($0.utf8) }
                         }
                         let ext = format.rawValue
                         var files: [String] = []
@@ -205,7 +281,7 @@ struct ExportCommand: ParsableCommand {
                             try write(data, to: file)
                             files.append(file)
                         }
-                        report(s, files)
+                        report(s, files, items)
                     }
                 } catch let e as CLIError {
                     throw e
