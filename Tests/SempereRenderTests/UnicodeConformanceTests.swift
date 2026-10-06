@@ -90,4 +90,44 @@ final class UnicodeConformanceTests: XCTestCase {
         XCTAssertEqual(failures, 0)
         XCTAssertGreaterThan(checked, 400_000)
     }
+
+    /// Parses `× 0041 ÷ 0020 × ...` into code points and the boundaries
+    /// (index of the next scalar) where `÷` stands.
+    static func breakCase(_ line: Substring) -> (cps: [UInt32], breaks: [Int]) {
+        var cps: [UInt32] = [], breaks: [Int] = []
+        for token in line.split(separator: "#")[0].split(whereSeparator: { $0 == " " || $0 == "\t" }) {
+            if token == "÷" { breaks.append(cps.count) } else if token != "×", let c = UInt32(token, radix: 16) { cps.append(c) }
+        }
+        return (cps, breaks.filter { $0 > 0 })
+    }
+
+    func testLineBreakTest() throws {
+        var checked = 0, failures = 0
+        for line in try Self.lines("LineBreakTest.txt") {
+            let (cps, expected) = Self.breakCase(line)
+            let got = LineBreaker.opportunities(cps).map(\.index)
+            if got != expected {
+                failures += 1
+                if failures <= 15 { XCTFail("\(line.split(separator: "#")[0]) got \(got) expected \(expected)") }
+            }
+            checked += 1
+        }
+        XCTAssertEqual(failures, 0)
+        XCTAssertGreaterThan(checked, 10_000)
+    }
+
+    /// Grapheme clusters come from Swift's `Character` (UAX #29 in the
+    /// standard library); this checks it on the file's cases.
+    func testGraphemeBreakTest() throws {
+        var failures = 0
+        for line in try Self.lines("GraphemeBreakTest.txt") {
+            let (cps, expected) = Self.breakCase(line)
+            let got = GraphemeClusters.boundaries(cps)
+            if got != expected {
+                failures += 1
+                if failures <= 10 { XCTFail("\(line.split(separator: "#")[0]) got \(got) expected \(expected)") }
+            }
+        }
+        XCTAssertEqual(failures, 0)
+    }
 }

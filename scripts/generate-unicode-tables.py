@@ -149,6 +149,20 @@ def main():
                 ep[c] = "Y"
     parts.append(emit("extendedPictographic", "Extended_Pictographic", ep, ["N", "Y"]))
 
+    gcb = table(read("auxiliary/GraphemeBreakProperty.txt"), "Other", aliases="GCB")
+    parts.append(emit("graphemeBreak", "Grapheme_Cluster_Break (UAX #29)", gcb, ["XX"]))
+    incb = ["None"] * MAX
+    for line in read("DerivedCoreProperties.txt").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        f = [p.strip() for p in line.split(";")]
+        if len(f) == 3 and f[1] == "InCB":
+            cps = f[0].split("..")
+            for c in range(int(cps[0], 16), int(cps[-1], 16) + 1):
+                incb[c] = f[2]
+    parts.append(emit("indicConjunctBreak", "Indic_Conjunct_Break (UAX #29 GB9c)", incb, ["None"]))
+
     # Paired brackets (BD14, BD15) and mirrored glyphs (L4).
     pairs = []
     for line in read("BidiBrackets.txt").splitlines():
