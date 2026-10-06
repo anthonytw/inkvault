@@ -120,7 +120,7 @@ struct NoteListView: View {
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id),
                     recognized: model.sidebarSelection == .recentlyRecognized ? model.recognitionResults?.entry(for: note.id) : nil)
-                .modifier(NoteDragOut(note: note, enabled: Platform.isMac && model.phase == .unlocked
+                .modifier(NoteDragOut(note: note, enabled: model.phase == .unlocked
                                       && !model.placeholderNoteIDs.contains(note.id)))
                 // A placeholder's summary is empty: nothing to act on until it arrives
                 // (the model downloads a note before any edit anyway).
@@ -232,9 +232,12 @@ struct NoteListView: View {
     }
 }
 
-/// Drag a note out of the list to the Finder (or any app) as a PDF (Mac). The
-/// PDF is rendered when the drop asks for it (`AppModel.exportPDF`), not when
-/// the drag starts.
+/// Drag a note from the list. Dropped on a notebook in the sidebar (or on All
+/// Notes) it moves there, and so do the other ticked notes when it is one of
+/// several selected: its ids go as a payload that stays in this app
+/// (`DragPayload`). On the Mac it is also dragged out to the Finder (or any
+/// app) as a PDF, rendered when the drop asks for it (`AppModel.exportPDF`),
+/// not when the drag starts.
 private struct NoteDragOut: ViewModifier {
     @Environment(AppModel.self) private var model
     let note: NoteSummary
@@ -249,23 +252,28 @@ private struct NoteDragOut: ViewModifier {
     }
 
     private func provider() -> NSItemProvider {
-        let provider = NSItemProvider()
+        // The ticked notes go together when this one is among them.
+        let ids = model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
+        let payload = DragPayload.notes(ids)
+        model.draggedPayload = note.deleted ? nil : payload   // notes in Recently Deleted are not moved by a drop
         let id = note.id
-        let model = model
-        provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
-                                            visibility: .all) { completion in
-            let progress = Progress(totalUnitCount: 1)
-            Task { @MainActor in
-                do {
-                    completion(try await model.exportPDF(noteID: id), false, nil)
-                } catch {
-                    completion(nil, false, error)
+        let exporter = model
+        return payload.provider { provider in
+            guard Platform.isMac else { return }
+            provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
+                                                visibility: .all) { completion in
+                let progress = Progress(totalUnitCount: 1)
+                Task { @MainActor in
+                    do {
+                        completion(try await exporter.exportPDF(noteID: id), false, nil)
+                    } catch {
+                        completion(nil, false, error)
+                    }
+                    progress.completedUnitCount = 1
                 }
-                progress.completedUnitCount = 1
+                return progress
             }
-            return progress
         }
-        return provider
     }
 }
 
