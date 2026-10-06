@@ -1,5 +1,6 @@
 import Foundation
 import Sempere
+import SempereRender
 
 // Typed text of a Notability note (docs/import-notability.md "Typed text",
 // docs/attachments.md §11, task D3): `richText.attributedString`, read
@@ -47,18 +48,24 @@ extension NotabilityNote {
 
     /// Reads `richText.attributedString`.
     static func typedText(_ a: KeyedArchive, _ node: KeyedArchive.Node) -> TypedText {
+        var total = MediaObject.maxValuesPerNote
+        return typedText(a, node, total: &total)
+    }
+
+    /// Reads `richText.attributedString`, the walks of its style entries counted against `total`.
+    static func typedText(_ a: KeyedArchive, _ node: KeyedArchive.Node, total: inout Int) -> TypedText {
         // A standard NSAttributedString.
         if let cls = node.className, cls.hasSuffix("AttributedString") {
-            return nsAttributedString(a, node)
+            return nsAttributedString(a, node, budget: &total)
         }
         let string = (try? a.field(node, "stringKey").string) ?? nil ?? ""
         var out = TypedText(string: string)
-        guard let sub = try? a.elements(a.field(node, "subRangesKey")) else { return out }
+        guard case .array(let sub)? = try? a.field(node, "subRangesKey") else { return out }
         var keys = Set<String>()
-        for entry in sub.prefix(maxTypedRuns) {
-            var leaves: [(path: [String], node: KeyedArchive.Node)] = []
-            var budget = MediaObject.maxValues
-            MediaObject.collect(a, entry, path: [], depth: 0, budget: &budget, into: &leaves)
+        for raw in sub.prefix(maxTypedRuns) {
+            guard total > 0 else { break }
+            guard let entry = try? a.node(raw) else { continue }
+            let leaves = MediaObject.leaves(a, entry, total: &total)
             guard let (run, used) = run(from: leaves) else { continue }
             out.runs.append(run)
             keys.formUnion(used)
@@ -127,15 +134,13 @@ extension NotabilityNote {
     /// `NSAttributes` dictionary for the whole string or an array of them
     /// indexed by `NSAttributeInfo` (varint pairs: run length in UTF-16 units,
     /// attribute index).
-    static func nsAttributedString(_ a: KeyedArchive, _ node: KeyedArchive.Node) -> TypedText {
+    static func nsAttributedString(_ a: KeyedArchive, _ node: KeyedArchive.Node, budget: inout Int) -> TypedText {
         let string = (try? a.field(node, "NSString").string) ?? nil ?? ""
         var out = TypedText(string: string, source: "NSAttributedString")
         let total = string.utf16.count
         guard let attrs = try? a.field(node, "NSAttributes") else { return out }
         func attributes(_ n: KeyedArchive.Node) -> TypedRun {
-            var leaves: [(path: [String], node: KeyedArchive.Node)] = []
-            var budget = MediaObject.maxValues
-            MediaObject.collect(a, n, path: [], depth: 0, budget: &budget, into: &leaves)
+            let leaves = MediaObject.leaves(a, n, total: &budget)
             var r = TypedRun(location: 0, length: 0)
             let font = leaves.filter { $0.path.first == "NSFont" }
             r.font = font.first { $0.path.last == "NSName" }?.node.string
@@ -147,8 +152,13 @@ extension NotabilityNote {
             r.strikethrough = (leaves.first { $0.path.first == "NSStrikethrough" }?.node.int ?? 0) != 0
             return r
         }
-        if case .array = attrs {
-            let dicts = ((try? a.elements(attrs)) ?? []).prefix(maxTypedRuns).map(attributes)
+        if case .array(let rawAttrs) = attrs {
+            var dicts: [TypedRun] = []
+            for raw in rawAttrs.prefix(maxTypedRuns) {
+                // Past the budget an entry reads as no style, keeping the indices of the rest.
+                dicts.append(budget > 0 ? ((try? a.node(raw)).map(attributes) ?? TypedRun(location: 0, length: 0))
+                                       : TypedRun(location: 0, length: 0))
+            }
             let info = [UInt8]((try? a.field(node, "NSAttributeInfo").data) ?? nil ?? Data())
             var pos = 0, loc = 0
             func varint() -> Int? {
@@ -278,7 +288,8 @@ extension NotabilityAttachments {
             blocks[blocks.count - 1].append(e)
         }
         var y = inset
-        var placed = 0, characters = 0
+        var placed = 0, characters = 0, beyond = 0
+        let maxHeight = RenderLimits.maxExtent / max(1, NotabilityImporter.letterWidth / w) / 4
         for block in blocks where block.contains(where: { !$0.0.properties.isWhitespace }) {
             for chunk in Self.chunks(block) {
                 guard placements.count < Self.maxItems else { dropped.typedTextCharacters += chunk.count; continue }
@@ -291,7 +302,15 @@ extension NotabilityAttachments {
                 let lines = content.string.split(separator: "\n", omittingEmptySubsequences: false).reduce(0.0) { n, line in
                     n + max(1, (Double(line.count) * 0.5 * maxSize / max(lineWidth, 1)).rounded(.up))
                 }
-                let h = max(lines * 1.2 * maxSize, 1)
+                // Capped: a huge size on narrow paper would otherwise estimate a box taller than
+                // the renderer's extent (format.md §8.4), and stacking such boxes a page millions
+                // of sheets long. Renderers never clip text, so the cap only shortens the gap below.
+                let h = min(max(lines * 1.2 * maxSize, 1), maxHeight)
+                guard y + h <= NotabilityNote.maxCoordinate else {
+                    dropped.typedTextCharacters += content.string.count
+                    beyond += 1
+                    continue
+                }
                 placements.append(Placement(content: .text(content), layer: .content,
                                             frame: Rect(x: inset, y: y, w: lineWidth, h: h), rotation: nil,
                                             tag: "text:\(placed)"))
@@ -303,6 +322,9 @@ extension NotabilityAttachments {
         }
         imported.textItems += placed
         imported.textCharacters += characters
+        if beyond > 0 {
+            warnings.append("typed text: \(beyond) block(s) not imported: stacked below \(Int(NotabilityNote.maxCoordinate)) units")
+        }
         if placed > 0 {
             warnings.append("typed text: \(placed) text item(s) stacked from the top of the page at estimated heights "
                             + "(styles from \(typed.source ?? "no style fields"); default size \(Self.defaultTextSize) where none)")
@@ -374,6 +396,7 @@ extension NotabilityAttachments {
         flush()
         guard !out.isEmpty else { return (nil, cut) }
         let content = TextContent(font: generic(box?.font), size: size, color: color, runs: out)
-        return (content.limitViolation == nil ? content : nil, cut)
+        // Normalisation can lengthen text past the margin: such a chunk is reported, not stored.
+        return content.limitViolation == nil ? (content, cut) : (nil, cut + content.string.count)
     }
 }

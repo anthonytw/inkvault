@@ -500,7 +500,10 @@ bundles do not contain the PDF, so their PDF pages stay dropped.
 
 **Images (D2).** Notability's field names for `mediaObjects` are not known
 (unknown 1 of `docs/attachments.md` §11), so `MediaObject.read` walks each
-object (6 levels, 4 096 values at most) and takes the shallowest field of each
+object (6 levels, 4 096 values at most; a dictionary costs its field count,
+and every walk of one note, media objects, typed text styles and recording
+entries together, shares a budget of 262 144 values, since an archive can
+list one shared object any number of times) and takes the shallowest field of each
 candidate name, case-insensitively:
 
 | Part | Candidate fields | Value |
@@ -519,9 +522,12 @@ item's `orientation`, `pixelSize` is after it) unless `--keep-image-metadata`;
 HEIC is stored as is (sized from its `ispe`, metadata not stripped, with a
 warning); GIF, TIFF, WebP, BMP and AVIF are left out, and so is an image over
 100 megapixels (`format.md` §8.4). At most 2 GiB of PDFs and images is held for
-one note while it is imported (a package entry may be 1 GiB, and a small zip
-can hold many): past that an attachment is left out with a warning. A media object with no
-file, no frame, a frame that is not a finite box of at least 1 × 1 unit, or
+one note while it is imported, recordings included (a package entry may be
+1 GiB, and a small zip can hold many): past that an attachment is left out with
+a warning. At most 1 000 media objects are read. A media object with no
+file, no frame, a frame that is not a finite box of at least 1 × 1 unit or
+that, rotated and scaled, would lie beyond the renderer's extent (or be over
+a quarter of it tall, `format.md` §8.4), or
 any class that is not an image is counted in `dropped.media`; its warning
 names its class and top-level field names, and every placed image's warning
 names the fields its geometry came from, so a run on the reference backup
@@ -543,7 +549,9 @@ W / 38.4` wide, without `breaks` (renderers break the lines). Heights are an
 estimate (1.2 × size per line, wrapping at half an em per character), since
 Notability's margins and line metrics are not known and Notability reflows
 the ink around its text; text is never clipped, so a wrong height only moves
-the next block. Per block, the style covering the most characters gives the
+the next block. An estimate is capped at a quarter of the renderer's extent,
+and blocks stacked below 1 000 000 units are left out (counted in
+`dropped.typedTextCharacters`, with a warning). Per block, the style covering the most characters gives the
 box's font (`Helvetica*`, `SF*`, `Avenir*` and anything unknown → `sans`;
 `Times*`, `Georgia*`, `NewYork*`, `Palatino*`, … → `serif`; `Courier*`,
 `Menlo*`, `Monaco*`, `SFMono*` → `mono`), size (16 document units where
@@ -557,8 +565,8 @@ marker) are removed. A block over the per-item limits (65 536 bytes, 1 000
 runs, `format.md` §8.4) is split at line breaks; what still does not fit is
 counted in `dropped.typedTextCharacters`. Sizes scale with the ink. A media
 object whose class name contains `Text` becomes a `text` item in its own
-frame, with its longest `string`/`text`/`NSString` value, in the default
-style.
+frame (held to the extent like an image's), with its longest
+`string`/`text`/`NSString` value, in the default style.
 
 **Recordings (D4).** `Recordings/library.plist`'s `recordings` entries are
 read for candidate fields: a string naming a file in `Recordings/`, a title
@@ -567,9 +575,11 @@ name holds `date`, `start` or `created`) and a duration (`duration`,
 `length`). Entries that name no file are paired with the unclaimed audio
 files in name order when the counts agree (with a warning); audio files
 without any library are imported without a title. The audio is stored as is
-(`format.md` §8.3.1 allows importers other types): `audio/mp4` (duration
-from `mvhd`, codec, channels and rate from the `mp4a` entry), `audio/x-caf`
-(`desc`, `pakt`), `audio/wav`, `audio/aiff`, `audio/mpeg`; anything else
+(`format.md` §8.3.1 allows importers other types): `audio/mp4` (read by
+`AudioProbe`, as `sempere attach recording` does: duration, codec, channels and
+rate; a file it cannot read keeps its bytes without them), `audio/x-caf`
+(`desc`, `pakt`; a rate below 1 Hz or a duration over 10⁷ s is not believed),
+`audio/wav`, `audio/aiff`, `audio/mpeg`; anything else
 is dropped. Without a start date the note's creation date is used.
 `eventTokens` (4 bytes per curve, `ffffffff` none) are read as **milliseconds
 from the start of the recording** — a hypothesis (unknown 7 of

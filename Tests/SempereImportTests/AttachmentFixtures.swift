@@ -137,7 +137,9 @@ enum AttachmentFixtures {
         let mp4a = box("mp4a", [UInt8](repeating: 0, count: 6) + [0, 1] + [UInt8](repeating: 0, count: 8)
             + be(1, 2) + be(16, 2) + [0, 0, 0, 0] + be(48000 << 16, 4))
         let stsd = box("stsd", [0, 0, 0, 0] + be(1, 4) + mp4a)
-        let trak = box("trak", box("mdia", box("minf", box("stbl", stsd))))
+        // A sound track: `AudioProbe` reads the first trak whose handler is `soun`.
+        let hdlr = box("hdlr", [UInt8](repeating: 0, count: 8) + Array("soun".utf8) + [UInt8](repeating: 0, count: 13))
+        let trak = box("trak", box("mdia", hdlr + box("minf", box("stbl", stsd))))
         return Data(box("ftyp", Array("M4A ".utf8) + [0, 0, 0, 0] + Array("M4A mp42isom".utf8))
             + box("moov", mvhd + trak) + box("mdat", [1, 2, 3, 4]))
     }

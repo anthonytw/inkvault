@@ -38,12 +38,15 @@ extension NotabilityNote {
         case .array(let a)?: raw = a.enumerated().map { (String($0.offset), $0.element) }
         default: return []
         }
+        var total = MediaObject.maxValuesPerNote
         return raw.prefix(maxRecordingEntries).map { key, value in
             var leaves: [(path: [String], value: PlistValue)] = []
-            var budget = MediaObject.maxValues
+            let start = min(MediaObject.maxValues, max(total, 0))
+            var budget = start
             flatten(value, path: [], depth: 0, budget: &budget, into: &leaves)
+            total -= start - budget
             var e = RecordingEntry(key: key)
-            if case .dict(let d) = value { e.fieldNames = d.keys.sorted() }
+            if case .dict(let d) = value, d.count <= MediaObject.maxValues { e.fieldNames = d.keys.sorted() }
             func first<T>(_ match: (String) -> Bool, _ get: (PlistValue) -> T?) -> T? {
                 leaves.filter { l in l.path.last.map { match($0.lowercased()) } ?? false }
                     .min { $0.path.count < $1.path.count }
@@ -69,11 +72,15 @@ extension NotabilityNote {
         switch v {
         case .dict(let d):
             guard depth < MediaObject.maxDepth else { return }
+            // A dictionary costs its size (sorted at every visit), as in `MediaObject.collect`.
+            guard d.count <= budget else { budget = 0; return }
+            budget -= d.count
             for (k, x) in d.sorted(by: { $0.key < $1.key }) {
                 flatten(x, path: path + [k], depth: depth + 1, budget: &budget, into: &out)
             }
         case .array(let a):
             guard depth < MediaObject.maxDepth else { return }
+            budget -= min(a.count, MediaObject.maxArray, budget)
             for (i, x) in a.prefix(MediaObject.maxArray).enumerated() {
                 flatten(x, path: path + ["[\(i)]"], depth: depth + 1, budget: &budget, into: &out)
             }
@@ -98,8 +105,9 @@ extension NotabilityNote {
 
 /// What an audio file is, from its bytes: the media type to store and what
 /// its container says about the audio (informational fields of a recording,
-/// format.md §8.3.1). Every length is checked (format.md §9).
-public struct AudioInfo: Hashable, Sendable {
+/// format.md §8.3.1). Every length is checked (format.md §9). MPEG-4 files are
+/// read by `AudioProbe` (the reader `sempere attach recording` uses).
+public struct AudioContainer: Hashable, Sendable {
     /// `audio/mp4`, `audio/x-caf`, `audio/wav`, `audio/aiff` or `audio/mpeg`.
     public var type: String
     public var duration: Double?
@@ -107,77 +115,46 @@ public struct AudioInfo: Hashable, Sendable {
     public var sampleRate: Int?
     public var channels: Int?
 
-    /// Boxes or chunks visited at most.
+    /// Chunks visited at most.
     static let maxBoxes = 10_000
+    /// Longest duration taken from a container, seconds (as `AudioProbe` and
+    /// the library's `duration` are bounded): anything longer is not believed.
+    static let maxDuration = 1e7
 
-    /// Nil when the bytes are no audio container this reader knows.
-    public static func read(_ data: Data) -> AudioInfo? {
-        let d = [UInt8](data)
-        func at(_ i: Int, _ s: String) -> Bool { d.count >= i + s.utf8.count && Array(d[i..<(i + s.utf8.count)]) == Array(s.utf8) }
-        if at(4, "ftyp") { return mp4(d) }
-        if at(0, "caff") { return caf(d) }
-        if at(0, "RIFF"), at(8, "WAVE") { return AudioInfo(type: "audio/wav", codec: "lpcm") }
-        if at(0, "FORM"), at(8, "AIFF") || at(8, "AIFC") { return AudioInfo(type: "audio/aiff") }
-        if at(0, "ID3") || (d.count >= 2 && d[0] == 0xFF && d[1] & 0xE0 == 0xE0) { return AudioInfo(type: "audio/mpeg", codec: "mp3") }
+    /// Nil when the bytes are no audio container this reader knows. The bytes
+    /// are read in place, never copied (a recording may be up to 1 GiB).
+    public static func read(_ data: Data) -> AudioContainer? {
+        func at(_ i: Int, _ s: String) -> Bool {
+            data.count >= i + s.utf8.count && data.dropFirst(i).prefix(s.utf8.count).elementsEqual(s.utf8)
+        }
+        if at(4, "ftyp") {
+            var c = AudioContainer(type: "audio/mp4")
+            // A file AudioProbe cannot read (no moov yet, say) keeps its bytes, without the details.
+            if let info = try? AudioProbe.probe(data) {
+                c.duration = info.duration.flatMap { $0.isFinite && $0 >= 0 && $0 < maxDuration ? $0 : nil }
+                c.codec = info.codec; c.sampleRate = info.sampleRate; c.channels = info.channels
+            }
+            return c
+        }
+        if at(0, "caff") { return data.withUnsafeBytes { caf($0.bindMemory(to: UInt8.self)) } }
+        if at(0, "RIFF"), at(8, "WAVE") { return AudioContainer(type: "audio/wav", codec: "lpcm") }
+        if at(0, "FORM"), at(8, "AIFF") || at(8, "AIFC") { return AudioContainer(type: "audio/aiff") }
+        let b0 = data.first ?? 0, b1 = data.dropFirst().first ?? 0
+        if at(0, "ID3") || (data.count >= 2 && b0 == 0xFF && b1 & 0xE0 == 0xE0) {
+            return AudioContainer(type: "audio/mpeg", codec: "mp3")
+        }
         return nil
     }
 
-    static func be(_ d: [UInt8], _ i: Int, _ n: Int) -> UInt64? {
-        guard i >= 0, n <= 8, i + n <= d.count else { return nil }
+    static func be(_ d: UnsafeBufferPointer<UInt8>, _ i: Int, _ n: Int) -> UInt64? {
+        guard i >= 0, n <= 8, i <= d.count - n else { return nil }
         return d[i..<(i + n)].reduce(0) { $0 << 8 | UInt64($1) }
-    }
-
-    /// MPEG-4 audio: `moov/mvhd` for the duration, the first `mp4a` sample
-    /// entry for channels and sample rate.
-    static func mp4(_ d: [UInt8]) -> AudioInfo? {
-        var info = AudioInfo(type: "audio/mp4")
-        var visited = 0
-        func walk(_ range: Range<Int>, depth: Int) {
-            var pos = range.lowerBound
-            while pos + 8 <= range.upperBound, visited < maxBoxes, depth < 8 {
-                visited += 1
-                guard var size = be(d, pos, 4).map(Int.init) else { return }
-                let type = String(decoding: d[(pos + 4)..<(pos + 8)], as: UTF8.self)
-                var header = 8
-                if size == 1 {
-                    guard let big = be(d, pos + 8, 8), big <= UInt64(range.upperBound - pos) else { return }
-                    size = Int(big); header = 16
-                } else if size == 0 { size = range.upperBound - pos }
-                guard size >= header, pos + size <= range.upperBound else { return }
-                let body = (pos + header)..<(pos + size)
-                switch type {
-                case "moov", "trak", "mdia", "minf", "stbl": walk(body, depth: depth + 1)
-                case "mvhd":
-                    let v1 = d[body.lowerBound] == 1
-                    let scale = be(d, body.lowerBound + (v1 ? 20 : 12), 4)
-                    let duration = be(d, body.lowerBound + (v1 ? 24 : 16), v1 ? 8 : 4)
-                    if let scale, scale > 0, let duration, duration < UInt64(1) << 52 {
-                        let s = Double(duration) / Double(scale)
-                        if s.isFinite, s < 1e7 { info.duration = s }
-                    }
-                case "stsd":
-                    // Full box, entry count, then sample entries; an audio
-                    // entry has channels at +24 and a 16.16 rate at +32.
-                    let entry = body.lowerBound + 8
-                    if entry + 8 <= body.upperBound, info.codec == nil {
-                        let name = String(decoding: d[(entry + 4)..<(entry + 8)], as: UTF8.self)
-                        info.codec = name == "mp4a" ? "aac" : (name == "alac" ? "alac" : name.trimmingCharacters(in: .whitespaces))
-                        if let ch = be(d, entry + 24, 2), (1...64).contains(ch) { info.channels = Int(ch) }
-                        if let rate = be(d, entry + 32, 4), rate >> 16 > 0 { info.sampleRate = Int(rate >> 16) }
-                    }
-                default: break
-                }
-                pos += size
-            }
-        }
-        walk(0..<d.count, depth: 0)
-        return info
     }
 
     /// Core Audio Format: `desc` (rate, format, channels) and `pakt` (valid
     /// frames) or the `data` size for a constant packet size.
-    static func caf(_ d: [UInt8]) -> AudioInfo? {
-        var info = AudioInfo(type: "audio/x-caf")
+    static func caf(_ d: UnsafeBufferPointer<UInt8>) -> AudioContainer? {
+        var info = AudioContainer(type: "audio/x-caf")
         var rate: Double?, bytesPerPacket = 0, framesPerPacket = 0, validFrames: UInt64?, dataBytes: Int?
         var pos = 8, visited = 0
         while pos + 12 <= d.count, visited < maxBoxes {
@@ -191,7 +168,8 @@ public struct AudioInfo: Hashable, Sendable {
             case "desc" where end - body >= 32:
                 if let bits = be(d, body, 8) {
                     let r = Double(bitPattern: bits)
-                    if r.isFinite, r > 0, r < 1e7 { rate = r; info.sampleRate = Int(r) }
+                    // At least 1 Hz: a smaller rate would make any frame count an absurd duration.
+                    if r.isFinite, r >= 1, r < 1e7 { rate = r; info.sampleRate = Int(r) }
                 }
                 let format = String(decoding: d[(body + 8)..<(body + 12)], as: UTF8.self)
                 info.codec = ["aac ": "aac", "alac": "alac", "lpcm": "lpcm", "ima4": "ima4", "opus": "opus"][format]
@@ -208,11 +186,13 @@ public struct AudioInfo: Hashable, Sendable {
             pos = end
         }
         if let rate {
+            var seconds: Double?
             if let v = validFrames, v < UInt64(1) << 52 {
-                info.duration = Double(v) / rate
+                seconds = Double(v) / rate
             } else if let n = dataBytes, n > 0, bytesPerPacket > 0, framesPerPacket > 0 {
-                info.duration = Double(n / bytesPerPacket) * Double(framesPerPacket) / rate
+                seconds = Double(n / bytesPerPacket) * Double(framesPerPacket) / rate
             }
+            info.duration = seconds.flatMap { $0.isFinite && $0 < maxDuration ? $0 : nil }
         }
         return info
     }
@@ -234,9 +214,10 @@ extension NotabilityAttachments {
         var pairs: [(entry: NotabilityNote.RecordingEntry?, file: String)] = []
         var claimed = Set<String>()
         var unmatched: [NotabilityNote.RecordingEntry] = []
+        let index = FileIndex(files)
         for e in entries {
             let m = NotabilityNote.MediaObject(className: "recording", strings: e.strings)
-            if let f = Self.file(for: m, in: files), !claimed.contains(f) {
+            if let f = Self.file(for: m, in: index), !claimed.contains(f) {
                 pairs.append((e, f)); claimed.insert(f)
             } else {
                 unmatched.append(e)
@@ -258,13 +239,13 @@ extension NotabilityAttachments {
         }
         for (n, pair) in pairs.enumerated() {
             let label = "recording \(pair.entry?.key ?? String(n + 1)) (\(pair.file))"
-            guard recordings.count < 1_000 else { dropped.recordings += 1; continue }
+            guard recordings.count < Self.maxRecordings else { dropped.recordings += 1; continue }
             let data: Data
             do { data = try pkg.read(prefix + pair.file) } catch {
                 dropped.recordings += 1
                 warnings.append("\(label): cannot be read (\(NotabilityImporter.describe(error)))"); continue
             }
-            guard let info = AudioInfo.read(data) else {
+            guard let info = AudioContainer.read(data) else {
                 dropped.recordings += 1
                 warnings.append("\(label): not an audio container this importer knows (MPEG-4, CAF, WAV, AIFF, MP3)"); continue
             }
@@ -274,7 +255,14 @@ extension NotabilityAttachments {
                 warnings.append("\(label): no start date in the library; the note's creation date is used")
             }
             let ref = BlobRef(content: data, type: info.type)
-            if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, data) }
+            if blobs[ref.sha256] == nil {   // the same bytes are held once
+                guard hold(data.count) else {
+                    dropped.recordings += 1
+                    warnings.append("\(label): over the \(heldLimit >> 20) MiB of attachments read for one note; not imported")
+                    continue
+                }
+                blobs[ref.sha256] = (ref, data)
+            }
             let duration = (pair.entry?.duration ?? info.duration).map { ($0 * 1000).rounded() / 1000 }
             recordings.append(Recording(blob: ref, started: started ?? Date(timeIntervalSince1970: 0), duration: duration,
                                         codec: info.codec, sampleRate: info.sampleRate, channels: info.channels,

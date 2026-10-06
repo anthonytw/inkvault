@@ -292,8 +292,10 @@ extension NotabilityNote {
         let layout = try session.elements(session.field(richText, "pageLayoutArray")).map { try pdfLayoutEntry(session, $0) }
         let pdfCount = pdfFiles.count
         let pdfPageCount = layout.filter(\.isPDF).count
-        let media = try session.elements(session.field(richText, "mediaObjects"))
-        let mediaCount = media.count
+        // Counted from the references; decoded only up to what the attachments read.
+        let mediaRefs: [PlistValue]
+        if case .array(let refs) = try session.field(richText, "mediaObjects") { mediaRefs = refs } else { mediaRefs = [] }
+        let mediaCount = mediaRefs.count
         let library = try part("Recordings/library.plist")
         let recordings = try parseRecordingCount(library)
         let recordingEntries = try parseRecordingEntries(library)
@@ -330,9 +332,12 @@ extension NotabilityNote {
             n + ((try? session.elements(session.field(f, "highlights")))?.count ?? 0)
         }
         note.pdfLayout = layout
-        note.mediaObjects = media.map { MediaObject.read(session, $0) }
+        var walk = MediaObject.maxValuesPerNote
+        note.mediaObjects = try mediaRefs.prefix(NotabilityAttachments.maxMediaObjects).map {
+            MediaObject.read(session, try session.node($0), total: &walk)
+        }
         note.recordingEntries = recordingEntries
-        note.typed = typedText(session, try session.field(richText, "attributedString"))
+        note.typed = typedText(session, try session.field(richText, "attributedString"), total: &walk)
         if note.typed.string.isEmpty { note.typed.string = typed }
         if note.typedText.isEmpty { note.typedText = note.typed.string }
         return note

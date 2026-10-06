@@ -238,7 +238,7 @@ final class ImportFuzzTests: XCTestCase {
         let m4a = AttachmentFixtures.m4a(seconds: 5), caf = AttachmentFixtures.caf(seconds: 1)
         assertClean(Fuzz.run("text-recordings", seeds: [session, ns, library, m4a, caf], quick: 300, maxSize: 128 << 10) { input in
             Self.typed {
-                _ = AudioInfo.read(input)
+                _ = AudioContainer.read(input)
                 let variants: [(Data, Data, Data)] = [(input, library, m4a), (session, input, m4a), (session, library, input)]
                 for (s, l, audio) in variants {
                     let zip = AttachmentFixtures.package(session: s, extra: [("Recordings/library.plist", l), ("Recordings/a.m4a", audio)])

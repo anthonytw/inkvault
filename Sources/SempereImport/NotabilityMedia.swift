@@ -73,6 +73,11 @@ extension NotabilityNote {
         static let maxValues = 4096
         /// Elements read per nested array.
         static let maxArray = 64
+        /// Values visited by all schema-less walks of one note together (media
+        /// objects, typed text styles, recording entries). An archive can list
+        /// one shared object any number of times, so a budget per object alone
+        /// would let a small file cost (objects × `maxValues`).
+        static let maxValuesPerNote = 1 << 18
 
         /// Candidate field names (compared case-insensitively with the last
         /// key of a path that is not an `NS.` key) for each part of the geometry.
@@ -89,11 +94,9 @@ extension NotabilityNote {
                                             "croppingrect", "cropbounds"]
         static let transformKeys: Set<String> = ["transform", "affinetransform", "contenttransform"]
 
-        /// Reads one media object.
-        static func read(_ a: KeyedArchive, _ node: KeyedArchive.Node) -> MediaObject {
-            var leaves: [(path: [String], node: KeyedArchive.Node)] = []
-            var budget = maxValues
-            collect(a, node, path: [], depth: 0, budget: &budget, into: &leaves)
+        /// Reads one media object, its walk counted against `total`.
+        static func read(_ a: KeyedArchive, _ node: KeyedArchive.Node, total: inout Int) -> MediaObject {
+            let leaves = Self.leaves(a, node, total: &total)
             var m = MediaObject(className: node.className ?? "dictionary", fieldNames: topLevelKeys(node))
             for l in leaves {
                 if case .string(let s) = l.node {
@@ -104,10 +107,27 @@ extension NotabilityNote {
             return m
         }
 
+        /// Reads one media object on a budget of its own (tests).
+        static func read(_ a: KeyedArchive, _ node: KeyedArchive.Node) -> MediaObject {
+            var total = maxValues
+            return read(a, node, total: &total)
+        }
+
+        /// The leaves under `n` (at most `maxValues`), the walk's cost taken from `total`.
+        static func leaves(_ a: KeyedArchive, _ n: KeyedArchive.Node,
+                           total: inout Int) -> [(path: [String], node: KeyedArchive.Node)] {
+            let start = min(maxValues, max(total, 0))
+            var budget = start
+            var out: [(path: [String], node: KeyedArchive.Node)] = []
+            collect(a, n, path: [], depth: 0, budget: &budget, into: &out)
+            total -= start - budget
+            return out
+        }
+
         static func topLevelKeys(_ n: KeyedArchive.Node) -> [String] {
             switch n {
-            case .object(_, let f): return f.keys.sorted()
-            case .dict(let d): return d.keys.sorted()
+            case .object(_, let f) where f.count <= maxValues: return f.keys.sorted()
+            case .dict(let d) where d.count <= maxValues: return d.keys.sorted()
             default: return []
             }
         }
@@ -116,19 +136,24 @@ extension NotabilityNote {
                             into out: inout [(path: [String], node: KeyedArchive.Node)]) {
             guard budget > 0 else { return }
             budget -= 1
-            func children(_ pairs: [(String, PlistValue)]) {
+            // A container costs its size (copied and sorted at every visit): one larger
+            // than what is left ends the walk.
+            func children(_ fields: [String: PlistValue]) {
                 guard depth < maxDepth else { return }
-                for (k, v) in pairs.sorted(by: { $0.0 < $1.0 }) {
+                guard fields.count <= budget else { budget = 0; return }
+                budget -= fields.count
+                for (k, v) in fields.sorted(by: { $0.key < $1.key }) {
                     guard budget > 0 else { return }
                     guard let child = try? a.node(v) else { continue }
                     collect(a, child, path: path + [k], depth: depth + 1, budget: &budget, into: &out)
                 }
             }
             switch n {
-            case .object(_, let f): children(f.map { ($0.key, $0.value) })
-            case .dict(let d): children(d.map { ($0.key, $0.value) })
+            case .object(_, let f): children(f)
+            case .dict(let d): children(d)
             case .array(let items):
                 guard depth < maxDepth else { return }
+                budget -= min(items.count, maxArray, budget)
                 for (i, v) in items.prefix(maxArray).enumerated() {
                     guard budget > 0 else { return }
                     guard let child = try? a.node(v) else { continue }

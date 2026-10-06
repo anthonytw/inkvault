@@ -240,13 +240,13 @@ final class NotabilityTextAudioTests: XCTestCase {
         XCTAssertTrue(NotabilityImporter.convert(note).recordings.isEmpty)
     }
 
-    func testAudioInfo() {
-        XCTAssertNil(AudioInfo.read(Data("hello".utf8)))
-        XCTAssertEqual(AudioInfo.read(Data("RIFF\0\0\0\0WAVEfmt ".utf8))?.type, "audio/wav")
-        let m4a = AudioInfo.read(AttachmentFixtures.m4a(seconds: 3))
+    func testAudioContainer() {
+        XCTAssertNil(AudioContainer.read(Data("hello".utf8)))
+        XCTAssertEqual(AudioContainer.read(Data("RIFF\0\0\0\0WAVEfmt ".utf8))?.type, "audio/wav")
+        let m4a = AudioContainer.read(AttachmentFixtures.m4a(seconds: 3))
         XCTAssertEqual(m4a?.duration, 3)
         // Truncated containers read without a crash.
         let full = [UInt8](AttachmentFixtures.m4a(seconds: 3)) + [UInt8](AttachmentFixtures.caf(seconds: 3))
-        for n in stride(from: 0, to: full.count, by: 7) { _ = AudioInfo.read(Data(full[0..<n])) }
+        for n in stride(from: 0, to: full.count, by: 7) { _ = AudioContainer.read(Data(full[0..<n])) }
     }
 }

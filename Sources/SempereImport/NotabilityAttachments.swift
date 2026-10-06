@@ -80,11 +80,13 @@ public struct NotabilityAttachments: Sendable {
     public static let maxItems = 10_000
     /// Media objects examined at most (each is a bounded walk; the samples hold a few).
     public static let maxMediaObjects = 1_000
-    /// Most bytes of PDFs and prepared images held at once for one note. Each
+    /// Most bytes of PDFs, prepared images and recordings held at once for one note. Each
     /// package entry is capped at 1 GiB, but a small zip can hold many large,
     /// highly compressible entries: past this budget an attachment is left
     /// out (and reported) instead of held in memory with the rest.
     public static let maxHeldBytes = 2 << 30
+    /// Most recordings of one note (format.md §8.4).
+    public static let maxRecordings = 1_000
 
     /// Bytes held in `blobs` and in prepared images (`maxHeldBytes`).
     var heldBytes = 0
@@ -319,9 +321,22 @@ public struct NotabilityAttachments: Sendable {
     /// The package file a media object names: a string value equal to a
     /// file's relative path, or a path ending in it, or with its file name.
     static func file(for m: NotabilityNote.MediaObject, in files: [String]) -> String? {
-        let byPath = Set(files)
+        file(for: m, in: FileIndex(files))
+    }
+
+    /// The files a media object or recording can name, indexed once per note:
+    /// built per object, it cost (objects × files).
+    struct FileIndex {
+        var byPath: Set<String>
         var byName: [String: String] = [:]
-        for f in files { let n = f.split(separator: "/").last.map(String.init) ?? f; if byName[n] == nil { byName[n] = f } }
+        init(_ files: [String]) {
+            byPath = Set(files)
+            for f in files { let n = f.split(separator: "/").last.map(String.init) ?? f; if byName[n] == nil { byName[n] = f } }
+        }
+    }
+
+    static func file(for m: NotabilityNote.MediaObject, in index: FileIndex) -> String? {
+        let byPath = index.byPath, byName = index.byName
         // Work grows with the strings' length, not with strings × files.
         for s in m.strings.prefix(256) where !s.isEmpty && s.utf8.count <= 1024 {
             let parts = s.split(separator: "/", omittingEmptySubsequences: true)
@@ -339,8 +354,12 @@ public struct NotabilityAttachments: Sendable {
     mutating func resolveImages(_ note: NotabilityNote, _ pkg: NotePackage, prefix: String, keepMetadata: Bool) {
         guard !note.mediaObjects.isEmpty else { return }
         let files = Self.mediaFiles(pkg, prefix: prefix)
+        let index = FileIndex(files)
         var prepared: [String: Result<ImageImport.Prepared, ImageImport.Failure>] = [:]
         var z = 0
+        // Parsing reads at most `maxMediaObjects`; `mediaCount` counts them all.
+        let total = max(note.mediaCount, note.mediaObjects.count)
+        var stopped = false
         for (i, m) in note.mediaObjects.enumerated() {
             let label = "media object \(i + 1) (\(m.className))"
             func drop(_ why: String) {
@@ -348,7 +367,8 @@ public struct NotabilityAttachments: Sendable {
                 warnings.append("\(label): \(why)")
             }
             guard placements.count < Self.maxItems, i < Self.maxMediaObjects else {
-                let rest = note.mediaObjects.count - i
+                stopped = true
+                let rest = total - i
                 dropped.media += rest
                 warnings.append("\(rest) media object(s) from number \(i + 1) on not read: over \(Self.maxMediaObjects) "
                                 + "media objects or \(Self.maxItems) items on the page")
@@ -358,7 +378,7 @@ public struct NotabilityAttachments: Sendable {
                 resolveTextBox(m, label: label, note: note, index: i)
                 continue
             }
-            guard let path = Self.file(for: m, in: files) else {
+            guard let path = Self.file(for: m, in: index) else {
                 drop("no file of the package named in it (fields: \(m.fieldNames.joined(separator: ", ")))")
                 continue
             }
@@ -393,6 +413,9 @@ public struct NotabilityAttachments: Sendable {
                   frame.w >= 1, frame.h >= 1 else {
                 drop("frame is not a finite box of at least 1 × 1 unit (from \(m.geometrySource ?? "?"))"); continue
             }
+            guard Self.fitsExtent(frame, rotation: m.rotation, note: note) else {
+                drop("frame \(frame) (from \(m.geometrySource ?? "?")) lies beyond the page extent a renderer draws"); continue
+            }
             let px = Size(w: Double(image.width), h: Double(image.height))
             var crop = m.crop
             if m.cropIsUnit, let c = crop { crop = Rect(x: c.x * px.w, y: c.y * px.h, w: c.w * px.w, h: c.h * px.h) }
@@ -417,6 +440,12 @@ public struct NotabilityAttachments: Sendable {
             warnings.append("\(label): placed from \(m.geometrySource ?? "?") (field names unconfirmed on real notes)")
             extent = max(extent, Self.lowest(frame, rotation: rotation))
         }
+        if !stopped, total > note.mediaObjects.count {
+            let rest = total - note.mediaObjects.count
+            dropped.media += rest
+            warnings.append("\(rest) media object(s) from number \(note.mediaObjects.count + 1) on not read: over "
+                            + "\(Self.maxMediaObjects) media objects or \(Self.maxItems) items on the page")
+        }
     }
 
     /// A media object of a text class: its longest string as a text item in
@@ -438,9 +467,15 @@ public struct NotabilityAttachments: Sendable {
             return
         }
         frame.x += note.paper.insetX
+        guard Self.fitsExtent(frame, rotation: m.rotation, note: note) else {
+            dropped.media += 1
+            warnings.append("\(label): text box frame \(frame) lies beyond the page extent a renderer draws")
+            return
+        }
         let scalars = text.unicodeScalars.map { ($0, Int32(-1)) }
         var placed = 0
         for chunk in Self.chunks(scalars) {
+            guard placements.count < Self.maxItems else { dropped.typedTextCharacters += chunk.count; continue }
             let (content, cut) = Self.content(chunk, runs: [])
             dropped.typedTextCharacters += cut
             guard let content else { continue }
@@ -455,6 +490,20 @@ public struct NotabilityAttachments: Sendable {
     }
 
     /// Lowest y of `frame` rotated by `rotation` degrees about its centre.
+    /// True when `frame` (document units, inset applied), rotated by
+    /// `rotation` degrees about its centre, stays within the renderer's extent
+    /// (format.md §8.4: writers stay within it) at the largest scale `convert`
+    /// applies, and is at most a quarter of it tall, so that it also fits on
+    /// whichever sheet a long note is cut into.
+    static func fitsExtent(_ frame: Rect, rotation: Double?, note: NotabilityNote) -> Bool {
+        let e = RenderLimits.maxExtent / max(1, NotabilityImporter.letterWidth / note.paper.width)
+        let t = (rotation ?? 0) * .pi / 180
+        let c = abs(cos(t)), s = abs(sin(t))
+        let hx = (frame.w * c + frame.h * s) / 2, hy = (frame.w * s + frame.h * c) / 2
+        let cx = frame.x + frame.w / 2, cy = frame.y + frame.h / 2
+        return abs(cx) + hx <= e && cy - hy >= -e && 2 * hy <= e / 4
+    }
+
     static func lowest(_ frame: Rect, rotation: Double?) -> Double {
         let t = (rotation ?? 0) * .pi / 180
         let half = (abs(sin(t)) * frame.w + abs(cos(t)) * frame.h) / 2
