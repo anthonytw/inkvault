@@ -587,8 +587,8 @@ struct TagsList: ParsableCommand {
 struct PagesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "pages",
-        abstract: "List a note's pages and add pages.",
-        subcommands: [PagesList.self, PagesAdd.self]
+        abstract: "List, add, move, delete and duplicate a note's pages.",
+        subcommands: [PagesList.self, PagesAdd.self, PagesMove.self, PagesDelete.self, PagesDuplicate.self]
     )
 }
 
@@ -634,8 +634,11 @@ struct PagesList: ParsableCommand {
 struct PagesAdd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add",
-        abstract: "Append blank pages to a note (one delta).",
-        discussion: "The pages go after the last page and follow the note's paper, as the app's Add Page."
+        abstract: "Add blank pages to a note (one delta).",
+        discussion: """
+            The pages go after the last page, or after page N with --after (0: before the first), and
+            follow the note's paper, as the app's Add Page.
+            """
     )
 
     @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
@@ -643,6 +646,9 @@ struct PagesAdd: ParsableCommand {
 
     @Option(name: .long, help: ArgumentHelp("How many pages (1-100).", valueName: "n"))
     var count = 1
+
+    @Option(name: .long, help: ArgumentHelp("Insert after this page (1-based; 0: first).", valueName: "page"))
+    var after: Int?
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -655,9 +661,130 @@ struct PagesAdd: ParsableCommand {
         let vault = try access.openVault(.required)
         let id = try vault.resolveNote(note)
         let r = try editNote(vault, id) { state in
-            guard !state.deleted else { throw CLIError.failure("the note is deleted: run `sempere notes undelete` first") }
-            return NoteOps.appendPages(count, after: state.pages)
+            try requireLive(state)
+            guard let after else { return NoteOps.appendPages(count, after: state.pages) }
+            guard (0...state.pages.count).contains(after) else {
+                throw CLIError.failure("--after must be between 0 and \(state.pages.count)")
+            }
+            var pages = state.pages, ops: [Op] = []
+            for k in 0..<count {
+                let edit = NoteOps.addPage(at: after + k, in: pages)
+                ops += edit.ops
+                pages = edit.pages
+            }
+            return ops
         }
         try reportEdit(vault, id, r, output: output, done: "Added \(count) page(s)", unchanged: "No page added.")
+    }
+}
+
+/// Throws for a deleted note: like the app, page edits need it restored first.
+func requireLive(_ state: NoteState) throws {
+    guard !state.deleted else { throw CLIError.failure("the note is deleted: run `sempere notes undelete` first") }
+}
+
+/// The page with 1-based number `number` in `state` (display order).
+func pageNumbered(_ number: Int, of state: NoteState) throws -> Page {
+    guard state.pages.indices.contains(number - 1) else {
+        throw CLIError.failure("no page \(number): the note has \(state.pages.count) page(s)")
+    }
+    return state.pages[number - 1]
+}
+
+struct PagesMove: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "move",
+        abstract: "Move a page to another position (one setPageOrder delta).",
+        discussion: """
+            Page numbers are 1-based, as `pages list` prints them. The page ends up at position
+            --to; other pages get new order keys only when none fits between its new neighbours
+            (format.md §5.4.3).
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("The page to move.", valueName: "page"))
+    var number: Int
+
+    @Option(name: .long, help: ArgumentHelp("Its new position (1-based).", valueName: "page"))
+    var to: Int
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let r = try editNote(vault, id) { state in
+            try requireLive(state)
+            let moving = try pageNumbered(number, of: state)
+            guard (1...state.pages.count).contains(to) else {
+                throw CLIError.failure("--to must be between 1 and \(state.pages.count)")
+            }
+            return NoteOps.movePage(moving.id, to: to - 1, in: state.pages)?.ops ?? []
+        }
+        try reportEdit(vault, id, r, output: output, done: "Moved page \(number) to \(to)",
+                       unchanged: "The page is already there.")
+    }
+}
+
+struct PagesDelete: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "delete",
+        abstract: "Delete a page and its ink (one removePage delta).",
+        discussion: """
+            The last page of a note is never deleted. A removed page id never comes back (format.md
+            §5.2); `notes restore --to` rolls the note back to before the delete.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("The page to delete (1-based).", valueName: "page"))
+    var number: Int
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let r = try editNote(vault, id) { state in
+            try requireLive(state)
+            let gone = try pageNumbered(number, of: state)
+            guard state.pages.count > 1 else { throw CLIError.failure("a note keeps at least one page") }
+            return NoteOps.deletePage(gone.id, in: state.pages)?.ops ?? []
+        }
+        try reportEdit(vault, id, r, output: output, done: "Deleted page \(number)", unchanged: "No page deleted.")
+    }
+}
+
+struct PagesDuplicate: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "duplicate",
+        abstract: "Copy a page, its ink, items, paper and recognised text, right after it (one delta).",
+        discussion: "The copies get new ids (format.md §5.4.3), as the app's Duplicate Page."
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("The page to copy (1-based).", valueName: "page"))
+    var number: Int
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let r = try editNote(vault, id) { state in
+            try requireLive(state)
+            return NoteOps.duplicatePage(try pageNumbered(number, of: state).id, in: state.pages)?.ops ?? []
+        }
+        try reportEdit(vault, id, r, output: output, done: "Duplicated page \(number)", unchanged: "No page copied.")
     }
 }

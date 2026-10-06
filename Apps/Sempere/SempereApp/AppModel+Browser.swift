@@ -74,11 +74,11 @@ extension AppModel {
 
     /// Creates a note with one empty page and selects it.
     @discardableResult
-    func createNote(title: String, paper: Paper, notebook: String?) async throws -> UUID {
+    func createNote(title: String, paper: Paper, notebook: String?, pageSize: PageSize = .letter) async throws -> UUID {
         let id = UUID()
         let notebook = NotebookPath.canonical(notebook)
         try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                        paper: paper, notebook: notebook))])
+                                                        paper: paper, pageSize: pageSize, notebook: notebook))])
         switch sidebarSelection ?? .allNotes {
         case .notebook(let n) where !NotebookPath.name(notebook, isWithin: n): sidebarSelection = .allNotes
         case .tag, .deleted: sidebarSelection = .allNotes
