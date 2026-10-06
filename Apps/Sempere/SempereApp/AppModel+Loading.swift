@@ -87,56 +87,51 @@ extension AppModel {
         try await loadTask?.value
     }
 
-    /// Opens the open vault's `SummaryCache` (decrypting its file) once.
+    /// Opens the open vault's `SummaryCache` (decrypting its file) once: the
+    /// local index. Its summaries are shown at once, as they are (the list's
+    /// source of truth on open), and the revision names they were made from
+    /// become `indexedNames`, so a pass reads only notes whose names changed.
     func openSummaryCache() async throws {
         guard summaryCache == nil, let dir = summaryCacheDirectory, let vault, vault.canRead else { return }
         let gen = generation
         let cache = try? await offMain { () throws -> SummaryCache in
-            Self.prepareCacheDirectory(dir)
-            return try SummaryCache(directory: dir, vault: vault)
+            try Perf.measure(.indexLoad, "") {
+                Self.prepareCacheDirectory(dir)
+                return try SummaryCache(directory: dir, vault: vault)
+            }
         }
         try ensureCurrent(gen)
         #if DEBUG
         if let problem = cache?.loadProblem { NSLog("SempereProbe summary cache ignored: %@", problem) }
         #endif
         summaryCache = cache
+        guard let cache else { return }
         // Shown at once; the listing then corrects what changed.
-        if notes.isEmpty, !listLoaded, let cached = cache?.storedSummaries, !cached.isEmpty {
-            notes = Self.byTitle(cached)
+        if notes.isEmpty, !listLoaded {
+            let cached = cache.storedSummaries
+            if !cached.isEmpty {
+                Perf.measure(.listUpdate, "index notes=\(cached.count)") { notes = Self.byTitle(cached) }
+                indexedNames = cache.storedRevisionNames
+            }
         }
     }
 
-    /// A full listing of a vault outside iCloud Drive.
+    /// A listing of a vault outside iCloud Drive: every note folder by name,
+    /// reading only notes whose names changed (`reconcile`).
     func listLocalNotes() async throws {
-        guard let vault else { throw ModelError.noVaultOpen }
-        let gen = generation
-        await loadGate.acquire()
-        defer { loadGate.release() }
-        try ensureCurrent(gen)
-        let coordinate = coordinationURL
-        // Only notes listed before the scan can be gone: one created meanwhile
-        // (`createNote`) is not in the scan but must stay, and stay selected.
-        let before = Set(notes.map(\.id))
-        let ids = try await offMain { try CloudVault.coordinatedRead(coordinate) { try vault.noteIDs() } }
-        try ensureCurrent(gen)
-        let present = Set(ids)
-        notes.removeAll { before.contains($0.id) && !present.contains($0.id) }
-        try await readSummaries(ids)
-        try ensureCurrent(gen)
-        summaryCache?.retain(only: present.union(notes.map(\.id)))
-        saveSummaryCache()
-        listLoaded = true
-        loadFailure = nil
-        if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
+        try await reconcile(full: true)
     }
 
     /// Reads the summaries of `ids` in batches of `loadBatchSize` on
-    /// `loadConcurrency` threads, merging each batch into `notes` as it
-    /// finishes and counting in `loading`. Cached summaries (unchanged
-    /// revision files) cost no decryption. Publishes nothing once the vault
-    /// closed (`CancellationError`) or, for the sync loop, once its task is
-    /// cancelled.
-    func readSummaries(_ ids: [UUID], onBatch: (([NoteSummary]) -> Void)? = nil) async throws {
+    /// `loadConcurrency` threads, queueing each batch for the list as it
+    /// finishes (`queueListUpdate`) and counting in `loading`. Cached
+    /// summaries (unchanged revision files) cost no decryption. Records the
+    /// names each summary was made from (`indexedNames`; `listedNames` when
+    /// the index file does not have the note). Publishes nothing once the
+    /// vault closed (`CancellationError`) or, for the sync loop, once its task
+    /// is cancelled.
+    func readSummaries(_ ids: [UUID], listedNames: [UUID: [String]] = [:],
+                       onBatch: (([NoteSummary]) -> Void)? = nil) async throws {
         guard let vault else { throw ModelError.noVaultOpen }
         guard !ids.isEmpty else { return }
         let gen = generation
@@ -152,15 +147,20 @@ extension AppModel {
             let epochs = summaryEpochs
             // The cache file is written once per listing (`saveSummaryCache`), not per batch.
             let read = try await offMain {
-                try CloudVault.coordinatedRead(coordinate) {
-                    try vault.summaries(of: batch, cache: cache, maxConcurrency: width, saveCache: false)
+                try Perf.measure(.reconcileRead, "notes=\(batch.count)") {
+                    try CloudVault.coordinatedRead(coordinate) {
+                        try vault.summaries(of: batch, cache: cache, maxConcurrency: width, saveCache: false)
+                    }
                 }
             }
             try ensureCurrent(gen)
             try Task.checkCancellation()
             // An edit re-read a note while this batch was being read: its summary is newer.
             let current = read.filter { summaryEpochs[$0.id] == epochs[$0.id] }
-            merge(current)
+            for s in current {
+                indexedNames[s.id] = cache?.storedRevisionNames(of: s.id) ?? listedNames[s.id]
+            }
+            queueListUpdate(upserts: current)
             verifiedNoteIDs.formUnion(current.map(\.id))
             onBatch?(read)
             start += batch.count
@@ -168,15 +168,14 @@ extension AppModel {
         }
     }
 
-    /// Puts `summaries` into `notes`, replacing older ones of the same notes.
-    /// Nothing is published when every one is already there unchanged (a
-    /// reopen re-confirms every cached summary, batch after batch).
+    /// Puts `summaries` into `notes` now, replacing older ones of the same
+    /// notes (an edit's own re-read: shown at once, and newer than anything
+    /// a listing has queued for them). Nothing is published when every one
+    /// is already there unchanged.
     func merge(_ summaries: [NoteSummary]) {
         guard !summaries.isEmpty else { return }
-        var byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-        guard summaries.contains(where: { byID[$0.id] != $0 }) else { return }
-        for s in summaries { byID[s.id] = s }
-        notes = Self.byTitle(Array(byID.values))
+        for s in summaries { listUpserts[s.id] = nil }
+        applyListChanges(upserts: summaries, removals: [])
     }
 
     /// Re-reads note `id` when its summary was not read in this session

@@ -415,3 +415,40 @@ final class Locked<T>: @unchecked Sendable {
     func mutate(_ body: (inout T) -> Void) { lock.lock(); defer { lock.unlock() }; body(&stored) }
 }
 
+
+/// `LocalCacheKey` (format.md §10.1): names and sealed files of per-device caches.
+final class LocalCacheKeyTests: XCTestCase {
+    func secret(_ byte: UInt8) throws -> VaultSecret { try VaultSecret(bytes: Data(repeating: byte, count: 32)) }
+
+    func testNamesDependOnTheSecretAndPurposeOnly() throws {
+        let a = LocalCacheKey(secret: try secret(1), purpose: "drawing-cache", magic: Array("SMPD\u{1}".utf8))
+        let again = LocalCacheKey(secret: try secret(1), purpose: "drawing-cache", magic: Array("SMPD\u{1}".utf8))
+        let other = LocalCacheKey(secret: try secret(2), purpose: "drawing-cache", magic: Array("SMPD\u{1}".utf8))
+        let purpose = LocalCacheKey(secret: try secret(1), purpose: "other", magic: Array("SMPD\u{1}".utf8))
+        XCTAssertEqual(a.name, again.name)
+        XCTAssertEqual(a.name.count, 32)
+        XCTAssertNotEqual(a.name, other.name)
+        XCTAssertNotEqual(a.name, purpose.name)
+        XCTAssertEqual(a.entryName("note|r1"), again.entryName("note|r1"))
+        XCTAssertNotEqual(a.entryName("note|r1"), a.entryName("note|r2"))
+        XCTAssertNotEqual(a.entryName("note|r1"), other.entryName("note|r1"))
+        XCTAssertFalse(a.entryName("note|r1").contains("note"))
+    }
+
+    func testSealedFilesOpenOnlyUnderTheirNameAndKey() throws {
+        let magic = Array("SMPD\u{1}".utf8)
+        let k = LocalCacheKey(secret: try secret(1), purpose: "drawing-cache", magic: magic)
+        let plain = Data("ink".utf8)
+        let sealed = try k.seal(plain, fileName: "a.page")
+        XCTAssertTrue(sealed.starts(with: magic))
+        XCTAssertEqual(try k.open(sealed, fileName: "a.page"), plain)
+        XCTAssertThrowsError(try k.open(sealed, fileName: "b.page"), "bound to its name")
+        let other = LocalCacheKey(secret: try secret(2), purpose: "drawing-cache", magic: magic)
+        XCTAssertThrowsError(try other.open(sealed, fileName: "a.page"), "bound to the vault secret")
+        var flipped = sealed
+        flipped[flipped.count - 1] ^= 1
+        XCTAssertThrowsError(try k.open(flipped, fileName: "a.page"))
+        XCTAssertThrowsError(try k.open(Data(sealed.prefix(10)), fileName: "a.page"))
+        XCTAssertThrowsError(try k.open(Data(), fileName: "a.page"))
+    }
+}

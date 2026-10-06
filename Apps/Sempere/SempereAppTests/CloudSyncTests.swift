@@ -250,6 +250,7 @@ struct CloudSyncTests {
         await task.value                             // the loop ended
         #expect(model.cloudSyncTask == nil)
         #expect(model.cloudSync?.readyNotes == 2)
+        try TS.writeAsAnotherDevice([.setMeta(.title("Changed elsewhere"))], to: Self.other, vault: url, key: key)
         try cloud.evictDataless(Self.other)
         try await Task.sleep(for: .milliseconds(150))
         #expect(model.pendingNoteIDs.isEmpty)        // nobody looked
@@ -305,11 +306,30 @@ struct CloudSyncTests {
         try await model.openVault(at: url)
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         try await Task.sleep(for: .milliseconds(200))           // settled, idling
-        try cloud.evictDataless(Self.lecture)
+        try TS.writeAsAnotherDevice([.setMeta(.title("Renamed on the Mac"))], to: Self.lecture, vault: url, key: key)
+        try cloud.evictDataless(Self.lecture)                   // listed, not downloaded yet
         #expect(await TS.waitUntil { model.pendingNoteIDs.contains(Self.lecture) })
         #expect(model.cloudSync?.isDownloading == true)
         try cloud.deliver(Self.lecture)
         #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Renamed on the Mac")
+        model.close()
+    }
+
+    /// A note evicted by iCloud (same revision names) is not downloaded again
+    /// by the loop: its summary is current.
+    @Test func anEvictedNoteIsNotDownloadedForTheList() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        try cloud.evictDataless(Self.lecture)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(model.pendingNoteIDs.isEmpty)
+        #expect(cloud.requestedNotes.isEmpty)
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Fixture lecture")
         model.close()
     }
 

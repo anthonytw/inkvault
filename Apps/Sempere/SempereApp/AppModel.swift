@@ -68,8 +68,13 @@ final class AppModel {
     private(set) var phase: Phase = .noVault
     /// The open vault's folder.
     private(set) var vaultURL: URL?
-    /// Every note in the vault, deleted ones included, sorted by title.
-    var notes: [NoteSummary] = []
+    /// Every note in the vault, deleted ones included, sorted by title
+    /// (`byTitle`). Passes change it in batches (`queueListUpdate`).
+    var notes: [NoteSummary] = [] { didSet { listVersion &+= 1 } }
+    /// Bumped on every change of `notes`; keys the derived lists (`derived`).
+    private(set) var listVersion = 0
+    /// `visibleNotes`, `tags` and `notebookTree`, computed once per change.
+    @ObservationIgnored var derived = DerivedLists()
     /// True while vault I/O is in flight.
     private(set) var isBusy = false
     /// The last error, as a sentence for an alert; cleared by the view.
@@ -119,8 +124,32 @@ final class AppModel {
     var pendingNoteIDs: Set<UUID> = []
     /// The pending notes that have no summary yet (listed as placeholders).
     var placeholderNoteIDs: Set<UUID> = []
-    /// The pending notes as of the last pass that read summaries (re-read once ready).
-    var loadedPendingIDs: Set<UUID> = []
+    /// Per note shown, the sorted revision file names its summary was made
+    /// from: from the index on open, then from every read. A pass reads only
+    /// notes whose names on disk differ (`reconcile`).
+    @ObservationIgnored var indexedNames: [UUID: [String]] = [:]
+    /// Summary changes waiting for the next list update (`queueListUpdate`).
+    @ObservationIgnored var listUpserts: [UUID: NoteSummary] = [:]
+    @ObservationIgnored var listRemovals: Set<UUID> = []
+    @ObservationIgnored var listFlushTask: Task<Void, Never>?
+    @ObservationIgnored var lastListApply: ContinuousClock.Instant?
+    /// The shortest time between two list updates while notes are read.
+    var listUpdateInterval = Duration.milliseconds(250)
+    /// Note folders a file presenter reported changed, for the next pass;
+    /// `dirtyAll` when it could not say which.
+    @ObservationIgnored var dirtyNoteIDs: Set<UUID> = []
+    @ObservationIgnored var dirtyAll = false
+    /// Wakes the sync loop early when a change is reported (`noteFoldersChanged`).
+    @ObservationIgnored let syncWakeup = SyncWakeup()
+    /// Reports changes inside the open iCloud vault's `notes/` folder.
+    @ObservationIgnored var notesPresenter: NotesFolderPresenter?
+    /// The background validation in progress (`validateIfDue`).
+    @ObservationIgnored var validationTask: Task<Void, Never>?
+    /// When the background validation (`validateVault`) last finished.
+    @ObservationIgnored var lastValidation: ContinuousClock.Instant?
+    /// How often the background validation runs while the vault is open
+    /// (also once, shortly after the list settles).
+    var cloudValidationInterval = Duration.seconds(30 * 60)
     /// Progress of the open iCloud vault's sync, for the list's progress bar;
     /// nil outside iCloud Drive.
     var cloudSync: CloudSyncStatus?
@@ -204,7 +233,11 @@ final class AppModel {
     /// The notebook hierarchy of live notes (names are `/`-separated paths,
     /// format.md §5.4).
     var notebookTree: [NotebookNode] {
-        NotebookNode.tree(notes.filter { !$0.deleted }.map(\.notebook))
+        let version = listVersion
+        if let t = derived.tree, t.version == version { return t.value }
+        let tree = NotebookNode.tree(notes.filter { !$0.deleted }.map(\.notebook))
+        derived.tree = (version, tree)
+        return tree
     }
 
     /// Every notebook path in use by live notes, parents included, in tree order.
@@ -215,15 +248,28 @@ final class AppModel {
     /// Tags in use by live notes, sorted. Tags match case-insensitively
     /// ("Math" and "math" are one); the spelling shown is the first seen.
     var tags: [String] {
+        let version = listVersion
+        if let t = derived.tags, t.version == version { return t.value }
         var byKey: [String: String] = [:]
         for tag in notes.filter({ !$0.deleted }).flatMap(\.tags) where byKey[NoteOps.tagKey(tag)] == nil {
             byKey[NoteOps.tagKey(tag)] = tag
         }
-        return byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let tags = byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        derived.tags = (version, tags)
+        return tags
     }
 
     /// The note list for the current sidebar selection, title search and sort order.
     var visibleNotes: [NoteSummary] {
+        let key = DerivedLists.VisibleKey(version: listVersion, selection: sidebarSelection, search: searchText,
+                                          sort: sortOrder)
+        if let v = derived.visible, v.key == key { return v.value }
+        let value = computeVisibleNotes()
+        derived.visible = (key, value)
+        return value
+    }
+
+    private func computeVisibleNotes() -> [NoteSummary] {
         let inSelection: [NoteSummary]
         switch sidebarSelection ?? .allNotes {
         case .allNotes: inSelection = notes.filter { !$0.deleted }
@@ -423,10 +469,10 @@ final class AppModel {
             try await openSummaryCache()
             try ensureCurrent(gen)
             if isCloudVault {
-                // Unlocking files first (small), then the notes as they arrive.
+                // Unlocking files first (small), then the notes that changed.
                 _ = try await fetchFromICloud(vault.url)
                 try ensureCurrent(gen)
-                try await loadNotes(full: true)
+                try await reconcile(full: true)
                 startCloudSync()
             } else {
                 try await listLocalNotes()
@@ -545,6 +591,11 @@ final class AppModel {
         loadFailure = nil
         verifiedNoteIDs = []
         summaryEpochs = [:]
+        indexedNames = [:]
+        discardListUpdates()
+        dirtyNoteIDs = []
+        dirtyAll = false
+        lastValidation = nil
         summaryCache = nil
         vault = nil
         migration = nil
@@ -573,8 +624,9 @@ final class AppModel {
     }
 
     /// Runs blocking vault work (file I/O, decryption) on a background thread.
-    func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        let value = try await Task.detached(priority: .userInitiated) { try work() }.value
+    func offMain<T: Sendable>(priority: TaskPriority = .userInitiated,
+                              _ work: @escaping @Sendable () throws -> T) async throws -> T {
+        let value = try await Task.detached(priority: priority) { try work() }.value
         await afterIO?()
         return value
     }
