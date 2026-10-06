@@ -1074,7 +1074,7 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
-                         [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
+                         [--max-blob-mib N] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
 ```
 
 Mirrors the vault folder with a WebDAV collection (`docs/io.md`, "WebDAV
@@ -1095,6 +1095,16 @@ the other only if the compaction rules (`docs/format.md` §5.3) allow it with
 the revisions held locally, which needs the vault unlocked (`--identity`, or
 `--passphrase-env`/`$SEMPERE_PASSPHRASE` for the stored key file); otherwise
 it is restored, or, with the vault locked, left alone and listed as skipped.
+Each note's attachment blobs (`notes/<id>/att/`) are synced the same way:
+streamed from and to disk, a blob file over `--max-blob-mib` (default 1088,
+that is 1 GiB of content plus padding) neither uploaded nor downloaded but
+reported as an error, never a partial blob under its name on either side.
+An interrupted blob download continues from where it stopped on the next
+run. A blob removed on one side (by `blobs gc`) is removed on the other only
+if no revision of its note references it there and every revision of the
+note could be read (`format.md` §8.1.6 rules 1–3); otherwise it is copied
+back. Blob paths appear in the output and the JSON report like revisions
+(`notes/<id>/att/<name>`).
 `--dry-run` makes no request that changes anything and writes nothing; it
 lists `would upload`, `would download` and `would delete` lines. It cannot see
 files it would first download, so it may under-report deletions.

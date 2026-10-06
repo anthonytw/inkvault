@@ -43,7 +43,7 @@ working state.
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
 | Sync | WebDAV | ✅ |
-| Sync | WebDAV for attachments (B3) | 📋 |
+| Sync | WebDAV for attachments (B3): streamed, resumable, GC-safe deletes | 🔀 #67 |
 
 ## CLI (`sempere`; one codebase for both platforms)
 
@@ -62,6 +62,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
+| sync webdav of attachment blobs (`--max-blob-mib`) | 🔀 #67 | 🔀 #67 |
 | Recovery kit (paper key), backup / verify / restore | 🔀 #30 | 🔀 #30 |
 | Markdown (Obsidian) and single-file HTML export | 🔀 #27 | 🔀 #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
