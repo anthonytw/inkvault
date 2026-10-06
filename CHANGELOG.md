@@ -14,6 +14,10 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   optional `basis` field), and the note list searches recognised text, titles, notebooks and
   tags and opens the matching page. Recognition from a Notability import is kept until the
   page's strokes change.
+- Age library: streaming encryption and decryption in constant memory (`AgeEncryptor`,
+  `AgeDecryptor`, file-to-file `AgeFile.encrypt` / `decrypt`), header-only rewrap that keeps the
+  file key and payload (`AgeFile.rewrapHeader`) and streaming full re-encryption
+  (`AgeFile.reencrypt`), for attachments.
 - Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
