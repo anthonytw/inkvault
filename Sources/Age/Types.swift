@@ -3,7 +3,7 @@ import Foundation
 
 /// Errors thrown by the age implementation. The cases follow the failure
 /// classes of the C2SP CCTV test vectors.
-public enum AgeError: Error, Equatable, Sendable {
+public enum AgeError: Error, Hashable, Sendable {
     /// The header is malformed (version line, stanza syntax, MAC line), or
     /// the file ends before the 16-byte payload nonce.
     case headerParse
@@ -43,6 +43,12 @@ public enum AgeError: Error, Equatable, Sendable {
     /// without opting in: the file would not be quantum-safe (the `age` CLI
     /// refuses the same mix).
     case incompatibleRecipients
+    /// Reading or writing a file or stream failed (the message says what
+    /// and why), or a streaming output file already exists.
+    case io(String)
+    /// A streaming encryptor or decryptor was used after it finished or
+    /// failed.
+    case streamFinished
 }
 
 /// The 128-bit symmetric key that encrypts an age payload.
@@ -174,6 +180,8 @@ extension AgeError: CustomStringConvertible {
             return "can't mix post-quantum (age1pq) and classic recipients: the file would not be quantum-safe"
         case .postQuantumUnavailable:
             return "post-quantum (age1pq) keys need ML-KEM, which this system lacks (needs macOS / iPadOS 26 or later)"
+        case .io(let message): return message
+        case .streamFinished: return "age stream already finished"
         }
     }
 }
