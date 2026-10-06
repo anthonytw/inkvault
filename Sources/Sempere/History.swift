@@ -260,8 +260,14 @@ public enum NoteHistory {
         var used = Set<UUID>()
         let byId = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         for t in target { if let c = byId[t.id] { pair[t.id] = c; used.insert(c.id) } }
+        // Candidates by the id their `parent` names, in `current` order: one
+        // pass, not one scan of `current` per target.
+        var byParent: [UUID: [T]] = [:]
+        for c in current where !used.contains(c.id) {
+            if let p = parent(c) { byParent[p, default: []].append(c) }
+        }
         for t in target where pair[t.id] == nil {
-            if let hit = current.first(where: { !used.contains($0.id) && parent($0) == t.id && same($0, t) }) {
+            if let hit = byParent[t.id]?.first(where: { !used.contains($0.id) && same($0, t) }) {
                 pair[t.id] = hit
                 used.insert(hit.id)
             }

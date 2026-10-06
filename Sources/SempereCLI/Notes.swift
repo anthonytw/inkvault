@@ -137,6 +137,77 @@ struct NotesShow: ParsableCommand {
     }
 }
 
+/// Items and recordings of a note as `notes show` lists them.
+enum AttachmentListing {
+    /// One placed item with the page it is on: `--json` gives the item in its
+    /// format JSON (format.md §8.2) without the snapshot-only `origin` and
+    /// `clocks`.
+    struct PlacedItem: Encodable {
+        /// 1-based page number.
+        var page: Int
+        var pageId: UUID
+        var item: Item
+
+        enum CodingKeys: String, CodingKey { case page, pageId, item }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(page, forKey: .page)
+            try c.encode(LowercaseUUID(pageId), forKey: .pageId)
+            try c.encode(item, forKey: .item)
+        }
+    }
+
+    static func items(_ state: NoteState?) -> [PlacedItem] {
+        guard let state else { return [] }
+        return state.pages.enumerated().flatMap { i, p in
+            p.items.map { item -> PlacedItem in
+                var item = item
+                item.origin = nil; item.clocks = nil
+                return PlacedItem(page: i + 1, pageId: p.id, item: item)
+            }
+        }
+    }
+
+    static func recordings(_ state: NoteState?) -> [Recording] {
+        (state?.recordings ?? []).map { r in
+            var r = r
+            r.origin = nil; r.clocks = nil
+            return r
+        }
+    }
+
+    static func number(_ v: Double) -> String {
+        let r = InkJSON.round3(v)
+        return r == r.rounded() && abs(r) < 1e15 ? String(Int(r)) : String(r)
+    }
+
+    static func blob(_ b: BlobRef) -> String { "\(b.type) \(b.size) B \(b.sha256.prefix(12))" }
+
+    /// `p<N>  kind  layer  [x, y, w, h]  what  id`.
+    static func row(_ p: PlacedItem) -> [String] {
+        let i = p.item
+        let f = i.frame
+        var what: String
+        switch i.kind {
+        case .text:
+            let t = (i.text?.string ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
+            what = "\"" + (t.count > 40 ? t.prefix(39) + "…" : t) + "\""
+        case .pdfPage: what = (i.blob.map(blob) ?? "") + " page \((i.pageIndex ?? 0) + 1)"
+        default: what = i.blob.map(blob) ?? (i.kind.isDefined ? "" : "(unknown kind)")
+        }
+        if let r = i.rotation, r != 0 { what += " rotated \(number(r))°" }
+        return ["p\(p.page)", i.kind.rawValue, "layer \(i.layer)",
+                "[\([f.x, f.y, f.w, f.h].map(number).joined(separator: ", "))]", what, i.id.uuidString.lowercased()]
+    }
+
+    /// `start  duration  "title"  blob  [transcript]  id`.
+    static func row(_ r: Recording) -> [String] {
+        [Format.local(r.started), r.duration.map { number($0) + " s" } ?? "-", "\"\(r.title ?? "")\"",
+         blob(r.blob) + (r.transcript != nil ? " +transcript" : ""), r.id.uuidString.lowercased()]
+    }
+}
+
 enum NoteLayout: String, ExpressibleByArgument, CaseIterable {
     case paged, pageless
 }
@@ -211,76 +282,5 @@ struct NotesLayout: ParsableCommand {
         let what = "\(before) page(s) -> \(edit.pages.count) page(s)"
         print("\(dryRun ? "would make" : "made") \(noteName) \(layout.rawValue): \(what)")
         if let file { output.info("Wrote \(noteName)/\(file)") }
-    }
-}
-
-/// Items and recordings of a note as `notes show` lists them.
-enum AttachmentListing {
-    /// One placed item with the page it is on: `--json` gives the item in its
-    /// format JSON (format.md §8.2) without the snapshot-only `origin` and
-    /// `clocks`.
-    struct PlacedItem: Encodable {
-        /// 1-based page number.
-        var page: Int
-        var pageId: UUID
-        var item: Item
-
-        enum CodingKeys: String, CodingKey { case page, pageId, item }
-
-        func encode(to encoder: Encoder) throws {
-            var c = encoder.container(keyedBy: CodingKeys.self)
-            try c.encode(page, forKey: .page)
-            try c.encode(LowercaseUUID(pageId), forKey: .pageId)
-            try c.encode(item, forKey: .item)
-        }
-    }
-
-    static func items(_ state: NoteState?) -> [PlacedItem] {
-        guard let state else { return [] }
-        return state.pages.enumerated().flatMap { i, p in
-            p.items.map { item -> PlacedItem in
-                var item = item
-                item.origin = nil; item.clocks = nil
-                return PlacedItem(page: i + 1, pageId: p.id, item: item)
-            }
-        }
-    }
-
-    static func recordings(_ state: NoteState?) -> [Recording] {
-        (state?.recordings ?? []).map { r in
-            var r = r
-            r.origin = nil; r.clocks = nil
-            return r
-        }
-    }
-
-    static func number(_ v: Double) -> String {
-        let r = InkJSON.round3(v)
-        return r == r.rounded() && abs(r) < 1e15 ? String(Int(r)) : String(r)
-    }
-
-    static func blob(_ b: BlobRef) -> String { "\(b.type) \(b.size) B \(b.sha256.prefix(12))" }
-
-    /// `p<N>  kind  layer  [x, y, w, h]  what  id`.
-    static func row(_ p: PlacedItem) -> [String] {
-        let i = p.item
-        let f = i.frame
-        var what: String
-        switch i.kind {
-        case .text:
-            let t = (i.text?.string ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
-            what = "\"" + (t.count > 40 ? t.prefix(39) + "…" : t) + "\""
-        case .pdfPage: what = (i.blob.map(blob) ?? "") + " page \((i.pageIndex ?? 0) + 1)"
-        default: what = i.blob.map(blob) ?? (i.kind.isDefined ? "" : "(unknown kind)")
-        }
-        if let r = i.rotation, r != 0 { what += " rotated \(number(r))°" }
-        return ["p\(p.page)", i.kind.rawValue, "layer \(i.layer)",
-                "[\([f.x, f.y, f.w, f.h].map(number).joined(separator: ", "))]", what, i.id.uuidString.lowercased()]
-    }
-
-    /// `start  duration  "title"  blob  [transcript]  id`.
-    static func row(_ r: Recording) -> [String] {
-        [Format.local(r.started), r.duration.map { number($0) + " s" } ?? "-", "\"\(r.title ?? "")\"",
-         blob(r.blob) + (r.transcript != nil ? " +transcript" : ""), r.id.uuidString.lowercased()]
     }
 }
