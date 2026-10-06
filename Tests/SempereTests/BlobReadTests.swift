@@ -43,6 +43,7 @@ final class BlobReadTests: VaultTestCase {
         let source = reopened.blobSource(note: note)
         XCTAssertEqual(try source.data(for: ref, maxBytes: 1 << 20), content)
         XCTAssertEqual(try source.withFile(for: ref) { try Data(contentsOf: $0) }, content)
+        try assertPrivateAndRemoved(source, ref)
         XCTAssertThrowsError(try source.data(for: ref, maxBytes: 1000)) {
             XCTAssertEqual($0 as? BlobError, .tooLarge(size: 200_000, limit: 1000))
         }
@@ -111,5 +112,22 @@ final class BlobReadTests: VaultTestCase {
         var lying = BlobRef(content: a, type: "image/png")
         lying.size = 5
         XCTAssertThrowsError(try source.data(for: lying, maxBytes: 10))
+        try assertPrivateAndRemoved(source, BlobRef(content: b, type: "image/png"))
+    }
+
+    /// `withFile` hands out plaintext: a file only this user can read, in a
+    /// directory only this user can list, both gone afterwards.
+    func assertPrivateAndRemoved(_ source: any BlobSource, _ ref: BlobRef, line: UInt = #line) throws {
+        let fm = FileManager.default
+        let url = try source.withFile(for: ref) { url -> URL in
+            let mode = (try? fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)?.intValue
+            XCTAssertEqual(mode.map { $0 & 0o777 }, 0o600, line: line)
+            let dirMode = (try? fm.attributesOfItem(atPath: url.deletingLastPathComponent().path)[.posixPermissions]
+                as? NSNumber)?.intValue
+            XCTAssertEqual(dirMode.map { $0 & 0o777 }, 0o700, line: line)
+            return url
+        }
+        XCTAssertFalse(fm.fileExists(atPath: url.path), line: line)
+        XCTAssertFalse(fm.fileExists(atPath: url.deletingLastPathComponent().path), line: line)
     }
 }

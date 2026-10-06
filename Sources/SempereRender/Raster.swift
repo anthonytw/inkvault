@@ -211,6 +211,7 @@ extension RGBAImage {
                 out[o + 3] = UInt8((a + n / 2) / max(n, 1))
             }
         }
-        return RGBAImage(width: ow, height: oh, pixels: out)!
+        // ow, oh ≥ 1 and out has ow·oh·4 bytes, so the initializer cannot fail.
+        return RGBAImage(width: ow, height: oh, pixels: out) ?? self
     }
 }

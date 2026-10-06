@@ -200,22 +200,7 @@ extension Vault {
     /// verified content of `ref`; the file is deleted afterwards. Memory use
     /// is one age chunk, whatever the blob's size.
     public func withBlobFile<T>(note: UUID, _ ref: BlobRef, _ body: (URL) throws -> T) throws -> T {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sempere-blob-" + UUID().uuidString.lowercased(), isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false,
-                                                attributes: [.posixPermissions: 0o700])
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appendingPathComponent("content")
-        guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]),
-              let h = FileHandle(forWritingAtPath: file.path) else { throw BlobError.unreadable("cannot create a temporary file") }
-        do {
-            try streamBlob(note: note, ref) { try h.write(contentsOf: $0) }
-            try h.close()
-        } catch {
-            try? h.close()
-            throw error
-        }
-        return try body(file)
+        try withPrivateTemporaryFile(writing: { write in try streamBlob(note: note, ref) { try write($0) } }, body)
     }
 
     /// A `BlobSource` for one note of this vault.
@@ -278,9 +263,30 @@ public struct MemoryBlobSource: BlobSource {
 
     public func withFile<T>(for ref: BlobRef, _ body: (URL) throws -> T) throws -> T {
         let d = try data(for: ref, maxBytes: Int(BlobRef.maxSize))
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("sempere-blob-" + UUID().uuidString)
-        try d.write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-        return try body(url)
+        return try withPrivateTemporaryFile(writing: { write in try write(d) }, body)
     }
+}
+
+/// Runs `body` with a temporary file only this user can read (mode 0600, in
+/// a fresh 0700 directory) holding what `writing` wrote, and deletes it
+/// afterwards, whether `writing` or `body` throws or not. Blob content is
+/// plaintext: it must never land in a world-readable file.
+func withPrivateTemporaryFile<T>(writing: (_ write: (Data) throws -> Void) throws -> Void,
+                                 _ body: (URL) throws -> T) throws -> T {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sempere-blob-" + UUID().uuidString.lowercased(), isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false,
+                                            attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("content")
+    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+          let h = FileHandle(forWritingAtPath: file.path) else { throw BlobError.unreadable("cannot create a temporary file") }
+    do {
+        try writing { try h.write(contentsOf: $0) }
+        try h.close()
+    } catch {
+        try? h.close()
+        throw error
+    }
+    return try body(file)
 }
