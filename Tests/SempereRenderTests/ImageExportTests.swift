@@ -468,8 +468,8 @@ final class VaultImageExportTests: XCTestCase {
         let vault = try Vault.create(at: dir.appendingPathComponent("V.sempere"), recipients: [id.recipient], identities: [id])
         let note = UUID(), other = UUID()
         let jpeg = try ImageCodecTests.fixture("metadata.jpg")
-        let ref = try vault.writeBlobForTesting(note: note, jpeg, type: "image/jpeg")
-        let elsewhere = try vault.writeBlobForTesting(note: other, try ImageCodecTests.fixture("rgb8.png"), type: "image/png")
+        let ref = try vault.writeBlob(note: note, jpeg, type: "image/jpeg")
+        let elsewhere = try vault.writeBlob(note: other, try ImageCodecTests.fixture("rgb8.png"), type: "image/png")
         let state = NoteState(meta: NoteMeta(title: "Photo", created: Date(timeIntervalSince1970: 0),
                                              pageSize: PageSize(width: 300, height: 300)),
                               pages: [Page(order: "a", items: [

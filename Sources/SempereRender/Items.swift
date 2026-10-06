@@ -181,7 +181,8 @@ final class ImageStore {
             throw PlaceholderReason(message: "image of \(ref.size) bytes is over the \(ImageLimits.maxBlobBytes >> 20) MiB export limit")
         }
         // At most 16 MiB is held whole by the blob store; larger blobs come through a temporary file.
-        let data = ref.size <= 16 << 20 ? try blobs.data(for: ref, maxBytes: 16 << 20)
+        let memory = Vault.maxInMemoryBlobBytes
+        let data = ref.size <= Int64(memory) ? try blobs.data(for: ref, maxBytes: memory)
             : try blobs.withFile(for: ref) { try BoundedRead.contents(of: $0, maxBytes: ImageLimits.maxBlobBytes) }
         let d = [UInt8](data.prefix(16))
         if d.starts(with: [0xFF, 0xD8]) {
@@ -269,7 +270,7 @@ final class ImageStore {
     static func describe(_ error: any Error) -> String {
         if let p = error as? PlaceholderReason { return p.message }
         if let e = error as? ImageError { return e.errorDescription ?? "\(e)" }
-        if let e = error as? BlobError { return e.errorDescription ?? "\(e)" }
+        if let e = error as? BlobError { return "\(e)" }
         return "image cannot be read (\(error))"
     }
 }

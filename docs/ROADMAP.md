@@ -29,7 +29,8 @@ working state.
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
 | Vault | Attachment model types and ops (A0) | ✅ |
-| Vault | Attachment merge (A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
+| Vault | Per-note blob store, rewrap policy, GC, repair (B2) | ✅ |
+| Vault | Attachment merge (A1) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
@@ -53,7 +54,8 @@ working state.
 | Recovery kit (paper key), backup / verify / restore | 🔀 #30 | 🔀 #30 |
 | Markdown (Obsidian) and single-file HTML export | 🔀 #27 | 🔀 #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
-| Attachments: `blobs`, `import pdf`, `attach`, `notes show`, search over text and transcripts (F) | 📋 | 📋 |
+| Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | 🔀 #60 | 🔀 #60 |
+| Attachments: `import pdf`, `attach`, `notes show`, search over text and transcripts (F) | 📋 | 📋 |
 | PDF backgrounds in SVG/PNG export | 📋 via Poppler if installed | 📋 via PDFKit |
 | Math, video in exports | 💭 | 💭 |
 
@@ -92,13 +94,14 @@ behaviour and testing on a real Mac.
 | Builds and launches under Catalyst (CI `app` job) | ✅ |
 | Everything in the iPad table | same status as the iPad |
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
-| Saved folder access in a sandboxed Mac build (bookmarks untested) | 📋 |
-| Menus and keyboard shortcuts | 📋 Phase 2 |
-| Multiple windows (one note per window) | 📋 Phase 2 |
-| Export menu (File ▸ Export) | 🔀 #42 (`ExportMenuCommands`; other menus 📋 Phase 2) |
-| Drag-and-drop export | 📋 Phase 2 |
-| Key management window | 📋 Phase 2 |
-| Drawing with mouse/trackpad (PencilKit works; tuning for no pencil) | 📋 Phase 2 |
+| Saved folder access in a sandboxed Mac build | 🔀 access check, entitlements and a DEBUG probe done; the plain bookmark under the sandbox is unverified until a signed build is tried (`docs/io.md`) |
+| Menus and keyboard shortcuts | 🔀 `docs/mac.md` |
+| Export menu (File ▸ Export) | 🔀 #42 (`ExportMenuCommands`) |
+| Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md` |
+| Drag a note to the Finder as PDF | 🔀 `docs/mac.md` |
+| Bulk export from the app | 📋 with the share/export work (the CLI has it) |
+| Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
+| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
 
 ## Future: iPhone and web

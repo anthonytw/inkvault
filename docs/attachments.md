@@ -1243,6 +1243,16 @@ own in Application Support). CLI: `sempere blobs list [NOTE] | verify |
 extract NOTE SHA256 [--out] | unused [NOTE] | gc [--dry-run] [NOTE…] |
 repair`, `vault recipients add|remove … [--rewrap header|reencrypt]`,
 `recover` extracting a note's attachments with the stock framing.
+*Status:* in review (#60). Code: `Sources/Sempere/Blob.swift` (names, framing,
+Padmé, streaming checker), `BlobStore.swift` (write, read, copy,
+`withBlobFile`, `BlobSource`), `BlobRewrap.swift` (`RewrapPolicy`, the
+per-note rewrap), `BlobCollection.swift` (structural reference scan,
+inventory, collection, repair), blob entries in `Verify.swift`, `features` in
+`VaultManifest.swift`; CLI `Sources/SempereCLI/Blobs.swift`. Two readings of
+the spec, written into `format.md`: an addition that changes the recipients'
+stanza types re-encrypts (§8.1.5), and collection verifies a blob in full
+before deleting it (§8.1.6 "cannot be verified"). The fixture's blob is
+unreferenced until A1 adds a note with items.
 *Done when:* tests for name binding (renamed file, swapped content,
 non-zero padding, wrong length, wrong kind suffix all rejected or
 unresolved), Padmé sizes, the stock recovery commands of `format.md` §8.1.7

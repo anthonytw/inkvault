@@ -80,6 +80,10 @@ public enum VaultError: Error, Hashable, Sendable {
     case fileTooLarge(String, limit: Int)
     /// A filesystem operation failed.
     case io(String)
+    /// `vault.json` lists format extensions this implementation does not
+    /// know (`features`, format.md §2): it may read the vault but must not
+    /// write to it.
+    case unsupportedFeatures([String])
 }
 
 /// Why one revision file could not be read, by stage. (Vault-level
@@ -169,6 +173,33 @@ public struct Vault: Sendable {
         let classic = classicRecipients
         if !classic.isEmpty { throw VaultError.legacyVault(recipients: classic) }
     }
+
+    /// Throws `VaultError.unsupportedFeatures` when `vault.json` names a
+    /// format extension this implementation does not know (format.md §2):
+    /// such a vault may be read but never written. Every write calls it.
+    public func requireWritable() throws {
+        let unknown = manifest.unknownFeatures
+        if !unknown.isEmpty { throw VaultError.unsupportedFeatures(unknown) }
+    }
+
+    /// Adds `feature` to `vault.json`'s `features` unless it is already
+    /// there (format.md §2: `attachments` goes in before the first blob or
+    /// attachment op). Reads the file from disk, so a feature added through
+    /// another copy of this `Vault` value is seen, and rewrites it
+    /// atomically only when it changes. The in-memory `manifest` is not
+    /// updated (`Vault` is a value); `verify` ignores that difference.
+    func ensureFeature(_ feature: String) throws {
+        if manifest.features.contains(feature) { return }
+        var onDisk = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
+        if onDisk.features.contains(feature) { return }
+        onDisk.features.append(feature)
+        _ = try Self.writeManifest(onDisk, to: manifestURL, replacing: true)
+    }
+
+    /// Test seam (internal): a blob rename stops (`VaultError.interrupted`)
+    /// after the new name is in place and before the old one is deleted,
+    /// as a crash there would. Never set outside tests.
+    var crashAfterBlobPlace = false
 
     /// A copy that may read and write note content even when legacy (tests).
     func allowingLegacyContent() -> Vault {
@@ -355,6 +386,9 @@ public struct Vault: Sendable {
         /// Files already encrypted to the current set (and tagged with the
         /// current secret); left untouched.
         public var alreadyCurrent: [String] = []
+        /// How attachment blobs were rewrapped (format.md §8.1.5); nil when
+        /// no rewrap ran.
+        public var blobMethod: RewrapMethod?
         /// Files left untouched because they could not be read or verified.
         /// While any remain the journal is kept (`pendingRewrap` stays true)
         /// and `resumeRewrap()` retries them.
@@ -368,6 +402,7 @@ public struct Vault: Sendable {
         mutating func merge(_ o: RewrapReport) {
             rewrapped += o.rewrapped
             alreadyCurrent += o.alreadyCurrent
+            blobMethod = o.blobMethod ?? blobMethod
             failures.merge(o.failures) { $1 }
         }
     }
@@ -378,20 +413,30 @@ public struct Vault: Sendable {
     ///
     /// - Throws: `classicRecipient` for an X25519 recipient (post-quantum
     ///   only, format.md §3.1).
+    ///
+    /// - Parameter policy: how attachment blobs are rewrapped (format.md
+    ///   §8.1.5); by default an addition rewrites blob headers only, and an
+    ///   addition that changes the recipients' stanza types (a post-quantum
+    ///   key added to a legacy vault) re-encrypts them.
     @discardableResult
     public mutating func addRecipient(_ recipient: NativeRecipient, label: String,
-                                      added: Date = Date()) throws -> RewrapReport {
+                                      added: Date = Date(), policy: RewrapPolicy = RewrapPolicy()) throws -> RewrapReport {
         guard recipient.isPostQuantum else { throw VaultError.classicRecipient(recipient.string) }
-        return try addRecipient(recipient, label: label, added: added, stopAfter: nil)
+        return try addRecipient(recipient, label: label, added: added, policy: policy, stopAfter: nil)
     }
 
     /// Removes a recipient: rotates the vault secret, re-encrypts it to the
     /// remaining set, then re-encrypts and re-tags every revision (gzip bytes
     /// unchanged). Finishes an interrupted change first; repeating an
     /// interrupted `removeRecipient` call completes it.
+    ///
+    /// - Parameter policy: how attachment blobs are rewrapped (format.md
+    ///   §8.1.5); by default a removal re-encrypts every blob under a new
+    ///   file key and renames it under the new secret.
     @discardableResult
-    public mutating func removeRecipient(_ recipient: NativeRecipient) throws -> RewrapReport {
-        try removeRecipient(recipient, stopAfter: nil)
+    public mutating func removeRecipient(_ recipient: NativeRecipient,
+                                         policy: RewrapPolicy = RewrapPolicy()) throws -> RewrapReport {
+        try removeRecipient(recipient, policy: policy, stopAfter: nil)
     }
 
     /// Replaces `old` with `new` (keeping `old`'s label unless `label` is
@@ -402,11 +447,12 @@ public struct Vault: Sendable {
     /// repeating an interrupted call completes it, but only with **both**
     /// identities: the new one opens `vault.json`, the old one the files not
     /// yet rewrapped. Keep the old key until no rewrap is pending.
+    /// Blobs follow the removal row of `policy` (format.md §8.1.5).
     @discardableResult
     public mutating func replaceRecipient(_ old: NativeRecipient, with new: NativeRecipient, label: String? = nil,
-                                          added: Date = Date()) throws -> RewrapReport {
+                                          added: Date = Date(), policy: RewrapPolicy = RewrapPolicy()) throws -> RewrapReport {
         guard new.isPostQuantum else { throw VaultError.classicRecipient(new.string) }
-        return try replaceRecipient(old, with: new, label: label, added: added, stopAfter: nil)
+        return try replaceRecipient(old, with: new, label: label, added: added, policy: policy, stopAfter: nil)
     }
 
     /// Finishes an interrupted recipient change: rewraps every file not yet
@@ -417,7 +463,7 @@ public struct Vault: Sendable {
     }
 
     mutating func addRecipient(_ recipient: NativeRecipient, label: String, added: Date,
-                               stopAfter: Int?) throws -> RewrapReport {
+                               policy: RewrapPolicy = RewrapPolicy(), stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
         let key = recipient.string
         var report = RewrapReport()
@@ -437,12 +483,12 @@ public struct Vault: Sendable {
         }
         var next = manifest.recipients
         next.append(.init(key: key, label: label, added: added))
-        report.merge(try changeRecipients(next, rotate: false, stopAfter: stopAfter))
+        report.merge(try changeRecipients(next, rotate: false, policy: policy, stopAfter: stopAfter))
         return report
     }
 
     mutating func replaceRecipient(_ old: NativeRecipient, with new: NativeRecipient, label: String?, added: Date,
-                                   stopAfter: Int?) throws -> RewrapReport {
+                                   policy: RewrapPolicy = RewrapPolicy(), stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
         let oldKey = old.string, newKey = new.string
         var report = RewrapReport()
@@ -462,11 +508,12 @@ public struct Vault: Sendable {
         guard !has(newKey) else { throw VaultError.duplicateRecipient(newKey) }
         var next = manifest.recipients
         next[index] = .init(key: newKey, label: label ?? next[index].label, added: added)
-        report.merge(try changeRecipients(next, rotate: true, stopAfter: stopAfter))
+        report.merge(try changeRecipients(next, rotate: true, policy: policy, stopAfter: stopAfter))
         return report
     }
 
-    mutating func removeRecipient(_ recipient: NativeRecipient, stopAfter: Int?) throws -> RewrapReport {
+    mutating func removeRecipient(_ recipient: NativeRecipient, policy: RewrapPolicy = RewrapPolicy(),
+                                  stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
         let key = recipient.string
         var report = RewrapReport()
@@ -484,23 +531,29 @@ public struct Vault: Sendable {
         }
         let next = manifest.recipients.filter { $0.key != key }
         guard !next.isEmpty else { throw VaultError.lastRecipient }
-        report.merge(try changeRecipients(next, rotate: true, stopAfter: stopAfter))
+        report.merge(try changeRecipients(next, rotate: true, policy: policy, stopAfter: stopAfter))
         return report
     }
 
     mutating func resumeRewrap(stopAfter: Int?) throws -> RewrapReport {
         _ = try requireReadable()
+        try requireWritable()
         guard pendingRewrap else { return RewrapReport() }
-        previousSecret = try readJournal().previous
+        let (journal, previous) = try readJournal()
+        previousSecret = previous
         journalProblem = nil
-        return try finishRewrap(stopAfter: stopAfter)
+        // The method the change started with (format.md §3.3.1); a journal
+        // without it (written before blobs) follows the default policy:
+        // a rotated secret means a removal.
+        let method: RewrapMethod = (journal.rekeyBlobs ?? (journal.previousVaultSecret != nil)) ? .reencrypt : .headerOnly
+        return try finishRewrap(blobs: method, stopAfter: stopAfter)
     }
 
     /// Rewraps, then removes the journal only if every file is complete.
     /// Otherwise the journal (and the outgoing secret in it) stays, so the
     /// files that failed can still be verified and rewrapped by a retry.
-    mutating func finishRewrap(stopAfter: Int?) throws -> RewrapReport {
-        let report = try rewrapNotes(stopAfter: stopAfter)
+    mutating func finishRewrap(blobs: RewrapMethod, stopAfter: Int?) throws -> RewrapReport {
+        let report = try rewrapNotes(blobs: blobs, stopAfter: stopAfter)
         guard report.isComplete else { return report }
         try FileIO.remove(journalURL)
         previousSecret = nil
@@ -511,25 +564,29 @@ public struct Vault: Sendable {
     /// before vault.json changes, since the atomic write fsyncs the
     /// directory), then the manifest, then the files, then the journal is
     /// removed if every file is complete. See format.md §3.3.1, docs/io.md.
-    mutating func changeRecipients(_ next: [VaultManifest.Recipient], rotate: Bool,
+    mutating func changeRecipients(_ next: [VaultManifest.Recipient], rotate: Bool, policy: RewrapPolicy,
                                    stopAfter: Int?) throws -> RewrapReport {
         let current = try requireReadable()
+        try requireWritable()
         let ageNext = try next.map { r in
             do { return try NativeRecipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
         }
+        let method = policy.method(rotating: rotate, from: try ageRecipients(), to: ageNext)
         let newSecret = rotate ? VaultSecret.random() : current
         let journal = RewrapJournal(format: SempereFormat.identifier,
-                                    previousVaultSecret: rotate ? try Self.encryptSecret(current, to: ageNext) : nil)
+                                    previousVaultSecret: rotate ? try Self.encryptSecret(current, to: ageNext) : nil,
+                                    rekeyBlobs: method == .reencrypt)
         try FileIO.writeAtomically(try InkJSON.encoder().encode(journal), to: journalURL, replacing: true)
         previousSecret = rotate ? current : nil
 
-        var m = manifest
+        // `features` as on disk: a blob writer may have added one since open.
+        var m = (try? Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))) ?? manifest
         m.recipients = next
         m.vaultSecret = try Self.encryptSecret(newSecret, to: ageNext)
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
         secret = newSecret
 
-        return try finishRewrap(stopAfter: stopAfter)
+        return try finishRewrap(blobs: method, stopAfter: stopAfter)
     }
 
     struct RewrapJournal: Codable {
@@ -537,6 +594,10 @@ public struct Vault: Sendable {
         /// Armored age file holding the secret that files not yet rewrapped
         /// are tagged with; absent when the change did not rotate the secret.
         var previousVaultSecret: String?
+        /// How blobs are rewrapped (format.md §3.3.1, §8.1.5): true
+        /// re-encrypts each under a new file key, false rewrites only its
+        /// header. Absent in journals written before attachments.
+        var rekeyBlobs: Bool?
     }
 
     func readJournal() throws -> (journal: RewrapJournal, previous: VaultSecret?) {
@@ -555,11 +616,12 @@ public struct Vault: Sendable {
     /// matching type per recipient (and no other stanzas) and its tag
     /// verifies under the current secret; such files are skipped, which is
     /// what makes a second run finish an interrupted one.
-    func rewrapNotes(stopAfter: Int?) throws -> RewrapReport {
+    func rewrapNotes(blobs: RewrapMethod = .reencrypt, stopAfter: Int?) throws -> RewrapReport {
         let current = try requireSecret()
         let recips = try ageRecipients()
         let expected = Self.expectedStanzas(recips)
         var report = RewrapReport()
+        report.blobMethod = blobs
         for note in try noteDirectoryNames() {
             let dir = notesURL.appendingPathComponent(note)
             for name in try revisionFileNames(in: dir) {
@@ -596,6 +658,7 @@ public struct Vault: Sendable {
                 try FileIO.writeAtomically(try Self.encrypt(body, to: recips), to: file, replacing: true)
                 report.rewrapped.append(path)
             }
+            try rewrapBlobs(note: note, recipients: recips, method: blobs, report: &report, stopAfter: stopAfter)
         }
         return report
     }
