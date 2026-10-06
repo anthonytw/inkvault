@@ -270,7 +270,10 @@ struct BlobsAdd: ParsableCommand {
         if output.json { try output.emitJSON(o); return }
         if output.quiet { print(ref.sha256); return }
         print("\(o.note)/att/\(o.file)")
-        print("{\"sha256\":\"\(ref.sha256)\",\"size\":\(ref.size),\"type\":\"\(ref.type)\"}")
+        // Encoded, not interpolated: the media type is the caller's text.
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        print(String(decoding: try enc.encode(ref), as: UTF8.self))
     }
 }
 

@@ -337,6 +337,10 @@ final class BlobStoreTests: VaultTestCase {
                 XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
             }
         }
+        // Compaction deletes revisions, which is writing too.
+        XCTAssertThrowsError(try newer.compact(noteId: testNote, retention: 0)) {
+            XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+        }
         var changing = newer
         XCTAssertThrowsError(try changing.addRecipient(pqIdentity().recipient, label: "x")) {
             XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))

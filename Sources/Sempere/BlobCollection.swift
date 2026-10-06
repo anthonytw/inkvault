@@ -395,8 +395,8 @@ extension Vault {
                 for kind in kinds {
                     let targetName = BlobName.fileName(name: currentName, kind: kind)
                     let target = att.appendingPathComponent(targetName)
-                    if target != url, FileIO.exists(target), let t = try? Self.peekBlobFile(target, identities: identities),
-                       t.header == peek.header, t.stanzas == expected {
+                    if target != url, FileIO.exists(target),
+                       isCompleteBlob(target, header: peek.header, stanzas: expected, secret: secret) {
                         written.append(targetName); continue
                     }
                     let tmp = FileIO.tempURL(in: att)

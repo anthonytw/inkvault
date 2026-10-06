@@ -35,6 +35,21 @@ final class CLIBlobsTests: CLITestCase {
                                                                                       frame: Rect(x: 0, y: 0, w: 20, h: 20), z: "a"))])))
     }
 
+    /// Without --json, `blobs add` prints the reference as JSON a script can
+    /// paste into a revision, whatever the media type holds.
+    func testAddPrintsValidJSONForAnyType() throws {
+        let (vault, _, key) = try makeVault()
+        let file = path("src-quote")
+        try Data("synthetic".utf8).write(to: URL(fileURLWithPath: file))
+        let type = "text/x-\"quoted\"\\back"
+        let r = try cli(["blobs", "add", n1, file, "--type", type] + access(vault, key))
+        XCTAssertEqual(r.status, 0, r.err)
+        let line = try XCTUnwrap(r.out.split(separator: "\n").last)
+        let o = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], r.out)
+        XCTAssertEqual(o["type"] as? String, type)
+        XCTAssertEqual(o["sha256"] as? String, BlobRef(content: Data("synthetic".utf8), type: type).sha256)
+    }
+
     func testBlobsWorkflow() throws {
         let (vault, _, key) = try makeVault()
         let photo = Data((0..<90_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })

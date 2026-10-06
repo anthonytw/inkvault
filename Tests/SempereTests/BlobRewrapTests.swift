@@ -256,6 +256,32 @@ final class BlobRewrapTests: VaultTestCase {
         XCTAssertTrue(resumed.verify().isHealthy)
     }
 
+    /// A crash left a blob under both names and the new copy was then
+    /// damaged past its first chunk (bit rot, a partial sync): the resume
+    /// must not delete the old, good copy on the strength of the new one's
+    /// first chunk. It rewraps the old copy again over the damaged one.
+    func testResumeNeverTrustsADamagedNewCopy() throws {
+        let a = pqIdentity(), b = pqIdentity()
+        var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a])
+        let fx = try populateBlobs(vault)
+        vault.crashAfterBlobPlace = true
+        XCTAssertThrowsError(try vault.removeRecipient(b.recipient)) { XCTAssertEqual($0 as? VaultError, .interrupted) }
+        var resumed = try Vault.open(at: vault.url, identities: [a])
+        // The one blob placed under its new name (all are over one 64 KiB chunk).
+        let placed = try XCTUnwrap(fx.blobs.first { FileManager.default.fileExists(atPath: try! blobURL(resumed, $0.0, $0.1).path) })
+        let newCopy = try blobURL(resumed, placed.0, placed.1)
+        var bytes = try Data(contentsOf: newCopy)
+        bytes[bytes.count - 1] ^= 0x01   // the last chunk's tag: the first chunk still decrypts
+        try bytes.write(to: newCopy)
+        XCTAssertNoThrow(try Vault.peekBlobFile(newCopy, identities: [a]), "damage is past the first chunk")
+
+        let report = try resumed.resumeRewrap()
+        XCTAssertTrue(report.isComplete, "\(report.failures)")
+        XCTAssertEqual(blobFiles(resumed).count, 3)
+        try assertBlobsReadable(fx, at: vault.url, by: [a])
+        XCTAssertTrue(resumed.verify().isHealthy)
+    }
+
     /// The method recorded in the journal wins on resume; a journal written
     /// before blobs (no `rekeyBlobs`) follows the default for its kind.
     func testResumeUsesTheJournalsMethod() throws {

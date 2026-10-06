@@ -295,6 +295,8 @@ extension Vault {
     public func compact(noteId: UUID, loaded: LoadedNote, retention: TimeInterval = CompactionPlanner.defaultRetention,
                         now: Date = Date()) throws -> [RevisionName] {
         try requireMigrated()
+        // Deleting is writing: a vault with an unknown feature is read-only (format.md §2).
+        try requireWritable()
         let doomed = loaded.compactionPlan(retention: retention, now: now)
         let dir = noteURL(noteId)
         for n in doomed { try FileIO.remove(dir.appendingPathComponent(n.filename)) }

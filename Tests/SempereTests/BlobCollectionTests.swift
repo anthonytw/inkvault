@@ -263,6 +263,33 @@ final class BlobCollectionTests: VaultTestCase {
         _ = id
     }
 
+    /// A blob left under an old secret's name next to a copy under the
+    /// current name that is damaged past its first chunk: repair must not
+    /// delete the good old copy on the strength of the damaged one's first
+    /// chunk; it rewrites the current name from the old copy.
+    func testRepairNeverTrustsADamagedCopy() throws {
+        let id = pqIdentity()
+        let vault = try makeVault(id)
+        var log = LogBuilder()
+        let content = syntheticBytes(70_000, seed: 3)   // two STREAM chunks
+        let ref = try vault.writeBlob(note: testNote, content, type: "image/png")
+        try vault.write(referencingDelta(&log, 0, refs: [ref]))
+        let current = try blobURL(vault, testNote, ref)
+        let oldName = BlobName.fileName(name: BlobName.name(digest: try XCTUnwrap(ref.digest), secret: VaultSecret.random()),
+                                        kind: ref.kind)
+        try FileManager.default.copyItem(at: current, to: attDir(vault, testNote).appendingPathComponent(oldName))
+        var bytes = try Data(contentsOf: current)
+        bytes[bytes.count - 1] ^= 0x01
+        try bytes.write(to: current)
+        XCTAssertNoThrow(try Vault.peekBlobFile(current, identities: [id]), "damage is past the first chunk")
+
+        let r = try vault.repairBlobs(note: testNote)
+        XCTAssertEqual(r.repaired, [oldName: [current.lastPathComponent]])
+        XCTAssertEqual(attEntries(vault, testNote), [current.lastPathComponent])
+        XCTAssertEqual(try vault.readBlob(note: testNote, ref), content)
+        XCTAssertTrue(vault.verify().isHealthy)
+    }
+
     /// Stale recipients (a removal by an old build left the old stanzas) and
     /// a wrong kind suffix are repaired too.
     func testRepairFixesStaleRecipientsAndKind() throws {

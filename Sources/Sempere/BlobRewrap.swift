@@ -99,8 +99,7 @@ extension Vault {
             case 1?:
                 target = dir.appendingPathComponent(
                     BlobName.fileName(name: BlobName.name(digest: peek.header.digest, secret: current), kind: parsed.kind))
-                if FileIO.exists(target), let done = try? Self.peekBlobFile(target, identities: identities),
-                   done.header == peek.header, done.stanzas == expected {
+                if FileIO.exists(target), isCompleteBlob(target, header: peek.header, stanzas: expected, secret: current) {
                     // Finished before an interruption: only the old name is left.
                     try FileIO.remove(url)
                     report.rewrapped.append(path)
@@ -141,5 +140,19 @@ extension Vault {
             }
             report.rewrapped.append(path)
         }
+    }
+
+    /// True when `url` is a finished copy of the blob with `header`: its
+    /// stanzas are `stanzas` and it verifies **in full** (every chunk,
+    /// framing, padding, content hash, its name under `secret`). Callers
+    /// delete the other copy on the strength of this, so the first chunk
+    /// alone is not enough: a file damaged past it would replace the only
+    /// good copy (format.md §8.1.4 "valid", §8.1.5).
+    func isCompleteBlob(_ url: URL, header: BlobHeader, stanzas: [String: Int], secret: VaultSecret) -> Bool {
+        guard Self.stanzaCounts(blob: url) == stanzas,
+              let (found, _) = try? Self.readBlobFile(url, identities: identities, secrets: [secret], expected: nil,
+                                                      maxContent: BlobRef.maxSize)
+        else { return false }
+        return found == header
     }
 }
