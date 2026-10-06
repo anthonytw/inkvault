@@ -42,7 +42,7 @@ working state.
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
 | Sync | WebDAV | ✅ |
-| Sync | WebDAV for attachments (B3) | 📋 |
+| Sync | WebDAV for attachments (B3) | 🔀 this PR |
 
 ## CLI (`sempere`; one codebase for both platforms)
 
