@@ -39,6 +39,13 @@ public enum PDFWriter {
     /// there is one, else drawn as a placeholder. The file is PDF 1.7 when it
     /// embeds forms (copied objects may use 1.5+ features), else 1.4.
     ///
+    /// Images (format.md §8.2.5) become Image XObjects, one per blob however
+    /// often it is used: a JPEG is passed through (`DCTDecode`) with its
+    /// metadata stripped unless `options.keepImageMetadata`; other images
+    /// are decoded and stored as 8-bit Flate RGB or grey with an `/SMask`
+    /// for transparency. Each is drawn with one `cm` (orientation, crop,
+    /// frame and rotation) inside a clip to its rotated frame.
+    ///
     /// - Parameters:
     ///   - blobs: one blob source per note (`nil` entries, or no array, use
     ///     `options.blobs`): references resolve only within their note.
@@ -51,6 +58,8 @@ public enum PDFWriter {
         var pages: [OutPage] = []
         var embedsForms = false
         var pageNumber = 0
+        // Image XObjects by content hash, shared by every note that shows the image.
+        var imageObjects: [String: Result<Int, PlaceholderReason>] = [:]
 
         func addPage(_ chunk: PageChunk, _ cs: ContentStream, xobjects: [Int]) throws {
             let content = doc.allocate()
@@ -69,13 +78,17 @@ public enum PDFWriter {
         for (n, note) in notes.enumerated() {
             let source: (any BlobSource)? = (blobs.flatMap { n < $0.count ? $0[n] : nil }) ?? options.blobs
             let backgrounds = PDFBackgrounds(blobs: source, rasterizer: options.pdfRasterizer)
+            let images = ImageStore(options: options, blobs: source)
             var copiers: [String: PDFFormCopier] = [:]
             for page in note.pages {
                 pageNumber += 1
                 let prepared = try PreparedPage(page: page, meta: note.meta, options: options, pageNumber: pageNumber)
+                for w in prepared.warnings { report.warn(w) }
                 var draws: [UUID: ItemDraw] = [:]
                 for it in prepared.items {
-                    let d = draw(it, backgrounds: backgrounds, copiers: &copiers, doc: doc, options: options)
+                    let d = it.item.kind == .image
+                        ? drawImage(it, images: images, objects: &imageObjects, doc: doc, options: options)
+                        : draw(it, backgrounds: backgrounds, copiers: &copiers, doc: doc, options: options)
                     if case .placeholder(let reason) = d {
                         report.placeholders.append(.init(page: pageNumber, item: it.item.id, kind: it.item.kind,
                                                          reason: reason))
@@ -161,6 +174,31 @@ public enum PDFWriter {
         /// An image XObject and the matrix from its unit square to page coordinates.
         case image(Int, Affine)
         case placeholder(PlaceholderReason)
+    }
+
+    /// An image item as its Image XObject (embedded on first use) and the
+    /// matrix from the XObject's unit square to page coordinates.
+    static func drawImage(_ it: PreparedItem, images: ImageStore, objects: inout [String: Result<Int, PlaceholderReason>],
+                          doc: PDFObjects, options: RenderOptions) -> ItemDraw {
+        let placed: PlacedImage
+        switch images.place(it) {
+        case .failure(let r): return .placeholder(r)
+        case .success(let p): placed = p
+        }
+        let key = placed.ref.sha256
+        let num: Int
+        switch objects[key] ?? Result(catching: { try doc.addImage(placed, store: images, keepMetadata: options.keepImageMetadata) })
+            .mapError(ImageStore.reason) {
+        case .failure(let r):
+            objects[key] = .failure(r)
+            return .placeholder(r)
+        case .success(let n):
+            objects[key] = .success(n)
+            num = n
+        }
+        // The XObject paints the unit square, y up, row 0 at the top: (s, t) → (s·w, (1 − t)·h).
+        let w = Double(placed.image.width), h = Double(placed.image.height)
+        return .image(num, placed.transform.after(Affine(a: w, d: -h, ty: h)))
     }
 
     static func draw(_ it: PreparedItem, backgrounds: PDFBackgrounds, copiers: inout [String: PDFFormCopier],
@@ -341,6 +379,53 @@ final class PDFObjects {
         let z = try Zlib.compress(Data(rgb))
         set(num, Array(("<< /Type /XObject /Subtype /Image /Width \(img.width) /Height \(img.height) "
             + "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode\(smask) /Length \(z.count) >>\nstream\n").utf8)
+            + [UInt8](z) + Array("\nendstream".utf8))
+        return num
+    }
+
+    /// An image item's Image XObject: a JPEG passed through (`DCTDecode`,
+    /// metadata stripped unless `keepMetadata`), anything else decoded and
+    /// stored as 8-bit Flate grey or RGB, with an `/SMask` when not opaque.
+    func addImage(_ placed: PlacedImage, store: ImageStore, keepMetadata: Bool) throws -> Int {
+        let image = placed.image
+        let size = "/Width \(image.width) /Height \(image.height) /BitsPerComponent 8"
+        if case let .jpeg(info) = image.format {
+            let bytes = keepMetadata ? image.data : try JPEG.stripMetadata(image.data)
+            var dict = "/Type /XObject /Subtype /Image \(size) /ColorSpace /\(info.components == 1 ? "DeviceGray" : "DeviceRGB")"
+            dict += " /Filter /DCTDecode"
+            if info.isRGB { dict += " /DecodeParms << /ColorTransform 0 >>" }
+            let num = allocate()
+            set(num, Array("<< \(dict) /Length \(bytes.count) >>\nstream\n".utf8) + [UInt8](bytes) + Array("\nendstream".utf8))
+            return num
+        }
+        let rgba = try store.decodeFull(placed.ref, image).get()
+        let n = rgba.width * rgba.height
+        let p = rgba.pixels
+        var grey = true
+        var i = 0
+        while i < p.count {
+            if p[i] != p[i + 1] || p[i] != p[i + 2] { grey = false; break }
+            i += 4
+        }
+        var colour = [UInt8]()
+        colour.reserveCapacity(n * (grey ? 1 : 3))
+        for k in 0..<n {
+            colour.append(p[4 * k])
+            if !grey { colour.append(p[4 * k + 1]); colour.append(p[4 * k + 2]) }
+        }
+        var smask = ""
+        if !rgba.isOpaque {
+            let m = try Zlib.compress(Data((0..<n).map { p[4 * $0 + 3] }))
+            let s = allocate()
+            set(s, Array(("<< /Type /XObject /Subtype /Image /Width \(rgba.width) /Height \(rgba.height) "
+                + "/BitsPerComponent 8 /ColorSpace /DeviceGray /Filter /FlateDecode /Length \(m.count) >>\nstream\n").utf8)
+                + [UInt8](m) + Array("\nendstream".utf8))
+            smask = " /SMask \(s) 0 R"
+        }
+        let z = try Zlib.compress(Data(colour))
+        let num = allocate()
+        set(num, Array(("<< /Type /XObject /Subtype /Image /Width \(rgba.width) /Height \(rgba.height) /BitsPerComponent 8 "
+            + "/ColorSpace /\(grey ? "DeviceGray" : "DeviceRGB") /Filter /FlateDecode /Length \(z.count)\(smask) >>\nstream\n").utf8)
             + [UInt8](z) + Array("\nendstream".utf8))
         return num
     }

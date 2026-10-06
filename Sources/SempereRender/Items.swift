@@ -62,6 +62,14 @@ public struct RenderReport: Sendable, Equatable {
 
     /// Placeholders for `reason`.
     public func count(_ reason: PlaceholderReason) -> Int { placeholders.filter { $0.reason == reason }.count }
+
+    /// Adds a warning once.
+    mutating func warn(_ message: String) { if !warnings.contains(message) { warnings.append(message) } }
+
+    /// Adds a placeholder for `item`.
+    mutating func placeholder(_ it: PreparedItem, _ reason: PlaceholderReason) {
+        placeholders.append(.init(page: it.pageNumber, item: it.item.id, kind: it.item.kind, reason: reason))
+    }
 }
 
 /// Why an item is a placeholder.
@@ -80,6 +88,10 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
     case unsupportedKind(String)
     /// The export's raster budget (`RenderLimits.maxBackgroundPixels`) is spent.
     case rasterBudget
+    /// An image that cannot be decoded or drawn here: corrupt, unsupported
+    /// (HEIC without the app's decoder, CMYK JPEG), over a limit, or a crop
+    /// outside it (why).
+    case imageUnreadable(String)
 
     /// A short English description, for reports.
     public var description: String {
@@ -91,6 +103,7 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
         case .rasterizerFailed(let why): return "PDF renderer failed: \(why)"
         case .unsupportedKind(let k): return "\(k) items are not drawn by this export"
         case .rasterBudget: return "too many PDF background pixels in this export"
+        case .imageUnreadable(let why): return why
         }
     }
 }
@@ -118,7 +131,10 @@ struct Affine: Equatable {
 
     var isFinite: Bool { [a, b, c, d, tx, ty].allSatisfy(\.isFinite) }
 
+    var determinant: Double { a * d - b * c }
+
     static func translate(_ x: Double, _ y: Double) -> Affine { Affine(tx: x, ty: y) }
+    static func scale(_ x: Double, _ y: Double) -> Affine { Affine(a: x, d: y) }
 }
 
 /// Placement of an item on its page (format.md §8.5.1).
@@ -149,6 +165,34 @@ enum ItemGeometry {
         let sx = frame.w / crop.w, sy = frame.h / crop.h
         let toFrame = Affine(a: sx, d: sy, tx: frame.x - crop.x * sx, ty: frame.y - crop.y * sy)
         return rotate(frame: frame, degrees: degrees).after(toFrame)
+    }
+
+    /// Stored pixel coordinates of a `w × h` image → oriented coordinates
+    /// for EXIF `orientation` 1–8 (format.md §8.5.1 table).
+    static func orientation(_ o: Int, width w: Double, height h: Double) -> Affine {
+        switch o {
+        case 2: return Affine(a: -1, b: 0, c: 0, d: 1, tx: w, ty: 0)
+        case 3: return Affine(a: -1, b: 0, c: 0, d: -1, tx: w, ty: h)
+        case 4: return Affine(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: h)
+        case 5: return Affine(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
+        case 6: return Affine(a: 0, b: 1, c: -1, d: 0, tx: h, ty: 0)
+        case 7: return Affine(a: 0, b: -1, c: -1, d: 0, tx: h, ty: w)
+        case 8: return Affine(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: w)
+        default: return .identity
+        }
+    }
+
+    /// The oriented size of a stored `w × h` image.
+    static func orientedSize(_ o: Int, width w: Double, height h: Double) -> (w: Double, h: Double) {
+        (5...8).contains(o) ? (h, w) : (w, h)
+    }
+
+    /// `a ∩ b`, nil when empty or `a` has no positive size.
+    static func intersect(_ a: Rect, _ b: Rect) -> Rect? {
+        guard a.hasPositiveSize else { return nil }
+        let x0 = max(a.x, b.x), y0 = max(a.y, b.y), x1 = min(a.x + a.w, b.x + b.w), y1 = min(a.y + a.h, b.y + b.h)
+        guard x1 > x0, y1 > y0 else { return nil }
+        return Rect(x: x0, y: y0, w: x1 - x0, h: y1 - y0)
     }
 
     /// The frame's corners after rotation, in page coordinates.
@@ -233,19 +277,26 @@ struct RasterBackground {
 }
 
 /// Resolves every item of a page once for the SVG and PNG writers: a
-/// rasterized PDF page or a placeholder (reported).
+/// rasterized PDF page, a placed image, or a placeholder (reported, in
+/// drawing order).
 enum RasterItems {
     enum Draw {
         case raster(RasterBackground)
+        case image(PlacedImage)
         case placeholder(PlaceholderReason)
     }
 
-    static func resolve(_ items: [PreparedItem], backgrounds: PDFBackgrounds, scale: Double, maxPixels: Int,
-                        report: inout RenderReport) -> [UUID: Draw] {
+    static func resolve(_ items: [PreparedItem], backgrounds: PDFBackgrounds, images: ImageStore, scale: Double,
+                        maxPixels: Int, report: inout RenderReport) -> [UUID: Draw] {
         var out: [UUID: Draw] = [:]
         for it in items {
             let d: Draw
-            if it.item.kind != .pdfPage || it.item.blob == nil {
+            if it.item.kind == .image {
+                switch images.place(it) {
+                case .success(let p): d = .image(p)
+                case .failure(let reason): d = .placeholder(reason)
+                }
+            } else if it.item.kind != .pdfPage || it.item.blob == nil {
                 d = .placeholder(.unsupportedKind(it.item.kind.rawValue))
             } else if backgrounds.blobs == nil {
                 d = .placeholder(.noBlobSource)
@@ -266,5 +317,204 @@ enum RasterItems {
             out[it.item.id] = d
         }
         return out
+    }
+}
+
+// MARK: - Images (format.md §8.2.5)
+
+/// The blob source of each note, by note id: a reference resolves only in
+/// its own note (format.md §8.1.1), so multi-note exports take one per note.
+public typealias BlobSources = @Sendable (UUID) -> (any BlobSource)?
+
+/// Decodes image formats SempereRender cannot (HEIC): the app implements it
+/// with ImageIO. Return nil for a type it does not handle either.
+public protocol ImageDecoding: Sendable {
+    func decode(_ data: Data, type: String, maxPixels: Int) throws -> RGBAImage?
+}
+
+/// An image blob's bytes and what its header says, read once per export.
+struct LoadedImage {
+    enum Format { case jpeg(JPEG.Info), png(PNG.Info), other }
+    let data: Data
+    let format: Format
+    let type: String
+    /// Stored (unoriented) pixel size.
+    let width: Int
+    let height: Int
+}
+
+/// An image item ready to draw.
+struct PlacedImage {
+    let ref: BlobRef
+    let image: LoadedImage
+    /// Stored pixel coordinates → page coordinates (orientation, crop onto
+    /// the frame, rotation: format.md §8.5.1).
+    let transform: Affine
+}
+
+/// Per-note cache of image blobs: each blob is read, checked and decoded
+/// once however many items and pages use it.
+final class ImageStore {
+    let blobs: (any BlobSource)?
+    let decoder: (any ImageDecoding)?
+    let maxPixels: Int
+    private var loaded: [String: Result<LoadedImage, PlaceholderReason>] = [:]
+    private var decoded: [String: Result<RGBAImage, PlaceholderReason>] = [:]
+    private var reduced: [String: Result<RGBAImage, PlaceholderReason>] = [:]
+
+    init(options: RenderOptions, blobs: (any BlobSource)? = nil) {
+        self.blobs = blobs ?? options.blobs
+        decoder = options.imageDecoder
+        maxPixels = options.maxImagePixels
+    }
+
+    /// Where an image item's pixels land, or why it is a placeholder.
+    func place(_ it: PreparedItem) -> Result<PlacedImage, PlaceholderReason> {
+        let item = it.item
+        guard let ref = item.blob else { return .failure(.blobUnavailable("image without a blob")) }
+        let loadedImage: LoadedImage
+        switch load(ref) {
+        case .failure(let r): return .failure(r)
+        case .success(let image):
+            if case .other = image.format {
+                // Measured when decoded (HEIC through the app's decoder).
+                switch decodeFull(ref, image) {
+                case .failure(let r): return .failure(r)
+                case .success(let rgba):
+                    loadedImage = LoadedImage(data: image.data, format: .other, type: image.type,
+                                              width: rgba.width, height: rgba.height)
+                }
+            } else {
+                loadedImage = image
+            }
+        }
+        let o = (1...8).contains(item.orientation ?? 1) ? item.orientation ?? 1 : 1
+        let w = Double(loadedImage.width), h = Double(loadedImage.height)
+        let oriented = ItemGeometry.orientedSize(o, width: w, height: h)
+        let full = Rect(x: 0, y: 0, w: oriented.w, h: oriented.h)
+        // The crop, intersected with the image as decoded, is drawn onto the frame (§8.2.5).
+        guard let crop = ItemGeometry.intersect(item.crop ?? full, full) else {
+            return .failure(.imageUnreadable("crop lies outside the image"))
+        }
+        let m = ItemGeometry.placement(crop: crop, frame: item.frame, degrees: item.rotation ?? 0)
+            .after(ItemGeometry.orientation(o, width: w, height: h))
+        guard m.isFinite, m.inverse != nil else { return .failure(.imageUnreadable("degenerate placement")) }
+        return .success(PlacedImage(ref: ref, image: loadedImage, transform: m))
+    }
+
+    /// The blob of an image item with its header parsed, or why not.
+    func load(_ ref: BlobRef) -> Result<LoadedImage, PlaceholderReason> {
+        if let r = loaded[ref.sha256] { return r }
+        let r = Result { try read(ref) }.mapError(Self.reason)
+        loaded[ref.sha256] = r
+        return r
+    }
+
+    private func read(_ ref: BlobRef) throws -> LoadedImage {
+        guard let blobs else { throw PlaceholderReason.noBlobSource }
+        guard ref.size <= Int64(ImageLimits.maxBlobBytes) else {
+            throw PlaceholderReason.imageUnreadable(
+                "image of \(ref.size) bytes is over the \(ImageLimits.maxBlobBytes >> 20) MiB export limit")
+        }
+        // At most 16 MiB is held whole by the blob store; larger blobs come through a temporary file.
+        let data: Data
+        do {
+            data = ref.size <= 16 << 20 ? try blobs.data(for: ref, maxBytes: 16 << 20)
+                : try blobs.withFile(for: ref) { try BoundedRead.contents(of: $0, maxBytes: ImageLimits.maxBlobBytes) }
+        } catch {
+            throw PlaceholderReason.blobUnavailable(Self.describe(error))
+        }
+        let d = [UInt8](data.prefix(16))
+        if d.starts(with: [0xFF, 0xD8]) {
+            let info = try JPEG.info(data)
+            return try checked(LoadedImage(data: data, format: .jpeg(info), type: "image/jpeg",
+                                           width: info.width, height: info.height))
+        }
+        if d.starts(with: PNG.signature) {
+            let info = try PNG.info(data)
+            return try checked(LoadedImage(data: data, format: .png(info), type: "image/png",
+                                           width: info.width, height: info.height))
+        }
+        if d.count >= 12, Array(d[4..<8]) == Array("ftyp".utf8) || ref.type.lowercased().hasPrefix("image/hei") {
+            guard decoder != nil else {
+                throw PlaceholderReason.imageUnreadable("HEIC images cannot be decoded here (convert it to JPEG in the app)")
+            }
+            return LoadedImage(data: data, format: .other, type: "image/heic", width: 0, height: 0)
+        }
+        guard decoder != nil else { throw PlaceholderReason.imageUnreadable("unsupported image type \(ref.type)") }
+        return LoadedImage(data: data, format: .other, type: ref.type, width: 0, height: 0)
+    }
+
+    private func checked(_ image: LoadedImage) throws -> LoadedImage {
+        let pixels = Double(image.width) * Double(image.height)
+        guard pixels <= Double(maxPixels) else {
+            throw PlaceholderReason.imageUnreadable("image of \(image.width) × \(image.height) pixels is over the "
+                                                    + "\(maxPixels / 1_000_000) MP limit")
+        }
+        return image
+    }
+
+    /// The image decoded at full size (PDF and SVG need every pixel). Only
+    /// the most recent decode is kept (a page usually shows an image on
+    /// consecutive chunks), so memory holds one bitmap, not one per image;
+    /// failures are remembered for every image.
+    func decodeFull(_ ref: BlobRef, _ image: LoadedImage) -> Result<RGBAImage, PlaceholderReason> {
+        if let r = decoded[ref.sha256] { return r }
+        let r = Result { try decode(image, scale: 1) }.mapError(Self.reason)
+        decoded = decoded.filter { if case .failure = $0.value { return true } else { return false } }
+        decoded[ref.sha256] = r
+        return r
+    }
+
+    /// The image for drawing at `reduction` source pixels per output pixel:
+    /// a JPEG decoded with DCT scaling (1/2, 1/4, 1/8) where that keeps at
+    /// least one decoded pixel per output pixel, then reduced by an integer
+    /// box average while two or more remain (docs/attachments.md §10). Cached per size.
+    func forRaster(_ ref: BlobRef, _ image: LoadedImage, reduction: Double) -> Result<RGBAImage, PlaceholderReason> {
+        var dct = 1
+        if case .jpeg = image.format, reduction.isFinite {
+            for s in [2, 4, 8] where Double(s) <= reduction { dct = s }
+        }
+        let rest = reduction.isFinite ? reduction / Double(dct) : 1
+        let box = rest >= 2 ? Int(min(rest, 65_536)) : 1
+        let key = "\(ref.sha256)-\(dct)-\(box)"
+        if let r = reduced[key] { return r }
+        let r = Result { () -> RGBAImage in
+            let base = dct == 1 ? try decodeFull(ref, image).get() : try decode(image, scale: dct)
+            return base.boxReduced(by: box)
+        }.mapError(Self.reason)
+        reduced = reduced.filter { if case .failure = $0.value { return true } else { return false } }   // one bitmap at a time
+        reduced[key] = r
+        return r
+    }
+
+    /// The image decoded at `1/scale` (JPEG DCT scaling; other formats ignore it).
+    func decode(_ image: LoadedImage, scale: Int) throws -> RGBAImage {
+        switch image.format {
+        case .jpeg: return try JPEG.decode(image.data, scale: scale, maxPixels: maxPixels)
+        case .png: return try PNG.decode(image.data, maxPixels: maxPixels)
+        case .other:
+            guard let decoder, let img = try decoder.decode(image.data, type: image.type, maxPixels: maxPixels) else {
+                throw PlaceholderReason.imageUnreadable("image type \(image.type) cannot be decoded here")
+            }
+            guard Double(img.width) * Double(img.height) <= Double(maxPixels) else {
+                throw ImageError.tooLarge(width: img.width, height: img.height)
+            }
+            return img
+        }
+    }
+
+    /// Any failure as a placeholder reason.
+    static func reason(_ error: any Error) -> PlaceholderReason {
+        if let p = error as? PlaceholderReason { return p }
+        if error is BlobError { return .blobUnavailable(describe(error)) }
+        return .imageUnreadable(describe(error))
+    }
+
+    static func describe(_ error: any Error) -> String {
+        if let p = error as? PlaceholderReason { return p.description }
+        if let e = error as? ImageError { return e.errorDescription ?? "\(e)" }
+        if let e = error as? BlobError { return e.description }
+        return "image cannot be read (\(error))"
     }
 }

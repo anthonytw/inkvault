@@ -28,6 +28,9 @@ struct PreparedPage {
     let strokes: [PreparedStroke]
     /// Placed items in drawing order (`Item.drawsBefore`).
     let items: [PreparedItem]
+    /// Items not drawn and why (frames outside the drawable area, too many
+    /// items): the writers add these to their report.
+    let warnings: [String]
     /// Total page height: `pageSize.height`, or for infinite pages the largest
     /// of that, the lowest stroke edge (rounded up) and one chunk height.
     let extent: Double
@@ -85,13 +88,25 @@ struct PreparedPage {
         }
         strokes = list
         // Items count toward an infinite page's extent like strokes (format.md §8.2.3).
+        // An item whose frame cannot be drawn is skipped with a warning, never
+        // fatal to the page (format.md §8.5.2); at most `maxItemsPerPage` are drawn.
         var placed: [PreparedItem] = []
-        for item in page.items.sorted(by: Item.drawsBefore) {
-            let p = try PreparedItem(item, pageNumber: pageNumber)
-            placed.append(p)
-            low = max(low, p.maxY)
+        var notes: [String] = []
+        for item in page.items.sorted(by: Item.drawsBefore).prefix(RenderLimits.maxItemsPerPage) {
+            do {
+                let p = try PreparedItem(item, pageNumber: pageNumber)
+                placed.append(p)
+                low = max(low, p.maxY)
+            } catch {
+                notes.append("page \(pageNumber): item \(item.id.uuidString.lowercased().prefix(8)): "
+                    + "outside the drawable area; not drawn")
+            }
+        }
+        if page.items.count > RenderLimits.maxItemsPerPage {
+            notes.append("page \(pageNumber): more than \(RenderLimits.maxItemsPerPage) items; the rest are not drawn")
         }
         items = placed
+        warnings = notes
         if size.infinite {
             guard low <= maxE else { throw RenderError.extentTooLarge(low) }
             let chunk = Self.chunkHeight(options: options, size: size)

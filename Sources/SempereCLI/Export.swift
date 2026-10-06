@@ -47,6 +47,13 @@ struct ExportCommand: ParsableCommand {
             rewrites only files whose content changed; --clean (with --all) removes files an earlier
             run wrote that this run did not. WARNING: these formats write your notes as PLAINTEXT.
 
+            Images are drawn from the note's attachments. PDF embeds JPEGs as they are stored (no
+            re-encoding) and other images losslessly; SVG embeds them as data URIs, or with --assets
+            DIR writes each image once into DIR and links it. Location and camera metadata (EXIF,
+            XMP, GPS, comments) is removed from every image an export carries unless
+            --keep-image-metadata. An image that cannot be drawn (missing or damaged attachment,
+            HEIC, over 100 megapixels) becomes a crossed-out box and a warning on stderr.
+
             PDF page backgrounds: pdf copies the original pages exactly. svg and png need the pages as
             pixels: --pdf-renderer auto (the default) runs Poppler's pdftoppm (or SEMPERE_PDFTOPPM) in a
             separate, resource-limited process, at most --pdf-timeout seconds per page; without it, or
@@ -99,6 +106,14 @@ struct ExportCommand: ParsableCommand {
             help: ArgumentHelp("Seconds Poppler may take per PDF page before it is stopped.", valueName: "seconds"))
     var pdfTimeout: Double = 30
 
+    @Flag(name: .customLong("keep-image-metadata"),
+          help: "Keep images' EXIF/XMP/GPS metadata in the export (removed by default).")
+    var keepImageMetadata = false
+
+    @Option(name: .long, help: ArgumentHelp("svg only: write images into this directory and link them instead of embedding.",
+                                            valueName: "dir"))
+    var assets: String?
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -108,6 +123,7 @@ struct ExportCommand: ParsableCommand {
         if at != nil && all { throw ValidationError("--at needs a single note, not --all") }
         let tree = format == .markdown || format == .html
         if images != .none && format != .markdown { throw ValidationError("--images only applies to --format markdown") }
+        if assets != nil && format != .svg { throw ValidationError("--assets only applies to --format svg") }
         if clean && !tree { throw ValidationError("--clean only applies to --format markdown or html") }
         if clean && !all { throw ValidationError("--clean needs --all") }
         if notebook != nil && !all { throw ValidationError("--notebook needs --all") }
@@ -191,7 +207,7 @@ struct ExportCommand: ParsableCommand {
         }
         if states.isEmpty { throw CLIError.failure("no notes to export") }
 
-        let options = RenderOptions(paper: !noPaper, pdfRasterizer: try rasterizer())
+        let options = RenderOptions(paper: !noPaper, pdfRasterizer: try rasterizer(), keepImageMetadata: keepImageMetadata)
         var placeholders = 0
         func warn(_ report: RenderReport, note: String) {
             placeholders += report.placeholders.count
@@ -218,9 +234,17 @@ struct ExportCommand: ParsableCommand {
         let singleFile = note != nil && (out.hasSuffix(".\(format.rawValue)") && format != .svg
                                          && format != .markdown && format != .html)
         if let treeFormat = format.tree {
-            let tree = TreeExporter(root: URL(fileURLWithPath: out), format: treeFormat, images: images, options: options,
+            var tree = TreeExporter(root: URL(fileURLWithPath: out), format: treeFormat, images: images, options: options,
                                     png: PNGOptions(dpi: dpi), source: "sempere", clean: clean, notebookFilter: notebook,
                                     errorText: { CLIError.from($0).message })
+            let blobVault = vault
+            tree.blobs = { blobVault.blobSource(note: $0) }
+            let warnFormat = format
+            tree.onReport = { id, r in
+                for w in Self.warnings(r, format: warnFormat) {
+                    printStderr("sempere: warning: \(id.uuidString.lowercased().prefix(8)): \(w)")
+                }
+            }
             var counts = (written: 0, unchanged: 0)
             let r: (results: [TreeResult], failures: Int, errors: [String])
             do {
@@ -266,14 +290,30 @@ struct ExportCommand: ParsableCommand {
                         break
                     case .svg, .png:
                         let pages: [Data]
+                        var assetFiles: [String] = []
                         if format == .png {
                             pages = try PNGWriter.render(note: state, options: noteOptions, png: PNGOptions(dpi: dpi),
                                                          report: &items)
                         } else {
-                            pages = try SVGWriter.render(note: state, options: noteOptions, report: &items).map { Data($0.utf8) }
+                            // Linked images: hrefs relative to the folder the SVGs land in.
+                            let svgDir = all ? path(stem) : out
+                            if all { try mkdir(svgDir) }
+                            let prefix = try assets.map { dir -> String in
+                                try mkdir(dir)
+                                return ExportCommand.relativePath(from: svgDir, to: dir) + "/"
+                            }
+                            let svg = try SVGWriter.export(note: state, options: noteOptions, assetPrefix: prefix, report: &items)
+                            pages = svg.pages.map { Data($0.utf8) }
+                            for asset in svg.assets {
+                                let file = URL(fileURLWithPath: assets ?? out).appendingPathComponent(asset.name).path
+                                if (try? BoundedRead.contents(of: URL(fileURLWithPath: file), maxBytes: asset.data.count)) != asset.data {
+                                    try write(asset.data, to: file)
+                                }
+                                assetFiles.append(file)
+                            }
                         }
                         let ext = format.rawValue
-                        var files: [String] = []
+                        var files: [String] = assetFiles
                         if all { try mkdir(path(stem)) }
                         for (i, data) in pages.enumerated() {
                             let file = all ? path(stem + String(format: "/p%03d.", i + 1) + ext)
@@ -293,5 +333,16 @@ struct ExportCommand: ParsableCommand {
         }
         if output.json { try output.emitJSON(written) }
         if failures > 0 { throw CLIError.failure("\(failures) note(s) could not be exported") }
+    }
+
+    /// `to` relative to the directory `from` (both relative to the current
+    /// directory or absolute), with `/` separators; `.` when they are the same.
+    static func relativePath(from: String, to: String) -> String {
+        let a = URL(fileURLWithPath: from).standardizedFileURL.pathComponents
+        let b = URL(fileURLWithPath: to).standardizedFileURL.pathComponents
+        var i = 0
+        while i < a.count, i < b.count, a[i] == b[i] { i += 1 }
+        let parts = Array(repeating: "..", count: a.count - i) + b[i...]
+        return parts.isEmpty ? "." : parts.joined(separator: "/")
     }
 }

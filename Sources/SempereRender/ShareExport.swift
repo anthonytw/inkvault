@@ -94,8 +94,7 @@ public enum ShareExport {
     ///   - progress: `(done, total)` before each note and once at the end.
     /// - Throws: `ShareExportError`, `CancellationError`, `TreeExportError` or a file error when `scratch` cannot be written.
     ///   - blobs: each note's attachments (`Vault.blobSource(note:)`); without
-    ///     it attachments are placeholders. PDF and PNG only; Markdown and HTML
-    ///     do not read attachments yet.
+    ///     it attachments are placeholders.
     ///   - pdfRasterizer: draws PDF page backgrounds for PNG (the app's PDFKit one).
     public static func run(_ notes: [(NoteSummary, NoteState)], options: ShareOptions, into scratch: URL,
                            vaultSource: String, blobs: (@Sendable (UUID) -> (any BlobSource)?)? = nil,
@@ -113,6 +112,7 @@ public enum ShareExport {
             return r
         }
         var report = RenderReport()
+        var placeholders = 0   // from the tree exporter
         var items: [URL] = []
         var failures: [String] = []
         var exported = 0
@@ -133,7 +133,7 @@ public enum ShareExport {
                 try Task.checkCancellation()
                 do {
                     let info = Self.info(s, state, source: vaultSource)
-                    let svgs = try SVGWriter.render(note: state, options: render)
+                    let svgs = try SVGWriter.render(note: state, options: renderOptions(for: s.id), report: &report)
                     let html = HTMLExport.notePage(info: info, state: state, svgs: svgs, indexHref: nil)
                     let url = scratch.appendingPathComponent(name(s, state) + ".html")
                     try write(Data(html.utf8), url)
@@ -149,9 +149,13 @@ public enum ShareExport {
             let root = scratch.appendingPathComponent(
                 options.format == .markdown && notes.count == 1 ? name(notes[0].0, notes[0].1) : treeFolderName,
                 isDirectory: true)
-            let tree = TreeExporter(root: root, format: format, images: options.markdownImages, options: render,
+            var tree = TreeExporter(root: root, format: format, images: options.markdownImages, options: render,
                                     png: PNGOptions(dpi: options.dpi), source: "sempere", errorText: errorText)
+            tree.blobs = blobs
+            let treePlaceholders = PlaceholderCount()
+            tree.onReport = { _, r in treePlaceholders.add(r.placeholders.count) }
             let r = try tree.run(notes, protected: [], vaultSource: vaultSource, onNote: progress)
+            placeholders += treePlaceholders.value
             // A one-off share keeps no manifest: it only serves `--clean` and re-runs into the same folder.
             try? fm.removeItem(at: root.appendingPathComponent(".sempere-export-\(format.rawValue).json"))
             failures = r.errors
@@ -213,7 +217,7 @@ public enum ShareExport {
             }
             progress(notes.count, notes.count)
         }
-        return ShareResult(items: items, failures: failures, exported: exported, placeholders: report.placeholders.count)
+        return ShareResult(items: items, failures: failures, exported: exported, placeholders: placeholders + report.placeholders.count)
     }
 
     static func info(_ s: NoteSummary, _ state: NoteState, source: String) -> ExportNoteInfo {
@@ -221,4 +225,12 @@ public enum ShareExport {
                        favorite: state.meta.favorite, created: state.meta.created, modified: s.modified,
                        pages: state.pages.count, source: source)
     }
+}
+
+/// Placeholders counted from `TreeExporter.onReport`, which must be `@Sendable`.
+final class PlaceholderCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var total = 0
+    func add(_ n: Int) { lock.lock(); total += n; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return total }
 }

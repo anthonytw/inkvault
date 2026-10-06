@@ -31,6 +31,12 @@ struct Raster {
     /// Fills the union of `polygons` (device pixel coordinates, implicitly
     /// closed) with `paint`, blended "over" the existing pixels.
     mutating func fill(_ polygons: [[Point]], paint: Paint) {
+        fill(polygons, shader: SolidShader(paint: paint))
+    }
+
+    /// Fills the union of `polygons` with the colour `shader` gives each
+    /// pixel, scaled by the pixel's coverage, blended "over".
+    mutating func fill<S: RasterShader>(_ polygons: [[Point]], shader: S) {
         guard width > 0, height > 0 else { return }
         let ss = Self.subRows
         let limit = Double(height * ss)
@@ -70,7 +76,7 @@ struct Raster {
                 run += delta[px]
                 let cov = min(acc[px] + run, 1)
                 acc[px] = 0; delta[px] = 0
-                if px < width, cov > 1.0 / 1024 { blend(x: px, y: r, paint: paint, coverage: cov) }
+                if px < width, cov > 1.0 / 1024 { blend(x: px, y: r, color: shader.color(x: px, y: r), coverage: cov) }
             }
             rowMin = Int.max; rowMax = -1
         }
@@ -139,7 +145,7 @@ struct Raster {
                 guard e.x >= lo.x, e.x < hi.x, e.y >= lo.y, e.y < hi.y else { continue }
                 let (rgba, a) = Self.sample(img, x: e.x * kx - 0.5, y: e.y * ky - 0.5)
                 guard a > 0 else { continue }
-                blend(x: px, y: py, paint: Paint(r: rgba.0, g: rgba.1, b: rgba.2, alpha: a), coverage: 1)
+                blend(x: px, y: py, color: ShadedColor(r: Double(rgba.0), g: Double(rgba.1), b: Double(rgba.2), a: a), coverage: 1)
             }
         }
     }
@@ -163,18 +169,97 @@ struct Raster {
         return ((ch(acc[0]), ch(acc[1]), ch(acc[2])), min(acc[3], 1))
     }
 
-    private mutating func blend(x: Int, y: Int, paint: Paint, coverage: Double) {
-        let sa = paint.alpha * coverage
+    private mutating func blend(x: Int, y: Int, color: ShadedColor, coverage: Double) {
+        let sa = color.a * coverage
         guard sa > 0 else { return }
         let i = (y * width + x) * 4
         let da = Double(pixels[i + 3]) / 255
         let outA = sa + da * (1 - sa)
         guard outA > 0 else { return }
-        let src = [Double(paint.r), Double(paint.g), Double(paint.b)]
+        let src = (color.r, color.g, color.b)
         for c in 0..<3 {
-            let v = (src[c] * sa + Double(pixels[i + c]) * da * (1 - sa)) / outA
+            let sc = c == 0 ? src.0 : c == 1 ? src.1 : src.2
+            let v = (sc * sa + Double(pixels[i + c]) * da * (1 - sa)) / outA
             pixels[i + c] = UInt8(min(max(v.rounded(), 0), 255))
         }
         pixels[i + 3] = UInt8(min(max((outA * 255).rounded(), 0), 255))
+    }
+}
+
+/// A colour with components 0...255 and alpha 0...1 (straight).
+struct ShadedColor {
+    var r: Double, g: Double, b: Double, a: Double
+}
+
+/// The colour of each pixel a `Raster.fill` covers.
+protocol RasterShader {
+    func color(x: Int, y: Int) -> ShadedColor
+}
+
+/// One paint everywhere.
+struct SolidShader: RasterShader {
+    let c: ShadedColor
+    init(paint: Paint) { c = ShadedColor(r: Double(paint.r), g: Double(paint.g), b: Double(paint.b), a: paint.alpha) }
+    @inline(__always) func color(x: Int, y: Int) -> ShadedColor { c }
+}
+
+/// An image sampled through an inverse map (device pixel centre → image
+/// pixel coordinates): bilinear, in premultiplied alpha, edges clamped.
+struct ImageShader: RasterShader {
+    let image: RGBAImage
+    /// Device pixel coordinates → coordinates in `image` (pixel `i` spans `[i, i + 1)`).
+    let inverse: Affine
+
+    func color(x: Int, y: Int) -> ShadedColor {
+        let p = inverse.apply(Point(x: Double(x) + 0.5, y: Double(y) + 0.5))
+        let w = image.width, h = image.height
+        let fx = min(max(p.x - 0.5, 0), Double(w - 1)), fy = min(max(p.y - 0.5, 0), Double(h - 1))
+        guard fx.isFinite, fy.isFinite else { return ShadedColor(r: 0, g: 0, b: 0, a: 0) }
+        let x0 = Int(fx), y0 = Int(fy)
+        let x1 = min(x0 + 1, w - 1), y1 = min(y0 + 1, h - 1)
+        let tx = fx - Double(x0), ty = fy - Double(y0)
+        var r = 0.0, g = 0.0, b = 0.0, a = 0.0
+        image.pixels.withUnsafeBufferPointer { px in
+            @inline(__always) func add(_ xx: Int, _ yy: Int, _ wgt: Double) {
+                let i = (yy * w + xx) * 4
+                let al = Double(px[i + 3]) / 255 * wgt
+                r += Double(px[i]) * al; g += Double(px[i + 1]) * al; b += Double(px[i + 2]) * al
+                a += al
+            }
+            add(x0, y0, (1 - tx) * (1 - ty)); add(x1, y0, tx * (1 - ty))
+            add(x0, y1, (1 - tx) * ty); add(x1, y1, tx * ty)
+        }
+        guard a > 0 else { return ShadedColor(r: 0, g: 0, b: 0, a: 0) }
+        return ShadedColor(r: r / a, g: g / a, b: b / a, a: min(a, 1))
+    }
+}
+
+extension RGBAImage {
+    /// The image reduced by an integer `factor` (≥ 2) per axis by averaging
+    /// each `factor × factor` box (alpha-weighted); edge boxes are partial.
+    func boxReduced(by factor: Int) -> RGBAImage {
+        guard factor >= 2 else { return self }
+        let ow = (width + factor - 1) / factor, oh = (height + factor - 1) / factor
+        var out = [UInt8](repeating: 0, count: ow * oh * 4)
+        for oy in 0..<oh {
+            for ox in 0..<ow {
+                var r = 0, g = 0, b = 0, a = 0, n = 0
+                for y in (oy * factor)..<min((oy + 1) * factor, height) {
+                    for x in (ox * factor)..<min((ox + 1) * factor, width) {
+                        let i = (y * width + x) * 4
+                        let al = Int(pixels[i + 3])
+                        r += Int(pixels[i]) * al; g += Int(pixels[i + 1]) * al; b += Int(pixels[i + 2]) * al
+                        a += al; n += 1
+                    }
+                }
+                let o = (oy * ow + ox) * 4
+                if a > 0 {
+                    out[o] = UInt8((r + a / 2) / a); out[o + 1] = UInt8((g + a / 2) / a); out[o + 2] = UInt8((b + a / 2) / a)
+                }
+                out[o + 3] = UInt8((a + n / 2) / max(n, 1))
+            }
+        }
+        // ow, oh ≥ 1 and out has ow·oh·4 bytes, so the initializer cannot fail.
+        return (try? RGBAImage(width: ow, height: oh, pixels: out)) ?? self
     }
 }
