@@ -522,7 +522,7 @@ entry a status.
 
 The one target with network code. It talks to a plain WebDAV collection that
 holds a copy of the vault folder (same layout, `vault.json` at the collection
-root) using PROPFIND (Depth 1), GET, PUT, MKCOL and DELETE, so any server
+root) using PROPFIND (Depth 1), GET (with `Range` for blobs), PUT, MKCOL, MOVE and DELETE, so any server
 works (Nextcloud, Apache `mod_dav`, nginx dav, rclone serve webdav,
 wsgidav). Everything is behind `WebDAVTransport`; `URLSessionTransport` is
 the real one (it never follows redirects, so credentials cannot be forwarded
@@ -534,10 +534,11 @@ server is already age-encrypted, except `vault.json` (public by design).
 A remote `vault.json` with another `vaultId` aborts the run before any
 change.
 
-**What is synced.** `vault.json`, `rewrap-journal.json` and
-`notes/<uuid>/<name>.age` (each note's `att/` blobs are designed but not
-synced yet: `docs/attachments.md` §4, task B3). Remote entries that are not a lowercase-UUID note
-directory or a canonical revision file name (format.md §5) are ignored and
+**What is synced.** `vault.json`, `rewrap-journal.json`,
+`notes/<uuid>/<name>.age` and each note's attachment blobs
+`notes/<uuid>/att/<64 hex>.<kind>.age` (below). Remote entries that are not a lowercase-UUID note
+directory, a canonical revision file name (format.md §5), an `att`
+collection or a canonical blob name (format.md §8.1.2) are ignored and
 listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
 and unknown files are not synced. A downloaded revision must start with the
 age header or it is rejected. Remote names are reported with control
@@ -573,6 +574,58 @@ folder therefore deletes nothing locally; its files are uploaded again. A snapsh
 the `included` coverage recorded when it was last synced. Without an unlocked
 vault nothing can be checked, so nothing is deleted. A removal that fails the
 check is undone (the file is copied back).
+
+**Attachment blobs** (`docs/attachments.md` §4). Each note's `att/` follows
+the same write-once table, keyed `<noteId>/att/<name>` in the state. A note
+whose listing has an `att` collection costs one more PROPFIND. Per note,
+blobs are transferred before revisions, so neither side ever holds a
+revision before the blobs it references (format.md §8.1.4 step 4), small
+kinds first (transcripts, images, PDFs, then the rest), smaller files first.
+
+- *Streaming, own limit.* An upload is a PUT streamed from the file. A
+  download is a series of `Range` GETs of 2 MiB (`blobSegmentBytes`), each
+  streamed to a partial file, so memory stays bounded by one segment even
+  when the server is faster than the disk (on Linux, URLSession queues every
+  delivery for its delegate without flow control; with 2 MiB segments the
+  resident set stayed near 20 MiB for blobs of 300 MB to 1 GB against a
+  local wsgidav). A server that ignores `Range` sends the file in one
+  streamed 200. Blob files have their own limit, `maxBlobBytes` (default
+  1 GiB + 64 MiB, `--max-blob-mib`): a larger one is neither uploaded nor
+  downloaded, and a body is cut off at the limit whatever the listing said.
+  A downloaded blob must have the listed size and start with the age header,
+  or it is not written. Its content is verified when read, as for revisions.
+- *Write-once on the server.* An upload goes to `att/.sempere-tmp-<uuid>`
+  (`If-None-Match: *`) and is renamed with `MOVE` and `Overwrite: F`, so no
+  reader sees a partial blob under its name (a server that writes PUT bodies
+  in place would show one) and an existing blob is never replaced; losing
+  that race is success, since the name is keyed by the content hash. The
+  temporary name is recorded in the state before the upload and deleted
+  afterwards, or by the next run if this one dies. Other devices' temporary
+  names are skipped silently.
+- *Resumable.* A download goes to `att/.sempere-tmp-part-<name>` and is linked
+  into place (`link(2)`). If the run is cut off, the partial file stays and
+  the remote ETag is recorded in the state (saved at once); the next run asks
+  for the rest with `Range` and `If-Range: <etag>`, so a blob replaced on the
+  server meanwhile comes whole again. A partial file as long as the listing
+  says is only checked and placed. A partial file whose blob is no longer
+  wanted is removed. Uploads restart from the beginning (WebDAV has no
+  standard partial PUT), but only the blob that was cut off. A run killed at
+  any request is finished by the next one (`BlobResumeTests`).
+- *GC-safe deletes.* A blob one side dropped since the last sync is deleted
+  on the other side only if format.md §8.1.6 rules 1–3 hold for its note
+  there (the side that dropped it applied rule 4): every local revision of
+  the note was read and verified and every revision the server holds is one
+  of them (they are byte-identical copies, so both sides' sets were read);
+  no `rewrap-journal.json` on either side; and no revision read references a
+  content hash whose keyed name is the blob's (any kind). Otherwise the blob
+  is copied back. A side with no `att/` at all (a wiped or recreated
+  folder) deletes nothing on the other. With the vault locked nothing is
+  checked: the blob is neither deleted nor copied back, and is listed as
+  skipped.
+
+`sempere-index.json` lists revisions only (`docs/web-viewer.md`), so blobs do
+not change it; the run still rewrites the server's copy to list the
+revisions the server holds afterwards.
 
 **Mutable files.** `vault.json` and `rewrap-journal.json` are compared by
 content hash (SHA-256) against the last-synced hash; the server ETag (or
