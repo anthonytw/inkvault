@@ -10,7 +10,7 @@ decision or confirmation; nothing here has been submitted. Not legal advice.
 | [app-privacy.md](app-privacy.md) | App Privacy ("nutrition label") answers and the privacy manifest |
 | [export-compliance.md](export-compliance.md) | Encryption export compliance notes |
 | [listing.md](listing.md) | Name ideas, subtitle, description, keywords, what's new, review notes |
-| [screenshots.md](screenshots.md) | Screenshot shot-list and sizes |
+| [screenshots.md](screenshots.md) | Generated screenshots (`scripts/screenshots.sh`), sizes, shot list |
 
 ## Checklist before the first TestFlight/App Store build
 

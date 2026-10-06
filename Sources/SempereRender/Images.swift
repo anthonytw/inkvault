@@ -1,24 +1,6 @@
 import Foundation
 
-/// A decoded image: RGBA8, straight (non-premultiplied) alpha, row-major,
-/// top row first. What the image decoders produce and what a
-/// `PDFPageRasterizer` or an app-side `ImageDecoding` hook returns.
-public struct RGBAImage: Hashable, Sendable {
-    /// Pixels per row, at least 1.
-    public let width: Int
-    /// Rows, at least 1.
-    public let height: Int
-    /// `width * height * 4` bytes.
-    public var pixels: [UInt8]
-
-    /// Creates an image; nil unless `pixels` holds exactly `width * height * 4` bytes.
-    public init?(width: Int, height: Int, pixels: [UInt8]) {
-        guard width > 0, height > 0, width.multipliedReportingOverflow(by: height).overflow == false,
-              (width * height).multipliedReportingOverflow(by: 4).overflow == false,
-              pixels.count == width * height * 4 else { return nil }
-        self.width = width; self.height = height; self.pixels = pixels
-    }
-
+extension RGBAImage {
     /// True when every pixel is fully opaque.
     var isOpaque: Bool {
         var i = 3

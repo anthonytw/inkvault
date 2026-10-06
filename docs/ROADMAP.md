@@ -34,19 +34,27 @@ working state.
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
+| Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | ✅ |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | 🔀 #62 |
-| Render | Unicode text, PDF backgrounds, recordings in exports (C2–C4) | 📋 |
+| Render | Unicode text, recordings in exports (C2, C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3) | 📋 |
 
-## CLI (`sempere`, renamed `sempere`; one codebase for both platforms)
+## CLI (`sempere`; one codebase for both platforms)
+
+The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
+"CLI first"): anything that reads or changes vault data has a command with
+`--json`.
 
 | Feature | Linux | macOS |
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | import notability, search (recognised text) | ✅ | ✅ |
+| Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | 🔀 this PR | 🔀 this PR |
+| Pages: delete, move/reorder, duplicate; paged/pageless (`notes layout` in #52) | 📋 after #52 | 📋 after #52 |
+| `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
@@ -55,7 +63,7 @@ working state.
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | 🔀 #60 | 🔀 #60 |
 | Attachments: `import pdf`, `attach`, `notes show`, search over text and transcripts (F) | 📋 | 📋 |
-| PDF backgrounds in SVG/PNG export | 📋 via Poppler if installed | 📋 via PDFKit |
+| PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | 🔀 #61 | 🔀 #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
@@ -80,6 +88,7 @@ working state.
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |
+| Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | 🔀 #53 |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
 
@@ -102,6 +111,7 @@ behaviour and testing on a real Mac.
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+| Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | 🔀 #53 |
 
 ## Future: iPhone and web
 

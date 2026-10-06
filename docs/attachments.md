@@ -766,6 +766,15 @@ the minimal reader. So:
   macOS and Linux but not iOS, so the rasterizer lives in
   `Sources/SempereCLI`, not in `SempereRender`. `--pdf-renderer auto|poppler|none`
   selects it; `auto` is the default.
+  As built (C3): `pdftoppm -f N -l N -singlefile -cropbox -scale-to-x W
+  -scale-to-y H` writing a PPM (no PNG decoder needed; Poppler scales before
+  it applies `/Rotate`, so the request is swapped for 90° and 270°). The CLI
+  starts it through its own hidden `sempere __exec-limited` trampoline, which
+  sets `RLIMIT_CPU`, `RLIMIT_AS` (3 GiB), `RLIMIT_FSIZE` (the PPM's size plus
+  64 KiB) and `RLIMIT_CORE` 0 and then `execv`s Poppler; the parent kills it
+  after `--pdf-timeout` seconds (default 30). `pdftocairo` is not used:
+  `pdftoppm` ships in the same package. A hidden `sempere __rasterize-pdf`
+  runs the same rasterizer on a plain PDF file (tests, checking an install).
 - **No renderer available:** the page is a placeholder (`format.md`
   §8.5.2) and the export prints a clear warning:
   `warning: 12 PDF background pages drawn as placeholders: install poppler
@@ -804,9 +813,18 @@ A new Linux-portable target `SemperePDF` (Foundation + CZlib), used by SempereRe
   `/PieceInfo`, `/Thumb`, `/B`.
 - Refused: `/Encrypt` present. Limits: 10⁶ objects, 256 MiB per decoded
   stream, nesting depth 64, each enforced with an error, never a crash
-  (fuzzed in tests).
+  (fuzzed in tests). Also (implementation, `PDFLimits`): 1 GiB decoded per
+  file in all, reference chains of 32 hops, 4 096 cross-reference sections,
+  16 filters per stream; `/Length` resolution and object streams are guarded
+  against cycles; a cross-reference table that claims more than the file can
+  hold is rebuilt by scanning instead of trusted; references from copied
+  resources to pages, page-tree nodes or the catalog become `null`, so a
+  resource cannot pull the document into the export.
 - Output: `PDFWriter` switches to `%PDF-1.7` when it embeds forms (copied
-  objects may use 1.5+ features such as JPX).
+  objects may use 1.5+ features such as JPX). A page that cannot be copied
+  (a content filter outside the list, a broken page) is rasterized by the
+  export's `PDFPageRasterizer` when there is one and embedded as an image,
+  else it is a placeholder.
 
 ### Text, fonts and the PDF writer
 

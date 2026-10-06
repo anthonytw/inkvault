@@ -49,6 +49,20 @@ Swift 6 strict concurrency. `Sendable` value types for the model. No
 force-unwraps outside tests. Errors are typed enums per module. Tests use
 XCTest (Linux-compatible). Keep public API documented with `///`.
 
+## CLI first
+
+Maintainer rule (2026-10-06): **the CLI is the first place to get features;
+everything should be automatable (aside from the UI).** Every feature that
+reads or changes vault data ships with a `sempere` command (with `--json`
+output and CLI tests in `Tests/CLITests`) in the same PR as, or before, the
+app UI for it, and `docs/cli.md` plus the CLI table in `docs/ROADMAP.md`
+are updated. The logic lives once in `Sources/` (e.g. `NoteOps`,
+`Vault.apply`) and both the app and the CLI call it; never fork it into the
+app. CLI edits write one delta per note through `Vault.apply` with the
+machine's `DeviceState`, and name notes by id, id prefix or exact title
+(`Vault.resolveNote`). Apple-only features (Vision, PencilKit) get the CLI
+command behind `#if canImport(...)`, with a clear error elsewhere.
+
 ## Workflow
 
 Branch per task, PR to `main`, squash merge, CI green. Commit messages:
@@ -177,6 +191,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   device copy to --domain-type appDataContainer`). With `xcrun simctl launch`
   prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
   autosaves.
+- App Store screenshots (`scripts/screenshots.sh`, `docs/appstore/screenshots.md`):
+  `SEMPERE_DEMO=1` builds a synthetic vault in code (`DemoVault`,
+  `DemoHandwriting`, DEBUG only, Linux-typecheckable like the other non-UI
+  logic) and opens it; `SEMPERE_DEMO_*` pick note, sidebar, locked state and
+  the paper picker. The `SempereScreenshots` scheme runs `SempereAppUITests`
+  (not part of `SempereApp`'s test action, so `scripts/app.sh test` never
+  builds it); CI runs it only by dispatch (`-f screenshots=true`). Never put
+  real notes in a demo.
 - `PKCanvasView` inverts ink colours in dark mode; the canvas forces
   `.light` because ink colours are stored as drawn on (light) paper.
 - Vaults are one item in Files: `SempereInfo.plist` (referenced by `INFOPLIST_FILE`,

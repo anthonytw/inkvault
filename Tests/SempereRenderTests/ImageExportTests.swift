@@ -23,7 +23,7 @@ final class ImageExportTests: XCTestCase {
                 px += [UInt8(c.0), UInt8(c.1), UInt8(c.2), 255]
             }
         }
-        return RGBAImage(width: 40, height: 30, pixels: px)!
+        return try! RGBAImage(width: 40, height: 30, pixels: px)
     }
 
     static func quadrant(a: Double, b: Double, w: Double, h: Double) -> (Int, Int, Int) {
@@ -137,10 +137,10 @@ final class ImageExportTests: XCTestCase {
         let ref = BlobRef(content: png, type: "image/png")
         let cases = Self.cases()
         let note = Self.note(cases, blob: ref, w: 40, h: 30)
-        var report = ExportReport()
+        var report = RenderReport()
         let pages = try PNGWriter.render(note: note, options: RenderOptions(blobs: MemoryBlobSource([png])),
                                          png: PNGOptions(scale: 1), report: &report)
-        XCTAssertEqual(report, ExportReport())
+        XCTAssertEqual(report, RenderReport())
         XCTAssertEqual(pages.count, cases.count)
         var total = 0
         for (c, data) in zip(cases, pages) {
@@ -199,14 +199,14 @@ final class ImageExportTests: XCTestCase {
         let png = try Self.pngData(Self.quadrants())
         let ref = BlobRef(content: png, type: "image/png")
         let cases = Self.cases()
-        var report = ExportReport()
+        var report = RenderReport()
         let svgs = try SVGWriter.export(note: Self.note(cases, blob: ref, w: 40, h: 30),
                                         options: RenderOptions(blobs: MemoryBlobSource([png])), report: &report).pages
-        XCTAssertEqual(report, ExportReport())
+        XCTAssertEqual(report, RenderReport())
         for (c, svg) in zip(cases, svgs) {
             let m = try XCTUnwrap(Self.matrix(in: svg), "\(c)")
             for (a, b) in [(3.0, 4.0), (37, 2), (20, 15), (5, 27), (31, 22)] {
-                let p = Point(x: m.a * a + m.c * b + m.e, y: m.b * a + m.d * b + m.f)
+                let p = Point(x: m.a * a + m.c * b + m.tx, y: m.b * a + m.d * b + m.ty)
                 guard let back = Self.oracle(c, p, w: 40, h: 30) else { continue }   // cropped away
                 XCTAssertEqual(back.a, a, accuracy: 0.01, "svg o\(c.orientation) r\(c.rotation)")
                 XCTAssertEqual(back.b, b, accuracy: 0.01, "svg o\(c.orientation) r\(c.rotation)")
@@ -224,7 +224,7 @@ final class ImageExportTests: XCTestCase {
         guard let r = svg.range(of: "<use xlink:href=\"#img-0\" transform=\"matrix(") else { return nil }
         let nums = svg[r.upperBound...].prefix { $0 != ")" }.split(separator: " ").compactMap { Double($0) }
         guard nums.count == 6 else { return nil }
-        return Affine(a: nums[0], b: nums[1], c: nums[2], d: nums[3], e: nums[4], f: nums[5])
+        return Affine(a: nums[0], b: nums[1], c: nums[2], d: nums[3], tx: nums[4], ty: nums[5])
     }
 
     /// A textual golden for one placement, so that a change to the content
@@ -248,14 +248,24 @@ final class ImageExportTests: XCTestCase {
             97 119 l
             h W n
             -200 0 0 150 197 119 cm
-            /Im0 Do
-            Q
 
-            """
+            """ + "/X"
         let text = String(decoding: pdf, as: UTF8.self)
         XCTAssertTrue(T.contains(pdf, expected), String(text[(text.range(of: " W n")?.lowerBound ?? text.startIndex)...].prefix(80)))
+        XCTAssertEqual(Self.imageDraws(pdf), 1)
         XCTAssertTrue(T.contains(pdf, "/Width 40 /Height 30 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode"))
         XCTAssertFalse(T.contains(pdf, "/SMask"))
+    }
+
+    /// `/X<n> Do` operators in `pdf` whose object `n` is an image XObject.
+    static func imageDraws(_ pdf: Data) -> Int {
+        let text = String(decoding: pdf, as: UTF8.self)
+        guard let re = try? NSRegularExpression(pattern: "/X([0-9]+) Do") else { return 0 }
+        return re.matches(in: text, range: NSRange(text.startIndex..., in: text)).filter { m in
+            guard let r = Range(m.range(at: 1), in: text) else { return false }
+            guard let obj = text.range(of: "\n\(text[r]) 0 obj") else { return false }
+            return text[obj.upperBound...].prefix(200).contains("/Subtype /Image")
+        }.count
     }
 
     // MARK: Passthrough and metadata
@@ -288,7 +298,7 @@ final class ImageExportTests: XCTestCase {
         let kept = try PDFWriter.render(note: note, options: keep)
         XCTAssertNotNil(Self.range(of: jpeg, in: kept))
         // SVG: the data URI carries the stripped bytes; assets too.
-        var report = ExportReport()
+        var report = RenderReport()
         let svg = try SVGWriter.export(note: note, options: options, report: &report).pages[0]
         XCTAssertTrue(svg.contains("data:image/jpeg;base64," + stripped.base64EncodedString()))
         let linked = try SVGWriter.export(note: note, options: options, assetPrefix: "assets/", report: &report)
@@ -352,31 +362,31 @@ final class ImageExportTests: XCTestCase {
             Page(order: "b", items: [Item.image(blob: heicRef, pixelSize: Size(w: 4, h: 4), frame: frame, z: "a"), unknown]),
         ])
         // No blob source at all: every image is a placeholder.
-        var report = ExportReport()
+        var report = RenderReport()
         let pages = try PNGWriter.render(note: note, options: RenderOptions(), png: PNGOptions(scale: 1), report: &report)
         XCTAssertTrue(Self.isPlaceholderGrey(try PNG.decode(pages[0]), 100, 100), "diagonals cross at the centre")
         XCTAssertTrue(Self.isPlaceholderGrey(try PNG.decode(pages[0]), 50, 75), "outline")
-        XCTAssertEqual(report.placeholders, 3)
-        XCTAssertEqual(report.issues.map(\.page), [1, 2, 2])
+        XCTAssertEqual(report.placeholders.map(\.page), [1, 2, 2])
+        XCTAssertEqual(report.placeholders.map(\.reason), [.noBlobSource, .noBlobSource, .unsupportedKind("sticker")])
 
         // HEIC without a decoder: a placeholder that says so; the rest draws.
-        report = ExportReport()
+        report = RenderReport()
         _ = try PDFWriter.render(note: note, options: RenderOptions(blobs: MemoryBlobSource([png, heic])), report: &report)
-        XCTAssertEqual(report.issues.count, 2)
-        XCTAssertTrue(report.issues[0].message.contains("HEIC"), report.issues[0].message)
-        XCTAssertEqual(report.issues[1].message, "unknown item kind \"sticker\"")
-        XCTAssertEqual(report.issues[1].item, unknown.id)
+        XCTAssertEqual(report.placeholders.count, 2)
+        XCTAssertTrue(report.placeholders[0].reason.description.contains("HEIC"), report.placeholders[0].reason.description)
+        XCTAssertEqual(report.placeholders[1].reason, .unsupportedKind("sticker"))
+        XCTAssertEqual(report.placeholders[1].item, unknown.id)
 
         // With a decoder hook (the app's ImageIO): drawn.
         struct FakeHEIC: ImageDecoding {
             func decode(_ data: Data, type: String, maxPixels: Int) throws -> RGBAImage? {
-                RGBAImage(width: 2, height: 2, pixels: [UInt8](repeating: 200, count: 16))
+                try RGBAImage(width: 2, height: 2, pixels: [UInt8](repeating: 200, count: 16))
             }
         }
-        report = ExportReport()
+        report = RenderReport()
         let svg = try SVGWriter.export(note: note, options: RenderOptions(blobs: MemoryBlobSource([png, heic]),
                                                                          imageDecoder: FakeHEIC()), report: &report)
-        XCTAssertEqual(report.placeholders, 1)   // only the unknown kind
+        XCTAssertEqual(report.placeholders.map(\.item), [unknown.id])   // only the unknown kind
         XCTAssertTrue(svg.pages[1].contains("data:image/png;base64,"))
 
         // A missing blob, a corrupt one and one over the pixel cap.
@@ -388,12 +398,12 @@ final class ImageExportTests: XCTestCase {
             Item.image(blob: corruptRef, pixelSize: Size(w: 1, h: 1), frame: frame, z: "b"),
             Item.image(blob: ref, pixelSize: Size(w: 40, h: 30), frame: frame, z: "c"),
         ])])
-        report = ExportReport()
+        report = RenderReport()
         _ = try PDFWriter.render(note: capped, options: RenderOptions(blobs: MemoryBlobSource([png, corrupt]),
                                                                      maxImagePixels: 1000), report: &report)
-        XCTAssertEqual(report.placeholders, 3)
-        XCTAssertTrue(report.issues[0].message.contains("missing"), report.issues[0].message)
-        XCTAssertTrue(report.issues[2].message.contains("40 × 30"), report.issues[2].message)
+        XCTAssertEqual(report.placeholders.count, 3)
+        XCTAssertTrue(report.placeholders[0].reason.description.contains("missing"), report.placeholders[0].reason.description)
+        XCTAssertTrue(report.placeholders[2].reason.description.contains("40 × 30"), report.placeholders[2].reason.description)
         XCTAssertEqual(RenderOptions().maxImagePixels, 100_000_000, "format.md §8.4")
     }
 
@@ -425,26 +435,62 @@ final class ImageExportTests: XCTestCase {
                                                                          frame: Rect(x: 10, y: 1500, w: 40, h: 30), z: "a")])])
         let pdf = try PDFWriter.render(note: tall, options: RenderOptions(compress: false, blobs: MemoryBlobSource([png])))
         XCTAssertEqual(T.count(pdf, "/Type /Page "), 4)   // 1530 pt in 400 pt pages
-        XCTAssertEqual(T.count(pdf, "/Im0 Do"), 1, "drawn on the one page it touches")
+        XCTAssertEqual(T.count(pdf, "/Subtype /Image"), 1)
+        XCTAssertEqual(Self.imageDraws(pdf), 1, "drawn on the one page it touches")
+    }
+
+    /// One page with a PDF page background (task C3) under an image (C1):
+    /// every writer draws both, in order, with no placeholder.
+    func testImageOverPDFBackgroundInEveryWriter() throws {
+        let png = try Self.pngData(Self.quadrants())
+        var blobs = MemoryBlobs()
+        let pdfRef = blobs.add(try PDFFixture.data("classic.pdf"))
+        let imageRef = blobs.add(png, type: "image/png")
+        let background = Item.pdfPage(blob: pdfRef, pageIndex: 0, pageSize: Size(w: 400, h: 300), crop: nil,
+                                      frame: Rect(x: 0, y: 0, w: 400, h: 300), z: "a0", layer: .background)
+        let image = Item.image(blob: imageRef, pixelSize: Size(w: 40, h: 30), frame: Rect(x: 300, y: 200, w: 80, h: 60), z: "a1")
+        let note = PDFFixture.note(size: (400, 300), items: [image, background])
+        let options = RenderOptions(compress: false, blobs: blobs, pdfRasterizer: QuadrantRasterizer())
+
+        var report = RenderReport()
+        let page = try PNGTestDecoder.decode(try PNGWriter.render(note: note, options: options, png: PNGOptions(scale: 1),
+                                                                  report: &report)[0])
+        XCTAssertEqual(report, RenderReport())
+        XCTAssertEqual(page.rgb(10, 10), [0, 255, 0], "the PDF page's top-left quadrant")
+        XCTAssertEqual(page.rgb(10, 290), [255, 0, 0])
+        XCTAssertEqual(page.rgb(250, 100), [0, 0, 255])
+        XCTAssertEqual(page.rgb(310, 210), [255, 0, 0], "the image's red quadrant, over the PDF's blue")
+        XCTAssertEqual(page.rgb(370, 250), [255, 255, 0])
+
+        let svg = try SVGWriter.render(note: note, options: options, report: &report)[0]
+        XCTAssertEqual(report, RenderReport())
+        let pdfImage = try XCTUnwrap(svg.range(of: "<clipPath id=\"item0\">"))
+        let photo = try XCTUnwrap(svg.range(of: "<use xlink:href=\"#img-0\""))
+        XCTAssertLessThan(pdfImage.lowerBound, photo.lowerBound, "the background first")
+
+        let pdf = try PDFWriter.render(note: note, options: options, report: &report)
+        XCTAssertEqual(report, RenderReport())
+        XCTAssertEqual(Self.imageDraws(pdf), 1)
+        XCTAssertTrue(T.contains(pdf, "/Subtype /Form"), "the PDF page copied as a form")
     }
 
     func testOutOfRangeItemsAreSkippedNotFatal() throws {
         let note = NoteState(meta: Self.meta(), pages: [Page(order: "a", items: [
             Item(kind: .pdfPage, frame: Rect(x: 1e12, y: 0, w: 10, h: 10), z: "a"),
         ])])
-        var report = ExportReport()
+        var report = RenderReport()
         _ = try PDFWriter.render(note: note, report: &report)
-        XCTAssertEqual(report.issues.count, 1)
-        XCTAssertEqual(report.issues[0].kind, .warning)
+        XCTAssertEqual(report.warnings.count, 1)
+        XCTAssertTrue(report.placeholders.isEmpty)
     }
 
     /// Placement: the affine map agrees with the formulas of §8.5.1 for every orientation.
     func testPlacementMatchesFormulas() {
         for c in Self.cases() {
-            let (ow, oh) = Placement.orientedSize(c.orientation, width: 40, height: 30)
+            let (ow, oh) = ItemGeometry.orientedSize(c.orientation, width: 40, height: 30)
             let crop = c.crop ?? Rect(x: 0, y: 0, w: ow, h: oh)
-            let m = Placement.cropToPage(crop: crop, frame: c.frame, rotation: c.rotation)
-                .after(Placement.orientation(c.orientation, width: 40, height: 30))
+            let m = ItemGeometry.placement(crop: crop, frame: c.frame, degrees: c.rotation)
+                .after(ItemGeometry.orientation(c.orientation, width: 40, height: 30))
             for (a, b) in [(0.0, 0.0), (40, 0), (40, 30), (0, 30), (13, 7)] {
                 let p = m.apply(Point(x: a, y: b))
                 guard let back = Self.oracle(c, p, w: 40, h: 30) else { continue }
@@ -478,19 +524,19 @@ final class VaultImageExportTests: XCTestCase {
                                   Item.image(blob: elsewhere, pixelSize: Size(w: 23, h: 17), frame: Rect(x: 10, y: 150, w: 46, h: 34), z: "b"),
                               ])])
         let opened = try Vault.open(at: vault.url, identities: [id])
-        var report = ExportReport()
+        var report = RenderReport()
         let pdf = try PDFWriter.render(note: state, options: RenderOptions(blobs: opened.blobSource(note: note)), report: &report)
         XCTAssertNotNil(ImageExportTests.range(of: try JPEG.stripMetadata(jpeg), in: pdf))
         XCTAssertFalse(T.contains(pdf, "SyntheticCam"))
-        XCTAssertEqual(report.placeholders, 1)
-        XCTAssertTrue(report.issues[0].message.contains("missing"), report.issues[0].message)
+        XCTAssertEqual(report.placeholders.count, 1)
+        XCTAssertTrue(report.placeholders[0].reason.description.contains("missing"), report.placeholders[0].reason.description)
         // Merged PDFs take each note's own blobs.
         var other2 = state
         other2.pages = [Page(order: "a", items: [Item.image(blob: elsewhere, pixelSize: Size(w: 23, h: 17),
                                                             frame: Rect(x: 10, y: 10, w: 46, h: 34), z: "a")])]
-        report = ExportReport()
-        _ = try PDFWriter.render(notes: [state, other2], options: RenderOptions(),
-                                 blobs: [opened.blobSource(note: note), opened.blobSource(note: other)], report: &report)
-        XCTAssertEqual(report.issues.map(\.note), [0], "only the first note's cross-note reference fails")
+        report = RenderReport()
+        _ = try PDFWriter.render(notes: [state, other2], blobs: [opened.blobSource(note: note), opened.blobSource(note: other)],
+                                 options: RenderOptions(), report: &report)
+        XCTAssertEqual(report.placeholders.map(\.page), [1], "only the first note's cross-note reference fails")
     }
 }

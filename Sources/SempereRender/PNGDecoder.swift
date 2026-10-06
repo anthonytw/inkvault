@@ -185,7 +185,7 @@ enum PNG {
                 swap(&prev, &row)
             }
         }
-        return RGBAImage(width: info.width, height: info.height, pixels: px)!
+        return try RGBAImage(width: info.width, height: info.height, pixels: px)
     }
 
     static let adam7 = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]

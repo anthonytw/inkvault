@@ -139,8 +139,9 @@ final class UntrustedRenderTests: XCTestCase {
         let note = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0),
                                             pageSize: PageSize(width: 300, height: 300, infinite: true)),
                              pages: [Page(order: "a", items: [item])])
-        var report = ExportReport()
+        var report = RenderReport()
         XCTAssertNoThrow(try PDFWriter.render(note: note, report: &report))
-        XCTAssertEqual(report.issues.map(\.kind), [.warning])
+        XCTAssertEqual(report.warnings.count, 1)
+        XCTAssertTrue(report.placeholders.isEmpty)
     }
 }

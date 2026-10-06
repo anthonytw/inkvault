@@ -121,6 +121,54 @@ struct Raster {
         flush(row)
     }
 
+    /// Composites a rasterized PDF page: every device pixel whose centre
+    /// maps (through the inverse of `device`, effective page → device) into
+    /// the crop and the page is sampled bilinearly from the image and blended
+    /// over. Work is bounded by the frame's device bounding box.
+    mutating func draw(_ r: RasterBackground, toDevice device: Affine) {
+        guard width > 0, height > 0, let inv = device.inverse, inv.isFinite else { return }
+        let c = r.crop
+        let corners = [Point(x: c.x, y: c.y), Point(x: c.x + c.w, y: c.y), Point(x: c.x + c.w, y: c.y + c.h),
+                       Point(x: c.x, y: c.y + c.h)].map(device.apply)
+        guard let x0 = corners.map(\.x).min(), let x1 = corners.map(\.x).max(),
+              let y0 = corners.map(\.y).min(), let y1 = corners.map(\.y).max(),
+              x0.isFinite, x1.isFinite, y0.isFinite, y1.isFinite else { return }
+        let px0 = max(0, Int(max(x0, -1).rounded(.down))), px1 = min(width - 1, Int(min(x1, Double(width)).rounded(.up)))
+        let py0 = max(0, Int(max(y0, -1).rounded(.down))), py1 = min(height - 1, Int(min(y1, Double(height)).rounded(.up)))
+        guard px0 <= px1, py0 <= py1 else { return }
+        let img = r.image
+        let kx = Double(img.width) / r.width, ky = Double(img.height) / r.height
+        let lo = (x: max(c.x, 0), y: max(c.y, 0)), hi = (x: min(c.x + c.w, r.width), y: min(c.y + c.h, r.height))
+        for py in py0...py1 {
+            for px in px0...px1 {
+                let e = inv.apply(Point(x: Double(px) + 0.5, y: Double(py) + 0.5))
+                guard e.x >= lo.x, e.x < hi.x, e.y >= lo.y, e.y < hi.y else { continue }
+                let (rgba, a) = Self.sample(img, x: e.x * kx - 0.5, y: e.y * ky - 0.5)
+                guard a > 0 else { continue }
+                blend(x: px, y: py, color: ShadedColor(r: Double(rgba.0), g: Double(rgba.1), b: Double(rgba.2), a: a), coverage: 1)
+            }
+        }
+    }
+
+    /// Bilinear sample (edge pixels extended); colour weighted by alpha.
+    static func sample(_ img: RGBAImage, x: Double, y: Double) -> ((UInt8, UInt8, UInt8), Double) {
+        let fx = min(max(x, 0), Double(img.width - 1)), fy = min(max(y, 0), Double(img.height - 1))
+        let ix = Int(fx), iy = Int(fy)
+        let jx = min(ix + 1, img.width - 1), jy = min(iy + 1, img.height - 1)
+        let tx = fx - Double(ix), ty = fy - Double(iy)
+        var acc = [0.0, 0.0, 0.0, 0.0]
+        for (xx, yy, w) in [(ix, iy, (1 - tx) * (1 - ty)), (jx, iy, tx * (1 - ty)), (ix, jy, (1 - tx) * ty), (jx, jy, tx * ty)]
+        where w > 0 {
+            let i = (yy * img.width + xx) * 4
+            let a = Double(img.pixels[i + 3]) / 255 * w
+            acc[0] += Double(img.pixels[i]) * a; acc[1] += Double(img.pixels[i + 1]) * a
+            acc[2] += Double(img.pixels[i + 2]) * a; acc[3] += a
+        }
+        guard acc[3] > 0 else { return ((0, 0, 0), 0) }
+        func ch(_ v: Double) -> UInt8 { UInt8(min(max((v / acc[3]).rounded(), 0), 255)) }
+        return ((ch(acc[0]), ch(acc[1]), ch(acc[2])), min(acc[3], 1))
+    }
+
     private mutating func blend(x: Int, y: Int, color: ShadedColor, coverage: Double) {
         let sa = color.a * coverage
         guard sa > 0 else { return }
@@ -212,6 +260,6 @@ extension RGBAImage {
             }
         }
         // ow, oh ≥ 1 and out has ow·oh·4 bytes, so the initializer cannot fail.
-        return RGBAImage(width: ow, height: oh, pixels: out) ?? self
+        return (try? RGBAImage(width: ow, height: oh, pixels: out)) ?? self
     }
 }

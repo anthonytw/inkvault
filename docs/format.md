@@ -1574,6 +1574,8 @@ where the table says how they degrade.
 | image decoded for export (§8.2.5) | 100 M pixels (§8.4) and at most 1 024 per byte of the file + 1 M (a header cannot claim more than its data can hold); 64 MiB per image blob; a truncated JPEG scan decodes as far as its data goes | `ImageLimits` |
 | items drawn per page | 10 000 (§8.4); the rest are reported, not drawn | `RenderLimits.maxItemsPerPage` |
 | notebook levels shown | 64 | `NotebookNode.maxDepth` |
+| PDF attachment (export, `SemperePDF`) | 1 GiB file; 10⁶ objects; 256 MiB per decoded stream, 1 GiB decoded per file; nesting and page-tree depth 64; 32 reference hops; 4 096 cross-reference sections; 16 filters per stream; encrypted files refused | `PDFLimits` |
+| PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:

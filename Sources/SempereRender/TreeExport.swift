@@ -93,8 +93,8 @@ public struct TreeExporter: Sendable {
     public var errorText: @Sendable (Error) -> String
     /// Each note's blobs (images); nil draws blob-backed items as placeholders.
     public var blobs: BlobSources?
-    /// Called with every placeholder or warning of a note's renderings.
-    public var onIssue: (@Sendable (UUID, ExportIssue) -> Void)?
+    /// Called once per rendered note with its placeholders and warnings.
+    public var onReport: (@Sendable (UUID, RenderReport) -> Void)?
 
     public init(root: URL, format: TreeFormat, images: ExportImages = .none, options: RenderOptions = RenderOptions(),
                 png: PNGOptions = PNGOptions(), source: String, clean: Bool = false, notebookFilter: String? = nil,
@@ -195,8 +195,8 @@ public struct TreeExporter: Sendable {
                                       source: vaultSource)
             var options = self.options
             if let b = blobs?(s.id) { options.blobs = b }
-            var report = ExportReport()
-            defer { for issue in report.issues { onIssue?(s.id, issue) } }
+            var report = RenderReport()
+            defer { if !report.placeholders.isEmpty || !report.warnings.isEmpty { onReport?(s.id, report) } }
             do {
                 var outputs: [(String, Data)] = []
                 var searchText: String?
@@ -206,10 +206,12 @@ public struct TreeExporter: Sendable {
                     var pageImages: [[String]] = []
                     if images == .png {
                         let store = ImageStore(options: options)
+                        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
                         for (i, page) in state.pages.enumerated() {
-                            var ignored = ExportReport()   // the PDF reported the same items
+                            var ignored = RenderReport()   // the PDF reported the same items
                             let data = try PNGWriter.render(page: page, meta: state.meta, options: options, png: png,
-                                                            store: store, report: &ignored)
+                                                            pageNumber: i + 1, backgrounds: backgrounds, images: store,
+                                                            report: &ignored)
                             var names: [String] = []
                             for (k, d) in data.enumerated() {
                                 let name = String(format: "p%03d", i + 1) + (k == 0 ? "" : "-\(k + 1)") + ".png"

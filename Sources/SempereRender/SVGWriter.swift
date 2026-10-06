@@ -14,108 +14,138 @@ public enum SVGWriter {
     /// - Throws: `RenderError` for invalid page sizes, non-finite stroke data
     ///   or an infinite page beyond `RenderLimits.maxExtent`.
     public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions()) throws -> String {
-        var report = ExportReport()
+        var report = RenderReport()
+        return try render(page: page, meta: meta, options: options, report: &report)
+    }
+
+    /// Renders one page and reports placeholders. Items are drawn between the
+    /// paper and the strokes in `<g id="items">`: a PDF page as a PNG from
+    /// `options.pdfRasterizer` (a data URI, clipped to the frame), anything
+    /// else as a placeholder.
+    public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions(),
+                              pageNumber: Int = 1, report: inout RenderReport) throws -> String {
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
         var assets = SVGAssets(prefix: nil)
-        return try render(page: page, meta: meta, options: options, store: ImageStore(options: options),
-                          assets: &assets, report: &report)
+        return try render(page: page, meta: meta, options: options, pageNumber: pageNumber, backgrounds: backgrounds,
+                          images: ImageStore(options: options), assets: &assets, report: &report)
     }
 
-    /// One SVG string per page of the note, in order. Throws like `render(page:meta:options:)`.
-    public static func render(note: NoteState, options: RenderOptions = RenderOptions()) throws -> [String] {
-        var report = ExportReport()
-        return try export(note: note, options: options, report: &report).pages
-    }
-
-    /// One SVG per page of the note, plus the image files they link to.
-    ///
-    /// Images (format.md §8.2.5) are `<image>` elements in a clip to their
-    /// rotated frame, placed with one `matrix(...)`. They carry the stored
-    /// JPEG or PNG (metadata stripped unless `options.keepImageMetadata`;
-    /// HEIC decoded by `options.imageDecoder` becomes PNG) as a `data:` URI,
-    /// or, with `assetPrefix`, link to `assetPrefix + name` and return the
-    /// files in `assets` (named by a hash of their bytes, so one file per
-    /// image however many pages use it).
-    public static func export(note: NoteState, options: RenderOptions = RenderOptions(), assetPrefix: String? = nil,
-                              report: inout ExportReport) throws -> (pages: [String], assets: [SVGAsset]) {
-        let store = ImageStore(options: options)
-        var assets = SVGAssets(prefix: assetPrefix)
-        var pages: [String] = []
-        for (i, page) in note.pages.enumerated() {
-            var pageReport = ExportReport()
-            pages.append(try render(page: page, meta: note.meta, options: options, store: store, assets: &assets,
-                                    report: &pageReport))
-            for var issue in pageReport.issues {
-                issue.page = i + 1
-                report.add(issue)
-            }
-        }
-        return (pages, assets.files)
-    }
-
-    static func render(page: Page, meta: NoteMeta, options: RenderOptions, store: ImageStore,
-                       assets: inout SVGAssets, report: inout ExportReport) throws -> String {
-        let prepared = try PreparedPage(page: page, meta: meta, options: options, images: store)
-        report = prepared.report
+    static func render(page: Page, meta: NoteMeta, options: RenderOptions, pageNumber: Int,
+                       backgrounds: PDFBackgrounds, images: ImageStore, assets: inout SVGAssets,
+                       report: inout RenderReport) throws -> String {
+        let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
+        for w in prepared.warnings { report.warn(w) }
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, scale: options.rasterScale,
+                                        maxPixels: options.maxBackgroundPixels, report: &report)
         let width = meta.pageSize.width
         let height = prepared.extent
         let paperCommands = prepared.fullPagePaper()
         let strokeCommands = prepared.allStrokeCommands()
 
-        var items = ""
-        if !prepared.items.isEmpty {
-            // Each image once per document, used by every item that shows it.
-            var defs = ""
-            var ids: [String: String] = [:]
-            var body = ""
-            for (n, item) in prepared.items.enumerated() {
-                var commands = item.commands(paper: prepared.fillPaper)
-                if case let .image(ref, image, m, clip) = item.content {
-                    let id: String?
-                    if let known = ids[ref.sha256] {
-                        id = known
-                    } else {
-                        switch assets.href(ref, image, store: store, keepMetadata: options.keepImageMetadata) {
-                        case .success(let href):
-                            let newID = "img-\(ids.count)"
-                            ids[ref.sha256] = newID
-                            defs += "<image id=\"\(newID)\" width=\"\(image.width)\" height=\"\(image.height)\" "
-                            defs += "preserveAspectRatio=\"none\" "
-                            if options.keepImageMetadata { defs += "style=\"image-orientation:none\" " }
-                            defs += "xlink:href=\"\(href)\"/>\n"
-                            id = newID
-                        case .failure(let why):
-                            report.add(ExportIssue(kind: .placeholder, item: item.item.id, message: why.message))
-                            commands += item.asPlaceholder.commands(paper: nil)
-                            id = nil
-                        }
-                    }
-                    for c in commands { body += element(c) + "\n" }
-                    if let id {
-                        let points = clip.map { "\(fmt($0.x)),\(fmt($0.y))" }.joined(separator: " ")
-                        defs += "<clipPath id=\"clip-\(n)\"><polygon points=\"\(points)\"/></clipPath>\n"
-                        body += "<g clip-path=\"url(#clip-\(n))\"><use xlink:href=\"#\(id)\" "
-                        body += "transform=\"matrix(\(coef(m.a)) \(coef(m.b)) \(coef(m.c)) \(coef(m.d)) \(fmt(m.e)) \(fmt(m.f)))\"/></g>\n"
-                    }
-                } else {
-                    for c in commands { body += element(c) + "\n" }
-                }
-            }
-            if !defs.isEmpty { items += "<defs>\n" + defs + "</defs>\n" }
-            items += "<g id=\"items\">\n" + body + "</g>\n"
-        }
         var s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        let items = try itemsGroup(prepared, draws: draws, options: options, images: images, assets: &assets,
+                                   report: &report)
         s += "<svg xmlns=\"http://www.w3.org/2000/svg\" "
-        if items.contains("xlink:href") { s += "xmlns:xlink=\"http://www.w3.org/1999/xlink\" " }
+        if items.contains("<use xlink:href") { s += "xmlns:xlink=\"http://www.w3.org/1999/xlink\" " }
         s += "width=\"\(fmt(width))pt\" height=\"\(fmt(height))pt\" "
         s += "viewBox=\"0 0 \(fmt(width)) \(fmt(height))\">\n"
         if !meta.title.isEmpty { s += "<title>\(escape(meta.title))</title>\n" }
         s += "<g id=\"paper\">\n"
         for c in paperCommands { s += element(c) + "\n" }
-        s += "</g>\n" + items
+        s += "</g>\n"
+        s += items
         s += "<g id=\"strokes\">\n"
         for c in strokeCommands { s += element(c) + "\n" }
         s += "</g>\n</svg>\n"
         return s
+    }
+
+    /// `<g id="items">`, between paper and strokes: a PDF page as a PNG from
+    /// `options.pdfRasterizer`, an image as an `<image>` (once per page in
+    /// `<defs>`, drawn with one `matrix` inside a clip to its rotated frame),
+    /// anything else as a placeholder. Empty when the page has no items.
+    static func itemsGroup(_ prepared: PreparedPage, draws: [UUID: RasterItems.Draw], options: RenderOptions,
+                           images: ImageStore, assets: inout SVGAssets, report: inout RenderReport) throws -> String {
+        guard !prepared.items.isEmpty else { return "" }
+        var defs = ""
+        var body = ""
+        var ids: [String: String] = [:]   // image content hash → `<image>` id on this page
+        for (i, it) in prepared.items.enumerated() {
+            if it.fillsBackground, options.paper { body += element(it.backgroundFill(prepared.drawnPaper)) + "\n" }
+            if case .image(let placed)? = draws[it.item.id] {
+                let id: Result<(String, PlacedImage), PlaceholderReason> = Result.success(placed).flatMap { p in
+                    if let known = ids[p.ref.sha256] { return .success((known, p)) }
+                    return assets.href(p.ref, p.image, store: images, keepMetadata: options.keepImageMetadata).map { href in
+                        let newID = "img-\(ids.count)"
+                        ids[p.ref.sha256] = newID
+                        defs += "<image id=\"\(newID)\" width=\"\(p.image.width)\" height=\"\(p.image.height)\" "
+                        defs += "preserveAspectRatio=\"none\" "
+                        if options.keepImageMetadata { defs += "style=\"image-orientation:none\" " }
+                        defs += "xlink:href=\"\(href)\"/>\n"
+                        return (newID, p)
+                    }
+                }
+                switch id {
+                case .success(let (imageID, p)):
+                    let m = p.transform
+                    let points = it.corners.map { "\(fmt($0.x)),\(fmt($0.y))" }.joined(separator: " ")
+                    defs += "<clipPath id=\"clip-\(i)\"><polygon points=\"\(points)\"/></clipPath>\n"
+                    body += "<g clip-path=\"url(#clip-\(i))\"><use xlink:href=\"#\(imageID)\" "
+                    body += "transform=\"matrix(\([m.a, m.b, m.c, m.d, m.tx, m.ty].map(coef).joined(separator: " ")))\"/></g>\n"
+                case .failure(let r):
+                    report.placeholder(it, r)
+                    for c in it.placeholder { body += element(c) + "\n" }
+                }
+                continue
+            }
+            switch draws[it.item.id] {
+            case .raster(let r)?:
+                let png = try PNGEncoder.encode(width: r.image.width, height: r.image.height, rgba: r.image.pixels)
+                let m = r.placement.after(Affine(a: r.width, d: r.height))   // unit square (y down) → page
+                let clip = it.corners.map { "\(fmt($0.x)),\(fmt($0.y))" }.joined(separator: " ")
+                body += "<clipPath id=\"item\(i)\"><polygon points=\"\(clip)\"/></clipPath>\n"
+                body += "<g clip-path=\"url(#item\(i))\"><image width=\"1\" height=\"1\" preserveAspectRatio=\"none\" "
+                body += "transform=\"matrix(\([m.a, m.b, m.c, m.d, m.tx, m.ty].map(fmt6).joined(separator: " ")))\" "
+                body += "xmlns:xlink=\"http://www.w3.org/1999/xlink\" xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/></g>\n"
+            default:
+                for c in it.placeholder { body += element(c) + "\n" }
+            }
+        }
+        var g = "<g id=\"items\">\n"
+        if !defs.isEmpty { g += "<defs>\n" + defs + "</defs>\n" }
+        return g + body + "</g>\n"
+    }
+
+    /// One SVG string per page of the note, in order. Throws like `render(page:meta:options:)`.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions()) throws -> [String] {
+        var report = RenderReport()
+        return try render(note: note, options: options, report: &report)
+    }
+
+    /// One SVG string per page of the note, reporting placeholders.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
+                              report: inout RenderReport) throws -> [String] {
+        try export(note: note, options: options, report: &report).pages
+    }
+
+    /// One SVG per page of the note, plus the image files they link to.
+    ///
+    /// Images (format.md §8.2.5) carry the stored JPEG or PNG (metadata
+    /// stripped unless `options.keepImageMetadata`; HEIC decoded by
+    /// `options.imageDecoder` becomes PNG) as a `data:` URI, or, with
+    /// `assetPrefix`, link to `assetPrefix + name` and return the files in
+    /// `assets` (named by a hash of their bytes, so one file per image
+    /// however many pages use it).
+    public static func export(note: NoteState, options: RenderOptions = RenderOptions(), assetPrefix: String? = nil,
+                              report: inout RenderReport) throws -> (pages: [String], assets: [SVGAsset]) {
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        let images = ImageStore(options: options)
+        var assets = SVGAssets(prefix: assetPrefix)
+        let pages = try note.pages.enumerated().map { i, page in
+            try render(page: page, meta: note.meta, options: options, pageNumber: i + 1, backgrounds: backgrounds,
+                       images: images, assets: &assets, report: &report)
+        }
+        return (pages, assets.files)
     }
 
     static func escape(_ s: String) -> String {
@@ -213,7 +243,7 @@ struct SVGAssets {
             let name = String(BlobRef(content: bytes, type: type).sha256.prefix(16)) + "." + ext
             if !files.contains(where: { $0.name == name }) { files.append(SVGAsset(name: name, data: bytes)) }
             return SVGWriter.escape(prefix + name)
-        }.mapError { $0 as? PlaceholderReason ?? PlaceholderReason(message: ImageStore.describe($0)) }
+        }.mapError(ImageStore.reason)
         hrefs[ref.sha256] = r
         return r
     }
