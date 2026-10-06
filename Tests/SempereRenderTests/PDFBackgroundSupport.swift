@@ -16,7 +16,7 @@ struct MemoryBlobs: BlobSource {
 
     func data(for ref: BlobRef, maxBytes: Int) throws -> Data {
         guard let d = contents[ref.sha256] else { throw BlobError.missing(ref.sha256) }
-        guard d.count <= maxBytes else { throw BlobError.tooLarge(size: Int64(d.count), limit: maxBytes) }
+        guard d.count <= maxBytes else { throw BlobError.contentTooLarge(limit: Int64(maxBytes)) }
         return d
     }
 

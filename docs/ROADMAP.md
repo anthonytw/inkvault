@@ -29,7 +29,8 @@ working state.
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
 | Vault | Attachment model types and ops (A0) | 🔀 #47 |
-| Vault | Attachment merge (A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
+| Vault | Per-note blob store, rewrap policy, GC, repair (B2) | 🔀 #60 |
+| Vault | Attachment merge (A1) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
@@ -52,7 +53,8 @@ working state.
 | Recovery kit (paper key), backup / verify / restore | 🔀 #30 | 🔀 #30 |
 | Markdown (Obsidian) and single-file HTML export | 🔀 #27 | 🔀 #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
-| Attachments: `blobs`, `import pdf`, `attach`, `notes show`, search over text and transcripts (F) | 📋 | 📋 |
+| Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | 🔀 #60 | 🔀 #60 |
+| Attachments: `import pdf`, `attach`, `notes show`, search over text and transcripts (F) | 📋 | 📋 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | 🔀 #61 | 🔀 #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 

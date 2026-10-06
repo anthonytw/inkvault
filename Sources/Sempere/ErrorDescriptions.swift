@@ -48,6 +48,34 @@ extension VaultError: CustomStringConvertible {
         case .interrupted: return "interrupted (test hook)"
         case .fileTooLarge(let path, let limit): return "\(path) is larger than the \(limit)-byte limit"
         case .io(let why): return why
+        case .unsupportedFeatures(let f):
+            return "this vault uses format extensions this version does not implement (\(f.joined(separator: ", "))): "
+                + "it can be read but not changed; update Sempere"
+        }
+    }
+}
+
+extension BlobError: CustomStringConvertible {
+    /// A human sentence for each case.
+    public var description: String {
+        switch self {
+        case .invalidReference: return "malformed blob reference (sha256 or size)"
+        case .tooLarge(let n): return "\(n) bytes is over the 1 GiB attachment limit"
+        case .missing(let p): return "attachment missing: \(p)"
+        case .unreadable(let why): return "cannot read the attachment: \(why)"
+        case .undecryptable(let why): return "cannot decrypt the attachment: \(why)"
+        case .badMagic: return "the decrypted file is not an attachment blob (bad magic)"
+        case .unsupportedVersion(let v): return "unsupported blob version \(v)"
+        case .truncated: return "the attachment is truncated"
+        case .lengthOutOfRange(let l): return "the attachment claims \(l) bytes, over the 1 GiB limit"
+        case .nonZeroPadding: return "the attachment's padding is not zero"
+        case .contentHashMismatch: return "the attachment's content does not match its hash"
+        case .nameMismatch:
+            return "the attachment's file name does not match its content under this vault's secret "
+                + "(renamed, planted, or named under an old secret: see `sempere blobs repair`)"
+        case .referenceMismatch: return "the attachment is not the content the note references"
+        case .contentTooLarge(let limit): return "the attachment is larger than \(limit) bytes"
+        case .sourceChanged: return "the source file changed while it was being stored"
         }
     }
 }
