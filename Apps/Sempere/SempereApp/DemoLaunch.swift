@@ -32,6 +32,7 @@ enum DemoLaunch {
     @MainActor
     static func run(_ model: AppModel) async {
         let env = DebugLaunch.environment
+        forceLight(sceneWindows)
         applyWindowSize(env["SEMPERE_DEMO_MAC_WINDOW"])
         await model.report {
             let dir = directory
@@ -41,6 +42,20 @@ enum DemoLaunch {
             if let side = env["SEMPERE_DEMO_SIDEBAR"] { model.sidebarSelection = sidebarItem(side) }
             if let key = env["SEMPERE_DEMO_NOTE"], let id = built.notes[key] { model.selectedNoteID = id }
         }
+    }
+
+    /// The windows of every connected scene.
+    @MainActor
+    static var sceneWindows: [UIWindow] {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+    }
+
+    /// Light mode whatever the system appearance: the simulator is set to light by the
+    /// script, but a Mac runner's appearance is its own (the canvas is light anyway, the
+    /// sidebar, list and sheets are not). Sheets inherit it from their window.
+    @MainActor
+    static func forceLight(_ windows: [UIWindow]) {
+        for window in windows { window.overrideUserInterfaceStyle = .light }
     }
 
     /// Mac Catalyst: pins the window to `WIDTHxHEIGHT` points, so a screenshot has a known size.

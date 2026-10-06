@@ -3,6 +3,7 @@ import Age
 import Foundation
 import Sempere
 import Testing
+import UIKit
 @testable import SempereApp
 
 /// The synthetic vault behind the App Store screenshots (`DemoVault`).
@@ -71,6 +72,14 @@ struct DemoVaultTests {
         #expect(values.value(0...1) == 0.3898297483912715)
         #expect(values.value(10...20) == 10.167882945281562)
         #expect(values.value(-5...5) == 4.007606806068834)
+    }
+
+    /// The shots are light whatever the simulator's or the Mac's appearance.
+    @MainActor @Test func demoForcesLightAppearance() {
+        let windows = [UIWindow(frame: .zero), UIWindow(frame: .zero)]
+        windows[0].overrideUserInterfaceStyle = .dark
+        DemoLaunch.forceLight(windows)
+        #expect(windows.allSatisfy { $0.overrideUserInterfaceStyle == .light })
     }
 
     @Test func randomIsSeeded() {

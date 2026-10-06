@@ -23,10 +23,11 @@ another; `SEMPERE_SHOTS_OUT` changes the output folder). In CI, run the **CI** w
 | Mac | 2880 × 1800 | The Catalyst window (pinned to 1280 × 800 pt) is scaled to fit and centred on a plain 2880 × 1800 canvas with `sips`. A window on a plain background is how Mac shots are usually shown; it avoids depending on the runner's display size. |
 
 The app is iPad-only on iOS (`TARGETED_DEVICE_FAMILY = 2`), so there is no iPhone set. The simulator is
-set to light mode and `simctl status_bar override` gives 9:41, full battery and full Wi-Fi (no clutter).
+set to light mode and `simctl status_bar override` gives 9:41 on Mon 5 Oct 2026 (an ISO date, so the
+iPad's status-bar date is fixed too), full battery and full Wi-Fi (no clutter).
 The app runs with `TZ=UTC` and an `en_US` locale, so the note dates in the list are the same
-on every machine.
-The canvas is always light anyway.
+on every machine. The demo forces light mode on its windows (`DemoLaunch.forceLight`), so the Mac
+shots are light whatever the runner's appearance; the canvas is always light anyway.
 
 **Mac is best effort.** A Mac UI test needs automation (Accessibility) permission for the test runner
 and a window server, so the CI step runs with `continue-on-error`. The Mac test runner is sandboxed and
