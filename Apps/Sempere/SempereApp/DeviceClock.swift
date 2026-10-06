@@ -170,6 +170,36 @@ actor NoteWriter {
         }.value
     }
 
+    // MARK: Attachments (format.md §8.1.4)
+
+    /// Writes the file at `file` as a blob of this note (streamed: steps 1–3
+    /// of format.md §8.1.4) and returns its reference; write the delta that
+    /// references it afterwards (step 4). In iCloud Drive this is a
+    /// coordinated write on the note's folder, so iCloud uploads the blob.
+    /// Picked files and recordings are copied into the app container first:
+    /// security-scoped URLs expire (docs/attachments.md §13).
+    func addBlob(from file: URL, type: String) throws -> BlobRef {
+        let vault = self.vault, note = noteID
+        return try CloudVault.coordinatedWrite(coordinationURL) {
+            try vault.writeBlob(note: note, contentsOf: file, type: type)
+        }
+    }
+
+    /// `addBlob(from:type:)` for content in memory (at most 16 MiB is sensible).
+    func addBlob(_ data: Data, type: String) throws -> BlobRef {
+        let vault = self.vault, note = noteID
+        return try CloudVault.coordinatedWrite(coordinationURL) { try vault.writeBlob(note: note, data, type: type) }
+    }
+
+    /// Copies the blob `ref` of note `source` into this note (copy and paste
+    /// of items between notes), before the delta that references it. The
+    /// source is verified as it is read; the caller makes it local first in
+    /// iCloud Drive. No-op when this note already has a valid copy.
+    func copyBlob(_ ref: BlobRef, from source: UUID) throws {
+        let vault = self.vault, note = noteID
+        try CloudVault.coordinatedWrite(coordinationURL) { try vault.copyBlob(ref, from: source, to: note) }
+    }
+
     /// Writes one delta holding `ops`. A `seq` already taken (another window
     /// of this app, or a browser edit, wrote to the note) is re-read from disk
     /// and the write retried once.

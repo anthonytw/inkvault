@@ -1,0 +1,164 @@
+import Foundation
+import Sempere
+
+/// Placed items on the open note (format.md §8.2, docs/attachments.md §13):
+/// the plumbing E1–E5 build on. Every gesture is one delta through the
+/// editor's `NoteWriter`, built by the shared `NoteOps` item builders (the
+/// CLI writes the same ops). Blobs are written first, then the delta that
+/// references them (format.md §8.1.4).
+extension NoteEditor {
+    /// Why an item gesture was not made.
+    enum ItemError: Error, Equatable {
+        /// The note is read-only, being read, or closed.
+        case notEditable
+        /// The page is not in the note.
+        case noPage
+    }
+
+    /// Whether items can be added, moved or deleted now.
+    var canEditItems: Bool { !isReadOnly && !isShutDown }
+
+    /// The page's items in drawing order (`Item.drawsBefore`).
+    func items(on pageID: UUID) -> [Item] {
+        (pages.first { $0.id == pageID }?.items ?? []).sorted(by: Item.drawsBefore)
+    }
+
+    /// The item `id` on the page, if it is there.
+    func item(_ id: UUID, on pageID: UUID) -> Item? {
+        pages.first { $0.id == pageID }?.items.first { $0.id == id }
+    }
+
+    private func page(_ id: UUID) throws -> Page {
+        guard canEditItems else { throw ItemError.notEditable }
+        guard let page = pages.first(where: { $0.id == id }) else { throw ItemError.noPage }
+        return page
+    }
+
+    /// Adds `items` (whose blobs are already in this note) to the page, each
+    /// above everything in its layer when `onTop`, else with its own `z`.
+    /// One delta. Returns the items as added.
+    @discardableResult
+    func addItems(_ items: [Item], on pageID: UUID, onTop: Bool = true) throws -> [Item] {
+        var current = try page(pageID)
+        var ops: [Op] = []
+        var added: [Item] = []
+        for item in items {
+            let edit = onTop ? try NoteOps.placeOnTop(item, on: current) : try NoteOps.addItems([item], to: current)
+            ops += edit.ops
+            current = edit.page
+            added += edit.page.items.filter { edit.added.contains($0.id) }
+        }
+        guard applyItemEdit(ItemEdit(ops: ops, page: current, added: added.map(\.id))) else { throw ItemError.notEditable }
+        return added
+    }
+
+    /// Writes the file at `file` as a blob of this note, then adds the item
+    /// `make` builds from its reference on top of the page: two files, the
+    /// blob first (format.md §8.1.4), the item in one delta. The entry point
+    /// for images, PDF pages and recordings (E1, E3, E4).
+    @discardableResult
+    func addAttachment(file: URL, type: String, on pageID: UUID,
+                       item make: @Sendable (BlobRef) throws -> Item) async throws -> Item {
+        _ = try page(pageID)
+        guard let writer = attachmentWriter else { throw ItemError.notEditable }
+        let ref = try await writer.addBlob(from: file, type: type)
+        return try addItems([try make(ref)], on: pageID)[0]
+    }
+
+    /// `addAttachment(file:...)` for content in memory.
+    @discardableResult
+    func addAttachment(data: Data, type: String, on pageID: UUID,
+                       item make: @Sendable (BlobRef) throws -> Item) async throws -> Item {
+        _ = try page(pageID)
+        guard let writer = attachmentWriter else { throw ItemError.notEditable }
+        let ref = try await writer.addBlob(data, type: type)
+        return try addItems([try make(ref)], on: pageID)[0]
+    }
+
+    /// Moves or resizes an item (one `setItem(frame)`). Returns the frame it
+    /// had, for undo; nil when nothing changed.
+    @discardableResult
+    func setItemFrame(_ id: UUID, to frame: Rect, on pageID: UUID) -> Rect? {
+        guard let page = try? page(pageID), let old = page.items.first(where: { $0.id == id })?.frame,
+              let edit = NoteOps.setFrame(id, to: frame, on: page), applyItemEdit(edit) else { return nil }
+        return old
+    }
+
+    /// Turns an item (degrees clockwise). Returns the rotation it had (nil
+    /// is 0), wrapped in an optional; nil when nothing changed.
+    @discardableResult
+    func setItemRotation(_ id: UUID, to degrees: Double, on pageID: UUID) -> Double?? {
+        guard let page = try? page(pageID), let item = page.items.first(where: { $0.id == id }),
+              let edit = NoteOps.setRotation(id, to: degrees, on: page), applyItemEdit(edit) else { return nil }
+        return .some(item.rotation)
+    }
+
+    /// Draws an item above the others of its layer. Returns its old `z`.
+    @discardableResult
+    func bringItemToFront(_ id: UUID, on pageID: UUID) -> String? {
+        guard let page = try? page(pageID), let item = page.items.first(where: { $0.id == id }),
+              let edit = NoteOps.bringToFront(id, on: page), applyItemEdit(edit) else { return nil }
+        return item.z
+    }
+
+    /// Sets an item's `z` back (undo of `bringItemToFront`).
+    @discardableResult
+    func setItemZ(_ id: UUID, to z: String, on pageID: UUID) -> Bool {
+        guard let page = try? page(pageID), let i = page.items.firstIndex(where: { $0.id == id }),
+              page.items[i].z != z else { return false }
+        var out = page
+        out.items[i].z = z
+        out.items.sort(by: Item.drawsBefore)
+        return applyItemEdit(ItemEdit(ops: [.setItem(page: pageID, itemId: id, change: .z(z))], page: out))
+    }
+
+    /// Deletes items (one `removeItem` each, one delta). Returns those that
+    /// were there, for undo (`restoreItems`). Their blobs stay until
+    /// collection (format.md §8.1.6), so undo needs no blob.
+    @discardableResult
+    func removeItems(_ ids: [UUID], from pageID: UUID) -> [Item] {
+        guard let page = try? page(pageID), let edit = NoteOps.removeItems(ids, from: page) else { return [] }
+        let gone = page.items.filter { ids.contains($0.id) }
+        return applyItemEdit(edit) ? gone : []
+    }
+
+    /// Puts deleted items back where they were, under new ids with `parent`
+    /// (tombstones are permanent, format.md §8.2.2). Returns the new items.
+    @discardableResult
+    func restoreItems(_ items: [Item], on pageID: UUID) -> [Item] {
+        guard let page = try? page(pageID), let edit = try? NoteOps.restoreItems(items, to: page),
+              applyItemEdit(edit) else { return [] }
+        return edit.page.items.filter { edit.added.contains($0.id) }
+    }
+
+    /// Copies of items of this page, shifted by `dx`, `dy`, on top. One delta.
+    @discardableResult
+    func duplicateItems(_ ids: [UUID], on pageID: UUID, dx: Double = 20, dy: Double = 20) -> [Item] {
+        guard let page = try? page(pageID) else { return [] }
+        let originals = page.items.sorted(by: Item.drawsBefore).filter { ids.contains($0.id) }
+        guard !originals.isEmpty, let edit = try? NoteOps.copyItems(originals, to: page, dx: dx, dy: dy),
+              applyItemEdit(edit) else { return [] }
+        return edit.page.items.filter { edit.added.contains($0.id) }
+    }
+
+    /// Pastes `items` copied from note `source` onto the page: their blobs
+    /// are copied into this note first (`NoteWriter.copyBlob`, after
+    /// `prepare` made each local), then the copies are added on top in one
+    /// delta. Returns the new items.
+    @discardableResult
+    func pasteItems(_ items: [Item], from source: UUID, on pageID: UUID, dx: Double = 0, dy: Double = 0,
+                    prepare: @Sendable (BlobRef) async throws -> Void = { _ in }) async throws -> [Item] {
+        _ = try page(pageID)
+        guard !items.isEmpty else { return [] }
+        if source != noteID {
+            guard let writer = attachmentWriter else { throw ItemError.notEditable }
+            for ref in NoteOps.blobs(of: items) {
+                try await prepare(ref)
+                try await writer.copyBlob(ref, from: source)
+            }
+        }
+        let edit = try NoteOps.copyItems(items, to: try page(pageID), dx: dx, dy: dy)
+        guard applyItemEdit(edit) else { throw ItemError.notEditable }
+        return edit.page.items.filter { edit.added.contains($0.id) }
+    }
+}

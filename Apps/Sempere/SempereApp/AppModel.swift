@@ -239,7 +239,18 @@ final class AppModel {
     /// The note open on the canvas, if any (`openEditor(for:)`).
     private(set) var editor: NoteEditor?
 
-    private(set) var vault: Vault?
+    private(set) var vault: Vault? {
+        // Decrypted attachments and copied items belong to the vault (and the
+        // secret) they came from.
+        didSet { dropAttachments() }
+    }
+    /// Decrypted attachments of the open vault (`AppModel+Attachments`),
+    /// created on first use, deleted whenever `vault` changes or closes.
+    @ObservationIgnored var blobCache: BlobCache?
+    /// Where this model's attachment caches go; tests pass their own.
+    @ObservationIgnored var blobCacheFolder = BlobCache.folder
+    /// Items copied for pasting (`ItemClipboard`), within the open vault.
+    let itemClipboard = ItemClipboard()
     /// Editors of note windows (Mac), by note id: one per note, each with its
     /// own canvas (`AppModel+Windows`).
     var windowEditors: [UUID: NoteEditor] = [:]

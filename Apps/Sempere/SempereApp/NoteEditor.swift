@@ -660,6 +660,28 @@ final class NoteEditor {
         pendingPageOps += edit.ops
     }
 
+    // MARK: - Items (format.md §8.2): each gesture is saved at once, one delta
+
+    /// Item changes per page, so the item layer and thumbnails follow them.
+    private(set) var itemRevisions: [UUID: Int] = [:]
+
+    /// The writer, for attachment blobs (`NoteEditor+Items`); nil when read-only.
+    var attachmentWriter: NoteWriter? { isShutDown ? nil : writer }
+
+    /// Takes an item gesture's page and queues its ops, then saves them as
+    /// one delta (with any ink still pending). False when the note cannot
+    /// be edited or the page is gone.
+    @discardableResult
+    func applyItemEdit(_ edit: ItemEdit) -> Bool {
+        guard !isReadOnly, !isShutDown, !edit.ops.isEmpty,
+              let i = pages.firstIndex(where: { $0.id == edit.page.id }) else { return false }
+        pages[i].items = edit.page.items
+        itemRevisions[edit.page.id, default: 0] &+= 1
+        pendingPageOps += edit.ops
+        saveNow()
+        return true
+    }
+
     /// Writes what is pending now rather than after the pause.
     private func saveNow() {
         Task { await flush() }
