@@ -107,7 +107,7 @@ public enum ShareExport {
         let fm = FileManager.default
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
         let render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer)
-        func render(for id: UUID) -> RenderOptions {
+        func renderOptions(for id: UUID) -> RenderOptions {
             var r = render
             r.blobs = blobs?(id)
             return r
@@ -190,9 +190,9 @@ public enum ShareExport {
                     var files: [(URL, Data)] = []
                     if options.format == .pdf {
                         files = [(scratch.appendingPathComponent(stem + ".pdf"),
-                                  try PDFWriter.render(note: state, options: render(for: s.id), report: &report))]
+                                  try PDFWriter.render(note: state, options: renderOptions(for: s.id), report: &report))]
                     } else {
-                        let pages = try PNGWriter.render(note: state, options: render(for: s.id), png: PNGOptions(dpi: options.dpi),
+                        let pages = try PNGWriter.render(note: state, options: renderOptions(for: s.id), png: PNGOptions(dpi: options.dpi),
                                                          report: &report)
                         for (i, data) in pages.enumerated() {
                             let rel = notes.count > 1 ? stem + String(format: "/p%03d.png", i + 1)

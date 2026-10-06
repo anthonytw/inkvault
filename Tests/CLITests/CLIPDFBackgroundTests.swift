@@ -82,9 +82,10 @@ final class CLIPDFBackgroundTests: CLITestCase {
     }
 
     func rasterize(_ pdf: String = "classic.pdf", width: Int = 40, height: Int = 30, timeout: Double = 30,
-                   tool: String? = nil) throws -> (CLIResult, String) {
+                   tool: String? = nil, tmpdir: String? = nil) throws -> (CLIResult, String) {
         let out = path("page-\(UUID().uuidString.prefix(6)).ppm")
         var env: [String: String] = [:]
+        if let tmpdir { env["TMPDIR"] = tmpdir }
         if let tool { env["SEMPERE_PDFTOPPM"] = tool }
         let r = try cli(["__rasterize-pdf", Self.pdfFixtures.appendingPathComponent(pdf).path, "--width", "\(width)",
                          "--height", "\(height)", "--out", out, "--timeout", "\(timeout)"], env: env)
@@ -117,13 +118,14 @@ final class CLIPDFBackgroundTests: CLITestCase {
     /// Output beyond what the requested pixels need is cut off by the
     /// file-size limit, and the temporary directory is removed.
     func testRunawayOutputIsLimited() throws {
-        let (r, _) = try rasterize(tool: try fakePoppler("for last; do :; done; head -c 200000000 /dev/zero > \"$last.ppm\""))
+        let scratch = path("tmp")
+        try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
+        let (r, _) = try rasterize(tool: try fakePoppler("for last; do :; done; head -c 200000000 /dev/zero > \"$last.ppm\""),
+                                   tmpdir: scratch)
         XCTAssertEqual(r.status, 1)
         XCTAssertTrue(r.err.contains("pdftoppm was killed by signal") || r.err.contains("exited with status")
                       || r.err.contains("no usable image"), r.err)
-        let leftovers = try FileManager.default.contentsOfDirectory(atPath: NSTemporaryDirectory())
-            .filter { $0.hasPrefix("sempere-pdftoppm-") }
-        XCTAssertTrue(leftovers.isEmpty, "\(leftovers)")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch), [])
     }
 
     /// The real Poppler, through the export's rasterizer: rotation handled, size exact.
