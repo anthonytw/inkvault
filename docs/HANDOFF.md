@@ -69,10 +69,13 @@ the owning session (`claude -p "…" --cloud <session_id>`).
 - **Licensing:** GPLv3 + App Store exception (§7 additional permission), no
   CLA. All deps are Apache-2.0 (swift-crypto incl. vendored BoringSSL,
   argument-parser, asn1) + zlib: GPL-compatible.
-- **Export compliance:** `ITSAppUsesNonExemptEncryption = YES` (standard algorithms).
-Availability excludes France until the ANSSI declaration is approved
-(`docs/appstore/france-declaration.md`). Then add `ITSEncryptionExportComplianceCode`
-and France. With France available and no code, uploads are refused.
+- **Export compliance:** the maintainer answered App Store Connect's questions on build 2.
+The result was "does not use non-exempt encryption", the mass-market exemption.
+Info.plist mirrors that with `ITSAppUsesNonExemptEncryption = NO`, so uploads need no
+per-build answer. (Setting YES made every upload demand an
+`ITSEncryptionExportComplianceCode`; patching a build's answer through the API did not
+stick.) France stays excluded until the ANSSI declaration is approved
+(`docs/appstore/france-declaration.md`); revisit this key then.
 
 **Never commit `DEVELOPMENT_TEAM`.**
 
