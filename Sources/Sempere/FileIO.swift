@@ -55,6 +55,87 @@ enum FileIO {
         try syncDirectory(dir)
     }
 
+    /// Creates `url` (mode 0600, refusing an existing file), lets `body`
+    /// write to it, flushes it to disk (`fsync`) and closes it. On any
+    /// failure the file is removed and the error rethrown. For streamed
+    /// files (attachment blobs) written under a temporary name and then put
+    /// in place with `placeNew` / `place(_:replacing:)`.
+    static func writeNewFile(_ url: URL, _ body: (_ write: (Data) throws -> Void) throws -> Void) throws {
+        let fd = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        }
+        guard fd >= 0 else { throw VaultError.io("create \(url.path): errno \(errno)") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        do {
+            try body { data in
+                guard !data.isEmpty else { return }
+                do { try handle.write(contentsOf: data) } catch { throw VaultError.io("write \(url.path): \(error)") }
+            }
+            do {
+                try handle.synchronize()
+                try handle.close()
+            } catch {
+                throw VaultError.io("flush \(url.path): \(error)")
+            }
+        } catch {
+            try? handle.close()
+            try? fm.removeItem(at: url)
+            throw error
+        }
+    }
+
+    /// A fresh temporary name in `dir` (ignored by every listing).
+    static func tempURL(in dir: URL) -> URL {
+        dir.appendingPathComponent(tempPrefix + UUID().uuidString.lowercased())
+    }
+
+    /// Moves the finished temporary file `tmp` to `url` in the same
+    /// directory without ever replacing an existing file: `link(2)` (which
+    /// fails if `url` exists), then unlink `tmp`. On file systems without
+    /// hard links (FAT, some network shares) it falls back to an existence
+    /// check and `rename(2)`, as `writeAtomically` does. The directory is
+    /// fsynced. `tmp` is removed in every case.
+    ///
+    /// - Throws: `VaultError.alreadyExists` if `url` exists, `.io` otherwise.
+    static func placeNew(_ tmp: URL, at url: URL) throws {
+        defer { try? fm.removeItem(at: tmp) }
+        let rc = tmp.withUnsafeFileSystemRepresentation { src in
+            url.withUnsafeFileSystemRepresentation { dst -> Int32 in
+                guard let src, let dst else { return -1 }
+                return link(src, dst)
+            }
+        }
+        if rc != 0 {
+            let code = errno
+            if code == EEXIST { throw VaultError.alreadyExists(url.path) }
+            guard [EPERM, ENOTSUP, EOPNOTSUPP, EXDEV, ENOSYS, EMLINK].contains(code) else {
+                throw VaultError.io("link to \(url.path): errno \(code)")
+            }
+            guard !exists(url) else { throw VaultError.alreadyExists(url.path) }
+            try place(tmp, at: url)
+            return
+        }
+        try syncDirectory(url.deletingLastPathComponent())
+    }
+
+    /// Renames the finished temporary file `tmp` onto `url` (replacing it),
+    /// then fsyncs the directory. `tmp` is removed on failure.
+    static func place(_ tmp: URL, at url: URL) throws {
+        let rc = tmp.withUnsafeFileSystemRepresentation { src in
+            url.withUnsafeFileSystemRepresentation { dst -> Int32 in
+                guard let src, let dst else { return -1 }
+                return rename(src, dst)
+            }
+        }
+        guard rc == 0 else {
+            let code = errno
+            try? fm.removeItem(at: tmp)
+            throw VaultError.io("rename to \(url.path): errno \(code)")
+        }
+        try syncDirectory(url.deletingLastPathComponent())
+    }
+
     /// Flushes a directory's entries (a rename or unlink in it) to disk with
     /// `fsync(2)` on the directory. Filesystems that cannot fsync a directory
     /// (`EINVAL`, `ENOTSUP`) are accepted as is.
