@@ -120,3 +120,43 @@ final class NotebookSuggestionTests: XCTestCase {
         }
     }
 }
+
+final class NotebookMoveTests: XCTestCase {
+    func testMovedIntoAParentKeepsTheLastLevel() {
+        XCTAssertEqual(NotebookPath.moved("School/Math", into: "Archive"), "Archive/Math")
+        XCTAssertEqual(NotebookPath.moved("School/Math", into: nil), "Math")
+        XCTAssertEqual(NotebookPath.moved("School/Math", into: "  "), "Math")
+        XCTAssertEqual(NotebookPath.moved("Math", into: "School/Year 2"), "School/Year 2/Math")
+        XCTAssertEqual(NotebookPath.moved(" A // B ", into: " C / "), "C/B", "both sides are canonicalised")
+        // Already there: the same path comes back (a no-op for the caller).
+        XCTAssertEqual(NotebookPath.moved("School/Math", into: "School"), "School/Math")
+        XCTAssertEqual(NotebookPath.moved("Math", into: nil), "Math")
+    }
+
+    func testANotebookNeverMovesIntoItselfOrItsDescendants() {
+        XCTAssertNil(NotebookPath.moved("School", into: "School"))
+        XCTAssertNil(NotebookPath.moved("School", into: "School/Math"))
+        XCTAssertNil(NotebookPath.moved("School/Math", into: "School/Math/Algebra/Deep"))
+        XCTAssertNil(NotebookPath.moved("", into: "A"), "no notebook named")
+        XCTAssertNil(NotebookPath.moved(" / ", into: nil))
+        // Whole levels only: `A/Bc` is not inside `A/B`.
+        XCTAssertEqual(NotebookPath.moved("A/B", into: "A/Bc"), "A/Bc/B")
+        XCTAssertEqual(NotebookPath.moved("A", into: "AB"), "AB/A")
+    }
+
+    func testMovedPathDrivesThePrefixRenameOfTheSubtree() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let notes: [UUID: String?] = [a: "School/Math", b: "School/Math/Algebra", c: "School/Mathematics"]
+        let target = NotebookPath.moved("School/Math", into: "Archive")
+        let edits = NoteOps.renameNotebook("School/Math", to: target, notebooks: notes)
+        XCTAssertEqual(Set(edits.map(\.noteId)), [a, b], "the sibling with a longer name stays")
+        XCTAssertEqual(NotebookPath.renamed("School/Math/Algebra", from: "School/Math", to: target), "Archive/Math/Algebra")
+    }
+
+    func testSuggestionsCanLeaveOutASubtree() {
+        let notebooks: [String?] = ["A", "A/B", "A/B/C", "A/D", "E"]
+        XCTAssertEqual(NotebookPath.suggestions(matching: "", among: notebooks, excludingSubtree: "A/B"), ["A", "A/D", "E"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "c", among: notebooks, excludingSubtree: "a/b"), [])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "", among: notebooks, excludingSubtree: nil).count, 5)
+    }
+}

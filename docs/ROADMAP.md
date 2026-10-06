@@ -57,6 +57,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
+| `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | 🔀 #72 | 🔀 #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
 | `recognize [NOTE...] [--dry-run]` (Vision on rendered pages; reports the notes it changed) and `search --show-boxes`; `import notability --recognize missing` 📋; Linux gives a clear error, `--dry-run` works | 🔀 #72 (error, dry run) | 🔀 #72 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |

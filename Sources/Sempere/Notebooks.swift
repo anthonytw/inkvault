@@ -30,6 +30,22 @@ public enum NotebookPath {
         return !prefix.isEmpty && parts.count >= prefix.count && Array(parts.prefix(prefix.count)) == prefix
     }
 
+    /// The path notebook `path` gets when it is moved into `parent` (nil or
+    /// blank: the top level): `parent` plus the last level of `path`, so
+    /// `School/Math` moved into `Archive` is `Archive/Math`, and moved into the
+    /// top level is `Math`. Nil when that is impossible: `path` names no
+    /// notebook, or `parent` is `path` itself or lies inside it (a notebook
+    /// cannot become its own descendant). The result can equal `path` (it is
+    /// already there), and it may name a notebook that exists: moving merges
+    /// them, since a notebook is only the prefix its notes carry.
+    public static func moved(_ path: String, into parent: String?) -> String? {
+        let from = components(path)
+        guard let last = from.last else { return nil }
+        let to = components(parent)
+        if to.count >= from.count, Array(to.prefix(from.count)) == from { return nil }
+        return (to + [last]).joined(separator: "/")
+    }
+
     /// The new name of `name` when the notebook `old` (and everything below
     /// it) is renamed or moved to `new`: the `old` prefix is replaced by
     /// `new`. An empty `new` drops the prefix, so notes directly in `old`
@@ -56,12 +72,19 @@ extension NotebookPath {
     ///
     /// - Parameters:
     ///   - excluding: a notebook never offered (the note's own, when moving).
+    ///   - excludingSubtree: a notebook and everything below it never offered
+    ///     (the destinations a notebook cannot be moved into: itself and its descendants).
     ///   - limit: at most this many results.
     public static func suggestions(matching typed: String, among notebooks: [String?],
-                                   excluding: String? = nil, limit: Int = 50) -> [String] {
+                                   excluding: String? = nil, excludingSubtree: String? = nil,
+                                   limit: Int = 50) -> [String] {
         let all = NotebookNode.flatten(NotebookNode.tree(notebooks))
         let skip = canonical(excluding).map(fold)
-        let candidates = all.filter { skip == nil || fold($0) != skip }
+        let candidates = all.filter { path in
+            if let skip, fold(path) == skip { return false }
+            if let tree = excludingSubtree, name(fold(path), isWithin: fold(tree)) { return false }
+            return true
+        }
         let query = canonical(typed).map(fold)
         let below = typed.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("/")
         guard let query else { return Array(candidates.prefix(max(limit, 0))) }
