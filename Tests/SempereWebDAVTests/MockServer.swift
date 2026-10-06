@@ -1,38 +1,75 @@
 import Foundation
 import SempereWebDAV
 
-/// An in-memory WebDAV server: PROPFIND (Depth 0/1), GET, PUT with
-/// If-Match / If-None-Match, MKCOL, DELETE. Just enough for the sync.
+/// An in-memory WebDAV server: PROPFIND (Depth 0/1), GET (with `Range` /
+/// `If-Range`), PUT with If-Match / If-None-Match, MKCOL, MOVE (with
+/// `Overwrite`), DELETE. Just enough for the sync. Request and response
+/// bodies may be files (`bodyFile`, `responseFile`); with `storage` set,
+/// file contents live on disk and are copied in 1 MiB pieces, so a large
+/// blob never sits in memory on either end.
 final class MockDAV: WebDAVTransport, @unchecked Sendable {
-    struct Stored { var data: Data; var etag: String }
+    struct Stored {
+        var data: Data?
+        var disk: URL?
+        var size: Int
+        var etag: String
+    }
     private let lock = NSLock()
     private var files: [String: Stored] = [:]
     private var collections: Set<String>
+    private let storage: URL?
 
-    init(collections: Set<String> = ["", "/dav", "/dav/vault"]) { self.collections = collections }
+    init(collections: Set<String> = ["", "/dav", "/dav/vault"], storage: URL? = nil) {
+        self.collections = collections
+        self.storage = storage
+    }
     private var counter = 0
     private(set) var requests: [(method: String, path: String)] = []
+    private(set) var headerLog: [(method: String, path: String, headers: [String: String])] = []
     /// When set, called for each request; return a response to short-circuit.
     var interceptor: (@Sendable (WebDAVRequest) -> WebDAVResponse?)?
     /// Expected `Authorization` header, if any.
     var requiredAuthorization: String?
+    /// For a GET of a path ending in the key: send this many body bytes,
+    /// then fail as a dropped connection would (used once, then removed).
+    var cutGET: [String: Int] = [:]
+    /// For a PUT of a path whose final component starts with the key's
+    /// prefix: store this many bytes, then fail (used once, then removed).
+    var cutPUT: [String: Int] = [:]
+    /// Answer `Range` requests (a server may ignore them and send 200).
+    var honoursRange = true
 
     static let base = "/dav/vault"
 
-    func file(_ rel: String) -> Data? { lock.lock(); defer { lock.unlock() }; return files[Self.base + "/" + rel]?.data }
+    func file(_ rel: String) -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        guard let s = files[Self.base + "/" + rel] else { return nil }
+        return s.data ?? s.disk.flatMap { try? Data(contentsOf: $0) }
+    }
+    func size(_ rel: String) -> Int? { lock.lock(); defer { lock.unlock() }; return files[Self.base + "/" + rel]?.size }
     func putDirect(_ rel: String, _ data: Data) {
         lock.lock(); defer { lock.unlock() }
         collect(parentOf: Self.base + "/" + rel)
         counter += 1
-        files[Self.base + "/" + rel] = Stored(data: data, etag: "\"e\(counter)\"")
+        files[Self.base + "/" + rel] = Stored(data: data, size: data.count, etag: "\"e\(counter)\"")
     }
     func removeDirect(_ rel: String) { lock.lock(); files[Self.base + "/" + rel] = nil; lock.unlock() }
+    /// Removes a collection and everything below it.
+    func removeCollection(_ rel: String) {
+        lock.lock(); defer { lock.unlock() }
+        let p = Self.base + "/" + rel
+        files = files.filter { !$0.key.hasPrefix(p + "/") }
+        collections = collections.filter { $0 != p && !$0.hasPrefix(p + "/") }
+    }
     func names(under rel: String) -> [String] {
         lock.lock(); defer { lock.unlock() }
         let p = Self.base + "/" + rel + "/"
         return files.keys.filter { $0.hasPrefix(p) }.map { String($0.dropFirst(p.count)) }.sorted()
     }
     var requestLog: [(method: String, path: String)] { lock.lock(); defer { lock.unlock() }; return requests }
+    var headers: [(method: String, path: String, headers: [String: String])] {
+        lock.lock(); defer { lock.unlock() }; return headerLog
+    }
 
     private func collect(parentOf path: String) {
         var p = path
@@ -47,6 +84,7 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
         let path = (r.url.path.removingPercentEncoding ?? r.url.path)
         let key = path.hasSuffix("/") && path.count > 1 ? String(path.dropLast()) : path
         requests.append((r.method, key))
+        headerLog.append((r.method, key, r.headers))
         if let want = requiredAuthorization, r.headers["Authorization"] != want { return WebDAVResponse(status: 401) }
         switch r.method {
         case "PROPFIND":
@@ -58,34 +96,125 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
                     for c in collections where c != key && parent(c) == key { kids.insert(c) }
                     for c in kids.sorted() { xml += entry(c + "/", etag: nil, collection: true, size: nil) }
                     for (f, s) in files.sorted(by: { $0.key < $1.key }) where parent(f) == key {
-                        xml += entry(f, etag: s.etag, collection: false, size: s.data.count)
+                        xml += entry(f, etag: s.etag, collection: false, size: s.size)
                     }
                 }
                 return multistatus(xml)
             }
-            if let s = files[key] { return multistatus(entry(key, etag: s.etag, collection: false, size: s.data.count)) }
+            if let s = files[key] { return multistatus(entry(key, etag: s.etag, collection: false, size: s.size)) }
             return WebDAVResponse(status: 404)
         case "GET":
             guard let s = files[key] else { return WebDAVResponse(status: 404) }
-            return WebDAVResponse(status: 200, headers: ["ETag": s.etag], body: s.data)
+            var start = 0
+            var status = 200
+            if honoursRange, let range = r.headers["Range"], range.hasPrefix("bytes="), range.hasSuffix("-"),
+               let from = Int(range.dropFirst(6).dropLast()),
+               r.headers["If-Range"].map({ $0 == s.etag }) ?? true {
+                guard from < s.size else { return WebDAVResponse(status: 416) }
+                start = from
+                status = 206
+            }
+            var headers = ["ETag": s.etag]
+            if status == 206 { headers["Content-Range"] = "bytes \(start)-\(s.size - 1)/\(s.size)" }
+            let cut = cutGET.first { key.hasSuffix($0.key) }
+            if let cut { cutGET[cut.key] = nil }
+            if let out = r.responseFile {
+                let h = try openResponse(out, status: status)
+                defer { try? h.close() }
+                var sent = 0
+                try forEachPiece(of: s, from: start) { piece in
+                    var piece = piece
+                    if let cut, sent + piece.count > cut.value { piece = piece.prefix(cut.value - sent) }
+                    if let limit = r.maxResponseBytes, sent + piece.count > limit {
+                        try h.write(contentsOf: piece.prefix(limit - sent))
+                        throw WebDAVError.responseTooLarge(path: key, limit: limit)
+                    }
+                    try h.write(contentsOf: piece)
+                    sent += piece.count
+                    if let cut, sent >= cut.value { throw WebDAVError.transport("connection lost (test)") }
+                }
+                return WebDAVResponse(status: status, headers: headers)
+            }
+            var body = Data()
+            try forEachPiece(of: s, from: start) { body.append($0) }
+            return WebDAVResponse(status: status, headers: headers, body: body)
         case "PUT":
             guard collections.contains(parent(key)) else { return WebDAVResponse(status: 409) }
             let existing = files[key]
             if r.headers["If-None-Match"] == "*", existing != nil { return WebDAVResponse(status: 412) }
             if let m = r.headers["If-Match"], existing?.etag != m { return WebDAVResponse(status: 412) }
             counter += 1
-            files[key] = Stored(data: r.body ?? Data(), etag: "\"e\(counter)\"")
+            let name = String(key[key.index(after: key.lastIndex(of: "/")!)...])
+            let cut = cutPUT.first { name.hasPrefix($0.key) }
+            if let cut { cutPUT[cut.key] = nil }
+            var stored = Stored(size: 0, etag: "\"e\(counter)\"")
+            if let storage {
+                let url = storage.appendingPathComponent(UUID().uuidString)
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+                let h = try FileHandle(forWritingTo: url)
+                defer { try? h.close() }
+                try forEachPiece(of: r) { piece in
+                    let piece = cut.map { piece.prefix(max($0.value - stored.size, 0)) } ?? piece
+                    try h.write(contentsOf: piece)
+                    stored.size += piece.count
+                }
+                stored.disk = url
+            } else {
+                var data = Data()
+                try forEachPiece(of: r) { data.append($0) }
+                if let cut { data = data.prefix(cut.value) }
+                stored.data = data
+                stored.size = data.count
+            }
+            // Like a server that writes in place: a cut upload leaves its part behind.
+            files[key] = stored
+            if cut != nil { throw WebDAVError.transport("connection lost (test)") }
             return WebDAVResponse(status: existing == nil ? 201 : 204)
         case "MKCOL":
             if collections.contains(key) { return WebDAVResponse(status: 405) }
             guard collections.contains(parent(key)) else { return WebDAVResponse(status: 409) }
             collections.insert(key)
             return WebDAVResponse(status: 201)
+        case "MOVE":
+            guard let dest = r.headers["Destination"].flatMap(URL.init(string:)) else { return WebDAVResponse(status: 400) }
+            let to = dest.path.removingPercentEncoding ?? dest.path
+            guard let s = files[key] else { return WebDAVResponse(status: 404) }
+            guard collections.contains(parent(to)) else { return WebDAVResponse(status: 409) }
+            let exists = files[to] != nil
+            if exists && r.headers["Overwrite"] == "F" { return WebDAVResponse(status: 412) }
+            files[to] = s
+            files[key] = nil
+            return WebDAVResponse(status: exists ? 204 : 201)
         case "DELETE":
             return WebDAVResponse(status: files.removeValue(forKey: key) == nil ? 404 : 204)
         default:
             return WebDAVResponse(status: 405)
         }
+    }
+
+    private func openResponse(_ url: URL, status: Int) throws -> FileHandle {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        let h = try FileHandle(forWritingTo: url)
+        if status == 200 { try h.truncate(atOffset: 0) } else { try h.seekToEnd() }
+        return h
+    }
+
+    private func forEachPiece(of s: Stored, from start: Int, _ body: (Data) throws -> Void) throws {
+        if let data = s.data { return try body(data.dropFirst(start)) }
+        guard let disk = s.disk else { return }
+        let h = try FileHandle(forReadingFrom: disk)
+        defer { try? h.close() }
+        try h.seek(toOffset: UInt64(start))
+        while let piece = try h.read(upToCount: 1 << 20), !piece.isEmpty { try body(piece) }
+    }
+
+    private func forEachPiece(of r: WebDAVRequest, _ body: (Data) throws -> Void) throws {
+        guard let file = r.bodyFile else { return try body(r.body ?? Data()) }
+        let h = try FileHandle(forReadingFrom: file)
+        defer { try? h.close() }
+        while let piece = try h.read(upToCount: 1 << 20), !piece.isEmpty { try body(piece) }
     }
 
     private func parent(_ p: String) -> String { String(p[..<(p.lastIndex(of: "/") ?? p.startIndex)]) }
