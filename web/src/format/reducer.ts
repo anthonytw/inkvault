@@ -413,6 +413,8 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     if (cur && !beats(e, cur)) return;
     strokes.set(e.item.id, e);
   };
+  // Items and recordings are kept as JSON: `null` is an absent optional field (Swift `decodeIfPresent`).
+  const optString = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
   const clock = (s: string | undefined, fallback: Stamp) => (s === undefined ? undefined : parseStamp(s)) ?? fallback;
   const origin = (s: string | undefined, fallback: Origin) => (s === undefined ? undefined : parseOrigin(s)) ?? fallback;
 
@@ -457,7 +459,7 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
         itemIds.add(String(it.id));
         const clocks = it.clocks as Record<string, string> | undefined;
         // A register without a clock is stamped by the snapshot (§8.2.1).
-        offerItem({ origin: origin(it.origin as string | undefined, originOf(s.name, j)), src: s.name, item: it, page: p.id },
+        offerItem({ origin: origin(optString(it.origin), originOf(s.name, j)), src: s.name, item: it, page: p.id },
           (f) => baseKey(clock(clocks?.[f], stamp), s.name));
       });
     });
@@ -465,7 +467,7 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     s.state.recordings.forEach((r, j) => {
       recordingIds.add(String(r.id));
       const clocks = r.clocks as Record<string, string> | undefined;
-      offerRecording({ origin: origin(r.origin as string | undefined, originOf(s.name, j)), src: s.name, item: r },
+      offerRecording({ origin: origin(optString(r.origin), originOf(s.name, j)), src: s.name, item: r },
         (f) => baseKey(clock(clocks?.[f], stamp), s.name));
     });
     snapPageIds.set(s, pageIds);
