@@ -46,6 +46,55 @@ enum LocalFS {
         return true
     }
 
+    /// Flushes `tmp` and links it to `url` (`link(2)`: never over an
+    /// existing file; false then), then removes `tmp`. A file is never seen
+    /// half-written under its final name.
+    static func placeNew(_ tmp: URL, at url: URL) throws -> Bool {
+        do {
+            let h = try FileHandle(forWritingTo: tmp)
+            try h.synchronize()
+            try h.close()
+        } catch {
+            throw WebDAVError.io("flush \(tmp.path): \(error.localizedDescription)")
+        }
+        let rc: Int32 = tmp.withUnsafeFileSystemRepresentation { src in
+            url.withUnsafeFileSystemRepresentation { dst -> Int32 in
+                guard let src, let dst else { return -1 }
+                return link(src, dst)
+            }
+        }
+        if rc != 0 {
+            if errno == EEXIST { try? FileManager.default.removeItem(at: tmp); return false }
+            throw WebDAVError.io("cannot place \(url.path): \(String(cString: strerror(errno)))")
+        }
+        try? FileManager.default.removeItem(at: tmp)
+        syncDirectory(url.deletingLastPathComponent())
+        return true
+    }
+
+    /// Size of a regular file; nil when missing or not a regular file.
+    static func regularFileSize(_ url: URL) -> Int? {
+        guard let a = try? FileManager.default.attributesOfItem(atPath: url.path),
+              (a[.type] as? FileAttributeType) == .typeRegular else { return nil }
+        return (a[.size] as? NSNumber)?.intValue
+    }
+
+    /// The first `count` bytes of a file (fewer if it is shorter).
+    static func prefix(of url: URL, count: Int) throws -> Data {
+        do {
+            let h = try FileHandle(forReadingFrom: url)
+            defer { try? h.close() }
+            return try h.read(upToCount: count) ?? Data()
+        } catch {
+            throw WebDAVError.io("read \(url.path): \(error.localizedDescription)")
+        }
+    }
+
+    static func isDirectory(_ url: URL) -> Bool {
+        var dir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &dir) && dir.boolValue
+    }
+
     static func remove(_ url: URL) throws {
         do { try FileManager.default.removeItem(at: url) } catch {
             throw WebDAVError.io("remove \(url.path): \(error.localizedDescription)")

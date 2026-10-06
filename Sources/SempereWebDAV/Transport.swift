@@ -12,11 +12,43 @@ public struct WebDAVRequest: Sendable {
     /// Largest response body accepted; a transport stops reading past it and
     /// throws `WebDAVError.responseTooLarge`. Nil means no limit.
     public var maxResponseBytes: Int?
+    /// When set, the request body is streamed from this file instead of
+    /// `body` (uploads of large blobs never hold the file in memory).
+    public var bodyFile: URL?
+    /// When set, a 200 or 206 response body is streamed into this file
+    /// instead of `body`: a 200 replaces the file's contents (it is created,
+    /// mode 0600, if missing), a 206 is appended at its end. Any other
+    /// response body is discarded. `maxResponseBytes` counts the bytes of
+    /// this response only.
+    public var responseFile: URL?
 
     public init(method: String, url: URL, headers: [String: String] = [:], body: Data? = nil,
-                maxResponseBytes: Int? = nil) {
+                maxResponseBytes: Int? = nil, bodyFile: URL? = nil, responseFile: URL? = nil) {
         self.method = method; self.url = url; self.headers = headers; self.body = body
         self.maxResponseBytes = maxResponseBytes
+        self.bodyFile = bodyFile; self.responseFile = responseFile
+    }
+}
+
+/// Opening the file a streamed response body goes to (`WebDAVRequest.responseFile`).
+enum ResponseFile {
+    /// The handle to write a `status` response into: truncated for 200,
+    /// positioned at the end for 206; nil for any other status.
+    static func open(_ url: URL, status: Int) throws -> FileHandle? {
+        guard status == 200 || status == 206 else { return nil }
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: url.path) {
+            guard fm.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw WebDAVError.io("cannot create \(url.path)")
+            }
+        }
+        do {
+            let h = try FileHandle(forWritingTo: url)
+            if status == 200 { try h.truncate(atOffset: 0) } else { try h.seekToEnd() }
+            return h
+        } catch {
+            throw WebDAVError.io("open \(url.path): \(error.localizedDescription)")
+        }
     }
 }
 
@@ -61,15 +93,17 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
     public func send(_ request: WebDAVRequest) throws -> WebDAVResponse {
         var r = URLRequest(url: request.url)
         r.httpMethod = request.method
-        r.httpBody = request.body
+        if request.bodyFile == nil { r.httpBody = request.body }
         for (k, v) in request.headers { r.setValue(v, forHTTPHeaderField: k) }
-        let task = session.dataTask(with: r)
-        let pending = Pending(limit: request.maxResponseBytes)
+        let task: URLSessionTask = request.bodyFile.map { session.uploadTask(with: r, fromFile: $0) }
+            ?? session.dataTask(with: r)
+        let pending = Pending(limit: request.maxResponseBytes, file: request.responseFile)
         delegate.register(task.taskIdentifier, pending)
         defer { delegate.unregister(task.taskIdentifier) }
         task.resume()
         pending.done.wait()
         var (data, response, error, tooLarge, challenged) = pending.result()
+        if let failure = pending.fileFailure { throw failure }
         if tooLarge, let limit = request.maxResponseBytes {
             throw WebDAVError.responseTooLarge(path: request.url.path, limit: limit)
         }
@@ -91,32 +125,74 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
     private final class Pending: @unchecked Sendable {
         let done = DispatchSemaphore(value: 0)
         let limit: Int?
+        /// Where a successful body goes instead of memory, if anywhere.
+        let file: URL?
         private let lock = NSLock()
         private var data = Data()
         private var response: URLResponse?
         private var error: Error?
         private var tooLarge = false
         private var challenged: HTTPURLResponse?
+        private var handle: FileHandle?
+        /// True once the response is known and its body is not wanted.
+        private var discarding = false
+        private var received = 0
+        private var fileError: WebDAVError?
 
-        init(limit: Int?) { self.limit = limit }
+        init(limit: Int?, file: URL?) { self.limit = limit; self.file = file }
+
+        var fileFailure: WebDAVError? { lock.lock(); defer { lock.unlock() }; return fileError }
+
+        /// Opens the response file for a streamed body; false (and the
+        /// failure recorded) when it cannot be opened.
+        func prepareFile(status: Int) -> Bool {
+            guard let file else { return true }
+            lock.lock(); defer { lock.unlock() }
+            do {
+                handle = try ResponseFile.open(file, status: status)
+                discarding = handle == nil
+                return true
+            } catch {
+                fileError = error as? WebDAVError ?? .io("\(error)")
+                return false
+            }
+        }
 
         /// False (and marks the request too large) when the body would exceed the limit.
         func accept(expected: Int64) -> Bool {
-            guard let limit, expected > Int64(limit) else { return true }
-            lock.lock(); tooLarge = true; lock.unlock()
+            lock.lock(); defer { lock.unlock() }
+            guard !discarding, let limit, expected > Int64(limit) else { return true }
+            tooLarge = true
             return false
         }
 
         func append(_ chunk: Data) -> Bool {
             lock.lock(); defer { lock.unlock() }
-            if let limit, chunk.count > limit - data.count { tooLarge = true; return false }
-            data.append(chunk)
+            if discarding { return true }
+            if let limit, chunk.count > limit - received { tooLarge = true; return false }
+            received += chunk.count
+            guard let handle else { data.append(chunk); return true }
+            do { try handle.write(contentsOf: chunk) } catch {
+                fileError = .io("write \(file?.path ?? "?"): \(error.localizedDescription)")
+                return false
+            }
             return true
         }
 
         func set(response r: URLResponse) { lock.lock(); response = r; lock.unlock() }
         func set(challenged r: HTTPURLResponse) { lock.lock(); challenged = r; lock.unlock() }
-        func finish(_ e: Error?) { lock.lock(); error = e; lock.unlock(); done.signal() }
+        func finish(_ e: Error?) {
+            lock.lock()
+            error = e
+            if let handle {
+                do { try handle.synchronize(); try handle.close() } catch {
+                    if fileError == nil { fileError = .io("write \(file?.path ?? "?"): \(error.localizedDescription)") }
+                }
+                self.handle = nil
+            }
+            lock.unlock()
+            done.signal()
+        }
 
         func result() -> (Data, URLResponse?, Error?, Bool, HTTPURLResponse?) {
             lock.lock(); defer { lock.unlock() }
@@ -150,6 +226,8 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
                         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
             guard let p = lookup(dataTask.taskIdentifier) else { return completionHandler(.cancel) }
             p.set(response: response)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard p.prepareFile(status: status) else { return completionHandler(.cancel) }
             completionHandler(p.accept(expected: response.expectedContentLength) ? .allow : .cancel)
         }
 
