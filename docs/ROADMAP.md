@@ -88,7 +88,10 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Visual paper picker (line width, spacing) | 🔀 #28 |
 | Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | 🔀 #52 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
-| Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
+| Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
+| Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | 🔀 #72 |
+| Search | "Recognize All Notes" results: "Recognized N notes" bar and a "Recently Recognized" sidebar filter kept until the next run | 🔀 #72 |
+| Notes | Notebook combo box (new note, move note); drag notes and notebooks onto the sidebar (move, nest, un-nest), "Move Notebook To…", one commit and one undo step per drop | 🔀 #72 |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export 🔀 #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | 🔀 #41 |
 | App | Settings panel (E6) | 📋 |

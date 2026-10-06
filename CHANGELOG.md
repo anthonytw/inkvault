@@ -9,6 +9,17 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
+  Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
+  narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed
+  (title, pages read) under "Recently Recognized" in the sidebar until the next run. A note opened from a
+  search result highlights the matching words on the page (from the recognition boxes) with previous and
+  next buttons across all pages and a "3 of 12 matches" count. Drag notes (several, in Select mode) onto
+  a notebook or All Notes in the sidebar to move them, drag a notebook onto another to nest it or onto
+  All Notes to un-nest it, or use "Move Notebook To…"; a notebook cannot go into itself or a notebook
+  inside it, the drop target highlights, and each drop is one commit with one undo step. CLI:
+  `sempere recognize [NOTE...] [--dry-run]` (macOS; reports the notes it changed), `sempere search
+  --show-boxes` (match locations, numbered across the note), `sempere notebooks move NOTEBOOK PARENT`.
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
   last-writer-wins registers (unknown fields included), in the library and the web viewer.
