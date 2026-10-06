@@ -67,7 +67,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | 🔀 #60 | 🔀 #60 |
 | Attachments: `notes show` lists items and recordings, `notes list --json` counts them, `search` finds typed text (A1) | 🔀 #66 | 🔀 #66 |
-| Attachments: `import pdf`, `attach`, search over transcripts (F) | 📋 | 📋 |
+| Attachments: `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over text boxes and (`--transcripts`) transcripts, typed text in Markdown/HTML exports (F) | 🔀 #69 | 🔀 #69 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | 🔀 #61 | 🔀 #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 

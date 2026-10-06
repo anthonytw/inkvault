@@ -1442,6 +1442,15 @@ synthetic `.note` fixture so CI covers the mapping.
 *Done when:* end-to-end CLI tests: import a PDF, attach an image and audio,
 export PDF with backgrounds and attachments, search finds typed text.
 
+*Status:* done (PR #69, `docs/cli.md` "Adding attachments"). Shipped as `attach image|pdf|text|recording|transcript`
+(one blob write, then one delta each, `--json`, `--dry-run`), `import pdf`, `search` over text boxes and
+(`--transcripts`) transcripts, and typed text in the Markdown and HTML exports. The logic is in shared
+core code that the app's add flows (E0–E4) call too: `NoteOps.placeImage` / `placeText` / `placePDFPage` /
+`insertPDFPages` / `newPDFNote` / `recording` / `setTranscript` (`Sources/Sempere/AttachmentOps.swift`),
+`AudioProbe` (MPEG-4 header reader, `Sources/Sempere/AudioProbe.swift`), and `ImageIngest` / `PDFIngest`
+(`Sources/SempereRender/AttachmentIngest.swift`: JPEG/PNG size, EXIF orientation and metadata removal;
+PDF page sizes). Not done: recordings in exports (C4), editing or removing a placed item from the CLI.
+
 ### G. Future item kinds (not scheduled)
 
 - **G1 — `math` items.** Define `format.md` §8.2.7 `math` fully; typeset

@@ -239,7 +239,7 @@ public struct TreeExporter: Sendable {
                     let back = String(repeating: "../", count: folder.count) + "index.html"
                     let html = HTMLExport.notePage(info: info, state: state, svgs: svgs, indexHref: back)
                     outputs.append((prefix + ".html", Data(html.utf8)))
-                    searchText = state.pages.compactMap { $0.recognition?.text }.joined(separator: "\n")
+                    searchText = PageText.texts(of: state.pages).map(\.text).joined(separator: "\n")   // handwriting and typed text
                 default:
                     break
                 }

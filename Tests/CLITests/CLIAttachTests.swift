@@ -532,7 +532,12 @@ final class CLIAttachTests: CLITestCase {
             XCTAssertEqual(tree.status, 0, "\(format): \(tree.err)")
         }
         let html = try String(contentsOf: URL(fileURLWithPath: path("html")).appendingPathComponent(try htmlFile()), encoding: .utf8)
-        XCTAssertTrue(html.contains("Typed heading"), "typed text is in the HTML export")
+        XCTAssertTrue(html.contains("<summary>Typed text</summary>") && html.contains("Typed heading: Ünïcode"), "typed text is in the HTML export")
+        let index = try String(contentsOf: URL(fileURLWithPath: path("html/index.html")), encoding: .utf8)
+        XCTAssertTrue(index.lowercased().contains("typed heading"), "and in the HTML search index")
+        let md = try FileManager.default.contentsOfDirectory(atPath: path("markdown")).first { $0.hasPrefix("Groceries") && $0.hasSuffix(".md") }
+        let markdown = try String(contentsOf: URL(fileURLWithPath: path("markdown")).appendingPathComponent(try XCTUnwrap(md)), encoding: .utf8)
+        XCTAssertTrue(markdown.contains("Typed text:") && markdown.contains("Typed heading: Ünïcode"), "and in the Markdown")
     }
 
     func exportStem(_ note: String) throws -> String {
