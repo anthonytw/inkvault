@@ -291,7 +291,10 @@ public enum NoteReducer {
         var outPages: [Page] = []
         for id in livePages {
             guard let e = pages[id], let reg = order[id] else { continue }
-            let list = (byPage[id] ?? []).sorted { ($0.origin, $0.item.id.uuidString) < ($1.origin, $1.item.id.uuidString) }
+            // `(origin, id string)` order; the string is only built on an origin tie.
+            let list = (byPage[id] ?? []).sorted {
+                $0.origin != $1.origin ? $0.origin < $1.origin : $0.item.id.uuidString < $1.item.id.uuidString
+            }
             let rec = recognition[id]
             let pp = pagePaper[id]
             outPages.append(Page(id: id, order: reg.value,
