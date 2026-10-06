@@ -36,13 +36,29 @@ public enum PNGWriter {
     ///   (checked before any pixel memory is allocated).
     public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
+        var report = ExportReport()
+        return try render(note: note, options: options, png: png, report: &report)
+    }
+
+    /// One PNG per output page of `note`, reporting placeholders and warnings.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
+                              png: PNGOptions = PNGOptions(), report: inout ExportReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
+        let store = ImageStore(options: options)
         var images: [Data] = []
-        for page in note.pages {
-            images += try render(page: page, meta: note.meta, options: options, png: png)
+        for (i, page) in note.pages.enumerated() {
+            var pageReport = ExportReport()
+            images += try render(page: page, meta: note.meta, options: options, png: png, store: store,
+                                 report: &pageReport)
+            for var issue in pageReport.issues {
+                issue.page = i + 1
+                report.add(issue)
+            }
         }
         if images.isEmpty {
-            images = try render(page: Page(order: "a"), meta: note.meta, options: options, png: png)
+            var ignored = ExportReport()
+            images = try render(page: Page(order: "a"), meta: note.meta, options: options, png: png, store: store,
+                                report: &ignored)
             images = Array(images.prefix(1))
         }
         return images
@@ -51,8 +67,16 @@ public enum PNGWriter {
     /// One PNG per output page of a single note page (several for an infinite page).
     public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
+        var report = ExportReport()
+        return try render(page: page, meta: meta, options: options, png: png, store: ImageStore(options: options),
+                          report: &report)
+    }
+
+    static func render(page: Page, meta: NoteMeta, options: RenderOptions, png: PNGOptions, store: ImageStore,
+                       report: inout ExportReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
-        let prepared = try PreparedPage(page: page, meta: meta, options: options)
+        let prepared = try PreparedPage(page: page, meta: meta, options: options, images: store)
+        report = prepared.report
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
@@ -61,7 +85,32 @@ public enum PNGWriter {
             let layers = prepared.layers(for: chunk)
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
-            for c in layers.paper + layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
+            for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
+            for item in prepared.items(for: chunk) {
+                for c in item.commands(paper: prepared.fillPaper) {
+                    paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                }
+                guard case let .image(ref, image, transform, clip) = item.content else { continue }
+                // Stored image pixels → device pixels.
+                let device = Affine.scale(sx, sy).after(.translation(0, -chunk.yOffset)).after(transform)
+                let det = abs(device.determinant)
+                let reduction = det > 0 ? 1 / det.squareRoot() : 1
+                switch store.forRaster(ref, image, reduction: reduction) {
+                case .success(let working):
+                    guard let inverse = device.inverse else { continue }
+                    let toWorking = Affine.scale(Double(working.width) / Double(image.width),
+                                                 Double(working.height) / Double(image.height))
+                    let toDevice = Affine.scale(sx, sy).after(.translation(0, -chunk.yOffset))
+                    raster.fill([clip.map(toDevice.apply)],
+                                shader: ImageShader(image: working, inverse: toWorking.after(inverse)))
+                case .failure(let why):
+                    report.add(ExportIssue(kind: .placeholder, item: item.item.id, message: why.message))
+                    for c in item.asPlaceholder.commands(paper: nil) {
+                        paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                    }
+                }
+            }
+            for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
             out.append(try PNGEncoder.encode(width: size.width, height: size.height, rgba: raster.pixels))
         }
         return out

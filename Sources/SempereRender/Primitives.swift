@@ -91,12 +91,28 @@ public struct RenderOptions: Sendable {
     /// page's `pageSize.breakHeight`, else the page width x 11 / 8.5 (letter
     /// aspect), independent of the page's current extent. Clamped to 72 ... `RenderLimits.maxExtent`.
     public var infiniteChunkHeight: Double?
+    /// The note's blobs (images). Without it every blob-backed item is a
+    /// placeholder (format.md §8.5.2).
+    public var blobs: (any BlobSource)?
+    /// Decodes image types SempereRender cannot (HEIC, in the app). Without
+    /// it a HEIC image is a placeholder with a report entry.
+    public var imageDecoder: (any ImageDecoding)?
+    /// Keep the metadata of images passed through into an export (EXIF,
+    /// XMP, GPS, comments). Off by default: exports strip it whatever is
+    /// stored (format.md §8.2.5).
+    public var keepImageMetadata: Bool
+    /// Images with more pixels are placeholders (format.md §8.4).
+    public var maxImagePixels: Int
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
     public init(paper: Bool = true, compress: Bool = true, tolerance: Double = 0.05,
-                infiniteChunkHeight: Double? = nil) {
+                infiniteChunkHeight: Double? = nil, blobs: (any BlobSource)? = nil,
+                imageDecoder: (any ImageDecoding)? = nil, keepImageMetadata: Bool = false,
+                maxImagePixels: Int = ImageLimits.maxPixels) {
         self.paper = paper; self.compress = compress; self.tolerance = tolerance
         self.infiniteChunkHeight = infiniteChunkHeight
+        self.blobs = blobs; self.imageDecoder = imageDecoder; self.keepImageMetadata = keepImageMetadata
+        self.maxImagePixels = maxImagePixels
     }
 }
 
@@ -128,6 +144,8 @@ public enum RenderLimits {
     /// `RenderError.tooComplex`. A dense page of handwriting needs well under
     /// a tenth of this.
     public static let maxOutlinePoints = 40_000_000
+    /// Most items drawn on one page (format.md §8.4); the rest are reported, not drawn.
+    public static let maxItemsPerPage = 10_000
 }
 
 /// Errors thrown by the renderers.
@@ -186,6 +204,17 @@ extension DrawCommand {
 func fmt(_ v: Double) -> String {
     guard v.isFinite else { return "0" }
     var s = String(format: "%.3f", v)
+    while s.hasSuffix("0") { s.removeLast() }
+    if s.hasSuffix(".") { s.removeLast() }
+    return (s == "-0" || s.isEmpty) ? "0" : s
+}
+
+/// A matrix coefficient: `fmt`, but with 6 decimals below 1 so that a large
+/// image scaled down to a small frame keeps its size.
+func coef(_ v: Double) -> String {
+    guard v.isFinite else { return "0" }
+    if abs(v) >= 1 || v == 0 { return fmt(v) }
+    var s = String(format: "%.6f", v)
     while s.hasSuffix("0") { s.removeLast() }
     if s.hasSuffix(".") { s.removeLast() }
     return (s == "-0" || s.isEmpty) ? "0" : s

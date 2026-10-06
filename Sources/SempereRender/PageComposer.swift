@@ -26,6 +26,10 @@ struct PreparedPage {
     let paper: Paper
     let options: RenderOptions
     let strokes: [PreparedStroke]
+    /// Items in drawing order (format.md §8.2.3), page coordinates.
+    let items: [PreparedItem]
+    /// Placeholders and warnings for this page (no page number yet).
+    let report: ExportReport
     /// Total page height: `pageSize.height`, or for infinite pages the largest
     /// of that, the lowest stroke edge (rounded up) and one chunk height.
     let extent: Double
@@ -42,7 +46,7 @@ struct PreparedPage {
     ///   axis) beyond `RenderLimits.maxExtent` in magnitude. Finite coordinates
     ///   within the limit that fall outside a finite page are not an error; the
     ///   stroke is simply culled.
-    init(page: Page, meta: NoteMeta, options: RenderOptions,
+    init(page: Page, meta: NoteMeta, options: RenderOptions, images: ImageStore? = nil,
          maxOutlinePoints: Int = RenderLimits.maxOutlinePoints) throws {
         let size = meta.pageSize
         let maxE = RenderLimits.maxExtent
@@ -82,6 +86,11 @@ struct PreparedPage {
             low = max(low, hi + pad)
         }
         strokes = list
+        var report = ExportReport()
+        items = PreparedItem.prepare(page.items, images: images, report: &report)
+        self.report = report
+        // Items count toward an infinite page's extent like strokes (format.md §8.2.3).
+        for item in items { low = max(low, item.maxY) }
         if size.infinite {
             guard low <= maxE else { throw RenderError.extentTooLarge(low) }
             let chunk = Self.chunkHeight(options: options, size: size)
@@ -118,6 +127,14 @@ struct PreparedPage {
         let count = max(Int((extent / h).rounded(.up)), 1)   // extent <= maxExtent, h >= 72
         return (0..<count).map { PageChunk(yOffset: Double($0) * h, yEnd: Double($0 + 1) * h, width: w) }
     }
+
+    /// Items whose rotated frame touches `chunk`, in drawing order.
+    func items(for chunk: PageChunk) -> [PreparedItem] {
+        items.filter { !($0.maxY < chunk.yOffset || $0.minY > chunk.yEnd) }
+    }
+
+    /// The paper an item's background fill uses, or nil when paper is off.
+    var fillPaper: Paper? { options.paper ? paper : nil }
 
     /// Paper (if enabled) and strokes for `chunk`, in chunk-local coordinates.
     /// Strokes that miss the chunk are skipped, and within the rest only the
