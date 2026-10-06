@@ -12,8 +12,19 @@ struct SearchHit: Encodable {
     var matches: Int
     var engine: String
     var words: [Word]
+    /// With `--show-boxes`: every matching word on the page, numbered as the app steps through them.
+    var locations: [Location]?
 
     struct Word: Encodable { var text: String; var box: [Double] }
+    struct Location: Encodable {
+        /// 1-based position among all matches in the note (pages in order), as in "3 of 12".
+        var n: Int
+        /// How many matches the note has.
+        var of: Int
+        var text: String
+        /// `[x, y, w, h]` in page points.
+        var box: [Double]
+    }
 }
 
 enum RecognitionSearch {
@@ -46,12 +57,17 @@ struct SearchCommand: ParsableCommand {
         discussion: """
             Case-insensitive substring search over each page's recognised text (from the Notability
             import or on-device recognition). Prints note title, page number and a snippet; --json adds
-            ids and the boxes of the matching words. Deleted notes are skipped.
+            ids and the boxes of the matching words. --show-boxes lists every matching word with its
+            box and its number among the note's matches (across pages: the app's "3 of 12"); with
+            --json it adds `locations` to each hit. Deleted notes are skipped.
             """
     )
 
     @Argument(help: ArgumentHelp("Text to look for.", valueName: "term"))
     var term: String
+
+    @Flag(name: .customLong("show-boxes"), help: "Report where each match is: its word, box and number in the note.")
+    var showBoxes = false
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -79,6 +95,7 @@ struct SearchCommand: ParsableCommand {
             }
             guard !state.deleted else { continue }
             title = state.meta.title
+            let located = showBoxes ? SearchMatches.matches(words: tokens, in: state.pages) : []
             for (index, page) in state.pages.enumerated() {
                 guard let rec = page.recognition else { continue }
                 let found = RecognitionSearch.ranges(of: needle, in: rec.text)
@@ -86,11 +103,17 @@ struct SearchCommand: ParsableCommand {
                 let words = rec.words.filter { w in
                     tokens.contains { w.text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
                 }
+                let locations: [SearchHit.Location]? = showBoxes
+                    ? located.enumerated().filter { $0.element.pageId == page.id }.map {
+                        .init(n: $0.offset + 1, of: located.count, text: $0.element.text,
+                              box: [$0.element.box.x, $0.element.box.y, $0.element.box.w, $0.element.box.h])
+                    } : nil
                 hits.append(SearchHit(noteId: id.uuidString.lowercased(), title: title, notebook: state.meta.notebook,
                                       page: index + 1, pageId: page.id.uuidString.lowercased(),
                                       snippet: RecognitionSearch.snippet(rec.text, around: first), matches: found.count,
                                       engine: rec.engine,
-                                      words: words.map { .init(text: $0.text, box: [$0.box.x, $0.box.y, $0.box.w, $0.box.h]) }))
+                                      words: words.map { .init(text: $0.text, box: [$0.box.x, $0.box.y, $0.box.w, $0.box.h]) },
+                                      locations: locations))
             }
         }
         hits.sort { ($0.title.lowercased(), $0.noteId, $0.page) < ($1.title.lowercased(), $1.noteId, $1.page) }
@@ -102,6 +125,14 @@ struct SearchCommand: ParsableCommand {
             var rows = output.quiet ? [] : [["TITLE", "PAGE", "TEXT"]]
             for h in hits { rows.append([h.title.isEmpty ? "(untitled)" : h.title, String(h.page), h.snippet]) }
             print(Format.table(rows))
+            if showBoxes {
+                for h in hits {
+                    for l in h.locations ?? [] {
+                        let box = l.box.map { String(format: "%.1f", $0) }.joined(separator: ", ")
+                        print("  \(h.noteId.prefix(8)) p.\(h.page)  \(l.n) of \(l.of)  \(l.text)  [\(box)]")
+                    }
+                }
+            }
         }
         if unreadable > 0 { throw CLIError.failure("\(unreadable) note(s) could not be read") }
     }

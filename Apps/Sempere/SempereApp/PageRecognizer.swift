@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import PencilKit
 import Sempere
+import SempereRender
 import UIKit
 import Vision
 
@@ -44,10 +45,7 @@ struct VisionPageRecognizer: PageRecognizing {
     static let maxSide = 8000.0
 
     /// `vision-<iPadOS major.minor>` (format.md §5.5 `engine`).
-    static var engine: String {
-        let v = ProcessInfo.processInfo.operatingSystemVersion
-        return "vision-\(v.majorVersion).\(v.minorVersion)"
-    }
+    static var engine: String { VisionRecognition.engine }
 
     func recognize(strokes: [Stroke]) async throws -> Recognition {
         try await Task.detached(priority: .utility) { try Self.recognizeNow(strokes) }.value
@@ -99,39 +97,9 @@ struct VisionPageRecognizer: PageRecognizing {
 /// printed image.
 enum VisionText {
     /// Recognised lines of `image`, with word boxes in page points. `region`
-    /// is the page rectangle the image shows.
+    /// is the page rectangle the image shows. The Vision call itself is shared
+    /// with `sempere recognize` (`VisionRecognition`).
     static func lines(in image: CGImage, region: Recognition.Box) throws -> [RecognizedLine] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        return (request.results ?? []).compactMap { observation -> RecognizedLine? in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
-            let text = candidate.string
-            let lineBox = pageBox(observation.boundingBox, region)
-            var words: [Recognition.Word] = []
-            var failed = false
-            var i = text.startIndex
-            while i < text.endIndex {
-                if text[i].isWhitespace { i = text.index(after: i); continue }
-                var j = i
-                while j < text.endIndex, !text[j].isWhitespace { j = text.index(after: j) }
-                if let rect = try? candidate.boundingBox(for: i..<j) {
-                    words.append(.init(text: String(text[i..<j]), box: pageBox(rect.boundingBox, region)))
-                } else {
-                    failed = true
-                }
-                i = j
-            }
-            // Word boxes are best effort: without them the line's box is shared out.
-            if failed || words.isEmpty { words = RecognitionLayout.distribute(text: text, in: lineBox) }
-            return RecognizedLine(text: text, words: words)
-        }
-    }
-
-    private static func pageBox(_ n: CGRect, _ region: Recognition.Box) -> Recognition.Box {
-        RecognitionLayout.pageBox(normalized: .init(x: Double(n.minX), y: Double(n.minY), w: Double(n.width), h: Double(n.height)),
-                                  region: region)
+        try VisionRecognition.lines(performing: VNImageRequestHandler(cgImage: image, options: [:]), region: region)
     }
 }

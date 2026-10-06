@@ -669,6 +669,33 @@ recognised words containing the term with their `[x, y, w, h]` boxes. No match
 prints `No matches.` (an empty list with `--json`) and exits 0. Notes are read
 in parallel and without stroke geometry, as for `notes list`.
 
+`--show-boxes` reports where each match is, as the app's "3 of 12" stepper
+does: every recognised word containing a word of the term, numbered across the
+note (pages in order, words in reading order). Human output adds one line per
+match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
+`locations`, a list of `{n, of, text, box}` for the matches on that hit's page
+(`n` counts from 1 over the whole note, `of` is the note's total).
+
+### Recognize
+
+```
+sempere recognize [NOTE...] [--dry-run] [--json]
+```
+
+Reads the handwriting of notes with Apple's Vision framework and stores the
+text and word boxes as page recognition (`format.md` §5.5), exactly as the
+app's "Recognize All Notes" does (`Vault.recognizeNote`): every page whose
+recognition is missing or out of date, one delta per note, a page edited by
+another device meanwhile left for the next run. Without `NOTE` (id, id prefix
+or exact title) it covers every note except deleted ones; notes with unreadable
+revisions are skipped with a warning. Human output is `Recognized N notes.` and
+a table of the notes it changed (id prefix, title, pages read of pages);
+`--json` gives `{recognized: [{note, title, pages, pagesRecognized}], failed:
+[{note, title, error}], dryRun, engine}`. `--dry-run` writes nothing and lists
+what a run would read; it works on every platform. Vision exists only on macOS:
+on Linux a real run stops with exit 1 and a message. Exit 1 also when a note
+could not be read or written (the others are still done).
+
 ### Export
 
 ```

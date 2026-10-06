@@ -58,7 +58,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | import notability, search (recognised text) | ✅ | ✅ |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
-| `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
+| `recognize [NOTE...] [--dry-run]` (Vision on rendered pages; reports the notes it changed) and `search --show-boxes`; `import notability --recognize missing` 📋; Linux gives a clear error, `--dry-run` works | 🔀 #72 (error, dry run) | 🔀 #72 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
