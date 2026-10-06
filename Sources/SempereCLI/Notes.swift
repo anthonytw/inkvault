@@ -5,8 +5,9 @@ import Sempere
 struct NotesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notes",
-        abstract: "List notes, show their history and restore earlier revisions.",
-        subcommands: [NotesList.self, NotesShow.self, NotesHistory.self, NotesRestore.self]
+        abstract: "List, create and edit notes, show their history and restore earlier revisions.",
+        subcommands: [NotesList.self, NotesShow.self, NotesNew.self, NotesRename.self, NotesTag.self, NotesMove.self,
+                      NotesPaper.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self, NotesRestore.self]
     )
 }
 
@@ -42,7 +43,7 @@ struct NotesList: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp("Only notes with this tag.", valueName: "tag"))
     var tag: String?
 
-    @Option(name: .long, help: ArgumentHelp("Only notes in this notebook.", valueName: "name"))
+    @Option(name: .long, help: ArgumentHelp("Only notes in this notebook or below it.", valueName: "path"))
     var notebook: String?
 
     @Flag(name: .long, help: "Include deleted notes.")
@@ -55,7 +56,7 @@ struct NotesList: ParsableCommand {
     func run() throws {
         let vault = try access.openVault(.required)
         let notes = try vault.summaries(of: nil, cache: cache.cache(for: vault)).filter { n in
-            (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { n.notebook == $0 } ?? true)
+            (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { NotebookPath.name(n.notebook, isWithin: $0) } ?? true)
         }
         if output.json { try output.emitJSON(notes.map(NoteJSON.init)); return }
         if notes.isEmpty { output.info("No notes."); return }

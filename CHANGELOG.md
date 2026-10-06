@@ -9,12 +9,22 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
+  (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
+  parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);
+  `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
+  code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
+  first (`CLAUDE.md` "CLI first").
+
 - Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
   `snapshot` and `compact` refuse a note that has them rather than drop them.
 
 ### Changed
+
+- `sempere notes list --notebook PATH` now lists the notes in that notebook and below it, comparing
+  canonical paths by segment as the app's sidebar does (it compared raw names before).
 
 - **Faster vault opening** (#54). Note summaries skip stroke geometry, are read in parallel,
   and are kept in an encrypted per-device cache (`docs/format.md` §10), so a 600-note vault

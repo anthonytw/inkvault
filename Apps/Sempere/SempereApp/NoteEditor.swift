@@ -155,7 +155,7 @@ final class NoteEditor {
     /// Appends a blank page and shows it; saved with the next delta.
     func addPage() {
         guard !isReadOnly else { return }
-        let page = Page(order: PageOrder.between(pages.last?.order, nil))
+        guard case .addPage(let page)? = NoteOps.appendPages(1, after: pages).first else { return }
         pages.append(page)
         pendingPageOps.append(.addPage(page))
         pageIndex = pages.count - 1
