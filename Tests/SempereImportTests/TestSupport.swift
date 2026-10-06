@@ -385,9 +385,8 @@ enum SyntheticNote {
                       created: Date = created, modified: Date? = nil, styles: Data? = nil,
                       shapes: Data? = nil) -> [(String, Data)] {
         let dir = "Synthetic note/"
-        let library = try! PropertyListSerialization.data(
-            fromPropertyList: ["application version": "1", "library-format-version": "1.0", "recordings": [String: Any]()],
-            format: .binary, options: 0)
+        // Notability writes this one file as an XML plist (the rest are binary).
+        let library = recordingsLibrary()
         var out = [
             (dir + "Session.plist", session(curves: cs, pdfPages: pdfPages, paperSize: paperSize, styles: styles,
                                             shapes: shapes, created: created)),
@@ -399,6 +398,25 @@ enum SyntheticNote {
         if pdfPages > 0 { out.append((dir + "PDFs/00000000-0000-4000-8000-0000000000AA.pdf", Data("%PDF-1.4\n".utf8))) }
         for (name, w, h) in thumbnails { out.append((dir + name, png(width: w, height: h))) }
         return out
+    }
+
+    /// `Recordings/library.plist` as Notability writes it: an XML plist with
+    /// Apple's DOCTYPE and a `recordings` dictionary.
+    static func recordingsLibrary(recordings: Int = 0) -> Data {
+        let entries = (0..<recordings).map { "\t\t<key>rec-\($0)</key>\n\t\t<dict/>\n" }.joined()
+        let dict = recordings == 0 ? "\t<dict/>\n" : "\t<dict>\n\(entries)\t</dict>\n"
+        return Data(("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+            \t<key>application version</key>
+            \t<string>1</string>
+            \t<key>library-format-version</key>
+            \t<string>1.0</string>
+            \t<key>recordings</key>
+
+            """ + dict + "</dict>\n</plist>\n").utf8)
     }
 
     /// The `.note` package bytes.

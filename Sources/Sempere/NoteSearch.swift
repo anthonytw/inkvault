@@ -1,7 +1,7 @@
 import Foundation
 
 /// The recognised text of one page, as search sees it.
-public struct PageText: Hashable, Sendable {
+public struct PageText: Hashable, Sendable, Codable {
     public var pageId: UUID
     /// 1-based position of the page in the note.
     public var number: Int

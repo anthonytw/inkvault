@@ -67,6 +67,9 @@ struct RootView: View {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
             }
         }
+        .sheet(item: $model.exportRequest) { request in
+            ExportSheet(request: request)
+        }
         .sheet(isPresented: $creatingVault) {
             NewVaultView()
         }

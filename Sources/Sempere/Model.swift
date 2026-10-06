@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Wire-format model types (docs/format.md §5.4–§5.6)
+// MARK: - Wire-format model types (docs/format.md §5.4–§5.6; attachments §8 in Attachments.swift)
 //
 // These are the Codable value types every other module builds on. Their JSON
 // shape is normative; changing an encoding here is a format change.
@@ -130,14 +130,18 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
     /// Snapshot only: `"<hlc>-<device>-<seq>-<op>"` of the op that added the
     /// stroke (format.md §5.6). Ignored inside ops.
     public var origin: String?
+    /// The recording that ran when the stroke was drawn (format.md §5.6,
+    /// §8.3.3). Set by `addStroke`, never changed; pieces sliced from the
+    /// stroke copy it.
+    public var rec: RecordingLink?
 
     public init(id: UUID = UUID(), ink: Ink, points: [StrokePoint], transform: Transform? = nil, parent: UUID? = nil,
-                origin: String? = nil) {
+                origin: String? = nil, rec: RecordingLink? = nil) {
         self.id = id; self.ink = ink; self.points = points; self.transform = transform; self.parent = parent
-        self.origin = origin
+        self.origin = origin; self.rec = rec
     }
 
-    enum CodingKeys: String, CodingKey { case id, ink, points, transform, parent, origin }
+    enum CodingKeys: String, CodingKey { case id, ink, points, transform, parent, origin, rec }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -147,6 +151,7 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
         transform = try c.decodeIfPresent(Transform.self, forKey: .transform)
         parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        rec = try c.decodeIfPresent(RecordingLink.self, forKey: .rec)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -157,6 +162,7 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
         if let transform, !transform.isIdentity { try c.encode(transform, forKey: .transform) }
         if let parent { try c.encode(LowercaseUUID(parent), forKey: .parent) }
         if let origin { try c.encode(origin, forKey: .origin) }
+        if let rec { try c.encode(rec, forKey: .rec) }
     }
 }
 
@@ -234,17 +240,21 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
     public var paper: Paper?
     /// `"<hlc>-<device>"` stamp of the op that last set `paper` (or cleared it).
     public var paperClock: String?
+    /// Placed items (format.md §5.5, §8.2): text boxes, images, PDF pages.
+    /// In a snapshot sorted by `(layer, z, id)` (`Item.drawsBefore`);
+    /// omitted when empty. `addPage` ignores them (the page is added empty).
+    public var items: [Item]
 
     public init(id: UUID = UUID(), order: String, strokes: [Stroke] = [], orderClock: String? = nil,
                 origin: String? = nil, recognition: Recognition? = nil, recognitionClock: String? = nil,
-                parent: UUID? = nil, paper: Paper? = nil, paperClock: String? = nil) {
+                parent: UUID? = nil, paper: Paper? = nil, paperClock: String? = nil, items: [Item] = []) {
         self.id = id; self.order = order; self.strokes = strokes; self.orderClock = orderClock; self.origin = origin
         self.recognition = recognition; self.recognitionClock = recognitionClock; self.parent = parent
-        self.paper = paper; self.paperClock = paperClock
+        self.paper = paper; self.paperClock = paperClock; self.items = items
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, order, strokes, orderClock, origin, recognition, recognitionClock, parent, paper, paperClock
+        case id, order, strokes, orderClock, origin, recognition, recognitionClock, parent, paper, paperClock, items
     }
 
     public init(from decoder: Decoder) throws {
@@ -259,6 +269,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
         paper = try c.decodeIfPresent(Paper.self, forKey: .paper)
         paperClock = try c.decodeIfPresent(String.self, forKey: .paperClock)
+        items = try c.decodeIfPresent([Item].self, forKey: .items) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -273,6 +284,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         if let parent { try c.encode(LowercaseUUID(parent), forKey: .parent) }
         if let paper { try c.encode(paper, forKey: .paper) }
         if let paperClock { try c.encode(paperClock, forKey: .paperClock) }
+        if !items.isEmpty { try c.encode(items, forKey: .items) }
     }
 }
 
@@ -529,14 +541,18 @@ public struct NoteState: Hashable, Sendable, Codable {
     /// before that rule, whose `meta.tags` is then one legacy write; when set,
     /// `meta.tags` is derived from it.
     public var tagSet: TagSet?
+    /// The note's audio recordings (format.md §5.4, §8.3), sorted by
+    /// `(started, id)` (`Recording.sortsBefore`); omitted when empty.
+    public var recordings: [Recording]
 
     public init(deleted: Bool = false, meta: NoteMeta, pages: [Page] = [],
-                clocks: [String: String]? = nil, tombstones: Tombstones? = nil, tagSet: TagSet? = nil) {
+                clocks: [String: String]? = nil, tombstones: Tombstones? = nil, tagSet: TagSet? = nil,
+                recordings: [Recording] = []) {
         self.deleted = deleted; self.meta = meta; self.pages = pages
-        self.clocks = clocks; self.tombstones = tombstones; self.tagSet = tagSet
+        self.clocks = clocks; self.tombstones = tombstones; self.tagSet = tagSet; self.recordings = recordings
     }
 
-    enum CodingKeys: String, CodingKey { case deleted, meta, pages, clocks, tombstones, tagSet }
+    enum CodingKeys: String, CodingKey { case deleted, meta, pages, clocks, tombstones, tagSet, recordings }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -546,6 +562,7 @@ public struct NoteState: Hashable, Sendable, Codable {
         clocks = try c.decodeIfPresent([String: String].self, forKey: .clocks)
         tombstones = try c.decodeIfPresent(Tombstones.self, forKey: .tombstones)
         tagSet = try c.decodeIfPresent(TagSet.self, forKey: .tagSet)
+        recordings = try c.decodeIfPresent([Recording].self, forKey: .recordings) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -557,6 +574,7 @@ public struct NoteState: Hashable, Sendable, Codable {
         if let tombstones, !tombstones.isEmpty { try c.encode(tombstones, forKey: .tombstones) }
         // Always written when known, even empty: its absence marks a pre-§5.4.1 snapshot.
         if let tagSet { try c.encode(tagSet, forKey: .tagSet) }
+        if !recordings.isEmpty { try c.encode(recordings, forKey: .recordings) }
     }
 }
 
@@ -680,30 +698,41 @@ struct TagInstanceOrigin: Codable {
 }
 
 /// Snapshot tombstones (format.md §5.4): stroke ids whose `removeStroke` was
-/// seen while the adding revision was not yet covered, and every removed page
-/// id, so a late add stays removed.
+/// seen while the adding revision was not yet covered, and every removed
+/// page, item and recording id (permanent), so a late add or `setItem` /
+/// `setRecording` stays a no-op.
 public struct Tombstones: Hashable, Sendable, Codable {
     public var strokes: [UUID]
     public var pages: [UUID]
+    /// Every removed item id; never pruned.
+    public var items: [UUID]
+    /// Every removed recording id; never pruned.
+    public var recordings: [UUID]
 
-    public init(strokes: [UUID] = [], pages: [UUID] = []) {
-        self.strokes = strokes; self.pages = pages
+    public init(strokes: [UUID] = [], pages: [UUID] = [], items: [UUID] = [], recordings: [UUID] = []) {
+        self.strokes = strokes; self.pages = pages; self.items = items; self.recordings = recordings
     }
 
-    public var isEmpty: Bool { strokes.isEmpty && pages.isEmpty }
+    public var isEmpty: Bool { strokes.isEmpty && pages.isEmpty && items.isEmpty && recordings.isEmpty }
 
-    enum CodingKeys: String, CodingKey { case strokes, pages }
+    enum CodingKeys: String, CodingKey { case strokes, pages, items, recordings }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         strokes = try c.decodeIfPresent([LowercaseUUID].self, forKey: .strokes)?.map(\.uuid) ?? []
         pages = try c.decodeIfPresent([LowercaseUUID].self, forKey: .pages)?.map(\.uuid) ?? []
+        items = try c.decodeIfPresent([LowercaseUUID].self, forKey: .items)?.map(\.uuid) ?? []
+        recordings = try c.decodeIfPresent([LowercaseUUID].self, forKey: .recordings)?.map(\.uuid) ?? []
     }
 
+    /// `strokes` and `pages` are always written (as before attachments);
+    /// `items` and `recordings` only when not empty.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(strokes.map(LowercaseUUID.init), forKey: .strokes)
         try c.encode(pages.map(LowercaseUUID.init), forKey: .pages)
+        if !items.isEmpty { try c.encode(items.map(LowercaseUUID.init), forKey: .items) }
+        if !recordings.isEmpty { try c.encode(recordings.map(LowercaseUUID.init), forKey: .recordings) }
     }
 }
 
@@ -763,11 +792,34 @@ public enum Op: Hashable, Sendable {
     case removeTag(String, observed: [Origin])
     case deleteNote
     case restoreNote
+    /// Adds a placed item to a page; a no-op if the page is removed
+    /// (format.md §8.2). Its register values carry this op's stamp.
+    case addItem(page: UUID, item: Item)
+    /// Removes an item; wins over any add, permanent tombstone.
+    case removeItem(page: UUID, itemId: UUID)
+    /// LWW on one register of an item (format.md §8.2.2).
+    case setItem(page: UUID, itemId: UUID, change: ItemChange)
+    /// Adds an audio recording to the note (format.md §8.3).
+    case addRecording(Recording)
+    /// Removes a recording; wins over any add, permanent tombstone.
+    case removeRecording(recordingId: UUID)
+    /// LWW on one register of a recording (format.md §8.3.1).
+    case setRecording(recordingId: UUID, change: RecordingChange)
+
+    /// True for the attachment ops (format.md §8), which the merge does not
+    /// apply yet (task A1).
+    public var isAttachmentOp: Bool {
+        switch self {
+        case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: return true
+        default: return false
+        }
+    }
 }
 
 extension Op: Codable {
     enum CodingKeys: String, CodingKey {
         case op, page, stroke, strokeId, pageId, order, recognition, paper, field, value, tag, observed
+        case item, itemId, recording, recordingId
     }
 
     public init(from decoder: Decoder) throws {
@@ -811,6 +863,36 @@ extension Op: Codable {
                               observed: try c.decode([TagInstanceOrigin].self, forKey: .observed).map(\.origin))
         case "deleteNote": self = .deleteNote
         case "restoreNote": self = .restoreNote
+        case "addItem":
+            self = .addItem(page: try c.decode(LowercaseUUID.self, forKey: .page).uuid,
+                            item: try c.decode(Item.self, forKey: .item))
+        case "removeItem":
+            self = .removeItem(page: try c.decode(LowercaseUUID.self, forKey: .page).uuid,
+                               itemId: try c.decode(LowercaseUUID.self, forKey: .itemId).uuid)
+        case "setItem":
+            let field = try c.decode(String.self, forKey: .field)
+            let value = try c.decodeIfPresent(JSONValue.self, forKey: .value) ?? .null
+            do {
+                self = .setItem(page: try c.decode(LowercaseUUID.self, forKey: .page).uuid,
+                                itemId: try c.decode(LowercaseUUID.self, forKey: .itemId).uuid,
+                                change: try ItemChange(field: field, value: value))
+            } catch let error as ItemChangeError {
+                throw DecodingError.dataCorruptedError(forKey: .field, in: c, debugDescription: "invalid setItem: \(error)")
+            }
+        case "addRecording":
+            self = .addRecording(try c.decode(Recording.self, forKey: .recording))
+        case "removeRecording":
+            self = .removeRecording(recordingId: try c.decode(LowercaseUUID.self, forKey: .recordingId).uuid)
+        case "setRecording":
+            let field = try c.decode(String.self, forKey: .field)
+            let value = try c.decodeIfPresent(JSONValue.self, forKey: .value) ?? .null
+            do {
+                self = .setRecording(recordingId: try c.decode(LowercaseUUID.self, forKey: .recordingId).uuid,
+                                     change: try RecordingChange(field: field, value: value))
+            } catch let error as ItemChangeError {
+                throw DecodingError.dataCorruptedError(forKey: .field, in: c,
+                                                       debugDescription: "invalid setRecording: \(error)")
+            }
         default:
             throw DecodingError.dataCorruptedError(forKey: .op, in: c, debugDescription: "unknown op \(op)")
         }
@@ -865,6 +947,50 @@ extension Op: Codable {
             try c.encode(observed.map(\.description), forKey: .observed)
         case .deleteNote: try c.encode("deleteNote", forKey: .op)
         case .restoreNote: try c.encode("restoreNote", forKey: .op)
+        case .addItem(let page, let item):
+            try c.encode("addItem", forKey: .op)
+            try c.encode(LowercaseUUID(page), forKey: .page)
+            try c.encode(item, forKey: .item)
+        case .removeItem(let page, let itemId):
+            try c.encode("removeItem", forKey: .op)
+            try c.encode(LowercaseUUID(page), forKey: .page)
+            try c.encode(LowercaseUUID(itemId), forKey: .itemId)
+        case .setItem(let page, let itemId, let change):
+            if let error = change.encodingError {
+                throw EncodingError.invalidValue(change, .init(codingPath: encoder.codingPath,
+                                                               debugDescription: "invalid setItem: \(error)"))
+            }
+            try c.encode("setItem", forKey: .op)
+            try c.encode(LowercaseUUID(page), forKey: .page)
+            try c.encode(LowercaseUUID(itemId), forKey: .itemId)
+            try c.encode(change.field, forKey: .field)
+            switch change {   // `null` is written for a reset
+            case .frame(let v): try c.encode(v, forKey: .value)
+            case .rotation(let v): try c.encode(v.map(InkJSON.round3), forKey: .value)
+            case .z(let v): try c.encode(v, forKey: .value)
+            case .text(let v): try c.encode(v, forKey: .value)
+            case .crop(let v): try c.encode(v, forKey: .value)
+            case .other(_, let v): try c.encode(v, forKey: .value)
+            }
+        case .addRecording(let recording):
+            try c.encode("addRecording", forKey: .op)
+            try c.encode(recording, forKey: .recording)
+        case .removeRecording(let recordingId):
+            try c.encode("removeRecording", forKey: .op)
+            try c.encode(LowercaseUUID(recordingId), forKey: .recordingId)
+        case .setRecording(let recordingId, let change):
+            if let error = change.encodingError {
+                throw EncodingError.invalidValue(change, .init(codingPath: encoder.codingPath,
+                                                               debugDescription: "invalid setRecording: \(error)"))
+            }
+            try c.encode("setRecording", forKey: .op)
+            try c.encode(LowercaseUUID(recordingId), forKey: .recordingId)
+            try c.encode(change.field, forKey: .field)
+            switch change {
+            case .title(let v): try c.encode(v, forKey: .value)
+            case .transcript(let v): try c.encode(v, forKey: .value)
+            case .other(_, let v): try c.encode(v, forKey: .value)
+            }
         }
     }
 }
@@ -915,6 +1041,7 @@ public enum InkJSON {
             if let date = RFC3339.parse(s) { return date }
             throw DecodingError.dataCorrupted(.init(codingPath: dec.codingPath, debugDescription: "bad date \(s.prefix(64))"))
         }
+        if let key = JSONValueBudget.key { d.userInfo[key] = JSONValueBudget() }
         return d
     }
 

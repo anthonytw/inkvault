@@ -5,9 +5,15 @@ import SwiftUI
 /// windows are serialised by one model and never race on the device clock.
 @main
 struct SempereApp: App {
-    @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil)
+    @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
+                                        summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
+
+    init() {
+        // Staged exports are plaintext copies of notes: none survives a launch.
+        ExportJob.purgeStale()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -16,5 +22,6 @@ struct SempereApp: App {
                 .environment(library)
                 .environment(keys)
         }
+        .commands { ExportMenuCommands(model: model) }
     }
 }

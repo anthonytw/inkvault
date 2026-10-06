@@ -5,7 +5,7 @@ permalink: /privacy/
 
 # Sempere Privacy Policy
 
-*Effective: TODO(user): date. Last updated: TODO(user): date.*
+*Effective: 2026-10-06. Last updated: 2026-10-06.*
 
 **Short version: Sempere does not collect, transmit or share any data about you. It has no
 servers, no accounts, no analytics and no advertising.**
@@ -46,7 +46,7 @@ your notes. If you lose every copy of your key, your notes cannot be decrypted b
 
 Sempere asks only for access to the folders you pick with the system file picker, and uses the
 Keychain and (optionally) Face ID or Touch ID to unlock your key. Face ID data never leaves the
-system. TODO(user): update this list if the camera (QR key import) or any other permission is added.
+system.
 
 ## Children
 
@@ -64,16 +64,5 @@ collects data would be described in the app's release notes first.
 
 ## Contact
 
-TODO(user): contact e-mail or the GitHub issues URL (<https://github.com/anthonytw/sempere/issues>).
+Questions: open an issue at <https://github.com/anthonytw/sempere/issues>.
 Security reports: see `SECURITY.md`.
-
----
-
-**Hosting with GitHub Pages (TODO(user)).** Settings → Pages → deploy from a branch → `main`,
-folder `/docs`. With the default Jekyll theme this page is served at
-`https://anthonytw.github.io/sempere/appstore/privacy-policy` (the `permalink` front matter
-above is `/privacy/`, so it should appear at `https://anthonytw.github.io/sempere/privacy/`;
-check which one is live and use it as the Privacy Policy URL in App Store Connect). Delete this
-section from the hosted copy, or move it to the README, before publishing. Note that Pages from
-`/docs` would also publish the rest of `docs/` as web pages; if that is unwanted, use a
-dedicated `gh-pages` branch or a separate repository containing only this file.
