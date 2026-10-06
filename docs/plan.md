@@ -25,6 +25,9 @@ rendered pages, iPadOS 26) writes page recognition (`format.md` §5.5); search
 UI over it (done: `PageRecognizer.swift`, `NoteEditor` recognition,
 `AppModel+Search.swift`, `Sources/Sempere/NoteSearch.swift`).
 
+The iPhone reader is the same target (`docs/iphone.md`, PR #65): compact stack, read-first note view,
+finger annotation behind a button, tests at iPhone sizes, 6.9" screenshots.
+
 ## Phase 2 — Mac companion
 
 Same target via Catalyst: menus, keyboard shortcuts, multi-window, drag and

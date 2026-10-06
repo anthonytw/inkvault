@@ -85,11 +85,11 @@ struct NoteCanvasView: View {
                 ToolbarItem(placement: .secondaryAction) {
                     Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItem(placement: Platform.isPhone ? .secondaryAction : .primaryAction) {
                     Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
                 }
             }
-            do {
+            if !Platform.isPhone {   // the stack's back button is the way to the list
                 ToolbarItem(placement: .topBarLeading) {
                     let full = ColumnLayout.visibility(from: storedColumns) == .detailOnly
                     Button(full ? "Show Notes" : "Hide Notes",
@@ -136,6 +136,8 @@ struct EditorView: View {
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
     @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
+    /// iPhone only: finger annotation is off until the pencil button turns it on.
+    @State private var annotating = false
     @AppStorage(PageStrip.visibleKey) private var stripVisible = false
     /// Deleted pages the undo banner has already been shown for.
     @State private var undoBannerFor = 0
@@ -165,7 +167,9 @@ struct EditorView: View {
             }
             if let page = editor.currentPage {
                 PageCanvasView(editor: editor, pageID: page.id, paper: editor.displayedPaper(of: page), pageSize: editor.pageSize,
-                               paletteVisible: paletteVisible, paletteCompact: paletteCompact,
+                               paletteVisible: paletteVisible,
+                               paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),
+                               drawingSuspended: PhoneReading.drawingSuspended(isPhone: Platform.isPhone, annotating: annotating),
                                generation: editor.canvasGeneration)
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
@@ -204,7 +208,84 @@ struct EditorView: View {
                                 onChoose: { paper, choice in editor.setPaper(paper, allPages: choice == .allPages) })
             }
         }
+        .onChange(of: editor.noteID) { annotating = PhoneReading.annotatingAfterNoteChange() }
         .toolbar {
+            if Platform.isPhone { phoneToolbar } else { fullToolbar }
+        }
+    }
+
+    /// The iPhone's toolbar: one pencil button for light annotation, page
+    /// controls in the bottom bar (in a menu while annotating, so the bar does
+    /// not sit on the palette), the rest in the overflow menu.
+    @ToolbarContentBuilder
+    private var phoneToolbar: some ToolbarContent {
+        if !editor.isReadOnly {
+            ToolbarItem(placement: .primaryAction) {
+                Toggle("Annotate", systemImage: annotating ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
+                       isOn: $annotating)
+                    .toggleStyle(.button)
+                    .help("Draw on the page with a finger")
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
+                    .disabled(editor.currentPage == nil)
+            }
+            if annotating {
+                ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
+            }
+        }
+        if annotating, editor.pages.count > 1 || !editor.isReadOnly {
+            ToolbarItem(placement: .secondaryAction) {
+                Menu("Pages", systemImage: "doc.on.doc") { pageButtons }
+            }
+        } else if editor.pages.count > 1 {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button("Previous Page", systemImage: "chevron.left") { editor.selectPage(editor.pageIndex - 1) }
+                    .disabled(editor.pageIndex == 0)
+                Spacer()
+                pageCounter
+                Spacer()
+                Button("Next Page", systemImage: "chevron.right") { editor.selectPage(editor.pageIndex + 1) }
+                    .disabled(editor.pageIndex + 1 >= editor.pages.count)
+            }
+        }
+    }
+
+    private var pageCounter: some View {
+        Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+            .monospacedDigit()
+    }
+
+    @ViewBuilder
+    private var pageButtons: some View {
+        Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
+            .disabled(editor.pageIndex == 0)
+        Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
+            .disabled(editor.pageIndex + 1 >= editor.pages.count)
+        if !editor.isReadOnly {
+            Button("Add Page", systemImage: "doc.badge.plus") { editor.addPage() }
+        }
+        Text(editor.pages.isEmpty ? "No pages" : "Page \(editor.pageIndex + 1) of \(editor.pages.count)")
+    }
+
+    private var eraserSizeMenu: some View {
+        // PencilKit's object eraser has no size; the app's does (ObjectEraser.swift).
+        Menu {
+            Picker("Object Eraser Size", selection: $eraserRadius) {
+                ForEach(ObjectEraserSize.radii, id: \.self) { r in
+                    Text("\(ObjectEraserSize.name(of: r)) – \(Int(r)) pt").tag(r)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label("Object Eraser Size", systemImage: "eraser.line.dashed")
+        }
+        .help("Size of the object eraser; the pixel eraser's size is in the tool palette")
+    }
+
+    /// The iPad's and the Mac's toolbar.
+    @ToolbarContentBuilder
+    private var fullToolbar: some ToolbarContent {
             if !editor.isReadOnly {
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
@@ -286,7 +367,6 @@ struct EditorView: View {
                     }
                 }
             }
-        }
     }
 }
 
