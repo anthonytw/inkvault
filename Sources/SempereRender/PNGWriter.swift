@@ -75,9 +75,11 @@ public enum PNGWriter {
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
-        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, scale: png.scale,
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, shaper: options.shaper,
+                                        scale: png.scale,
                                         maxPixels: options.maxBackgroundPixels, report: &report)
         for w in prepared.warnings { report.warn(w) }
+        var glyphs = GlyphRasterizer()
         var out: [Data] = []
         for (chunk, size) in zip(chunks, sizes) {
             let layers = prepared.layers(for: chunk)
@@ -89,6 +91,18 @@ public enum PNGWriter {
                     paint(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
                 }
                 switch draws[it.item.id] {
+                case .text(let shaped, let rotation)?:
+                    for c in shaped.decorationCommands(rotation) {
+                        paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                    }
+                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(rotation)
+                    for line in shaped.lines {
+                        for run in line.runs {
+                            let (fill, stroke) = glyphs.polygons(run, transform: device)
+                            raster.fill(fill, paint: quantized(Paint(run.color)))
+                            if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
+                        }
+                    }
                 case .image(let p)?:
                     let toDevice = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset))
                     if !draw(p, item: it, toDevice: toDevice, images: images, into: &raster, report: &report) {

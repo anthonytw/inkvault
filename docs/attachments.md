@@ -841,6 +841,14 @@ the `TextShaper` hook, which also hands over the font's tables
 synthesised ones (`format.md` §8.5.3) use an outline stroke or a `Tm` shear
 (12°).
 
+*Implementation notes (C2, CLI):* the shaper also applies GSUB multiple and
+(chained) context substitution, which Arabic fonts such as Noto Naskh use for
+lam-alef, and runs features in HarfBuzz's stage order; its output matches
+HarfBuzz on the test strings. SVG text addresses glyphs through private-use code
+points of the subset's `cmap` (a viewer would otherwise reshape the text with a
+subset that has no layout tables), with an invisible `<text>` per line carrying
+the real characters for selection and search.
+
 ### Audio in exports
 
 Pages never show recordings. Options for the PDF (decided):

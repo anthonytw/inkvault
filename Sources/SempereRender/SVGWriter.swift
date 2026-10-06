@@ -35,7 +35,8 @@ public enum SVGWriter {
                        report: inout RenderReport) throws -> String {
         let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
         for w in prepared.warnings { report.warn(w) }
-        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, scale: options.rasterScale,
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, shaper: options.shaper,
+                                        scale: options.rasterScale,
                                         maxPixels: options.maxBackgroundPixels, report: &report)
         let width = meta.pageSize.width
         let height = prepared.extent
@@ -70,6 +71,7 @@ public enum SVGWriter {
         var defs = ""
         var body = ""
         var ids: [String: String] = [:]   // image content hash → `<image>` id on this page
+        var fonts = SVGFontSet()
         for (i, it) in prepared.items.enumerated() {
             if it.fillsBackground, options.paper { body += element(it.backgroundFill(prepared.drawnPaper)) + "\n" }
             if case .image(let placed)? = draws[it.item.id] {
@@ -99,6 +101,8 @@ public enum SVGWriter {
                 continue
             }
             switch draws[it.item.id] {
+            case .text(let shaped, let rotation)?:
+                body += fonts.elements(shaped, transform: rotation)
             case .raster(let r)?:
                 let png = try PNGEncoder.encode(width: r.image.width, height: r.image.height, rgba: r.image.pixels)
                 let m = r.placement.after(Affine(a: r.width, d: r.height))   // unit square (y down) → page
@@ -111,6 +115,7 @@ public enum SVGWriter {
                 for c in it.placeholder { body += element(c) + "\n" }
             }
         }
+        if !fonts.subsets.isEmpty { defs += "<style>\n" + (try fonts.style()) + "</style>\n" }
         var g = "<g id=\"items\">\n"
         if !defs.isEmpty { g += "<defs>\n" + defs + "</defs>\n" }
         return g + body + "</g>\n"

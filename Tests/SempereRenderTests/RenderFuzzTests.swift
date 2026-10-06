@@ -188,3 +188,77 @@ final class ImageFuzzTests: XCTestCase {
         for f in report.failures { XCTFail("\(f)") }
     }
 }
+
+/// Seeded mutation fuzzing of the font reader (fonts come from user font
+/// directories) and of text layout (text from revisions): parse, outlines,
+/// layout lookups and subsetting either work or throw `FontError`; layout
+/// never traps on any text, direction or stored breaks.
+final class TextFuzzTests: XCTestCase {
+    static func fontSeeds() throws -> [Data] {
+        let dir = try T.fixtureURL("fonts")
+        var seeds = try ["arabic.ttf", "hebrew.ttf", "cjk.otf"].map { try Data(contentsOf: dir.appendingPathComponent($0)) }
+        // A small TrueType subset of a bundled font (whole fonts are too large to mutate quickly).
+        if let face = TextLayoutTests.library.bundledFace(.sans, bold: false, italic: false) {
+            var s = FontSubset(face.font)
+            for c in "Aé fi,Ω".unicodeScalars { _ = s.id(face.font.glyph(for: c.value)) }
+            if let file = try? s.trueTypeFile(cmap: [0x41: 1]) { seeds.append(Data(file)) }
+        }
+        return seeds
+    }
+
+    func testFuzzOpenType() throws {
+        let report = Fuzz.run("opentype", seeds: try Self.fontSeeds(), quick: 300, maxSize: 64 << 10) { input in
+            do {
+                let font = try OpenTypeFont(data: [UInt8](input))
+                for g in 0..<min(font.numGlyphs, 24) { _ = try? font.outline(g) }
+                for c: UInt32 in [0x41, 0x627, 0x5D0, 0x65E5, 0x10FFFF] { _ = font.glyph(for: c, variation: 0xFE00) }
+                let layout = OpenTypeLayout(font)
+                var applier = GSUBApplier(layout: layout, buffer: (0..<min(font.numGlyphs, 12)).map { .init(glyph: $0, cluster: $0) })
+                for (l, _) in layout.lookups(layout.gsub, script: "arab", features: ["ccmp", "init", "medi", "fina", "isol", "rlig"]) {
+                    applier.apply(l)
+                }
+                for (l, _) in layout.lookups(layout.gpos, script: "hebr", features: ["mark", "mkmk"]) {
+                    _ = layout.attach(l, mark: 3, base: 1)
+                }
+                var s = FontSubset(font)
+                for g in 0..<min(font.numGlyphs, 8) { _ = s.id(g) }
+                _ = font.isCFF ? try? s.cffTable() : try? s.trueTypeFile(cmap: [0x41: 1])
+            } catch is FontError {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+
+    /// Random text from a pool of scripts, controls and marks, any direction
+    /// and alignment, random stored breaks, in tiny and huge frames.
+    func testFuzzTextLayout() throws {
+        let pool: [UInt32] = [0x41, 0x61, 0x20, 0x09, 0x2D, 0x0A, 0x301, 0x5D0, 0x5B8, 0x627, 0x644, 0x64E, 0x651, 0x660,
+                              0x4E00, 0x3042, 0xAC00, 0x928, 0x94D, 0x200D, 0x200C, 0x202B, 0x202C, 0x2067, 0x2069, 0x2066,
+                              0xFE0F, 0x1F600, 0x1F1E6, 0x28, 0x29, 0x5B, 0x31, 0x2E, 0xA0, 0x2028, 0xFFFD, 0x10FFFF]
+        let seeds = (0..<8).map { k in Data((0..<(8 * (k + 1))).map { UInt8(truncatingIfNeeded: $0 &* 37 &+ k) }) }
+        let report = Fuzz.run("text-layout", seeds: seeds, quick: 300, maxSize: 512) { input in
+            let b = [UInt8](input)
+            guard b.count >= 2 else { return nil }
+            var scalars = String.UnicodeScalarView()
+            for byte in b.dropFirst(4) { if let s = Unicode.Scalar(pool[Int(byte) % pool.count]) { scalars.append(s) } }
+            let text = String(scalars)
+            let dirs: [TextContent.Direction?] = [nil, .ltr, .rtl, .auto]
+            let aligns: [TextContent.Alignment?] = [nil, .start, .end, .center, .left, .right]
+            let breaks = b.prefix(4).map { Int($0) % max(text.unicodeScalars.count, 1) }
+            let content = TextContent(size: [1, 12, 1000][Int(b[0]) % 3], color: Color(r: 0, g: 0, b: 0, a: 255),
+                                      align: aligns[Int(b[0]) % aligns.count], dir: dirs[Int(b.last!) % dirs.count],
+                                      lang: b.count % 2 == 0 ? "zh-Hant" : nil,
+                                      runs: [TextRun(text, b: b[0] & 1 != 0, i: b[0] & 2 != 0, u: true)],
+                                      breaks: b[0] & 4 != 0 ? breaks : nil)
+            let frame = [Rect(x: 0, y: 0, w: 0.001, h: 1), Rect(x: 10, y: 10, w: 300, h: 40), Rect(x: 0, y: 0, w: 1e5, h: 1)][Int(b[1]) % 3]
+            do { _ = try TextLayoutTests.shaper.shape(content, frame: frame) } catch {
+                return "layout threw \(error)"
+            }
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+}

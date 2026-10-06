@@ -54,12 +54,16 @@ public enum PDFWriter {
                               options: RenderOptions = RenderOptions(), report: inout RenderReport) throws -> Data {
         let doc = PDFObjects()
         let catalog = doc.allocate(), pagesNum = doc.allocate(), infoNum = doc.allocate()   // 1, 2, 3
-        struct OutPage { var width: Double; var height: Double; var content: Int; var alphas: [Int]; var xobjects: [Int] }
+        struct OutPage {
+            var width: Double; var height: Double; var content: Int; var alphas: [Int]; var xobjects: [Int]; var fonts: [Int]
+        }
         var pages: [OutPage] = []
         var embedsForms = false
         var pageNumber = 0
         // Image XObjects by content hash, shared by every note that shows the image.
         var imageObjects: [String: Result<Int, PlaceholderReason>] = [:]
+        // Font subsets, shared by every page (docs/attachments.md §10).
+        var fonts = PDFFontSet()
 
         func addPage(_ chunk: PageChunk, _ cs: ContentStream, xobjects: [Int]) throws {
             let content = doc.allocate()
@@ -72,7 +76,7 @@ public enum PDFWriter {
             doc.set(content, Array("<< /Length \(stream.count)\(dict) >>\nstream\n".utf8) + [UInt8](stream)
                 + Array("\nendstream".utf8))
             pages.append(OutPage(width: chunk.width, height: chunk.height, content: content,
-                                 alphas: cs.alphas.sorted(), xobjects: xobjects))
+                                 alphas: cs.alphas.sorted(), xobjects: xobjects, fonts: cs.usedFonts.sorted()))
         }
 
         for (n, note) in notes.enumerated() {
@@ -86,9 +90,16 @@ public enum PDFWriter {
                 for w in prepared.warnings { report.warn(w) }
                 var draws: [UUID: ItemDraw] = [:]
                 for it in prepared.items {
-                    let d = it.item.kind == .image
-                        ? drawImage(it, images: images, objects: &imageObjects, doc: doc, options: options)
-                        : draw(it, backgrounds: backgrounds, copiers: &copiers, doc: doc, options: options)
+                    let d: ItemDraw
+                    switch it.item.kind {
+                    case .image: d = drawImage(it, images: images, objects: &imageObjects, doc: doc, options: options)
+                    case .text:
+                        switch TextItems.shape(it, shaper: options.shaper, report: &report) {
+                        case .success(let (shaped, rotation)): d = .text(shaped, rotation)
+                        case .failure(let reason): d = .placeholder(reason)
+                        }
+                    default: d = draw(it, backgrounds: backgrounds, copiers: &copiers, doc: doc, options: options)
+                    }
                     if case .placeholder(let reason) = d {
                         report.placeholders.append(.init(page: pageNumber, item: it.item.id, kind: it.item.kind,
                                                          reason: reason))
@@ -111,6 +122,8 @@ public enum PDFWriter {
                             cs.drawXObject(num, matrix: Affine.translate(0, -chunk.yOffset).after(m),
                                            clip: it.corners.map { Point(x: $0.x, y: $0.y - chunk.yOffset) })
                             xobjects.append(num)
+                        case .text(let shaped, let rotation):
+                            cs.text(shaped, transform: Affine.translate(0, -chunk.yOffset).after(rotation), fonts: &fonts)
                         case .placeholder:
                             for c in it.placeholder { cs.emit(c.translated(dy: -chunk.yOffset)) }
                         }
@@ -140,6 +153,12 @@ public enum PDFWriter {
             let v = fmt(Double(a) / 1000)
             doc.set(num, Array("<< /Type /ExtGState /ca \(v) /CA \(v) >>".utf8))
         }
+        // Five objects per font (PDFFontSet.objects), numbered consecutively.
+        let fontNumbers = (0..<(5 * fonts.entries.count)).map { _ in doc.allocate() }
+        let fontBase = fontNumbers.first ?? 0
+        for (i, body) in try fonts.objects(base: fontBase, compress: options.compress).enumerated() {
+            doc.set(fontNumbers[i], [UInt8](body))
+        }
         var kids: [Int] = []
         for p in pages {
             let num = doc.allocate()
@@ -151,6 +170,9 @@ public enum PDFWriter {
             }
             if !p.xobjects.isEmpty {
                 res += "/XObject << " + Set(p.xobjects).sorted().map { "/X\($0) \($0) 0 R" }.joined(separator: " ") + " >> "
+            }
+            if !p.fonts.isEmpty {
+                res += "/Font << " + p.fonts.map { "/T\($0) \(fontBase + 5 * $0) 0 R" }.joined(separator: " ") + " >> "
             }
             res += ">>"
             doc.set(num, Array(("<< /Type /Page /Parent \(pagesNum) 0 R /MediaBox [0 0 \(fmt(p.width)) \(fmt(p.height))] "
@@ -173,6 +195,8 @@ public enum PDFWriter {
         case form(Int, Affine)
         /// An image XObject and the matrix from its unit square to page coordinates.
         case image(Int, Affine)
+        /// Laid-out text and its rotation about the frame's centre.
+        case text(ShapedText, Affine)
         case placeholder(PlaceholderReason)
     }
 
@@ -265,6 +289,14 @@ public enum PDFWriter {
     }
 
     /// PDF text string: literal for printable ASCII, else UTF-16BE hex with BOM.
+    /// An indirect stream object's body: `dict` (without `<< >>`) then the stream.
+    static func streamObject(dict: String, _ stream: Data) -> Data {
+        var body = Data("<< \(dict) >>\nstream\n".utf8)
+        body.append(stream)
+        body.append(Data("\nendstream".utf8))
+        return body
+    }
+
     static func textString(_ s: String) -> String {
         if s.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value < 0x7F }) {
             var o = "("
@@ -284,6 +316,8 @@ public enum PDFWriter {
 struct ContentStream {
     var text = ""
     var alphas = Set<Int>()
+    /// Fonts drawn (`/T<n>`, indices into the document's `PDFFontSet`).
+    var usedFonts = Set<Int>()
     let height: Double
 
     init(height: Double) { self.height = height }

@@ -92,6 +92,8 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
     /// (HEIC without the app's decoder, CMYK JPEG), over a limit, or a crop
     /// outside it (why).
     case imageUnreadable(String)
+    /// A text item that cannot be laid out (why).
+    case textUnavailable(String)
 
     /// A short English description, for reports.
     public var description: String {
@@ -104,6 +106,7 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
         case .unsupportedKind(let k): return "\(k) items are not drawn by this export"
         case .rasterBudget: return "too many PDF background pixels in this export"
         case .imageUnreadable(let why): return why
+        case .textUnavailable(let why): return why
         }
     }
 }
@@ -283,15 +286,23 @@ enum RasterItems {
     enum Draw {
         case raster(RasterBackground)
         case image(PlacedImage)
+        /// Laid-out text and its rotation about the frame's centre.
+        case text(ShapedText, rotation: Affine)
         case placeholder(PlaceholderReason)
     }
 
-    static func resolve(_ items: [PreparedItem], backgrounds: PDFBackgrounds, images: ImageStore, scale: Double,
-                        maxPixels: Int, report: inout RenderReport) -> [UUID: Draw] {
+    static func resolve(_ items: [PreparedItem], backgrounds: PDFBackgrounds, images: ImageStore,
+                        shaper: (any TextShaper)?, scale: Double, maxPixels: Int,
+                        report: inout RenderReport) -> [UUID: Draw] {
         var out: [UUID: Draw] = [:]
         for it in items {
             let d: Draw
-            if it.item.kind == .image {
+            if it.item.kind == .text {
+                switch TextItems.shape(it, shaper: shaper, report: &report) {
+                case .success(let (shaped, rotation)): d = .text(shaped, rotation: rotation)
+                case .failure(let reason): d = .placeholder(reason)
+                }
+            } else if it.item.kind == .image {
                 switch images.place(it) {
                 case .success(let p): d = .image(p)
                 case .failure(let reason): d = .placeholder(reason)
@@ -419,7 +430,8 @@ final class ImageStore {
         // At most 16 MiB is held whole by the blob store; larger blobs come through a temporary file.
         let data: Data
         do {
-            data = ref.size <= 16 << 20 ? try blobs.data(for: ref, maxBytes: 16 << 20)
+            let memory = Vault.maxInMemoryBlobBytes
+            data = ref.size <= Int64(memory) ? try blobs.data(for: ref, maxBytes: memory)
                 : try blobs.withFile(for: ref) { try BoundedRead.contents(of: $0, maxBytes: ImageLimits.maxBlobBytes) }
         } catch {
             throw PlaceholderReason.blobUnavailable(Self.describe(error))
@@ -516,5 +528,59 @@ final class ImageStore {
         if let e = error as? ImageError { return e.errorDescription ?? "\(e)" }
         if let e = error as? BlobError { return e.description }
         return "image cannot be read (\(error))"
+    }
+}
+
+// MARK: - Text (format.md §8.2.4, §8.5.3)
+
+/// Lays out text items for every writer.
+enum TextItems {
+    /// `it` laid out by `shaper`, with its rotation about the frame's
+    /// centre, or why it is a placeholder (format.md §8.5.2: no text, no
+    /// shaper, layout failed). Scripts no font covers, or drawn without full
+    /// shaping, are warnings.
+    static func shape(_ it: PreparedItem, shaper: (any TextShaper)?,
+                      report: inout RenderReport) -> Result<(ShapedText, Affine), PlaceholderReason> {
+        let prefix = "page \(it.pageNumber): item \(it.item.id.uuidString.lowercased().prefix(8)): "
+        guard let content = it.item.text else { return .failure(.textUnavailable("text item without text")) }
+        guard let shaper else { return .failure(.unsupportedKind(it.item.kind.rawValue)) }
+        do {
+            let shaped = try shaper.shape(content, frame: it.item.frame)
+            for (script, example) in shaped.missingScripts.sorted(by: { $0.key < $1.key }) {
+                report.warn(prefix + TextIssues.missing(script, example))
+            }
+            for script in shaped.approximateScripts.sorted() where shaped.missingScripts[script] == nil {
+                report.warn(prefix + "\(TextIssues.name(script)) text is drawn without full shaping (approximate); "
+                    + "the app's export is exact")
+            }
+            return .success((shaped, ItemGeometry.rotate(frame: it.item.frame, degrees: it.item.rotation ?? 0)))
+        } catch {
+            return .failure(.textUnavailable("text box cannot be laid out (\(error))"))
+        }
+    }
+}
+
+/// Wording of the text report (docs/attachments.md §6).
+enum TextIssues {
+    /// A Unicode script name for people (`Old_Italic` → `Old Italic`).
+    static func name(_ script: String) -> String {
+        switch script {
+        case "Han": return "Han (Chinese, Japanese, Korean)"
+        case "Common": return "symbol"
+        default: return script.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
+    /// The package that brings fonts for `script` on Debian and Ubuntu.
+    static func package(_ script: String) -> String {
+        ["Han", "Hiragana", "Katakana", "Hangul", "Bopomofo"].contains(script) ? "fonts-noto-cjk"
+            : script == "Common" ? "fonts-noto-color-emoji or fonts-noto-core" : "fonts-noto-core"
+    }
+
+    static func missing(_ script: String, _ example: UInt32) -> String {
+        let ch = Unicode.Scalar(example).map { String($0) } ?? "?"
+        return "text uses \(name(script)) characters (e.g. \(ch), U+\(String(format: "%04X", example))); no installed font "
+            + "covers them, so they are drawn as boxes (install \(package(script)) or put a font in "
+            + "~/.local/share/sempere/fonts or $SEMPERE_FONT_DIR)"
     }
 }
