@@ -31,6 +31,17 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var pageTexts: [PageText] = []
     /// Number of pages whose recognition is missing or stale (`RecognitionPolicy`).
     public var pagesNeedingRecognition: Int = 0
+    /// Number of placed items (text boxes, images, PDF pages, unknown kinds)
+    /// over all pages (format.md §8.2).
+    public var items: Int = 0
+    /// Number of typed text boxes (`items` of kind `text`).
+    public var textItems: Int = 0
+    /// Number of audio recordings (format.md §8.3).
+    public var recordings: Int = 0
+    /// The blobs the current state references (items' `blob`, recordings'
+    /// `blob` and `transcript`), one per content hash, sorted by `sha256`.
+    /// Older revisions may reference more (`Vault.blobInventory`).
+    public var blobs: [BlobRef] = []
 
     public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
                 strokes: Int, modified: Date?, problem: String?) {
@@ -159,6 +170,11 @@ extension Vault {
             s.recognizedPages = state.pages.filter { !($0.recognition?.text.isEmpty ?? true) }.count
             s.pageTexts = PageText.texts(of: state.pages)
             s.pagesNeedingRecognition = state.pages.filter { RecognitionPolicy.needsRecognition($0) }.count
+            let items = state.pages.flatMap(\.items)
+            s.items = items.count
+            s.textItems = items.filter { $0.kind == .text }.count
+            s.recordings = state.recordings.count
+            s.blobs = state.blobReferences
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }
