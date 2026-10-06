@@ -91,7 +91,8 @@ struct EditorRecognitionTests {
             if case .addStroke = op { return "stroke" }
             return "other"
         }
-        #expect(kinds == ["recognition", "recognition", "stroke", "recognition"])
+        // One delta per pass: both pages on open, then the edited page.
+        #expect(kinds == ["recognition", "stroke", "recognition"])
     }
 
     @Test func importedRecognitionStaysUntilTheStrokesChange() async throws {
