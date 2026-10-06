@@ -7,6 +7,7 @@ struct NewNoteView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var paper = PaperPreference.load()
+    @State private var layout = NewNoteLayout.load()
     @State private var choosingPaper = false
     @Environment(\.displayScale) private var displayScale
     @State private var notebook: String
@@ -38,6 +39,9 @@ struct NewNoteView: View {
                 .sheet(isPresented: $choosingPaper) {
                     PaperPickerView(paper: paper, purpose: .newNote) { chosen, _ in paper = chosen }
                 }
+                Picker("Layout", selection: $layout) {
+                    ForEach(NewNoteLayout.allCases) { Text($0.title).tag($0) }
+                }
                 TextField("Notebook (optional; School/Math for levels)", text: $notebook)
                 if let failure { Text(failure).foregroundStyle(.red) }
             }
@@ -48,7 +52,9 @@ struct NewNoteView: View {
                     Button("Create") {
                         Task {
                             do {
-                                try await model.createNote(title: title, paper: paper, notebook: notebook)
+                                try await model.createNote(title: title, paper: paper, notebook: notebook,
+                                                           pageSize: layout.pageSize)
+                                NewNoteLayout.save(layout)
                                 dismiss()
                             } catch { failure = "\(error)" }
                         }

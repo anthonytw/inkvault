@@ -32,7 +32,10 @@ final class NoteEditor {
     /// shows what the cache had, read-only, and never converts or stores.
     private(set) var loadFailed = false
     /// Bumped when the canvas must reload the shown page's drawing although
-    /// the page stayed the same (the read note differed from the cache).
+    /// the page stayed the same: the read note differed from the cache, or a
+    /// layout switch changed the strokes of a page that keeps its id. A stale
+    /// drawing would be diffed against the new page (ink removed or duplicated
+    /// by the next stroke).
     private(set) var canvasGeneration = 0
     /// The last autosave failure; cleared by the next successful save.
     private(set) var saveError: String?
@@ -457,6 +460,18 @@ final class NoteEditor {
     /// read (`isPreparing`).
     func liveStrokes(of pageID: UUID) -> [Stroke] { isPreparing || loadFailed ? [] : ledger(pageID).live }
 
+    /// Ink changes per page, so page thumbnails can follow them.
+    private(set) var inkRevisions: [UUID: Int] = [:]
+    /// Identifies this editor in cache keys (`inkRevisions` restart at 0 in
+    /// every editor, so they alone cannot key a cache that outlives it).
+    @ObservationIgnored let sessionID = UUID()
+
+    /// The strokes a page thumbnail shows: live once the page has been on
+    /// the canvas, else as loaded (no ledger is made just for a thumbnail).
+    func thumbnailStrokes(of page: Page) -> [Stroke] {
+        ledgers[page.id]?.live ?? page.strokes
+    }
+
     /// Shows the page `id` (a search hit); no-op when the note has no such page.
     func showPage(id: UUID) {
         if let i = pages.firstIndex(where: { $0.id == id }) { selectPage(i) }
@@ -501,12 +516,153 @@ final class NoteEditor {
 
     /// Appends a blank page and shows it; saved with the next delta.
     func addPage() {
+        insertPage(at: pages.count)
+    }
+
+    /// Adds a blank page right after the one on the canvas and shows it.
+    func addPageAfterCurrent() {
+        insertPage(at: pages.isEmpty ? 0 : pageIndex + 1)
+    }
+
+    /// Adds a blank page at `index` of `pages` and shows it; saved with the
+    /// next delta (with the first ink drawn on it, if that comes first).
+    func insertPage(at index: Int) {
         guard !isReadOnly, !isShutDown else { return }
-        guard case .addPage(let page)? = NoteOps.appendPages(1, after: pages).first else { return }
-        pages.append(page)
-        pendingPageOps.append(.addPage(page))
-        pageIndex = pages.count - 1
+        let edit = NoteOps.addPage(at: index, in: pages)
+        guard case .addPage(let page)? = edit.ops.first else { return }
+        apply(edit, show: page.id)
         scheduleSave()
+    }
+
+    // MARK: - Page gestures (format.md §5.4.3): each is saved at once, one delta
+
+    /// Whether the note is one infinite page rather than fixed-size pages.
+    var isPageless: Bool { pageSize.infinite }
+
+    /// A page deleted here, kept for undo with its live strokes and position.
+    struct DeletedPage: Equatable {
+        var page: Page
+        var index: Int
+    }
+
+    /// Pages deleted while the note is open, newest last (`undoDeletePage`).
+    private(set) var deletedPages: [DeletedPage] = []
+
+    /// Moves the page at `from` so it ends up at `to` (indices into `pages`).
+    func movePage(from: Int, to: Int) {
+        guard !isReadOnly, !isShutDown, pages.indices.contains(from),
+              let edit = NoteOps.movePage(pages[from].id, to: to, in: pages) else { return }
+        apply(edit, show: currentPage?.id)
+        saveNow()
+    }
+
+    /// Whether a page can be deleted: a note keeps at least one page.
+    var canDeletePage: Bool { !isReadOnly && !isShutDown && pages.count > 1 }
+
+    /// Deletes a page (`removePage`; its strokes go with it). Undo with
+    /// `undoDeletePage`. The last page is never deleted.
+    func deletePage(_ id: UUID) {
+        guard canDeletePage, let index = pages.firstIndex(where: { $0.id == id }),
+              let edit = NoteOps.deletePage(id, in: pages) else { return }
+        let gone = livePages()[index]
+        let shown = currentPage?.id == id ? nil : currentPage?.id
+        apply(edit, show: shown)
+        if shown == nil { pageIndex = min(index, max(pages.count - 1, 0)) }
+        deletedPages.append(DeletedPage(page: gone, index: index))
+        saveNow()
+    }
+
+    /// Re-creates the page deleted last, where it was (a new id with
+    /// `parent`, its strokes under new ids: format.md §5.2), and shows it.
+    func undoDeletePage() {
+        guard !isReadOnly, !isShutDown, let last = deletedPages.popLast() else { return }
+        let edit = NoteOps.restorePage(last.page, at: last.index, in: pages)
+        guard case .addPage(let page)? = edit.ops.first else { return }
+        apply(edit, show: page.id)
+        saveNow()
+    }
+
+    /// Duplicates a page (its ink and paper) right after it and shows the copy.
+    func duplicatePage(_ id: UUID) {
+        guard !isReadOnly, !isShutDown, let edit = NoteOps.duplicatePage(id, in: livePages()),
+              case .addPage(let page)? = edit.ops.first else { return }
+        apply(edit, show: page.id)
+        saveNow()
+    }
+
+    /// Switches the note between paged and pageless (format.md §5.4.3): ink
+    /// not yet saved is saved first, then the switch is one delta. No ink is
+    /// deleted or moved on its sheet; the canvas shows the page that holds
+    /// what was on screen (the first after a join).
+    func setLayout(pageless: Bool) async {
+        guard !isReadOnly, !isShutDown, pageless != isPageless else { return }
+        // Ink drawn while a save is being written is pending again afterwards:
+        // save until nothing is, so the switch never takes unsaved ink as saved
+        // (a few rounds at most: if ink keeps arriving, the switch is not made).
+        var rounds = 0
+        repeat {
+            await flush()
+            guard saveError == nil else { return }   // never switch over ink that could not be saved
+            rounds += 1
+        } while hasPendingChanges && rounds < 4
+        guard !hasPendingChanges, !isShutDown, pageless != isPageless else { return }
+        let shown = currentPage?.id
+        let edit = pageless
+            ? NoteOps.makePageless(pages: livePages(), pageSize: pageSize)
+            : NoteOps.makePaged(pages: livePages(), pageSize: pageSize)
+        guard !edit.ops.isEmpty else { return }
+        // Stroke ids changed: ledgers and the drawings shown with them are rebuilt
+        // from the new pages (a drawing kept for a page id that stays would be
+        // diffed against the new ledger), and every page is stored anew in the cache.
+        ledgers = [:]
+        canvasDrawings = [:]
+        deletedPages = []
+        pages = edit.pages
+        dirtyPages = Set(pages.map(\.id))
+        pageIndex = pages.firstIndex { $0.id == shown } ?? 0
+        pageSize = edit.pageSize
+        committedPageSize = edit.pageSize   // the switch's own setMeta carries it
+        pendingPageOps += edit.ops
+        canvasGeneration &+= 1
+        for page in pages { inkRevisions[page.id, default: 0] &+= 1 }
+        await flush()
+    }
+
+    /// Whether anything is waiting to be written (page ops, ink, page size).
+    var hasPendingChanges: Bool {
+        !pendingPageOps.isEmpty || pageSize != committedPageSize
+            || pages.contains { page in ledgers[page.id].map { !$0.pendingOps(page: page.id, live: $0.live).isEmpty } ?? false }
+    }
+
+    /// `pages` with each page's live strokes (saved or not).
+    private func livePages() -> [Page] {
+        pages.map { page in
+            var p = page
+            if let l = ledgers[page.id] { p.strokes = l.live }
+            return p
+        }
+    }
+
+    /// Takes `edit`'s pages, drops ledgers of pages that are gone and queues
+    /// its ops; shows `show` (else the same page, else the nearest).
+    private func apply(_ edit: PageEdit, show: UUID?) {
+        let keep = Set(edit.pages.map(\.id))
+        let had = Set(pages.map(\.id))
+        ledgers = ledgers.filter { keep.contains($0.key) }
+        canvasDrawings = canvasDrawings.filter { keep.contains($0.key) }   // one-to-one with the ledgers
+        dirtyPages.formUnion(keep.subtracting(had))   // new pages: stored in the cache from their strokes
+        pages = edit.pages
+        if let show, let i = pages.firstIndex(where: { $0.id == show }) {
+            pageIndex = i
+        } else {
+            pageIndex = min(pageIndex, max(pages.count - 1, 0))
+        }
+        pendingPageOps += edit.ops
+    }
+
+    /// Writes what is pending now rather than after the pause.
+    private func saveNow() {
+        Task { await flush() }
     }
 
     // MARK: - Changes from the canvas
@@ -519,7 +675,10 @@ final class NoteEditor {
         var l = ledger(pageID)
         let change = l.update(items)
         ledgers[pageID] = l
-        if !change.isEmpty { dirtyPages.insert(pageID) }
+        if !change.isEmpty {
+            inkRevisions[pageID, default: 0] &+= 1
+            dirtyPages.insert(pageID)
+        }
         if let inkMaxY { growPage(toFit: inkMaxY) }
         if !change.isEmpty || pageSize != committedPageSize { scheduleSave() }
         if !change.isEmpty {
