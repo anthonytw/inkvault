@@ -3,6 +3,8 @@ import Foundation
 import SempereRender
 import Sempere
 
+extension PageBreaks: ExpressibleByArgument {}
+
 enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
     case pdf, svg, png, json, markdown, html
 }
@@ -51,6 +53,9 @@ struct ExportCommand: ParsableCommand {
 
     @Flag(name: .long, help: "pdf only: write all notes into one PDF file.")
     var merge = false
+
+    @Option(name: .long, help: ArgumentHelp("pdf/png: where pageless pages are cut: gaps (at each sheet height, moved up to a gap in the ink) or fixed.", valueName: "gaps|fixed"))
+    var breaks: PageBreaks = .gaps
 
     @Option(name: .long, help: "png only: resolution in dots per inch (a page point is 1/72 inch).")
     var dpi: Double = 144
@@ -118,7 +123,7 @@ struct ExportCommand: ParsableCommand {
         }
         if states.isEmpty { throw CLIError.failure("no notes to export") }
 
-        let options = RenderOptions(paper: !noPaper)
+        let options = RenderOptions(paper: !noPaper, breaks: breaks)
         let fm = FileManager.default
         func mkdir(_ path: String) throws {
             try fm.createDirectory(atPath: path, withIntermediateDirectories: true)
