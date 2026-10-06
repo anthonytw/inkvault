@@ -73,6 +73,7 @@ working state.
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |
+| Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | 🔀 #53 |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
 
@@ -93,3 +94,4 @@ behaviour and testing on a real Mac.
 | Key management window | 📋 Phase 2 |
 | Drawing with mouse/trackpad (PencilKit works; tuning for no pencil) | 📋 Phase 2 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+| Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | 🔀 #53 |

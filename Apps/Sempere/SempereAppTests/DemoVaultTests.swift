@@ -1,0 +1,72 @@
+#if DEBUG
+import Age
+import Foundation
+import Sempere
+import Testing
+@testable import SempereApp
+
+/// The synthetic vault behind the App Store screenshots (`DemoVault`).
+struct DemoVaultTests {
+    static func build() async throws -> (DemoVault.Built, URL) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("demo-\(UUID().uuidString)")
+        return (try await DemoVault.build(in: dir), dir)
+    }
+
+    static func open(_ built: DemoVault.Built) throws -> Vault {
+        try Vault.open(at: built.url, identities: [try IdentityFile.parse(built.identityText)])
+    }
+
+    @Test func buildsNotebooksTagsAndPapers() async throws {
+        let (built, dir) = try await Self.build()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let vault = try Self.open(built)
+        let summaries = try vault.summaries()
+        #expect(summaries.count == DemoVault.specs.count)
+        #expect(summaries.allSatisfy { $0.problem == nil && !$0.deleted && $0.strokes > 0 })
+        let notebooks = Set(summaries.compactMap { NotebookPath.canonical($0.notebook) })
+        #expect(notebooks.count >= 6)
+        #expect(Set(summaries.flatMap(\.tags).map(NoteOps.tagKey)).count >= 6)
+        #expect(summaries.contains { $0.pages == 2 })
+        // The two screenshot notes sit on different paper.
+        let a = try vault.reconstruct(noteId: built.notes["respiration"]!)
+        let b = try vault.reconstruct(noteId: built.notes["atlas"]!)
+        #expect(a.meta.paper.kind == .marginRuled)
+        #expect(b.meta.paper.kind == .dot)
+        #expect(a.meta.paper.isValid && b.meta.paper.isValid)
+    }
+
+    @Test func datesAreFixed() async throws {
+        let (built, dir) = try await Self.build()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let summaries = try Self.open(built).summaries()
+        let newest = try #require(summaries.compactMap(\.modified).max())
+        #expect(abs(newest.timeIntervalSince(DemoVault.anchor) + 0.2 * 86_400) < 1)
+        let oldest = try #require(summaries.compactMap(\.modified).min())
+        #expect(oldest < DemoVault.anchor.addingTimeInterval(-20 * 86_400))
+    }
+
+    @Test func inkIsDeterministicAndOnThePage() throws {
+        for spec in DemoVault.specs {
+            let id = DemoVault.noteID(spec.key)
+            let first = DemoVault.ops(for: spec, id: id), second = DemoVault.ops(for: spec, id: id)
+            #expect(first == second, "\(spec.key) differs between runs")
+            for case .addStroke(_, let stroke) in first {
+                #expect(stroke.points.count >= 2 && stroke.points.count < 2_000)
+                for p in stroke.points {
+                    #expect(p.x.isFinite && p.y.isFinite && p.w > 0 && p.w < 16)
+                    #expect(p.x > -5 && p.x < 617 && p.y > -5 && p.y < 797, "\(spec.key) strays off the page")
+                }
+            }
+        }
+        #expect(Set(DemoVault.specs.map(\.key)).count == DemoVault.specs.count)
+        #expect(Set(DemoVault.specs.map { DemoVault.noteID($0.key) }).count == DemoVault.specs.count)
+    }
+
+    @Test func randomIsSeeded() {
+        var a = DemoRandom(seed: 7), b = DemoRandom(seed: 7), c = DemoRandom(seed: 8)
+        #expect(a.next() == b.next())
+        #expect(a.uuid() == b.uuid())
+        #expect(a.next() != c.next())
+    }
+}
+#endif
