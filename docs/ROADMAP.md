@@ -31,7 +31,7 @@ working state.
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
 | Vault | Attachment model types and ops (A0) | ✅ |
 | Vault | Per-note blob store, rewrap policy, GC, repair (B2) | ✅ |
-| Vault | Attachment merge (A1) | 📋 |
+| Vault | Attachment merge (A1): items and recordings merge per register, history and restore with them | 🔀 #66 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | 🔀 #52 |

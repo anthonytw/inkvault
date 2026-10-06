@@ -433,7 +433,8 @@ geometry, and the summaries are kept in an encrypted per-device cache
 (`$XDG_CACHE_HOME/sempere/`, default `~/.cache/sempere/`; `format.md` §10), so
 a later `list` reads only notes whose revision files changed. A damaged cache
 is ignored and rewritten; `--no-cache` neither reads nor writes it. `show` prints the metadata, how many pages have recognised text (`Text:`; `recognizedPages`
-in `--json`) and the revision history
+in `--json`), the placed items, text boxes among them and recordings (`Items:`; `items`,
+`textItems`, `recordings` in `--json`) and the revision history
 (kind, wall time, file name; `-v` adds the app string). A note is named by its
 full id, an id prefix of 4 or more characters, or its exact title
 (case-insensitive); an ambiguous name is an error that lists the candidates.
@@ -452,7 +453,10 @@ revision up to and including it, `docs/format.md` §5.7) by writing **one new
 delta**; no existing file is changed or deleted. Pages and strokes added since
 are removed, those removed since are re-added under new ids with `parent`
 naming the old id, and title, tags, notebook, favorite, paper, page size, page
-order, recognition and the deleted flag are set back. `REVISION` is a name from
+order, recognition and the deleted flag are set back. Placed items and
+recordings are treated alike: removed or re-added (new id, `parent` naming the
+old one), and their registers (frame, rotation, z, text, crop; title,
+transcript) set back. `REVISION` is a name from
 `history`, with or without its `.delta.age`/`.snapshot.age` suffix, or a unique
 prefix of 6 or more characters. If the note already matches, nothing is written
 (restoring twice is a no-op). `--dry-run` prints what would change

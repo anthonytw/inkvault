@@ -176,6 +176,24 @@ final class AttachmentMergeTests: VaultTestCase {
         XCTAssertEqual(st2.tombstones?.recordings, [rec.id])
     }
 
+    /// A late `setItem` on an item whose *page* was removed, after compaction
+    /// deleted the item's add and the page's removal: the page tombstone is
+    /// permanent, so the op is a covered no-op (§8.2.2), not an orphan that no
+    /// snapshot could ever cover (and compaction never delete).
+    func testLateSetOnItemOfCompactedRemovedPageIsCoveredNoOp() throws {
+        var log = LogBuilder()
+        let img = image()
+        let d0 = newNote(&log, extra: [.addPage(Page(id: page2, order: "b")), .addItem(page: page2, item: img)])
+        let removePage = log.delta(devA, 10, [.removePage(pageId: page2)])
+        let snap = try log.snapshot(devA, 20, from: [d0, removePage])
+        // Compaction deleted d0 and removePage; a device offline since d0 writes:
+        let late = log.delta(devB, 5, [.setItem(page: page2, itemId: img.id, change: .rotation(90))])
+        XCTAssertTrue(items(try merged([snap, late])).isEmpty)
+        let next = try log.snapshot(devC, 30, from: [snap, late])
+        guard case .snapshot(let included, _) = next.body else { return XCTFail() }
+        XCTAssertTrue(included.covers(device: devB, seq: late.seq), "covered: the page is removed")
+    }
+
     /// A snapshot re-emits an item of an unknown kind, with an unknown layer
     /// and unknown fields, unchanged (plus `origin` and `clocks`).
     func testSnapshotReEmitsUnknownKindUnchanged() throws {

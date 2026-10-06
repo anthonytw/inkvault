@@ -184,7 +184,11 @@ public enum NoteReducer {
                 case .setPageRecognition(let page, _): return !knownPages.contains(page)
                 case .setPagePaper(let page, _): return !knownPages.contains(page)
                 case .addItem(let page, _): return !knownPages.contains(page)
-                case .setItem(let page, let id, _): return !knownPages.contains(page) || !knownItems.contains(id)
+                // On a removed page, a no-op whatever the item: removing a page
+                // tombstones the page, not its items, so after compaction the
+                // item's id may be known nowhere.
+                case .setItem(let page, let id, _):
+                    return !knownPages.contains(page) || (!removedPages.contains(page) && !knownItems.contains(id))
                 case .setRecording(let id, _): return !knownRecordings.contains(id)
                 default: return false
                 }

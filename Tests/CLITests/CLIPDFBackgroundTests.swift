@@ -23,11 +23,8 @@ final class CLIPDFBackgroundTests: CLITestCase {
         try vault.apply(NoteOps.newNote(title: "Annotated", paper: .blank,
                                         pageSize: PageSize(width: 400, height: 300), pageId: pageId)
                         + [.addItem(page: pageId, item: item)], to: note, deviceState: state, app: "test")
-        // Item ops take effect once attachments task A1 (merge) is in; until then
-        // a vault note cannot hold a PDF page, and these tests have nothing to export.
-        if try vault.reconstruct(noteId: note).pages.first?.items.isEmpty != false {
-            throw XCTSkip("the note reducer does not apply item ops yet (attachments A1)")
-        }
+        // The note must hold the PDF page (attachments A1), or these tests export nothing.
+        XCTAssertEqual(try vault.reconstruct(noteId: note).pages.first?.items.count, 1)
         return (path, note.uuidString.lowercased())
     }
 

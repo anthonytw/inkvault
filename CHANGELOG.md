@@ -9,6 +9,10 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- **Attachment merge** (task A1, `docs/format.md` §8.2.2, §8.3.1): placed items and recordings
+  merge as sets with permanent tombstones and last-writer-wins registers per field; snapshots,
+  compaction, history and `notes restore` keep them. `notes show` counts items, text boxes and
+  recordings (`items`, `textItems`, `recordings` in `--json`), and search covers text boxes.
 - **Paged and pageless notes** (`docs/format.md` §5.4.3, #52): a note has fixed-size pages
   or one infinite page, and switches between them without deleting or moving ink
   (`sempere notes layout ID paged|pageless`; in the app, the Page Layout menu). In the app,

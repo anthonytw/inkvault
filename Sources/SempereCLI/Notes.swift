@@ -21,6 +21,10 @@ struct NoteJSON: Encodable {
     var pages: Int
     var strokes: Int
     var recognizedPages: Int
+    /// Placed items (text boxes, images, PDF pages) and how many are text boxes.
+    var items: Int
+    var textItems: Int
+    var recordings: Int
     var modified: Date?
     var problem: String?
 
@@ -28,6 +32,7 @@ struct NoteJSON: Encodable {
         id = s.id.uuidString.lowercased(); title = s.title; tags = s.tags; notebook = s.notebook
         deleted = s.deleted; pages = s.pages; strokes = s.strokes
         recognizedPages = s.recognizedPages; modified = s.modified; problem = s.problem
+        items = s.items; textItems = s.textItems; recordings = s.recordings
     }
 }
 
@@ -106,6 +111,7 @@ struct NotesShow: ParsableCommand {
         print("Deleted:  \(summary.deleted ? "yes" : "no")")
         print("Pages:    \(summary.pages)   Strokes: \(summary.strokes)")
         print("Text:     \(summary.recognizedPages) of \(summary.pages) page(s) with recognised text")
+        print("Items:    \(summary.items) (\(summary.textItems) text box(es))   Recordings: \(summary.recordings)")
         print("Modified: \(Format.local(summary.modified))")
         if let p = summary.problem { print("Problem:  \(p)") }
         print("\nRevisions (\(history.count)):")
