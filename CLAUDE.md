@@ -192,6 +192,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   device copy to --domain-type appDataContainer`). With `xcrun simctl launch`
   prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
   autosaves.
+- App Store screenshots (`scripts/screenshots.sh`, `docs/appstore/screenshots.md`):
+  `SEMPERE_DEMO=1` builds a synthetic vault in code (`DemoVault`,
+  `DemoHandwriting`, DEBUG only, Linux-typecheckable like the other non-UI
+  logic) and opens it; `SEMPERE_DEMO_*` pick note, sidebar, locked state and
+  the paper picker. The `SempereScreenshots` scheme runs `SempereAppUITests`
+  (not part of `SempereApp`'s test action, so `scripts/app.sh test` never
+  builds it); CI runs it only by dispatch (`-f screenshots=true`). Never put
+  real notes in a demo.
 - `PKCanvasView` inverts ink colours in dark mode; the canvas forces
   `.light` because ink colours are stored as drawn on (light) paper.
 - Vaults are one item in Files: `SempereInfo.plist` (referenced by `INFOPLIST_FILE`,
