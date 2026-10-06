@@ -10,6 +10,10 @@ public enum NoteLogError: Error, Hashable, Sendable {
     case conflictingRevisions(device: DeviceID, seq: Int)
     /// A delta was required but something else was given.
     case notADelta(RevisionName)
+    /// The revision holds attachments (format.md §8), which this build reads
+    /// but does not merge yet (task A1): writing a snapshot of it would drop
+    /// them, so none is written.
+    case attachmentsNotMerged(RevisionName)
 }
 
 // MARK: - File names

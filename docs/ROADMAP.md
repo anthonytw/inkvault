@@ -27,7 +27,8 @@ working state.
 | Vault | History and restore points | ✅ |
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
-| Vault | Attachment model + merge (A0, A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
+| Vault | Attachment model types and ops (A0) | 🔀 #47 |
+| Vault | Attachment merge (A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |

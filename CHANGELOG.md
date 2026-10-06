@@ -7,6 +7,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [Unreleased]
 
+### Added
+
+- Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
+  unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
+  holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
+  `snapshot` and `compact` refuse a note that has them rather than drop them.
+
 ### Changed
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
