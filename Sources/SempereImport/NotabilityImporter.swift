@@ -189,6 +189,10 @@ public enum NotabilityImporter {
 
     /// US letter width in points, the target of `scaleToLetterWidth`.
     public static let letterWidth = 612.0
+    /// Blank sheets kept at most when a note too long for one page is cut
+    /// into pages (`convert`): the page count follows the content, not how far
+    /// down a stray point lies.
+    public static let maxBlankSheets = 64
 
     /// The vault note id for a Notability note: a name-based UUID
     /// (`UUID.derived(from:)`) of `"sempere-notability:" + uuidKey`, so a
@@ -318,7 +322,17 @@ public enum NotabilityImporter {
                 n += 1
                 return UUID.derived(from: key + ":sheet:\(n)")
             }
-            state.pages = edit.pages.map { p in
+            // A stray point far below the rest would otherwise become hundreds of blank sheets: work
+            // set by the extent the input claims, not its size (format.md §9). Past `maxBlankSheets`
+            // blank sheets, the rest are left out (closing those gaps); the first page always stays.
+            var blank = 0
+            state.pages = edit.pages.enumerated().compactMap { index, p in
+                let empty = p.strokes.isEmpty && p.items.isEmpty
+                    && (p.recognition.map { $0.text.isEmpty && $0.words.isEmpty } ?? true)
+                if empty, index > 0 {
+                    blank += 1
+                    if blank > maxBlankSheets { return nil }
+                }
                 var p = p
                 p.parent = nil
                 p.strokes = p.strokes.map { var s = $0; s.parent = nil; return s }

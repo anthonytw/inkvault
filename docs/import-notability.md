@@ -490,6 +490,9 @@ one `pdfPage` item in the background layer (`0`):
   infinite page: it is cut into pages of its page height, as `sempere notes
   layout paged` does (`format.md` §5.4.3), with ids still derived from the
   note, so it can be exported. Shorter notes keep the one infinite page.
+  At most 64 blank pages are kept (`NotabilityImporter.maxBlankSheets`):
+  further blank ones are left out, so a stray point far down the page cannot
+  turn a small note into thousands of empty pages.
 
 `PDFFile.highlights` (always empty in the samples) are counted in
 `dropped.pdfHighlights`. A `TemplatePDF:<uuid>` paper uses a PDF under `PDFs/`
