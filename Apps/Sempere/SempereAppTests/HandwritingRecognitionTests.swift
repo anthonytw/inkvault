@@ -275,11 +275,20 @@ struct VisionRecognitionTests {
         let region = drawing.bounds.insetBy(dx: -24, dy: -24)
         let image = try #require(VisionPageRecognizer.render(drawing, region: region, scale: 1))
         #expect(abs(image.width - Int(region.width.rounded())) <= 1 && abs(image.height - Int(region.height.rounded())) <= 1)
-        let data = try #require(image.dataProvider?.data as Data?)
-        let bytes = [UInt8](data)
+        // Read the pixels back in a known layout: the renderer's own may be wide-colour or float.
+        let w = image.width, h = image.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let drew = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        #expect(drew)
         let dark = stride(from: 0, to: bytes.count - 3, by: 4).filter { bytes[$0] < 80 && bytes[$0 + 1] < 80 }.count
         let white = stride(from: 0, to: bytes.count - 3, by: 4).filter { bytes[$0] > 240 && bytes[$0 + 1] > 240 }.count
         #expect(dark > 20)
-        #expect(white > bytes.count / 4 / 2)
+        #expect(white > w * h / 2)
     }
 }
