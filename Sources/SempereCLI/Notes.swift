@@ -5,9 +5,10 @@ import Sempere
 struct NotesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notes",
-        abstract: "List, create and edit notes, show their history and restore earlier revisions.",
+        abstract: "List, create and edit notes, switch page layout, show their history and restore earlier revisions.",
         subcommands: [NotesList.self, NotesShow.self, NotesNew.self, NotesRename.self, NotesTag.self, NotesMove.self,
-                      NotesPaper.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self, NotesRestore.self]
+                      NotesPaper.self, NotesLayout.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
+                      NotesRestore.self]
     )
 }
 
@@ -112,5 +113,82 @@ struct NotesShow: ParsableCommand {
             [h.name.kind.rawValue, Format.local(h.wall), h.name.filename,
              h.error.map { "UNREADABLE: \($0)" } ?? (output.verbose ? (h.app ?? "") : "")]
         }))
+    }
+}
+
+enum NoteLayout: String, ExpressibleByArgument, CaseIterable {
+    case paged, pageless
+}
+
+struct NotesLayout: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "layout",
+        abstract: "Switch a note between paged and pageless by writing one new delta.",
+        discussion: """
+            pageless joins the pages into one infinite page (sheet height = the page height);
+            paged cuts an infinite page into pages of its sheet height (breakHeight, default
+            width x 11/8.5). No ink is deleted and none moves relative to its sheet: strokes that
+            change page are re-added under new ids with `parent` naming the old ones (format.md
+            §5.4.3). Nothing is written when the note already has the layout (a pageless note with
+            several pages, left by concurrent edits, is joined), or with --dry-run.
+            The device id and clock come from $XDG_STATE_HOME/sempere/device.json.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: "paged or pageless.")
+    var layout: NoteLayout
+
+    @Flag(name: .customLong("dry-run"), help: "Only say what would change.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let layout = self.layout
+        func switched(_ state: NoteState) -> LayoutEdit {
+            layout == .paged
+                ? NoteOps.makePaged(pages: state.pages, pageSize: state.meta.pageSize)
+                : NoteOps.makePageless(pages: state.pages, pageSize: state.meta.pageSize)
+        }
+        // The switch is computed from the note as it is on disk when the delta is written.
+        var before = 0
+        var edit = LayoutEdit(ops: [], pages: [], pageSize: .letter)
+        var file: String?
+        if dryRun {
+            let state = try vault.reconstruct(try vault.loadNote(id))
+            try requireLive(state)
+            before = state.pages.count
+            edit = switched(state)
+        } else {
+            file = try editNote(vault, id) { current in
+                try requireLive(current)
+                before = current.pages.count
+                edit = switched(current)
+                return edit.ops
+            }?.name.filename
+        }
+        let noteName = id.uuidString.lowercased()
+        if output.json {
+            struct Out: Encodable {
+                var note: String; var layout: String; var dryRun: Bool; var changed: Bool
+                var pagesBefore: Int; var pagesAfter: Int; var file: String?
+            }
+            try output.emitJSON(Out(note: noteName, layout: layout.rawValue, dryRun: dryRun, changed: !edit.ops.isEmpty,
+                                    pagesBefore: before, pagesAfter: edit.pages.count, file: file))
+            return
+        }
+        guard !edit.ops.isEmpty else {
+            output.info("\(noteName) is already \(layout.rawValue); nothing to write.")
+            return
+        }
+        let what = "\(before) page(s) -> \(edit.pages.count) page(s)"
+        print("\(dryRun ? "would make" : "made") \(noteName) \(layout.rawValue): \(what)")
+        if let file { output.info("Wrote \(noteName)/\(file)") }
     }
 }

@@ -9,6 +9,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- iPhone app, as a reader (`docs/iphone.md`): the app target now also runs on iPhone. The vault,
+  its notebooks and tags, the note list and the note are a stack; a note opens for reading (pan,
+  zoom, page bar) and the pencil button switches on light finger annotation. Search, export,
+  version history and Face ID unlock work as on the iPad. The iPad and the Mac are unchanged.
+  iPhone 6.9" App Store screenshots: `scripts/screenshots.sh iphone`.
+- **Paged and pageless notes** (`docs/format.md` §5.4.3, #52): a note has fixed-size pages
+  or one infinite page, and switches between them without deleting or moving ink
+  (`sempere notes layout ID paged|pageless`; in the app, the Page Layout menu). In the app,
+  paged notes add a page after the current one or at the end, delete (with undo),
+  duplicate, and reorder pages by dragging in a thumbnail strip; each gesture is one delta.
+  The CLI has the same gestures: `sempere pages add --after`, `move`, `delete`, `duplicate`.
+  Recognised text that moves with its ink keeps its `basis`, so it is not read again (or is,
+  when it was stale).
 - CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
   (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
   parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);
@@ -72,6 +85,10 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Changed
 
+- Exports cut pageless pages at gaps in the ink near each sheet height instead of through
+  lines of handwriting (`export --breaks gaps`, the default; `--breaks fixed` keeps the old
+  cuts). Ink that a concurrent edit left below a fixed-size page is exported on an extra page
+  instead of being dropped.
 - `sempere notes list --notebook PATH` now lists the notes in that notebook and below it, comparing
   canonical paths by segment as the app's sidebar does (it compared raw names before).
 

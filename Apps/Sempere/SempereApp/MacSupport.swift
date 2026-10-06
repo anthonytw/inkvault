@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Where the app is running. The Mac behaviour (menus, windows, pointer input)
 /// is gated on this at run time, or on `#if targetEnvironment(macCatalyst)`
@@ -6,6 +7,8 @@ import Foundation
 enum Platform {
     /// True for the Mac Catalyst build.
     static var isMac: Bool { ProcessInfo.processInfo.isMacCatalystApp }
+    /// True on an iPhone: the reader layouts (`PhoneLayout.swift`) apply. Never true on an iPad or a Mac.
+    @MainActor static var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 }
 
 /// Zoom steps of the canvas, relative to the fitted page width (1 = the page

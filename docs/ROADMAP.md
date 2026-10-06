@@ -34,6 +34,7 @@ working state.
 | Vault | Attachment merge (A1) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
+| Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | 🔀 #52 |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
 | Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | ✅ |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | 🔀 #62 |
@@ -53,9 +54,10 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Feature | Linux | macOS |
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
+| `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
-| Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | 🔀 this PR | 🔀 this PR |
-| Pages: delete, move/reorder, duplicate; paged/pageless (`notes layout` in #52) | 📋 after #52 | 📋 after #52 |
+| Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
+| Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
 | `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
@@ -82,7 +84,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | PencilKit drawing, tool palette (full / compact), scrolling past the end, Keep Screen On | ✅ |
 | Canvas | Object eraser by default, eraser sizes and cursor | 🔀 #24 |
 | Canvas | Visual paper picker (line width, spacing) | 🔀 #28 |
-| Canvas | Pages vs pageless (reorder, delete pages) | 📋 round 2 |
+| Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | 🔀 #52 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export 🔀 #56 |
@@ -122,7 +124,7 @@ behaviour and testing on a real Mac.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| iPhone app as a reader | 💭 next after the current app work | Same SwiftUI target with the iPhone device family added. Reading, search and share, with light finger annotation. Needs iPhone layout passes and iPhone App Store screenshots. |
+| iPhone app as a reader | 🔀 #65 (`docs/iphone.md`) | Same SwiftUI target, device family 1,2. Compact stack (vault, notebooks and tags, list, note); read-first note view (pan, zoom, page bar, finger annotation behind a pencil button); search, export, history and Face ID unlock shared with the iPad; tests at iPhone sizes run on an iPhone simulator in the `app` job; 6.9" screenshots (`scripts/screenshots.sh iphone`). Not yet tried on a physical iPhone. |
 | Web viewer with in-browser decryption | 🔀 #63 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Later: attachments (with A1), passphrase-wrapped keys, a passkey. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
 | WebDAV mirror for the viewer | 📋 with the web viewer (#63 documents the Caddy + `sync webdav` setup; static hosts use `sempere vault index`) | A WebDAV share on the NAS, plus a macOS `launchd` agent running `sempere sync webdav` every few minutes from the iCloud vault. The CLI already does the sync; the setup lives in the sysadmin repo. Decided 2026-10-06: wait until the viewer exists. |
 | WebDAV as a vault location in the app | 💭 low priority | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |

@@ -20,7 +20,7 @@ enum CloudVault {
             case let .timedOut(progress, seconds):
                 return "iCloud Drive did not deliver the vault's files: \(progress.total - progress.downloaded) of "
                     + "\(progress.total) are still not downloaded after \(seconds) seconds without progress. "
-                    + "Check that this iPad is online and signed in to iCloud Drive, then try again."
+                    + "Check that this device is online and signed in to iCloud Drive, then try again."
             case let .failed(name, reason):
                 return "iCloud Drive could not download “\(name)”: \(reason)"
             case let .noteNotLocal(missing, total) where total == 0:

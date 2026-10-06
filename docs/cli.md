@@ -422,6 +422,7 @@ sempere notes delete ID|TITLE
 sempere notes undelete ID|TITLE
 sempere notes history ID|TITLE
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
+sempere notes layout ID|TITLE paged|pageless [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
@@ -462,6 +463,21 @@ an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 `changed`, `file` (the delta written, if any) and `changes` (`pagesRemoved`,
 `pagesRestored`, `strokesRemoved`, `strokesRestored`, `pageOrderChanges`,
 `recognitionChanges`, `metaFields`, `deleted`).
+
+`layout` switches a note between paged (fixed-size pages) and pageless (one
+infinite page) by writing **one new delta** (`docs/format.md` §5.4.3).
+`pageless` joins the pages into the first one, each page's ink shifted down by
+its offset, with the old page height as the sheet height (`breakHeight`);
+`paged` cuts each infinite page into pages of its sheet height, a stroke going
+to the sheet that holds its vertical centre. No ink is deleted and none moves
+relative to its sheet; strokes that change page are re-added under new ids with
+`parent` naming the old ones, so `pageless` then `paged` gives the pages back.
+The switch is computed from the note as it is on disk when the delta is
+written. Nothing is written when the note already has the layout (a pageless
+note with several pages, left by concurrent edits, is joined), or with
+`--dry-run`. A deleted note is refused (exit 1).
+The device id and clock are this machine's, as for `snapshot`. `--json` emits
+`note`, `layout`, `dryRun`, `changed`, `pagesBefore`, `pagesAfter` and `file`.
 
 #### Editing notes
 
@@ -556,7 +572,10 @@ that carry it. Deleted notes do not count. `--json` gives `tag` and `notes`.
 
 ```
 sempere pages list ID|TITLE
-sempere pages add ID|TITLE [--count N]
+sempere pages add ID|TITLE [--count N] [--after PAGE]
+sempere pages move ID|TITLE PAGE --to PAGE
+sempere pages delete ID|TITLE PAGE
+sempere pages duplicate ID|TITLE PAGE
 ```
 
 `list` prints each page's number, id, stroke count, paper (its own, or the
@@ -564,9 +583,19 @@ note's marked `*`) and whether it has recognised text. `--json` gives `note`,
 `paper` and `pageSize` (the note's) and `pages` (`page`, `id`, `strokes`,
 `paper` when the page has its own, `recognized`).
 
-`add` appends `N` blank pages (1–100, default 1) after the last page, in one
-delta, as the app's Add Page; they follow the note's paper. A deleted note is
-refused (exit 1). `--json` as for the editing commands.
+`add` appends `N` blank pages (1–100, default 1) after the last page, or
+after page `--after` (0: before the first), in one delta, as the app's Add
+Page; they follow the note's paper.
+
+The page gestures of the app (`docs/format.md` §5.4.3), one delta each, with
+1-based page numbers as `list` prints them: `move` puts a page at position
+`--to` (one `setPageOrder`; nothing when it is already there), `delete`
+removes a page and its ink (`removePage`; a note keeps at least one page,
+and `notes restore --to` undoes it), `duplicate` copies a page's ink, items,
+paper and recognised text right after it under new ids.
+
+A deleted note is refused (exit 1), as is a page number out of range.
+`--json` as for the editing commands.
 
 ### Import
 
@@ -633,7 +662,7 @@ in parallel and without stroke geometry, as for `notes list`.
 
 ```
 sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
-                [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
+                [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION] [--breaks gaps|fixed]
                 [--notebook NAME] [--images none|png] [--clean]
                 [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
                 [--assets DIR] [--keep-image-metadata]
@@ -643,14 +672,22 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
   revision, named as for `notes restore --to`.
 
 - `pdf`: one file per note; `--merge` puts every selected note in one PDF
-  (`--out` is then the file).
-- `svg`: one file per page. A single note gives `<name>-p001.svg`,
+  (`--out` is then the file). A paged note gives one PDF page per page (plus,
+  rarely, pages for ink a concurrent edit left below a page). A pageless page
+  is cut into pages of its sheet height (`breakHeight`, else width × 11/8.5);
+  with `--breaks gaps` (the default) a cut that would cross ink moves up, by
+  at most a quarter page, to the top of that ink, so lines of handwriting are
+  not cut in half; `--breaks fixed` cuts at every sheet height
+  (`docs/format.md` §5.4.3, "Exporting"). Cornell paper is always cut at
+  sheets.
+- `svg`: one file per page (a pageless page is one tall image). A single note gives `<name>-p001.svg`,
   `<name>-p002.svg`, ... in the output directory; with `--all` each note gets a
   subdirectory, `<name>/p001.svg`, `<name>/p002.svg`, ...
 - `png`: one RGBA8 image per page, written like `svg` (`<name>-p001.png`, ...,
   or `<name>/p001.png` with `--all`). Pure Swift, no system imaging library.
   Paper, strokes and tool opacity match the PDF; edges are anti-aliased. An
-  infinite page is split into images exactly as it is split into PDF pages, so
+  infinite page is split into images exactly as it is split into PDF pages
+  (`--breaks` applies), so
   numbering counts output pages. `--dpi N` sets the resolution (default 144,
   i.e. 2x the 72 pt/inch page; `0 < N <= 2400`, else exit 2). An image over
   40 million pixels (a letter page above about 620 dpi) is an error naming the
