@@ -78,7 +78,61 @@ struct RecentVault: Codable, Identifiable, Hashable, Sendable {
     var lastOpened: Date
 }
 
+/// Whether the app may use a folder it was given access to (a picked folder,
+/// or a bookmark resolved at launch). In a sandboxed Mac build a bookmark that
+/// does not carry the sandbox extension resolves to a URL that looks fine and
+/// is refused on first use; `check` finds that out before the vault is opened,
+/// so the error names the folder and the way out (choose it again) instead of
+/// a file error from the middle of `Vault.open`.
+enum FolderAccess {
+    enum Problem: Error, Equatable, CustomStringConvertible {
+        /// The system refuses to list the folder. `scoped` is what
+        /// `startAccessingSecurityScopedResource()` returned for it.
+        case noAccess(name: String, scoped: Bool)
+
+        var description: String {
+            switch self {
+            case .noAccess(let name, let scoped):
+                return "Sempere has no access to “\(name)” any more"
+                    + (scoped ? "." : " (the saved permission did not come back).")
+                    + " The system only keeps access to folders you choose yourself."
+            }
+        }
+    }
+
+    /// Whether `error` is the system refusing access (permissions, the
+    /// sandbox), as opposed to a missing or damaged folder.
+    static func isPermissionDenied(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(ns.code) {
+            return true
+        }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(EPERM) || ns.code == Int(EACCES) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error, (underlying as NSError) != ns {
+            return isPermissionDenied(underlying)
+        }
+        return false
+    }
+
+    /// Throws `Problem.noAccess` when the folder at `url` cannot be listed for
+    /// lack of permission. Other failures (not there, not a folder) are left
+    /// to opening the vault, which reports them.
+    static func check(_ url: URL, scoped: Bool, fileManager fm: FileManager = .default) throws {
+        do {
+            _ = try fm.contentsOfDirectory(atPath: url.path)
+        } catch {
+            if isPermissionDenied(error) {
+                throw Problem.noAccess(name: VaultLibrary.displayName(of: url), scoped: scoped)
+            }
+        }
+    }
+}
+
 /// Security-scoped bookmarks of vault folders.
+///
+/// Mac Catalyst has no `.withSecurityScope` (AppKit only), so bookmarks are
+/// made with plain options, as on iOS. `docs/io.md` "Saved folder access"
+/// says what is and is not verified about that in a sandboxed Mac build.
 enum VaultBookmark {
     struct Resolved {
         var url: URL
