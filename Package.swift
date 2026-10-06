@@ -62,7 +62,7 @@ let package = Package(
         .testTarget(name: "SempereTests", dependencies: ["Sempere", "FuzzSupport"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "FuzzSupport"],
-                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py"],
+                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "SempereImportTests",
                     dependencies: ["SempereImport", "Sempere", "SempereRender", "Age", "CZlib", "FuzzSupport"]),
