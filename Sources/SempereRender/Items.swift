@@ -126,6 +126,10 @@ public struct ExportReport: Sendable, Equatable {
 
 // MARK: - Image sources
 
+/// The blob source of each note, by note id: a reference resolves only in
+/// its own note (format.md §8.1.1), so multi-note exports take one per note.
+public typealias BlobSources = @Sendable (UUID) -> (any BlobSource)?
+
 /// Decodes image formats SempereRender cannot (HEIC): the app implements it
 /// with ImageIO. Return nil for a type it does not handle either.
 public protocol ImageDecoding: Sendable {

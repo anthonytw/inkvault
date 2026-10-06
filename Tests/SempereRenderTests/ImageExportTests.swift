@@ -1,5 +1,6 @@
 import Foundation
-import Sempere
+import Age
+@testable import Sempere
 import XCTest
 
 @testable import SempereRender
@@ -454,5 +455,41 @@ final class ImageExportTests: XCTestCase {
             XCTAssertEqual(q.x, 11, accuracy: 1e-9)
             XCTAssertEqual(q.y, 17, accuracy: 1e-9)
         }
+    }
+}
+
+/// Images read from a real vault's blob store (format.md §8.1) into exports.
+final class VaultImageExportTests: XCTestCase {
+    func testVaultBlobsDrawAndBadOnesArePlaceholders() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sempere-vimg-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = try NativeIdentity.generate(.postQuantum)
+        let vault = try Vault.create(at: dir.appendingPathComponent("V.sempere"), recipients: [id.recipient], identities: [id])
+        let note = UUID(), other = UUID()
+        let jpeg = try ImageCodecTests.fixture("metadata.jpg")
+        let ref = try vault.writeBlobForTesting(note: note, jpeg, type: "image/jpeg")
+        let elsewhere = try vault.writeBlobForTesting(note: other, try ImageCodecTests.fixture("rgb8.png"), type: "image/png")
+        let state = NoteState(meta: NoteMeta(title: "Photo", created: Date(timeIntervalSince1970: 0),
+                                             pageSize: PageSize(width: 300, height: 300)),
+                              pages: [Page(order: "a", items: [
+                                  Item.image(blob: ref, pixelSize: Size(w: 61, h: 45), frame: Rect(x: 10, y: 10, w: 122, h: 90), z: "a"),
+                                  // A reference to another note's blob does not resolve here (§8.1.1).
+                                  Item.image(blob: elsewhere, pixelSize: Size(w: 23, h: 17), frame: Rect(x: 10, y: 150, w: 46, h: 34), z: "b"),
+                              ])])
+        let opened = try Vault.open(at: vault.url, identities: [id])
+        var report = ExportReport()
+        let pdf = try PDFWriter.render(note: state, options: RenderOptions(blobs: opened.blobSource(note: note)), report: &report)
+        XCTAssertNotNil(ImageExportTests.range(of: try JPEG.stripMetadata(jpeg), in: pdf))
+        XCTAssertFalse(T.contains(pdf, "SyntheticCam"))
+        XCTAssertEqual(report.placeholders, 1)
+        XCTAssertTrue(report.issues[0].message.contains("missing"), report.issues[0].message)
+        // Merged PDFs take each note's own blobs.
+        var other2 = state
+        other2.pages = [Page(order: "a", items: [Item.image(blob: elsewhere, pixelSize: Size(w: 23, h: 17),
+                                                            frame: Rect(x: 10, y: 10, w: 46, h: 34), z: "a")])]
+        report = ExportReport()
+        _ = try PDFWriter.render(notes: [state, other2], options: RenderOptions(),
+                                 blobs: [opened.blobSource(note: note), opened.blobSource(note: other)], report: &report)
+        XCTAssertEqual(report.issues.map(\.note), [0], "only the first note's cross-note reference fails")
     }
 }

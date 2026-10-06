@@ -63,6 +63,8 @@ public struct ShareResult: Sendable {
     public var failures: [String]
     /// Number of notes in `items`.
     public var exported: Int
+    /// Placeholders and warnings, as `<id>: <issue>` (images that could not be drawn).
+    public var issues: [String] = []
 }
 
 /// Renders notes into a scratch directory for sharing. One engine for the app's
@@ -92,13 +94,22 @@ public enum ShareExport {
     ///   - progress: `(done, total)` before each note and once at the end.
     /// - Throws: `ShareExportError`, `CancellationError`, `TreeExportError` or a file error when `scratch` cannot be written.
     public static func run(_ notes: [(NoteSummary, NoteState)], options: ShareOptions, into scratch: URL,
-                           vaultSource: String, progress: (Int, Int) -> Void = { _, _ in },
+                           vaultSource: String, blobs: BlobSources? = nil, progress: (Int, Int) -> Void = { _, _ in },
                            errorText: @escaping @Sendable (Error) -> String = { "\($0)" }) throws -> ShareResult {
         let needsDPI = options.format == .png || (options.format == .markdown && options.markdownImages == .png)
         if needsDPI && !options.isValid { throw ShareExportError.invalidResolution(options.dpi) }
         let fm = FileManager.default
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
         let render = RenderOptions(paper: options.paper)
+        func renderOptions(_ s: NoteSummary) -> RenderOptions {
+            var r = RenderOptions(paper: options.paper)
+            r.blobs = blobs?(s.id)
+            return r
+        }
+        let issueLog = IssueLog()
+        func note(_ s: NoteSummary, _ report: ExportReport) {
+            for i in report.issues { issueLog.add("\(s.id.uuidString.lowercased()): \(i)") }
+        }
         var items: [URL] = []
         var failures: [String] = []
         var exported = 0
@@ -119,7 +130,9 @@ public enum ShareExport {
                 try Task.checkCancellation()
                 do {
                     let info = Self.info(s, state, source: vaultSource)
-                    let svgs = try SVGWriter.render(note: state, options: render)
+                    var report = ExportReport()
+                    let svgs = try SVGWriter.export(note: state, options: renderOptions(s), report: &report).pages
+                    note(s, report)
                     let html = HTMLExport.notePage(info: info, state: state, svgs: svgs, indexHref: nil)
                     let url = scratch.appendingPathComponent(name(s, state) + ".html")
                     try write(Data(html.utf8), url)
@@ -135,8 +148,10 @@ public enum ShareExport {
             let root = scratch.appendingPathComponent(
                 options.format == .markdown && notes.count == 1 ? name(notes[0].0, notes[0].1) : treeFolderName,
                 isDirectory: true)
-            let tree = TreeExporter(root: root, format: format, images: options.markdownImages, options: render,
+            var tree = TreeExporter(root: root, format: format, images: options.markdownImages, options: render,
                                     png: PNGOptions(dpi: options.dpi), source: "sempere", errorText: errorText)
+            tree.blobs = blobs
+            tree.onIssue = { id, issue in issueLog.add("\(id.uuidString.lowercased()): \(issue)") }
             let r = try tree.run(notes, protected: [], vaultSource: vaultSource, onNote: progress)
             // A one-off share keeps no manifest: it only serves `--clean` and re-runs into the same folder.
             try? fm.removeItem(at: root.appendingPathComponent(".sempere-export-\(format.rawValue).json"))
@@ -147,12 +162,14 @@ public enum ShareExport {
             // A note that cannot be rendered is left out and reported, as in
             // the other formats, instead of failing the whole document.
             var good: [NoteState] = []
+            var goodBlobs: [(any BlobSource)?] = []
             for (n, (s, state)) in notes.enumerated() {
                 try Task.checkCancellation()
                 progress(n, notes.count)
                 do {
                     for page in state.pages { _ = try PreparedPage(page: page, meta: state.meta, options: render) }
                     good.append(state)
+                    goodBlobs.append(blobs?(s.id))
                 } catch is CancellationError { throw CancellationError() } catch {
                     failures.append("\(s.id.uuidString.lowercased()): \(errorText(error))")
                 }
@@ -160,7 +177,9 @@ public enum ShareExport {
             try Task.checkCancellation()
             if !good.isEmpty {
                 let url = scratch.appendingPathComponent(mergedPDFName)
-                try write(try PDFWriter.render(notes: good, options: render), url)
+                var report = ExportReport()
+                try write(try PDFWriter.render(notes: good, options: render, blobs: goodBlobs, report: &report), url)
+                for i in report.issues { issueLog.add("\(i)") }
                 items = [url]
                 exported = good.count
             }
@@ -172,10 +191,14 @@ public enum ShareExport {
                 let stem = name(s, state)
                 do {
                     var files: [(URL, Data)] = []
+                    var report = ExportReport()
+                    defer { note(s, report) }
                     if options.format == .pdf {
-                        files = [(scratch.appendingPathComponent(stem + ".pdf"), try PDFWriter.render(note: state, options: render))]
+                        files = [(scratch.appendingPathComponent(stem + ".pdf"),
+                                  try PDFWriter.render(note: state, options: renderOptions(s), report: &report))]
                     } else {
-                        let pages = try PNGWriter.render(note: state, options: render, png: PNGOptions(dpi: options.dpi))
+                        let pages = try PNGWriter.render(note: state, options: renderOptions(s), png: PNGOptions(dpi: options.dpi),
+                                                         report: &report)
                         for (i, data) in pages.enumerated() {
                             let rel = notes.count > 1 ? stem + String(format: "/p%03d.png", i + 1)
                                                       : stem + String(format: "-p%03d.png", i + 1)
@@ -195,7 +218,7 @@ public enum ShareExport {
             }
             progress(notes.count, notes.count)
         }
-        return ShareResult(items: items, failures: failures, exported: exported)
+        return ShareResult(items: items, failures: failures, exported: exported, issues: issueLog.lines)
     }
 
     static func info(_ s: NoteSummary, _ state: NoteState, source: String) -> ExportNoteInfo {
@@ -203,4 +226,13 @@ public enum ShareExport {
                        favorite: state.meta.favorite, created: state.meta.created, modified: s.modified,
                        pages: state.pages.count, source: source)
     }
+}
+
+/// Issue lines collected from the renderers (and from `TreeExporter`'s
+/// callback, which must be `@Sendable`).
+final class IssueLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var collected: [String] = []
+    func add(_ line: String) { lock.lock(); collected.append(line); lock.unlock() }
+    var lines: [String] { lock.lock(); defer { lock.unlock() }; return collected }
 }

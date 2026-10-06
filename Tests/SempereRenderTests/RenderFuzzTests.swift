@@ -80,3 +80,111 @@ final class RenderFuzzTests: XCTestCase {
         for f in report.failures { XCTFail("\(f)") }
     }
 }
+
+/// Seeded mutation fuzzing of the image decoders and of image items in the
+/// three writers (docs/attachments.md §14, C1): every input decodes, strips
+/// or exports, or fails with `ImageError`; stripping metadata never changes
+/// the decoded pixels; nothing traps, hangs or allocates past the budget.
+final class ImageFuzzTests: XCTestCase {
+    /// A small pixel cap keeps each case's memory far under the harness budget.
+    static let maxPixels = 4_000_000
+
+    static func typed(_ body: () throws -> String?) -> String? {
+        do { return try body() } catch is ImageError {
+        } catch { return "untyped error \(type(of: error)): \(error)" }
+        return nil
+    }
+
+    static func fixtures(_ ext: String) throws -> [Data] {
+        let dir = try T.fixtureURL("images")
+        return try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(ext) }.sorted()
+            .map { try Data(contentsOf: dir.appendingPathComponent($0)) }
+    }
+
+    /// Headers that claim more than their bytes hold, and short hostile streams.
+    static func generateJPEG(_ rng: inout FuzzRNG) -> Data {
+        let w = rng.pick([1, 8, 9, 65535, 30000]), h = rng.pick([1, 8, 16, 65535, 30000])
+        let n = rng.pick([1, 3, 4])
+        var d: [UInt8] = [0xFF, 0xD8]
+        if rng.oneIn(2) { d += [0xFF, 0xDD, 0, 4, 0, UInt8(rng.below(4))] }
+        d += [0xFF, rng.pick([0xC0, 0xC1, 0xC2]), 0, UInt8(8 + 3 * n), 8, UInt8(h >> 8), UInt8(h & 255),
+              UInt8(w >> 8), UInt8(w & 255), UInt8(n)]
+        for i in 0..<n { d += [UInt8(i + 1), UInt8(rng.pick([0x11, 0x22, 0x41, 0x14, 0x44])), 0] }
+        d += [0xFF, 0xDB, 0, 67, 0] + [UInt8](repeating: UInt8(1 + rng.below(255)), count: 64)
+        d += [0xFF, 0xC4, 0, 20, UInt8(rng.pick([0x00, 0x10]))] + [1] + [UInt8](repeating: 0, count: 15) + [0]
+        d += [0xFF, 0xDA, 0, UInt8(6 + 2 * n), UInt8(n)]
+        for i in 0..<n { d += [UInt8(i + 1), 0] }
+        d += [UInt8(rng.below(64)), UInt8(rng.below(64)), UInt8(rng.below(256))]
+        d += (0..<rng.below(64)).map { _ in UInt8(rng.below(256)) }
+        if rng.oneIn(2) { d += [0xFF, 0xD9] }
+        return Data(d)
+    }
+
+    func testFuzzJPEG() throws {
+        let report = Fuzz.run("jpeg", seeds: try Self.fixtures(".jpg"), quick: 300, maxSize: 64 << 10,
+                              generate: Self.generateJPEG) { input in
+            Self.typed {
+                _ = try? JPEG.info(input)
+                let full = try? JPEG.decode(input, maxPixels: Self.maxPixels)
+                for s in [2, 8] { _ = try? JPEG.decode(input, scale: s, maxPixels: Self.maxPixels) }
+                let stripped = try JPEG.stripMetadata(input)
+                if let full {
+                    let again = try JPEG.decode(stripped, maxPixels: Self.maxPixels)
+                    if again != full { return "stripping metadata changed the decoded image" }
+                }
+                return nil
+            }
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+
+    func testFuzzPNG() throws {
+        let report = Fuzz.run("png", seeds: try Self.fixtures(".png"), quick: 400, maxSize: 64 << 10) { input in
+            Self.typed {
+                let full = try? PNG.decode(input, maxPixels: Self.maxPixels)
+                let stripped = try PNG.stripMetadata(input)
+                if let full, try PNG.decode(stripped, maxPixels: Self.maxPixels) != full {
+                    return "stripping metadata changed the decoded image"
+                }
+                return nil
+            }
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+
+    /// One mutated image blob placed by mutated items in all three writers.
+    func testFuzzImageExport() throws {
+        let seeds = try Array(Self.fixtures(".jpg").prefix(4)) + Array(Self.fixtures(".png").prefix(6))
+        let report = Fuzz.run("image-export", seeds: seeds, quick: 120, maxSize: 64 << 10) { input in
+            var rng = FuzzRNG(seed: UInt64(input.count) &* 0x9E37_79B9)
+            let ref = BlobRef(content: input, type: rng.pick(["image/jpeg", "image/png", "image/heic", "image/gif"]))
+            // Extreme magnification, slivers and turns. (Frames as tall as the
+            // 200 000 pt extent limit are legal but make hundreds of output
+            // images; UntrustedRenderTests covers that extent with strokes.)
+            let frames = [Rect(x: 10, y: 10, w: 100, h: 80), Rect(x: -50, y: 290, w: 1e-3, h: 400),
+                          Rect(x: 0, y: 0, w: 2_000, h: 3)]
+            let items = (0..<3).map { _ in
+                Item(kind: .image, layer: ItemLayer(rawValue: rng.pick([0, 100, 7])), frame: rng.pick(frames),
+                     rotation: rng.pick([nil, 0, 45, 1e9, -0.001]), z: "a", blob: ref,
+                     pixelSize: Size(w: 1, h: 1), orientation: rng.pick([nil, 1, 5, 8, 9]),
+                     crop: rng.pick([nil, Rect(x: 1, y: 1, w: 2, h: 2), Rect(x: -1e9, y: 0, w: 1e-3, h: 1e12)]))
+            }
+            let note = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0),
+                                                pageSize: PageSize(width: 300, height: 300, infinite: rng.oneIn(2))),
+                                 pages: [Page(order: "a", items: items)])
+            let options = RenderOptions(blobs: MemoryBlobSource([input]), maxImagePixels: Self.maxPixels)
+            do {
+                var r = ExportReport()
+                _ = try PNGWriter.render(note: note, options: options, png: PNGOptions(scale: 0.5, maxPixels: 1_000_000), report: &r)
+                _ = try SVGWriter.export(note: note, options: options, report: &r)
+                _ = try PDFWriter.render(note: note, options: options, report: &r)
+            } catch is RenderError {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+}

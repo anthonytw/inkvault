@@ -91,6 +91,10 @@ public struct TreeExporter: Sendable {
     public var notebookFilter: String?
     /// How a note's failure is worded in `run`'s `errors`.
     public var errorText: @Sendable (Error) -> String
+    /// Each note's blobs (images); nil draws blob-backed items as placeholders.
+    public var blobs: BlobSources?
+    /// Called with every placeholder or warning of a note's renderings.
+    public var onIssue: (@Sendable (UUID, ExportIssue) -> Void)?
 
     public init(root: URL, format: TreeFormat, images: ExportImages = .none, options: RenderOptions = RenderOptions(),
                 png: PNGOptions = PNGOptions(), source: String, clean: Bool = false, notebookFilter: String? = nil,
@@ -189,16 +193,23 @@ public struct TreeExporter: Sendable {
                                       notebook: state.meta.notebook, favorite: state.meta.favorite,
                                       created: state.meta.created, modified: s.modified, pages: state.pages.count,
                                       source: vaultSource)
+            var options = self.options
+            if let b = blobs?(s.id) { options.blobs = b }
+            var report = ExportReport()
+            defer { for issue in report.issues { onIssue?(s.id, issue) } }
             do {
                 var outputs: [(String, Data)] = []
                 var searchText: String?
                 switch format {
                 case .markdown:
-                    outputs.append((prefix + ".pdf", try PDFWriter.render(note: state, options: options)))
+                    outputs.append((prefix + ".pdf", try PDFWriter.render(note: state, options: options, report: &report)))
                     var pageImages: [[String]] = []
                     if images == .png {
+                        let store = ImageStore(options: options)
                         for (i, page) in state.pages.enumerated() {
-                            let data = try PNGWriter.render(page: page, meta: state.meta, options: options, png: png)
+                            var ignored = ExportReport()   // the PDF reported the same items
+                            let data = try PNGWriter.render(page: page, meta: state.meta, options: options, png: png,
+                                                            store: store, report: &ignored)
                             var names: [String] = []
                             for (k, d) in data.enumerated() {
                                 let name = String(format: "p%03d", i + 1) + (k == 0 ? "" : "-\(k + 1)") + ".png"
@@ -211,7 +222,7 @@ public struct TreeExporter: Sendable {
                     let md = MarkdownExport.note(info: info, state: state, pdfName: stem + ".pdf", pageImages: pageImages)
                     outputs.append((prefix + ".md", Data(md.utf8)))
                 case .html:
-                    let svgs = try SVGWriter.render(note: state, options: options)
+                    let svgs = try SVGWriter.export(note: state, options: options, report: &report).pages
                     let back = String(repeating: "../", count: folder.count) + "index.html"
                     let html = HTMLExport.notePage(info: info, state: state, svgs: svgs, indexHref: back)
                     outputs.append((prefix + ".html", Data(html.utf8)))

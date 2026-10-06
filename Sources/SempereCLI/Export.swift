@@ -30,6 +30,13 @@ struct ExportCommand: ParsableCommand {
             is exported with a warning. --at exports a single note as it was at that revision (a
             name from `notes history`, as for `notes restore --to`).
 
+            Images are drawn from the note's attachments. PDF embeds JPEGs as they are stored (no
+            re-encoding) and other images losslessly; SVG embeds them as data URIs, or with --assets
+            DIR writes each image once into DIR and links it. Location and camera metadata (EXIF,
+            XMP, GPS, comments) is removed from every image an export carries unless
+            --keep-image-metadata. An image that cannot be drawn (missing or damaged attachment,
+            HEIC, over 100 megapixels) becomes a crossed-out box and a warning on stderr.
+
             markdown and html write a folder tree under --out that mirrors the notebook hierarchy:
             markdown gives <name>.md (YAML front matter, the PDF, recognised text) plus the PDF,
             optionally per-page PNGs (--images png), and a README.md per folder; html gives one
@@ -72,6 +79,14 @@ struct ExportCommand: ParsableCommand {
     @Flag(name: .customLong("no-paper"), help: "Leave out the paper background and ruling.")
     var noPaper = false
 
+    @Flag(name: .customLong("keep-image-metadata"),
+          help: "Keep images' EXIF/XMP/GPS metadata in the export (removed by default).")
+    var keepImageMetadata = false
+
+    @Option(name: .long, help: ArgumentHelp("svg only: write images into this directory and link them instead of embedding.",
+                                            valueName: "dir"))
+    var assets: String?
+
     @Option(name: .long, help: ArgumentHelp("Export the note as of this revision (see `notes history`).",
                                             valueName: "revision"))
     var at: String?
@@ -88,6 +103,7 @@ struct ExportCommand: ParsableCommand {
         if clean && !tree { throw ValidationError("--clean only applies to --format markdown or html") }
         if clean && !all { throw ValidationError("--clean needs --all") }
         if notebook != nil && !all { throw ValidationError("--notebook needs --all") }
+        if assets != nil && format != .svg { throw ValidationError("--assets only applies to --format svg") }
         if format == .markdown && images == .png && !(dpi.isFinite && dpi > 0 && dpi <= 2400) {
             throw ValidationError("--dpi must be greater than 0 and at most 2400")
         }
@@ -96,7 +112,9 @@ struct ExportCommand: ParsableCommand {
         }
     }
 
-    private struct Written: Encodable { var note: String; var files: [String]; var changed: [String]? = nil }
+    private struct Written: Encodable {
+        var note: String; var files: [String]; var changed: [String]? = nil; var warnings: [String]? = nil
+    }
 
     func run() throws {
         let vault = try access.openVault(.required)
@@ -129,7 +147,16 @@ struct ExportCommand: ParsableCommand {
         }
         if states.isEmpty { throw CLIError.failure("no notes to export") }
 
-        let options = RenderOptions(paper: !noPaper)
+        let options = RenderOptions(paper: !noPaper, keepImageMetadata: keepImageMetadata)
+        let blobVault = vault
+        let blobs: BlobSources = { blobVault.blobSource(note: $0) }
+        var warnings: [String: [String]] = [:]
+        /// Prints and records a placeholder or warning (format.md §8.5.2).
+        func warn(_ s: NoteSummary, _ title: String, _ issue: ExportIssue) {
+            let line = "note \"\(title)\", \(issue)"
+            warnings[s.id.uuidString.lowercased(), default: []].append(line)
+            if !output.json { printStderr("warning: " + line) }
+        }
         let fm = FileManager.default
         func mkdir(_ path: String) throws {
             try fm.createDirectory(atPath: path, withIntermediateDirectories: true)
@@ -142,16 +169,23 @@ struct ExportCommand: ParsableCommand {
 
         var written: [Written] = []
         func report(_ s: NoteSummary, _ files: [String]) {
-            written.append(Written(note: s.id.uuidString.lowercased(), files: files))
+            let id = s.id.uuidString.lowercased()
+            written.append(Written(note: id, files: files, warnings: warnings[id]))
             if !output.json { for f in files { output.info("Wrote \(f)") } }
         }
 
         let singleFile = note != nil && (out.hasSuffix(".\(format.rawValue)") && format != .svg
                                          && format != .markdown && format != .html)
         if let treeFormat = format.tree {
-            let tree = TreeExporter(root: URL(fileURLWithPath: out), format: treeFormat, images: images, options: options,
+            var tree = TreeExporter(root: URL(fileURLWithPath: out), format: treeFormat, images: images, options: options,
                                     png: PNGOptions(dpi: dpi), source: "sempere", clean: clean, notebookFilter: notebook,
                                     errorText: { CLIError.from($0).message })
+            tree.blobs = blobs
+            let titles = Dictionary(states.map { ($0.0.id, $0.1.meta.title) }, uniquingKeysWith: { a, _ in a })
+            let quiet = output.json
+            tree.onIssue = { id, issue in
+                if !quiet { printStderr("warning: note \"\(titles[id] ?? id.uuidString.lowercased())\", \(issue)") }
+            }
             var counts = (written: 0, unchanged: 0)
             let r: (results: [TreeResult], failures: Int, errors: [String])
             do {
@@ -169,19 +203,31 @@ struct ExportCommand: ParsableCommand {
             output.info("\(r.results.count) note(s): \(counts.written) file(s) written, \(counts.unchanged) unchanged (PLAINTEXT in \(out))")
         } else if merge {
             try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path)
-            try write(try PDFWriter.render(notes: states.map(\.1), options: options), to: out)
-            written.append(Written(note: "*", files: [out]))
+            var r = ExportReport()
+            try write(try PDFWriter.render(notes: states.map(\.1), options: options, blobs: states.map { blobs($0.0.id) },
+                                           report: &r), to: out)
+            for issue in r.issues {
+                var i = issue
+                let n = i.note ?? 0
+                i.note = nil
+                warn(states[n].0, states[n].1.meta.title, i)
+            }
+            written.append(Written(note: "*", files: [out], warnings: warnings.isEmpty ? nil : warnings.values.flatMap { $0 }))
             output.info("Wrote \(out) (\(states.count) note(s))")
         } else {
             if !singleFile { try mkdir(out) } else { try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path) }
             for (s, state) in states {
                 let stem = ExportName.stem(title: state.meta.title, noteId: s.id)
                 func path(_ name: String) -> String { URL(fileURLWithPath: out).appendingPathComponent(name).path }
+                var noteOptions = options
+                noteOptions.blobs = blobs(s.id)
+                var r = ExportReport()
+                defer { for issue in r.issues { warn(s, state.meta.title, issue) } }
                 do {
                     switch format {
                     case .pdf:
                         let file = singleFile ? out : path(stem + ".pdf")
-                        try write(try PDFWriter.render(note: state, options: options), to: file)
+                        try write(try PDFWriter.render(note: state, options: noteOptions, report: &r), to: file)
                         report(s, [file])
                     case .json:
                         let file = singleFile ? out : path(stem + ".json")
@@ -191,14 +237,29 @@ struct ExportCommand: ParsableCommand {
                         break
                     case .svg, .png:
                         let pages: [Data]
-                        if format == .png {
-                            pages = try PNGWriter.render(note: state, options: options, png: PNGOptions(dpi: dpi))
-                        } else {
-                            pages = try SVGWriter.render(note: state, options: options).map { Data($0.utf8) }
-                        }
-                        let ext = format.rawValue
                         var files: [String] = []
                         if all { try mkdir(path(stem)) }
+                        if format == .png {
+                            pages = try PNGWriter.render(note: state, options: noteOptions, png: PNGOptions(dpi: dpi),
+                                                         report: &r)
+                        } else {
+                            // Linked images: hrefs relative to the folder the SVGs land in.
+                            let svgDir = all ? path(stem) : out
+                            let prefix = try assets.map { dir -> String in
+                                try mkdir(dir)
+                                return ExportCommand.relativePath(from: svgDir, to: dir) + "/"
+                            }
+                            let svg = try SVGWriter.export(note: state, options: noteOptions, assetPrefix: prefix, report: &r)
+                            pages = svg.pages.map { Data($0.utf8) }
+                            for asset in svg.assets {
+                                let file = URL(fileURLWithPath: assets ?? out).appendingPathComponent(asset.name).path
+                                if (try? Data(contentsOf: URL(fileURLWithPath: file))) != asset.data {
+                                    try write(asset.data, to: file)
+                                }
+                                files.append(file)
+                            }
+                        }
+                        let ext = format.rawValue
                         for (i, data) in pages.enumerated() {
                             let file = all ? path(stem + String(format: "/p%03d.", i + 1) + ext)
                                 : path(stem + String(format: "-p%03d.", i + 1) + ext)
@@ -217,5 +278,16 @@ struct ExportCommand: ParsableCommand {
         }
         if output.json { try output.emitJSON(written) }
         if failures > 0 { throw CLIError.failure("\(failures) note(s) could not be exported") }
+    }
+
+    /// `to` relative to the directory `from` (both relative to the current
+    /// directory or absolute), with `/` separators; `.` when they are the same.
+    static func relativePath(from: String, to: String) -> String {
+        let a = URL(fileURLWithPath: from).standardizedFileURL.pathComponents
+        let b = URL(fileURLWithPath: to).standardizedFileURL.pathComponents
+        var i = 0
+        while i < a.count, i < b.count, a[i] == b[i] { i += 1 }
+        let parts = Array(repeating: "..", count: a.count - i) + b[i...]
+        return parts.isEmpty ? "." : parts.joined(separator: "/")
     }
 }

@@ -41,12 +41,23 @@ public enum PDFWriter {
     /// frame and rotation) inside a clip to its rotated frame.
     public static func render(notes: [NoteState], options: RenderOptions = RenderOptions(),
                               report: inout ExportReport) throws -> Data {
+        try render(notes: notes, options: options, blobs: nil, report: &report)
+    }
+
+    /// Renders several notes, each with its own blobs: `blobs[i]` (when
+    /// given) replaces `options.blobs` for `notes[i]`, since a blob
+    /// reference resolves only inside its own note (format.md §8.1.1).
+    public static func render(notes: [NoteState], options: RenderOptions = RenderOptions(),
+                              blobs: [(any BlobSource)?]?, report: inout ExportReport) throws -> Data {
         struct OutPage { var width: Double; var height: Double; var content: Data; var alphas: [Int]; var images: [Int] }
         var pages: [OutPage] = []
-        let store = ImageStore(options: options)
         var xobjects = ImageXObjects()
 
         for (n, note) in notes.enumerated() {
+            var noteOptions = options
+            if let blobs, n < blobs.count { noteOptions.blobs = blobs[n] }
+            // One store per note: its blobs are its own (the XObjects are shared by content hash).
+            let store = ImageStore(options: noteOptions)
             for (pi, page) in note.pages.enumerated() {
                 let prepared = try PreparedPage(page: page, meta: note.meta, options: options, images: store)
                 var pageReport = prepared.report
