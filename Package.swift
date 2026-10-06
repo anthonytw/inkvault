@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "Sempere", targets: ["Sempere"]),
         .library(name: "SempereRender", targets: ["SempereRender"]),
         .library(name: "SempereImport", targets: ["SempereImport"]),
+        .library(name: "SemperePDF", targets: ["SemperePDF"]),
         .library(name: "SempereWebDAV", targets: ["SempereWebDAV"]),
         .executable(name: "sempere", targets: ["SempereCLI"]),
     ],
@@ -35,9 +36,14 @@ let package = Package(
             name: "Sempere",
             dependencies: ["Age", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // Minimal PDF reader for untrusted files (docs/attachments.md §10): Foundation + zlib only.
+        .target(
+            name: "SemperePDF",
+            dependencies: ["CZlib"]
+        ),
         .target(
             name: "SempereRender",
-            dependencies: ["Sempere", "CZlib"]
+            dependencies: ["Sempere", "SemperePDF", "CZlib"]
         ),
         .target(
             name: "SempereImport",
