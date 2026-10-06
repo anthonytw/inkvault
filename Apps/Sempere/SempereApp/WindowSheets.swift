@@ -7,6 +7,7 @@ struct WindowSheets: ViewModifier {
     @Environment(AppModel.self) private var model
     let ui: WindowUI
     @State private var title = ""
+    @State private var versionName = ""
 
     func body(content: Content) -> some View {
         content
@@ -24,6 +25,21 @@ struct WindowSheets: ViewModifier {
                     ui.renameNoteID = nil
                 }
                 Button("Cancel", role: .cancel) { ui.renameNoteID = nil }
+            }
+            .onChange(of: ui.saveVersionNoteID) { _, id in if id != nil { versionName = "" } }
+            .alert("Save Version", isPresented: Binding(get: { ui.saveVersionNoteID != nil },
+                                                        set: { if !$0 { ui.saveVersionNoteID = nil } })) {
+                TextField("Name (optional)", text: $versionName)
+                Button("Save") {
+                    if let id = ui.saveVersionNoteID {
+                        let name = versionName
+                        Task { await model.report { try await model.saveVersion(of: id, name: name) } }
+                    }
+                    ui.saveVersionNoteID = nil
+                }
+                Button("Cancel", role: .cancel) { ui.saveVersionNoteID = nil }
+            } message: {
+                Text("Saved versions are listed first in Version History and are never removed when old autosaves are thinned.")
             }
             .sheet(isPresented: Binding(get: { ui.tagsNoteID != nil }, set: { if !$0 { ui.tagsNoteID = nil } })) {
                 if let id = ui.tagsNoteID { TagEditorView(noteID: id) }

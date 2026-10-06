@@ -89,6 +89,7 @@ extension AppModel {
             guard let self else { return }
             do {
                 try await self.reload()
+                if self.generation == gen { self.thinIfDue() }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {

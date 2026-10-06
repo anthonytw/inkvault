@@ -41,6 +41,10 @@ struct NoteWindowView: View {
                         ToolbarItem(placement: .secondaryAction) {
                             Button("Rename…", systemImage: "pencil") { ui.renameNoteID = note.id }
                         }
+                        ToolbarItem(placement: .secondaryAction) {
+                            Button("Save Version…", systemImage: "bookmark") { ui.saveVersionNoteID = note.id }
+                                .disabled(note.deleted)
+                        }
                         ToolbarItem(placement: .primaryAction) {
                             Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
                         }
@@ -124,7 +128,7 @@ struct NoteWindowView: View {
         context.noteDeleted = note?.deleted ?? false
         context.libraryWindowOpen = model.libraryWindowCount > 0
         context.hasRecents = !library.recents.isEmpty
-        context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil
+        context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: editor)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
                              paletteVisible: paletteVisible) { command in
@@ -132,6 +136,7 @@ struct NoteWindowView: View {
             switch command {
             case .renameNote: ui.renameNoteID = value.noteID
             case .editTags: ui.tagsNoteID = value.noteID
+            case .saveVersion: ui.saveVersionNoteID = value.noteID
             case .deleteNote:
                 let id = value.noteID
                 Task { await model.report { try await model.deleteNote(id) } }
