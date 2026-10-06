@@ -20,7 +20,7 @@ no App Tracking Transparency prompt and `NSUserTrackingUsageDescription` is not 
 
 Other App Store Connect fields:
 
-- Privacy Policy URL: TODO(user): the hosted `privacy-policy.md` URL.
+- Privacy Policy URL: <https://github.com/anthonytw/sempere/blob/main/docs/appstore/privacy-policy.md> (set in App Store Connect).
 - Tracking: No. Account creation: none (so account deletion requirements do not apply).
 - Age rating: expected 4+. TODO(user): answer the questionnaire; WebDAV connects to servers the
   user names, which is not "unrestricted web access" in the Apple sense, but confirm in the form.
