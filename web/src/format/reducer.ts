@@ -13,6 +13,10 @@ import {
   type Stroke, type TagInstance, type TagRemoval, type TagSet, defaultPaper, revisionName,
 } from "./model.ts";
 import { normalizedTag, tagKey } from "./tags.ts";
+import type { JSONObject } from "./json.ts";
+import {
+  applyItemRegister, applyRecordingRegister, cmpItems, cmpRecordings, itemRegisters, recordingRegisters,
+} from "./registers.ts";
 
 /** Errors from reconstruction (Swift `NoteLogError`). */
 export class NoteLogError extends Error {
@@ -283,18 +287,24 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
   // Removals: every snapshot's tombstones plus removes in uncovered deltas.
   const removedPages = new Set<string>();
   const removedStrokes = new Set<string>();
+  const removedItems = new Set<string>();
+  const removedRecordings = new Set<string>();
   for (const s of snapshots) {
     for (const id of s.state.tombstones?.pages ?? []) removedPages.add(id);
     for (const id of s.state.tombstones?.strokes ?? []) removedStrokes.add(id);
+    for (const id of s.state.tombstones?.items ?? []) removedItems.add(id);
+    for (const id of s.state.tombstones?.recordings ?? []) removedRecordings.add(id);
   }
   for (const d of uncovered) {
     for (const op of opsOf(d)) if (op.op === "removeStroke") removedStrokes.add(op.strokeId);
   }
-  // Page tombstones and removed tag instances are permanent: every revision counts.
+  // Page, item and recording tombstones and removed tag instances are permanent: every revision counts.
   const tagRemovals: TagRemoval[] = [];
   for (const d of deltas) {
     for (const op of opsOf(d)) {
       if (op.op === "removePage") removedPages.add(op.pageId);
+      else if (op.op === "removeItem") removedItems.add(op.itemId);
+      else if (op.op === "removeRecording") removedRecordings.add(op.recordingId);
       else if (op.op === "removeTag") {
         const key = tagKey(op.tag);
         for (const o of op.observed) tagRemovals.push({ key, origin: o });
@@ -302,16 +312,36 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     }
   }
 
-  // Orphans (§5.3): applied but not listed in `included`.
+  // Orphans (§5.3): applied but not listed in `included`. A removed page,
+  // item or recording is known (its tombstone is permanent).
   const knownPages = new Set(removedPages);
-  for (const s of snapshots) for (const p of s.state.pages) knownPages.add(p.id);
-  for (const d of deltas) for (const op of opsOf(d)) if (op.op === "addPage") knownPages.add(op.page.id);
+  const knownItems = new Set(removedItems);
+  const knownRecordings = new Set(removedRecordings);
+  for (const s of snapshots) {
+    for (const p of s.state.pages) {
+      knownPages.add(p.id);
+      for (const it of p.items) knownItems.add(String(it.id));
+    }
+    for (const r of s.state.recordings) knownRecordings.add(String(r.id));
+  }
+  for (const d of deltas) {
+    for (const op of opsOf(d)) {
+      if (op.op === "addPage") knownPages.add(op.page.id);
+      else if (op.op === "addItem") knownItems.add(String(op.item.id));
+      else if (op.op === "addRecording") knownRecordings.add(String(op.recording.id));
+    }
+  }
   const isOrphan = (d: Revision) => opsOf(d).some((op) => {
     switch (op.op) {
       case "addStroke": return !knownPages.has(op.page);
       case "setPageOrder":
       case "setPageRecognition":
       case "setPagePaper": return !knownPages.has(op.pageId);
+      case "addItem": return !knownPages.has(op.page);
+      // On a removed page, a no-op whatever the item (a page removal does not
+      // tombstone its items, so after compaction the item may be known nowhere).
+      case "setItem": return !knownPages.has(op.page) || (!removedPages.has(op.page) && !knownItems.has(op.itemId));
+      case "setRecording": return !knownRecordings.has(op.recordingId);
       default: return false;
     }
   });
@@ -330,6 +360,35 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
   const strokes = new Map<string, Evidence<Stroke>>();
   const snapPageIds = new Map<Snap, Set<string>>();
   const snapStrokeIds = new Map<Snap, Set<string>>();
+  // Items and recordings: set evidence like strokes, one LWW register per (id, field).
+  const items = new Map<string, Evidence<JSONObject>>();
+  const recordings = new Map<string, Evidence<JSONObject>>();
+  const itemRegs = new Map<string, Map<string, Register<unknown>>>();
+  const recordingRegs = new Map<string, Map<string, Register<unknown>>>();
+  const snapItemIds = new Map<Snap, Set<string>>();
+  const snapRecordingIds = new Map<Snap, Set<string>>();
+  const offerRegister = (m: Map<string, Map<string, Register<unknown>>>, id: string, field: string, v: unknown, k: OpKey) => {
+    let regs = m.get(id);
+    if (!regs) {
+      regs = new Map();
+      m.set(id, regs);
+    }
+    const r = regs.get(field);
+    if (r) r.offer(v, k);
+    else regs.set(field, new Register(v, k));
+  };
+  const offerItem = (e: Evidence<JSONObject>, key: (field: string) => OpKey) => {
+    const id = String(e.item.id);
+    const cur = items.get(id);
+    if (!cur || beats(e, cur)) items.set(id, e);
+    for (const [f, v] of itemRegisters(e.item)) offerRegister(itemRegs, id, f, v, key(f));
+  };
+  const offerRecording = (e: Evidence<JSONObject>, key: (field: string) => OpKey) => {
+    const id = String(e.item.id);
+    const cur = recordings.get(id);
+    if (!cur || beats(e, cur)) recordings.set(id, e);
+    for (const [f, v] of recordingRegisters(e.item)) offerRegister(recordingRegs, id, f, v, key(f));
+  };
 
   const offerOrder = (id: string, v: string, k: OpKey) => {
     const r = order.get(id);
@@ -376,7 +435,7 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     const m = s.state.meta;
     created = Math.min(created ?? m.created, m.created);
 
-    const pageIds = new Set<string>(), strokeIds = new Set<string>();
+    const pageIds = new Set<string>(), strokeIds = new Set<string>(), itemIds = new Set<string>();
     s.state.pages.forEach((p, pos) => {
       pageIds.add(p.id);
       // Without a recorded origin, the holding snapshot is the origin (§5.5).
@@ -394,9 +453,25 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
         strokeIds.add(st.id);
         offerStroke({ origin: origin(st.origin, originOf(s.name, j)), src: s.name, item: st, page: p.id });
       });
+      p.items.forEach((it, j) => {
+        itemIds.add(String(it.id));
+        const clocks = it.clocks as Record<string, string> | undefined;
+        // A register without a clock is stamped by the snapshot (§8.2.1).
+        offerItem({ origin: origin(it.origin as string | undefined, originOf(s.name, j)), src: s.name, item: it, page: p.id },
+          (f) => baseKey(clock(clocks?.[f], stamp), s.name));
+      });
+    });
+    const recordingIds = new Set<string>();
+    s.state.recordings.forEach((r, j) => {
+      recordingIds.add(String(r.id));
+      const clocks = r.clocks as Record<string, string> | undefined;
+      offerRecording({ origin: origin(r.origin as string | undefined, originOf(s.name, j)), src: s.name, item: r },
+        (f) => baseKey(clock(clocks?.[f], stamp), s.name));
     });
     snapPageIds.set(s, pageIds);
     snapStrokeIds.set(s, strokeIds);
+    snapItemIds.set(s, itemIds);
+    snapRecordingIds.set(s, recordingIds);
   }
 
   for (const d of uncovered) {
@@ -419,7 +494,14 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
         case "addTag": tags.add(op.tag, originOf(name, i)); break;
         case "deleteNote": offer({ key: "deleted", value: true }, k); break;
         case "restoreNote": offer({ key: "deleted", value: false }, k); break;
-        // Removals were collected above; attachment ops are not merged yet (Swift task A1).
+        case "addItem":
+          // §8.2.2: the add sets every register at its own stamp.
+          offerItem({ origin: originOf(name, i), src: name, item: op.item, page: op.page }, () => k);
+          break;
+        case "setItem": offerRegister(itemRegs, op.itemId, op.field, op.value, k); break;
+        case "addRecording": offerRecording({ origin: originOf(name, i), src: name, item: op.recording }, () => k); break;
+        case "setRecording": offerRegister(recordingRegs, op.recordingId, op.field, op.value, k); break;
+        // Removals were collected above.
         default: break;
       }
     });
@@ -443,6 +525,37 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     byPage.set(e.page, list);
   }
 
+  /** A copy of the evidence's object with every register's winning value and its clock. */
+  const resolved = (e: Evidence<JSONObject>, regs: Map<string, Register<unknown>> | undefined,
+    apply: (o: JSONObject, f: string, v: unknown) => void): JSONObject => {
+    const o: JSONObject = { ...e.item };
+    delete o.origin;
+    delete o.clocks;
+    const em = emitted(e.origin);
+    if (em !== undefined) o.origin = em;
+    const clocks: Record<string, string> = {};
+    for (const [f, reg] of regs ?? []) {
+      apply(o, f, reg.value);
+      clocks[f] = stampString(reg.key.stamp);
+    }
+    if (Object.keys(clocks).length > 0) o.clocks = clocks;
+    return o;
+  };
+  const itemsByPage = new Map<string, JSONObject[]>();
+  for (const [id, e] of items) {
+    if (e.page === undefined || !livePages.has(e.page) || removedItems.has(id)
+      || removedByCoverage(e.origin, id, snapItemIds)) continue;
+    const list = itemsByPage.get(e.page) ?? [];
+    list.push(resolved(e, itemRegs.get(id), applyItemRegister));
+    itemsByPage.set(e.page, list);
+  }
+  const outRecordings: JSONObject[] = [];
+  for (const [id, e] of recordings) {
+    if (removedRecordings.has(id) || removedByCoverage(e.origin, id, snapRecordingIds)) continue;
+    outRecordings.push(resolved(e, recordingRegs.get(id), applyRecordingRegister));
+  }
+  outRecordings.sort(cmpRecordings);
+
   const outPages: Page[] = [];
   for (const id of livePages) {
     const e = pages.get(id), reg = order.get(id);
@@ -458,7 +571,7 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
         return s;
       }),
       orderClock: stampString(reg.key.stamp),
-      items: [],
+      items: (itemsByPage.get(id) ?? []).sort(cmpItems),
     };
     const o = emitted(e.origin);
     if (o !== undefined) page.origin = o;
@@ -505,9 +618,12 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
   const keptStrokes = [...removedStrokes].filter((id) =>
     !(addOrigins.get(id) ?? []).some((o) => included.covers(o.device, o.seq)));
 
-  const state: NoteState = { deleted: false, meta: defaultMeta(), pages: outPages, recordings: [] };
-  if (keptStrokes.length > 0 || removedPages.size > 0) {
-    state.tombstones = { strokes: keptStrokes.sort(cmpStr), pages: [...removedPages].sort(cmpStr), items: [], recordings: [] };
+  const state: NoteState = { deleted: false, meta: defaultMeta(), pages: outPages, recordings: outRecordings };
+  if (keptStrokes.length > 0 || removedPages.size > 0 || removedItems.size > 0 || removedRecordings.size > 0) {
+    state.tombstones = {
+      strokes: keptStrokes.sort(cmpStr), pages: [...removedPages].sort(cmpStr),
+      items: [...removedItems].sort(cmpStr), recordings: [...removedRecordings].sort(cmpStr),
+    };
   }
   state.meta.created = created ?? 0;
   const clocks: Record<string, string> = {};

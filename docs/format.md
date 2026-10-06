@@ -923,8 +923,14 @@ one delta whose ops turn the current state into the state as of R:
 A page, stroke, item or recording counts as present when its id is, or when
 one with `parent` naming it is (for a stroke, also with the same `ink`,
 `points` and `transform`; for an item or recording, also with the same
-immutable fields, §8.2.2), so restoring the same point twice writes nothing
-the second time. Restoring never needs a blob the vault has deleted: a blob
+immutable fields other than `id` and `parent`, §8.2.2), so restoring the same
+point twice writes nothing the second time. Strokes and items are matched
+only on the page that corresponds to theirs (the same id, or the re-created
+page), so an item moved to another page since R (`removeItem` plus `addItem`
+with `parent`, §8.2.2) is put back on its page as of R and its copy on the
+other page is removed. An unknown field (§7) that an item or recording has now
+but did not have as of R is left as it is: no op makes a field absent again
+(`null` is a value of it, §8.2.2). Restoring never needs a blob the vault has deleted: a blob
 referenced by any surviving revision of its note is never collected (§8.1.6). The delta's `hlc` is issued after observing every revision of the
 note, so its LWW ops win over what they set back. Re-added strokes are
 drawn above the strokes that stayed (they sort by their new `origin`).
@@ -1300,6 +1306,14 @@ and never changed.
   the reader does not know is a register (§7), and `null` is a value of it
   like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
+  Writers name the item's own page in `setItem`; readers key the registers by
+  item id and use `page` only to tell whether the op is an orphan (§5.3).
+- A field named like an immutable field of some kind (`blob` on a text item,
+  an unknown field there, §8.2.1) is not a register either: `setItem` can
+  never name it, so it keeps the value its `addItem` gave it. Snapshot
+  `clocks` list every register of the item, including `rotation` and `crop`
+  while absent (a reset is a value with a stamp, like `recognitionClock`,
+  §5.5).
 - Items merge as sets like strokes (§5.3), with permanent tombstones (§5.4).
   An item belongs to one page; moving it to another page is `removeItem`
   plus `addItem` of a new id with `parent` naming the old one (to another
@@ -1484,7 +1498,8 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
   snapshots. Every other field is immutable: a `setRecording` naming one, or
   `origin` or `clocks`, or giving `title` a non-string or `transcript` a value
   that is not a blob reference, is invalid (the revision is rejected); `null`
-  resets `title` to absent. Unknown fields as in §7.
+  resets `title` to absent. Unknown fields as in §7; like an item's (§8.2.2)
+  they are registers, set by `setRecording` and stamped in `clocks`.
 - Recordings merge as sets like items, with permanent tombstones (§5.4).
 
 #### 8.3.2 Transcript
@@ -1547,7 +1562,10 @@ is set when the stroke or item is added and never changes (a stroke sliced by
 the eraser passes it to its pieces). A player can highlight or fade in what
 was written up to the current position and seek to where a stroke was drawn;
 with a transcript, a word's `start` finds the strokes drawn around it. A
-`rec` naming a recording that is not present is ignored.
+`rec` naming a recording that is not present refers to a present recording
+whose `parent` names it (one re-created by a restore, §5.7; the first by
+`(started, id)` if several), else it is ignored. `rec` is immutable, so this
+is how links survive a recording being removed and restored.
 
 ### 8.4 Limits
 

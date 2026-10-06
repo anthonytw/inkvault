@@ -818,8 +818,8 @@ public enum Op: Hashable, Sendable {
     /// LWW on one register of a recording (format.md §8.3.1).
     case setRecording(recordingId: UUID, change: RecordingChange)
 
-    /// True for the attachment ops (format.md §8), which the merge does not
-    /// apply yet (task A1).
+    /// True for the attachment ops (format.md §8): a vault must list the
+    /// `attachments` feature before a revision holding one is written.
     public var isAttachmentOp: Bool {
         switch self {
         case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: return true

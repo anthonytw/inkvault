@@ -433,8 +433,14 @@ geometry, and the summaries are kept in an encrypted per-device cache
 (`$XDG_CACHE_HOME/sempere/`, default `~/.cache/sempere/`; `format.md` §10), so
 a later `list` reads only notes whose revision files changed. A damaged cache
 is ignored and rewritten; `--no-cache` neither reads nor writes it. `show` prints the metadata, how many pages have recognised text (`Text:`; `recognizedPages`
-in `--json`) and the revision history
-(kind, wall time, file name; `-v` adds the app string). A note is named by its
+in `--json`), the note's placed items (text boxes, images, PDF pages, unknown
+kinds; by page in drawing order: page, kind, layer, frame, the text or the
+blob's type, size and hash prefix, id) and recordings (start, duration, title,
+blob, whether it has a transcript, id), and the revision history
+(kind, wall time, file name; `-v` adds the app string). `--json` adds `items`
+(each `{page, pageId, item}`, `item` in its `format.md` §8.2 form) and
+`recordings` (§8.3.1 form), both without the snapshot-only `origin` and
+`clocks`; `list --json` gains the counts `items` and `recordings`. A note is named by its
 full id, an id prefix of 4 or more characters, or its exact title
 (case-insensitive); an ambiguous name is an error that lists the candidates.
 
@@ -452,7 +458,10 @@ revision up to and including it, `docs/format.md` §5.7) by writing **one new
 delta**; no existing file is changed or deleted. Pages and strokes added since
 are removed, those removed since are re-added under new ids with `parent`
 naming the old id, and title, tags, notebook, favorite, paper, page size, page
-order, recognition and the deleted flag are set back. `REVISION` is a name from
+order, recognition and the deleted flag are set back. Placed items and
+recordings follow the same rule (re-added with their register values as of the
+point; changed registers such as an item's frame or text or a recording's
+title are set back; an item moved to another page since goes back to its page). `REVISION` is a name from
 `history`, with or without its `.delta.age`/`.snapshot.age` suffix, or a unique
 prefix of 6 or more characters. If the note already matches, nothing is written
 (restoring twice is a no-op). `--dry-run` prints what would change
@@ -462,7 +471,9 @@ as for `snapshot`. Restoring needs every revision of the note to be readable;
 an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 `changed`, `file` (the delta written, if any) and `changes` (`pagesRemoved`,
 `pagesRestored`, `strokesRemoved`, `strokesRestored`, `pageOrderChanges`,
-`recognitionChanges`, `metaFields`, `deleted`).
+`recognitionChanges`, `pagePaperChanges`, `itemsRemoved`, `itemsRestored`,
+`itemChanges`, `recordingsRemoved`, `recordingsRestored`, `recordingChanges`,
+`metaFields`, `deleted`).
 
 `layout` switches a note between paged (fixed-size pages) and pageless (one
 infinite page) by writing **one new delta** (`docs/format.md` §5.4.3).
@@ -745,9 +756,8 @@ note's attachments, verified (`docs/format.md` §8.1.4), and drawn under the ink
   sempere: warning: 0d1c6a1e: pdfPage item drawn as a placeholder (PDF renderer failed: pdftoppm timed out after 30 s)
   ```
 
-Notes hold `pdfPage` items once item ops are merged (attachments task A1);
-until then this applies to no note in a vault. `markdown` draws them in its
-PDF (and per-page PNGs), `html` in its SVG pages, as above.
+`markdown` draws `pdfPage` items in its PDF (and per-page PNGs), `html` in its
+SVG pages, as above.
 
 #### Images in exports
 
@@ -821,9 +831,6 @@ text (UAX #9) and aligned; every line sits at the same height on every renderer.
 - A text box that cannot be laid out (no shaper: library callers that pass
   no `RenderOptions.shaper`, such as the app's share export until it has
   one) is a placeholder, reported like any other.
-
-Until item merging lands (task A1), notes read from a vault have no items, so
-image and text items are exercised by the library's tests only.
 
 #### Markdown and HTML exports
 

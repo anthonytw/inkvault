@@ -27,8 +27,8 @@ Vault id `5a3b1e00-1000-4000-8000-000000000001`, created
 `sample.sempere` (not `legacy.sempere`) also holds one attachment blob
 (`format.md` §8.1) in the lecture's `att/`: the 50 bytes
 `Sempere fixture attachment: synthetic, test-only.\n`, type `text/plain`
-(kind `bin`, sha256 `ae0a2902…6436`). No revision references it yet (the
-note with items comes with the attachments merge, task A1), so `verify`
+(kind `bin`, sha256 `ae0a2902…6436`). No revision references it yet (a
+note with items is a follow-up of the attachments merge, task A1), so `verify`
 lists it as `unreferenced`, and `vault.json` has `features: ["attachments"]`.
 
 Stroke ids are `f1c70000-0000-4000-8000-0000000001NN`; page ids end in `…001`,

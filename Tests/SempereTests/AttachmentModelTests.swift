@@ -578,24 +578,6 @@ final class AttachmentModelTests: XCTestCase {
                                                  wall: wallAt(baseMillis + 30), app: "test"))
     }
 
-    /// Until A1 the merge drops items, so a restore would claim the note
-    /// matches a point while leaving every item as it is: refused, as
-    /// snapshots are.
-    func testRestoreRefusesNotesWithAttachmentsUntilMerged() throws {
-        var log = LogBuilder()
-        let page = UUID()
-        let d1 = log.delta(devA, 0, NoteOps.newNote(title: "Att", pageId: page))
-        let d2 = log.delta(devA, 10, [.addItem(page: page, item: .text(TextContent(size: 12, color: .black, runs: [TextRun("x")]),
-                                                                       frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "a"))])
-        var clock = HybridClock()
-        XCTAssertThrowsError(try NoteHistory.makeRestore(from: [d1, d2], to: d1.name, device: devB, clock: &clock,
-                                                         wall: wallAt(baseMillis + 20), app: "test")) { e in
-            XCTAssertEqual(e as? NoteLogError, .attachmentsNotMerged(d2.name))
-        }
-        XCTAssertThrowsError(try NoteHistory.state([d1, d2], at: d1.name))
-        XCTAssertNoThrow(try NoteHistory.state([d1], at: d1.name))
-    }
-
     func testJSONValue() throws {
         let source = #"{"a":[1,1.5,-0.25,true,false,null,"s",{"b":{}}],"n":0,"t":true,"z":"1"}"#
         let v = try json(source)
@@ -620,28 +602,5 @@ final class AttachmentModelTests: XCTestCase {
         XCTAssertEqual(back.rec?.at, 1.235)
         XCTAssertEqual(back.crop?.x, 0.111)
         XCTAssertEqual(back.pageSize, Size(w: 612, h: 792))
-    }
-
-    // MARK: Until A1
-
-    func testSnapshotsRefuseAttachmentsUntilMerged() throws {
-        var log = LogBuilder()
-        let page = UUID()
-        let d1 = log.delta(devA, 0, NoteOps.newNote(title: "Att", pageId: page))
-        let d2 = log.delta(devA, 10, [.addItem(page: page, item: .text(TextContent(size: 12, color: .black, runs: [TextRun("x")]),
-                                                                       frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "a"))])
-        // Reading still works (the items are not merged yet)...
-        XCTAssertEqual(try NoteReducer.reconstruct([d1, d2]).meta.title, "Att")
-        XCTAssertNotNil(try? NoteHistory.restorePoints([d1, d2]))
-        // ...but a snapshot, which would cover the item without holding it, is refused.
-        var clock = HybridClock()
-        XCTAssertThrowsError(try SnapshotBuilder.makeSnapshot(from: [d1, d2], device: devB, seq: 1, clock: &clock,
-                                                              wall: wallAt(baseMillis), app: "test")) { e in
-            XCTAssertEqual(e as? NoteLogError, .attachmentsNotMerged(d2.name))
-        }
-        XCTAssertNoThrow(try SnapshotBuilder.makeSnapshot(from: [d1], device: devB, seq: 1, clock: &clock,
-                                                          wall: wallAt(baseMillis), app: "test"))
-        XCTAssertFalse(d1.holdsAttachments)
-        XCTAssertTrue(d2.holdsAttachments)
     }
 }
