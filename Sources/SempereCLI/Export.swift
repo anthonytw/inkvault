@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import SempereFonts
 import SempereRender
 import Sempere
 
@@ -147,7 +148,13 @@ struct ExportCommand: ParsableCommand {
         }
         if states.isEmpty { throw CLIError.failure("no notes to export") }
 
-        let options = RenderOptions(paper: !noPaper, keepImageMetadata: keepImageMetadata)
+        // Text: the bundled Noto fonts plus font packs (docs/cli.md "Text in exports").
+        let fonts = FontLibrary(bundled: SempereFonts.directory, packs: FontLibrary.defaultPackDirectories())
+        if SempereFonts.directory == nil && !output.json {
+            printStderr("warning: the bundled fonts were not found next to the program; text uses font packs only")
+        }
+        let options = RenderOptions(paper: !noPaper, keepImageMetadata: keepImageMetadata,
+                                    shaper: DefaultTextShaper(library: fonts))
         let blobVault = vault
         let blobs: BlobSources = { blobVault.blobSource(note: $0) }
         var warnings: [String: [String]] = [:]

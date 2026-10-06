@@ -28,6 +28,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   metadata is removed from every exported image unless `--keep-image-metadata`. Images that
   cannot be drawn (missing attachment, HEIC in the CLI, over 100 MP) become placeholders with a
   warning. Blob reading and verification (`Vault.readBlob`, `BlobSource`).
+- Text in exports (task C2): text boxes in any script, laid out per `format.md` §8.5.3 (stored line
+  breaks, else UAX #14; right-to-left per UAX #9; grapheme clusters per UAX #29), shaped (Arabic
+  joining and ligatures, mark attachment), drawn with the bundled Noto fonts (OFL 1.1, shipped in
+  `fonts/` next to the CLI) or font packs (`$SEMPERE_FONT_DIR`, `~/.local/share/sempere/fonts`,
+  system fonts). PDF and SVG embed font subsets only, with searchable text; characters no font
+  covers are reported with the script and what to install.
 
 ### Changed
 

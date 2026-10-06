@@ -34,7 +34,8 @@ working state.
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | 🔀 #62 |
-| Render | Unicode text, PDF backgrounds, recordings in exports (C2–C4) | 📋 |
+| Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | 🔀 #64 |
+| Render | PDF backgrounds, recordings in exports (C3, C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
 | Sync | WebDAV | ✅ |
