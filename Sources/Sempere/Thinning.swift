@@ -130,7 +130,19 @@ extension CompactionPlanner {
         for _ in 0...(sortedTargets.count + candidates.count + 2) {
             if candidates.isEmpty { planned = []; break }
             let survivors = revs.filter { !candidates.contains($0.name) } + planned
-            let after = Completeness(survivors, unreadable: []).isComplete(at: sortedTargets)
+            // Completeness learns what is gone only from snapshots; a stand-in
+            // ordered after everything tells it which candidates go, and covers
+            // nothing at or before any target.
+            var goneSet = Included()
+            for r in revs where candidates.contains(r.name) {
+                switch r.body {
+                case .delta: goneSet.insert(device: r.device, seq: r.seq)
+                case .snapshot(let inc, _): goneSet = goneSet.union(inc).union(Included([r.device: .init(upTo: 0, extra: [r.seq])]))
+                }
+            }
+            let standIn = Revision(noteId: noteId, device: .zero, seq: 1, hlc: HLC(millis: HLC.maxMillis, counter: HLC.maxCounter) ?? .zero,
+                                   wall: wall, app: app, body: .snapshot(included: goneSet, state: NoteState(meta: NoteMeta(created: wall))))
+            let after = Completeness(survivors + [standIn], unreadable: []).isComplete(at: sortedTargets)
             if let bad = zip(sortedTargets, after).first(where: { !$0.1 })?.0 {
                 guard !planned.contains(where: { $0.asOf == RevisionKey(bad) }) else {
                     throw CompactionError.cannotProtect(bad.filename)

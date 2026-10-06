@@ -1,0 +1,464 @@
+import Foundation
+import XCTest
+@testable import Sempere
+
+/// Checkpoints, editing sessions, positioned snapshots and thinning
+/// (format.md §5.8).
+final class VersionHistoryTests: XCTestCase {
+    let p1 = UUID(uuidString: "00000000-0000-4000-8000-0000000000a1")!
+
+    private func decode(_ json: String) throws -> Revision {
+        try InkJSON.decoder().decode(Revision.self, from: Data(json.utf8))
+    }
+
+    private func object(_ r: Revision) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: InkJSON.encoder().encode(r)) as? [String: Any])
+    }
+
+    // MARK: Format round trip (§5.1)
+
+    func testDeltaFieldsRoundTrip() throws {
+        var log = LogBuilder()
+        var d = log.delta(devA, 0, [])
+        d.session = "5f0c3e8a-2b7d-4c1e-9a3f-6d2b8e4f1a07"
+        d.checkpoint = Checkpoint(name: "  Before the exam  ")
+        let o = try object(d)
+        XCTAssertEqual(o["session"] as? String, "5f0c3e8a-2b7d-4c1e-9a3f-6d2b8e4f1a07")
+        XCTAssertEqual((o["checkpoint"] as? [String: Any])?["name"] as? String, "Before the exam")
+        let back = try InkJSON.decoder().decode(Revision.self, from: InkJSON.encoder().encode(d))
+        XCTAssertEqual(back, d)
+
+        d.checkpoint = Checkpoint(name: "   ")
+        XCTAssertNil(d.checkpoint?.name)
+        let unnamed = try object(d)
+        XCTAssertEqual((unnamed["checkpoint"] as? [String: Any])?.count, 0, "an unnamed checkpoint is {}")
+        XCTAssertEqual(try InkJSON.decoder().decode(Revision.self, from: InkJSON.encoder().encode(d)), d)
+    }
+
+    func testCheckpointNameIsCapped() {
+        let long = String(repeating: "é", count: 500)
+        XCTAssertEqual(Checkpoint(name: long).name?.count, Checkpoint.maxNameLength)
+    }
+
+    func testPlainRevisionsCarryNoNewFields() throws {
+        var log = LogBuilder()
+        let d = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])
+        let o = try object(d)
+        XCTAssertNil(o["session"]); XCTAssertNil(o["checkpoint"]); XCTAssertNil(o["asOf"])
+        let s = try log.snapshot(devB, 5, from: [d])
+        XCTAssertNil(try object(s)["asOf"])
+    }
+
+    func testSnapshotAsOfRoundTrips() throws {
+        var log = LogBuilder()
+        let d = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])
+        var s = try log.snapshot(devB, 5, from: [d])
+        s.asOf = RevisionKey(d.name)
+        XCTAssertEqual(try object(s)["asOf"] as? String, "\(d.hlc)-aaaaaaaa-1")
+        XCTAssertEqual(try InkJSON.decoder().decode(Revision.self, from: InkJSON.encoder().encode(s)), s)
+    }
+
+    /// A value of the wrong type or form is ignored, never fatal (§5.1).
+    func testMalformedHistoryFieldsAreIgnored() throws {
+        let head = #""noteId":"0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c","device":"aaaaaaaa","seq":1,"hlc":"17596320000000000","wall":"2025-10-05T02:40:00.000Z","app":"x""#
+        for extra in [#""session":"UPPER""#, #""session":42"#, #""session":"\#(String(repeating: "a", count: 65))""#,
+                      #""session":"""#, #""checkpoint":"yes""#, #""checkpoint":true"#, #""checkpoint":null"#,
+                      #""checkpoint":[1]"#] {
+            let r = try decode(#"{"type":"delta",\#(head),"ops":[],\#(extra)}"#)
+            XCTAssertNil(r.session, extra)
+            XCTAssertNil(r.checkpoint, extra)
+        }
+        let named = try decode(#"{"type":"delta",\#(head),"ops":[],"checkpoint":{"name":7,"future":1}}"#)
+        XCTAssertEqual(named.checkpoint, Checkpoint(), "a non-string name is unnamed")
+        let snap = #"{"type":"snapshot",\#(head),"included":{},"state":{"deleted":false,"meta":{"title":"","tags":[],"notebook":null,"favorite":false,"created":"2025-10-05T02:40:00.000Z","paper":{"kind":"plain"},"pageSize":{"width":612,"height":792,"infinite":false}},"pages":[]}"#
+        for bad in ["\"nonsense\"", "\"17596320000000000-aaaaaaaa-0\"", "\"17596320000000000-aaaaaaaa-01\"",
+                    "\"17596320000000000-AAAAAAAA-1\"", "\"17596320000000000-aaaaaaaa-9007199254740992\"", "12"] {
+            XCTAssertNil(try decode(snap + #","asOf":\#(bad)}"#).asOf, bad)
+        }
+        // Fields on the wrong kind are ignored.
+        let s = try decode(snap + #","session":"abc","checkpoint":{}}"#)
+        XCTAssertNil(s.session); XCTAssertNil(s.checkpoint)
+        let d = try decode(#"{"type":"delta",\#(head),"ops":[],"asOf":"17596320000000000-aaaaaaaa-1"}"#)
+        XCTAssertNil(d.asOf)
+    }
+
+    // MARK: Sessions (§5.8.2)
+
+    private func point(_ d: DeviceID, _ minutes: Double, session: String? = "s1", checkpoint: Checkpoint? = nil,
+                       seq: Int) -> RestorePoint {
+        let ms = baseMillis + Int64(minutes * 60_000)
+        return RestorePoint(name: RevisionName(hlc: HLC(millis: ms, counter: 0)!, device: d, seq: seq, kind: .delta),
+                            wall: wallAt(ms), app: "t", complete: true, checkpoint: checkpoint, session: session)
+    }
+
+    private func shape(_ groups: [HistoryGroup]) -> [String] {
+        groups.map {
+            switch $0 {
+            case .checkpoint(let p): return "C\(p.name.seq)"
+            case .session(let s): return s.points.map { "\($0.name.seq)" }.joined(separator: ",")
+            }
+        }
+    }
+
+    func testSessionRuleAClosedAndReopenedStartsNewSession() {
+        let pts = [point(devA, 0, session: "s1", seq: 1), point(devA, 1, session: "s1", seq: 2),
+                   point(devA, 2, session: "s2", seq: 3), point(devA, 3, session: "s2", seq: 4)]
+        XCTAssertEqual(shape(NoteHistory.groups(pts)), ["1,2", "3,4"])
+    }
+
+    func testSessionRuleBGapOfTenMinutes() {
+        let pts = [point(devA, 0, seq: 1), point(devA, 9.99, seq: 2), point(devA, 19.99, seq: 3),
+                   point(devA, 25, seq: 4)]
+        XCTAssertEqual(shape(NoteHistory.groups(pts)), ["1,2", "3,4"], "exactly 10 minutes starts a new session")
+        // A wall clock going backwards is no gap.
+        let back = [point(devA, 30, seq: 1), point(devA, 0, seq: 2)]
+        XCTAssertEqual(shape(NoteHistory.groups(back)), ["1,2"])
+    }
+
+    func testSessionRuleCDifferentDevice() {
+        let pts = [point(devA, 0, seq: 1), point(devB, 1, seq: 1), point(devA, 2, seq: 2)]
+        XCTAssertEqual(shape(NoteHistory.groups(pts)), ["1", "1", "2"])
+    }
+
+    func testPointsWithoutSessionGroupByGapAndDevice() {
+        let pts = [point(devA, 0, session: nil, seq: 1), point(devA, 5, session: nil, seq: 2),
+                   point(devA, 6, session: "s1", seq: 3), point(devA, 20, session: nil, seq: 4)]
+        XCTAssertEqual(shape(NoteHistory.groups(pts)), ["1,2", "3", "4"])
+    }
+
+    func testCheckpointsStandAloneAndSplitSessions() {
+        let pts = [point(devA, 0, seq: 1), point(devA, 1, seq: 2),
+                   point(devA, 2, checkpoint: Checkpoint(name: "v1"), seq: 3),
+                   point(devA, 3, seq: 4), point(devA, 4, checkpoint: Checkpoint(), seq: 5),
+                   point(devA, 4.5, checkpoint: Checkpoint(), seq: 6)]
+        let groups = NoteHistory.groups(pts)
+        XCTAssertEqual(shape(groups), ["1,2", "C3", "4", "C5", "C6"])
+        guard case .session(let s) = groups[0] else { return XCTFail() }
+        XCTAssertEqual(s.count, 2)
+        XCTAssertEqual(s.device, devA)
+        XCTAssertEqual(s.start, pts[0].wall)
+        XCTAssertEqual(s.end, pts[1].wall)
+        XCTAssertEqual(s.newest.name, pts[1].name)
+    }
+
+    func testRestorePointsCarryCheckpointAndSession() {
+        var log = LogBuilder()
+        var a = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])
+        a.session = "s1"
+        var c = log.delta(devA, 10, [])
+        c.checkpoint = Checkpoint(name: "Draft")
+        c.session = "s1"
+        let pts = NoteHistory.restorePoints([a, c])
+        XCTAssertEqual(pts.map(\.session), ["s1", "s1"])
+        XCTAssertEqual(pts.map(\.checkpoint), [nil, Checkpoint(name: "Draft")])
+    }
+
+    // MARK: Positioned snapshots (§5.8.3)
+
+    func testPositionedSnapshotMakesItsPointCompleteAndIsNoRestorePoint() throws {
+        var log = LogBuilder()
+        let a1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])
+        let s1 = stroke(), s2 = stroke()
+        let a2 = log.delta(devA, 10, [.addStroke(page: p1, stroke: s1)])
+        let a3 = log.delta(devA, 20, [.addStroke(page: p1, stroke: s2)])
+        let a4 = log.delta(devA, 30, [.removeStroke(page: p1, strokeId: s1.id)])
+        var pos = try log.snapshot(devB, 40, from: [a1, a2, a3])
+        pos.asOf = RevisionKey(a3.name)
+        let full = try log.snapshot(devB, 50, from: [a1, a2, a3, a4])
+        // a1 and a2 compacted away: a3 is complete only thanks to `pos`.
+        let left = [a3, a4, pos, full]
+        XCTAssertEqual(NoteHistory.positions(left), [pos.name: RevisionKey(a3.name)])
+        let pts = NoteHistory.restorePoints(left)
+        XCTAssertEqual(pts.map(\.name), [a3.name, a4.name, full.name], "the positioned snapshot is not listed")
+        XCTAssertEqual(pts.map(\.complete), [true, true, true])
+        XCTAssertEqual(try NoteHistory.state(left, at: a3.name).allStrokeIds, [s1.id, s2.id])
+        XCTAssertEqual(try NoteHistory.state(left, at: a4.name).allStrokeIds, [s2.id])
+        XCTAssertThrowsError(try NoteHistory.state(left, at: pos.name))
+        // Without asOf (an older reader) a3 is incomplete, never wrong.
+        var plain = pos; plain.asOf = nil
+        XCTAssertEqual(NoteHistory.restorePoints([a3, a4, plain, full]).first?.complete, false)
+        // The current state is the same either way.
+        XCTAssertEqual(try NoteReducer.reconstruct(left).comparable,
+                       try NoteReducer.reconstruct([a1, a2, a3, a4]).comparable)
+    }
+
+    func testInvalidAsOfIsAnOrdinarySnapshot() throws {
+        var log = LogBuilder()
+        let a1 = log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])
+        let a2 = log.delta(devA, 10, [.setMeta(.title("x"))])
+        // Covers a2, which is ordered after its asOf: a leak.
+        var leak = try log.snapshot(devB, 40, from: [a1, a2])
+        leak.asOf = RevisionKey(a1.name)
+        XCTAssertTrue(NoteHistory.positions([a1, a2, leak]).isEmpty)
+        // asOf not before its own name.
+        var late = try log.snapshot(devB, 50, from: [a1])
+        late.asOf = RevisionKey(hlc: HLC(millis: baseMillis + 99_999, counter: 0)!, device: devA, seq: 9)
+        XCTAssertTrue(NoteHistory.positions([a1, a2, late]).isEmpty)
+        XCTAssertEqual(NoteHistory.restorePoints([a1, a2, late]).count, 3)
+    }
+
+    // MARK: Thinning: hand-made cases
+
+    private func minutes(_ m: Double) -> Int64 { Int64(m * 60_000) }
+
+    /// Applies a plan in memory.
+    private func applied(_ revs: [Revision], _ plan: CompactionPlan) -> [Revision] {
+        let gone = Set(plan.deletions)
+        return revs.filter { !gone.contains($0.name) } + plan.snapshots
+    }
+
+    private func thin(_ revs: [Revision], olderThan age: TimeInterval, now: Date,
+                      device: DeviceID = devC) throws -> CompactionPlan {
+        var clock = HybridClock()
+        return try CompactionPlanner.plan(revs, mode: .thin(olderThan: age), now: now, device: device, clock: &clock,
+                                          wall: now, app: "test/0")
+    }
+
+    func testThinningKeepsCheckpointsAndSessionEnds() throws {
+        var log = LogBuilder()
+        var revs: [Revision] = []
+        func add(_ d: DeviceID, _ m: Double, _ ops: [Op], session: String?, checkpoint: Checkpoint? = nil) -> Revision {
+            var r = log.delta(d, minutes(m), ops)
+            r.session = session; r.checkpoint = checkpoint
+            revs.append(r)
+            return r
+        }
+        _ = add(devA, 0, [.addPage(Page(id: p1, order: "a0"))], session: "s1")
+        for i in 1...5 { _ = add(devA, Double(i), [.addStroke(page: p1, stroke: stroke())], session: "s1") }
+        let end1 = add(devA, 6, [.setMeta(.title("one"))], session: "s1")
+        let cp = add(devA, 7, [], session: "s1", checkpoint: Checkpoint(name: "v1"))
+        for i in 0..<4 { _ = add(devA, 8 + Double(i), [.addStroke(page: p1, stroke: stroke())], session: "s2") }
+        let end2 = revs.last!
+        // A recent session (inside the window): untouched.
+        let recent = (0..<3).map { i in add(devA, 60 * 24 * 40 + Double(i), [.addStroke(page: p1, stroke: stroke())], session: "s3") }
+        let now = wallAt(baseMillis + minutes(60 * 24 * 41))
+        let plan = try thin(revs, olderThan: 30 * 86_400, now: now)
+        
+        let after = applied(revs, plan)
+        let names = Set(after.map(\.name))
+        for keep in [end1, cp, end2] + recent { XCTAssertTrue(names.contains(keep.name), keep.name.filename) }
+        XCTAssertEqual(plan.deletions.count, revs.count - 3 - recent.count)
+        XCTAssertEqual(try NoteReducer.reconstruct(after).comparable, try NoteReducer.reconstruct(revs).comparable)
+        let pts = NoteHistory.restorePoints(after)
+        XCTAssertEqual(pts.map(\.name), [end1, cp, end2].map(\.name) + recent.map(\.name))
+        XCTAssertTrue(pts.allSatisfy(\.complete))
+        for p in pts {
+            XCTAssertEqual(try NoteHistory.state(after, at: p.name).comparable,
+                           try NoteHistory.state(revs, at: p.name).comparable)
+        }
+        // Positioned snapshots at end1 (cp needs none: nothing deleted between) and end2.
+        XCTAssertEqual(Set(plan.snapshots.compactMap(\.asOf)), [RevisionKey(end1.name), RevisionKey(end2.name)])
+        XCTAssertTrue(try thin(after, olderThan: 30 * 86_400, now: now).isEmpty, "thinning again does nothing")
+        // Never: same as nothing older than the window.
+        XCTAssertTrue(try thin(revs, olderThan: 365 * 86_400, now: now).isEmpty)
+    }
+
+    func testWitnessKeepsAnotherDevicesOrder() throws {
+        var log = LogBuilder()
+        var revs: [Revision] = []
+        func add(_ d: DeviceID, _ m: Double, _ ops: [Op], session: String) {
+            var r = log.delta(d, minutes(m), ops); r.session = session; revs.append(r)
+        }
+        add(devA, 0, [.addPage(Page(id: p1, order: "a0"))], session: "a1")
+        for i in 1...3 { add(devA, Double(i), [.addStroke(page: p1, stroke: stroke())], session: "a1") }
+        for i in 0...3 { add(devB, 4 + Double(i), [.addStroke(page: p1, stroke: stroke())], session: "b1") }
+        for i in 0...3 { add(devA, 8 + Double(i), [.addStroke(page: p1, stroke: stroke())], session: "a2") }
+        let now = wallAt(baseMillis + minutes(60 * 24 * 60))
+        let plan = try thin(revs, olderThan: 30 * 86_400, now: now)
+        let after = applied(revs, plan)
+        // Target a1's end (A seq 4): B's first revision after it is its witness;
+        // target b1's end: A's first revision after it (seq 5).
+        XCTAssertEqual(Set(plan.witnesses.map { "\($0.device)-\($0.seq)" }), ["bbbbbbbb-1", "aaaaaaaa-5"])
+        let pts = NoteHistory.restorePoints(after)
+        for t in plan.targets {
+            XCTAssertTrue(pts.first { $0.name == t }?.complete ?? false, t.filename)
+            XCTAssertEqual(try NoteHistory.state(after, at: t).comparable, try NoteHistory.state(revs, at: t).comparable)
+        }
+        XCTAssertTrue(try thin(after, olderThan: 30 * 86_400, now: now).isEmpty)
+    }
+
+    func testRetentionCompactionKeepsCheckpointsComplete() throws {
+        var log = LogBuilder()
+        var revs = [log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])]
+        for i in 1...4 { revs.append(log.delta(devA, minutes(Double(i)), [.addStroke(page: p1, stroke: stroke())])) }
+        var cp = log.delta(devA, minutes(5), [])
+        cp.checkpoint = Checkpoint(name: "keep me")
+        revs.append(cp)
+        for i in 6...9 { revs.append(log.delta(devA, minutes(Double(i)), [.addStroke(page: p1, stroke: stroke())])) }
+        let now = wallAt(baseMillis + minutes(60 * 24 * 60))
+        var clock = HybridClock()
+        let plan = try CompactionPlanner.plan(revs, mode: .retention(30 * 86_400), now: now, device: devC,
+                                              clock: &clock, wall: now, app: "t")
+        XCTAssertFalse(plan.deletions.contains(cp.name))
+        let after = applied(revs, plan)
+        XCTAssertEqual(after.filter { $0.kind == .delta }.map(\.name), [cp.name])
+        XCTAssertTrue(NoteHistory.restorePoints(after).first { $0.name == cp.name }?.complete ?? false)
+        XCTAssertEqual(try NoteHistory.state(after, at: cp.name).comparable, try NoteHistory.state(revs, at: cp.name).comparable)
+        XCTAssertEqual(try NoteReducer.reconstruct(after).comparable, try NoteReducer.reconstruct(revs).comparable)
+
+        // Without a device (no positioned snapshots), nothing a checkpoint depends on goes.
+        let deviceless = LoadedNote(revisions: revs, failures: [:]).compactionPlan(retention: 0, now: now, assumingSnapshot: true)
+        XCTAssertFalse(deviceless.contains(cp.name))
+        XCTAssertTrue(deviceless.allSatisfy { $0 > cp.name })
+    }
+
+    func testPlanRefusesNothingWhenNoteIsYoung() throws {
+        var log = LogBuilder()
+        let revs = [log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))]), log.delta(devA, 1000, [.setMeta(.title("t"))])]
+        XCTAssertTrue(try thin(revs, olderThan: 86_400, now: wallAt(baseMillis + 5000)).isEmpty)
+    }
+
+    // MARK: Thinning: property test of the guarantees (§5.8.4 G1–G5)
+
+    func testThinningGuaranteesOnRandomLogs() throws {
+        let seeds: [UInt64] = (1...120).map { $0 }
+        for seed in seeds {
+            var rng = SplitMix64(seed: seed)
+            let revs = try RandomHistory.make(using: &rng)
+            let end = revs.map(\.wall).max()!
+            let span = end.timeIntervalSince(revs.map(\.wall).min()!)
+            let now = end.addingTimeInterval(Double.random(in: 0...(span / 2), using: &rng))
+            let age = Double.random(in: 0...(span), using: &rng)
+            let mode: CompactionMode = seed % 4 == 0 ? .retention(age) : .thin(olderThan: age)
+            try checkGuarantees(revs, mode: mode, now: now, seed: seed, rng: &rng)
+        }
+    }
+
+    private func checkGuarantees(_ revs: [Revision], mode: CompactionMode, now: Date, seed: UInt64,
+                                 rng: inout SplitMix64) throws {
+        let ctx = "seed \(seed) \(mode)"
+        var clock = HybridClock()
+        let plan = try CompactionPlanner.plan(revs, mode: mode, now: now, device: DeviceID("dddddddd")!, clock: &clock,
+                                              wall: now, app: "t")
+        let before = NoteHistory.restorePoints(revs)
+        let checkpoints = before.filter(\.isCheckpoint).map(\.name)
+        let gone = Set(plan.deletions)
+        // G2: no checkpoint deleted.
+        XCTAssertTrue(gone.isDisjoint(with: checkpoints), ctx)
+        // G3: thinning deletes only inside the thinned range.
+        if case .thin(let age) = mode {
+            let range = revs.sorted { $0.name < $1.name }.prefix { now.timeIntervalSince($0.wall) > age }
+            XCTAssertTrue(gone.isSubset(of: Set(range.map(\.name))), ctx)
+            // Every session's newest point stays.
+            for case .session(let s) in NoteHistory.groups(before) where gone.contains(s.newest.name) {
+                XCTFail("\(ctx): session end \(s.newest.name) deleted")
+            }
+        }
+        // Each deletion prefix: G1 (state) and G2 (targets complete, same as-of).
+        let order = plan.deletions.shuffled(using: &rng)
+        let cuts = Set([0, order.count, Int.random(in: 0...order.count, using: &rng)])
+        let current = try NoteReducer.reconstruct(revs).comparable
+        let completeBefore = Set(before.filter(\.complete).map(\.name))
+        for cut in cuts.sorted() {
+            let removed = Set(order.prefix(cut))
+            let after = revs.filter { !removed.contains($0.name) } + plan.snapshots
+            XCTAssertEqual(try NoteReducer.reconstruct(after).comparable, current, "\(ctx) cut \(cut)")
+            let pts = Dictionary(uniqueKeysWithValues: NoteHistory.restorePoints(after).map { ($0.name, $0) })
+            for t in plan.targets {
+                XCTAssertTrue(completeBefore.contains(t), ctx)
+                XCTAssertEqual(pts[t]?.complete, true, "\(ctx) cut \(cut) target \(t)")
+                XCTAssertEqual(try NoteHistory.state(after, at: t).comparable, try NoteHistory.state(revs, at: t).comparable,
+                               "\(ctx) cut \(cut) target \(t)")
+            }
+        }
+        // Checkpoints that were complete are targets.
+        XCTAssertTrue(Set(checkpoints).intersection(completeBefore).isSubset(of: Set(plan.targets)), ctx)
+        // G5: each deleted revision is covered (delta) or dominated (snapshot) by a survivor.
+        let after = applied(revs, plan)
+        let covers = after.compactMap { r -> (RevisionName, Included)? in
+            if case .snapshot(let inc, _) = r.body { return (r.name, inc) } else { return nil }
+        }
+        for r in revs where gone.contains(r.name) {
+            switch r.body {
+            case .delta:
+                XCTAssertTrue(covers.contains { $0.1.covers(device: r.device, seq: r.seq) }, ctx)
+            case .snapshot(let inc, _):
+                XCTAssertTrue(covers.contains { $0.1.isSuperset(of: inc) && (!inc.isSuperset(of: $0.1) || $0.0 > r.name) }, ctx)
+            }
+        }
+        // Positioned snapshots written are valid.
+        let positions = NoteHistory.positions(after)
+        for s in plan.snapshots where s.asOf != nil { XCTAssertEqual(positions[s.name], s.asOf, ctx) }
+        // G4: again with the same cutoff: nothing.
+        if case .thin = mode, !plan.isEmpty {
+            var c2 = clock
+            let again = try CompactionPlanner.plan(after, mode: mode, now: now, device: DeviceID("dddddddd")!, clock: &c2,
+                                                   wall: now, app: "t")
+            XCTAssertTrue(again.isEmpty, "\(ctx): second pass deletes \(again.deletions) writes \(again.snapshots.count)")
+        }
+    }
+}
+
+/// Random multi-device logs with sessions, checkpoints, removals, tags,
+/// page changes and the odd snapshot, spread over months.
+enum RandomHistory {
+    static func make(using rng: inout SplitMix64) throws -> [Revision] {
+        let devices = [devA, devB, devC]
+        var log = LogBuilder()
+        var revs: [Revision] = []
+        var t: Int64 = 0
+        var pages: [UUID] = []
+        var device = devA
+        var sessions: [DeviceID: String] = [:]
+        let count = Int.random(in: 8...40, using: &rng)
+        for i in 0..<count {
+            // Time: seconds apart, sometimes 10+ minutes, sometimes days.
+            switch Int.random(in: 0..<10, using: &rng) {
+            case 0: t += Int64.random(in: 1...20, using: &rng) * 86_400_000
+            case 1, 2: t += Int64.random(in: 10...120, using: &rng) * 60_000
+            default: t += Int64.random(in: 1...300, using: &rng) * 1000
+            }
+            if Int.random(in: 0..<4, using: &rng) == 0 { device = devices.randomElement(using: &rng)! }
+            if sessions[device] == nil || Int.random(in: 0..<6, using: &rng) == 0 {
+                sessions[device] = Bool.random(using: &rng) ? "s\(i)" : nil
+                if sessions[device] == nil { sessions[device] = "" }
+            }
+            if i > 2, Int.random(in: 0..<12, using: &rng) == 0 {
+                revs.append(try log.snapshot(device, t, from: revs))
+                continue
+            }
+            let state = revs.isEmpty ? nil : try NoteReducer.reconstruct(revs)
+            var ops: [Op] = []
+            var checkpoint: Checkpoint?
+            if pages.isEmpty {
+                let p = UUID.random(using: &rng)
+                pages.append(p)
+                ops.append(.addPage(Page(id: p, order: "a\(i)")))
+            } else {
+                switch Int.random(in: 0..<10, using: &rng) {
+                case 0: checkpoint = Checkpoint(name: Bool.random(using: &rng) ? "v\(i)" : nil)
+                case 1:
+                    let p = UUID.random(using: &rng)
+                    pages.append(p)
+                    ops.append(.addPage(Page(id: p, order: "b\(i)")))
+                case 2:
+                    if let s = state?.pages.flatMap({ p in p.strokes.map { (p.id, $0.id) } }).randomElement(using: &rng) {
+                        ops.append(.removeStroke(page: s.0, strokeId: s.1))
+                    }
+                case 3: ops.append(.setMeta(.title("t\(i)")))
+                case 4: ops.append(.addTag("tag\(i % 3)"))
+                case 5:
+                    if let st = state, let op = NoteOps.removeTag("tag\(i % 3)", from: st) { ops.append(op) }
+                default:
+                    let p = pages.randomElement(using: &rng)!
+                    ops.append(.addStroke(page: p, stroke: Stroke(id: UUID.random(using: &rng),
+                                                                  ink: Ink(tool: .pen, color: .black, width: 2),
+                                                                  points: [StrokePoint(x: Double(i), y: 2, w: 2, h: 2)])))
+                }
+            }
+            var r = log.delta(device, t, ops)
+            let s = sessions[device] ?? ""
+            r.session = s.isEmpty ? nil : s
+            r.checkpoint = checkpoint
+            revs.append(r)
+        }
+        // Sometimes an earlier compaction already removed covered revisions.
+        if Int.random(in: 0..<3, using: &rng) == 0, let end = revs.last?.wall {
+            let gone = Set(LoadedNote(revisions: revs, failures: [:])
+                .compactionPlan(retention: Double.random(in: 0...(30 * 86_400), using: &rng), now: end,
+                                protectingCheckpoints: false))
+            revs.removeAll { gone.contains($0.name) }
+        }
+        return revs
+    }
+}
