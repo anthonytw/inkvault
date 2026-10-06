@@ -336,8 +336,10 @@ extra PROPFIND. A blob dropped on one side is deleted on the other only if
 `format.md` §8.1.6 rules 1–3 hold for its note there (the side that dropped
 it applied rule 4); otherwise it is copied back. Names must match
 `<64 hex>.<kind>.age`; a downloaded blob must start with the age header.
-Blobs are streamed both ways with their own size limit; small kinds may go
-first.
+Blobs are streamed both ways with their own size limit; small kinds go
+first. Uploads go to a temporary name and are moved into place
+(`MOVE`, `Overwrite: F`); an interrupted download resumes with `Range`
+(`docs/io.md` "Attachment blobs").
 
 A recipient removal renames every blob, which sync sees as "all blobs
 dropped, all new blobs added". As for rewritten revisions, the documented
@@ -1299,6 +1301,16 @@ side; remote names validated (`<64 hex>.<kind>.age`).
 *Done when:* mock-server tests for each row of the write-once table with
 blobs, a dropped-but-referenced blob is copied back, a hostile name is
 ignored, a 300 MB blob syncs with bounded memory; wsgidav integration test.
+*Status:* in review (#67). Code: `Sources/SempereWebDAV/BlobSync.swift`
+(listing, transfers, deletion rules), `WebDAVClient` (`put(fromFile:)`,
+segmented `download` with `Range`/`If-Range`, `MOVE`), `URLSessionTransport`
+(`bodyFile`, `responseFile`); CLI `--max-blob-mib`; `docs/io.md` "Attachment
+blobs". Decisions beyond this section: uploads go to a temporary name and are
+`MOVE`d into place (`Overwrite: F`); downloads are 2 MiB `Range` requests
+(bounded memory on Linux, where URLSession has no flow control) resumed with
+`If-Range` across runs; a side with no `att/` collection deletes nothing on
+the other; rule 1 for the server side means every revision the server holds
+was read here.
 
 ### C. SempereRender export
 
@@ -1453,6 +1465,15 @@ synthetic `.note` fixture so CI covers the mapping.
 (needs C3) and `attach image|audio NOTE FILE` for scripted use and tests.
 *Done when:* end-to-end CLI tests: import a PDF, attach an image and audio,
 export PDF with backgrounds and attachments, search finds typed text.
+
+*Status:* done (PR #69, `docs/cli.md` "Adding attachments"). Shipped as `attach image|pdf|text|recording|transcript`
+(one blob write, then one delta each, `--json`, `--dry-run`), `import pdf`, `search` over text boxes and
+(`--transcripts`) transcripts, and typed text in the Markdown and HTML exports. The logic is in shared
+core code that the app's add flows (E0–E4) call too: `NoteOps.placeImage` / `placeText` / `placePDFPage` /
+`insertPDFPages` / `newPDFNote` / `recording` / `setTranscript` (`Sources/Sempere/AttachmentOps.swift`),
+`AudioProbe` (MPEG-4 header reader, `Sources/Sempere/AudioProbe.swift`), and `ImageIngest` / `PDFIngest`
+(`Sources/SempereRender/AttachmentIngest.swift`: JPEG/PNG size, EXIF orientation and metadata removal;
+PDF page sizes). Not done: recordings in exports (C4), editing or removing a placed item from the CLI.
 
 ### G. Future item kinds (not scheduled)
 
