@@ -1038,6 +1038,7 @@ public enum InkJSON {
             if let date = RFC3339.parse(s) { return date }
             throw DecodingError.dataCorrupted(.init(codingPath: dec.codingPath, debugDescription: "bad date \(s.prefix(64))"))
         }
+        if let key = JSONValueBudget.key { d.userInfo[key] = JSONValueBudget() }
         return d
     }
 

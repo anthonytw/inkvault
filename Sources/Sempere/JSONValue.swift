@@ -20,16 +20,35 @@ public enum JSONValue: Hashable, Sendable {
 }
 
 extension JSONValue: Codable {
+    /// Deepest coding path (from the document root) a value may sit at.
+    /// Decoding recurses once per level, and the app decodes on threads with
+    /// 512 KiB stacks: a hostile unknown field nested a few hundred deep
+    /// would overflow them (format.md §9).
+    public static let maxDepth = 24
+    /// Most values one decoder reads (`InkJSON.decoder`). Every value costs a
+    /// few trial decodes, each O(depth): without a budget a large unknown
+    /// field would take minutes.
+    public static let maxValues = 16_384
+
     public init(from decoder: Decoder) throws {
+        guard decoder.codingPath.count <= Self.maxDepth else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                    debugDescription: "unknown field nested deeper than \(Self.maxDepth)"))
+        }
+        if let budget = JSONValueBudget.of(decoder), !budget.take() {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                    debugDescription: "more than \(Self.maxValues) unknown-field values"))
+        }
         let c = try decoder.singleValueContainer()
+        // Most likely first: every failed trial builds an error.
         if c.decodeNil() {
             self = .null
-        } else if let v = try? c.decode(Bool.self) {
-            self = .bool(v)
-        } else if let v = try? c.decode(Double.self) {
-            self = .number(v)
         } else if let v = try? c.decode(String.self) {
             self = .string(v)
+        } else if let v = try? c.decode(Double.self) {
+            self = .number(v)
+        } else if let v = try? c.decode(Bool.self) {
+            self = .bool(v)
         } else if let v = try? c.decode([JSONValue].self) {
             self = .array(v)
         } else {
@@ -67,6 +86,29 @@ extension JSONValue {
 
     /// True for `.null`.
     public var isNull: Bool { self == .null }
+}
+
+/// How many more `JSONValue`s a decoder may read (`JSONValue.maxValues`),
+/// kept in its `userInfo` by `InkJSON.decoder()`.
+final class JSONValueBudget: @unchecked Sendable {
+    static let key = CodingUserInfoKey(rawValue: "sempere.jsonValueBudget")
+    private let lock = NSLock()
+    private var remaining: Int
+
+    init(_ limit: Int = JSONValue.maxValues) { remaining = limit }
+
+    static func of(_ decoder: Decoder) -> JSONValueBudget? {
+        guard let key else { return nil }
+        return decoder.userInfo[key] as? JSONValueBudget
+    }
+
+    /// Takes one value from the budget; false once it is spent.
+    func take() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard remaining > 0 else { return false }
+        remaining -= 1
+        return true
+    }
 }
 
 /// A coding key for any string: objects whose unknown keys are kept.

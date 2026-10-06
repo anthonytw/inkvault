@@ -129,12 +129,17 @@ public enum NoteHistory {
     /// ordered at or before it (`NoteReducer.reconstruct`).
     ///
     /// - Throws: `HistoryError.unknownRevision` if no revision has that name,
-    ///   `.incompleteHistory` if the state cannot be rebuilt, or `NoteLogError`.
+    ///   `.incompleteHistory` if the state cannot be rebuilt, or `NoteLogError`
+    ///   (`.attachmentsNotMerged` for a note with attachments, until A1).
     public static func state(_ revisions: [Revision], at point: RevisionName,
                              unreadable: [RevisionName] = []) throws -> NoteState {
         guard revisions.contains(where: { $0.name == point }) else {
             throw HistoryError.unknownRevision(point.filename)
         }
+        // A1: the merge does not keep attachments yet, so a state without them
+        // would be shown, and a restore would claim to match a point while
+        // leaving every item as it is. Refused, as `makeSnapshot` refuses.
+        if let r = revisions.first(where: \.holdsAttachments) { throw NoteLogError.attachmentsNotMerged(r.name) }
         guard Completeness(revisions, unreadable: unreadable).isComplete(at: [point]) == [true] else {
             throw HistoryError.incompleteHistory(point)
         }
@@ -177,7 +182,9 @@ public enum NoteHistory {
         for c in current.pages where !taken.contains(c.id) { ops.append(.removePage(pageId: c.id)) }
 
         func copy(_ s: Stroke) -> Stroke {
-            Stroke(id: newID(), ink: s.ink, points: s.points, transform: s.transform, parent: s.id)
+            var c = Stroke(id: newID(), ink: s.ink, points: s.points, transform: s.transform, parent: s.id)
+            c.rec = s.rec   // set when a stroke is added and kept by its copies (format.md §8.3.3)
+            return c
         }
         for t in target.pages {
             guard let c = counterpart[t.id] else {

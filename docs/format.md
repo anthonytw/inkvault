@@ -1522,6 +1522,7 @@ where the table says how they degrade.
 | `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |
 | files read at all | regular files only (no FIFOs or devices; symlinks followed in a vault, not in an imported package) | `BoundedRead` |
 | JSON nesting | 512 levels (Foundation's decoder) | |
+| unknown fields kept verbatim (§7, §8) | 24 levels deep from the document root; 16 384 values per file | `JSONValue.maxDepth`, `.maxValues` |
 | `seq`, `included` `upTo` / `extra` | 1 … 2^53 − 1 | `RevisionName.maxSeq` |
 | age header | 2 MiB, 1024 stanzas | Age `HeaderCodec` |
 | scrypt work factor (identity files) | 2^20 by default (1 GiB), at most 2^22 | `IdentityFile` |

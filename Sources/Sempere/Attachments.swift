@@ -265,11 +265,23 @@ public struct TextRun: Hashable, Sendable, Codable {
         if let size, !TextContent.isValidSize(size) {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "run size out of range"))
         }
+        guard Self.isValidText(t) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "run text holds a control character"))
+        }
+    }
+
+    /// format.md §8.2.4: any Unicode scalars except C0 controls other than
+    /// `\n` and `\t`.
+    public static func isValidText(_ text: String) -> Bool {
+        !text.unicodeScalars.contains { $0.value < 0x20 && $0 != "\n" && $0 != "\t" }
     }
 
     public func encode(to encoder: Encoder) throws {
         if let size, !TextContent.isValidSize(size) {
             throw EncodingError.invalidValue(size, .init(codingPath: encoder.codingPath, debugDescription: "run size out of range"))
+        }
+        guard Self.isValidText(t) else {
+            throw EncodingError.invalidValue(t, .init(codingPath: encoder.codingPath, debugDescription: "run text holds a control character"))
         }
         var c = encoder.container(keyedBy: AnyKey.self)
         try c.encode(t, "t")
@@ -1019,9 +1031,12 @@ public struct Transcript: Hashable, Sendable, Codable {
             guard s.start >= lastEnd else { return "segments out of order or overlapping" }
             guard unit(s.confidence) else { return "confidence outside 0...1" }
             lastEnd = s.end
+            var lastWordEnd = -Double.infinity
             for w in s.words ?? [] {
                 guard w.start <= w.end, w.start >= s.start, w.end <= s.end else { return "word outside its segment" }
+                guard w.start >= lastWordEnd else { return "words out of order or overlapping" }
                 guard unit(w.c) else { return "word confidence outside 0...1" }
+                lastWordEnd = w.end
             }
         }
         return nil

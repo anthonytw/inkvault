@@ -533,11 +533,67 @@ final class AttachmentModelTests: XCTestCase {
             transcript(#"[{"start":0,"end":1,"text":"a","confidence":1.5}]"#),
             transcript(#"[{"start":1,"end":2,"text":"a","words":[{"t":"a","start":0.5,"end":1}]}]"#),  // word outside
             transcript(#"[{"start":1,"end":2,"text":"a","words":[{"t":"a","start":1,"end":2,"c":-0.1}]}]"#),
+            transcript(#"[{"start":0,"end":5,"text":"a b","words":[{"t":"b","start":3,"end":4},{"t":"a","start":0,"end":5}]}]"#),  // word order
+            transcript(#"[{"start":0,"end":5,"text":"a b","words":[{"t":"a","start":0,"end":3},{"t":"b","start":2,"end":4}]}]"#),  // word overlap
             Data("[]".utf8),
         ] {
             XCTAssertThrowsError(try Transcript.decode(bad)) { XCTAssert($0 is DecodingError) }
         }
         XCTAssertThrowsError(try Transcript.decode(Data(count: Transcript.maxSize + 1)))
+        // Adjacent words (one ends where the next starts) are in order.
+        XCTAssertNoThrow(try Transcript.decode(transcript(
+            #"[{"start":0,"end":5,"text":"a b","words":[{"t":"a","start":0,"end":2},{"t":"b","start":2,"end":5}]}]"#)))
+    }
+
+    /// format.md §8.2.4: run text holds no C0 controls but `\n` and `\t`.
+    func testTextRunsRefuseControlCharacters() throws {
+        let ok = try InkJSON.decoder().decode(TextRun.self, from: Data(#"{"t":"a\tb\nc"}"#.utf8))
+        XCTAssertEqual(ok.t, "a\tb\nc")
+        for bad in [#"{"t":"a\u0000b"}"#, #"{"t":"a\u001b"}"#, #"{"t":"a\r\nb"}"#] {
+            XCTAssertThrowsError(try InkJSON.decoder().decode(TextRun.self, from: Data(bad.utf8)), bad) {
+                XCTAssert($0 is DecodingError, "\($0)")
+            }
+        }
+        XCTAssertThrowsError(try InkJSON.encoder().encode(TextRun("a\rb"))) { XCTAssert($0 is EncodingError) }
+        XCTAssertTrue(TextRun.isValidText("e\u{301}🇪🇸 \n\t"))
+    }
+
+    /// Restoring a stroke keeps its link to the recording (§8.3.3: `rec` is
+    /// set when a stroke is added and copies keep it); a second restore is a no-op.
+    func testRestoreKeepsTheStrokesRecordingLink() throws {
+        var log = LogBuilder()
+        let page = UUID()
+        var linked = stroke()
+        linked.rec = RecordingLink(id: UUID(), at: 3.5)
+        let d1 = log.delta(devA, 0, NoteOps.newNote(title: "Rec", pageId: page) + [.addStroke(page: page, stroke: linked)])
+        let d2 = log.delta(devA, 10, [.removeStroke(page: page, strokeId: linked.id)])
+        var clock = HybridClock()
+        let restore = try XCTUnwrap(try NoteHistory.makeRestore(from: [d1, d2], to: d1.name, device: devB, clock: &clock,
+                                                                wall: wallAt(baseMillis + 20), app: "test"))
+        let state = try NoteReducer.reconstruct([d1, d2, restore])
+        let copy = try XCTUnwrap(state.pages.first?.strokes.first)
+        XCTAssertEqual(copy.parent, linked.id)
+        XCTAssertEqual(copy.rec, linked.rec)
+        XCTAssertNil(try NoteHistory.makeRestore(from: [d1, d2, restore], to: d1.name, device: devB, clock: &clock,
+                                                 wall: wallAt(baseMillis + 30), app: "test"))
+    }
+
+    /// Until A1 the merge drops items, so a restore would claim the note
+    /// matches a point while leaving every item as it is: refused, as
+    /// snapshots are.
+    func testRestoreRefusesNotesWithAttachmentsUntilMerged() throws {
+        var log = LogBuilder()
+        let page = UUID()
+        let d1 = log.delta(devA, 0, NoteOps.newNote(title: "Att", pageId: page))
+        let d2 = log.delta(devA, 10, [.addItem(page: page, item: .text(TextContent(size: 12, color: .black, runs: [TextRun("x")]),
+                                                                       frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "a"))])
+        var clock = HybridClock()
+        XCTAssertThrowsError(try NoteHistory.makeRestore(from: [d1, d2], to: d1.name, device: devB, clock: &clock,
+                                                         wall: wallAt(baseMillis + 20), app: "test")) { e in
+            XCTAssertEqual(e as? NoteLogError, .attachmentsNotMerged(d2.name))
+        }
+        XCTAssertThrowsError(try NoteHistory.state([d1, d2], at: d1.name))
+        XCTAssertNoThrow(try NoteHistory.state([d1], at: d1.name))
     }
 
     func testJSONValue() throws {
