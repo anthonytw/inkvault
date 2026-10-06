@@ -55,14 +55,20 @@ struct HistoryTests {
         let entries = data.entries
         #expect(entries.map(\.id) == points.map(\.name).reversed())
         #expect(entries.first?.isLatest == true)
-        #expect(entries.dropFirst().allSatisfy { !$0.isLatest })
+        let othersNotLatest = entries.dropFirst().allSatisfy { !$0.isLatest }
+        #expect(othersNotLatest)
         let device = try await model.deviceClockForWriting().device
         let mine = entries.filter(\.isThisDevice)
         #expect(mine.count == 2)
-        #expect(mine.allSatisfy { $0.point.device == device && $0.deviceLabel == "This device" })
-        #expect(entries.filter { !$0.isThisDevice }.allSatisfy { $0.deviceLabel.hasPrefix("Device ") })
+        let mineOK = mine.allSatisfy { $0.point.device == device && $0.deviceLabel == "This device" }
+        #expect(mineOK)
+        let others = entries.filter { !$0.isThisDevice }
+        let labels = others.map(\.deviceLabel)
+        let labelsOK = labels.allSatisfy { $0.hasPrefix("Device ") }
+        #expect(labelsOK)
         #expect(entries.allSatisfy(\.isAvailable))
-        #expect(entries.allSatisfy { $0.unavailableReason == nil })
+        let noReasons = entries.allSatisfy { $0.unavailableReason == nil }
+        #expect(noReasons)
         #expect(data.compactionNotice == nil)
     }
 
@@ -211,7 +217,9 @@ struct HistoryTests {
         #expect(summary.deleted == false)
         let restored = try vault.reconstruct(noteId: Self.lecture)
         #expect(restored.deleted == false)
-        #expect(model.notes.first { $0.id == Self.lecture }?.deleted == false)
+        let note = Self.lecture
+        let listed = model.notes.first { $0.id == note }
+        #expect(listed?.deleted == false)
         let reopened = try #require(model.editor)
         #expect(reopened.isReadOnly == false)
     }
