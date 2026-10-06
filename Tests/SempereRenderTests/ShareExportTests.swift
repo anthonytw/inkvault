@@ -181,6 +181,47 @@ final class ShareExportTests: XCTestCase {
         XCTAssertTrue((2...3).contains(written.count), "\(written)")
     }
 
+    func testMergedPDFLeavesOutANoteThatCannotBeRendered() throws {
+        let good = note(1, title: "A")
+        var bad = note(2, title: "B")
+        bad.1 = T.note(pages: [[T.stroke([T.pt(10, 10), T.pt(1e300, 20)])]], meta: T.meta(title: "B"))
+        let r = try ShareExport.run([good, bad], options: ShareOptions(format: .pdf, mergePDF: true), into: try scratch(),
+                                    vaultSource: "s")
+        XCTAssertEqual(names(r.items), [ShareExport.mergedPDFName])
+        XCTAssertEqual(r.exported, 1)
+        XCTAssertEqual(r.failures.count, 1)
+        XCTAssertTrue(r.failures.first?.hasPrefix(bad.0.id.uuidString.lowercased()) == true, "\(r.failures)")
+        XCTAssertEqual(try data(r.items[0]), try PDFWriter.render(notes: [good.1]))
+        // Nothing renderable: no file, every note reported.
+        let none = try ShareExport.run([bad, bad], options: ShareOptions(format: .pdf, mergePDF: true), into: try scratch(),
+                                       vaultSource: "s")
+        XCTAssertTrue(none.items.isEmpty)
+        XCTAssertEqual(none.exported, 0)
+        XCTAssertEqual(none.failures.count, 2)
+    }
+
+    /// The app deletes the scratch folder when the sheet goes away and cancels
+    /// the run; the note being rendered then must not write it back.
+    func testACancelledRunWritesNoMoreFiles() async throws {
+        let notes = [note(1, title: "A"), note(2, title: "B")]
+        for options in [ShareOptions(format: .pdf), ShareOptions(format: .png, dpi: 36),
+                        ShareOptions(format: .pdf, mergePDF: true)] {
+            let dir = try scratch()
+            let task = Task.detached { () throws -> ShareResult in
+                try ShareExport.run(notes, options: options, into: dir, vaultSource: "s", progress: { done, _ in
+                    guard done == notes.count - 1 else { return }
+                    try? FileManager.default.removeItem(at: dir)
+                    withUnsafeCurrentTask { $0?.cancel() }
+                })
+            }
+            do {
+                _ = try await task.value
+                XCTFail("the export ran to the end (\(options.format))")
+            } catch is CancellationError {}
+            XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path), "\(options.format): \((try? listing(dir)) ?? [])")
+        }
+    }
+
     func testAnEmptySelectionExportsNothing() throws {
         let r = try ShareExport.run([], options: ShareOptions(format: .pdf), into: try scratch(), vaultSource: "s")
         XCTAssertTrue(r.items.isEmpty)

@@ -103,6 +103,8 @@ public enum ShareExport {
         var failures: [String] = []
         var exported = 0
         func write(_ data: Data, _ url: URL) throws {
+            // A cancelled run (the sheet went away) writes no more plaintext.
+            try Task.checkCancellation()
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             do { try data.write(to: url, options: .atomic) } catch {
                 throw TreeExportError.cannotWrite(path: url.path, reason: error.localizedDescription)
@@ -142,12 +144,26 @@ public enum ShareExport {
             exported = r.results.count
             if exported > 0 { items = [root] }
         case .pdf where options.mergePDF && notes.count > 1:
-            progress(0, notes.count)
+            // A note that cannot be rendered is left out and reported, as in
+            // the other formats, instead of failing the whole document.
+            var good: [NoteState] = []
+            for (n, (s, state)) in notes.enumerated() {
+                try Task.checkCancellation()
+                progress(n, notes.count)
+                do {
+                    for page in state.pages { _ = try PreparedPage(page: page, meta: state.meta, options: render) }
+                    good.append(state)
+                } catch is CancellationError { throw CancellationError() } catch {
+                    failures.append("\(s.id.uuidString.lowercased()): \(errorText(error))")
+                }
+            }
             try Task.checkCancellation()
-            let url = scratch.appendingPathComponent(mergedPDFName)
-            try write(try PDFWriter.render(notes: notes.map(\.1), options: render), url)
-            items = [url]
-            exported = notes.count
+            if !good.isEmpty {
+                let url = scratch.appendingPathComponent(mergedPDFName)
+                try write(try PDFWriter.render(notes: good, options: render), url)
+                items = [url]
+                exported = good.count
+            }
             progress(notes.count, notes.count)
         case .pdf, .png:
             for (n, (s, state)) in notes.enumerated() {

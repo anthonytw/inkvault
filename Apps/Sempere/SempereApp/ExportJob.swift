@@ -41,6 +41,12 @@ final class ExportJob {
     }
 
     /// Starts exporting `ids`. Does nothing while a run is in flight.
+    ///
+    /// The run owns its scratch folder: unless its result is handed to this
+    /// job (still current, not cancelled), the run deletes the folder itself
+    /// when it ends. A note being rendered when the sheet goes away finishes
+    /// writing after `discard`, so deleting the folder only in `discard`
+    /// would leave plaintext behind.
     func start(model: AppModel, ids: [UUID], options: ShareOptions) {
         guard !isRunning else { return }
         discard()
@@ -48,6 +54,7 @@ final class ExportJob {
         scratch = dir
         state = .running(ExportProgress(phase: .reading, done: 0, total: ids.count))
         task = Task { [weak self] in
+            var next: State?
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 #if os(iOS)
@@ -57,12 +64,18 @@ final class ExportJob {
                 let result = try await model.exportNotes(ids, options: options, into: dir) { progress in
                     self?.advance(to: progress)
                 }
-                self?.finish(.finished(Outcome(items: result.items, failures: result.failures, exported: result.exported)))
+                next = .finished(Outcome(items: result.items, failures: result.failures, exported: result.exported))
             } catch is CancellationError {
-                self?.cancelled()
             } catch {
-                self?.finish(.failed("\(error)"))
+                next = .failed("\(error)")
             }
+            guard let self, self.scratch == dir, !Task.isCancelled, let next else {
+                try? FileManager.default.removeItem(at: dir)
+                self?.cancelled(dir)
+                return
+            }
+            if case .failed = next { try? FileManager.default.removeItem(at: dir) }
+            self.finish(next)
         }
     }
 
@@ -90,6 +103,7 @@ final class ExportJob {
         guard isRunning else { return }
         task = nil
         if case .finished(let outcome) = next, outcome.items.isEmpty {
+            if let scratch { try? FileManager.default.removeItem(at: scratch) }
             let why = outcome.failures.first ?? "There was nothing to export."
             state = .failed(why)
         } else {
@@ -97,9 +111,10 @@ final class ExportJob {
         }
     }
 
-    private func cancelled() {
+    /// The run that staged into `dir` ended without a result to show.
+    private func cancelled(_ dir: URL) {
+        guard scratch == dir else { return }   // a later run owns the job now
         task = nil
-        if let scratch { try? FileManager.default.removeItem(at: scratch) }
         scratch = nil
         state = .idle
     }

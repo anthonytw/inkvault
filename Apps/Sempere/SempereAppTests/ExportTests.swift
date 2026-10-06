@@ -7,11 +7,24 @@ import Testing
 /// Share/export: what each format hands to the share sheet, the job around it
 /// (progress, cancel, clean-up) and the commands' targets. The renderers
 /// themselves are tested in SempereRenderTests (`ShareExportTests`).
+/// A file name set from the test and read from the model's I/O hook.
+final class NameBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var name: String?
+    var value: String? {
+        get { lock.withLock { name } }
+        set { lock.withLock { name = newValue } }
+    }
+}
+
 @MainActor
 final class ProgressRecorder {
     var seen: [ExportProgress] = []
 }
 
+/// Serialized: `purgeStaleRemovesStagedExports` deletes the shared staging
+/// folder the job tests write to.
+@Suite(.serialized)
 @MainActor
 struct ExportTests {
     static let lecture = AppModelTests.lecture
@@ -158,9 +171,52 @@ struct ExportTests {
     @Test func closingTheVaultStopsTheExport() async throws {
         let model = try await BrowserTests.unlockedFixtureModel()
         let dir = try scratch()
-        let task = Task { try await self.export(model, [Self.lecture, Self.deleted], ShareOptions(format: .pdf), into: dir) }
+        // Closed while the export is under way (reading the second note), not
+        // before it starts: the generation token must stop it.
+        await #expect(throws: CancellationError.self) {
+            _ = try await model.exportNotes([Self.lecture, Self.deleted], options: ShareOptions(format: .pdf), into: dir) { p in
+                if p.phase == .reading && p.done == 1 { model.close() }
+            }
+        }
+        #expect(files(dir).isEmpty)
+    }
+
+    /// iCloud: a revision evicted (or newly listed) after `downloadNote` must
+    /// not give an export of an older note reported as a success.
+    @Test func anICloudNoteMissingARevisionIsReportedNotExportedStale() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let armed = Flag(), evicted = Flag()
+        let folder = url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())")
+        func revisions() throws -> Set<String> {
+            Set(try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".age") && !$0.hasPrefix(".") })
+        }
+        let newest = NameBox()
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), afterIO: {
+            guard armed.isSet, !evicted.isSet, let name = newest.value else { return }
+            evicted.set()
+            let file = folder.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: file)
+            try? Data().write(to: CloudPlaceholder.placeholderURL(for: file))
+        })
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        model.cloudStallTimeout = .seconds(1)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(model.isCloudVault)
+        let before = try revisions()
+        try await model.renameNote(Self.lecture, to: "Renamed before the export")
+        newest.value = try #require(try revisions().subtracting(before).first)
+        model.pauseCloudSync()
+        armed.set()
+
+        let r = try await export(model, [Self.lecture], ShareOptions(format: .pdf), into: try scratch())
+        #expect(evicted.isSet)
+        #expect(r.exported == 0)
+        #expect(r.items.isEmpty)
+        #expect(r.failures.count == 1)
         model.close()
-        await #expect(throws: (any Error).self) { _ = try await task.value }
     }
 
     @Test func progressGrowsFromReadingToRendering() async throws {
@@ -197,16 +253,43 @@ struct ExportTests {
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
+    /// The staging folders under `ExportJob.scratchRoot`.
+    func staged() -> Set<String> {
+        Set((try? FileManager.default.contentsOfDirectory(atPath: ExportJob.scratchRoot.path)) ?? [])
+    }
+
     @Test func jobCancelLeavesNothingBehind() async throws {
         let model = try await BrowserTests.unlockedFixtureModel()
         let job = ExportJob()
+        let before = staged()
         job.start(model: model, ids: [Self.lecture, Self.deleted], options: ShareOptions(format: .png, dpi: 36))
         job.cancel()
         let settled = await TS.waitUntil(timeout: .seconds(30)) { !job.isRunning }
         #expect(settled)
-        // Cancelled early: idle again. (If the run beat the cancel, it finished; either way it stopped.)
-        if case .idle = job.state {} else if case .finished = job.state {} else { Issue.record("state \(job.state)") }
+        // Stopped: idle again, even if the run got to its end before it saw the cancel.
+        #expect(job.state == .idle)
+        #expect(staged().subtracting(before).isEmpty)
+    }
+
+    /// The sheet going away mid-run (`discard`, e.g. the vault was closed):
+    /// the note being rendered still finishes, and its files must not stay.
+    @Test func discardingARunningJobLeavesNoFilesOnceTheRunEnds() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        let job = ExportJob()
+        let before = staged()
+        job.start(model: model, ids: [Self.lecture, Self.deleted], options: ShareOptions(format: .png, dpi: 72))
+        // Usually mid-render; a fast run may already be over, which discard must clean up too.
+        let started = await TS.waitUntil(timeout: .seconds(30)) {
+            if case .running(let p) = job.state { return p.phase == .rendering }
+            return !job.isRunning
+        }
+        #expect(started)
         job.discard()
+        #expect(job.state == .idle)
+        let cleaned = await TS.waitUntil(timeout: .seconds(30)) { self.staged().subtracting(before).isEmpty }
+        #expect(cleaned)
+        // And a late result never reaches the job.
+        try await Task.sleep(for: .milliseconds(200))
         #expect(job.state == .idle)
     }
 
@@ -245,6 +328,11 @@ struct ExportTests {
         #expect(model.exportTargetIDs == [Self.lecture])
         model.requestExport(.markdown, ids: model.exportTargetIDs)
         #expect(model.exportRequest?.noteIDs == [Self.lecture])
+        #expect(model.exportRequest?.format == .markdown)
+        // A second command while the sheet is up does not replace (and so dismiss) it.
+        let first = model.exportRequest?.id
+        model.requestExport(.pdf, ids: [Self.deleted])
+        #expect(model.exportRequest?.id == first)
         #expect(model.exportRequest?.format == .markdown)
 
         model.isSelectingNotes = true

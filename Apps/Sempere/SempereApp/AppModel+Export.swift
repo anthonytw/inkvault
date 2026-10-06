@@ -42,7 +42,8 @@ extension AppModel {
 
     /// Opens the export sheet for `ids` with the command's format.
     func requestExport(_ command: ExportCommand, ids: [UUID]) {
-        guard phase == .unlocked, !ids.isEmpty else { return }
+        // One export at a time: replacing the request would dismiss a running sheet.
+        guard phase == .unlocked, !ids.isEmpty, exportRequest == nil else { return }
         exportRequest = ExportRequest(noteIDs: ids, format: command.format)
     }
 
@@ -68,9 +69,16 @@ extension AppModel {
             do {
                 try await downloadNote(id)
                 let coordinate = coordinationURL
+                let cloud = isCloudVault
+                let hooks = cloudHooks
+                let url = vault.url
                 let item = try await offMain {
                     try CloudVault.coordinatedRead(coordinate) { () throws -> LoadedForExport in
+                        // As for the editor: a revision evicted or newly listed since
+                        // `downloadNote` would export an older note without a word.
+                        if cloud { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
                         let note = try vault.loadNote(id)
+                        if cloud { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
                         return LoadedForExport(summary: vault.summary(of: id, loaded: note), state: try vault.reconstruct(note))
                     }
                 }
