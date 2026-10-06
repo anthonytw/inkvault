@@ -68,6 +68,15 @@ public struct DrawCommand: Hashable, Sendable {
     public init(_ primitive: Primitive, fill: Paint? = nil, stroke: Paint? = nil, lineWidth: Double = 1) {
         self.primitive = primitive; self.fill = fill; self.stroke = stroke; self.lineWidth = lineWidth
     }
+    /// Vertices the primitive holds (what `RenderLimits.maxOutlinePoints` counts).
+    var pointCount: Int {
+        switch primitive {
+        case .rect: return 4
+        case .line: return 2
+        case .circle: return 1
+        case .path(let subs): return subs.reduce(0) { $0 + $1.points.count }
+        }
+    }
 }
 
 /// Options shared by the PDF and SVG writers.
@@ -99,6 +108,26 @@ public enum RenderLimits {
     public static let minPaperSpacing = 4.0
     /// Most ruling commands drawn per band (output page or chunk-sized slice); more renders blank paper.
     public static let maxPaperCommands = 40_000.0
+    /// Most ruling commands drawn over all bands of one page; a page needing
+    /// more (a very tall infinite page with dense paper) renders on plain
+    /// background throughout. 25 letter pages of 4 pt dots fit.
+    public static let maxPaperCommandsPerPage = 1_000_000.0
+    /// Curve samples a stroke may use: `samplesPerPoint` per control point
+    /// plus `baseSamples`. A stroke whose segments would need more (very long
+    /// segments from a few control points) is sampled more coarsely, so the
+    /// work and memory a stroke costs grow with its size on disk, not with
+    /// the distances its coordinates name.
+    public static let samplesPerPoint = 64
+    /// See `samplesPerPoint`.
+    public static let baseSamples = 1024
+    /// Widest nib drawn, in points (after the stroke's transform): wider ones
+    /// are drawn this wide. Real tools are well under 100 pt; a nib as wide
+    /// as the page would make every band rasterize every outline polygon.
+    public static let maxNibWidth = 1000.0
+    /// Most outline points (polygon vertices) one page may produce; more throws
+    /// `RenderError.tooComplex`. A dense page of handwriting needs well under
+    /// a tenth of this.
+    public static let maxOutlinePoints = 40_000_000
 }
 
 /// Errors thrown by the renderers.
@@ -115,6 +144,9 @@ public enum RenderError: Error, Equatable {
     case invalidScale
     /// An output image would have `pixels` pixels, more than `limit` allows.
     case imageTooLarge(pixels: Double, limit: Int)
+    /// A page's strokes would produce more than `RenderLimits.maxOutlinePoints`
+    /// outline points.
+    case tooComplex
 }
 
 extension RenderError: LocalizedError {
@@ -127,6 +159,7 @@ extension RenderError: LocalizedError {
         case .invalidScale: return "the raster scale or dpi must be a finite positive number"
         case .imageTooLarge(let pixels, let limit):
             return "image of \(fmt(pixels)) pixels exceeds the limit of \(limit); lower --dpi"
+        case .tooComplex: return "the page has more ink geometry than the renderer accepts"
         }
     }
 }

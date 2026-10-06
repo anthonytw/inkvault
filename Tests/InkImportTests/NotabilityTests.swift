@@ -282,6 +282,76 @@ final class NotabilityTests: XCTestCase {
         XCTAssertNil(state.meta.notebook)
     }
 
+    /// Imported tags are per-tag instances (format.md §5.4.1), so they merge
+    /// with a concurrent tag edit on another device instead of one side
+    /// replacing the other's whole array.
+    func testImportedTagsMergeWithAConcurrentTagEdit() throws {
+        let identity = try NativeIdentity.generate(.postQuantum)
+        let vault = try Vault.create(at: tmp.appendingPathComponent("M.inkvault"), recipients: [identity.recipient],
+                                     identities: [identity])
+        let notePath = tmp.appendingPathComponent("Synthetic.note")
+        try SyntheticNote.package(tags: "alpha, beta").write(to: notePath)
+        let importer = DeviceID("0a0b0c0d")!, mac = tmp.appendingPathComponent("mac.json")
+        let t0 = Date()
+        var clock = HybridClock()
+        let r = try NotabilityImporter.import(paths: [notePath], into: vault, device: importer, clock: &clock,
+                                              options: .init(extraTags: ["Imported"]), now: { t0 })
+        let id = try XCTUnwrap(r.notes.first?.noteId)
+        let imported = try vault.reconstruct(noteId: id)
+        XCTAssertEqual(imported.meta.tags, ["alpha", "beta", "Imported"])
+        XCTAssertEqual(imported.tagSet?.instances.count, 3)
+        guard case .delta(let importOps)? = try vault.loadNote(id).revisions.first?.body else {
+            return XCTFail("no import delta")
+        }
+        XCTAssertFalse(importOps.contains { if case .setMeta(.tags) = $0 { return true } else { return false } })
+        XCTAssertEqual(importOps.filter { if case .addTag = $0 { return true } else { return false } }.count, 3)
+
+        // The Mac, from the imported state, adds "exam" and removes "BETA";
+        // concurrently the note is re-imported (overwrite) with other tags.
+        let macOps = [try XCTUnwrap(NoteOps.addTag("exam", to: imported)),
+                      try XCTUnwrap(NoteOps.removeTag("BETA", from: imported))]
+        try SyntheticNote.package(tags: "alpha, beta, gamma").write(to: notePath)
+        _ = try NotabilityImporter.import(paths: [notePath], into: vault, device: importer, clock: &clock,
+                                          options: .init(overwrite: true), now: { t0.addingTimeInterval(60) })
+        try vault.apply(macOps, to: id, deviceState: mac, app: "test", wall: t0.addingTimeInterval(120))
+        // The Mac's add survives the overwrite it had not seen; its remove only
+        // removed the instance it observed, so the re-import's "beta" stays
+        // (add wins); the overwrite dropped "Imported", which it had seen.
+        XCTAssertEqual(try vault.summary(of: id).tags, ["alpha", "beta", "gamma", "exam"])
+
+        // An overwrite that has seen the Mac's edit replaces the set.
+        _ = try NotabilityImporter.import(paths: [notePath], into: vault, device: importer, clock: &clock,
+                                          options: .init(overwrite: true), now: { t0.addingTimeInterval(180) })
+        XCTAssertEqual(try vault.summary(of: id).tags, ["alpha", "beta", "gamma"])
+    }
+
+    /// Regression: an overwrite observes the note's revisions before
+    /// stamping, so a legacy whole-array tags write (or any LWW field)
+    /// stamped ahead of the importer's clock does not supersede it.
+    func testOverwriteComesAfterWritesStampedAheadOfTheImporterClock() throws {
+        let identity = try NativeIdentity.generate(.postQuantum)
+        let vault = try Vault.create(at: tmp.appendingPathComponent("L.inkvault"), recipients: [identity.recipient],
+                                     identities: [identity])
+        let notePath = tmp.appendingPathComponent("Synthetic.note")
+        try SyntheticNote.package(tags: "alpha").write(to: notePath)
+        let importer = DeviceID("0a0b0c0d")!
+        let t0 = Date()
+        var clock = HybridClock()
+        let r = try NotabilityImporter.import(paths: [notePath], into: vault, device: importer, clock: &clock,
+                                              now: { t0 })
+        let id = try XCTUnwrap(r.notes.first?.noteId)
+        // A device not yet updated, its clock an hour ahead, rewrites the tags and the title.
+        try vault.apply([.setMeta(.tags(["legacy"])), .setMeta(.title("Old app"))], to: id,
+                        deviceState: tmp.appendingPathComponent("old.json"), app: "old", wall: t0.addingTimeInterval(3600))
+        XCTAssertEqual(try vault.summary(of: id).tags, ["legacy"])
+        try SyntheticNote.package(tags: "beta").write(to: notePath)
+        _ = try NotabilityImporter.import(paths: [notePath], into: vault, device: importer, clock: &clock,
+                                          options: .init(overwrite: true), now: { t0.addingTimeInterval(60) })
+        let s = try vault.summary(of: id)
+        XCTAssertEqual(s.tags, ["beta"])
+        XCTAssertEqual(s.title, "Synthetic note")
+    }
+
     /// An unzipped `.note` package directory imports like the zip.
     func testPackageDirectory() throws {
         let dir = tmp.appendingPathComponent("Notability/Research/Unzipped.note")

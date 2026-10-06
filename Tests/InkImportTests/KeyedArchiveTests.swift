@@ -3,8 +3,7 @@ import XCTest
 @testable import InkImport
 
 final class KeyedArchiveTests: XCTestCase {
-    /// A binary archive with real UID objects: PropertyListSerialization returns
-    /// opaque CFKeyedArchiverUIDs on Darwin and `_NSKeyedArchiverUID`s on Linux.
+    /// A binary archive with real UID objects (marker 0x8n), read as `.uid(n)`.
     func testBinaryArchiveResolvesUIDs() throws {
         var b = KeyedArchiveBuilder()
         let when = Date(timeIntervalSinceReferenceDate: 678_741_683.5)
@@ -38,8 +37,10 @@ final class KeyedArchiveTests: XCTestCase {
         XCTAssertEqual(try archive.field(list[2], "label").string, "hi")
     }
 
-    /// XML plists spell UIDs as `{"CF$UID": n}` dictionaries; Foundation turns them into UID objects.
-    func testXMLArchiveUIDDictionaries() throws {
+    /// XML plists (UIDs spelled `{"CF$UID": n}`) are refused: the importer
+    /// reads binary plists only, with its own reader, since Notability writes
+    /// nothing else and PropertyListSerialization is not safe on hostile input.
+    func testXMLArchiveIsRefused() throws {
         let xml = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,10 +55,9 @@ final class KeyedArchiveTests: XCTestCase {
           </array>
         </dict></plist>
         """
-        let archive = try KeyedArchive(data: Data(xml.utf8))
-        let root = try archive.root("$0")
-        XCTAssertEqual(root.className, "Session")
-        XCTAssertEqual(try archive.field(root, "title").string, "Hello")
+        XCTAssertThrowsError(try KeyedArchive(data: Data(xml.utf8))) { e in
+            guard case ImportError.archive? = e as? ImportError else { return XCTFail("\(e)") }
+        }
     }
 
     func testUIDConversionBothShapes() throws {

@@ -27,6 +27,10 @@ struct PreparedPage {
     /// Total page height: `pageSize.height`, or for infinite pages the largest
     /// of that, the lowest stroke edge (rounded up) and one chunk height.
     let extent: Double
+    /// The paper as drawn: `meta.paper`, or its plain background when ruling
+    /// every band would take more than `RenderLimits.maxPaperCommandsPerPage`
+    /// commands.
+    let drawnPaper: Paper
 
     /// Validates `meta`/`page` and builds stroke geometry.
     ///
@@ -36,7 +40,8 @@ struct PreparedPage {
     ///   axis) beyond `RenderLimits.maxExtent` in magnitude. Finite coordinates
     ///   within the limit that fall outside a finite page are not an error; the
     ///   stroke is simply culled.
-    init(page: Page, meta: NoteMeta, options: RenderOptions) throws {
+    init(page: Page, meta: NoteMeta, options: RenderOptions,
+         maxOutlinePoints: Int = RenderLimits.maxOutlinePoints) throws {
         let size = meta.pageSize
         let maxE = RenderLimits.maxExtent
         guard size.width.isFinite, size.width > 0, size.width <= maxE,
@@ -47,6 +52,7 @@ struct PreparedPage {
 
         var list: [PreparedStroke] = []
         var low = 0.0
+        var outlinePoints = 0
         for stroke in page.strokes where !stroke.points.isEmpty {
             let xf = stroke.transform ?? .identity
             guard [xf.a, xf.b, xf.c, xf.d, xf.tx, xf.ty, stroke.ink.width].allSatisfy(\.isFinite) else {
@@ -64,10 +70,12 @@ struct PreparedPage {
                 lo = min(lo, q.y); hi = max(hi, q.y)
                 radius = max(radius, p.w.magnitude, p.h.magnitude)
             }
-            let pad = radius * xf.meanScale / 2 + 1
+            let pad = min(radius * xf.meanScale, RenderLimits.maxNibWidth) / 2 + 1   // drawn no wider (StrokeOutline)
             guard pad.isFinite, pad <= maxE else { throw RenderError.extentTooLarge(pad) }
-            list.append(PreparedStroke(commands: StrokeOutline.commands(for: stroke, tolerance: options.tolerance),
-                                       minY: lo - pad, maxY: hi + pad))
+            let commands = StrokeOutline.commands(for: stroke, tolerance: options.tolerance)
+            outlinePoints += commands.reduce(0) { $0 + $1.pointCount }
+            guard outlinePoints <= maxOutlinePoints else { throw RenderError.tooComplex }
+            list.append(PreparedStroke(commands: commands, minY: lo - pad, maxY: hi + pad))
             low = max(low, hi + pad)
         }
         strokes = list
@@ -78,6 +86,15 @@ struct PreparedPage {
         } else {
             extent = size.height
         }
+        // Bands over the per-band cap draw no ruling anyway; the rest must fit the page budget.
+        var ruling = 0.0
+        for c in Self.chunks(meta: meta, extent: extent, chunkHeight: Self.chunkHeight(options: options, size: size)) {
+            let n = PaperRenderer.rulingCount(paper: meta.paper, width: c.width, yOffset: c.yOffset, yEnd: c.yEnd) ?? 0
+            if n <= RenderLimits.maxPaperCommands { ruling += n }
+        }
+        drawnPaper = ruling <= RenderLimits.maxPaperCommandsPerPage ? meta.paper
+            : Paper(kind: .blank, spacing: meta.paper.spacing, background: meta.paper.background,
+                    lineColor: meta.paper.lineColor)
     }
 
     /// The option, else the page's `breakHeight`, else letter aspect from the width.
@@ -90,10 +107,11 @@ struct PreparedPage {
     var chunkHeight: Double { Self.chunkHeight(options: options, size: meta.pageSize) }
 
     /// Output pages for this note page.
-    var chunks: [PageChunk] {
+    var chunks: [PageChunk] { Self.chunks(meta: meta, extent: extent, chunkHeight: chunkHeight) }
+
+    static func chunks(meta: NoteMeta, extent: Double, chunkHeight h: Double) -> [PageChunk] {
         let w = meta.pageSize.width
         guard meta.pageSize.infinite else { return [PageChunk(yOffset: 0, yEnd: extent, width: w)] }
-        let h = chunkHeight
         let count = max(Int((extent / h).rounded(.up)), 1)   // extent <= maxExtent, h >= 72
         return (0..<count).map { PageChunk(yOffset: Double($0) * h, yEnd: Double($0 + 1) * h, width: w) }
     }
@@ -105,7 +123,7 @@ struct PreparedPage {
     func layers(for chunk: PageChunk) -> (paper: [DrawCommand], strokes: [DrawCommand]) {
         var paper: [DrawCommand] = []
         if options.paper {
-            paper = PaperRenderer.commands(paper: meta.paper, width: chunk.width, height: chunk.height,
+            paper = PaperRenderer.commands(paper: drawnPaper, width: chunk.width, height: chunk.height,
                                            yOffset: chunk.yOffset, yEnd: chunk.yEnd)
         }
         var out: [DrawCommand] = []
@@ -131,7 +149,7 @@ struct PreparedPage {
         for i in 0..<count {
             let top = Double(i) * h
             let bottom = i == count - 1 ? extent : Double(i + 1) * h
-            out += PaperRenderer.commands(paper: meta.paper, width: w, height: bottom - top, yOffset: top,
+            out += PaperRenderer.commands(paper: drawnPaper, width: w, height: bottom - top, yOffset: top,
                                           yEnd: bottom, originY: 0, includeBackground: false)
         }
         return out

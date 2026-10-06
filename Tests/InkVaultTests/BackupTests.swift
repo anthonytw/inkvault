@@ -491,6 +491,54 @@ final class BackupTests: VaultTestCase {
         XCTAssertTrue(try Vault.open(at: extracted, identities: [id]).verify().isHealthy)
     }
 
+    /// A backup folder may come from anywhere (format.md §9): a FIFO in
+    /// place of a backed-up file or of `backup.json` fails that file or the
+    /// restore with an error instead of blocking forever.
+    func testRestoreAndVerifyRefuseFIFOsInTheBackup() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        let rev = try XCTUnwrap(try Backup.formatFiles(in: dest).first { $0.hasPrefix("notes/") })
+        try FileManager.default.removeItem(at: Backup.url(dest, rev))
+        XCTAssertEqual(mkfifo(Backup.url(dest, rev).path, 0o600), 0)
+        let t0 = Date()
+        let report = try Backup.restore(from: dest, to: tmp.appendingPathComponent("F.inkvault"), identities: [id])
+        XCTAssertEqual(report.errors.map(\.path), [rev])
+        let checked = Backup.verify(at: dest, identities: [id])
+        XCTAssertEqual(checked.files.first { $0.path == rev }?.status, .missing)
+
+        let manifest = dest.appendingPathComponent(BackupManifest.fileName)
+        try FileManager.default.removeItem(at: manifest)
+        XCTAssertEqual(mkfifo(manifest.path, 0o600), 0)
+        XCTAssertThrowsError(try Backup.restore(from: dest, to: tmp.appendingPathComponent("G.inkvault"))) {
+            guard case BackupError.manifestUnreadable? = $0 as? BackupError else { return XCTFail("\($0)") }
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 10)
+    }
+
+    /// Per-kind read limits for backed-up files, also under `versions/`.
+    func testReadLimitsByFileKind() {
+        XCTAssertEqual(Backup.maxBytes(forPath: "vault.json"), BoundedRead.maxManifestBytes)
+        XCTAssertEqual(Backup.maxBytes(forPath: "rewrap-journal.json"), BoundedRead.maxManifestBytes)
+        XCTAssertEqual(Backup.maxBytes(forPath: "keys/a.key.age"), BoundedRead.maxSmallFileBytes)
+        XCTAssertEqual(Backup.maxBytes(forPath: "notes/n/att/\(String(repeating: "a", count: 64)).image.age"),
+                       BoundedRead.maxBlobFileBytes)
+        XCTAssertEqual(Backup.maxBytes(forPath: "notes/n/r.age"), BoundedRead.maxRevisionBytes)
+        XCTAssertEqual(Backup.maxBytes(forPath: "versions/t/keys/a.key.age"), BoundedRead.maxSmallFileBytes)
+        XCTAssertEqual(Backup.maxBytes(forPath: "versions/t/vault.json"), BoundedRead.maxManifestBytes)
+    }
+
+    /// A tar header with a negative size (octal "-…") is rejected; it used
+    /// to make an inverted range (a trap) or move the reader backwards.
+    func testTarReaderRejectsANegativeSize() throws {
+        var h = [UInt8](try TarWriter.header("x", size: 0, mode: 0o600, type: UInt8(ascii: "0"),
+                                             mtime: Date(timeIntervalSince1970: 0)))
+        for (i, b) in Array("-0000003720".utf8).enumerated() { h[124 + i] = b }
+        for i in 148..<156 { h[i] = 32 }
+        let sum = String(h.reduce(0) { $0 + Int($1) }, radix: 8)
+        let field = Array((String(repeating: "0", count: max(0, 6 - sum.count)) + sum).utf8) + [0, 32]
+        for (i, b) in field.enumerated() { h[148 + i] = b }
+        XCTAssertThrowsError(try TarReader.files(Data(h) + Data(count: 4096)))
+    }
+
     func testTarHeaderSplitsLongNames() throws {
         let long = String(repeating: "d", count: 90) + "/" + String(repeating: "f", count: 90)
         let h = try TarWriter.header(long, size: 3, mode: 0o600, type: UInt8(ascii: "0"), mtime: Date(timeIntervalSince1970: 0))

@@ -79,4 +79,66 @@ struct NoteNamesAndTagsTests {
         #expect(!model.tags.contains { $0.lowercased() == "fall term" })   // gone from the sidebar
         #expect(model.sidebarSelection == .allNotes)
     }
+
+    // MARK: - Per-tag merge (format.md §5.4.1)
+
+    /// The newest revision of a note, written by this model or another device.
+    private func newestOps(_ model: AppModel, _ id: UUID) throws -> [Op] {
+        let vault = try #require(model.vault)
+        let name = try #require(try vault.revisionNames(of: id).max())
+        guard case .delta(let ops) = try vault.readRevision(noteId: id, name: name).body else { return [] }
+        return ops
+    }
+
+    /// The tag editor's add and remove write one per-tag op each, never the
+    /// legacy whole-array `setMeta(tags)`; the fixture's legacy tag is removed
+    /// by observing its baseline instance.
+    @Test func tagEditorWritesPerTagOps() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        let id = AppModelTests.lecture
+        try await model.addTag(" Exam ", to: id)
+        #expect(try newestOps(model, id) == [.addTag("Exam")])
+        #expect(model.notes.first { $0.id == id }?.tags == ["fixture", "Exam"])
+        try await model.removeTag("FIXTURE", from: id)
+        guard case .removeTag(let tag, let observed)? = try newestOps(model, id).first else {
+            Issue.record("expected a removeTag"); return
+        }
+        #expect(NoteOps.tagKey(tag) == "fixture")
+        #expect(observed.count == 1 && observed.first?.seq == 0)   // the legacy baseline instance
+        #expect(model.notes.first { $0.id == id }?.tags == ["Exam"])
+        try await model.reload()
+        #expect(model.notes.first { $0.id == id }?.tags == ["Exam"])
+    }
+
+    /// The bug this fixes: another device (the Mac) adds "math" while this
+    /// one, not yet refreshed, adds "exam". Both stay.
+    @Test func concurrentTagAddsFromAnotherDeviceBothSurvive() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        let id = AppModelTests.lecture
+        let vault = try #require(model.vault)
+        let mac = try BrowserTests.tempDir().appendingPathComponent("mac-device.json")
+        try vault.apply([.addTag("math")], to: id, deviceState: mac, app: "test")
+        #expect(model.notes.first { $0.id == id }?.tags == ["fixture"])   // not refreshed yet
+        try await model.addTag("exam", to: id)
+        #expect(model.notes.first { $0.id == id }?.tags == ["fixture", "math", "exam"])
+        try await model.reload()
+        #expect(model.tags == ["exam", "fixture", "math"])
+    }
+
+    /// A remove observes every instance on disk when it is written, so a
+    /// copy of the tag another device added meanwhile goes too; one added
+    /// after the remove (add wins) stays.
+    @Test func removeObservesInstancesOnDiskAndLaterAddsWin() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        let id = AppModelTests.lecture
+        let vault = try #require(model.vault)
+        let mac = try BrowserTests.tempDir().appendingPathComponent("mac-device.json")
+        try await model.addTag("exam", to: id)
+        try vault.apply([.addTag("Exam")], to: id, deviceState: mac, app: "test")   // a second instance
+        try await model.removeTag("exam", from: id)
+        #expect(model.notes.first { $0.id == id }?.tags == ["fixture"])
+        try vault.apply([.addTag("EXAM")], to: id, deviceState: mac, app: "test")
+        try await model.reload()
+        #expect(model.notes.first { $0.id == id }?.tags == ["fixture", "EXAM"])
+    }
 }

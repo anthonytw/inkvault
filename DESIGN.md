@@ -113,7 +113,11 @@ Consequences:
 
 - Sync tools only ever see new files, so no conflict copies.
 - Concurrent edits are two branches; ink merges by set union of stroke ids
-  (remove always wins), metadata merges last-writer-wins per field.
+  (remove always wins), metadata merges last-writer-wins per field, except
+  tags: they merge per tag as an observed-remove set where a concurrent add
+  wins (`format.md` §5.4.1), so tags added on the iPad and the Mac at the same
+  time are both kept. Tags differ from strokes because the same tag is
+  re-added routinely while a stroke id never is.
 - History is the log; restore writes a new delta, so history itself is
   append-only. Restored strokes and pages get new ids with `parent` naming
   the old ones; revisions removed by compaction are no longer restore points

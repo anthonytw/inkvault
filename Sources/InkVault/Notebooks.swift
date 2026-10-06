@@ -65,8 +65,14 @@ public struct NotebookNode: Hashable, Sendable, Identifiable {
     /// them: `A/B/C` alone yields `A` › `B` › `C`. Siblings sort with
     /// `localizedStandardCompare`.
     public static func tree(_ names: [String?]) -> [NotebookNode] {
-        build(Set(names.map(NotebookPath.components).filter { !$0.isEmpty }), depth: 0, prefix: [])
+        // A name comes from a note's JSON; its levels below `maxDepth` are not
+        // shown (building recurses once per level).
+        let paths = names.map { Array(NotebookPath.components($0).prefix(maxDepth)) }.filter { !$0.isEmpty }
+        return build(Set(paths), depth: 0, prefix: [])
     }
+
+    /// Deepest level `tree` shows; deeper levels are folded into this one.
+    public static let maxDepth = 64
 
     private static func build(_ paths: Set<[String]>, depth: Int, prefix: [String]) -> [NotebookNode] {
         let below = paths.filter { $0.count > depth && Array($0.prefix(depth)) == prefix }

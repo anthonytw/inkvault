@@ -449,6 +449,7 @@ final class MergeTests: XCTestCase {
             XCTAssertEqual(revisions.filter { $0.kind == .snapshot }.count, 2)
             let reference = try NoteReducer.reconstruct(revisions)
             XCTAssertFalse(reference.pages.isEmpty, "seed \(seed): generator produced an empty note")
+            XCTAssertFalse(reference.tagSet?.removed.isEmpty ?? true, "seed \(seed): no tag was removed")
             let refJSON = try InkJSON.encoder().encode(reference)
             for i in 0..<50 {
                 let shuffled = revisions.shuffled(using: &rng)
@@ -468,11 +469,13 @@ final class MergeTests: XCTestCase {
             XCTAssertEqual(compacted.meta, reference.meta, "seed \(seed)")
             XCTAssertEqual(compacted.deleted, reference.deleted, "seed \(seed)")
             XCTAssertEqual(compacted.clocks, reference.clocks, "seed \(seed)")
+            XCTAssertEqual(compacted.tagSet, reference.tagSet, "seed \(seed)")
         }
     }
 
     /// 3 devices, 200 ops (adds, removes incl. of never-added ids, slices,
-    /// meta, page moves, page removes, delete/restore), 2 snapshots from
+    /// meta incl. per-tag adds and removes and legacy tag writes, page moves,
+    /// page removes, delete/restore), 2 snapshots from
     /// partial views. Writers follow §5.2: no removed id is re-added.
     func randomLog(rng: inout SplitMix64) throws -> [Revision] {
         let devices = [devA, devB, devC]
@@ -481,6 +484,7 @@ final class MergeTests: XCTestCase {
         var log: [Revision] = []
         var pages: [UUID] = []
         var strokes: [(page: UUID, stroke: Stroke)] = []
+        var tagInstances: [(tag: String, origin: Origin)] = []
         var opCount = 0
         let snapshotAt = [Int.random(in: 30..<100, using: &rng), Int.random(in: 100..<190, using: &rng)]
         var snapshotsDone = 0
@@ -490,6 +494,7 @@ final class MergeTests: XCTestCase {
             step += 1
             let di = Int.random(in: 0..<3, using: &rng)
             let wall = wallAt(baseMillis + step * 1000 + Int64.random(in: -5000...5000, using: &rng))
+            let hlc = clocks[di].tick(wall: wall)
             var ops: [Op] = []
             for _ in 0..<Int.random(in: 1...4, using: &rng) where opCount < 200 {
                 opCount += 1
@@ -522,7 +527,29 @@ final class MergeTests: XCTestCase {
                     let change: MetaChange
                     switch Int.random(in: 0..<6, using: &rng) {
                     case 0: change = .title("t\(Int.random(in: 0..<100, using: &rng))")
-                    case 1: change = .tags(["x\(Int.random(in: 0..<5, using: &rng))"])
+                    case 1:
+                        // Mostly per-tag ops (§5.4.1), some legacy whole-array writes.
+                        let pick = Int.random(in: 0..<5, using: &rng)
+                        if pick == 0 {
+                            change = .tags(["x\(Int.random(in: 0..<3, using: &rng))", "Y"].shuffled(using: &rng))
+                        } else if pick <= 2 || tagInstances.isEmpty {
+                            let tag = ["x0", "X0", "x1", "y", "Y", "Fall Term"].randomElement(using: &rng) ?? "y"
+                            tagInstances.append((tag, Origin(hlc: hlc, device: devices[di], seq: seqs[di] + 1,
+                                                             op: ops.count)))
+                            ops.append(.addTag(tag))
+                            continue
+                        } else {
+                            let victim = tagInstances.randomElement(using: &rng) ?? tagInstances[0]
+                            let key = NoteOps.tagKey(victim.tag)
+                            // A partial view of the key's instances, sometimes an unknown one.
+                            var observed = tagInstances.filter { NoteOps.tagKey($0.tag) == key && Bool.random(using: &rng) }
+                                .map(\.origin)
+                            if Double.random(in: 0..<1, using: &rng) < 0.2 {
+                                observed.append(Origin(hlc: hlc, device: devA, seq: 999, op: 0))
+                            }
+                            ops.append(.removeTag(victim.tag.uppercased(), observed: observed + [victim.origin]))
+                            continue
+                        }
                     case 2: change = .notebook(Bool.random(using: &rng) ? nil : "nb")
                     case 3: change = .favorite(Bool.random(using: &rng))
                     case 4: change = .paper(Bool.random(using: &rng) ? .ruled : .blank)
@@ -542,7 +569,7 @@ final class MergeTests: XCTestCase {
                 }
             }
             seqs[di] += 1
-            log.append(Revision(noteId: testNote, device: devices[di], seq: seqs[di], hlc: clocks[di].tick(wall: wall),
+            log.append(Revision(noteId: testNote, device: devices[di], seq: seqs[di], hlc: hlc,
                                 wall: wall, app: "test/0", body: .delta(ops: ops)))
 
             if snapshotsDone < 2, opCount >= snapshotAt[snapshotsDone] {

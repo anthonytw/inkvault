@@ -187,6 +187,9 @@ public struct NotabilityNote: Hashable, Sendable {
     /// Largest accepted coordinate magnitude, document units (about 1000
     /// pages); anything beyond is treated as corrupt.
     public static let maxCoordinate = 1_000_000.0
+    /// Handwriting-index pages beyond this number are ignored (a corrupt key
+    /// must not place recognised words 10¹⁸ pages down).
+    public static let maxRecognizedPage = 100_000
     /// The highlighter value of `curvesstyles`.
     public static let highlighterStyle = 4
     /// The pen value of `curvesstyles`.
@@ -312,7 +315,7 @@ extension NotabilityNote {
         var m = Metadata(name: try session.field(root, "name").string ?? fallbackName)
         m.subject = try session.field(root, "subject").string
         m.tags = tags(try session.field(root, "tags"), session)
-        m.created = try session.field(root, "creationDate").date
+        m.created = try session.field(root, "creationDate").date.flatMap(writable)
         m.packagePath = try session.field(root, "packagePath").string
         if let data {
             let a = try KeyedArchive(data: data)
@@ -321,13 +324,19 @@ extension NotabilityNote {
             if let s = try a.field(r, "noteSubject").string { m.subject = s }
             let t = tags(try a.field(r, "noteTags"), a)
             if !t.isEmpty { m.tags = t }
-            m.created = try a.field(r, "noteCreationDateKey").date ?? m.created
-            m.modified = try a.field(r, "noteModifiedDateKey").date
+            m.created = try a.field(r, "noteCreationDateKey").date.flatMap(writable) ?? m.created
+            m.modified = try a.field(r, "noteModifiedDateKey").date.flatMap(writable)
             m.uuid = try a.field(r, "uuidKey").string
             m.packagePath = try a.field(r, "notePackagePath").string ?? m.packagePath
         }
         if m.subject == "unsortedNotesKey" || m.subject?.isEmpty == true { m.subject = nil }
         return m
+    }
+
+    /// `date` if the vault format can store it (years 0001...9999), else nil:
+    /// a NaN or absurd NSDate would become a revision `wall` no reader can decode.
+    static func writable(_ date: Date) -> Date? {
+        date >= RFC3339.earliest && date < RFC3339.end ? date : nil
     }
 
     /// Tags arrive as a string (comma or newline separated) or an array of strings.
@@ -377,6 +386,11 @@ extension NotabilityNote {
         let rawWidths = try float32s(data("curveswidth"), "curveswidth")
         note("curveswidth", present: rawWidths.count)
         let widths = (0..<n).map { $0 < rawWidths.count ? rawWidths[$0] : defaultCurveWidth }
+        // A NaN or infinite width would only fail when the note is written
+        // (JSON has no NaN); a huge one is garbage. Reject both here.
+        guard widths.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
+            throw ImportError.notability("curveswidth holds widths beyond ±\(Int(maxCoordinate))")
+        }
         let colorData = try data("curvescolors")
         guard colorData.count % 4 == 0 else {
             throw ImportError.notability("curvescolors has \(colorData.count) bytes, not whole RGBA values")
@@ -416,6 +430,10 @@ extension NotabilityNote {
         }
         for i in 0..<n where counts[i] <= 1 { isBezier[i] = true }   // nothing to expand
         let nodesTotal = fw.count
+        // Non-finite multipliers fall back to 1 (`BezierToBSpline`); finite ones must be sane.
+        guard fw.allSatisfy({ !$0.isFinite || abs($0) <= maxCoordinate }) else {
+            throw ImportError.notability("curvesfractionalwidths holds values beyond ±\(Int(maxCoordinate))")
+        }
         // Notability coordinates are within a few thousand units per page; reject garbage.
         guard xy.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
             throw ImportError.notability("curvespoints holds coordinates beyond ±\(Int(maxCoordinate))")
@@ -503,10 +521,11 @@ extension NotabilityNote {
         guard case .dict(let root) = try PlistValue.parse(data), case .dict(let pages)? = root["pages"] else { return [:] }
         var out: [Int: RecognizedPage] = [:]
         for (key, value) in pages {
-            guard let number = Int(key), number >= 1, case .dict(let page) = value,
+            guard let number = Int(key), (1...maxRecognizedPage).contains(number), case .dict(let page) = value,
                   let text = page["text"]?.string else { continue }
             var origin = Point(x: 0, y: 0)
-            if case .array(let o)? = page["pageContentOrigin"], o.count == 2, let x = o[0].double, let y = o[1].double {
+            if case .array(let o)? = page["pageContentOrigin"], o.count == 2, let x = o[0].double, let y = o[1].double,
+               x.isFinite, y.isFinite, abs(x) <= maxCoordinate, abs(y) <= maxCoordinate {
                 origin = Point(x: x, y: y)
             }
             let rects = page["characterRects"]?.data ?? Data()
@@ -649,9 +668,10 @@ extension NotabilityNote {
             default: return (.blank, nil)
             }
             guard let v = parts.last.flatMap(Double.init), v.isFinite, v > 0 else { return (kind, nil) }
-            if parts.count == 2 { return (kind, v * legacyScale) }
-            // Newer form: the last field is inches on the physical paper.
-            return (kind, v * width / paperWidthInches(size))
+            // Newer form (four fields): the last field is inches on the physical paper.
+            let spacing = parts.count == 2 ? v * legacyScale : v * width / paperWidthInches(size)
+            // An absurd pitch (or one that overflowed to infinity) draws as the default.
+            return (kind, spacing.isFinite && spacing <= maxCoordinate ? spacing : nil)
         }
         switch lineStyle {
         case 1: return (.ruled, 0.5 * legacyScale)

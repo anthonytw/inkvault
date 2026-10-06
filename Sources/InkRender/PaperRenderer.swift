@@ -26,6 +26,8 @@ public enum PaperRenderer {
     /// commands in this band, renders as the plain background. Guarantee: any
     /// band up to 612 x 792 pt (a letter page, or an infinite-page chunk of
     /// width <= 612 pt) renders its full ruling at every spacing >= 4 pt.
+    /// (`PreparedPage` may still draw a whole page blank when all its bands
+    /// together exceed `RenderLimits.maxPaperCommandsPerPage`.)
     public static func commands(paper: Paper, width: Double, height: Double,
                                 yOffset: Double = 0, yEnd: Double? = nil,
                                 originY: Double? = nil, includeBackground: Bool = true) -> [DrawCommand] {
@@ -36,23 +38,14 @@ public enum PaperRenderer {
         }
         let s = paper.spacing
         let bottom = yEnd ?? (yOffset + height)
-        guard paper.kind != .blank, s.isFinite, s >= RenderLimits.minPaperSpacing,
-              width.isFinite, bottom.isFinite, yOffset.isFinite,
-              width <= RenderLimits.maxExtent, abs(bottom) <= RenderLimits.maxExtent * 2 else { return out }
+        guard let estimate = rulingCount(paper: paper, width: width, yOffset: yOffset, yEnd: bottom),
+              estimate <= RenderLimits.maxPaperCommands else { return out }
 
         // Half-open index ranges: rows k in [rowStart, rowEnd), cols k in [1, colEnd).
         let rowStartD = max((yOffset / s).rounded(.up), 1)
         let rowEndD = (bottom / s).rounded(.up)
         let colEndD = (width / s).rounded(.up)
         let rowCountD = max(rowEndD - rowStartD, 0), colCountD = max(colEndD - 1, 0)
-        let estimate: Double
-        switch paper.kind {
-        case .blank: estimate = 0
-        case .ruled: estimate = rowCountD
-        case .grid: estimate = rowCountD + colCountD
-        case .dot: estimate = rowCountD * colCountD
-        }
-        guard estimate <= RenderLimits.maxPaperCommands else { return out }
         let rows = rowCountD > 0 ? Array(Int(rowStartD)..<Int(rowEndD)) : []
         let cols = colCountD > 0 ? Array(1..<Int(colEndD)) : []
 
@@ -78,6 +71,26 @@ public enum PaperRenderer {
             }
         }
         return out
+    }
+
+    /// How many ruling commands the band `[yOffset, yEnd)` of a `width`-wide
+    /// page needs, or nil when the paper draws no ruling there (blank, a
+    /// spacing below `RenderLimits.minPaperSpacing`, or a band out of range).
+    static func rulingCount(paper: Paper, width: Double, yOffset: Double, yEnd bottom: Double) -> Double? {
+        let s = paper.spacing
+        guard paper.kind != .blank, s.isFinite, s >= RenderLimits.minPaperSpacing,
+              width.isFinite, bottom.isFinite, yOffset.isFinite,
+              width <= RenderLimits.maxExtent, abs(bottom) <= RenderLimits.maxExtent * 2 else { return nil }
+        let rowStartD = max((yOffset / s).rounded(.up), 1)
+        let rowEndD = (bottom / s).rounded(.up)
+        let colEndD = (width / s).rounded(.up)
+        let rowCountD = max(rowEndD - rowStartD, 0), colCountD = max(colEndD - 1, 0)
+        switch paper.kind {
+        case .blank: return nil
+        case .ruled: return rowCountD
+        case .grid: return rowCountD + colCountD
+        case .dot: return rowCountD * colCountD
+        }
     }
 
     private static func hline(_ y: Double, _ width: Double, _ p: Paint) -> DrawCommand {

@@ -51,7 +51,8 @@ protocol VaultKeyStore: Sendable {
     /// Reads the key, after Face ID / Touch ID or the passcode. `reason` is
     /// shown in the prompt.
     func readKey(for vaultID: UUID, reason: String) async throws -> String
-    /// Stores `identity` for the vault, replacing any key stored for it.
+    /// Stores `identity` for the vault, replacing any key stored for it only
+    /// once the new one is stored (a failed save keeps the old key).
     func save(_ identity: String, for vaultID: UUID, vaultName: String, storage: KeyStorage) async throws
     /// Deletes the vault's key wherever it is stored; no error when there is none.
     func deleteKey(for vaultID: UUID) async throws
@@ -147,7 +148,10 @@ struct KeychainVaultKeyStore: VaultKeyStore {
         let canBiometrics = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         let hasPasscode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
         guard hasPasscode else { throw KeyStoreError.noPasscode }
-        try await deleteKey(for: vaultID)
+        // Replacing a device-only item asks for Face ID (its access control).
+        let context = LAContext()
+        context.localizedReason = "Replace the saved key for “\(vaultName)”"
+        let box = ContextBox(context)
         try await Task.detached(priority: .userInitiated) {
             var item = Self.baseQuery(vaultID)
             item[kSecAttrLabel as String] = "InkVault — \(vaultName)"
@@ -166,13 +170,55 @@ struct KeychainVaultKeyStore: VaultKeyStore {
                 }
                 item[kSecAttrAccessControl as String] = access
             case .iCloudKeychain:
-                item[kSecAttrSynchronizable as String] = true
                 item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
             }
-            let status = SecItemAdd(item as CFDictionary, nil)
-            guard status == errSecSuccess else { throw Self.error(status) }
+            try Self.replace(item: item, vaultID: vaultID, storage: storage, context: box.context,
+                             in: SystemKeychainItems())
         }.value
     }
+
+    /// Stores `item` (attributes and data, without `kSecAttrSynchronizable`)
+    /// as the vault's key in `storage`, never losing the key stored before
+    /// unless the new one is in place: the new item is added (or the existing
+    /// item of the same storage updated) first, and only then is an item of
+    /// the other storage deleted. A failed or cancelled add or update leaves
+    /// the old key as it was. The one exception is an existing same-storage
+    /// item that can no longer be read (a Face ID enrollment change
+    /// invalidated it): it is deleted and the new one added.
+    static func replace(item: [String: Any], vaultID: UUID, storage: KeyStorage, context: LAContext?,
+                        in keychain: some KeychainItems) throws {
+        let synced = storage == .iCloudKeychain
+        var add = item
+        add[kSecAttrSynchronizable as String] = synced
+        var same = baseQuery(vaultID)
+        same[kSecAttrSynchronizable as String] = synced
+        var other = baseQuery(vaultID)
+        other[kSecAttrSynchronizable as String] = !synced
+
+        var status = keychain.add(add)
+        if status == errSecDuplicateItem {
+            if let context { same[kSecUseAuthenticationContext as String] = context }
+            // The access control stays as the item was created with (same storage).
+            let changes = item.filter { key, _ in Self.updatableKeys.contains(key) }
+            status = keychain.update(same, changes)
+            if status == errSecItemNotFound {
+                // The old item exists but is unreadable (invalidated): nothing to keep.
+                same.removeValue(forKey: kSecUseAuthenticationContext as String)
+                let deleted = keychain.delete(same)
+                guard deleted == errSecSuccess || deleted == errSecItemNotFound else { throw error(deleted) }
+                status = keychain.add(add)
+            }
+        }
+        guard status == errSecSuccess else { throw error(status) }
+        // The new key is stored; a copy in the other storage is now stale.
+        // A failure here leaves a second, still working copy, which `deleteKey` removes.
+        _ = keychain.delete(other)
+    }
+
+    /// Attributes `replace` changes on an existing item.
+    static let updatableKeys: Set<String> = [kSecValueData as String, kSecAttrLabel as String,
+                                             kSecAttrDescription as String, kSecAttrComment as String,
+                                             kSecAttrAccessible as String]
 
     func deleteKey(for vaultID: UUID) async throws {
         try await Task.detached(priority: .userInitiated) {
@@ -192,6 +238,24 @@ struct KeychainVaultKeyStore: VaultKeyStore {
         default: return .keychain(status)
         }
     }
+}
+
+/// The Keychain calls `KeychainVaultKeyStore.replace` makes, so its order of
+/// adds, updates and deletes can be tested without a Keychain (unsigned test
+/// builds have none).
+protocol KeychainItems {
+    func add(_ item: [String: Any]) -> OSStatus
+    func update(_ query: [String: Any], _ changes: [String: Any]) -> OSStatus
+    func delete(_ query: [String: Any]) -> OSStatus
+}
+
+/// `KeychainItems` on the real Keychain.
+struct SystemKeychainItems: KeychainItems {
+    func add(_ item: [String: Any]) -> OSStatus { SecItemAdd(item as CFDictionary, nil) }
+    func update(_ query: [String: Any], _ changes: [String: Any]) -> OSStatus {
+        SecItemUpdate(query as CFDictionary, changes as CFDictionary)
+    }
+    func delete(_ query: [String: Any]) -> OSStatus { SecItemDelete(query as CFDictionary) }
 }
 
 /// Hands an `LAContext` (not `Sendable`) to the Keychain call that uses it;

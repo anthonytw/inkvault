@@ -54,6 +54,9 @@ public enum VaultError: Error, Hashable, Sendable {
     case invalidNoteId(String)
     /// Another revision of this note already uses `(device, seq)`.
     case seqInUse(device: String, seq: Int)
+    /// A revision's `seq` is outside 1...`RevisionName.maxSeq`, so readers
+    /// would reject it.
+    case seqOutOfRange(Int)
     /// A revision could not be read; `name` is its file name.
     case revision(name: String, RevisionReadError)
     /// Writers use scrypt work factors 15...18 (format.md §3.2).
@@ -73,6 +76,8 @@ public enum VaultError: Error, Hashable, Sendable {
     case rewrapJournalUnreadable(String)
     /// Test hook: a rewrap stopped after the requested number of files.
     case interrupted
+    /// A file to read holds more than `limit` bytes (`BoundedRead`).
+    case fileTooLarge(String, limit: Int)
     /// A filesystem operation failed.
     case io(String)
 }
@@ -237,7 +242,7 @@ public struct Vault: Sendable {
     public static func open(at url: URL, identities: [any AgeIdentity] = []) throws -> Vault {
         let manifestURL = url.appendingPathComponent(manifestName)
         guard FileIO.exists(manifestURL) else { throw VaultError.notAVault(url.path) }
-        let manifest = try readManifest(FileIO.read(manifestURL))
+        let manifest = try readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
         var vault = Vault(url: url, manifest: manifest, identities: identities, secret: nil, previousSecret: nil,
                           journalProblem: nil)
         guard !identities.isEmpty else { return vault }
@@ -536,7 +541,7 @@ public struct Vault: Sendable {
 
     func readJournal() throws -> (journal: RewrapJournal, previous: VaultSecret?) {
         let j: RewrapJournal
-        do { j = try InkJSON.decoder().decode(RewrapJournal.self, from: try FileIO.read(journalURL)) } catch {
+        do { j = try InkJSON.decoder().decode(RewrapJournal.self, from: try FileIO.read(journalURL, maxBytes: BoundedRead.maxManifestBytes)) } catch {
             throw VaultError.rewrapJournalUnreadable("\(error)")
         }
         guard let armored = j.previousVaultSecret else { return (j, nil) }
@@ -561,7 +566,7 @@ public struct Vault: Sendable {
                 let path = "\(note)/\(name)"
                 let file = dir.appendingPathComponent(name)
                 let data: Data
-                do { data = try FileIO.read(file) } catch {
+                do { data = try FileIO.read(file, maxBytes: BoundedRead.maxRevisionBytes) } catch {
                     report.failures[path] = .unreadable("\(error)"); continue
                 }
                 let stanzas: [String: Int]

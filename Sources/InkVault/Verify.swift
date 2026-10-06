@@ -133,7 +133,7 @@ extension Vault {
                     continue
                 }
                 do {
-                    let data = try FileIO.read(file)
+                    let data = try FileIO.read(file, maxBytes: BoundedRead.maxRevisionBytes)
                     _ = try decodeRevisionFile(data, note: note, name: name, secret: secret)
                     let stanzas = (try? Self.stanzaCounts(data)) ?? [:]
                     if stanzas != expected {
@@ -155,7 +155,7 @@ extension Vault {
 
     func manifestProblems() -> [String] {
         let data: Data
-        do { data = try FileIO.read(manifestURL) } catch { return ["vault.json: \(error)"] }
+        do { data = try FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes) } catch { return ["vault.json: \(error)"] }
         let m: VaultManifest
         do { m = try Self.readManifest(data) } catch { return ["vault.json: \(error)"] }
         var problems: [String] = []

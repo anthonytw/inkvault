@@ -57,7 +57,9 @@ extension Vault {
         let secret = try requireReadable()
         let note = noteId.uuidString.lowercased()
         let data: Data
-        do { data = try FileIO.read(noteURL(noteId).appendingPathComponent(name.filename)) } catch {
+        do {
+            data = try FileIO.read(noteURL(noteId).appendingPathComponent(name.filename), maxBytes: BoundedRead.maxRevisionBytes)
+        } catch {
             throw RevisionReadError.unreadable("\(error)")
         }
         return try decodeRevisionFile(data, note: note, name: name, secret: secret)
@@ -112,10 +114,12 @@ extension Vault {
     ///
     /// - Throws: `VaultError.locked`, `.alreadyExists` if the file exists
     ///   (files under `notes/` are write-once), `.seqInUse` if another file of
-    ///   this note already has the same `(device, seq)`.
+    ///   this note already has the same `(device, seq)`, `.seqOutOfRange` for
+    ///   a `seq` readers would reject.
     public func write(_ revision: Revision) throws {
         try requireMigrated()
         let secret = try requireSecret()
+        guard (1...RevisionName.maxSeq).contains(revision.seq) else { throw VaultError.seqOutOfRange(revision.seq) }
         let dir = noteURL(revision.noteId)
         let name = revision.name
         let file = dir.appendingPathComponent(name.filename)

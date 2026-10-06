@@ -8,18 +8,39 @@ enum NotabilityShapes {
     /// `kappa` for a quarter ellipse as one cubic Bézier segment.
     static let kappa = 0.5522847498
 
+    /// Most curve points `curves(_:)` decodes per byte of the `shapes`
+    /// plist, plus `pointAllowance`. A plist may reference one shape or one
+    /// `strokePath` from every entry of its `shapes` array (a 1-byte
+    /// reference each), so without a limit a small plist could decode into
+    /// gigabytes of points. Real shapes take more than 4 bytes per point.
+    static let pointsPerByte = 1
+    /// See `pointsPerByte`.
+    static let pointAllowance = 65_536
+
     /// Parses `shapes` and returns one curve per drawable shape (a partial
     /// shape with several subpaths gives several) plus the number of shapes
     /// that could not be converted.
+    ///
+    /// - Throws: `ImportError.archive` for a malformed plist,
+    ///   `ImportError.notability` when the shapes would decode into more
+    ///   points than `pointsPerByte` allows for the plist's size.
     static func curves(_ data: Data?) throws -> (curves: [NotabilityNote.Curve], unsupported: Int) {
         guard let data, !data.isEmpty else { return ([], 0) }
-        return curves(plist: try PlistValue.parse(data))
+        return try curves(plist: try PlistValue.parse(data), maxPoints: pointsPerByte * data.count + pointAllowance)
     }
 
     /// `curves(_:)` on the parsed plist.
-    static func curves(plist: PlistValue) -> (curves: [NotabilityNote.Curve], unsupported: Int) {
+    ///
+    /// - Throws: `ImportError.notability` when the curves would hold more
+    ///   than `maxPoints` points (checked before a path is decoded).
+    static func curves(plist: PlistValue, maxPoints: Int = .max) throws
+        -> (curves: [NotabilityNote.Curve], unsupported: Int) {
         guard case .dict(let root) = plist, case .array(let shapes)? = root["shapes"] else {
             return ([], 0)
+        }
+        var points = 0
+        func overBudget() -> ImportError {
+            ImportError.notability("shapes decode into more than \(maxPoints) points (shared references?)")
         }
         var kinds: [String] = []
         if case .array(let k)? = root["kinds"] { kinds = k.map { $0.string ?? "" } }
@@ -28,7 +49,15 @@ enum NotabilityShapes {
         for (i, value) in shapes.enumerated() {
             guard case .dict(let shape) = value else { unsupported += 1; continue }
             let kind = i < kinds.count ? kinds[i] : ""
+            // A line or ellipse is at most 13 points; a path at most 3 per
+            // element, which its header states: check before decoding it.
+            if let path = shape["strokePath"]?.data, path.count >= 8,
+               Int(path.u32(4)) > (maxPoints - points) / 3 {
+                throw overBudget()
+            }
             let polygons = polygons(kind: kind, shape: shape)
+            points += polygons.reduce(0) { $0 + $1.count }
+            guard points <= maxPoints else { throw overBudget() }
             guard !polygons.isEmpty, polygons.allSatisfy({ p in p.allSatisfy { $0.x.isFinite && $0.y.isFinite
                     && abs($0.x) <= NotabilityNote.maxCoordinate && abs($0.y) <= NotabilityNote.maxCoordinate } })
             else { unsupported += 1; continue }

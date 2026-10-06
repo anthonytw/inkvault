@@ -2,9 +2,11 @@ import Foundation
 
 /// A property-list value with `NSKeyedArchiver` UIDs made explicit.
 ///
-/// `PropertyListSerialization` returns `Any`; this enum is what the importer
-/// works with instead. UIDs (`CF$UID`) arrive differently per platform: on
-/// Darwin as an opaque `CFKeyedArchiverUID` object, on Linux as the internal
+/// `parse` reads binary plists with InkImport's own reader (`BinaryPlist`),
+/// which yields UIDs as `.uid(n)` directly. `init(any:)` converts a
+/// `PropertyListSerialization` result for trusted callers: UIDs (`CF$UID`)
+/// arrive there differently per platform, on Darwin as an opaque
+/// `CFKeyedArchiverUID` object, on Linux as the internal
 /// `_NSKeyedArchiverUID` class, and from hand-built values as a one-key
 /// dictionary `["CF$UID": n]`. All become `.uid(n)`.
 public indirect enum PlistValue: Hashable, Sendable {
@@ -107,15 +109,17 @@ public indirect enum PlistValue: Hashable, Sendable {
 }
 
 extension PlistValue {
-    /// Parses property-list bytes (binary, XML or OpenStep).
+    /// Parses a binary property list (`bplist00`). XML and OpenStep plists
+    /// are refused: Notability writes neither.
     ///
-    /// - Throws: `ImportError.archive` when the bytes are not a property list.
+    /// - Throws: `ImportError.archive` when the bytes are not a well-formed
+    ///   binary property list (see `BinaryPlist` for the checks).
     public static func parse(_ bytes: Data) throws -> PlistValue {
-        let any: Any
-        do { any = try PropertyListSerialization.propertyList(from: bytes, options: [], format: nil) } catch {
-            throw ImportError.archive("not a property list: \(error.localizedDescription)")
-        }
-        return try PlistValue(any: any)
+        // Binary only, with InkImport's own reader: PropertyListSerialization
+        // crashes on some hostile binary plists on Linux, and Notability
+        // writes nothing else.
+        guard BinaryPlist.isBinaryPlist(bytes) else { throw ImportError.archive("not a binary property list") }
+        return try BinaryPlist.parse(bytes)
     }
 }
 

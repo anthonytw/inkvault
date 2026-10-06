@@ -141,7 +141,7 @@ extension Vault {
         let cap = min(max(maxWorkFactor, 1), IdentityFile.maxAllowedWorkFactor)
         let identity = ScryptIdentity(passphrase: passphrase, maxWorkFactor: cap, maxMemoryBytes: 1 << (cap + 10))
         let plain: Data
-        do { plain = try AgeFile.decrypt(try FileIO.read(file), with: [identity]) } catch let e as AgeError {
+        do { plain = try AgeFile.decrypt(try FileIO.read(file, maxBytes: BoundedRead.maxSmallFileBytes), with: [identity]) } catch let e as AgeError {
             switch e {
             case .scryptWorkFactor: throw VaultError.workFactorTooHigh
             case .noMatchingIdentity: throw VaultError.wrongPassphrase
@@ -166,7 +166,7 @@ extension Vault {
     public func identityFileData(recipient: NativeRecipient) throws -> Data {
         let file = keysURL.appendingPathComponent(IdentityFile.fileName(for: recipient))
         guard FileIO.exists(file) else { throw VaultError.identityFileMissing(file.lastPathComponent) }
-        return try FileIO.read(file)
+        return try FileIO.read(file, maxBytes: BoundedRead.maxSmallFileBytes)
     }
 
     /// `identityFileData` for an X25519 recipient.

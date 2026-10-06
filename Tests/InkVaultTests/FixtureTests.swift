@@ -123,10 +123,52 @@ final class FixtureTests: XCTestCase {
         for note in try vault.noteIDs() {
             XCTAssertEqual(try regenerated.revisionNames(of: note), try vault.revisionNames(of: note))
             for name in try vault.revisionNames(of: note) {
-                XCTAssertEqual(try regenerated.readRevision(noteId: note, name: name),
+                XCTAssertEqual(try Self.asWrittenBeforeTagSets(regenerated.readRevision(noteId: note, name: name)),
                                try vault.readRevision(noteId: note, name: name), "\(name)")
             }
         }
+    }
+
+    /// The committed fixture predates per-tag merging (format.md §5.4.1): its
+    /// lecture snapshot has no `tagSet` and keeps the legacy `tags` register in
+    /// `meta.tags` and `clocks.tags`, so it doubles as a legacy-vault test. A
+    /// fresh snapshot differs only there; this maps it back.
+    static func asWrittenBeforeTagSets(_ r: Revision) -> Revision {
+        guard case .snapshot(let included, var state) = r.body, let set = state.tagSet else { return r }
+        state.tagSet = nil
+        state.meta.tags = set.legacy?.tags ?? []
+        state.clocks?["tags"] = set.legacy?.clock
+        var out = r
+        out.body = .snapshot(included: included, state: state)
+        return out
+    }
+
+    /// The legacy fixture reads with per-tag semantics: its `setMeta(tags)` is
+    /// a baseline that a current writer's `removeTag` and `addTag` build on.
+    func testLegacyFixtureTagsMergeWithPerTagOps() throws {
+        let identity = try IdentityFile.parse(String(contentsOf: Self.bundled("sample.key"), encoding: .utf8))
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("fixture-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let copy = tmp.appendingPathComponent("sample.inkvault")
+        try FileManager.default.copyItem(at: Self.bundled("sample.inkvault"), to: copy)
+        let vault = try Vault.open(at: copy, identities: [identity])
+        let device = tmp.appendingPathComponent("device.json")
+        let lecture = SampleFixture.lecture
+        guard case .snapshot(_, let old)? = try vault.revisionNames(of: lecture).filter({ $0.kind == .snapshot })
+            .first.map({ try vault.readRevision(noteId: lecture, name: $0).body }) else { return XCTFail("no snapshot") }
+        XCTAssertNil(old.tagSet)
+        var state = try vault.reconstruct(noteId: lecture)
+        XCTAssertEqual(state.tagSet?.legacy?.tags, ["fixture"])
+        try vault.apply([try XCTUnwrap(NoteOps.addTag("exam", to: state))], to: lecture, deviceState: device, app: "t")
+        state = try vault.reconstruct(noteId: lecture)
+        XCTAssertEqual(state.meta.tags, ["fixture", "exam"])
+        try vault.apply([try XCTUnwrap(NoteOps.removeTag("Fixture", from: state))], to: lecture,
+                        deviceState: device, app: "t")
+        XCTAssertEqual(try vault.summary(of: lecture).tags, ["exam"])
+        var clock = HybridClock()
+        try vault.snapshot(noteId: lecture, device: DeviceID("0f0f0f0f")!, clock: &clock, wall: Date(), app: "t")
+        XCTAssertEqual(try vault.summary(of: lecture).tags, ["exam"])
     }
 
     func testFixtureIdentityFileOpensWithPassphrase() throws {
