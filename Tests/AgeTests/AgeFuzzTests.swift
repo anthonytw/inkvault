@@ -41,6 +41,44 @@ final class AgeFuzzTests: XCTestCase {
         })
     }
 
+    /// Differential: the streaming decryptor (fed in uneven reads) and the
+    /// buffer API agree on every mutated file: same plaintext, or the same
+    /// error after releasing the same bytes. Mutations land in the header,
+    /// in chunk boundaries and in the final-chunk flag.
+    func testFuzzStreamingMatchesBuffer() throws {
+        let ids = Self.identities
+        var seeds: [Data] = []
+        for (i, p) in Self.plaintexts().enumerated() {
+            seeds.append(try AgeFile.encrypt(p, to: Array(ids.prefix(1 + i % 2)).map(\.recipient)))
+        }
+        seeds.append(try AgeFile.encrypt(Data(count: 2 * 64 * 1024), to: [ids[0].recipient]))
+        assertClean(Fuzz.run("age-stream", seeds: seeds, quick: 2000, maxSize: 256 << 10) { input in
+            var bufferReleased = Data()
+            var bufferError: AgeError?
+            do { _ = try AgeFile.decrypt(binary: input, with: ids, released: &bufferReleased) } catch {
+                guard let e = error as? AgeError else { return "buffer: untyped error \(error)" }
+                bufferError = e
+            }
+            var streamReleased = Data()
+            var streamError: AgeError?
+            var offset = 0, step = 1
+            do {
+                let d = try AgeDecryptor(identities: ids) { n in
+                    let k = min(n, step, input.count - offset)
+                    defer { offset += k; step = step % 9_973 + 7 }
+                    return input.subdata(in: offset..<offset + k)
+                }
+                while let chunk = try d.next() { streamReleased += chunk }
+            } catch {
+                guard let e = error as? AgeError else { return "stream: untyped error \(error)" }
+                streamError = e
+            }
+            if streamError != bufferError { return "errors differ: stream \(String(describing: streamError)), buffer \(String(describing: bufferError))" }
+            if streamReleased != bufferReleased { return "released \(streamReleased.count) vs \(bufferReleased.count) bytes" }
+            return nil
+        })
+    }
+
     func testFuzzArmoredFiles() throws {
         let ids = Self.identities
         let seeds = try Self.plaintexts().prefix(4).map { try AgeFile.encrypt($0, to: [ids[0].recipient], armor: true) }

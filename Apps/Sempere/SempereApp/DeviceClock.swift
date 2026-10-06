@@ -111,19 +111,51 @@ actor NoteWriter {
                        verify: (@Sendable () throws -> Void)? = nil,
                        building build: @escaping @Sendable (NoteState?) -> [Op]) async throws -> RevisionName? {
         let (readings, seq, ops) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
-                                                  verify: verify, build: build)
+                                                  verify: verify, build: { loaded in
+            build(loaded.revisions.isEmpty ? nil : try NoteReducer.reconstruct(loaded.revisions))
+        })
         guard !ops.isEmpty else { return nil }
         await clock.observe(readings)
         let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
         return try await writer.write(ops)
     }
 
+    /// Restores a note to the revision `point` (format.md §5.7) by writing one
+    /// delta, through the same path as every other edit. Everything is decided
+    /// inside one read of the note on disk: the note's revisions must all be
+    /// readable (the current state has to be known exactly), `point` must be a
+    /// complete restore point, and the ops are `NoteHistory.restoreOps` from
+    /// the merged current state to the state as of `point`. `verify` is as for
+    /// `append(_:to:...)`.
+    ///
+    /// - Returns: the delta written and what it changes; nil when the note
+    ///   already matches `point` (nothing is written).
+    /// - Throws: `VaultError.revision` if any revision is unreadable,
+    ///   `HistoryError`, `NoteLogError`, or a write error.
+    @discardableResult
+    static func restore(_ noteID: UUID, to point: RevisionName, vault: Vault, clock: DeviceClock,
+                        app: String = NoteWriter.appName, coordinated: Bool = false,
+                        verify: (@Sendable () throws -> Void)? = nil) async throws -> (name: RevisionName, summary: RestoreSummary)? {
+        let (readings, seq, ops) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
+                                                  verify: verify, build: { loaded in
+            if let (name, error) = loaded.failures.min(by: { $0.key < $1.key }) {
+                throw VaultError.revision(name: name.filename, error)
+            }
+            let target = try NoteHistory.state(loaded.revisions, at: point)
+            return NoteHistory.restoreOps(current: try NoteReducer.reconstruct(loaded.revisions), target: target)
+        })
+        guard !ops.isEmpty else { return nil }
+        await clock.observe(readings)
+        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
+        return (try await writer.write(ops), RestoreSummary(ops))
+    }
+
     /// The note's revision clocks, this device's next `seq`, and the ops
-    /// `build` makes from its reconstructed state (empty without `build`).
+    /// `build` makes from the loaded note (empty without `build`).
     /// `verify` runs inside the coordinated read, before and after loading.
     private static func read(_ noteID: UUID, vault: Vault, device: DeviceID, coordinated: Bool,
                              verify: (@Sendable () throws -> Void)?,
-                             build: (@Sendable (NoteState?) -> [Op])?) async throws -> ([HLC], Int, [Op]) {
+                             build: (@Sendable (LoadedNote) throws -> [Op])?) async throws -> ([HLC], Int, [Op]) {
         try await Task.detached(priority: .userInitiated) {
             try CloudVault.coordinatedRead(coordinated ? vault.url : nil) { () throws -> ([HLC], Int, [Op]) in
                 try verify?()
@@ -132,10 +164,7 @@ actor NoteWriter {
                 let seq = loaded.failures.isEmpty
                     ? Vault.nextSeq(from: loaded.revisions, device: device)
                     : try vault.nextSeq(noteId: noteID, device: device)
-                var ops: [Op] = []
-                if let build {
-                    ops = build(loaded.revisions.isEmpty ? nil : try NoteReducer.reconstruct(loaded.revisions))
-                }
+                let ops = try build?(loaded) ?? []
                 return (loaded.revisions.map(\.hlc), seq, ops)
             }
         }.value

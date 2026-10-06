@@ -127,9 +127,21 @@ small).
 ### Large files
 
 - **Streaming.** age's STREAM payload authenticates 64 KiB chunks, so
-  encryption and decryption run in constant memory. `Sources/Age` today
-  offers one-shot `Data` APIs; task B1 adds file-to-file and chunk-iterator
-  APIs. Blobs over 16 MiB must be streamed (`format.md` §8.1.4).
+  encryption and decryption run in constant memory. `Sources/Age`
+  (`Streaming.swift`, task B1) has, next to the one-shot `Data` APIs:
+  `AgeEncryptor` (plaintext pieces in, ciphertext out), `AgeDecryptor` (a
+  pull iterator over authenticated 64 KiB chunks; the stream is complete
+  only when it returns `nil`), file-to-file `AgeFile.encrypt(contentsOf:…)`
+  and `decrypt(contentsOf:…)`, `readHeader(contentsOf:)`,
+  `rewrapHeader` (header-only rewrite, same file key, nonce and payload,
+  every chunk authenticated on the way) and `reencrypt` (new file key and
+  nonce). File outputs are created with mode 0600, never overwrite, are
+  removed on any thrown failure (so a damaged input never leaves partial
+  plaintext; a process killed midway can, so callers decrypt to a temporary
+  name and rename it into place) and are fsynced; atomic placement stays with
+  the caller (`docs/io.md`). Streaming reads binary age files only (blobs are binary,
+  `format.md` §8.1.3). Blobs over 16 MiB must be streamed (`format.md`
+  §8.1.4).
 - **Random access.** PDF parsing needs it. Readers decrypt the blob into a
   private temporary file (deleted immediately after use; on iOS inside the
   app container, which Data Protection encrypts) and read that. Audio playback
@@ -1223,6 +1235,16 @@ own in Application Support). CLI: `sempere blobs list [NOTE] | verify |
 extract NOTE SHA256 [--out] | unused [NOTE] | gc [--dry-run] [NOTE…] |
 repair`, `vault recipients add|remove … [--rewrap header|reencrypt]`,
 `recover` extracting a note's attachments with the stock framing.
+*Status:* in review (#60). Code: `Sources/Sempere/Blob.swift` (names, framing,
+Padmé, streaming checker), `BlobStore.swift` (write, read, copy,
+`withBlobFile`, `BlobSource`), `BlobRewrap.swift` (`RewrapPolicy`, the
+per-note rewrap), `BlobCollection.swift` (structural reference scan,
+inventory, collection, repair), blob entries in `Verify.swift`, `features` in
+`VaultManifest.swift`; CLI `Sources/SempereCLI/Blobs.swift`. Two readings of
+the spec, written into `format.md`: an addition that changes the recipients'
+stanza types re-encrypts (§8.1.5), and collection verifies a blob in full
+before deleting it (§8.1.6 "cannot be verified"). The fixture's blob is
+unreferenced until A1 adds a note with items.
 *Done when:* tests for name binding (renamed file, swapped content,
 non-zero padding, wrong length, wrong kind suffix all rejected or
 unresolved), Padmé sizes, the stock recovery commands of `format.md` §8.1.7

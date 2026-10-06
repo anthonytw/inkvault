@@ -69,10 +69,13 @@ the owning session (`claude -p "…" --cloud <session_id>`).
 - **Licensing:** GPLv3 + App Store exception (§7 additional permission), no
   CLA. All deps are Apache-2.0 (swift-crypto incl. vendored BoringSSL,
   argument-parser, asn1) + zlib: GPL-compatible.
-- **Export compliance:** `ITSAppUsesNonExemptEncryption = YES` (standard algorithms).
-Availability excludes France until the ANSSI declaration is approved
-(`docs/appstore/france-declaration.md`). Then add `ITSEncryptionExportComplianceCode`
-and France. With France available and no code, uploads are refused.
+- **Export compliance:** the maintainer answered App Store Connect's questions on build 2.
+The result was "does not use non-exempt encryption", the mass-market exemption.
+Info.plist mirrors that with `ITSAppUsesNonExemptEncryption = NO`, so uploads need no
+per-build answer. (Setting YES made every upload demand an
+`ITSEncryptionExportComplianceCode`; patching a build's answer through the API did not
+stick.) France stays excluded until the ANSSI declaration is approved
+(`docs/appstore/france-declaration.md`); revisit this key then.
 
 **Never commit `DEVELOPMENT_TEAM`.**
 
@@ -286,7 +289,9 @@ Phase 1 task detail (historical, for reference):
      the key of a newly created vault.
    - 3e Export: PDF via `SempereRender` through the share sheet; whole-vault zip
      dump; `verify` screen.
-   - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
+   - 3f **done** (branch `claude/handwriting-search-4793yc`): recognition is Vision
+     on rendered pages (not PencilKit 27), see `CLAUDE.md` § Gotchas "Handwriting
+     search". Original plan: iPadOS 27 PencilKit recognition → `setPageRecognition`
      per page after edits; search field over recognition text with word-box
      highlights.
 
@@ -306,6 +311,18 @@ Phase 1 task detail (historical, for reference):
   in `History.swift`; ranges are compared, never enumerated, since `upTo` is
   read from a file). An unreadable snapshot makes every point incomplete. This
   is conservative: some points that could be rebuilt are reported incomplete.
+- App (`HistoryView.swift`, `AppModel+History.swift`): the note toolbar's
+  "Version History…" opens a sheet with one row per restore point (time,
+  device, kind, app; newest first, newest marked current). A row opens a
+  read-only preview (a writer-less `NoteEditor` on the state as of the
+  point, shown with `PageCanvasView`). "Restore This Version" calls
+  `AppModel.restoreVersion`: the open canvas is flushed first, then
+  `NoteWriter.restore` reads the note strictly inside one coordinated read
+  (iCloud `requireLocal` before and after), computes `restoreOps` from that
+  read and writes one delta with the app's `DeviceClock`; the open canvas is
+  reopened from the result. Incomplete points are greyed out, and a notice
+  says compacted revisions are not restore points (shown when the note has a
+  snapshot or an incomplete point). Not tried on the iPad yet.
 - Re-added strokes render above the strokes that stayed (new `origin`); exact
   historical z-order is not restored.
 

@@ -131,6 +131,20 @@ final class ImportFuzzTests: XCTestCase {
         })
     }
 
+    /// `.ntb` handwriting indexes (`ios/HandwritingIndex.fb`) through the reader and the merge.
+    func testFuzzNtbHandwritingIndexes() throws {
+        let seeds = [SyntheticBundle.handwritingIndex([
+            .init(index: 0, text: "hi you", boxes: [(36, 20, 8, 10), (44, 20, 4, 10), nil, (60, 22, 9, 10), (69, 22, 9, 10), (78, 22, 9, 10)]),
+            .init(index: 1, text: "two", boxes: [(40, 30, 10, 12), (50, 30, 10, 12), (60, 30, 10, 12)])])]
+        assertClean(Fuzz.run("ntbindex", seeds: seeds, quick: 2000, maxSize: 64 << 10) { input in
+            Self.typed {
+                var note = try NotabilityBundle.parse(bundle: SyntheticBundle.noteBundle(strokes: SyntheticBundle.strokesMatchingSyntheticNote()))
+                note.recognition = try NotabilityBundle.parseHandwritingIndex(input, inset: note.paper.insetX)
+                _ = NotabilityImporter.recognition(note)
+            }
+        })
+    }
+
     /// The `shapes` plist bytes (strict reader) through the shape converter.
     func testFuzzShapes() throws {
         let seeds = [NotabilityBackupTests.shapesPlist(), UntrustedImportTests.sharedShapesPlist(references: 4, segments: 6)]
