@@ -58,13 +58,16 @@ final class SempereFuzzTests: VaultTestCase {
                                       .addStroke(page: pageA, stroke: richStroke(s[1], 2, transform: .init(a: 2, b: 0, c: 0, d: 2, tx: 5, ty: 6))),
                                       .addPage(Page(id: pageB, order: "b", parent: pageA)),
                                       .setPageRecognition(pageId: pageA, recognition: rec)])
-        let d3 = log.delta(devB, 15, [.removeStroke(page: pageA, strokeId: s[0]), .setPageOrder(pageId: pageB, order: "Z"),
+        var d3 = log.delta(devB, 15, [.removeStroke(page: pageA, strokeId: s[0]), .setPageOrder(pageId: pageB, order: "Z"),
                                       .setMeta(.paper(Paper(kind: .grid, spacing: 18))),
                                       .setMeta(.pageSize(PageSize(width: 612, height: 2000, infinite: true, breakHeight: 700)))])
-        let snap = try log.snapshot(devB, 20, from: [d1, d2, d3])
-        let d4 = log.delta(devA, 30, [.addStroke(page: pageB, stroke: richStroke(s[2], 40, parent: s[1])),
+        d3.session = "5f0c3e8a-2b7d-4c1e-9a3f-6d2b8e4f1a07"   // version history fields (format.md §5.8)
+        var snap = try log.snapshot(devB, 20, from: [d1, d2, d3])
+        snap.asOf = RevisionKey(d3.name)
+        var d4 = log.delta(devA, 30, [.addStroke(page: pageB, stroke: richStroke(s[2], 40, parent: s[1])),
                                       .removePage(pageId: pageA), .deleteNote, .restoreNote,
                                       .setMeta(.favorite(true)), .setMeta(.notebook(nil))])
+        d4.checkpoint = Checkpoint(name: "Fuzz version")
         var late = log.delta(devB, 40, [.addStroke(page: pageB, stroke: richStroke(s[3], 1))])
         late.seq = 7   // leaves a gap: a later snapshot lists it in `extra`
         let snap2 = try log.snapshot(devA, 50, from: [d1, d2, d3, snap, d4, late])
@@ -81,8 +84,13 @@ final class SempereFuzzTests: VaultTestCase {
     static func exercise(_ revs: [Revision]) -> String? {
         typed {
             guard !revs.isEmpty else { return }
-            _ = NoteHistory.restorePoints(revs)
+            _ = NoteHistory.groups(NoteHistory.restorePoints(revs))
             _ = LoadedNote(revisions: revs, failures: [:]).compactionPlan(retention: 0, now: wall, assumingSnapshot: true)
+            for mode in [CompactionMode.thin(olderThan: 0), .retention(0)] {
+                var clock = HybridClock()
+                _ = try? CompactionPlanner.plan(revs, mode: mode, now: wall, device: DeviceID("dddddddd")!, clock: &clock,
+                                                wall: wall, app: "fuzz")
+            }
             _ = LoadedNote(revisions: revs, failures: [:]).needsSnapshotBeforeCompaction(retention: 0, now: wall)
             let state = try NoteReducer.reconstruct(revs)
             _ = NotebookNode.flatten(NotebookNode.tree([state.meta.notebook, "x/y"]))

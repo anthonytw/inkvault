@@ -42,6 +42,7 @@ window. With no window, only View > Library is enabled (`CommandGroupPlacement.w
 | Note | Rename Note… | ⇧⌘R |
 | Note | Edit Tags… | ⌥⌘T |
 | Note | Paper… | ⌥⌘P |
+| Note | Save Version… | ⌥⌘S |
 | Note | Previous Page, Next Page | ⌘[, ⌘] |
 | Note | Add Page | ⇧⌘A |
 | Note | Move to Recently Deleted | ⌘⌫ |

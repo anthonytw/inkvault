@@ -335,6 +335,35 @@ Phase 1 task detail (historical, for reference):
 - Re-added strokes render above the strokes that stayed (new `origin`); exact
   historical z-order is not restored.
 
+## Version history round 2 (PR #74; maintainer decisions 2026-10-06)
+
+- Format `docs/format.md` §5.8, all optional fields older readers ignore:
+  `checkpoint` (`{name?}`) and `session` on deltas, `asOf` on snapshots.
+  Malformed values are ignored, never fatal.
+- Checkpoint = a delta with no ops after the pending ink is saved
+  (`Vault.checkpoint`, `AppModel.saveVersion` through `NoteWriter.append`).
+- Sessions (`NoteHistory.groups`): new session on a different `session` id
+  (each `NoteEditor` mints one, `editingSession`; browser edits write none), a
+  wall gap ≥ 10 min, or another device; checkpoints stand alone. Snapshots
+  group like deltas without a session.
+- Thinning and compaction share `CompactionPlanner.plan` (`Thinning.swift`):
+  candidates by policy, witnesses (first revision of each other device after
+  a target), then a loop that writes a snapshot positioned at each target that
+  would become incomplete and a cover snapshot if a deletion is not covered or
+  dominated. It checks the current state before returning. A stand-in
+  snapshot tells `Completeness` what is about to be gone (it only learns gone
+  revisions from snapshots). Device-less `Vault.compact` keeps everything a
+  complete checkpoint depends on instead (it cannot write snapshots).
+- Guarantees G1–G5 in §5.8.4 are property-tested on random multi-device
+  logs (`VersionHistoryTests.testThinningGuaranteesOnRandomLogs`, 120 seeds per run;
+  3000 seeds were run once: 2 636 non-trivial plans, 0 failures).
+- Cost: one full snapshot per kept version that needs one; the dry run
+  reports bytes deleted and added.
+- App: thinning setting `Sempere.thinAfterDays` (per device; 0 = never),
+  automatic run once a day per vault after the listing (`thinIfDue`, open
+  notes and non-local iCloud notes skipped, off in tests and DEBUG scripted
+  runs), Settings sheet from the sidebar's gear button (E6 will absorb it).
+
 ## Gotchas collected so far
 
 PencilKit (from 3c): `PKStrokePoint` keeps locations, sizes and times as

@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Version history round 2 (`docs/format.md` §5.8): **checkpoints** (named versions:
+  `sempere notes checkpoint NOTE [--name TEXT]`, the app's Save Version in the note toolbar and
+  the Mac Note menu), **editing sessions** (the app records one id per opening of a note;
+  `sempere notes history --sessions` and the app's history list group autosaves into sessions
+  under the checkpoints, collapsed), and **thinning** (`sempere compact --thin-older-than 30d
+  [--dry-run]`; in the app a setting, default 30 days or never, a daily automatic run and Thin
+  Now with a preview): old autosaves go, every checkpoint and the newest autosave of each
+  session stay restorable, the note's state never changes. `compact` never deletes a checkpoint
+  and keeps it restorable.
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
   last-writer-wins registers (unknown fields included), in the library and the web viewer.

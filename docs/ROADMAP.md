@@ -25,6 +25,7 @@ working state.
 | Crypto | Streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt (B1) | 🔀 #43 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
+| Vault | Version history round 2 (`format.md` §5.8): checkpoints, editing-session ids, positioned snapshots (`asOf`), thinning with stated and property-tested guarantees; compaction keeps checkpoints complete | 🔀 #74 |
 | Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | ✅ #54 |
 | Vault | Fast exact decoding of stroke points; per-device cache keys (`format.md` §10.1) | 🔀 #56 |
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
@@ -56,6 +57,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
+| `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | 🔀 #74 | 🔀 #74 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
 | `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
@@ -90,7 +92,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export 🔀 #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | 🔀 #41 |
-| App | Settings panel (E6) | 📋 |
+| App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | 🔀 #74 (not yet tried on the iPad) |
+| App | Settings panel (E6) | 📋 (a minimal Settings sheet with the version-history setting exists, #74) |
 | App | Spanish localization (L) | 📋 |
 | Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E0–E5, E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
