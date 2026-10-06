@@ -191,9 +191,14 @@ extension AppModel {
 
     /// Writes the summary cache in the background; a failure only costs the
     /// next launch time.
+    /// Saves run one after another (`summaryCacheSave`, awaited by tests).
     func saveSummaryCache() {
         guard let cache = summaryCache, cache.hasChanges else { return }
-        Task.detached(priority: .utility) { try? cache.save() }
+        let previous = summaryCacheSave
+        summaryCacheSave = Task.detached(priority: .utility) {
+            await previous?.value
+            try? cache.save()
+        }
     }
 
     /// Creates the cache folder, excluded from device backups (the cache is

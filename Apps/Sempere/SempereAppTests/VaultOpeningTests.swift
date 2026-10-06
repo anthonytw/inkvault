@@ -148,6 +148,7 @@ struct VaultOpeningTests {
         let (first, key, url) = try await Self.lockedModel(cache: cacheDir)
         try await first.unlock(identityText: key)
         let cachedTitle = try #require(first.notes.first { $0.id == Self.lecture }?.title)
+        await first.summaryCacheSave?.value   // written after the listing, in the background
         first.close()
         #expect(await TS.waitUntil {
             ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1
@@ -237,6 +238,7 @@ struct VaultOpeningTests {
         try await first.unlock(identityText: key)
         let listed = first.notes
         #expect(listed.count == 2)
+        await first.summaryCacheSave?.value   // written after the listing, in the background
         first.close()
         #expect(await TS.waitUntil {
             ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1
@@ -286,6 +288,7 @@ struct VaultOpeningTests {
         try await first.unlock(identityText: key)
         let cached = try #require(first.notes.first { $0.id == Self.lecture })
         #expect(!cached.title.isEmpty)
+        await first.summaryCacheSave?.value   // written after the listing, in the background
         first.close()
         #expect(await TS.waitUntil {
             ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1

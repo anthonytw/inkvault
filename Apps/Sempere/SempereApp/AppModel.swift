@@ -90,6 +90,8 @@ final class AppModel {
     /// Bumped per note by `refresh` (an edit's own re-read): a listing batch
     /// read before it must not merge its older summary over the newer one.
     var summaryEpochs: [UUID: Int] = [:]
+    /// The newest summary-cache save (`saveSummaryCache`).
+    @ObservationIgnored var summaryCacheSave: Task<Void, Never>?
 
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
