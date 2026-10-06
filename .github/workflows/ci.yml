@@ -66,12 +66,26 @@ jobs:
           echo "cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10  /tmp/age.tgz" | sha256sum -c -
           tar xzf /tmp/age.tgz -C /usr/local/bin --strip-components=1 age/age age/age-keygen
           age --version
+      # Build cache: main saves it, PRs only restore (docs/HANDOFF.md "CI").
+      - id: cachekey
+        name: Cache key (toolchain + resolved packages)
+        run: echo "key=linux-$(swift --version 2>&1 | head -1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+          restore-keys: ${{ steps.cachekey.outputs.key }}-
       - name: Build
         run: swift build --build-tests
       - name: Test
         env:
           SEMPERE_REQUIRE_AGE_PQ: "1"
         run: swift test --skip-build --parallel
+      - uses: actions/cache/save@v4
+        if: success() && github.ref == 'refs/heads/main'
+        with:
+          path: .build
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
       - name: Portability guard
         run: scripts/check-portability.sh
       # The static release build only matters for what ships: main and releases.
@@ -115,12 +129,26 @@ jobs:
           echo "e2020b073c44f692685a24d6abc378817eb81ffaaf49fd0531ef8565f767f2f5  /tmp/age.tgz" | shasum -a 256 -c -
           sudo tar xzf /tmp/age.tgz -C /usr/local/bin --strip-components=1 age/age age/age-keygen
           age --version
+      # Build cache: main saves it, PRs only restore (docs/HANDOFF.md "CI").
+      - id: cachekey
+        name: Cache key (toolchain + resolved packages)
+        run: echo "key=macos-$(swift --version 2>&1 | head -1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+          restore-keys: ${{ steps.cachekey.outputs.key }}-
       - name: Build
         run: swift build --build-tests
       - name: Test
         env:
           SEMPERE_REQUIRE_AGE_PQ: "1"
         run: swift test --skip-build --parallel
+      - uses: actions/cache/save@v4
+        if: success() && github.ref == 'refs/heads/main'
+        with:
+          path: .build
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
 
   app:
     name: iPad app (simulator + Mac Catalyst)
@@ -134,9 +162,23 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
           xcodebuild -version
           xcrun simctl list runtimes
+      # Build cache: main saves it, PRs only restore (docs/HANDOFF.md "CI").
+      - id: cachekey
+        name: Cache key (toolchain + resolved packages)
+        run: echo "key=app-$(xcodebuild -version 2>&1 | head -1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: .build/xcode
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+          restore-keys: ${{ steps.cachekey.outputs.key }}-
       - name: Test on an iPad simulator
         run: scripts/app.sh test
       # Same target and sources as the simulator build; checked on main only.
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'
         run: scripts/app.sh catalyst
+      - uses: actions/cache/save@v4
+        if: success() && github.ref == 'refs/heads/main'
+        with:
+          path: .build/xcode
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}

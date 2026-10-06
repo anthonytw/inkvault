@@ -213,6 +213,11 @@ queued for up to 30 minutes.
 - **Age is compiled with `-O` even in debug builds** (`Package.swift`).
   Unoptimized scrypt made the passphrase tests take minutes: 37 s for one test
   on macOS CI, and 138 s for one app test. Keep that flag.
+- **Build caches:** each job restores `.build` (or `.build/xcode` for the app)
+  from the newest cache saved by a `main` run; PRs never save. The key is the
+  toolchain version plus `Package.resolved`, so changing either starts a
+  fresh cache. If a build ever fails in a way a clean build would not (stale
+  products), run `gh cache delete --all` and re-run.
 - Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
   the work is done and the local `swift test` passes.
 
