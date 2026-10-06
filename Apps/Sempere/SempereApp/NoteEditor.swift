@@ -60,6 +60,9 @@ final class NoteEditor {
     @ObservationIgnored private var writtenNames: [String] = []
     /// The read that completes an editor opened from the cache.
     @ObservationIgnored private var fullLoad: Task<Void, Never>?
+    /// Called when that read fails (`failLoading`), with the reason: the
+    /// model shows the failure instead of a partial, read-only canvas.
+    @ObservationIgnored var onLoadFailed: (@MainActor (String) -> Void)?
     /// Set when `finishLoading` starts: no more cache hits are handed out
     /// unchecked from then on.
     @ObservationIgnored private var finishing = false
@@ -153,13 +156,19 @@ final class NoteEditor {
                                                     coordinated: coordinated, verify: verify)
                         } catch CloudVault.CloudError.noteNotLocal where redownload != nil {
                             // A file went missing (or a new one was listed) since the download: once more.
+                            // Not for an editor closed meanwhile (the model may have another vault open).
+                            try Task.checkCancellation()
                             try await redownload?()
                             loaded = try await read(vault: vault, noteID: noteID, device: clock.device,
                                                     coordinated: coordinated, verify: verify)
                         }
+                        // The read is detached: cancellation (`close`) is only seen here.
+                        try Task.checkCancellation()
                         await clock.observe(loaded.readings)
                         await beforeFinishing?()
+                        try Task.checkCancellation()
                         await editor?.finishLoading(loaded, vault: vault, clock: clock, coordinated: coordinated)
+                    } catch is CancellationError {
                     } catch {
                         editor?.failLoading(error)
                     }
@@ -268,6 +277,13 @@ final class NoteEditor {
         readOnlyReason = "This note could not be read: \(error)"
         loadFailed = true
         isPreparing = false
+        onLoadFailed?("\(error)")
+    }
+
+    /// Stops the background read of an editor opened from the cache that
+    /// will not be shown (nothing is written; `close` also does this).
+    func cancelLoading() {
+        fullLoad?.cancel()
     }
 
     /// Waits until a note opened from the cache has been read (at once otherwise).

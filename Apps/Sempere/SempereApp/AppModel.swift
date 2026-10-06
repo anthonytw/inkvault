@@ -558,7 +558,11 @@ final class AppModel {
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
                                                coordinated: isCloudVault, verify: verify, cache: cache,
                                                listedNames: listed, beforeFinishing: editorLoadHook,
-                                               redownload: { [weak self] in try await self?.downloadNote(noteID) })
+                                               redownload: { [weak self] in
+                                                   guard let self else { throw CancellationError() }
+                                                   try self.ensureCurrent(gen)   // never into another vault
+                                                   try await self.downloadNote(noteID)
+                                               })
         } catch CloudVault.CloudError.noteNotLocal {
             // A file went missing (or a new one was listed) since `downloadNote`: once more.
             try ensureCurrent(gen)
@@ -567,9 +571,26 @@ final class AppModel {
                                                coordinated: isCloudVault, verify: verify, cache: cache)
         }
         await afterIO?()
-        try ensureCurrent(gen)
-        guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
-        guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
+        guard gen == generation, selectedNoteID == noteID,   // closed, or the selection moved on meanwhile
+              editor?.noteID != noteID else {                // a concurrent open won; keep its edits
+            opened.cancelLoading()
+            try ensureCurrent(gen)
+            return
+        }
+        // The background read of a note opened from the cache failed: show the
+        // failure (and Try Again) rather than a partial read-only canvas.
+        opened.onLoadFailed = { [weak self, weak opened] message in
+            guard let self, let opened, self.editor === opened else { return }
+            self.editor = nil
+            if self.selectedNoteID == noteID { self.editorFailure = (noteID, message) }
+            Task { await opened.close() }
+        }
+        if opened.loadFailed {   // it failed before the callback was set
+            if let stale = editor { editor = nil; Task { await stale.close() } }
+            editorFailure = (noteID, opened.readOnlyReason ?? "This note could not be read.")
+            Task { await opened.close() }
+            return
+        }
         let stale = editor
         Perf.end(interval, "\(Perf.short(noteID)) pages=\(opened.pages.count) fromCache=\(opened.isPreparing)")
         opened.openInterval = render   // ended by the canvas when the ink is on screen
@@ -584,7 +605,10 @@ final class AppModel {
         guard let root = drawingCacheRoot, let vault, vault.canRead else { return nil }
         let gen = generation
         let cache = try? await offMain(priority: .utility) { try DrawingCache(root: root, vault: vault) }
-        guard gen == generation else { cache?.close(); return nil }
+        // A newer session may already use the same folder (the vault closed and
+        // reopened meanwhile): drop this instance without deleting anything; the
+        // closed session's `close` cleared its cache.
+        guard gen == generation else { return nil }
         if drawingCache == nil { drawingCache = cache }
         return drawingCache
     }

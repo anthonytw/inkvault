@@ -108,6 +108,14 @@ extension AppModel {
             let renamed = NotebookPath.renamed(note.notebook, from: old, to: target)
             return renamed == note.notebook ? nil : (id: note.id, ops: [Op.setMeta(.notebook(renamed))])
         }
+        // iCloud: a note shown from the index may be evicted (its names did not
+        // change, so it is not pending). Every note is made local before the
+        // first delta is written, so a rename never stops halfway.
+        let gen = generation
+        for edit in edits {
+            try await downloadNote(edit.id)
+            try ensureCurrent(gen)
+        }
         try await commit(edits)
         if case .notebook(let selected)? = sidebarSelection, NotebookPath.name(selected, isWithin: old) {
             sidebarSelection = NotebookPath.renamed(selected, from: old, to: target).map(SidebarItem.notebook) ?? .allNotes

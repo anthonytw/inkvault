@@ -106,6 +106,20 @@ final class FastDecodeTests: XCTestCase {
         XCTAssertNil(StrokePointsFilter.extract(marked.json), "markers have an exponent: never parsed again")
     }
 
+    /// A value spelled like a marker (exponent: never extracted) next to a real
+    /// one: the decoder keeps one of a duplicate key, and the forged marker
+    /// must not be filled with the other value's points.
+    func testAForgedMarkerIsNeverFilled() throws {
+        let p = "[[1,2,3,4,5,6,7,8,9]]"
+        let base = String(decoding: try revision(points: p), as: UTF8.self)
+        for forged in ["[[0,0,0,0,0,0,0,0,-1e300]]", "[[0,1,0,0,0,0,0,0,-1E300]]", "[[0.0,4503599627370495,0,0,0,0,0,0,-10e299]]"] {
+            agree(Data(base.replacingOccurrences(of: #""points":"#, with: #""points":\#(p),"points":"#)
+                .replacingOccurrences(of: #""points":\#(p)}"#, with: #""points":\#(forged)}"#).utf8), "forged after")
+            agree(Data(base.replacingOccurrences(of: #""points":"#, with: #""points":\#(forged),"points":"#).utf8),
+                  "forged before")
+        }
+    }
+
     /// Numbers: the fast parse is bit-identical to the decoder's.
     func testNumbersParseLikeTheDecoder() throws {
         var rng = SeededRNG(3)

@@ -173,15 +173,17 @@ enum StrokePointsFilter {
 ///    `StrokePoint`s, and replaces the value by a one-point *marker*
 ///    `[[k,0,0,0,0,0,0,0,-1e300]]` naming the parsed array `k`. Anything
 ///    else (null, eight or ten numbers, an exponent, invalid JSON, a key
-///    spelled with escapes) is left in place for the decoder to judge.
+///    spelled with escapes) is left in place for the decoder to judge. The
+///    marker's `y` is a random *nonce* drawn for this call, so a file cannot
+///    spell a marker that `refill` takes for one of this call's.
 /// 2. The marked JSON goes through the ordinary decoder, so every other
 ///    field is decoded and validated exactly as before.
 /// 3. `refill` puts the parsed points back: every stroke whose points are a
-///    marker gets array `k`. Each marker must be found in exactly one stroke
+///    marker with this call's nonce gets array `k`. Each marker must be found in exactly one stroke
 ///    and every `k` exactly once; otherwise (a `"points"` member outside a
 ///    stroke, say in a field kept for a newer app, or a marker-like value
-///    written by someone else, which always has an exponent and so is never
-///    taken for one of ours) the result is discarded and the JSON decoded
+///    left in place by a duplicate key while the decoder kept another) the
+///    result is discarded and the JSON decoded
 ///    the ordinary way.
 ///
 /// Numbers are parsed exactly as the decoder does (correctly rounded to the
@@ -195,7 +197,7 @@ enum FastRevisionDecoder {
     static func decode(_ json: Data) throws -> Revision {
         if let marked = StrokePointsFilter.extract(json),
            let rev = try? InkJSON.decoder().decode(Revision.self, from: marked.json),
-           let filled = StrokePointsFilter.refill(rev, with: marked.points) {
+           let filled = StrokePointsFilter.refill(rev, with: marked.points, nonce: marked.nonce) {
             return filled
         }
         return try InkJSON.decoder().decode(Revision.self, from: json)
@@ -203,15 +205,19 @@ enum FastRevisionDecoder {
 }
 
 extension StrokePointsFilter {
-    /// The `al` of a marker point; other markers fields are 0 and `x` is the index.
+    /// The `al` of a marker point; its `x` is the index, `y` the nonce, the other fields 0.
     static let markerAltitude = -1e300
 
+    /// A fresh marker nonce: a random integer in 1 ..< 2^52, exact as a `Double`.
+    static func randomNonce() -> UInt64 { UInt64.random(in: 1 ..< (1 << 52)) }
+
     /// `json` with every certainly-decodable `"points"` value replaced by a
-    /// marker, and the parsed arrays in marker order. Nil when nothing was
-    /// replaced or the input is not filtered (see `strip`).
-    static func extract(_ json: Data) -> (json: Data, points: [[StrokePoint]])? {
+    /// marker carrying `nonce`, and the parsed arrays in marker order. Nil
+    /// when nothing was replaced or the input is not filtered (see `strip`).
+    static func extract(_ json: Data, nonce: UInt64 = randomNonce())
+        -> (json: Data, points: [[StrokePoint]], nonce: UInt64)? {
         guard !json.contains(0) else { return nil }
-        return json.withUnsafeBytes { raw -> (Data, [[StrokePoint]])? in
+        return json.withUnsafeBytes { raw -> (Data, [[StrokePoint]], UInt64)? in
             let b = raw.bindMemory(to: UInt8.self)
             guard let base = b.baseAddress else { return nil }
             let n = b.count
@@ -249,28 +255,29 @@ extension StrokePointsFilter {
                 guard k < n, b[k] == open, let (end, points) = parsePointArray(b, from: k) else { continue }
                 if parsed.isEmpty { out.reserveCapacity(n / 4) }
                 out.append(base + copied, count: k - copied)
-                out.append(contentsOf: Array("[[\(parsed.count),0,0,0,0,0,0,0,-1e300]]".utf8))
+                out.append(contentsOf: Array("[[\(parsed.count),\(nonce),0,0,0,0,0,0,-1e300]]".utf8))
                 parsed.append(points)
                 copied = end
                 i = end
             }
             guard !parsed.isEmpty else { return nil }
             if copied < n { out.append(base + copied, count: n - copied) }
-            return (out, parsed)
+            return (out, parsed, nonce)
         }
     }
 
     /// `rev` with each marked stroke's points put back from `points`; nil
     /// unless every marker sits in exactly one stroke and every array is used
-    /// exactly once.
-    static func refill(_ rev: Revision, with points: [[StrokePoint]]) -> Revision? {
+    /// exactly once. A marker-like point without `nonce` is the file's own
+    /// and is left as it is.
+    static func refill(_ rev: Revision, with points: [[StrokePoint]], nonce: UInt64) -> Revision? {
         var used = [Bool](repeating: false, count: points.count)
         var remaining = points.count
         func fill(_ s: inout Stroke) -> Bool {
             guard s.points.count == 1 else { return true }
             let p = s.points[0]
-            guard p.al == markerAltitude else { return true }
-            guard p.y == 0, p.t == 0, p.w == 0, p.h == 0, p.o == 0, p.f == 0, p.az == 0,
+            guard p.al == markerAltitude, p.y == Double(nonce) else { return true }
+            guard p.t == 0, p.w == 0, p.h == 0, p.o == 0, p.f == 0, p.az == 0,
                   p.x >= 0, p.x < Double(points.count), p.x == p.x.rounded() else { return false }
             let k = Int(p.x)
             guard !used[k] else { return false }

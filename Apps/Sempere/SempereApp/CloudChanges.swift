@@ -88,6 +88,13 @@ final class SyncWakeup {
         let id = nextID
         await withTaskCancellationHandler {
             await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                // A replaced loop's sleep whose cancellation has not been handled
+                // yet (`onCancel` hops to the main actor): end it now, or its task never returns.
+                if let old = waiter {
+                    waiter = nil
+                    timer?.cancel()
+                    old.continuation.resume()
+                }
                 waiter = (id, c)
                 timer = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: duration)

@@ -79,6 +79,45 @@ struct DrawingCacheTests {
         model.close()
     }
 
+    /// The background read of a note opened from the cache fails: the editor
+    /// says so (`loadFailed`, which the model turns into `editorFailure`); and a closed editor's read never
+    /// finishes into a writer.
+    @Test func aFailedBackgroundReadIsReportedAndAClosedOneStops() async throws {
+        struct Unreadable: Error {}
+        let root = Self.tempDir()
+        let (model, url, _) = try await Self.model(root: root)
+        let first = try await Self.open(model, Self.lecture)
+        let page = try #require(first.currentPage)
+        _ = await first.prepareDrawing(for: page.id)
+        let cache = try #require(model.drawingCache)
+        let key = try Self.key(url, Self.lecture)
+        #expect(await TS.waitUntil { cache.layout(key) != nil })
+        try await model.openEditor(for: nil)
+        let vault = try #require(model.vault)
+        let clock = try DeviceClock(url: TS.deviceStateURL())
+
+        let failing = try await NoteEditor.open(vault: vault, noteID: Self.lecture, clock: clock, verify: { throw Unreadable() },
+                                                cache: cache, listedNames: key.revisions)
+        #expect(failing.openedFromCache)
+        await failing.loaded()
+        #expect(failing.loadFailed)
+        #expect(failing.isReadOnly)
+        #expect(failing.readOnlyReason?.contains("could not be read") == true)
+
+        let gate = Gate()
+        await gate.close()
+        let closing = try await NoteEditor.open(vault: vault, noteID: Self.lecture, clock: clock, cache: cache,
+                                                listedNames: key.revisions, beforeFinishing: { await gate.pass() })
+        await gate.waitForArrivals(1)
+        let closed = Task { await closing.close() }
+        await gate.open()
+        await closed.value
+        await closing.loaded()
+        #expect(closing.isPreparing && !closing.loadFailed, "cancelled: neither finished nor failed")
+        #expect(closing.isReadOnly)
+        model.close()
+    }
+
     /// Another device adds a revision: the names change, the cache misses,
     /// and the note shows the new stroke.
     @Test func aNewRevisionFromElsewhereMisses() async throws {

@@ -194,7 +194,9 @@ extension AppModel {
             // An edit re-read a note while this batch was being read: its summary is newer.
             let current = read.filter { summaryEpochs[$0.id] == epochs[$0.id] }
             // The names this read used, not the listing's or the shared cache's (another read may have stored newer ones).
-            for s in current { indexedNames[s.id] = readNames[s.id] ?? listedNames[s.id] }
+            // A summary with a `problem` is not indexed: the next pass reads the
+            // note again (a transient failure clears; the cache never stores it either).
+            for s in current { indexedNames[s.id] = s.problem == nil ? readNames[s.id] ?? listedNames[s.id] : nil }
             queueListUpdate(upserts: current)
             verifiedNoteIDs.formUnion(current.map(\.id))
             onBatch?(read)
