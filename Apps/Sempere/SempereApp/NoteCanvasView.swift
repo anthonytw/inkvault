@@ -11,6 +11,7 @@ struct NoteCanvasView: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var editingTags = false
+    @State private var showingHistory = false
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
 
     var body: some View {
@@ -56,6 +57,9 @@ struct NoteCanvasView: View {
         .sheet(isPresented: $editingTags) {
             if let id = model.selectedNoteID { TagEditorView(noteID: id) }
         }
+        .sheet(isPresented: $showingHistory) {
+            if let id = model.selectedNoteID { HistoryView(noteID: id) }
+        }
         .toolbar {
             if let note = model.selectedNote {
                 // The title itself: tap it, or press and hold it, to rename the note.
@@ -76,6 +80,9 @@ struct NoteCanvasView: View {
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Rename…", systemImage: "pencil") { startRename(note) }
+                }
+                ToolbarItem(placement: .secondaryAction) {
+                    Button("Version History…", systemImage: "clock.arrow.circlepath") { showingHistory = true }
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)

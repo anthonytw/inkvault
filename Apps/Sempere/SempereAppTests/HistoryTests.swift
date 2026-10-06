@@ -1,0 +1,271 @@
+import Age
+import Foundation
+import Sempere
+import Testing
+@testable import SempereApp
+
+/// The history browser's model: restore points, previews, and restore through
+/// the app's one write path (`NoteWriter`), with the open canvas following.
+@MainActor
+struct HistoryTests {
+    static let lecture = AppModelTests.lecture
+
+    static func unlockedModel() async throws -> AppModel {
+        try await BrowserEditorTests.unlockedModel()
+    }
+
+    /// Draws one stroke on the open note's first page and saves it as one delta.
+    @discardableResult
+    static func draw(_ editor: NoteEditor, y: Double) async throws -> UUID {
+        let page = try #require(editor.currentPage)
+        var drawing = editor.drawing(for: page.id)
+        let before = Set(editor.liveStrokes(of: page.id).map(\.id))
+        drawing.strokes.append(TS.canvasStroke(TS.stroke(y: y)))
+        editor.drawingDidChange(pageID: page.id, drawing: drawing, tool: nil)
+        await editor.flush()
+        #expect(editor.saveError == nil)
+        return try #require(Set(editor.liveStrokes(of: page.id).map(\.id)).subtracting(before).first)
+    }
+
+    static func strokeIDs(_ state: NoteState) -> Set<UUID> {
+        Set(state.pages.flatMap(\.strokes).map(\.id))
+    }
+
+    // MARK: - Listing
+
+    @Test func entriesAreNewestFirstAndMarkTheCurrentVersionAndThisDevice() async throws {
+        let model = try await Self.unlockedModel()
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        try await Self.draw(editor, y: 300)
+        try await Self.draw(editor, y: 340)
+
+        let data = try await model.loadHistory(for: Self.lecture)
+        let points = data.points
+        let entries = data.entries
+        #expect(entries.map(\.id) == points.map(\.name).reversed())
+        #expect(entries.first?.isLatest == true)
+        #expect(entries.dropFirst().allSatisfy { !$0.isLatest })
+        let device = try await model.deviceClockForWriting().device
+        let mine = entries.filter(\.isThisDevice)
+        #expect(mine.count == 2)
+        #expect(mine.allSatisfy { $0.point.device == device && $0.deviceLabel == "This device" })
+        #expect(entries.filter { !$0.isThisDevice }.allSatisfy { $0.deviceLabel.hasPrefix("Device ") })
+        #expect(entries.allSatisfy(\.isAvailable))
+        #expect(entries.allSatisfy { $0.unavailableReason == nil })
+        #expect(data.compactionNotice == nil)
+    }
+
+    @Test func aNoteWithoutRevisionsHasEmptyHistory() {
+        #expect(HistoryEntry.entries([], thisDevice: nil).isEmpty)
+        #expect(HistoryEntry.compactionNotice([]) == nil)
+    }
+
+    // MARK: - Preview
+
+    @Test func previewIsAReadOnlyEditorOfTheStateAtThatPoint() async throws {
+        let model = try await Self.unlockedModel()
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        let added = try await Self.draw(editor, y: 300)
+
+        let data = try await model.loadHistory(for: Self.lecture)
+        let points = data.points
+        let older = points[points.count - 2], newest = points[points.count - 1]
+        let before = try await model.historyPreview(data, at: older.name)
+        let after = try await model.historyPreview(data, at: newest.name)
+        #expect(before.isReadOnly)
+        #expect(after.isReadOnly)
+        let beforeIDs = Set(before.pages.flatMap { before.liveStrokes(of: $0.id) }.map(\.id))
+        let afterIDs = Set(after.pages.flatMap { after.liveStrokes(of: $0.id) }.map(\.id))
+        #expect(!beforeIDs.contains(added))
+        #expect(afterIDs.contains(added))
+        #expect(beforeIDs.count + 1 == afterIDs.count)
+        // A preview has no writer: flushing writes nothing.
+        let vault = try #require(model.vault)
+        let count = try vault.revisionNames(of: Self.lecture).count
+        await before.flush()
+        #expect(try vault.revisionNames(of: Self.lecture).count == count)
+    }
+
+    // MARK: - Restore
+
+    @Test func restoreRoundTripsWithOneDeltaAndUpdatesTheOpenCanvas() async throws {
+        let model = try await Self.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let first = try #require(model.editor)
+        let original = Self.strokeIDs(try vault.reconstruct(noteId: Self.lecture))
+        let a = try await Self.draw(first, y: 300)
+        let b = try await Self.draw(first, y: 340)
+
+        let data = try await model.loadHistory(for: Self.lecture)
+        let points = data.points
+        let atOriginal = try #require(points.last { p in
+            (try? Self.strokeIDs(data.state(at: p.name))) == original
+        })
+        let target = try data.state(at: atOriginal.name)
+        let revisions = try vault.revisionNames(of: Self.lecture).count
+
+        let summary = try #require(try await model.restoreVersion(of: Self.lecture, to: atOriginal.name))
+        #expect(summary.strokesRemoved == 2)
+        #expect(summary.strokesRestored == 0)
+        // Exactly one delta, and the reconstructed note equals the restore point.
+        #expect(try vault.revisionNames(of: Self.lecture).count == revisions + 1)
+        let now = try vault.reconstruct(noteId: Self.lecture)
+        #expect(Self.strokeIDs(now) == original)
+        #expect(!Self.strokeIDs(now).contains(a) && !Self.strokeIDs(now).contains(b))
+        #expect(now.meta.title == target.meta.title)
+        #expect(vault.verify().isHealthy)
+
+        // The open canvas was reopened from the restored state.
+        let second = try #require(model.editor)
+        #expect(second !== first)
+        #expect(!second.isReadOnly)
+        let page = try #require(second.currentPage)
+        #expect(Set(second.liveStrokes(of: page.id).map(\.id)) == original)
+        #expect(second.drawing(for: page.id).strokes.count == original.count)
+
+        // The history kept everything: the newest version is listed first and
+        // the strokes can be brought back by restoring it, as new ids.
+        let after = try await model.loadHistory(for: Self.lecture)
+        #expect(after.points.count == points.count + 1)
+        let newest = try #require(after.points.last)
+        #expect(newest.app.hasPrefix("sempere-ios/"))
+        let again = try #require(try await model.restoreVersion(of: Self.lecture, to: points.last?.name ?? newest.name))
+        #expect(again.strokesRestored == 2)
+        let revived = try vault.reconstruct(noteId: Self.lecture)
+        #expect(Self.strokeIDs(revived).count == original.count + 2)
+        #expect(Set(revived.pages.flatMap(\.strokes).compactMap(\.parent)).isSuperset(of: [a, b]))
+    }
+
+    @Test func restoringAPointTheNoteAlreadyMatchesWritesNothing() async throws {
+        let model = try await Self.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        try await Self.draw(try #require(model.editor), y: 300)
+        let data = try await model.loadHistory(for: Self.lecture)
+        let newest = try #require(data.points.last)
+        let count = try vault.revisionNames(of: Self.lecture).count
+        let editor = try #require(model.editor)
+        #expect(try await model.restoreVersion(of: Self.lecture, to: newest.name) == nil)
+        #expect(try vault.revisionNames(of: Self.lecture).count == count)
+        #expect(model.editor === editor)   // nothing changed, so the canvas stays
+    }
+
+    @Test func pendingCanvasChangesAreSavedBeforeTheRestore() async throws {
+        let model = try await Self.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        let data = try await model.loadHistory(for: Self.lecture)
+        let start = try #require(data.points.last)
+        // Ink drawn but not yet saved (the debounce is a minute).
+        let page = try #require(editor.currentPage)
+        var drawing = editor.drawing(for: page.id)
+        drawing.strokes.append(TS.canvasStroke(TS.stroke(y: 500)))
+        editor.drawingDidChange(pageID: page.id, drawing: drawing, tool: nil)
+        #expect(editor.deltasWritten == 0)
+
+        let summary = try #require(try await model.restoreVersion(of: Self.lecture, to: start.name))
+        #expect(editor.deltasWritten == 1)          // saved first, then restored
+        #expect(summary.strokesRemoved == 1)
+        let ids = Self.strokeIDs(try vault.reconstruct(noteId: Self.lecture))
+        #expect(ids == Self.strokeIDs(try data.state(at: start.name)))
+        // And the stale editor does not write the ink back afterwards.
+        await editor.flush()
+        #expect(Self.strokeIDs(try vault.reconstruct(noteId: Self.lecture)) == ids)
+    }
+
+    @Test func restoringBeforeADeleteUndeletesTheNoteAndReopensItEditable() async throws {
+        let model = try await Self.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let live = try #require(try await model.loadHistory(for: Self.lecture).points.last)
+        try await model.deleteNote(Self.lecture)
+        #expect(try #require(model.editor).isReadOnly)
+
+        let summary = try #require(try await model.restoreVersion(of: Self.lecture, to: live.name))
+        #expect(summary.deleted == false)
+        #expect(try vault.reconstruct(noteId: Self.lecture).deleted == false)
+        #expect(model.notes.first { $0.id == Self.lecture }?.deleted == false)
+        #expect(try #require(model.editor).isReadOnly == false)
+    }
+
+    // MARK: - Compaction and iCloud
+
+    @Test func compactedRevisionsAreNotListedAndTheUIsaysSo() async throws {
+        let model = try await Self.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        try await Self.draw(editor, y: 300)
+        try await Self.draw(editor, y: 340)
+        let before = try await model.loadHistory(for: Self.lecture)
+        #expect(before.compactionNotice == nil)
+
+        let loaded = try vault.loadNote(Self.lecture)
+        var clock = HybridClock()
+        for r in loaded.revisions { clock.observe(r.hlc, wall: Date()) }
+        let device = try await model.deviceClockForWriting().device
+        try vault.snapshot(noteId: Self.lecture, device: device, clock: &clock, wall: Date(), app: "test/0")
+        let deleted = try vault.compact(noteId: Self.lecture, retention: 0, now: Date().addingTimeInterval(3600))
+        #expect(!deleted.isEmpty)
+
+        let data = try await model.loadHistory(for: Self.lecture)
+        #expect(data.points.count < before.points.count + 1)
+        #expect(Set(data.points.map(\.name)).isDisjoint(with: Set(deleted)))
+        let notice = try #require(data.compactionNotice)
+        #expect(notice.contains("compaction"))
+        // Every row is either shown and restorable, or greyed out with a reason and refused.
+        for entry in data.entries {
+            if entry.isAvailable {
+                _ = try data.state(at: entry.id)
+            } else {
+                #expect(entry.unavailableReason != nil)
+                #expect(throws: HistoryError.incompleteHistory(entry.id)) { try data.state(at: entry.id) }
+                await #expect(throws: HistoryError.incompleteHistory(entry.id)) {
+                    try await model.restoreVersion(of: Self.lecture, to: entry.id)
+                }
+            }
+        }
+        #expect(vault.verify().isHealthy)
+    }
+
+    @Test func compactionNoticeAppearsForIncompletePoints() throws {
+        let (vault, _) = try TS.unlockedFixture()
+        var points = try vault.restorePoints(noteId: Self.lecture)
+        let first = try #require(points.first)
+        #expect(HistoryEntry.compactionNotice(points) == nil)
+        points[0].complete = false
+        #expect(HistoryEntry.compactionNotice(points) != nil)
+        #expect(HistoryEntry.entries(points, thisDevice: nil).last?.id == first.name)
+        #expect(HistoryEntry.entries(points, thisDevice: nil).last?.isAvailable == false)
+    }
+
+    @Test func restoreRefusesANoteWhoseFilesAreNotAllLocal() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let identity = try IdentityFile.parse(try String(contentsOf: key, encoding: .utf8))
+        let vault = try Vault.open(at: url, identities: [identity])
+        let points = try vault.restorePoints(noteId: Self.lecture)
+        let target = try #require(points.first)
+        let count = try vault.revisionNames(of: Self.lecture).count
+        let cloud = FakeCloud(vault: url)
+        try cloud.evictDataless(Self.lecture)
+        let hooks = cloud.hooks
+        let clock = try DeviceClock(url: TS.deviceStateURL())
+        await #expect(throws: CloudVault.CloudError.self) {
+            try await NoteWriter.restore(Self.lecture, to: target.name, vault: vault, clock: clock,
+                                         verify: { try CloudVault.requireLocal(note: Self.lecture, vault: url, hooks: hooks) })
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())").path)
+            .filter { $0.hasSuffix(".age") }.count == count)
+    }
+}

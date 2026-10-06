@@ -66,7 +66,7 @@ working state.
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search (Vision on rendered pages) | 📋 round 2 |
 | App | Share/export (PDF, Markdown) from the app | 📋 round 2 |
-| App | History browser (restore points) | 📋 round 2 |
+| App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | 🔀 #41 |
 | App | Settings panel (E6) | 📋 |
 | App | Spanish localization (L) | 📋 |
 | Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E0–E5, E7) | 📋 |

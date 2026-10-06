@@ -49,6 +49,8 @@ final class AppModel {
         case noteNotDownloaded
         /// An edit over many notes while some are still downloading from iCloud.
         case notesStillDownloading
+        /// The open note's pending canvas changes could not be saved first.
+        case unsavedChanges(String)
 
         var description: String {
             switch self {
@@ -61,6 +63,8 @@ final class AppModel {
                 return "iCloud Drive has not delivered all of this note's files yet. Try again in a moment."
             case .notesStillDownloading:
                 return "Some notes are still downloading from iCloud Drive. Try again once the list has finished loading."
+            case .unsavedChanges(let reason):
+                return "The note's latest changes could not be saved first, so nothing was restored. \(reason)"
             }
         }
     }
