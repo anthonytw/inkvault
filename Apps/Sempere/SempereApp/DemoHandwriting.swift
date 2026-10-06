@@ -23,9 +23,12 @@ struct DemoRandom: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 
-    /// A uniform value in `range`.
+    /// A uniform value in `range`, mapped here rather than by
+    /// `Double.random(in:using:)`, whose mapping the standard library may
+    /// change: the demo ink must not move with an Xcode update.
     mutating func value(_ range: ClosedRange<Double>) -> Double {
-        Double.random(in: range, using: &self)
+        let unit = Double(next() >> 11) * 0x1p-53
+        return range.lowerBound + (range.upperBound - range.lowerBound) * unit
     }
 
     /// A UUID drawn from the generator (version and variant bits set).

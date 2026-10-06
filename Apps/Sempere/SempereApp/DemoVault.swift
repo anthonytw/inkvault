@@ -11,7 +11,9 @@ import Sempere
 enum DemoVault {
     /// The vault's folder is `My Notes.sempere`; the sidebar shows "My Notes".
     static let folderName = "My Notes.sempere"
-    /// The newest note's date: noon UTC, so the day is the same in every time zone.
+    /// The newest note's date, noon UTC. Notes are dated fractions of a day
+    /// before it, so their day depends on the time zone: the screenshot tests
+    /// run the app in UTC (`ScreenshotTests`).
     static let anchor: Date = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
@@ -68,7 +70,6 @@ enum DemoVault {
         let vault = try Vault.create(at: vaultURL, recipients: [identity.recipient], labels: ["Demo key"],
                                      identities: [identity], created: anchor.addingTimeInterval(-40 * 86_400))
         let text = IdentityFile.render(identity, created: anchor.addingTimeInterval(-40 * 86_400))
-        try text.write(to: directory.appendingPathComponent("demo.key"), atomically: true, encoding: .utf8)
         let clock = try DeviceClock(url: directory.appendingPathComponent("device.json"))
         var ids: [String: UUID] = [:]
         for spec in specs {

@@ -62,6 +62,17 @@ struct DemoVaultTests {
         #expect(Set(DemoVault.specs.map { DemoVault.noteID($0.key) }).count == DemoVault.specs.count)
     }
 
+    /// Pinned values: the generator and its mapping to doubles are this
+    /// file's own, so the demo ink is the same on every toolchain.
+    @Test func randomValuesArePinned() {
+        var rng = DemoRandom(seed: 7)
+        #expect(rng.next() == 0x63CB_E1E4_5932_0DD7)
+        var values = DemoRandom(seed: 7)
+        #expect(values.value(0...1) == 0.3898297483912715)
+        #expect(values.value(10...20) == 10.167882945281562)
+        #expect(values.value(-5...5) == 4.007606806068834)
+    }
+
     @Test func randomIsSeeded() {
         var a = DemoRandom(seed: 7), b = DemoRandom(seed: 7), c = DemoRandom(seed: 8)
         #expect(a.next() == b.next())

@@ -64,7 +64,8 @@ final class ScreenshotTests: XCTestCase {
     private func capture(_ shot: Shot, to directory: URL?) {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment = shot.environment
+        // UTC: the note list shows dates, and the demo dates are fractions of a day before noon UTC.
+        app.launchEnvironment = shot.environment.merging(["TZ": "UTC"]) { mine, _ in mine }
         app.launch()
         let label = NSPredicate(format: "label CONTAINS %@", shot.waitFor)
         let found = app.descendants(matching: .any).matching(label).firstMatch.waitForExistence(timeout: 45)

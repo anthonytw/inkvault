@@ -24,6 +24,8 @@ another; `SEMPERE_SHOTS_OUT` changes the output folder). In CI, run the **CI** w
 
 The app is iPad-only on iOS (`TARGETED_DEVICE_FAMILY = 2`), so there is no iPhone set. The simulator is
 set to light mode and `simctl status_bar override` gives 9:41, full battery and full Wi-Fi (no clutter).
+The app runs with `TZ=UTC` and an `en_US` locale, so the note dates in the list are the same
+on every machine.
 The canvas is always light anyway.
 
 **Mac is best effort.** A Mac UI test needs automation (Accessibility) permission for the test runner
@@ -58,7 +60,9 @@ Notes are written through `NoteWriter` like the app's own edits, at fixed dates 
 5 Oct 2026), so the list is the same on every run. The ink is generated: `DemoHandwriting.swift`
 lays words out letter by letter from parametric curves (cursive-looking, not legible text), plus ellipses,
 boxes, arrows, a star and a padlock, all from a seeded generator (`DemoRandom`, SplitMix64). Nothing comes
-from real notes. `DemoVaultTests` pins the structure, the fixed dates and the determinism.
+from real notes. `DemoVaultTests` pins the structure, the fixed dates and the determinism
+(including the random generator's values, which use their own mapping to doubles so an Xcode
+update cannot move the demo ink).
 
 All of it is `#if DEBUG`; release builds contain none of it.
 
