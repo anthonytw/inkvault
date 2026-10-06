@@ -123,15 +123,33 @@ yet: PDF/image backgrounds, typed text, media/recordings (attachments work).
 
 ## Apple developer / App Store / TestFlight
 
-Paid Apple Developer Program active (team 6X3PT3FXGA, individual; same ID as
-the old personal team). App Store Connect record **"Sempere"** (iOS + macOS),
-bundle id **`io.github.anthonytw.sempere`** (registered). API key: Key ID
-`3M856V593J`, Issuer `24e225fb-771e-4dc7-b322-632d16493446`, file
-`~/.config/sempere/AuthKey_3M856V593J.p8` (0600). Next: after the rename sweep,
-archive a signed Release build with the new bundle id, upload to TestFlight via
-the API key (`xcodebuild -exportArchive` / `xcrun altool` or `notarytool`-style
-upload), add the user as internal tester; set `ITSAppUsesNonExemptEncryption`
-per the export decision. Optional later: CI uploads on merge.
+Paid Apple Developer Program active (team 6X3PT3FXGA, individual). App Store
+Connect app "Sempere" (id 6819333304, iOS + macOS), bundle id
+`io.github.anthonytw.sempere`. API key: Key ID `3M856V593J`, Issuer
+`24e225fb-771e-4dc7-b322-632d16493446`, file
+`~/.config/sempere/AuthKey_3M856V593J.p8` (0600). The key reads and writes App
+Store Connect (builds, beta groups, testers) but **cannot cloud-sign**. TestFlight
+group "Internal" (all builds) holds the user.
+
+**Upload a TestFlight build** (first done 2026-10-06, build 0.1):
+1. `PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH`. Homebrew's rsync 3.5 breaks
+   Xcode's IPA packaging ("Copy failed").
+2. `xcodebuild archive -project Apps/Sempere/Sempere.xcodeproj -scheme SempereApp
+   -configuration Release -destination 'generic/platform=iOS' -archivePath X.xcarchive
+   DEVELOPMENT_TEAM=6X3PT3FXGA -allowProvisioningUpdates`
+3. `xcodebuild -exportArchive -archivePath X.xcarchive -exportOptionsPlist O.plist
+   -exportPath out -allowProvisioningUpdates`. O.plist sets: method
+   `app-store-connect`, destination `upload`, teamID, signingStyle `automatic`,
+   `manageAppVersionAndBuildNumber` true.
+4. Sign with Xcode's logged-in account (the Account Holder). Do NOT pass the API
+   key's `-authenticationKey*` flags: that key has no cloud-signing permission.
+
+**Export compliance:** do not set `ITSAppUsesNonExemptEncryption` until the user
+has answered App Store Connect's encryption questions
+(`docs/appstore/export-compliance.md`). With YES and no
+`ITSEncryptionExportComplianceCode`, the upload is refused.
+
+**Never commit `DEVELOPMENT_TEAM`.**
 
 ## Rename to Sempere (done 2026-10-05)
 
