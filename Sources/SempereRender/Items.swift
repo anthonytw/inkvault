@@ -270,7 +270,7 @@ final class ImageStore {
     static func describe(_ error: any Error) -> String {
         if let p = error as? PlaceholderReason { return p.message }
         if let e = error as? ImageError { return e.errorDescription ?? "\(e)" }
-        if let e = error as? BlobError { return "\(e)" }
+        if let e = error as? BlobError { return e.description }
         return "image cannot be read (\(error))"
     }
 }
