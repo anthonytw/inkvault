@@ -1,14 +1,14 @@
 // Browser smoke test (not part of `npm test`): serves dist/ and a vault on one
 // origin, at /static/ (sempere-index.json) and /dav/ (minimal PROPFIND), and
 // drives the viewer in Chromium with Playwright.
-// Usage: node scripts/smoke.mjs VAULT_DIR KEY_FILE [SCREENSHOT_DIR]
+// Usage: node scripts/smoke.mjs VAULT_DIR KEY_FILE [SCREENSHOT_DIR [SEARCH_TERM]]
 import { createServer } from "node:http";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname } from "node:path";
 // PLAYWRIGHT: path to playwright/index.mjs when it is not installed here.
 const { chromium } = await import(process.env.PLAYWRIGHT ?? "playwright");
 
-const [vaultDir, keyFile, shots = "."] = process.argv.slice(2);
+const [vaultDir, keyFile, shots = ".", term] = process.argv.slice(2);
 const dist = join(import.meta.dirname, "..", "dist");
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
 
@@ -57,7 +57,7 @@ for (const mount of ["static", "dav"]) {
   await page.click(".note-list button.note >> nth=0");
   await page.waitForSelector(".page svg", { timeout: 30000 });
   await page.screenshot({ path: join(shots, `smoke-${mount}.png`) });
-  await page.click(".note-list button.note >> nth=2");
+  await page.click(".note-list button.note >> nth=-1");
   await page.waitForSelector(".page svg", { timeout: 30000 });
   await page.keyboard.press("Escape");
   await page.click(".zoom-bar button >> nth=0");
@@ -65,11 +65,11 @@ for (const mount of ["static", "dav"]) {
   await page.click(".zoom-bar button >> nth=0");
   await page.waitForTimeout(300);
   await page.screenshot({ path: join(shots, `smoke-${mount}-papers.png`) });
-  await page.fill("input[type=search]", "wave");
+  await page.fill("input[type=search]", term ?? "");
   await page.waitForTimeout(400);
   const hits = await page.$$eval(".note-list .title", (els) => els.map((e) => e.textContent));
-  console.log(mount, "|", status, "|", JSON.stringify(titles), "| search wave:", JSON.stringify(hits), "| problems:", JSON.stringify(problems));
-  if (problems.length || titles.length === 0 || hits.length === 0) failures++;
+  console.log(mount, "|", status, "|", JSON.stringify(titles), `| search ${term ?? "(none)"}:`, JSON.stringify(hits), "| problems:", JSON.stringify(problems));
+  if (problems.length || titles.length === 0 || (term && hits.length === 0)) failures++;
   await page.close();
 }
 await browser.close();
