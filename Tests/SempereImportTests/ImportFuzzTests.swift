@@ -77,6 +77,18 @@ final class ImportFuzzTests: XCTestCase {
         })
     }
 
+    /// XML plists (Notability's `Recordings/library.plist`) through the strict reader.
+    func testFuzzXMLPlists() throws {
+        let seeds = [SyntheticNote.recordingsLibrary(), SyntheticNote.recordingsLibrary(recordings: 3),
+                     Data(#"<plist><array><integer>-4</integer><real>1.5</real><true/><date>2026-10-05T12:00:00Z</date><data>AAEC</data><string>&lt;&#x41;&amp;</string></array></plist>"#.utf8)]
+        assertClean(Fuzz.run("xmlplist", seeds: seeds, quick: 2000, maxSize: 64 << 10) { input in
+            Self.typed {
+                _ = try? NotabilityNote.parseRecordingCount(input)
+                _ = try PlistValue.parse(input, allowXML: true)
+            }
+        })
+    }
+
     /// A whole note: one package file mutated (so the zip stays valid), or
     /// the package itself, or a note with generated hostile curve arrays.
     func testFuzzNotabilityNotes() throws {
