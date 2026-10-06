@@ -181,10 +181,15 @@ final class BlobCollectionTests: VaultTestCase {
         try plant(vault, testNote, blobPlaintext(Data("planted".utf8)), as: bogus)
         let junk = String(repeating: "8", count: 64) + ".bin.age"
         try Data("not age".utf8).write(to: attDir(vault, testNote).appendingPathComponent(junk))
+        // Authentic and with a valid first chunk, but damaged further on.
+        let tail = try vault.writeBlob(note: testNote, syntheticBytes(200_000), type: "image/png")
+        let tailName = try vault.blobFileName(for: tail)
+        try flipByte(attDir(vault, testNote).appendingPathComponent(tailName), at: 7)
         var state = BlobCollectorState()
         _ = try vault.collectBlobs(note: testNote, state: &state, now: t0)
         let r = try vault.collectBlobs(note: testNote, state: &state, now: t0.addingTimeInterval(31 * day))
-        XCTAssertEqual(Set(r.failures.keys), [bogus, junk])
+        XCTAssertEqual(Set(r.failures.keys), [bogus, junk, tailName])
+        XCTAssertTrue(attEntries(vault, testNote).contains(tailName))
         XCTAssertTrue(attEntries(vault, testNote).contains(bogus))
         XCTAssertTrue(attEntries(vault, testNote).contains(junk))
     }

@@ -276,9 +276,9 @@ extension Vault {
     /// 4. this device found 1–3 true for it at least `retention` ago and
     ///    every time it looked since (recorded in `state`, never the vault).
     ///
-    /// Before deleting, its first chunk is decrypted and its name verified
-    /// under the current secret; a blob that fails is reported, never
-    /// deleted. When rule 1 or 2 fails the note's records in `state` are
+    /// Before deleting, the blob is decrypted and verified in full (framing,
+    /// padding, content hash, name under the current secret); a blob that
+    /// fails is reported, never deleted. When rule 1 or 2 fails the note's records in `state` are
     /// dropped (its window restarts: nothing was found unreferenced).
     /// No other note is read.
     ///
@@ -316,15 +316,14 @@ extension Vault {
                                    deletableFrom: first.addingTimeInterval(retention))
             report.unused.append(entry)
             guard now >= entry.deletableFrom else { continue }
-            // Rule 3 once more, from the blob's own header, and only an
-            // authentic blob (name verifies) is ever deleted.
+            // Only a blob that verifies in full (every chunk, framing, hash,
+            // a name under the current secret) is ever deleted, and rule 3
+            // is checked once more against the hash in its own header.
             let url = attURL(note).appendingPathComponent(file.fileName)
             do {
-                let peek = try Self.peekBlobFile(url, identities: identities)
-                guard let name = BlobName.parse(file.fileName)?.name,
-                      BlobName.verify(name, digest: peek.header.digest, secrets: [secret]) != nil
-                else { throw BlobError.nameMismatch }
-                guard !referenced.contains(peek.header.sha256) else { continue }
+                let (header, _) = try Self.readBlobFile(url, identities: identities, secrets: [secret], expected: nil,
+                                                        maxContent: BlobRef.maxSize)
+                guard !referenced.contains(header.sha256) else { continue }
             } catch {
                 report.failures[file.fileName] = "\(error)"
                 continue
