@@ -139,7 +139,10 @@ extension AppModel {
         var changed: [UUID] = []
         for id in ids {
             if skipOpen, open.contains(id) { report.skipped[id] = "open"; continue }
-            let verify: (@Sendable () throws -> Void)? = cloud ? { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) } : nil
+            var verify: (@Sendable () throws -> Void)?
+            if cloud {
+                verify = { @Sendable in try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
+            }
             do {
                 let (plan, deleted, added) = try await NoteWriter.compact(id, mode: .thin(olderThan: Double(days) * 86_400),
                                                                           vault: vault, clock: clock, coordinated: cloud,
