@@ -157,6 +157,11 @@ queued for up to 30 minutes.
 - **Only affected jobs run.** Docs-only changes run nothing. CLI, importer and
   WebDAV changes skip the app job. App-only changes skip Linux and macOS.
   `main` always runs everything.
+- **Web viewer:** `web/` changes run only the `web` (npm lint, typecheck, tests,
+  build) and `web-golden` (Swift CLI exports of the fixture vaults diffed with
+  `web/test/golden`) jobs; Swift changes do not run them on a PR, `main` does.
+  A Swift change to merging or rendering that moves the goldens shows up on
+  `main`: regenerate with `web/scripts/golden.sh` (docs/web-viewer.md).
 - **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
 - **PRs skip what only matters for shipping.** The static Linux release build
   and the Mac Catalyst build run on `main` only. Tests run with `--parallel`.

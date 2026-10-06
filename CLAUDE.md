@@ -14,6 +14,7 @@ scripts/test-linux.sh       # on a Mac with Docker, or in a cloud VM: run tests 
 scripts/app.sh test         # iPad app: xcodebuild test on the newest iPadOS 26+ simulator
 scripts/app.sh catalyst     # iPad app: unsigned Mac Catalyst build
 SEMPERE_FUZZ_LONG=1 swift test --filter Fuzz   # deep fuzz run (quick mode runs in every swift test)
+(cd web && npm ci && npm run lint && npm run typecheck && npm test)   # web viewer
 ```
 
 The app lives in `Apps/Sempere/Sempere.xcodeproj` (open it in Xcode; scheme
@@ -348,3 +349,10 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `AppModel()` defaults to no recognizer so existing tests write no extra deltas. Search is
   `NoteSearch.search` over `NoteSummary.pageTexts` (filled by `Vault.summary`), run off the main
   actor with a debounce; no word highlight on the page yet.
+- Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
+  (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
+  merging, decoding or rendering in Swift needs the same change in
+  `web/src/`; `web/scripts/golden.sh` re-exports `web/test/golden` with the
+  CLI and the `web-golden` CI job diffs it. The viewer never parses markup
+  (DOM nodes only, Trusted Types CSP) and never stores or sends the key. Pin
+  npm dependencies exactly; install with `npm ci`.

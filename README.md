@@ -32,6 +32,7 @@ all run natively on Linux, and CI publishes a static Linux binary. The CLI ships
 | `Sources/SempereRender` | Stroke geometry, PDF and SVG writers |
 | `Sources/SempereCLI` | Command-line tool: keys, verify, export, recover |
 | `Apps/Sempere` | iPad app, Mac via Catalyst (Xcode project, phase 1; a shell so far) |
+| `web` | Read-only web viewer, decrypts in the browser (`docs/web-viewer.md`) |
 | `docs/format.md` | The on-disk format, normative |
 | `DESIGN.md` | Why it is built this way |
 | `docs/plan.md` | Phases and task board |

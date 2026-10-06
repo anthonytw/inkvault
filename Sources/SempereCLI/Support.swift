@@ -321,6 +321,7 @@ extension AccessOptions {
 
     func openVault(at url: URL, _ unlock: Unlock, migration: Bool = false) throws -> Vault {
         let locked = try Vault.open(at: url)
+        OpenedVaults.shared.record(url)
         if !migration { try locked.requireMigrated() }
         var ids: [any AgeIdentity] = try explicitIdentities()
         if ids.isEmpty {

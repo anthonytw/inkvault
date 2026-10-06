@@ -44,6 +44,9 @@ public final class WebDAVSync {
     private var state = SyncState()
     private var report: SyncReport
     private var madeCollections = Set<[String]>()
+    /// What the server holds after this run, per note (revision file names):
+    /// the listing a server-side `sempere-index.json` must show.
+    private var remoteRevisions: [String: [String]] = [:]
 
     /// - Parameters:
     ///   - directory: the local vault; it may be missing or empty for a first pull.
@@ -89,9 +92,19 @@ public final class WebDAVSync {
 
         let remoteNotes = try listRemoteNotes(rootEntries)
         let localNotes = try localNoteIDs()
+        for (id, entries) in remoteNotes {
+            remoteRevisions[id] = entries.compactMap { e in
+                RevisionName(e.name).flatMap { !e.isCollection && $0.filename == e.name ? e.name : nil }
+            }
+        }
         for id in Set(remoteNotes.keys).union(localNotes).sorted() {
             do { try syncNote(id, remoteEntries: remoteNotes[id]) } catch {
                 report.errors.append(.init(path: "notes/\(id)", message: Self.describe(error)))
+            }
+        }
+        if !options.dryRun, let entry = remoteRoot[WebIndex.fileName], !entry.isCollection {
+            do { try refreshRemoteWebIndex() } catch {
+                report.errors.append(.init(path: WebIndex.fileName, message: Self.describe(error)))
             }
         }
         if !options.dryRun {
@@ -277,6 +290,8 @@ public final class WebDAVSync {
             if let s = e.size { size[n] = s }
         }
         let remoteListed = R
+        // Whatever happens below, the server ends up holding R.
+        defer { remoteRevisions[id] = R.isEmpty ? nil : R.map(\.filename).sorted() }
         var L = Set<RevisionName>()
         for f in try LocalFS.entries(dir) {
             if let n = RevisionName(f), n.filename == f { L.insert(n) }
@@ -381,6 +396,18 @@ public final class WebDAVSync {
             state.files[k] = SyncState.FileRecord(included: coverage[n] ?? state.files[k]?.included)
         }
         for n in S where !L.contains(n) && !R.contains(n) { state.files[key(id, n)] = nil }
+    }
+
+    /// Rewrites the server's `sempere-index.json` (kept only where one
+    /// exists; `sempere vault index` creates it) to list what the server
+    /// holds now, so a viewer reading the share as static files is never
+    /// silently stale. Unchanged contents are not rewritten.
+    private func refreshRemoteWebIndex() throws {
+        let data = try WebIndex.encode(remoteRevisions)
+        let current = try? client.get([WebIndex.fileName], maxBytes: WebIndex.maxBytes).data
+        guard current != data else { return }
+        guard try client.put([WebIndex.fileName], data, condition: .unconditional) else { return }
+        report.uploaded.append(WebIndex.fileName)
     }
 
     private func upload(_ id: String, _ n: RevisionName) throws {
