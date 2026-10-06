@@ -209,6 +209,29 @@ struct CloudSyncTests {
         model.close()
     }
 
+    /// The creation exemption never lets an existing note through: an id
+    /// whose folder lists revisions is checked even when passed as new, so
+    /// nothing is written into it while one of them is evicted.
+    @Test func theCreationExemptionNeverCoversAnExistingNote() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        model.pauseCloudSync()
+        try cloud.evictDataless(Self.lecture)
+        let before = try Self.revisionCount(url, Self.lecture)
+        let lecture = Self.lecture
+        await #expect(throws: CloudVault.CloudError.self) {
+            try await model.commit(ids: [lecture], creating: [lecture]) { vault, clock, cloud, verifier in
+                try await NoteWriter.append([.setMeta(.title("X"))], to: lecture, vault: vault, clock: clock,
+                                            coordinated: cloud, verify: verifier(lecture))
+            }
+        }
+        #expect(try Self.revisionCount(url, Self.lecture) == before)
+        model.close()
+    }
+
     @Test func aNotebookRenameWritesNothingIntoANoteEvictedSinceTheLastPass() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let cloud = FakeCloud(vault: url)

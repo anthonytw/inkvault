@@ -229,7 +229,9 @@ extension AppModel {
     /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
     /// and the check each note's append runs inside its coordinated read.
     /// Notes in `creating` are new: they have no files to be local yet, so
-    /// they get no check (requireLocal would refuse an empty, unlisted folder).
+    /// they get no check (requireLocal would refuse an empty, unlisted folder)
+    /// as long as their folder lists no revision; one that does (an id that
+    /// is not new after all) is checked like any other note.
     func commit(ids: [UUID], creating: Set<UUID> = [],
                         write: (Vault, DeviceClock, Bool, @Sendable (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
         async throws {
@@ -247,7 +249,14 @@ extension AppModel {
         // seq is picked (a file can be evicted, or a new one listed, after
         // `downloadNote`; a notebook rename does not download at all).
         let verifier: @Sendable (UUID) -> (@Sendable () throws -> Void)? = { id in
-            guard cloud, !creating.contains(id) else { return nil }
+            guard cloud else { return nil }
+            if creating.contains(id) {
+                return {
+                    let listed = try CloudScan.noteItems(inVault: url, id: id)
+                    guard !listed.isEmpty else { return }
+                    try CloudVault.requireLocal(note: id, vault: url, hooks: hooks)
+                }
+            }
             return { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
         }
         do {
