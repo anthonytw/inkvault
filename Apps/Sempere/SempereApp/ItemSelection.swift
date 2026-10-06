@@ -121,9 +121,10 @@ struct ItemCommands {
 /// before backgrounds), a drag on it moves it, a drag on a corner resizes it,
 /// and a tap on the selected item opens its menu. Every gesture ends in one
 /// delta and one undo step (`ItemActions`); while it runs, the item layer
-/// shows the frame it would get.
+/// shows the frame it would get. UIKit calls the edit-menu delegate on the
+/// main thread; that protocol is not main-actor isolated, so the conformance is.
 @MainActor
-final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
+final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @MainActor UIEditMenuInteractionDelegate {
     private weak var canvas: UIScrollView?
     private weak var itemLayer: ItemLayerView?
     private let overlay = ItemSelectionView()
