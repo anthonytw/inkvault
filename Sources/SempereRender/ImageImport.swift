@@ -76,6 +76,16 @@ public enum ImageImport {
     ///
     /// - Throws: `Failure`.
     public static func prepare(_ data: Data, keepMetadata: Bool = false) throws -> Prepared {
+        let p = try prepareUnchecked(data, keepMetadata: keepMetadata)
+        // format.md §8.4: writers stay within 100 megapixels (renderers draw a placeholder beyond).
+        guard Double(p.width) * Double(p.height) <= Double(ImageLimits.maxPixels) else {
+            let f = Format(rawValue: String(p.type.dropFirst("image/".count))) ?? .unknown
+            throw Failure.invalid(f, "\(p.width) × \(p.height) pixels, over the \(ImageLimits.maxPixels / 1_000_000) megapixel limit")
+        }
+        return p
+    }
+
+    private static func prepareUnchecked(_ data: Data, keepMetadata: Bool) throws -> Prepared {
         let f = format(of: data)
         switch f {
         case .jpeg:

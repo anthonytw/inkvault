@@ -87,6 +87,28 @@ final class NotabilityAttachmentTests: XCTestCase {
         XCTAssertTrue(r.warnings.isEmpty, "\(r.warnings)")
     }
 
+    /// A long PDF (a 300-page textbook) stacked on one infinite page would be
+    /// about 237 000 pt tall: past the renderer's extent (format.md §8.4,
+    /// 200 000 pt), so no export of the note would work. The import stays
+    /// within it.
+    func testLongPDFNoteStaysWithinTheExtentLimit() throws {
+        let pdf = AttachmentFixtures.pdf(pages: Array(repeating: Self.letter, count: 300))
+        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 300), pdf: pdf,
+                                             thumbnails: [("thumb.png", 48, 62)])
+        let vault = try makeVault()
+        let (r, state) = try importPackage(pkg, into: vault)
+        XCTAssertEqual(r.attachments.pdfPages, 300)
+        XCTAssertEqual(state.pages.flatMap(\.items).filter { $0.kind == .pdfPage }.count, 300)
+        for page in state.pages {
+            let bottom = page.items.map { $0.frame.y + $0.frame.h }.max() ?? 0
+            XCTAssertLessThanOrEqual(bottom, PageSize.maxSheetHeight)
+        }
+        XCTAssertLessThanOrEqual(state.meta.pageSize.height, PageSize.maxSheetHeight)
+        // Every page renders (the last, lowest one is enough to show the size is accepted).
+        var last = state; last.pages = Array(state.pages.suffix(1))
+        XCTAssertNoThrow(try PDFWriter.render(note: last))
+    }
+
     /// The PDF's own page boxes give the stride: a thumbnail that is no
     /// standard aspect no longer decides it.
     func testPDFPageBoxReplacesTheThumbnailAspect() throws {
@@ -293,6 +315,35 @@ final class NotabilityAttachmentTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(state.meta.pageSize.height, 640 * Self.k)
     }
 
+    /// A hostile package can hold many large, highly compressible entries
+    /// (each under the 1 GiB entry cap): what is held for one note is
+    /// bounded, the rest left out and reported, never all held at once.
+    func testAttachmentBytesHeldPerNoteAreBounded() throws {
+        let jpeg = AttachmentFixtures.jpeg(width: 400, height: 300, orientation: 6)
+        let png = AttachmentFixtures.png(width: 8, height: 4)
+        let pkgData = imagePackage({ a in
+            [AttachmentFixtures.imageObject(&a, file: Self.jpegPath, origin: (50, 100), size: (300, 400)),
+             AttachmentFixtures.imageObject(&a, file: Self.pngPath, origin: (10, 600), size: (80, 40))]
+        }, files: [(Self.jpegPath, jpeg), (Self.pngPath, png)])
+        let pkg = try NotePackage(data: pkgData)
+        let note = try NotabilityNote.parse(package: pkg)
+        // Room for the first (stripped) image only.
+        let first = try ImageImport.prepare(jpeg, keepMetadata: false).data.count
+        let r = NotabilityAttachments.resolve(note, package: pkg, keepImageMetadata: false, maxHeldBytes: first + 10)
+        XCTAssertEqual(r.imported.images, 1)
+        XCTAssertEqual(r.dropped.media, 1)
+        XCTAssertLessThanOrEqual(r.blobs.values.reduce(0) { $0 + $1.data.count }, first + 10)
+        XCTAssertTrue(r.warnings.contains { $0.contains("MiB of attachments read for one note") }, "\(r.warnings)")
+        // The same budget for PDFs: none fits in 10 bytes.
+        let pkg2 = try NotePackage(data: AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 1),
+                                                                    pdf: AttachmentFixtures.pdf(pages: [Self.letter])))
+        let n2 = try NotabilityNote.parse(package: pkg2)
+        let r2 = NotabilityAttachments.resolve(n2, package: pkg2, keepImageMetadata: false, maxHeldBytes: 10)
+        XCTAssertTrue(r2.blobs.isEmpty)
+        XCTAssertEqual(r2.imported.pdfPages, 0)
+        XCTAssertEqual(r2.dropped.pdfPages, 1)
+    }
+
     func testKeepImageMetadata() throws {
         let jpeg = AttachmentFixtures.jpeg(width: 40, height: 30, orientation: 3)
         let pkg = imagePackage({ a in [AttachmentFixtures.imageObject(&a, file: Self.jpegPath, origin: (0, 0), size: (40, 30))] },
@@ -380,6 +431,13 @@ final class NotabilityAttachmentTests: XCTestCase {
         XCTAssertEqual(h.type, "image/heic")
         XCTAssertEqual([h.width, h.height], [4032, 3024])
         XCTAssertEqual(h.data, heic)
+        // Over 100 megapixels (format.md §8.4, writers stay within it): refused, not stored.
+        XCTAssertThrowsError(try ImageImport.prepare(AttachmentFixtures.jpeg(width: 60_000, height: 60_000, orientation: nil))) {
+            XCTAssertTrue("\($0)".contains("megapixel"), "\($0)")
+        }
+        let huge = Data(box("ftyp", Array("heic".utf8) + [0, 0, 0, 0] + Array("mif1heic".utf8))
+            + box("meta", [0, 0, 0, 0] + box("iprp", box("ipco", ispe(60_000, 60_000)))))
+        XCTAssertThrowsError(try ImageImport.prepare(huge))
     }
 }
 

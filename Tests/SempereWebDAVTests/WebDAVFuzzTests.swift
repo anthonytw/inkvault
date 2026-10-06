@@ -84,6 +84,41 @@ final class WebDAVFuzzTests: SyncTestCase {
         })
     }
 
+    /// `Content-Range` headers of partial blob downloads: parsed, then fed
+    /// to `download` as a server's 206 answer.
+    func testFuzzContentRange() throws {
+        let out = tmp.appendingPathComponent("range.out")
+        let seeds = ["bytes 0-2097151/300000000", "bytes 100000-299999/300000", "bytes */1000", "bytes 0-0/1",
+                     "bytes 18446744073709551615-18446744073709551616/9", "Bytes  5-9/10"].map { Data($0.utf8) }
+        assertClean(Fuzz.run("content-range", seeds: seeds, quick: 2000, text: true, maxSize: 256) { input in
+            let header = String(decoding: input, as: UTF8.self)
+            if let r = WebDAVClient.contentRange(header), r.start < 0 || r.end < 0 || r.total < 0 {
+                return "negative range parsed from \(header)"
+            }
+            do {
+                try? FileManager.default.removeItem(at: out)
+                let stub = RangeStub(header: header)
+                let c = try WebDAVClient(baseURL: URL(string: "https://dav.example.com/v/")!, transport: stub)
+                try c.download(["f"], to: out, maxBytes: 1 << 16, segmentBytes: 4)
+            } catch is WebDAVError {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            return nil
+        })
+    }
+
+    /// Answers every GET with a 206 of 4 bytes and the given `Content-Range`,
+    /// written to the response file as a transport would.
+    struct RangeStub: WebDAVTransport {
+        var header: String
+        func send(_ r: WebDAVRequest) throws -> WebDAVResponse {
+            if let file = r.responseFile, let h = try ResponseFile.open(file, status: 206) {
+                try h.write(contentsOf: Data(count: 4))
+                try h.close()
+            }
+            return WebDAVResponse(status: 206, headers: ["Content-Range": header])
+        }
+    }
+
     struct Stub: WebDAVTransport {
         var body: Data
         func send(_ r: WebDAVRequest) throws -> WebDAVResponse { WebDAVResponse(status: 207, body: body) }
@@ -94,6 +129,9 @@ final class WebDAVFuzzTests: SyncTestCase {
         state.mutable["vault.json"] = .init(hash: String(repeating: "a", count: 64), stamp: "\"e1\"")
         state.files["7e57c0de-0000-4000-8000-000000000001/17596320000000000-aaaaaaaa-1.delta.age"] =
             .init(included: Included([devA: .init(upTo: 3, extra: [5, 9])]))
+        state.files["7e57c0de-0000-4000-8000-000000000001/att/\(String(repeating: "ab", count: 32)).image.age"] = .init()
+        state.partials = ["7e57c0de-0000-4000-8000-000000000001/att/x.image.age": .init(etag: "\"e9\"")]
+        state.remoteTemps = ["notes/7e57c0de-0000-4000-8000-000000000001/att/.sempere-tmp-1"]
         let seed = try JSONEncoder().encode(state)
         let url = tmp.appendingPathComponent("state.json")
         assertClean(Fuzz.run("sync-state", seeds: [seed], quick: 1500, text: true) { input in
@@ -117,6 +155,7 @@ final class WebDAVFuzzTests: SyncTestCase {
         for t in 0..<3 { _ = try delta(vault, device: devA, t: Int64(t), title: "t\(t)") }
         var clock = HybridClock()
         try vault.snapshot(noteId: noteID, device: devA, clock: &clock, wall: Date(), app: "fuzz")
+        try vault.writeBlob(note: noteID, Data(repeating: 7, count: 3000), type: "image/png")
         try sync("A", server)
         let corpus = [try vaultJSON("A"), Self.laughs]
         let identity = self.identity

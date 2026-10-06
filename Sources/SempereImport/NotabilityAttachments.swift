@@ -80,6 +80,23 @@ public struct NotabilityAttachments: Sendable {
     public static let maxItems = 10_000
     /// Media objects examined at most (each is a bounded walk; the samples hold a few).
     public static let maxMediaObjects = 1_000
+    /// Most bytes of PDFs and prepared images held at once for one note. Each
+    /// package entry is capped at 1 GiB, but a small zip can hold many large,
+    /// highly compressible entries: past this budget an attachment is left
+    /// out (and reported) instead of held in memory with the rest.
+    public static let maxHeldBytes = 2 << 30
+
+    /// Bytes held in `blobs` and in prepared images (`maxHeldBytes`).
+    var heldBytes = 0
+    /// The budget for this note.
+    var heldLimit = maxHeldBytes
+
+    /// Counts `n` more bytes against the budget; false (nothing counted) when they do not fit.
+    mutating func hold(_ n: Int) -> Bool {
+        guard n <= heldLimit - heldBytes else { return false }
+        heldBytes += n
+        return true
+    }
 
     /// Top of Notability page `n` (1-based), document units.
     public func top(ofPage n: Int, pageHeight: Double) -> Double {
@@ -98,7 +115,13 @@ public struct NotabilityAttachments: Sendable {
     ///   (format.md §8.2.5).
     public static func resolve(_ note: NotabilityNote, package pkg: NotePackage,
                                keepImageMetadata: Bool = false) -> NotabilityAttachments {
+        resolve(note, package: pkg, keepImageMetadata: keepImageMetadata, maxHeldBytes: maxHeldBytes)
+    }
+
+    static func resolve(_ note: NotabilityNote, package pkg: NotePackage, keepImageMetadata: Bool,
+                        maxHeldBytes: Int) -> NotabilityAttachments {
         var r = NotabilityAttachments()
+        r.heldLimit = maxHeldBytes
         guard note.sourceFormat == .note else { return r }
         let prefix = NotabilityNote.packagePrefix(pkg) ?? ""
         r.resolvePDFs(note, pkg, prefix: prefix)
@@ -130,6 +153,10 @@ public struct NotabilityAttachments: Sendable {
             warnings.append("PDF \(name): cannot be read (\(NotabilityImporter.describe(error)))")
             return nil
         }
+        guard hold(data.count) else {
+            warnings.append("PDF \(name): over the \(heldLimit >> 20) MiB of attachments read for one note; not imported")
+            return nil
+        }
         do {
             let pdf = try PDFFile(data: data)
             let count = pdf.pageCount
@@ -141,13 +168,15 @@ public struct NotabilityAttachments: Sendable {
                 return Size(w: p.effectiveWidth, h: p.effectiveHeight)
             }
             let ref = BlobRef(content: data, type: "application/pdf")
-            if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, data) }
+            if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, data) } else { heldBytes -= data.count }   // same bytes held once
             loaded = LoadedPDF(ref: ref, pages: pages)
+            return loaded
         } catch PDFError.encrypted {
             warnings.append("PDF \(name): encrypted (format.md §8.2.6 stores PDFs without encryption); remove the password and import again")
         } catch {
             warnings.append("PDF \(name): not readable as a PDF (\(error))")
         }
+        heldBytes -= data.count   // not kept
         return loaded
     }
 
@@ -336,7 +365,12 @@ public struct NotabilityAttachments: Sendable {
             let result: Result<ImageImport.Prepared, ImageImport.Failure>
             if let hit = prepared[path] { result = hit } else {
                 do {
-                    result = .success(try ImageImport.prepare(try pkg.read(prefix + path), keepMetadata: keepMetadata))
+                    let p = try ImageImport.prepare(try pkg.read(prefix + path), keepMetadata: keepMetadata)
+                    guard hold(p.data.count) else {
+                        drop("\(path): over the \(heldLimit >> 20) MiB of attachments read for one note; not imported")
+                        continue
+                    }
+                    result = .success(p)
                 } catch let f as ImageImport.Failure {
                     result = .failure(f)
                 } catch {

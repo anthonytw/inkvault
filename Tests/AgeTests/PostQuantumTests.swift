@@ -125,13 +125,16 @@ final class PostQuantumTests: XCTestCase {
             Stanza(type: good.type, args: [Base64.encodeRaw(enc.prefix(1088) + Data(count: 32))], body: good.body),
         ]
         var rng = SystemRandomNumberGenerator()
-        for _ in 0..<200 {
+        while cases.count < 9 + 200 {
             var e = [UInt8](enc), b = [UInt8](good.body)
             let flips = Int.random(in: 1...4, using: &rng)
             for _ in 0..<flips {
                 if Bool.random(using: &rng) { e[Int.random(in: 0..<e.count, using: &rng)] ^= UInt8.random(in: 1...255, using: &rng) }
                 else { b[Int.random(in: 0..<b.count, using: &rng)] ^= UInt8.random(in: 1...255, using: &rng) }
             }
+            // Two flips of the same byte by the same value cancel (about 1 case in
+            // 100 000): that is the good stanza again, which rightly unwraps.
+            if e == [UInt8](enc) && b == [UInt8](good.body) { continue }
             cases.append(Stanza(type: good.type, args: [Base64.encodeRaw(e)], body: Data(b)))
         }
         for (i, s) in cases.enumerated() {
