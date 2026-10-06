@@ -59,6 +59,10 @@ public enum NotabilityImporter {
         public var textItems = 0
         /// Characters in them.
         public var textCharacters = 0
+        /// Recordings, each with its audio as a blob.
+        public var recordings = 0
+        /// Strokes written with `rec` (linked to a recording).
+        public var recLinkedStrokes = 0
         /// Blobs written (distinct contents).
         public var blobs = 0
         /// Their total size in bytes.
@@ -87,6 +91,9 @@ public enum NotabilityImporter {
         public var pdfHighlights = 0
         /// 1 when the paper is a `TemplatePDF:` whose PDF is not imported.
         public var templatePDFs = 0
+        /// Strokes with an `eventTokens` entry whose link to a recording is
+        /// not imported (no recording, or the tokens do not read as times in it).
+        public var recLinks = 0
         /// Audio recordings.
         public var recordings = 0
         /// Strokes imported solid although Notability draws them dashed.
@@ -228,6 +235,8 @@ public enum NotabilityImporter {
             let ha = note.curves[a].isHighlighter, hb = note.curves[b].isHighlighter
             return ha != hb ? ha : a < b
         }
+        var recordings = attachments?.recordings ?? []
+        for r in recordings.indices { recordings[r].id = UUID.derived(from: key + ":recording:\(r)") }
         var strokes: [Stroke] = []
         strokes.reserveCapacity(note.curves.count)
         var maxY = 0.0
@@ -245,9 +254,13 @@ public enum NotabilityImporter {
             // translucency (as PencilKit's does).
             var color = c.color
             if highlighter { color.a = 255 }
-            strokes.append(Stroke(id: UUID.derived(from: key + ":stroke:\(i)"),
-                                  ink: Ink(tool: highlighter ? .marker : .pen, color: color, width: c.width * k),
-                                  points: pts))
+            var stroke = Stroke(id: UUID.derived(from: key + ":stroke:\(i)"),
+                                ink: Ink(tool: highlighter ? .marker : .pen, color: color, width: c.width * k),
+                                points: pts)
+            if let link = attachments?.strokeLinks[i], recordings.indices.contains(link.recording) {
+                stroke.rec = RecordingLink(id: recordings[link.recording].id, at: link.at)
+            }
+            strokes.append(stroke)
             for p in pts where p.y.isFinite { maxY = max(maxY, p.y + max(p.w, c.width * k) / 2) }
         }
 
@@ -293,7 +306,9 @@ public enum NotabilityImporter {
         let page = Page(id: pageId, order: PageOrder.between(nil, nil), strokes: strokes,
                         recognition: recognition(note, scale: k, attachments: attachments),
                         items: items.sorted(by: Item.drawsBefore))
-        return NoteState(meta: meta, pages: [page])
+        var state = NoteState(meta: meta, pages: [page])
+        state.recordings = recordings.sorted(by: Recording.sortsBefore)
+        return state
     }
 
     /// Notability's per-page recognition merged into one `Recognition` for
@@ -358,14 +373,17 @@ public enum NotabilityImporter {
             d.media = a.dropped.media
             d.pdfHighlights = a.dropped.pdfHighlights
             d.templatePDFs = a.dropped.templatePDFs
+            d.recordings = a.dropped.recordings
+            d.recLinks = a.dropped.recLinks
         } else {
+            d.recordings = note.recordingCount
+            d.recLinks = note.curves.filter { $0.eventToken != nil }.count
             d.pdfs = note.pdfCount
             d.pdfPages = note.pdfPageCount
             d.media = note.mediaCount
             d.pdfHighlights = note.pdfHighlights
             d.templatePDFs = note.paper.identifier?.hasPrefix("TemplatePDF:") == true ? 1 : 0
         }
-        d.recordings = note.recordingCount
         d.dashedStrokes = note.curves.filter(\.dashed).count
         d.unknownStyleStrokes = note.curves.filter {
             $0.style != NotabilityNote.penStyle && $0.style != NotabilityNote.highlighterStyle
@@ -394,6 +412,7 @@ public enum NotabilityImporter {
         ops.append(.setMeta(.notebook(m.notebook)))
         ops.append(.setMeta(.paper(m.paper)))
         ops.append(.setMeta(.pageSize(m.pageSize)))
+        ops += state.recordings.map(Op.addRecording)
         ops += NoteOps.normalizedTags(m.tags).map(Op.addTag)
         for page in state.pages where page.recognition != nil {
             ops.append(.setPageRecognition(pageId: page.id, recognition: page.recognition))

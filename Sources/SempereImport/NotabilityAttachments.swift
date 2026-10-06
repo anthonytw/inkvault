@@ -52,6 +52,17 @@ public struct NotabilityAttachments: Sendable {
     /// give it: the first PDF page's height, `⌈width × H'/W'⌉`. Nil keeps
     /// `paper.pageHeight` (from the thumbnails).
     public var pageStride: Double?
+    /// Recordings of the note, in Notability's order (`id` is set by `convert`
+    /// from the note's key and the index).
+    public var recordings: [Recording] = []
+    /// Curve index → (index into `recordings`, seconds into it): the strokes'
+    /// `rec` (format.md §8.3.3).
+    public var strokeLinks: [Int: StrokeLink] = [:]
+    /// A curve's link to a recording.
+    public struct StrokeLink: Hashable, Sendable {
+        public var recording: Int
+        public var at: Double
+    }
     /// Lowest point of every placement, document units.
     public var extent = 0.0
     /// What could not be placed (only the attachment fields are set).
@@ -91,6 +102,7 @@ public struct NotabilityAttachments: Sendable {
         r.resolvePDFs(note, pkg, prefix: prefix)
         r.resolveImages(note, pkg, prefix: prefix, keepMetadata: keepImageMetadata)
         r.resolveTypedText(note)
+        r.resolveRecordings(note, pkg, prefix: prefix)
         return r
     }
 

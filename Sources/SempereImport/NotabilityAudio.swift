@@ -217,3 +217,95 @@ public struct AudioInfo: Hashable, Sendable {
         return info
     }
 }
+
+// MARK: - Resolution (D4)
+
+extension NotabilityAttachments {
+    /// Recordings from `Recordings/`: each library entry with the audio file
+    /// it names (or, when entries name none, the files in name order), stored
+    /// as a blob in its own container (`audio/mp4`, `audio/x-caf`, …; format.md
+    /// §8.3.1 allows importers other types). Then `eventTokens` become the
+    /// strokes' `rec` where they read as times in the recording.
+    mutating func resolveRecordings(_ note: NotabilityNote, _ pkg: NotePackage, prefix: String) {
+        let dir = prefix + "Recordings/"
+        let files = pkg.paths.filter { $0.hasPrefix(dir) && !$0.hasSuffix("/library.plist") && !$0.hasSuffix("/") }
+            .map { String($0.dropFirst(prefix.count)) }.sorted()
+        let entries = note.recordingEntries
+        var pairs: [(entry: NotabilityNote.RecordingEntry?, file: String)] = []
+        var claimed = Set<String>()
+        var unmatched: [NotabilityNote.RecordingEntry] = []
+        for e in entries {
+            let m = NotabilityNote.MediaObject(className: "recording", strings: e.strings)
+            if let f = Self.file(for: m, in: files), !claimed.contains(f) {
+                pairs.append((e, f)); claimed.insert(f)
+            } else {
+                unmatched.append(e)
+            }
+        }
+        let free = files.filter { !claimed.contains($0) }
+        if !unmatched.isEmpty, unmatched.count == free.count {
+            pairs += zip(unmatched, free).map { ($0, $1) }
+            warnings.append("\(unmatched.count) recording(s) paired with the audio files by order: the library names no file "
+                            + "(fields: \(Set(unmatched.flatMap(\.fieldNames)).sorted().joined(separator: ", ")))")
+            unmatched = []
+        } else if entries.isEmpty, !free.isEmpty {
+            pairs += free.map { (nil, $0) }
+            warnings.append("\(free.count) audio file(s) in Recordings/ without a library entry imported without title")
+        }
+        for e in unmatched {
+            dropped.recordings += 1
+            warnings.append("recording \(e.key): no audio file found (fields: \(e.fieldNames.joined(separator: ", ")))")
+        }
+        for (n, pair) in pairs.enumerated() {
+            let label = "recording \(pair.entry?.key ?? String(n + 1)) (\(pair.file))"
+            guard recordings.count < 1_000 else { dropped.recordings += 1; continue }
+            let data: Data
+            do { data = try pkg.read(prefix + pair.file) } catch {
+                dropped.recordings += 1
+                warnings.append("\(label): cannot be read (\(NotabilityImporter.describe(error)))"); continue
+            }
+            guard let info = AudioInfo.read(data) else {
+                dropped.recordings += 1
+                warnings.append("\(label): not an audio container this importer knows (MPEG-4, CAF, WAV, AIFF, MP3)"); continue
+            }
+            var started = pair.entry?.started
+            if started == nil {
+                started = note.metadata.created
+                warnings.append("\(label): no start date in the library; the note's creation date is used")
+            }
+            let ref = BlobRef(content: data, type: info.type)
+            if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, data) }
+            let duration = (pair.entry?.duration ?? info.duration).map { ($0 * 1000).rounded() / 1000 }
+            recordings.append(Recording(blob: ref, started: started ?? Date(timeIntervalSince1970: 0), duration: duration,
+                                        codec: info.codec, sampleRate: info.sampleRate, channels: info.channels,
+                                        title: pair.entry?.title))
+            imported.recordings += 1
+        }
+        linkStrokes(note)
+    }
+
+    /// Reads `eventTokens` as milliseconds from the start of the note's one
+    /// recording — a hypothesis (docs/attachments.md §11, unknown 7) applied
+    /// only when it is plausible: one recording with a duration, every token
+    /// within it, and the tokens of successive curves mostly ascending (90 %),
+    /// as times of writing are. Otherwise no `rec` is written and the report
+    /// gives the tokens' range, so the encoding can be worked out.
+    mutating func linkStrokes(_ note: NotabilityNote) {
+        let tokens = note.curves.enumerated().compactMap { i, c in c.eventToken.map { (i, Int64($0)) } }
+        guard !tokens.isEmpty else { return }
+        let lo = tokens.map(\.1).min() ?? 0, hi = tokens.map(\.1).max() ?? 0
+        let ascending = zip(tokens, tokens.dropFirst()).filter { $0.1 <= $1.1 }.count
+        let orderly = tokens.count < 2 || Double(ascending) >= 0.9 * Double(tokens.count - 1)
+        if recordings.count == 1, let duration = recordings[0].duration, lo >= 0,
+           Double(hi) <= duration * 1000 + 1000, orderly {
+            for (i, t) in tokens { strokeLinks[i] = StrokeLink(recording: 0, at: Double(t) / 1000) }
+            imported.recLinkedStrokes = tokens.count
+            warnings.append("\(tokens.count) stroke(s) linked to the recording from eventTokens read as milliseconds "
+                            + "(\(lo)…\(hi) in a \(duration) s recording; unconfirmed, check by listening)")
+        } else {
+            dropped.recLinks = tokens.count
+            warnings.append("\(tokens.count) stroke(s) carry eventTokens \(lo)…\(hi) (\(ascending) of \(tokens.count - 1) "
+                            + "ascending) with \(recordings.count) recording(s): not read as times, no rec written")
+        }
+    }
+}

@@ -101,6 +101,8 @@ public struct NotabilityNote: Hashable, Sendable {
         /// `.ntb` only: the stroke's stored origin was clamped to the right page
         /// edge, so its x position is wrong (its shape is right).
         public var originClamped = false
+        /// `eventTokens` entry (playback sync with a recording); nil for none.
+        public var eventToken: Int32?
 
         /// True for the highlighter style.
         public var isHighlighter: Bool { style == NotabilityNote.highlighterStyle }
@@ -155,6 +157,8 @@ public struct NotabilityNote: Hashable, Sendable {
     public var pdfHighlights = 0
     /// `richText.mediaObjects`, read without a schema.
     public var mediaObjects: [MediaObject] = []
+    /// `Recordings/library.plist` entries.
+    public var recordingEntries: [RecordingEntry] = []
     /// `richText.attributedString` with its styles (`typedText` is its string).
     public var typed = TypedText()
     /// Audio recordings listed in `Recordings/library.plist`.
@@ -290,7 +294,9 @@ extension NotabilityNote {
         let pdfPageCount = layout.filter(\.isPDF).count
         let media = try session.elements(session.field(richText, "mediaObjects"))
         let mediaCount = media.count
-        let recordings = try parseRecordingCount(part("Recordings/library.plist"))
+        let library = try part("Recordings/library.plist")
+        let recordings = try parseRecordingCount(library)
+        let recordingEntries = try parseRecordingEntries(library)
         let recognition = try parseRecognition(part("HandwritingIndex/index.plist"))
 
         // Page aspect from the widest thumbnail (thumb.png is 48 px wide,
@@ -325,6 +331,7 @@ extension NotabilityNote {
         }
         note.pdfLayout = layout
         note.mediaObjects = media.map { MediaObject.read(session, $0) }
+        note.recordingEntries = recordingEntries
         note.typed = typedText(session, try session.field(richText, "attributedString"))
         if note.typed.string.isEmpty { note.typed.string = typed }
         if note.typedText.isEmpty { note.typedText = note.typed.string }
@@ -490,6 +497,7 @@ extension NotabilityNote {
         let altitudes = try optional("curvesaltitudeangles", stride: 1)
         let azimuth = try optional("curvesazimuthunitvector", stride: 2)
         let uuids = try data("curveUUIDs")
+        let tokens = eventTokens(try data("eventTokens"), curves: n)
         let dashed = try dashedCurves(a.field(hash, "dashStyles").data)
 
         var out: [Curve] = []
@@ -525,6 +533,7 @@ extension NotabilityNote {
                              altitudes: altitudes.map { Array($0[q..<(q + k)]) },
                              azimuths: az, width: widths[i], color: color, style: styles[i],
                              dashed: dashed.contains(i), uuid: uuid))
+            if i < tokens.count { out[out.count - 1].eventToken = tokens[i] }
             p += c
             q += k
         }

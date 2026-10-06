@@ -270,8 +270,9 @@ extension NotabilityAttachments {
         for e in scalars {
             if e.0 == "\n" { newlines += 1; continue }
             if newlines >= 2, !(blocks.last?.isEmpty ?? true) { blocks.append([]) }
-            if newlines > 0, !(blocks.last?.isEmpty ?? true) {
-                for _ in 0..<min(newlines, 1) { blocks[blocks.count - 1].append(("\n", e.1)) }
+            // One line break inside a block, in the style of the line it ends.
+            if newlines > 0, let previous = blocks.last?.last {
+                blocks[blocks.count - 1].append(("\n", previous.1))
             }
             newlines = 0
             blocks[blocks.count - 1].append(e)
