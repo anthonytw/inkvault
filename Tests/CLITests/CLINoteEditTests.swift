@@ -96,6 +96,14 @@ final class CLINoteEditTests: CLITestCase {
         XCTAssertEqual(none.status, 2, none.err)
     }
 
+    func testNewUsesTheVaultSpellingOfItsTags() throws {
+        _ = try json(["notes", "new", "First", "--tag", "Physics"])
+        let second = try json(["notes", "new", "Second", "--tag", "PHYSICS", "--tag", " lab  work "])
+        XCTAssertEqual(try note(second)["tags"] as? [String], ["Physics", "lab work"])
+        // The lecture's "fixture" (any case) is reused too.
+        XCTAssertEqual(try note(try json(["notes", "new", "Third", "--tag", "FIXTURE"]))["tags"] as? [String], ["fixture"])
+    }
+
     func testMoveAndNotebookRenameOfASubtree() throws {
         func new(_ title: String, _ notebook: String) throws -> String {
             try XCTUnwrap(try note(try json(["notes", "new", title, "--notebook", notebook]))["id"] as? String)

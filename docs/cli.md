@@ -402,7 +402,7 @@ encrypted files.
 ```
 sempere notes list [--tag T] [--notebook N] [--deleted] [--no-cache]
 sempere notes show ID|TITLE
-sempere notes new TITLE [--notebook PATH] [--tag T]... [--paper KIND] [PAPER OPTIONS] [--page-size letter|a4]
+sempere notes new TITLE [--notebook PATH] [--tag T]... [--paper KIND] [PAPER OPTIONS] [--page-size letter|a4] [--no-cache]
 sempere notes rename ID|TITLE NEW-TITLE
 sempere notes tag ID|TITLE [--add T]... [--remove T]... [--no-cache]
 sempere notes move ID|TITLE (NOTEBOOK | --none)
@@ -466,7 +466,8 @@ absent).
 
 - `new` creates a note with one blank page: title (trimmed; titles need not
   be unique), notebook, paper (default `ruled`, with the paper options below),
-  page size (`letter`, the default, or `a4`) and one `addTag` per `--tag`.
+  page size (`letter`, the default, or `a4`) and one `addTag` per `--tag`, in
+  the spelling the vault already uses for that tag (as `tag --add` below).
   Prints the new id (the `Created …` line goes to stderr).
 - `rename` sets the title (trimmed).
 - `tag` adds and removes tags in one delta. Tags match case-insensitively and

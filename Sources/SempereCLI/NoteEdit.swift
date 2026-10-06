@@ -45,8 +45,9 @@ struct NotesNew: ParsableCommand {
         abstract: "Create a note with one empty page.",
         discussion: """
             Writes one delta that creates the note: one blank page, the title, the notebook (a
-            /-separated path), the paper and page size, and one addTag per tag (as the app's New Note).
-            Prints the new note's id. Titles need not be unique.
+            /-separated path), the paper and page size, and one addTag per tag, in the spelling the
+            vault already uses for it (as `notes tag --add`). Prints the new note's id. Titles need not
+            be unique.
             """
     )
 
@@ -70,6 +71,7 @@ struct NotesNew: ParsableCommand {
     @OptionGroup var paperOptions: PaperOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
+    @OptionGroup var cache: CacheOptions
 
     func validate() throws { try paperOptions.check() }
 
@@ -77,8 +79,11 @@ struct NotesNew: ParsableCommand {
         let vault = try access.openVault(.required)
         let id = UUID()
         let paper = try paperOptions.applied(to: Paper.template(self.paper))
+        let known = NoteOps.normalizedTags(tag).isEmpty
+            ? [] : NoteOps.vaultTags(try vault.summaries(of: nil, cache: cache.cache(for: vault)))
         let ops = NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines), paper: paper,
-                                  pageSize: pageSize.size, notebook: NotebookPath.canonical(notebook), tags: tag)
+                                  pageSize: pageSize.size, notebook: NotebookPath.canonical(notebook),
+                                  tags: tag.map { NoteOps.tagSpelling($0, among: known) })
         let revision = try vault.apply(ops, to: id, deviceState: DeviceState.defaultURL(), app: appName)
         if output.json {
             try output.emitJSON(EditJSON(note: NoteJSON(try vault.summary(of: id)), changed: true,
