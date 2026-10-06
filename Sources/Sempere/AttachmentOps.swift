@@ -201,7 +201,7 @@ extension NoteOps {
         } else {
             let w = width ?? contentBox(pageSize).w
             guard w.isFinite, w > 0 else { throw AttachmentOpsError.invalidFrame("width must be positive") }
-            let lines = max(1, string.split(separator: "\n", omittingEmptySubsequences: false).count)
+            let lines = content.string.filter { $0 == "\n" }.count + 1
             rect = Rect(x: InkJSON.round3(origin?.x ?? Limits.margin), y: InkJSON.round3(origin?.y ?? Limits.margin),
                         w: InkJSON.round3(w), h: InkJSON.round3(Double(lines) * 1.2 * style.size))
         }
@@ -213,24 +213,33 @@ extension NoteOps {
     /// Places one page of a PDF on `page` as an item. Without `frame` it
     /// fills the page (layer 0, a background: fitted and centred when the
     /// sizes differ) or, as a figure (`layer` 100), is fitted inside the
-    /// margins and centred across the page.
+    /// margins and centred across the page; `width` and `at` choose a figure's
+    /// width (the height follows the crop's or the page's aspect) and top-left corner.
     public static func placePDFPage(blob: BlobRef, _ pdfPage: PDFPageRef, crop: Rect? = nil, on page: Page,
-                                    pageSize: PageSize, frame: Rect? = nil, layer: ItemLayer = .background,
-                                    id: UUID = UUID(), extraZ: [String] = []) throws -> ItemPlacement {
+                                    pageSize: PageSize, frame: Rect? = nil, at origin: (x: Double, y: Double)? = nil,
+                                    width: Double? = nil, layer: ItemLayer = .background, id: UUID = UUID(),
+                                    extraZ: [String] = []) throws -> ItemPlacement {
         try checkRoom(page)
         guard pdfPage.index >= 0, pdfPage.size.isPositive else {
             throw AttachmentOpsError.invalidFrame("PDF page without a size")
         }
+        if let crop { guard crop.hasPositiveSize else { throw AttachmentOpsError.invalidFrame("empty crop") } }
         let source = crop.map { Size(w: $0.w, h: $0.h) } ?? pdfPage.size
+        let sheet = Size(w: pageSize.width, h: pageSize.sheetHeight)
         let rect: Rect
         if let frame {
             rect = frame
-        } else if layer == .background {
-            let sheet = Size(w: pageSize.width, h: pageSize.sheetHeight)
+        } else if let width {
+            guard width.isFinite, width > 0 else { throw AttachmentOpsError.invalidFrame("width must be positive") }
+            let h = width * source.h / source.w
+            rect = Rect(x: InkJSON.round3(origin?.x ?? (sheet.w - width) / 2), y: InkJSON.round3(origin?.y ?? Limits.margin),
+                        w: InkJSON.round3(width), h: InkJSON.round3(h))
+        } else if layer == .background && origin == nil {
             rect = centred(fit(source, into: sheet, upscale: true), in: sheet, top: 0)
         } else {
-            rect = centred(fit(source, into: contentBox(pageSize)), in: Size(w: pageSize.width, h: pageSize.sheetHeight),
-                           top: Limits.margin)
+            let natural = fit(source, into: contentBox(pageSize))
+            rect = Rect(x: InkJSON.round3(origin?.x ?? (sheet.w - natural.w) / 2), y: InkJSON.round3(origin?.y ?? Limits.margin),
+                        w: natural.w, h: natural.h)
         }
         try validate(frame: rect)
         let item = Item.pdfPage(id: id, blob: blob, pageIndex: pdfPage.index, pageSize: pdfPage.size, crop: crop, frame: rect,

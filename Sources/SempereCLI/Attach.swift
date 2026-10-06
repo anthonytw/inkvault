@@ -1,0 +1,673 @@
+import ArgumentParser
+import Foundation
+import Sempere
+import SempereRender
+
+// `sempere attach …`: images, PDF pages, text boxes, recordings and
+// transcripts added to a note (docs/attachments.md §14 task F, docs/cli.md
+// "Attachments"). Each command stores the blob first (`Vault.writeBlob`) and
+// then writes ONE delta through `Vault.apply`, as the app does; the logic
+// that decides frames, z order and pages lives in `NoteOps`.
+
+struct AttachCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "attach",
+        abstract: "Add an image, PDF pages, text, a recording or a transcript to a note (one delta each).",
+        discussion: """
+            The file's bytes are stored as an encrypted blob of the note (format.md §8.1) and one delta places \
+            them: an image or text box at a frame of a page, PDF pages as new pages (backgrounds) or as a figure, \
+            a recording on the note. Page numbers are 1-based, as `pages list` prints them; coordinates are \
+            points from the page's top-left. Nothing in the note is changed by a command that fails; a blob \
+            stored before a failure is unreferenced and collected by `blobs gc`.
+            """,
+        subcommands: [AttachImage.self, AttachPDF.self, AttachText.self, AttachRecording.self, AttachTranscript.self]
+    )
+}
+
+// MARK: - Arguments
+
+/// `x,y,w,h` in points.
+struct RectArgument: ExpressibleByArgument {
+    var rect: Rect
+
+    init?(argument: String) {
+        let v = argument.split(separator: ",", omittingEmptySubsequences: false).map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard v.count == 4, v.allSatisfy({ $0?.isFinite == true }) else { return nil }
+        rect = Rect(x: v[0] ?? 0, y: v[1] ?? 0, w: v[2] ?? 0, h: v[3] ?? 0)
+    }
+}
+
+/// `x,y` in points.
+struct PointArgument: ExpressibleByArgument {
+    var x: Double, y: Double
+
+    init?(argument: String) {
+        let v = argument.split(separator: ",", omittingEmptySubsequences: false).map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard v.count == 2, v.allSatisfy({ $0?.isFinite == true }) else { return nil }
+        x = v[0] ?? 0; y = v[1] ?? 0
+    }
+}
+
+/// `#RRGGBB` or `#RRGGBBAA`.
+struct ColorArgument: ExpressibleByArgument {
+    var color: Color
+
+    init?(argument: String) {
+        guard let c = Color(hex: argument.hasPrefix("#") ? argument : "#" + argument) else { return nil }
+        color = c
+    }
+}
+
+/// `1-3,5,7-`: 1-based page numbers, ranges inclusive, an open range runs to the last page.
+struct PageSelection: ExpressibleByArgument {
+    private var parts: [(Int, Int?)] = []
+
+    init?(argument: String) {
+        for piece in argument.split(separator: ",", omittingEmptySubsequences: false) {
+            let ends = piece.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let a = Int(ends[0].trimmingCharacters(in: .whitespaces)), a >= 1 else { return nil }
+            if ends.count == 1 { parts.append((a, a)); continue }
+            let tail = ends[1].trimmingCharacters(in: .whitespaces)
+            if tail.isEmpty { parts.append((a, nil)); continue }
+            guard let b = Int(tail), b >= a else { return nil }
+            parts.append((a, b))
+        }
+        if parts.isEmpty { return nil }
+    }
+
+    /// The numbers in the order given. Fails before expanding a range that reaches past `total`.
+    func resolve(total: Int) throws -> [Int] {
+        var out: [Int] = []
+        for (a, b) in parts {
+            let end = b ?? total
+            guard a <= total, end <= total else { throw PDFIngestError.noSuchPage(max(a, end), of: total) }
+            if a <= end { out += Array(a...end) }
+        }
+        return out
+    }
+}
+
+enum FontChoice: String, ExpressibleByArgument, CaseIterable {
+    case sans, serif, mono
+
+    var font: TextContent.Font { TextContent.Font(rawValue: rawValue) }
+}
+
+enum AlignChoice: String, ExpressibleByArgument, CaseIterable {
+    case start, center, end, left, right
+
+    var alignment: TextContent.Alignment { TextContent.Alignment(rawValue: rawValue) }
+}
+
+enum LayerChoice: String, ExpressibleByArgument, CaseIterable {
+    case content, background
+
+    var layer: ItemLayer { self == .content ? .content : .background }
+}
+
+/// Where an item goes on a page.
+struct PlacementOptions: ParsableArguments {
+    @Option(name: .long, help: ArgumentHelp("The page (1-based, default 1).", valueName: "n"))
+    var page: Int?
+
+    @Option(name: .long, help: ArgumentHelp("The frame as x,y,w,h in points (default: fitted inside the page margins).", valueName: "x,y,w,h"))
+    var frame: RectArgument?
+
+    @Option(name: .long, help: ArgumentHelp("Top-left corner as x,y; the size follows from --width or the default.", valueName: "x,y"))
+    var at: PointArgument?
+
+    @Option(name: .long, help: ArgumentHelp("Width in points; the height follows the content's aspect.", valueName: "pt"))
+    var width: Double?
+
+    @Option(name: .long, help: ArgumentHelp("Link the item to a recording running when it was placed (id, id prefix or title).", valueName: "recording"))
+    var rec: String?
+
+    @Option(name: .customLong("rec-at"), help: ArgumentHelp("Seconds into --rec (default 0).", valueName: "seconds"))
+    var recAt: Double?
+
+    func validate() throws {
+        if let page, page < 1 { throw ValidationError("--page counts from 1") }
+        if frame != nil && (at != nil || width != nil) { throw ValidationError("give --frame, or --at and --width, not both") }
+        if let width, !(width.isFinite && width > 0) { throw ValidationError("--width must be positive") }
+        if recAt != nil && rec == nil { throw ValidationError("--rec-at needs --rec") }
+        if let recAt, !(recAt.isFinite && recAt >= 0) { throw ValidationError("--rec-at must not be negative") }
+    }
+
+    var hasPlacement: Bool { frame != nil || at != nil || width != nil }
+}
+
+// MARK: - Shared steps
+
+/// What every `attach` command prints with `--json`.
+struct AttachJSON: Encodable {
+    var note: String
+    /// The delta written, a file name in the note's folder; nil with `dryRun`.
+    var file: String?
+    var dryRun: Bool
+    var blob: BlobRef?
+    var items: [AttachmentListing.PlacedItem] = []
+    var recording: Recording?
+    /// Pages a PDF insert added.
+    var pagesAdded: Int?
+}
+
+/// The note as it is on disk now, live.
+private func liveState(_ vault: Vault, _ id: UUID) throws -> NoteState {
+    let state = try vault.reconstruct(try vault.loadNote(id))
+    try requireLive(state)
+    return state
+}
+
+/// The page `--page` names (1-based; the first by default).
+private func targetPage(_ state: NoteState, _ number: Int?) throws -> (number: Int, page: Page) {
+    let n = number ?? 1
+    return (n, try pageNumbered(n, of: state))
+}
+
+/// The page with `id` in `state`, which a preflight found by number.
+private func pageWithID(_ id: UUID, in state: NoteState) throws -> (number: Int, page: Page) {
+    guard let i = state.pages.firstIndex(where: { $0.id == id }) else {
+        throw CLIError.failure("the page was removed while the command ran")
+    }
+    return (i + 1, state.pages[i])
+}
+
+/// The recording `query` names in `state`: an id, a unique id prefix of 4 or more characters, or an exact title.
+func resolveRecording(_ query: String, in state: NoteState) throws -> Recording {
+    let q = query.lowercased()
+    if let exact = state.recordings.first(where: { $0.id.uuidString.lowercased() == q }) { return exact }
+    var matches = q.count >= 4 ? state.recordings.filter { $0.id.uuidString.lowercased().hasPrefix(q) } : []
+    if matches.isEmpty { matches = state.recordings.filter { ($0.title ?? "") == query } }
+    guard let first = matches.first else { throw CLIError.failure("no recording \(query) in this note (see `notes show`)") }
+    guard matches.count == 1 else {
+        throw CLIError.failure("'\(query)' matches \(matches.count) recordings: \(matches.map { $0.id.uuidString.lowercased() }.joined(separator: ", "))")
+    }
+    return first
+}
+
+private func link(_ options: PlacementOptions, in state: NoteState) throws -> RecordingLink? {
+    guard let query = options.rec else { return nil }
+    return RecordingLink(id: try resolveRecording(query, in: state).id, at: options.recAt ?? 0)
+}
+
+/// Reads a whole input file of at most `limit` bytes.
+private func readInput(_ path: String, limit: Int, what: String) throws -> Data {
+    do { return try BoundedRead.contents(of: URL(fileURLWithPath: path), maxBytes: limit) } catch VaultError.fileTooLarge(_, let limit) {
+        throw CLIError.failure("\(path): the \(what) is larger than the \(limit / (1 << 20)) MiB limit")
+    } catch {
+        throw CLIError.failure("cannot read \(path): \(CLIError.from(error).message)")
+    }
+}
+
+private func fail(_ error: Error) -> CLIError {
+    switch error {
+    case let e as AttachmentOpsError: return .failure("\(e)")
+    case let e as ImageIngestError: return .failure("\(e)")
+    case let e as PDFIngestError: return .failure("\(e)")
+    case let e as AudioProbeError: return .failure("\(e)")
+    default: return CLIError.from(error)
+    }
+}
+
+/// Runs `body`, turning ingest and placement errors into CLI failures.
+private func translating<T>(_ body: () throws -> T) throws -> T {
+    do { return try body() } catch { throw fail(error) }
+}
+
+private func report(_ out: AttachJSON, output: OutputOptions, summary: String) throws {
+    if output.json { try output.emitJSON(out); return }
+    for p in out.items { print(p.item.id.uuidString.lowercased()) }
+    if let r = out.recording { print(r.id.uuidString.lowercased()) }
+    if !output.quiet {
+        printStderr("\(out.dryRun ? "Would add" : "Added") \(summary) (\(out.note)\(out.file.map { "/" + $0 } ?? ""))")
+    }
+}
+
+// MARK: - attach image
+
+struct AttachImage: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "image",
+        abstract: "Add a JPEG or PNG image to a page.",
+        discussion: """
+            The image is stored without its location and camera metadata (EXIF, XMP, GPS, comments) unless \
+            --keep-metadata; a JPEG's EXIF orientation is kept as the item's orientation. Without a frame the \
+            image is shown at one pixel per point, shrunk to fit inside a 36 pt margin, centred across the page \
+            and a margin from its top. HEIC, WebP, GIF and TIFF must be converted first. Prints the new item's id.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("A JPEG or PNG file.", valueName: "file"))
+    var file: String
+
+    @OptionGroup var placement: PlacementOptions
+
+    @Option(name: .long, help: ArgumentHelp("Show only this part of the image: x,y,w,h in (oriented) pixels.", valueName: "x,y,w,h"))
+    var crop: RectArgument?
+
+    @Option(name: .long, help: ArgumentHelp("Degrees clockwise about the frame's centre.", valueName: "deg"))
+    var rotation: Double?
+
+    @Option(name: .long, help: ArgumentHelp("content (default) or background (under the page's other items).", valueName: "layer"))
+    var layer: LayerChoice = .content
+
+    @Flag(name: .customLong("keep-metadata"), help: "Store the file as it is, with its EXIF/XMP/GPS metadata.")
+    var keepMetadata = false
+
+    @Flag(name: .customLong("dry-run"), help: "Check the file and the placement and say what would be added; write nothing.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        try placement.validate()
+        if let rotation, !rotation.isFinite { throw ValidationError("--rotation must be a number") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let data = try readInput(file, limit: ImageLimits.maxBlobBytes, what: "image (exports draw larger ones as placeholders)")
+        let image = try translating { try ImageIngest.prepare(data, keepMetadata: keepMetadata) }
+        let ref = BlobRef(content: image.data, type: image.mediaType)
+        let before = try liveState(vault, id)
+        let target = try targetPage(before, placement.page)
+        func place(_ state: NoteState, _ page: Page) throws -> ItemPlacement {
+            try translating {
+                try NoteOps.placeImage(blob: ref, pixelSize: image.pixelSize, orientation: image.orientation, crop: crop?.rect,
+                                       on: page, pageSize: state.meta.pageSize, frame: placement.frame?.rect,
+                                       at: placement.at.map { ($0.x, $0.y) }, width: placement.width, rotation: rotation,
+                                       layer: layer.layer, rec: try link(placement, in: state))
+            }
+        }
+        var placed = try place(before, target.page)
+        var out = AttachJSON(note: id.uuidString.lowercased(), dryRun: dryRun, blob: ref)
+        if !dryRun {
+            let stored = try translating { try vault.writeBlob(note: id, image.data, type: image.mediaType) }
+            guard stored == ref else { throw CLIError.failure("internal error: the stored blob differs from its reference") }
+            let pageID = target.page.id
+            var number = target.number
+            let revision = try editNote(vault, id) { state in
+                try requireLive(state)
+                let current = try pageWithID(pageID, in: state)
+                number = current.number
+                placed = try place(state, current.page)
+                return placed.ops
+            }
+            out.file = revision?.name.filename
+            out.items = [.init(page: number, pageId: pageID, item: placed.item)]
+        } else {
+            out.items = [.init(page: target.number, pageId: target.page.id, item: placed.item)]
+        }
+        let f = placed.item.frame
+        try report(out, output: output, summary: "image (\(Int(image.pixelSize.w)) × \(Int(image.pixelSize.h)) px) to page \(out.items[0].page) at "
+                   + "[\([f.x, f.y, f.w, f.h].map(AttachmentListing.number).joined(separator: ", "))]")
+    }
+}
+
+// MARK: - attach pdf
+
+struct AttachPDF: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "pdf",
+        abstract: "Add PDF pages to a note: as new pages (backgrounds) or as a figure on a page.",
+        discussion: """
+            One blob holds the PDF; each selected page becomes a pdfPage item. By default the pages are inserted \
+            as new note pages after page N (--after, default: at the end), each with the PDF page as a background \
+            that fills it (fitted and centred when the sizes differ). With --page (and optionally --frame, --at, \
+            --width, --crop) ONE page is placed as a figure on an existing page instead, drawn above the paper in \
+            the content layer. The note's page size is not changed. A pageless note takes figures only. Encrypted \
+            PDFs are refused: remove the password first (qpdf --decrypt). Prints the new item ids.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("A PDF file.", valueName: "file"))
+    var file: String
+
+    @Option(name: .long, help: ArgumentHelp("Which PDF pages: 1-3,5,7- (default all).", valueName: "list"))
+    var pages: PageSelection?
+
+    @Option(name: .long, help: ArgumentHelp("Insert after this note page (0: before the first; default: at the end).", valueName: "n"))
+    var after: Int?
+
+    @OptionGroup var placement: PlacementOptions
+
+    @Option(name: .long, help: ArgumentHelp("Figure only: show this part of the page, x,y,w,h on the effective page.", valueName: "x,y,w,h"))
+    var crop: RectArgument?
+
+    @Flag(name: .customLong("dry-run"), help: "Check the file and say what would be added; write nothing.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    var isFigure: Bool { placement.page != nil || placement.hasPlacement || crop != nil }
+
+    func validate() throws {
+        try placement.validate()
+        if let after, after < 0 { throw ValidationError("--after must not be negative") }
+        if after != nil && isFigure { throw ValidationError("--after inserts pages; --page, --frame, --at, --width and --crop place a figure: give one kind") }
+        if placement.rec != nil { throw ValidationError("--rec applies to images and text; PDF pages are backgrounds") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let data = try readInput(file, limit: 1 << 30, what: "PDF")
+        let summary = try translating { try PDFIngest.inspect(data) }
+        let selected = try translating { try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages }
+        guard !selected.isEmpty else { throw CLIError.failure("no PDF pages selected") }
+        if isFigure && selected.count != 1 { throw CLIError.usage("a figure is one PDF page: select it with --pages N") }
+        let ref = BlobRef(content: data, type: "application/pdf")
+        let before = try liveState(vault, id)
+        // Preflight with the note as it is now; the delta is computed again from the note as it is when it is written.
+        func build(_ state: NoteState, _ pageID: UUID?) throws -> (ops: [Op], items: [AttachmentListing.PlacedItem]) {
+            try translating {
+                if isFigure {
+                    let current = try pageWithID(pageID ?? state.pages[0].id, in: state)
+                    let placed = try NoteOps.placePDFPage(blob: ref, selected[0], crop: crop?.rect, on: current.page,
+                                                          pageSize: state.meta.pageSize, frame: placement.frame?.rect,
+                                                          at: placement.at.map { ($0.x, $0.y) }, width: placement.width,
+                                                          layer: .content)
+                    return (placed.ops, [.init(page: current.number, pageId: current.page.id, item: placed.item)])
+                }
+                let edit = try NoteOps.insertPDFPages(blob: ref, selected, after: after ?? state.pages.count, in: state.pages,
+                                                      pageSize: state.meta.pageSize)
+                var items: [AttachmentListing.PlacedItem] = []
+                for (i, page) in edit.pages.enumerated() {
+                    for item in page.items where item.blob == ref && !state.pages.contains(where: { $0.id == page.id }) {
+                        items.append(.init(page: i + 1, pageId: page.id, item: item))
+                    }
+                }
+                return (edit.ops, items)
+            }
+        }
+        var pageID: UUID?
+        if isFigure { pageID = try targetPage(before, placement.page).page.id }
+        var planned = try build(before, pageID)
+        var out = AttachJSON(note: id.uuidString.lowercased(), dryRun: dryRun, blob: ref)
+        if !dryRun {
+            let stored = try translating { try vault.writeBlob(note: id, data, type: "application/pdf") }
+            guard stored == ref else { throw CLIError.failure("internal error: the stored blob differs from its reference") }
+            let revision = try editNote(vault, id) { state in
+                try requireLive(state)
+                if isFigure { pageID = try pageWithID(pageID ?? UUID(), in: state).page.id }
+                planned = try build(state, pageID)
+                return planned.ops
+            }
+            out.file = revision?.name.filename
+        }
+        out.items = planned.items
+        if !isFigure { out.pagesAdded = planned.items.count }
+        try report(out, output: output, summary: isFigure ? "PDF page \(selected[0].index + 1) as a figure on page \(planned.items[0].page)"
+                   : "\(planned.items.count) PDF page(s) as new page(s) \(planned.items.first?.page ?? 0)–\(planned.items.last?.page ?? 0)")
+    }
+}
+
+// MARK: - attach text
+
+struct AttachText: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "text",
+        abstract: "Add a text box to a page.",
+        discussion: """
+            The text is the argument, or read from --file (- for standard input); it is stored as NFC with \
+            line breaks as \\n, in one style. Without a frame the box is as wide as the page inside a 36 pt margin \
+            (or --width), a margin from the top left (or --at), as tall as its lines at 1.2 × the size. Soft \
+            line wrapping is left to each renderer. Typed text is searchable (`sempere search`). Prints the \
+            new item's id.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("The text (or use --file).", valueName: "text"))
+    var text: String?
+
+    @Option(name: .long, help: ArgumentHelp("Read the text from this UTF-8 file; - is standard input.", valueName: "file"))
+    var file: String?
+
+    @OptionGroup var placement: PlacementOptions
+
+    @Option(name: .long, help: ArgumentHelp("sans (default), serif or mono.", valueName: "family"))
+    var font: FontChoice = .sans
+
+    @Option(name: .long, help: ArgumentHelp("Size in points (default 14).", valueName: "pt"))
+    var size: Double = 14
+
+    @Option(name: .long, help: ArgumentHelp("Colour as #RRGGBB or #RRGGBBAA (default black).", valueName: "hex"))
+    var color: ColorArgument?
+
+    @Option(name: .long, help: ArgumentHelp("start (default), center, end, left or right.", valueName: "align"))
+    var align: AlignChoice?
+
+    @Flag(name: .long, help: "Bold.")
+    var bold = false
+
+    @Flag(name: .long, help: "Italic.")
+    var italic = false
+
+    @Option(name: .long, help: ArgumentHelp("BCP 47 language tag, for font choice (zh-Hans, ja, ...).", valueName: "tag"))
+    var lang: String?
+
+    @Option(name: .long, help: ArgumentHelp("content (default) or background.", valueName: "layer"))
+    var layer: LayerChoice = .content
+
+    @Flag(name: .customLong("dry-run"), help: "Say what would be added; write nothing.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        try placement.validate()
+        if (text == nil) == (file == nil) { throw ValidationError("give the text as an argument, or --file PATH (not both)") }
+        guard size.isFinite, size > 0, size <= TextContent.Limits.size else { throw ValidationError("--size must be greater than 0 and at most \(Int(TextContent.Limits.size))") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let string = try text ?? readText()
+        let style = TextStyle(font: font.font, size: size, color: color?.color ?? .black, align: align?.alignment,
+                              bold: bold, italic: italic, lang: lang)
+        let before = try liveState(vault, id)
+        let target = try targetPage(before, placement.page)
+        func place(_ state: NoteState, _ page: Page) throws -> ItemPlacement {
+            try translating {
+                try NoteOps.placeText(string, style: style, on: page, pageSize: state.meta.pageSize, frame: placement.frame?.rect,
+                                      at: placement.at.map { ($0.x, $0.y) }, width: placement.width, layer: layer.layer,
+                                      rec: try link(placement, in: state))
+            }
+        }
+        var placed = try place(before, target.page)
+        var number = target.number
+        var out = AttachJSON(note: id.uuidString.lowercased(), dryRun: dryRun)
+        if !dryRun {
+            let pageID = target.page.id
+            let revision = try editNote(vault, id) { state in
+                try requireLive(state)
+                let current = try pageWithID(pageID, in: state)
+                number = current.number
+                placed = try place(state, current.page)
+                return placed.ops
+            }
+            out.file = revision?.name.filename
+        }
+        out.items = [.init(page: number, pageId: target.page.id, item: placed.item)]
+        try report(out, output: output, summary: "text box (\(string.unicodeScalars.count) characters) to page \(number)")
+    }
+
+    private func readText() throws -> String {
+        let limit = TextContent.Limits.utf8Bytes + 1
+        let data: Data
+        if file == "-" {
+            data = (try? FileHandle.standardInput.read(upToCount: limit)) ?? Data()
+        } else {
+            data = try readInput(file ?? "", limit: limit, what: "text (a text box takes at most \(TextContent.Limits.utf8Bytes) bytes)")
+        }
+        guard let s = String(data: data, encoding: .utf8) else { throw CLIError.failure("the text is not valid UTF-8") }
+        // One trailing newline is the file's, not the text's.
+        return s.hasSuffix("\n") ? String(s.dropLast()) : s
+    }
+}
+
+// MARK: - attach recording
+
+struct AttachRecording: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "recording",
+        abstract: "Add an audio recording to a note.",
+        discussion: """
+            The file should be MPEG-4 audio (.m4a: AAC-LC, HE-AAC or ALAC, `audio/mp4`): its duration, codec, \
+            sample rate, channels and average bit rate are read from its header; the options override them. \
+            Another audio format needs --type (it is stored and listed, but the app may not play it). --started \
+            is the wall time of the first sample (RFC 3339); by default the file's modification time minus its \
+            duration. Prints the new recording's id.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("An audio file.", valueName: "file"))
+    var file: String
+
+    @Option(name: .long, help: ArgumentHelp("The recording's title.", valueName: "title"))
+    var title: String?
+
+    @Option(name: .long, help: ArgumentHelp("When the first sample was recorded (RFC 3339, e.g. 2026-10-04T16:20:00Z).", valueName: "time"))
+    var started: String?
+
+    @Option(name: .long, help: ArgumentHelp("Media type; needed for anything but MPEG-4 audio.", valueName: "type"))
+    var type: String?
+
+    @Option(name: .long, help: ArgumentHelp("Duration in seconds.", valueName: "s"))
+    var duration: Double?
+
+    @Option(name: .long, help: ArgumentHelp("Codec name (aac, he-aac, alac, ...).", valueName: "name"))
+    var codec: String?
+
+    @Option(name: .customLong("sample-rate"), help: ArgumentHelp("Sample rate in Hz.", valueName: "hz"))
+    var sampleRate: Int?
+
+    @Option(name: .long, help: ArgumentHelp("Number of channels.", valueName: "n"))
+    var channels: Int?
+
+    @Option(name: .customLong("bit-rate"), help: ArgumentHelp("Average bit rate in bits per second.", valueName: "bps"))
+    var bitRate: Int?
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        if let duration, !(duration.isFinite && duration >= 0) { throw ValidationError("--duration must not be negative") }
+        for (name, v) in [("--sample-rate", sampleRate), ("--channels", channels), ("--bit-rate", bitRate)] {
+            if let v, v < 1 { throw ValidationError("\(name) must be positive") }
+        }
+        if let type, !type.lowercased().hasPrefix("audio/") { throw ValidationError("--type must be an audio/… media type") }
+        if let started, RFC3339.parse(started) == nil { throw ValidationError("--started is not an RFC 3339 time: \(started)") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let url = URL(fileURLWithPath: file)
+        var info: AudioInfo
+        let mediaType = type ?? "audio/mp4"
+        do {
+            info = try AudioProbe.probe(file: url)
+        } catch let e as AudioProbeError {
+            guard type != nil else {
+                throw CLIError.failure("\(file): \(e). Pass --type MEDIA/TYPE (and --duration) to store another audio format as it is")
+            }
+            info = AudioInfo()
+        } catch {
+            throw CLIError.failure("cannot read \(file): \(CLIError.from(error).message)")
+        }
+        if let duration { info.duration = duration }
+        if let codec { info.codec = codec }
+        if let sampleRate { info.sampleRate = sampleRate }
+        if let channels { info.channels = channels }
+        if let bitRate { info.bitRate = bitRate }
+        let when: Date
+        if let started, let t = RFC3339.parse(started) {
+            when = t
+        } else {
+            let end = (try? FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date) ?? Date()
+            when = end.addingTimeInterval(-(info.duration ?? 0))
+        }
+        let before = try liveState(vault, id)
+        guard before.recordings.count < NoteOps.Limits.recordingsPerNote else { throw CLIError.failure("\(AttachmentOpsError.tooManyRecordings)") }
+        let ref = try translating { try vault.writeBlob(note: id, contentsOf: url, type: mediaType) }
+        let recording = NoteOps.recording(blob: ref, started: when, info: info, title: title)
+        let revision = try editNote(vault, id) { state in
+            try requireLive(state)
+            return try translating { try NoteOps.addRecording(recording, to: state.recordings) }
+        }
+        let out = AttachJSON(note: id.uuidString.lowercased(), file: revision?.name.filename, dryRun: false, blob: ref,
+                             recording: recording)
+        try report(out, output: output, summary: "recording (\(info.duration.map { AttachmentListing.number($0) + " s" } ?? "unknown length"), \(mediaType))")
+    }
+}
+
+// MARK: - attach transcript
+
+struct AttachTranscript: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "transcript",
+        abstract: "Set a recording's transcript from a sempere-transcript/1 JSON file.",
+        discussion: """
+            The file is checked against format.md §8.3.2 (format, segment order, times, confidences) and must name \
+            the recording by its id. It replaces any transcript the recording has (one setRecording delta); the \
+            old blob stays until `blobs gc`. `sempere search --transcripts` searches it.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("The recording: id, id prefix (4+ characters) or exact title.", valueName: "recording"))
+    var recording: String
+
+    @Argument(help: ArgumentHelp("The transcript JSON file.", valueName: "file"))
+    var file: String
+
+    @Flag(name: .customLong("dry-run"), help: "Check the file; write nothing.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let content = try readInput(file, limit: Transcript.maxSize, what: "transcript")
+        let before = try liveState(vault, id)
+        let target = try resolveRecording(recording, in: before)
+        let ref = BlobRef(content: content, type: BlobRef.transcriptType)
+        _ = try translating { try NoteOps.setTranscript(ref, content: content, for: target.id, in: before) }
+        var out = AttachJSON(note: id.uuidString.lowercased(), dryRun: dryRun, blob: ref)
+        var updated = target
+        updated.transcript = ref
+        if !dryRun {
+            let stored = try translating { try vault.writeBlob(note: id, content, type: BlobRef.transcriptType) }
+            guard stored == ref else { throw CLIError.failure("internal error: the stored blob differs from its reference") }
+            let revision = try editNote(vault, id) { state in
+                try requireLive(state)
+                return try translating { try NoteOps.setTranscript(ref, content: content, for: target.id, in: state) }
+            }
+            out.file = revision?.name.filename
+        }
+        out.recording = updated
+        try report(out, output: output, summary: "transcript to recording \(target.id.uuidString.lowercased().prefix(8))")
+    }
+}
