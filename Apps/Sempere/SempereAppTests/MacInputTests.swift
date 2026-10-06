@@ -1,5 +1,6 @@
 import Foundation
 import PencilKit
+import Sempere
 import Testing
 import UIKit
 @testable import SempereApp
