@@ -14,6 +14,9 @@ struct PageCanvasView: UIViewRepresentable {
     /// The tool palette's shown/compact state (`ToolPalette`).
     var paletteVisible = true
     var paletteCompact = false
+    /// `NoteEditor.canvasGeneration`: a change reloads the drawing even when
+    /// the page id stays the same.
+    var generation = 0
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -27,9 +30,10 @@ struct PageCanvasView: UIViewRepresentable {
         let c = context.coordinator
         c.editor = editor
         c.host = host
-        if c.pageID != pageID || c.editorID != ObjectIdentifier(editor) {
+        if c.pageID != pageID || c.editorID != ObjectIdentifier(editor) || c.generation != generation {
             c.pageID = pageID
             c.editorID = ObjectIdentifier(editor)
+            c.generation = generation
             c.isLoading = true
             host.cancelErasing()   // an erase in progress belongs to the old page
             host.canvas.drawing = editor.drawing(for: pageID)
@@ -70,6 +74,7 @@ struct PageCanvasView: UIViewRepresentable {
         weak var host: PageCanvasHost?
         var pageID: UUID?
         var editorID: ObjectIdentifier?
+        var generation: Int?
         var isLoading = false
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {

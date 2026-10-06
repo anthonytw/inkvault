@@ -73,7 +73,7 @@ private struct PageStripRow: View {
         VStack(spacing: 4) {
             Image(uiImage: PageThumbnail.image(strokes: strokes, paper: paper, pageSize: editor.pageSize,
                                                size: CGSize(width: width, height: height), scale: displayScale,
-                                               key: "\(page.id)-\(editor.inkRevisions[page.id] ?? 0)-\(strokes.count)"))
+                                               key: "\(editor.sessionID)-\(page.id)-\(editor.inkRevisions[page.id] ?? 0)-\(strokes.count)"))
                 .resizable()
                 .frame(width: width, height: height)
                 .overlay(Rectangle().stroke(selected ? SwiftUI.Color.accentColor : SwiftUI.Color.secondary.opacity(0.5),

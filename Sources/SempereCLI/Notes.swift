@@ -127,7 +127,8 @@ struct NotesLayout: ParsableCommand {
             paged cuts an infinite page into pages of its sheet height (breakHeight, default
             width x 11/8.5). No ink is deleted and none moves relative to its sheet: strokes that
             change page are re-added under new ids with `parent` naming the old ones (format.md
-            §5.4.3). Nothing is written when the note already has the layout, or with --dry-run.
+            §5.4.3). Nothing is written when the note already has the layout (a pageless note with
+            several pages, left by concurrent edits, is joined), or with --dry-run.
             The device id and clock come from $XDG_STATE_HOME/sempere/device.json.
             """
     )

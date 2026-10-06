@@ -42,6 +42,9 @@ final class RenderFuzzTests: XCTestCase {
         }
         states.append(T.note(pages: [strokes], meta: T.meta(size: PageSize(width: 300, height: 400, infinite: true,
                                                                              breakHeight: 150))))
+        // A finite page a fraction of a point tall, ink far below it (pages below a page, §5.4.3).
+        states.append(T.note(pages: [strokes + [T.stroke([T.pt(20, 150_000, w: 2), T.pt(180, 150_010, w: 2)], width: 2)]],
+                             meta: T.meta(size: PageSize(width: 300, height: 0.001))))
         return try states.map { try InkJSON.encoder().encode($0) }
     }
 
@@ -61,7 +64,7 @@ final class RenderFuzzTests: XCTestCase {
                 : nil
             strokes.append(T.stroke(pts, tool: rng.pick(InkTool.allCases), width: rng.pick(big), transform: xf))
         }
-        let size = PageSize(width: rng.pick([1, 300, 199_999, 1e9]), height: rng.pick([0, 400, 199_999, 1e9]),
+        let size = PageSize(width: rng.pick([1, 300, 199_999, 1e9]), height: rng.pick([0, 400, 199_999, 1e9, 1, 0.001, 1e-300]),
                             infinite: rng.oneIn(2), breakHeight: rng.oneIn(2) ? rng.pick([0, 72, 1, 1e300]) : nil)
         let paper = Paper(kind: rng.pick(PaperKind.allCases), spacing: rng.pick([0, 4, 4.0001, 1e-300, 24, 1e300]))
         let note = T.note(pages: [strokes], meta: T.meta(paper: paper, size: size))

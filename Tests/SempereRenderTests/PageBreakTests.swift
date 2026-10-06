@@ -81,6 +81,64 @@ final class PageBreakTests: XCTestCase {
         XCTAssertEqual(drawn(below, below.chunks[1]), 1)
     }
 
+    /// Below a finite page only ink centred there makes and fills pages: the
+    /// tail of a stroke crossing the bottom edge is clipped by it, not drawn on
+    /// a page of its own.
+    func testOverflowPagesDrawOnlyInkCentredBelowThePage() throws {
+        let size = PageSize(width: 200, height: 300)
+        let p = try prepared([line(250, 340), line(1000, 1050)], size: size)
+        XCTAssertEqual(p.chunks.map(\.yOffset), [0, 900])
+        XCTAssertEqual(drawn(p, p.chunks[0]), 1)
+        XCTAssertEqual(drawn(p, p.chunks[1]), 1, "only the stroke centred below the page")
+        // Ink below the page is cut like a pageless page: the cut moves up to the
+        // top of a line it would cross, and the page above it, empty, is dropped.
+        let q = try prepared([line(250, 340), line(580, 620)], size: size)
+        XCTAssertEqual(q.chunks.map(\.yOffset), [0, q.strokes[1].minY])
+        XCTAssertEqual(drawn(q, q.chunks[1]), 1)
+    }
+
+    /// Hostile page heights (format.md §9): a finite page a fraction of a
+    /// point tall with ink far below it used to be cut into one output page
+    /// per `height` (billions of chunks: a failed allocation or a hang).
+    func testTinyFinitePageHeightIsBounded() throws {
+        for h in [1e-300, 0.001, 1] {
+            let size = PageSize(width: 200, height: h)
+            let p = try prepared([line(199_000, 199_010)], size: size)
+            XCTAssertEqual(p.chunks.count, 2, "\(h)")
+            XCTAssertGreaterThanOrEqual(p.chunks[1].height, 72)
+            let pdf = try PDFWriter.render(note: T.note(pages: [[line(199_000, 199_010)]], meta: T.meta(size: size)),
+                                           options: RenderOptions(compress: false))
+            XCTAssertEqual(T.count(pdf, "/Type /Page /"), 2)
+        }
+        // Many separate lines: cuts at least 3/4 of 72 pt apart, each found without a scan of every line.
+        let many = (0..<5_000).map { line(Double($0) * 9.9 + 10, Double($0) * 9.9 + 12) }
+        let start = Date()
+        let p = try prepared(many, size: PageSize(width: 200, height: 1))
+        XCTAssertLessThanOrEqual(p.chunks.count, Int(5_000 * 9.9 / 54) + 3)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
+    /// A stroke within the extent limit whose nib reaches past it, below a
+    /// finite page, is culled there as elsewhere, not an error for the note.
+    func testWideStrokeAtTheExtentLimitBelowAPageRenders() throws {
+        let wide = line(199_900, 199_990, width: 600)
+        let p = try prepared([line(20, 100), wide], size: PageSize(width: 200, height: 300))
+        XCTAssertEqual(p.extent, RenderLimits.maxExtent)
+        XCTAssertGreaterThan(p.chunks.count, 1)
+        XCTAssertGreaterThan(p.layers(for: p.chunks[p.chunks.count - 1]).strokes.count, 0)
+    }
+
+    /// The export cuts a pageless page at the same sheet height as the paper
+    /// ruling and a split (`PageSize.sheetHeight`), invalid `breakHeight` included.
+    func testChunkHeightIsTheSheetHeight() {
+        for b in [0, -5, Double.nan, .infinity, 50, 500, 1e12] {
+            let size = PageSize(width: 200, height: 300, infinite: true, breakHeight: b)
+            XCTAssertEqual(PreparedPage.chunkHeight(options: RenderOptions(), size: size), size.sheetHeight, "\(b)")
+        }
+        let none = PageSize(width: 612, height: 300, infinite: true)
+        XCTAssertEqual(PreparedPage.chunkHeight(options: RenderOptions(), size: none), 792)
+    }
+
     /// Property: whatever the ink, output pages are contiguous, sheet-sized,
     /// advance by at least 3/4 of a sheet, cover the extent, and every
     /// stroke is drawn on at least one of them.

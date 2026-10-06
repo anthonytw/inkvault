@@ -15,6 +15,9 @@ struct PageChunk {
     var startsAtGap = false
     /// The bottom is a gap no stroke spans: strokes starting there belong to the page below.
     var endsAtGap = false
+    /// An output page below a finite page: it draws only the ink centred below
+    /// the page (strokes crossing the page's bottom edge are clipped by it).
+    var belowPage = false
     var height: Double { yEnd - yOffset }
 
     init(yOffset: Double, yEnd: Double, width: Double, contentEnd: Double? = nil,
@@ -107,18 +110,23 @@ struct PreparedPage {
             extent = max(size.height, low.rounded(.up), chunkHeight)
         } else {
             // Ink below the page (a stroke centred at or below its height) adds pages after it.
+            // Its outline may reach past the extent limit by its nib: culled there, not an error.
             let below = list.filter { $0.centreY >= size.height }.map(\.maxY).max()
-            if let below { guard below <= maxE else { throw RenderError.extentTooLarge(below) } }
-            extent = max(size.height, below?.rounded(.up) ?? 0)
+            extent = max(size.height, min(below ?? 0, maxE).rounded(.up))
         }
         let seekGaps = options.breaks == .gaps && paper.kind != .cornell
-        let blocks = Self.blocks(list)
+        // Below a finite page only the ink centred there is drawn (format.md §5.4.3): a
+        // stroke crossing the bottom edge is clipped by it, so it alone adds no page.
+        let blocks = Self.blocks(size.infinite ? list : list.filter { $0.centreY >= size.height })
+        // Pages below a finite page are cut at its sheet height, at least 72 pt: a tiny
+        // `height` from hostile input must not make one output page per point.
         var cut = Self.chunks(width: size.width, firstHeight: size.infinite ? nil : size.height,
-                              sheetHeight: size.infinite ? chunkHeight : size.height, extent: extent,
+                              sheetHeight: size.infinite ? chunkHeight : size.sheetHeight, extent: extent,
                               blocks: seekGaps ? blocks : nil)
         if !size.infinite {
             // Below a finite page only the output pages that hold ink are kept.
             cut = [cut[0]] + cut.dropFirst().filter { Self.holdsInk($0, blocks) }
+            for i in cut.indices.dropFirst() { cut[i].belowPage = true }
         }
         chunks = cut
         // Bands over the per-band cap draw no ruling anyway; the rest must fit the page budget.
@@ -132,9 +140,13 @@ struct PreparedPage {
             : Paper(kind: .blank, spacing: paper.spacing, background: paper.background, lineColor: paper.lineColor)
     }
 
-    /// The option, else the page's `breakHeight`, else letter aspect from the width.
+    /// The option, else the note's sheet height (`PageSize.sheetHeight` of the
+    /// pageless page: its `breakHeight`, else letter aspect from the width), as
+    /// the paper ruling and a split use.
     static func chunkHeight(options: RenderOptions, size: PageSize) -> Double {
-        let base = options.infiniteChunkHeight ?? size.breakHeight ?? size.width * 11 / 8.5
+        var pageless = size
+        pageless.infinite = true
+        let base = options.infiniteChunkHeight ?? pageless.sheetHeight
         return min(max(base.isFinite ? base : 792, 72), RenderLimits.maxExtent)
     }
 
@@ -156,7 +168,7 @@ struct PreparedPage {
             t = first
             guard extent > first else { return out }
         }
-        // Each cut advances by at least 3h/4 (h >= 72, extent <= maxExtent): bounded.
+        // Each cut advances by at least 3h/4 (callers pass h >= 72, extent <= maxExtent): bounded.
         while true {
             let e = t + h
             if e >= extent {
@@ -171,9 +183,16 @@ struct PreparedPage {
         }
     }
 
-    /// Whether any ink block reaches into `chunk`'s content band.
+    /// Whether any ink block reaches into `chunk`'s content band. `blocks` are
+    /// disjoint and sorted (`blocks(_:)`): a binary search.
     static func holdsInk(_ c: PageChunk, _ blocks: [ClosedRange<Double>]) -> Bool {
-        blocks.contains { $0.upperBound > c.yOffset && $0.lowerBound < c.contentEnd }
+        // First block ending below the chunk's top; disjoint sorted blocks have sorted upper bounds.
+        var lo = 0, hi = blocks.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if blocks[mid].upperBound > c.yOffset { hi = mid } else { lo = mid + 1 }
+        }
+        return lo < blocks.count && blocks[lo].lowerBound < c.contentEnd
     }
 
     /// The vertical extents of the strokes, merged into disjoint ranges
@@ -220,6 +239,7 @@ struct PreparedPage {
         for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.contentEnd) {
             if chunk.startsAtGap && s.maxY <= chunk.yOffset { continue }
             if chunk.endsAtGap && s.minY >= chunk.contentEnd { continue }
+            if chunk.belowPage && s.centreY < meta.pageSize.height { continue }
             for c in s.commands {
                 if let clipped = Self.clip(c, to: chunk.yOffset, chunk.contentEnd) {
                     out.append(clipped.translated(dy: -chunk.yOffset))

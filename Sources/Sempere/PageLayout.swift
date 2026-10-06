@@ -91,16 +91,16 @@ extension NoteOps {
     /// Re-creates a deleted `page` at `index` of `pages` (undo of
     /// `deletePage`, format.md §5.2: a removed id is never added again). The
     /// new page has a new id with `parent` naming the old one, copies of its
-    /// strokes under new ids with `parent` set, and its recognition and own
-    /// paper.
+    /// strokes and items under new ids with `parent` set, and its recognition
+    /// and own paper.
     public static func restorePage(_ page: Page, at index: Int, in pages: [Page], id: UUID = UUID(),
                                    newID: () -> UUID = UUID.init) -> PageEdit {
         copyPage(page, at: index, in: pages, id: id, parent: page.id, strokeParents: true, newID: newID)
     }
 
     /// Duplicates page `id` just after it: a new page with copies of its
-    /// strokes (new ids, no `parent`: they are not re-creations), its
-    /// recognition and its own paper. Nil when the page is not in `pages`.
+    /// strokes and items (new ids, no `parent`: they are not re-creations),
+    /// its recognition and its own paper. Nil when the page is not in `pages`.
     public static func duplicatePage(_ id: UUID, in pages: [Page], newPageID: UUID = UUID(),
                                      newID: () -> UUID = UUID.init) -> PageEdit? {
         guard let i = pages.firstIndex(where: { $0.id == id }) else { return nil }
@@ -109,16 +109,15 @@ extension NoteOps {
 
     private static func copyPage(_ page: Page, at index: Int, in pages: [Page], id: UUID, parent: UUID?,
                                  strokeParents: Bool, newID: () -> UUID) -> PageEdit {
-        let strokes = page.strokes.map {
-            Stroke(id: newID(), ink: $0.ink, points: $0.points, transform: $0.transform,
-                   parent: strokeParents ? $0.id : nil)
-        }
+        let strokes = page.strokes.map { moved($0, id: newID(), by: 0, parent: strokeParents ? $0.id : nil) }
+        let items = page.items.map { moved($0, id: newID(), by: 0, parent: strokeParents ? $0.id : nil) }
         let copy = Page(id: id, order: "", strokes: strokes, recognition: page.recognition, parent: parent,
-                        paper: page.paper)
+                        paper: page.paper, items: items)
         return insert([copy], at: index, in: pages) { placed in
             let p = placed[0]
             var ops: [Op] = [.addPage(Page(id: p.id, order: p.order, parent: p.parent))]
             ops += p.strokes.map { .addStroke(page: p.id, stroke: $0) }
+            ops += p.items.map { .addItem(page: p.id, item: $0) }
             if let r = p.recognition { ops.append(.setPageRecognition(pageId: p.id, recognition: r)) }
             if let paper = p.paper { ops.append(.setPagePaper(pageId: p.id, paper: paper)) }
             return ops
@@ -195,29 +194,38 @@ extension NoteOps {
     public static let maxSheetsPerPage = 10_000
 
     /// Converts a paged note to pageless (format.md §5.4.3, "join"): the
-    /// first page stays and every later page's strokes move onto it, each
-    /// re-added under a new id (`parent` = old id) with its transform shifted
-    /// down by the page's offset (`index × sheet height`), in page order;
-    /// recognition is concatenated likewise; the later pages are removed. The
-    /// page size becomes infinite with `breakHeight` = the old page height,
-    /// so the sheets fall where the pages were. Empty `ops` when the note is
-    /// already pageless or has no pages.
+    /// first page stays and every later page's strokes and items move onto
+    /// it, each re-added under a new id (`parent` = old id) shifted down by
+    /// the page's offset, in page order: the sheets the earlier pages reach
+    /// (`sheetsReached`, one each unless a concurrent edit left ink below a
+    /// page) × sheet height. Recognition is concatenated likewise; the later
+    /// pages are removed. The page size becomes infinite with `breakHeight` =
+    /// the old page height, so the sheets fall where the pages were. A
+    /// pageless note with several pages (a concurrent split its own writes
+    /// overrode) is joined the same way. Empty `ops` when the note is
+    /// pageless with at most one page, or has no pages.
     public static func makePageless(pages: [Page], pageSize: PageSize, newID: () -> UUID = UUID.init) -> LayoutEdit {
         let pages = sortedPages(pages)
-        guard !pageSize.infinite, let first = pages.first else {
+        guard let first = pages.first, !pageSize.infinite || pages.count > 1 else {
             return LayoutEdit(ops: [], pages: pages, pageSize: pageSize)
         }
         let h = pageSize.sheetHeight
         var joined = first
         var ops: [Op] = []
         var recognitions: [(Recognition, Double)] = first.recognition.map { [($0, 0)] } ?? []
-        for (j, page) in pages.enumerated().dropFirst() {
-            let dy = Double(j) * h
+        var sheets = sheetsReached(first, height: h)
+        for page in pages.dropFirst() {
+            let dy = Double(sheets) * h
+            sheets += sheetsReached(page, height: h)
             for s in page.strokes {
-                let moved = Stroke(id: newID(), ink: s.ink, points: s.points,
-                                   transform: shifted(s.transform, by: dy), parent: s.id)
-                ops.append(.addStroke(page: first.id, stroke: moved))
-                joined.strokes.append(moved)
+                let copy = moved(s, id: newID(), by: dy, parent: s.id)
+                ops.append(.addStroke(page: first.id, stroke: copy))
+                joined.strokes.append(copy)
+            }
+            for item in page.items {
+                let copy = moved(item, id: newID(), by: dy, parent: item.id)
+                ops.append(.addItem(page: first.id, item: copy))
+                joined.items.append(copy)
             }
             if let r = page.recognition { recognitions.append((r, dy)) }
             ops.append(.removePage(pageId: page.id))
@@ -227,8 +235,9 @@ extension NoteOps {
             joined.recognition = r
             ops.append(.setPageRecognition(pageId: first.id, recognition: r))
         }
-        let size = PageSize(width: pageSize.width, height: (Double(pages.count) * h).rounded(.up), infinite: true,
+        let size = PageSize(width: pageSize.width, height: (Double(sheets) * h).rounded(.up), infinite: true,
                             breakHeight: h)
+        joined.items.sort(by: Item.drawsBefore)
         ops.append(.setMeta(.pageSize(size)))
         return LayoutEdit(ops: ops, pages: [joined], pageSize: size)
     }
@@ -239,8 +248,9 @@ extension NoteOps {
     /// vertical centre of its transformed control points; strokes of the
     /// first sheet stay where they are, every other stroke is re-added under
     /// a new id (`parent` = old id) on a new page for its sheet, its transform
-    /// shifted up by `k × H`, and removed from the old page. A page becomes
-    /// as many sheets as its ink or its stored height reach (blank sheets
+    /// shifted up by `k × H`, and removed from the old page; items likewise,
+    /// by the vertical centre of their frame. A page becomes as many sheets
+    /// as its ink, its items or its stored height reach (blank sheets
     /// between keep later ink in place), at most `maxSheetsPerPage`. Words
     /// of recognised text go to the sheet holding their box's centre. New
     /// pages copy the page's own paper. The page size becomes finite,
@@ -263,9 +273,16 @@ extension NoteOps {
                 bySheet[k, default: []].append(s)
                 lastSheet = max(lastSheet, k)
             }
+            var itemsBySheet: [Int: [Item]] = [:]
+            for item in page.items {
+                let k = sheetIndex(item.frame.y + item.frame.h / 2, height: h)
+                itemsBySheet[k, default: []].append(item)
+                lastSheet = max(lastSheet, k)
+            }
             let words = sheetWords(page.recognition, height: h, lastSheet: lastSheet)
             var first = page
             first.strokes = bySheet[0] ?? []
+            first.items = itemsBySheet[0] ?? []
             if page.recognition != nil, lastSheet > 0 {
                 first.recognition = sheetRecognition(page.recognition, words[0] ?? [], dy: 0)
                 if first.recognition != page.recognition {
@@ -286,22 +303,59 @@ extension NoteOps {
                 var sheet = Page(id: newID(), order: placement.keys[k - 1], paper: page.paper)
                 ops.append(.addPage(Page(id: sheet.id, order: sheet.order)))
                 for s in bySheet[k] ?? [] {
-                    let moved = Stroke(id: newID(), ink: s.ink, points: s.points,
-                                       transform: shifted(s.transform, by: dy), parent: s.id)
+                    let copy = moved(s, id: newID(), by: dy, parent: s.id)
                     ops.append(.removeStroke(page: page.id, strokeId: s.id))
-                    ops.append(.addStroke(page: sheet.id, stroke: moved))
-                    sheet.strokes.append(moved)
+                    ops.append(.addStroke(page: sheet.id, stroke: copy))
+                    sheet.strokes.append(copy)
+                }
+                for item in itemsBySheet[k] ?? [] {
+                    let copy = moved(item, id: newID(), by: dy, parent: item.id)
+                    ops.append(.removeItem(page: page.id, itemId: item.id))
+                    ops.append(.addItem(page: sheet.id, item: copy))
+                    sheet.items.append(copy)
                 }
                 if let r = sheetRecognition(page.recognition, words[k] ?? [], dy: dy) {
                     sheet.recognition = r
                     ops.append(.setPageRecognition(pageId: sheet.id, recognition: r))
                 }
                 if let paper = page.paper { ops.append(.setPagePaper(pageId: sheet.id, paper: paper)) }
+                sheet.items.sort(by: Item.drawsBefore)
                 result.append(sheet)
             }
         }
         ops.append(.setMeta(.pageSize(size)))
         return LayoutEdit(ops: ops, pages: sortedPages(result), pageSize: size)
+    }
+
+    /// A copy of `s` under `id` with `parent`, shifted down by `dy`. It keeps
+    /// the ink, points and recording link (format.md §5.6: copies keep `rec`);
+    /// the snapshot-only `origin` is dropped.
+    static func moved(_ s: Stroke, id: UUID, by dy: Double, parent: UUID?) -> Stroke {
+        Stroke(id: id, ink: s.ink, points: s.points, transform: dy == 0 ? s.transform : shifted(s.transform, by: dy),
+               parent: parent, rec: s.rec)
+    }
+
+    /// A copy of `item` under `id` with `parent`, its frame shifted down by
+    /// `dy`. Every other field is kept (`rec`, the blob, unknown fields);
+    /// the snapshot-only `origin` and `clocks` are dropped.
+    static func moved(_ item: Item, id: UUID, by dy: Double, parent: UUID?) -> Item {
+        var copy = item
+        copy.id = id
+        copy.parent = parent
+        copy.frame.y += dy
+        copy.origin = nil
+        copy.clocks = nil
+        return copy
+    }
+
+    /// The sheets of height `height` a page's ink reaches (format.md §5.4.3):
+    /// 1 + the largest sheet of its strokes (`sheet(of:)`) and items (their
+    /// frame's vertical centre), at least 1. A page's stored height does not count.
+    static func sheetsReached(_ page: Page, height: Double) -> Int {
+        var last = 0
+        for s in page.strokes { last = max(last, sheet(of: s, height: height)) }
+        for item in page.items { last = max(last, sheetIndex(item.frame.y + item.frame.h / 2, height: height)) }
+        return last + 1
     }
 
     /// `t` translated by `dy` after it: `[a b c d tx ty + dy]`; nil (identity) when that is the identity.

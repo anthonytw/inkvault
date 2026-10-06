@@ -17,6 +17,7 @@ final class PageEditTests: XCTestCase {
         for p in pages {
             ops.append(.addPage(Page(id: p.id, order: p.order)))
             ops += p.strokes.map { .addStroke(page: p.id, stroke: $0) }
+            ops += p.items.map { .addItem(page: p.id, item: $0) }
             if let r = p.recognition { ops.append(.setPageRecognition(pageId: p.id, recognition: r)) }
             if let paper = p.paper { ops.append(.setPagePaper(pageId: p.id, paper: paper)) }
         }
@@ -30,6 +31,34 @@ final class PageEditTests: XCTestCase {
         XCTAssertEqual(state.strokeIds, pages.map { $0.strokes.map(\.id) }, file: file, line: line)
         XCTAssertEqual(state.pages.map(\.recognition), pages.map(\.recognition), file: file, line: line)
         XCTAssertEqual(state.pages.map(\.paper), pages.map(\.paper), file: file, line: line)
+        XCTAssertEqual(state.pages.map { $0.strokes.map(\.rec) }, pages.map { $0.strokes.map(\.rec) },
+                       file: file, line: line)
+    }
+
+    private let recording = UUID()
+
+    /// A stroke drawn while a recording ran (format.md §8.3.3).
+    private func recorded(_ y: Double, at seconds: Double) -> Stroke {
+        var s = ink(y)
+        s.rec = RecordingLink(id: recording, at: seconds)
+        return s
+    }
+
+    /// The items the ops add, by page, and the ids they remove. The reducer
+    /// does not merge items yet (A1), so item moves are checked on the ops.
+    private func itemOps(_ ops: [Op]) -> (added: [UUID: [Item]], removed: [UUID]) {
+        var added: [UUID: [Item]] = [:], removed: [UUID] = []
+        for op in ops {
+            if case .addItem(let page, let item) = op { added[page, default: []].append(item) }
+            if case .removeItem(_, let id) = op { removed.append(id) }
+        }
+        return (added, removed)
+    }
+
+    /// A text box (synthetic content) whose frame is centred at `y`.
+    private func box(_ y: Double, z: String = "V") -> Item {
+        .text(TextContent(size: 12, color: .black, runs: [TextRun("box")]),
+              frame: Rect(x: 20, y: y - 10, w: 100, h: 20), z: z, rec: RecordingLink(id: recording, at: 2))
     }
 
     private func three() -> [Page] {
@@ -119,7 +148,89 @@ final class PageEditTests: XCTestCase {
         assertMatches(try NoteReducer.reconstruct([d0, log.delta(devA, 10, dup.ops)]), dup.pages)
     }
 
+    /// Undo of a delete and duplicate carry the page's items and the strokes'
+    /// recording links: format.md §5.7 restores items, §5.6 copies keep `rec`.
+    func testRestoreAndDuplicateKeepItemsAndRecordingLinks() throws {
+        var log = LogBuilder()
+        var pages = three()
+        pages[1].strokes = [recorded(200, at: 1.5)]
+        pages[1].items = [box(300)]
+        let d0 = base(&log, pages)
+        let del = try XCTUnwrap(NoteOps.deletePage(pages[1].id, in: pages))
+        let d1 = log.delta(devA, 10, del.ops)
+
+        let undo = NoteOps.restorePage(pages[1], at: 1, in: del.pages)
+        let restored = undo.pages[1]
+        XCTAssertEqual(restored.strokes.map(\.rec), [RecordingLink(id: recording, at: 1.5)])
+        XCTAssertEqual(restored.items.map(\.parent), pages[1].items.map(\.id))
+        XCTAssertEqual(restored.items.map(\.frame), pages[1].items.map(\.frame))
+        XCTAssertEqual(restored.items.map(\.rec), pages[1].items.map(\.rec))
+        XCTAssertTrue(Set(restored.items.map(\.id)).isDisjoint(with: pages[1].items.map(\.id)))
+        XCTAssertEqual(itemOps(undo.ops).added, [restored.id: restored.items])
+        XCTAssertEqual(restored.items.map(\.text), pages[1].items.map(\.text))
+        assertMatches(try NoteReducer.reconstruct([d0, d1, log.delta(devA, 20, undo.ops)]), undo.pages)
+
+        let dup = try XCTUnwrap(NoteOps.duplicatePage(pages[1].id, in: pages))
+        let copy = dup.pages[2]
+        XCTAssertEqual(copy.items.count, 1)
+        let copied = try XCTUnwrap(copy.items.first)
+        XCTAssertNil(copied.parent)
+        XCTAssertNotEqual(copied.id, pages[1].items[0].id)
+        XCTAssertEqual(copy.strokes.map(\.rec), [RecordingLink(id: recording, at: 1.5)])
+        XCTAssertEqual(itemOps(dup.ops).added, [copy.id: copy.items])
+        assertMatches(try NoteReducer.reconstruct([d0, log.delta(devA, 10, dup.ops)]), dup.pages)
+    }
+
     // MARK: Paged and pageless
+
+    /// A switch moves items like strokes and keeps every recording link: a
+    /// join used to drop the later pages' items (with `removePage`) and a
+    /// split left items below the first sheet stranded off the page.
+    func testSwitchMovesItemsAndKeepsRecordingLinks() throws {
+        var log = LogBuilder()
+        let pages = [Page(order: "V", strokes: [recorded(100, at: 1)], items: [box(500)]),
+                     Page(order: "k", strokes: [recorded(200, at: 2)], items: [box(300, z: "a"), box(600, z: "b")])]
+        let d0 = base(&log, pages)
+
+        let join = NoteOps.makePageless(pages: pages, pageSize: .letter)
+        let joinedPage = try XCTUnwrap(join.pages.first)
+        XCTAssertEqual(joinedPage.items.count, 3)
+        XCTAssertEqual(Set(joinedPage.items.compactMap(\.parent)), Set(pages[1].items.map(\.id)))
+        XCTAssertEqual(Set(joinedPage.items.map(\.frame.y)), [490, 792 + 290, 792 + 590])
+        XCTAssertEqual(joinedPage.strokes.map(\.rec?.at), [1, 2])
+        XCTAssertEqual(itemOps(join.ops).added[pages[0].id]?.count, 2, "the second page's items are re-added")
+        XCTAssertTrue(joinedPage.items.allSatisfy { $0.rec == RecordingLink(id: recording, at: 2) })
+        let d1 = log.delta(devA, 10, join.ops)
+        let joined = try NoteReducer.reconstruct([d0, d1])
+        assertMatches(joined, join.pages)
+
+        // The split starts from the predicted joined page (with its items).
+        let split = NoteOps.makePaged(pages: join.pages, pageSize: join.pageSize)
+        XCTAssertEqual(split.pages.count, 2)
+        XCTAssertEqual(split.pages.map { $0.items.map(\.frame.y) }, [[490], [290, 590]])
+        XCTAssertEqual(split.pages.map { $0.items.map(\.z) }, [["V"], ["a", "b"]])
+        XCTAssertEqual(split.pages[1].items.map(\.text), pages[1].items.map(\.text))
+        let moved = itemOps(split.ops)
+        XCTAssertEqual(moved.added, [split.pages[1].id: split.pages[1].items])
+        XCTAssertEqual(Set(moved.removed), Set(joinedPage.items.filter { $0.frame.y > 792 }.map(\.id)))
+        let state = try NoteReducer.reconstruct([d0, d1, log.delta(devA, 20, NoteOps.makePaged(
+            pages: joined.pages, pageSize: joined.meta.pageSize).ops)])
+        XCTAssertEqual(state.pages.map { $0.strokes.map(\.rec?.at) }, [[1], [2]])
+    }
+
+    /// An item alone below the first sheet makes the split add sheets down to it.
+    func testSplitAddsSheetsForAnItem() throws {
+        var log = LogBuilder()
+        let size = PageSize(width: 612, height: 800, infinite: true, breakHeight: 792)
+        let page = Page(order: "V", strokes: [ink(100)], items: [box(2 * 792 + 100)])
+        let d0 = base(&log, [page], size: size)
+        let split = NoteOps.makePaged(pages: [page], pageSize: size)
+        XCTAssertEqual(split.pages.count, 3)
+        XCTAssertEqual(split.pages.map { $0.items.count }, [0, 0, 1])
+        XCTAssertEqual(split.pages[2].items.first?.frame.y, 90)
+        XCTAssertEqual(itemOps(split.ops).removed, page.items.map(\.id))
+        assertMatches(try NoteReducer.reconstruct([d0, log.delta(devA, 10, split.ops)]), split.pages)
+    }
 
     func testSheetHeight() {
         XCTAssertEqual(PageSize.letter.sheetHeight, 792)
@@ -173,6 +284,41 @@ final class PageEditTests: XCTestCase {
         let after = flow(state.pages, sheet: 792, pageless: false)
         for (a, b) in zip(after, before) { XCTAssertEqual(a, b, accuracy: 0.001) }
         XCTAssertTrue(NoteOps.makePaged(pages: state.pages, pageSize: state.meta.pageSize).ops.isEmpty)
+    }
+
+    /// Ink a concurrent edit left below a finite page (format.md §5.4.3) gets
+    /// sheets of its own in a join: it used to land on top of the next page's
+    /// ink, which moved to exactly one sheet down.
+    func testJoinKeepsInkBelowAPageOffTheNextPage() throws {
+        var log = LogBuilder()
+        let pages = [Page(order: "V", strokes: [ink(100), ink(1000)]), Page(order: "k", strokes: [ink(200)])]
+        let d0 = base(&log, pages)
+        let join = NoteOps.makePageless(pages: pages, pageSize: .letter)
+        XCTAssertEqual(join.pageSize, PageSize(width: 612, height: 3 * 792, infinite: true, breakHeight: 792))
+        let state = try NoteReducer.reconstruct([d0, log.delta(devA, 10, join.ops)])
+        assertMatches(state, join.pages)
+        let centres = flow(state.pages, sheet: 792, pageless: true)
+        XCTAssertEqual(centres, [100, 1000, 2 * 792 + 200], "page 2 starts below page 1's stray ink")
+        // Splitting back gives that ink its own page instead of stacking it.
+        let split = NoteOps.makePaged(pages: join.pages, pageSize: join.pageSize)
+        XCTAssertEqual(split.pages.map { $0.strokes.count }, [1, 1, 1])
+    }
+
+    /// A pageless note with several pages (a split overridden by a concurrent
+    /// grow of `pageSize`, which stays infinite) can be joined back.
+    func testJoinOfAPagelessNoteWithSeveralPages() throws {
+        var log = LogBuilder()
+        let size = PageSize(width: 612, height: 3000, infinite: true, breakHeight: 792)
+        let pages = [Page(order: "V", strokes: [ink(100)]), Page(order: "k", strokes: [ink(200)])]
+        let d0 = base(&log, pages, size: size)
+        let join = NoteOps.makePageless(pages: pages, pageSize: size)
+        XCTAssertEqual(join.pages.count, 1)
+        XCTAssertEqual(join.pageSize, PageSize(width: 612, height: 2 * 792, infinite: true, breakHeight: 792))
+        let state = try NoteReducer.reconstruct([d0, log.delta(devA, 10, join.ops)])
+        assertMatches(state, join.pages)
+        XCTAssertEqual(flow(state.pages, sheet: 792, pageless: true), [100, 792 + 200])
+        // One pageless page: nothing to do.
+        XCTAssertTrue(NoteOps.makePageless(pages: state.pages, pageSize: state.meta.pageSize).ops.isEmpty)
     }
 
     func testSplitOfAnImportedPage() throws {

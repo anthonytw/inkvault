@@ -117,6 +117,14 @@ final class NoteEditor {
 
     /// Ink changes per page, so page thumbnails can follow them.
     private(set) var inkRevisions: [UUID: Int] = [:]
+    /// Identifies this editor in cache keys (`inkRevisions` restart at 0 in
+    /// every editor, so they alone cannot key a cache that outlives it).
+    @ObservationIgnored let sessionID = UUID()
+    /// Bumped when the shown page's strokes changed without a change of page
+    /// (a layout switch keeps page 1's id): the canvas reloads its drawing, or
+    /// its stale drawing would be diffed against the new page (ink removed or
+    /// duplicated by the next stroke).
+    private(set) var canvasGeneration = 0
 
     /// The strokes a page thumbnail shows: live once the page has been on
     /// the canvas, else as loaded (no ledger is made just for a thumbnail).
@@ -243,8 +251,16 @@ final class NoteEditor {
     /// what was on screen (the first after a join).
     func setLayout(pageless: Bool) async {
         guard !isReadOnly, pageless != isPageless else { return }
-        await flush()
-        guard saveError == nil else { return }   // never switch over ink that could not be saved
+        // Ink drawn while a save is being written is pending again afterwards:
+        // save until nothing is, so the switch never takes unsaved ink as saved
+        // (a few rounds at most: if ink keeps arriving, the switch is not made).
+        var rounds = 0
+        repeat {
+            await flush()
+            guard saveError == nil else { return }   // never switch over ink that could not be saved
+            rounds += 1
+        } while hasPendingChanges && rounds < 4
+        guard !hasPendingChanges, pageless != isPageless else { return }
         let shown = currentPage?.id
         let edit = pageless
             ? NoteOps.makePageless(pages: livePages(), pageSize: pageSize)
@@ -257,7 +273,15 @@ final class NoteEditor {
         pageSize = edit.pageSize
         committedPageSize = edit.pageSize   // the switch's own setMeta carries it
         pendingPageOps += edit.ops
+        canvasGeneration &+= 1
+        for page in pages { inkRevisions[page.id, default: 0] &+= 1 }
         await flush()
+    }
+
+    /// Whether anything is waiting to be written (page ops, ink, page size).
+    var hasPendingChanges: Bool {
+        !pendingPageOps.isEmpty || pageSize != committedPageSize
+            || pages.contains { page in ledgers[page.id].map { !$0.pendingOps(page: page.id, live: $0.live).isEmpty } ?? false }
     }
 
     /// `pages` with each page's live strokes (saved or not).

@@ -376,7 +376,8 @@ its offset, with the old page height as the sheet height (`breakHeight`);
 to the sheet that holds its vertical centre. No ink is deleted and none moves
 relative to its sheet; strokes that change page are re-added under new ids with
 `parent` naming the old ones, so `pageless` then `paged` gives the pages back.
-Nothing is written when the note already has the layout, or with `--dry-run`.
+Nothing is written when the note already has the layout (a pageless note
+with several pages, left by concurrent edits, is joined), or with `--dry-run`.
 The device id and clock are this machine's, as for `snapshot`. `--json` emits
 `note`, `layout`, `dryRun`, `changed`, `pagesBefore`, `pagesAfter` and `file`.
 

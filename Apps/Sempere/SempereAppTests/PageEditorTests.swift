@@ -137,6 +137,63 @@ struct PageEditorTests {
         try expectSaved(editor, vault)
     }
 
+    /// A switch keeps page 1's id, so the canvas would keep its old drawing
+    /// (and diff it against the new page: a join's moved ink removed by the next
+    /// stroke). `canvasGeneration` changes so the canvas reloads; a stroke drawn
+    /// on the reloaded drawing adds exactly that stroke.
+    @Test func aSwitchReloadsTheCanvasAndTheNextStrokeAddsOnlyItself() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, clock) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
+        let shown = try #require(editor.currentPage?.id)
+        _ = editor.drawing(for: shown)   // on the canvas
+        let generation = editor.canvasGeneration
+        let total = editor.pages.map { editor.liveStrokes(of: $0.id).count }.reduce(0, +)
+
+        await editor.setLayout(pageless: true)
+        #expect(editor.currentPage?.id == shown, "page 1 keeps its id")
+        #expect(editor.canvasGeneration != generation, "so the canvas must be told to reload")
+        let before = try NoteEditorTests.myDeltas(vault, clock).count
+        var drawing = editor.drawing(for: shown)   // what the reloaded canvas shows
+        #expect(drawing.strokes.count == total)
+        drawing.strokes.append(TS.canvasStroke(TS.stroke(y: 900)))
+        let change = editor.drawingDidChange(pageID: shown, drawing: drawing, tool: nil)
+        #expect(change.added.count == 1)
+        #expect(change.removed.isEmpty)
+        await editor.flush()
+        let deltas = try NoteEditorTests.myDeltas(vault, clock)
+        #expect(deltas.count == before + 1)
+        let last = try #require(deltas.last)
+        #expect(last.allSatisfy { if case .addStroke = $0 { true } else { false } })
+        try expectSaved(editor, vault)
+
+        let split = editor.canvasGeneration
+        await editor.setLayout(pageless: false)
+        #expect(editor.canvasGeneration != split)
+        try expectSaved(editor, vault)
+    }
+
+    @Test func pendingChangesAreReportedUntilSaved() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, _) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
+        #expect(!editor.hasPendingChanges)
+        try draw(editor)
+        #expect(editor.hasPendingChanges)
+        await editor.flush()
+        #expect(!editor.hasPendingChanges)
+        editor.addPageAfterCurrent()
+        #expect(editor.hasPendingChanges)
+        await editor.flush()
+        #expect(!editor.hasPendingChanges)
+    }
+
+    /// Thumbnail cache keys outlive an editor; ink revisions restart at 0 in each.
+    @Test func everyEditorHasItsOwnSessionID() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (a, _) = try await NoteEditorTests.open(vault)
+        let (b, _) = try await NoteEditorTests.open(vault)
+        #expect(a.sessionID != b.sessionID)
+    }
+
     @Test func readOnlyNotesTakeNoPageGestures() async throws {
         let (vault, _) = try TS.unlockedFixture()
         let (editor, clock) = try await NoteEditorTests.open(vault, note: AppModelTests.deleted)

@@ -646,22 +646,34 @@ It never deletes ink: every stroke that moves is re-added under a new id
 with `parent` naming the old one (§5.2), its `transform` translated
 vertically (`ty` changed, nothing else), so on screen and in exports each
 stroke keeps its position relative to the sheet it is on, and ink keeps
-its reading order.
+its reading order. A re-added stroke keeps everything else, `rec` included
+(§8.3.3). Placed items (§8.2) move the same way: `removeItem` (or the page's
+`removePage`) and `addItem` of a new id with `parent` naming the old one
+(§8.2.2), `frame` moved vertically by the same amount, every other field
+kept; an item's sheet is the one holding the vertical centre of its `frame`.
 
-- **Paged → pageless (join).** Let the pages be `P0 … Pn-1` in page order.
-  `P0` stays. Each stroke of `Pj` (j ≥ 1), in that page's stroke order, is
-  re-added to `P0` with `ty + j × H`; then each `Pj` is removed
-  (`removePage`). If any `Pj` (j ≥ 1) has recognition, `P0` gets one
-  `setPageRecognition` (§5.5) whose `text` is the pages' texts joined by
-  `\n` and whose `words` are theirs with boxes moved by `j × H`. Own paper of
-  pages after `P0` is not carried over. Last, `setMeta` of `pageSize` with
-  `infinite: true`, the same `width`, `height: n × H` and `breakHeight: H`,
-  so sheet `j` of the pageless page is where `Pj` was.
+- **Paged → pageless (join).** Let the pages be `P0 … Pn-1` in page order,
+  and `s(P)` the sheets a page's ink reaches: 1 + the largest sheet `k` (as
+  for a split, below) of its strokes and items, at least 1; it is 1 unless a
+  concurrent edit left ink below the page. Page `Pj` starts at
+  `oj = (s(P0) + … + s(Pj-1)) × H` (`j × H` when every `s` is 1), so ink
+  below one page never lands on the next. `P0` stays. Each stroke of `Pj`
+  (j ≥ 1), in that page's stroke order, is re-added to `P0` with `ty + oj`;
+  then each `Pj` is removed (`removePage`). If any `Pj` (j ≥ 1) has
+  recognition, `P0` gets one `setPageRecognition` (§5.5) whose `text` is the
+  pages' texts joined by `\n` and whose `words` are theirs with boxes moved
+  by `oj`. Own paper of pages after `P0` is not carried over. Last, `setMeta`
+  of `pageSize` with `infinite: true`, the same `width`, `height` the total
+  `(s(P0) + … + s(Pn-1)) × H` rounded up to a whole point, and
+  `breakHeight: H`, so the pageless page's sheets are where the pages were.
+  A pageless note with more than one page (a concurrent split that the
+  note's own later `pageSize` write overrode, below) is joined the same
+  way, with its sheet height.
 - **Pageless → paged (split).** For each page `P` in page order: a stroke
   is on sheet `k = ⌊c / H⌋` (0 for negative or non-finite `c`), where `c` is
   the midpoint of the smallest and largest `y` of its control points after
   its transform. `P` becomes `m` sheets, `m − 1` being the largest `k` of
-  its strokes, raised for a note with exactly one page to the number of
+  its strokes and items, raised for a note with exactly one page to the number of
   whole sheets in `pageSize.height` (`⌊(height + 1) / H⌋`), at least 1 and at
   most 10 000 (larger `k` count as the last sheet). Sheet 0 is `P` itself
   and keeps its strokes. Each sheet `k ≥ 1`, blank ones included so later
@@ -688,7 +700,10 @@ another device adds to a page the join removes is removed with it (as for
 any page removal, §5.2); a stroke added to a pageless page below its first
 sheet after a split was written stays on that page, below its bottom edge,
 until the note is joined again. Readers draw and export it anyway (finite
-pages, below).
+pages, below). A device still drawing on the pageless page may write
+`pageSize` (to grow it) after a concurrent split; that write wins the
+register, leaving a pageless note with several pages, which readers show in
+page order and a join merges.
 
 **Page edits in a paged note** use the ops of §5.2, one delta per user
 action:
@@ -703,11 +718,11 @@ action:
   page, a concurrent `setPageOrder` included.
 - *Undo a delete*: the page id cannot be added again (§5.2), so the page is
   re-created as for a restore (§5.7): `addPage` with a new id and `parent`
-  naming the old one, its strokes re-added under new ids with `parent`, its
+  naming the old one, its strokes and items re-added under new ids with
+  `parent` (and their `rec`), its recognition and own paper.
+- *Duplicate a page*: `addPage` right after it, copies of its strokes and
+  items under new ids (no `parent`: they re-create nothing; `rec` kept), its
   recognition and own paper.
-- *Duplicate a page*: `addPage` right after it, copies of its strokes under
-  new ids (no `parent`: they re-create nothing), its recognition and own
-  paper.
 
 Concurrent moves of one page resolve by LWW on its `order`; moves of
 different pages all apply, so the result can interleave both devices'
@@ -717,8 +732,9 @@ intentions but always holds every live page exactly once.
 page of a paged note, `width × height`. Ink below a finite page (a stroke
 whose centre `c`, as for a split, is at or below `height`: only a concurrent
 edit, above, or another writer leaves one) adds output pages of the same
-size after it, cut like a pageless page from `height` down and keeping
-only those that hold ink, so no ink is lost; strokes merely crossing the
+size after it (at least 72 pt tall, the clamped sheet height), cut like a
+pageless page from `height` down and keeping only those that hold ink
+centred below the page, so no ink is lost; strokes merely crossing the
 bottom edge are clipped by it. A
 pageless page is cut into output pages of `width × H`: from the top `t`
 of the current output page, the cut is at `t + H`, unless that line
