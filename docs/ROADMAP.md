@@ -98,3 +98,13 @@ behaviour and testing on a real Mac.
 | Key management window | 📋 Phase 2 |
 | Drawing with mouse/trackpad (PencilKit works; tuning for no pencil) | 📋 Phase 2 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+
+## Future: iPhone and web
+
+| Feature | Status | Notes |
+| --- | --- | --- |
+| iPhone app as a reader | 💭 next after the current app work | Same SwiftUI target with the iPhone device family added. Reading, search and share, with light finger annotation. Needs iPhone layout passes and iPhone App Store screenshots. |
+| Web viewer with in-browser decryption | 💭 after attachments | A static page plus the encrypted vault files. age decryption (typage, TypeScript, by age's author) and stroke rendering happen in the browser, and the key never reaches the server (pasted, or a passkey later). Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
+| WebDAV mirror for the viewer | 💭 with the web viewer | A WebDAV share on the NAS, plus a macOS `launchd` agent running `sempere sync webdav` every few minutes from the iCloud vault. The CLI already does the sync; the setup lives in the sysadmin repo. Decided 2026-10-06: wait until the viewer exists. |
+| WebDAV as a vault location in the app | 💭 low priority | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
+| Other Files-app providers (Google Drive, Proton Drive, Dropbox, OneDrive, Nextcloud) | 💭 test on demand | They probably already work through the folder picker. The download checks are tuned for iCloud, so each provider needs a test pass. |
