@@ -6,6 +6,19 @@ import XCTest
 
 /// Regression tests for hostile geometry (see `RenderFuzzTests`).
 final class UntrustedRenderTests: XCTestCase {
+    /// Fuzz crash (opentype target, review of #64): a CFF FDSelect format 3
+    /// range starting past the font's last glyph built an inverted Range
+    /// (`first..<min(next, glyphs)`) and trapped. It now assigns nothing.
+    func testFDSelectRangePastTheLastGlyphDoesNotTrap() throws {
+        // format 3, one range [40, 50) → FD 0, sentinel; the font has 33 glyphs.
+        let bytes: [UInt8] = [3, 0, 1, 0, 40, 0, 0, 50]
+        let fds = try CFFFont.fdSelect(FontBytes(b: bytes), 0, glyphs: 33, fds: 6)
+        XCTAssertEqual(fds, [UInt8](repeating: 0, count: 33))
+        // An ordinary range still assigns.
+        let ok = try CFFFont.fdSelect(FontBytes(b: [3, 0, 1, 0, 2, 5, 0, 4]), 0, glyphs: 6, fds: 6)
+        XCTAssertEqual(ok, [0, 0, 5, 5, 0, 0])
+    }
+
     /// A zig-zag of 400 control points 199 000 pt apart (12 KB of JSON) used
     /// to subdivide every segment 4096 times: 1.6 M samples, 6.5 M outline
     /// points, about 250 MB and seconds of work, growing without bound with

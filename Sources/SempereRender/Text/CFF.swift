@@ -175,7 +175,9 @@ struct CFFFont: Sendable {
                 let first = try b.u16(o + 3 + 3 * i), fd = try b.u8(o + 5 + 3 * i)
                 let next = try b.u16(o + 6 + 3 * i)
                 guard first <= next else { throw FontError.malformed("FDSelect") }
-                for g in first..<min(next, glyphs) { out[g] = UInt8(min(fd, fds - 1)) }
+                // A range may start past the last glyph: nothing to assign (an empty, not inverted, range).
+                let end = min(next, glyphs)
+                if first < end { for g in first..<end { out[g] = UInt8(min(fd, fds - 1)) } }
             }
         default:
             throw FontError.unsupported("FDSelect format")
