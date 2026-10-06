@@ -103,10 +103,12 @@ extension AppModel {
     }
 
     /// Notes with pages never read (or changed since), that "Recognise All"
-    /// would read. The open note and notes still downloading are left to the editor and the sync.
+    /// would read. Open notes (the library's and note windows') and notes still downloading are
+    /// left to their editors and the sync.
     var notesNeedingRecognition: [NoteSummary] {
         notes.filter {
             !$0.deleted && $0.problem == nil && $0.pagesNeedingRecognition > 0 && $0.id != editor?.noteID
+                && !windowClaims.contains($0.id)
                 && !pendingNoteIDs.contains($0.id) && !placeholderNoteIDs.contains($0.id)
         }
     }
