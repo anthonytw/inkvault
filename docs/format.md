@@ -1021,7 +1021,10 @@ Default policy, chosen automatically by the kind of change:
 | a recipient is removed | full re-encryption | every old copy of a blob's header (backups, file-version history, another device's cache) has a stanza the removed key opens; with the same file key it would open the current file too |
 | the recipients' type changes (classic X25519 to the post-quantum hybrid) | full re-encryption | an old header's classic stanza stays breakable later; with the same file key it would open the post-quantum file too |
 
-A change that both adds and removes follows the removal row. Implementations
+A change that both adds and removes follows the removal row, and so does an
+addition that changes the set of stanza types among the recipients (for
+example an MLKEM768-X25519 recipient added to a vault of X25519 ones, the
+first step of a §3.3.2 migration by adding then removing). Implementations
 may let the user choose the other method for each of the two cases (adding;
 removing or changing type); the default is the table above. The method in
 force is written to `rewrap-journal.json` as `rekeyBlobs` (§3.3.1) before the
@@ -1056,7 +1059,8 @@ blob in `notes/<N>/att/` may be deleted only when all of these hold:
    never in the vault.
 
 No other note is read: references never cross notes (§8.1.1). Blob files
-that cannot be decrypted or verified are never deleted by collection; they
+that cannot be decrypted or verified (as a whole, §8.1.4, with the name
+checked under the current secret) are never deleted by collection; they
 are reported. Because every surviving revision keeps its blobs, history
 (§5.7) never loses an attachment that a restore point needs.
 
@@ -1082,7 +1086,8 @@ age -d -i key.txt "$B" | tail -c +46 | head -c "$((16#<L hex>))" > out
 The content hash matches the `sha256` of the item or recording that uses the
 blob (readable from any revision of the same note, §4); `KIND` and
 `file out` tell the type. Without `head -c` the output carries the zero
-padding after the content.
+padding after the content. `$((16#…))` is bash/zsh arithmetic; where `xxd`
+is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
@@ -1541,6 +1546,7 @@ where the table says how they degrade.
 | --- | --- | --- |
 | revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
+| blob collector state (device-local, §8.1.6) | 64 MiB | `BlobCollectorState` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |
 | `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |

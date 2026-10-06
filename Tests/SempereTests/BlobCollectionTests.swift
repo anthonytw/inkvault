@@ -53,6 +53,9 @@ final class BlobCollectionTests: VaultTestCase {
         XCTAssertEqual(Set(found.map(\.sha256)), ["x", "y"])
         XCTAssertEqual(found.first { $0.sha256 == "x" }?.size, 3)
         XCTAssertNil(found.first { $0.sha256 == "y" }?.size, "a boolean is not a size")
+        let small = try BlobReferenceScan.references(in: Data(#"[{"sha256":"z","size":1},{"sha256":"w","size":0},{"sha256":"v","size":false},{"sha256":"u","size":1.5}]"#.utf8))
+        let sizes = Dictionary(uniqueKeysWithValues: small.map { ($0.sha256, $0.size.map(String.init) ?? "none") })
+        XCTAssertEqual(sizes, ["z": "1", "w": "0", "v": "none", "u": "none"], "0 and 1 are sizes; false and 1.5 are not")
     }
 
     func testMissingReferenceIsReported() throws {

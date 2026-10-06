@@ -40,7 +40,10 @@ enum BlobReferenceScan {
                 if let sha = object["sha256"] as? String {
                     var found = FoundBlobReference(sha256: sha)
                     found.type = object["type"] as? String
-                    if let n = object["size"] as? NSNumber, !(n is Bool) {
+                    // Booleans come back as NSNumber too, and `is Bool` is
+                    // also true for 0 and 1; their objCType is "c" (char),
+                    // never a JSON integer's.
+                    if let n = object["size"] as? NSNumber, String(cString: n.objCType) != "c" {
                         let d = n.doubleValue
                         // Range-checked before conversion (format.md §9).
                         if d.isFinite, d >= 0, d <= Double(BlobRef.maxSize), d == d.rounded() { found.size = Int64(d) }
