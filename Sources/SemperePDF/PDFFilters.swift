@@ -31,17 +31,20 @@ public enum PDFFilters {
             default: throw PDFError.unsupportedFilter(String(decoding: full.bytes, as: UTF8.self))
             }
         }
+        // Unfiltered data counts against the budget too.
+        guard out.count <= maxOutput else { throw PDFError.limitExceeded("decoded stream larger than \(maxOutput) bytes") }
         return out
     }
 
     // MARK: Flate
 
-    /// Inflates zlib (or, failing that, raw deflate) data. Output up to a
-    /// corruption or a truncation is kept, as viewers do; an error before any
-    /// output throws `corruptStream`.
+    /// Inflates zlib data, or raw deflate data when there is no valid zlib
+    /// header (some writers omit it). Output up to a corruption or a
+    /// truncation is kept, as viewers do; an error before any output throws
+    /// `corruptStream`.
     static func inflate(_ input: [UInt8], maxOutput: Int) throws -> [UInt8] {
-        if let out = try inflate(input, windowBits: 15, maxOutput: maxOutput) { return out }
-        if let out = try inflate(input, windowBits: -15, maxOutput: maxOutput) { return out }
+        let zlibHeader = input.count >= 2 && input[0] & 0x0F == 8 && (Int(input[0]) << 8 | Int(input[1])) % 31 == 0
+        if let out = try inflate(input, windowBits: zlibHeader ? 15 : -15, maxOutput: maxOutput) { return out }
         throw PDFError.corruptStream("FlateDecode")
     }
 

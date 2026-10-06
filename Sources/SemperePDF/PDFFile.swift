@@ -293,13 +293,11 @@ public final class PDFFile {
         while i + 3 <= b.count {
             if b[i] == 0x6F, b[i + 1] == 0x62, b[i + 2] == 0x6A, PDFLexer.isWhite(b[i - 1]),
                i + 3 == b.count || !PDFLexer.isRegular(b[i + 3]), let (num, start) = objectHeader(endingBefore: i) {
-                if num < limits.maxObjects {
-                    if table[num] == nil { order.append(num) }
-                    table[num] = .offset(start)
-                    guard table.count <= limits.maxObjects else {
-                        throw PDFError.limitExceeded("more than \(limits.maxObjects) objects")
-                    }
+                guard num < limits.maxObjects else {
+                    throw PDFError.limitExceeded("object number beyond \(limits.maxObjects)")
                 }
+                if table[num] == nil { order.append(num) }
+                table[num] = .offset(start)
                 i += obj.count
                 continue
             }
