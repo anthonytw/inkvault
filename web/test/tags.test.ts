@@ -471,7 +471,8 @@ describe("tag convergence (format.md §5.3, §5.4.1)", () => {
     expect(total.removes).toBeGreaterThan(100);
     expect(total.snapshots).toBeGreaterThan(100);
     expect(nonEmpty).toBeGreaterThan(20);
-  });
+    // About 2 s idle; vitest's default 5 s fails it on a busy runner.
+  }, 60_000);
 });
 
 describe("Unicode details that must match Swift", () => {

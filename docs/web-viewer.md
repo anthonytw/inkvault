@@ -255,9 +255,12 @@ Tests (`web/test/`, vitest, Node 22):
 - A seeded fuzz test of the decoders, the merge, the renderer and the
   listing parsers (typed errors only).
 
-CI (`.github/workflows/ci.yml`): the `changes` job runs the `web` (lint,
-typecheck, tests, build) and `web-golden` (Swift CLI goldens) jobs only when
-`web/` (or the workflow) changes; `main` runs them always.
+CI (`.github/workflows/ci.yml`): the `changes` job runs the `web` job (lint,
+typecheck, tests, build) only when `web/` (or the workflow) changes, and the
+`web-golden` job (Swift CLI goldens) also when the Swift code that writes them
+changes (`Sources/` of the reducer, renderer and CLI, the fixture vault,
+`Package.*`): a PR that moves the CLI's export must update `web/` with it.
+`main` runs both always.
 
 Dependencies are pinned exactly in `web/package.json` and
 `web/package-lock.json`; the only runtime dependency is `age-encryption`

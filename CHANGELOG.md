@@ -16,7 +16,6 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   The key stays in the tab's memory; strict Content-Security-Policy; no third-party requests.
 - CLI: `sempere vault index` writes `sempere-index.json`, the listing the web viewer reads on a
   static server.
-
 - Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
   note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
   or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works

@@ -26,6 +26,7 @@ jobs:
       package: ${{ steps.f.outputs.package }}
       app: ${{ steps.f.outputs.app }}
       web: ${{ steps.f.outputs.web }}
+      webgolden: ${{ steps.f.outputs.webgolden }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,7 +36,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != pull_request ]; then
             echo "package=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"
-            echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "web=true" >> "$GITHUB_OUTPUT"; echo "webgolden=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}")"
           echo "$files"
@@ -46,13 +47,17 @@ jobs:
           # tests open the package's fixture vault; CLI, importer and WebDAV changes
           # cannot affect it.
           app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
-          # Web viewer (web/): its own job; Swift and app changes do not run it on a PR
-          # (main runs everything, so a Swift change that moves the goldens shows there).
+          # Web viewer (web/): its own job; app changes do not run it.
           web=$(has '^(web/|\.github/workflows/ci\.yml$)')
+          # The goldens are the CLI's JSON and SVG export of the fixture vaults: a
+          # change to the reducer, the renderer, the CLI or the fixtures can move them,
+          # and the PR that moves them must update web/ too (not find out on main).
+          webgolden=$(has '^(web/|Sources/(Age|Sempere|SempereRender|SempereCLI|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|\.github/workflows/ci\.yml$)')
           echo "package=$package" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
-          echo "package=$package app=$app web=$web"
+          echo "webgolden=$webgolden" >> "$GITHUB_OUTPUT"
+          echo "package=$package app=$app web=$web webgolden=$webgolden"
 
   linux:
     name: Linux (swift:6.4-noble)
@@ -220,7 +225,7 @@ jobs:
   web-golden:
     name: Web viewer goldens match the Swift CLI
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.webgolden == 'true'
     runs-on: ubuntu-24.04
     container: swift:6.4-noble
     steps:
