@@ -216,8 +216,11 @@ private func translating<T>(_ body: () throws -> T) throws -> T {
 
 private func report(_ out: AttachJSON, output: OutputOptions, summary: String) throws {
     if output.json { try output.emitJSON(out); return }
-    for p in out.items { print(p.item.id.uuidString.lowercased()) }
-    if let r = out.recording { print(r.id.uuidString.lowercased()) }
+    // A dry run adds nothing, so there is no id to hand to a script.
+    if !out.dryRun {
+        for p in out.items { print(p.item.id.uuidString.lowercased()) }
+        if let r = out.recording { print(r.id.uuidString.lowercased()) }
+    }
     if !output.quiet {
         printStderr("\(out.dryRun ? "Would add" : "Added") \(summary) (\(out.note)\(out.file.map { "/" + $0 } ?? ""))")
     }
