@@ -109,17 +109,19 @@ public indirect enum PlistValue: Hashable, Sendable {
 }
 
 extension PlistValue {
-    /// Parses a binary property list (`bplist00`). XML and OpenStep plists
-    /// are refused: Notability writes neither.
+    /// Parses a binary property list (`bplist00`), or with `allowXML` also an
+    /// XML one. OpenStep plists are refused. Notability writes binary plists
+    /// (every keyed archive is one), except for a few small XML ones such as
+    /// `Recordings/library.plist`, which callers read with `allowXML`.
     ///
     /// - Throws: `ImportError.archive` when the bytes are not a well-formed
-    ///   binary property list (see `BinaryPlist` for the checks).
-    public static func parse(_ bytes: Data) throws -> PlistValue {
-        // Binary only, with SempereImport's own reader: PropertyListSerialization
-        // crashes on some hostile binary plists on Linux, and Notability
-        // writes nothing else.
-        guard BinaryPlist.isBinaryPlist(bytes) else { throw ImportError.archive("not a binary property list") }
-        return try BinaryPlist.parse(bytes)
+    ///   property list of an accepted format (see `BinaryPlist`, `XMLPlist`).
+    public static func parse(_ bytes: Data, allowXML: Bool = false) throws -> PlistValue {
+        // SempereImport's own readers: PropertyListSerialization crashes on
+        // some hostile binary plists on Linux.
+        if BinaryPlist.isBinaryPlist(bytes) { return try BinaryPlist.parse(bytes) }
+        if allowXML, XMLPlist.isXMLPlist(bytes) { return try XMLPlist.parse(bytes) }
+        throw ImportError.archive(allowXML ? "not a binary or XML property list" : "not a binary property list")
     }
 }
 
