@@ -69,6 +69,10 @@ the owning session (`claude -p "…" --cloud <session_id>`).
 - **Licensing:** GPLv3 + App Store exception (§7 additional permission), no
   CLA. All deps are Apache-2.0 (swift-crypto incl. vendored BoringSSL,
   argument-parser, asn1) + zlib: GPL-compatible.
+- **CLI first (2026-10-06):** "The CLI should be the first place to get
+  features. Everything should be automatable (aside from the UI)." Every
+  feature prompt includes a `sempere` command with `--json` output and CLI
+  tests, sharing the core code the app uses (see `CLAUDE.md` "CLI first").
 - **Export compliance:** the maintainer answered App Store Connect's questions on build 2.
 The result was "does not use non-exempt encryption", the mass-market exemption.
 Info.plist mirrors that with `ITSAppUsesNonExemptEncryption = NO`, so uploads need no
@@ -153,6 +157,11 @@ queued for up to 30 minutes.
 - **Only affected jobs run.** Docs-only changes run nothing. CLI, importer and
   WebDAV changes skip the app job. App-only changes skip Linux and macOS.
   `main` always runs everything.
+- **Web viewer:** `web/` changes run only the `web` (npm lint, typecheck, tests,
+  build) and `web-golden` (Swift CLI exports of the fixture vaults diffed with
+  `web/test/golden`) jobs; Swift changes do not run them on a PR, `main` does.
+  A Swift change to merging or rendering that moves the goldens shows up on
+  `main`: regenerate with `web/scripts/golden.sh` (docs/web-viewer.md).
 - **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
 - **PRs skip what only matters for shipping.** The static Linux release build
   and the Mac Catalyst build run on `main` only. Tests run with `--parallel`.
@@ -289,7 +298,9 @@ Phase 1 task detail (historical, for reference):
      the key of a newly created vault.
    - 3e Export: PDF via `SempereRender` through the share sheet; whole-vault zip
      dump; `verify` screen.
-   - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
+   - 3f **done** (branch `claude/handwriting-search-4793yc`): recognition is Vision
+     on rendered pages (not PencilKit 27), see `CLAUDE.md` § Gotchas "Handwriting
+     search". Original plan: iPadOS 27 PencilKit recognition → `setPageRecognition`
      per page after edits; search field over recognition text with word-box
      highlights.
 

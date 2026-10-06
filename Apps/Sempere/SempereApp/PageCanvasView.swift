@@ -30,6 +30,7 @@ struct PageCanvasView: UIViewRepresentable {
         let c = context.coordinator
         c.editor = editor
         c.host = host
+        editor.canvasTarget = host
         if c.pageID != pageID || c.editorID != ObjectIdentifier(editor) || c.generation != generation {
             let samePage = c.pageID == pageID && c.editorID == ObjectIdentifier(editor)
             c.pageID = pageID
@@ -133,7 +134,7 @@ struct PageCanvasView: UIViewRepresentable {
 }
 
 /// UIKit side of `PageCanvasView`.
-final class PageCanvasHost: UIView, PKToolPickerObserver {
+final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDelegate {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
     /// Starts with the last-used eraser mode, the object eraser by default.
@@ -147,6 +148,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     private(set) var inkMaxY: Double?
     /// The Add Page / Next Page button below a finite page.
     let footerButton = UIButton(configuration: .bordered())
+    /// The pointer's shape over the canvas (Mac, `pointerInteraction(_:styleFor:)`).
+    private var cursorInteraction: UIPointerInteraction?
 
     /// What the button below a finite page does (`PageExtent`).
     var footer = PageExtent.Footer.none {
@@ -198,7 +201,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         canvas.isOpaque = false
         // Ink colours are stored as drawn on light paper; never invert them.
         canvas.overrideUserInterfaceStyle = .light
-        canvas.drawingPolicy = .default
+        // A Mac has no Pencil: the mouse and trackpad always draw, whatever
+        // the system's Pencil preference says (`.default` follows it).
+        canvas.drawingPolicy = Platform.isMac ? .anyInput : .default
         canvas.alwaysBounceVertical = true
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
@@ -215,6 +220,23 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
+        if Platform.isMac {
+            let pointer = UIPointerInteraction(delegate: self)
+            addInteraction(pointer)
+            cursorInteraction = pointer
+        }
+    }
+
+    /// A circle the size of the ink tool's stroke at the current zoom, so the
+    /// pointer shows where a mouse stroke lands. The object eraser draws its
+    /// own cursor, and the lasso and the pixel eraser keep the system arrow.
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard !isReadOnly else { return nil }
+        if objectEraserSelected { return UIPointerStyle.hidden() }
+        guard let tool = canvas.tool as? PKInkingTool else { return nil }
+        let d = CGFloat(PointerCursor.diameter(toolWidth: Double(tool.width), zoom: Double(canvas.zoomScale)))
+        return UIPointerStyle(shape: .path(UIBezierPath(ovalIn: CGRect(x: -d / 2, y: -d / 2, width: d, height: d))),
+                              constrainedAxes: [])
     }
 
     /// Remembers the eraser mode the user picks, for the next canvas, and
@@ -224,6 +246,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
         updateEraser()
+        cursorInteraction?.invalidate()
     }
 
     /// Drops an object-eraser gesture in progress (the drawing is being replaced).
@@ -371,6 +394,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     func zoomChanged() {
         let z = canvas.zoomScale
         guard z > 0 else { return }
+        cursorInteraction?.invalidate()
         let height = PageExtent.scrollHeight(pageSize: pageSize, inkMaxY: inkMaxY,
                                              viewportHeight: Double(bounds.height / z),
                                              footerHeight: footer == .none ? 0 : Double(PageExtent.footerScreenHeight / z))
@@ -421,5 +445,39 @@ enum PageExtent {
             return max(page, clamped(inkMaxY)) + screen
         }
         return max(page + clamped(footerHeight), screen)
+    }
+}
+
+// MARK: - Menu commands (Mac)
+
+extension PageCanvasHost: CanvasCommandTarget {
+    @discardableResult
+    func select(tool choice: ToolChoice) -> Bool {
+        guard !isReadOnly, let item = toolPicker.toolItems.first(where: { choice.matches($0) }) else { return false }
+        toolPicker.selectedToolItemIdentifier = item.identifier
+        updateEraser()
+        cursorInteraction?.invalidate()
+        return true
+    }
+
+    func zoom(in zoomingIn: Bool) {
+        guard fittedWidth > 0 else { return }
+        let target = ZoomSteps.step(from: Double(canvas.zoomScale), fit: Double(fittedWidth), zoomingIn: zoomingIn)
+        canvas.setZoomScale(CGFloat(target), animated: true)
+    }
+
+    func zoomToFit() {
+        guard fittedWidth > 0 else { return }
+        canvas.setZoomScale(fittedWidth, animated: true)
+    }
+
+    func zoomToActualSize() {
+        guard fittedWidth > 0 else { return }
+        canvas.setZoomScale(CGFloat(ZoomSteps.actualSize(fit: Double(fittedWidth))), animated: true)
+    }
+
+    func toggleRuler() {
+        guard !isReadOnly else { return }
+        canvas.isRulerActive.toggle()
     }
 }

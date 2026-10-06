@@ -36,10 +36,21 @@ public enum PNGWriter {
     ///   (checked before any pixel memory is allocated).
     public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
+        var report = RenderReport()
+        return try render(note: note, options: options, png: png, report: &report)
+    }
+
+    /// Like `render(note:options:png:)`, reporting placeholders. PDF pages
+    /// are drawn from `options.pdfRasterizer` at the output resolution.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
+                              png: PNGOptions = PNGOptions(), report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        let store = ImageStore(options: options, blobs: options.blobs)
         var images: [Data] = []
-        for page in note.pages {
-            images += try render(page: page, meta: note.meta, options: options, png: png)
+        for (i, page) in note.pages.enumerated() {
+            images += try render(page: page, meta: note.meta, options: options, png: png, pageNumber: i + 1,
+                                 backgrounds: backgrounds, images: store, report: &report)
         }
         if images.isEmpty {
             images = try render(page: Page(order: "a"), meta: note.meta, options: options, png: png)
@@ -51,20 +62,74 @@ public enum PNGWriter {
     /// One PNG per output page of a single note page (several for an infinite page).
     public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
+        var report = RenderReport()
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        return try render(page: page, meta: meta, options: options, png: png, pageNumber: 1, backgrounds: backgrounds,
+                          images: ImageStore(options: options, blobs: options.blobs), report: &report)
+    }
+
+    static func render(page: Page, meta: NoteMeta, options: RenderOptions, png: PNGOptions, pageNumber: Int,
+                       backgrounds: PDFBackgrounds, images: ImageStore, report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
-        let prepared = try PreparedPage(page: page, meta: meta, options: options)
+        let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, scale: png.scale,
+                                        maxPixels: options.maxBackgroundPixels, report: &report)
+        for w in prepared.warnings { report.warn(w) }
         var out: [Data] = []
         for (chunk, size) in zip(chunks, sizes) {
             let layers = prepared.layers(for: chunk)
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
-            for c in layers.paper + layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
+            for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
+            for it in prepared.items(for: chunk) {
+                if it.fillsBackground, options.paper {
+                    paint(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                }
+                switch draws[it.item.id] {
+                case .image(let p)?:
+                    let toDevice = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset))
+                    if !draw(p, item: it, toDevice: toDevice, images: images, into: &raster, report: &report) {
+                        for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
+                    }
+                case .raster(let r)?:
+                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(r.placement)
+                    raster.draw(r, toDevice: device)
+                default:
+                    for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
+                }
+            }
+            for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
             out.append(try PNGEncoder.encode(width: size.width, height: size.height, rgba: raster.pixels))
         }
         return out
+    }
+
+    /// Draws an image item through `toDevice` (page → device pixels), clipped
+    /// to its frame. A JPEG drawn much smaller than stored is decoded
+    /// at 1/2, 1/4 or 1/8 scale, then box-reduced (`ImageStore.forRaster`).
+    /// Returns false (after reporting why) when the image cannot be drawn.
+    private static func draw(_ p: PlacedImage, item it: PreparedItem, toDevice: Affine, images: ImageStore,
+                             into raster: inout Raster, report: inout RenderReport) -> Bool {
+        let device = toDevice.after(p.transform)   // stored image pixels → device pixels
+        guard let inverse = device.inverse else { return false }
+        let det = abs(device.determinant)
+        let reduction = det > 0 ? 1 / det.squareRoot() : 1
+        switch images.forRaster(p.ref, p.image, reduction: reduction) {
+        case .success(let working):
+            let toWorking = Affine.scale(Double(working.width) / Double(p.image.width),
+                                         Double(working.height) / Double(p.image.height))
+            raster.fill([it.corners.map(toDevice.apply)], shader: ImageShader(image: working, inverse: toWorking.after(inverse)))
+            return true
+        case .failure(let why):
+            // Once per item, however many chunks it spans.
+            if !report.placeholders.contains(where: { $0.item == it.item.id && $0.page == it.pageNumber }) {
+                report.placeholder(it, why)
+            }
+            return false
+        }
     }
 
     /// Pixel dimensions of a chunk at `png.scale` (rounded, at least 1), or

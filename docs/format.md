@@ -656,18 +656,29 @@ A page may carry `"recognition"`, the text recognised in its handwriting:
 
 ```json
 "recognition": {
-  "engine": "pencilkit-27.0",
+  "engine": "vision-26.7",
   "text": "Lecture 3\nlinear maps",
-  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ]
+  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ],
+  "basis": "9f2c4e1d7a0b3c58e6d1f4a2b7c90e13"
 }
 ```
 
 - `engine`: free-form name and version of whatever produced the text, e.g.
+  `vision-<iPadOS version>` (the app's on-device recogniser),
   `pencilkit-<iPadOS version>` or `notability-<version>` for an import.
 - `text`: the page's recognised text in reading order, lines separated by `\n`.
 - `words[].t`: one word of `text`; `words[].box`: its bounding box
   `[x, y, w, h]` in page coordinates (points, origin top-left, y down).
   Writers round to at most 3 decimals. `words` may be empty.
+- `basis` (optional): which strokes the text was read from, so a writer can
+  tell current recognition from stale without reading the ink. The first 16
+  bytes, as 32 lowercase hex digits, of the SHA-256 of the page's live stroke
+  ids (§5.2): each id as lowercase text, sorted as strings (byte order),
+  joined by `\n` with no trailing newline. Strokes are write-once, so equal
+  ids mean equal ink. An empty page's basis is the digest of the empty
+  string, `e3b0c44298fc1c149afbf4c8996fb924`. Readers ignore a value they do
+  not understand and treat it as an opaque string they only compare for
+  equality.
 
 Recognition is derived data: it is set as a whole, never merged, and a writer
 may replace it at any time (for example after strokes change). It is an LWW
@@ -682,6 +693,18 @@ a `setPageRecognition` the snapshot does not cover. `addPage` ignores any
 
 Readers that index text for search use `text`; `words` lets a viewer
 highlight hits on the page.
+
+**When recognition is stale.** A page's recognition is *current* when it has
+a `basis` equal to the digest of the page's live stroke ids; one with a
+different basis is stale (strokes were added or erased since) and a writer
+that recognises text replaces it, with a `basis` of its own. Recognition
+without a `basis` (an import, or a writer that does not record one) cannot be
+checked: a writer keeps it until it itself changes the page's strokes, and
+then replaces it. A page with strokes and no recognition has none yet; a page
+with no strokes keeps recognition without a `basis` and clears (sets to
+`null`) one whose `basis` names strokes that are gone. Recognition with
+empty `text` is valid and current: it says the page was read and had
+nothing legible.
 
 In a snapshot, every page and stroke carries `"origin"`,
 `"<hlc>-<device>-<seq>-<op>"`: the revision that added it and the op's
@@ -998,7 +1021,10 @@ Default policy, chosen automatically by the kind of change:
 | a recipient is removed | full re-encryption | every old copy of a blob's header (backups, file-version history, another device's cache) has a stanza the removed key opens; with the same file key it would open the current file too |
 | the recipients' type changes (classic X25519 to the post-quantum hybrid) | full re-encryption | an old header's classic stanza stays breakable later; with the same file key it would open the post-quantum file too |
 
-A change that both adds and removes follows the removal row. Implementations
+A change that both adds and removes follows the removal row, and so does an
+addition that changes the set of stanza types among the recipients (for
+example an MLKEM768-X25519 recipient added to a vault of X25519 ones, the
+first step of a §3.3.2 migration by adding then removing). Implementations
 may let the user choose the other method for each of the two cases (adding;
 removing or changing type); the default is the table above. The method in
 force is written to `rewrap-journal.json` as `rekeyBlobs` (§3.3.1) before the
@@ -1033,7 +1059,8 @@ blob in `notes/<N>/att/` may be deleted only when all of these hold:
    never in the vault.
 
 No other note is read: references never cross notes (§8.1.1). Blob files
-that cannot be decrypted or verified are never deleted by collection; they
+that cannot be decrypted or verified (as a whole, §8.1.4, with the name
+checked under the current secret) are never deleted by collection; they
 are reported. Because every surviving revision keeps its blobs, history
 (§5.7) never loses an attachment that a restore point needs.
 
@@ -1059,7 +1086,9 @@ age -d -i key.txt "$B" | tail -c +46 | head -c "$((16#<L hex>))" > out
 The content hash matches the `sha256` of the item or recording that uses the
 blob (readable from any revision of the same note, §4); `KIND` and
 `file out` tell the type. Without `head -c` the output carries the zero
-padding after the content.
+padding after the content. `$((16#…))` is bash/zsh arithmetic, and BSD `head` (macOS) refuses
+`-c 0` (an empty content has nothing to extract); where `xxd`
+is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
@@ -1518,6 +1547,7 @@ where the table says how they degrade.
 | --- | --- | --- |
 | revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
+| blob collector state (device-local, §8.1.6) | 64 MiB | `BlobCollectorState` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |
 | `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |
@@ -1541,7 +1571,11 @@ where the table says how they degrade.
 | nib width | 1 000 pt (drawn no wider) | `RenderLimits.maxNibWidth` |
 | paper ruling | 40 000 commands per band, 1 M per page (plain background beyond) | `RenderLimits.maxPaperCommands…` |
 | PNG image | 40 M pixels by default | `PNGOptions.maxPixels` |
+| image decoded for export (§8.2.5) | 100 M pixels (§8.4) and at most 1 024 per byte of the file + 1 M (a header cannot claim more than its data can hold); 64 MiB per image blob; a truncated JPEG scan decodes as far as its data goes | `ImageLimits` |
+| items drawn per page | 10 000 (§8.4); the rest are reported, not drawn | `RenderLimits.maxItemsPerPage` |
 | notebook levels shown | 64 | `NotebookNode.maxDepth` |
+| PDF attachment (export, `SemperePDF`) | 1 GiB file; 10⁶ objects; 256 MiB per decoded stream, 1 GiB decoded per file; nesting and page-tree depth 64; 32 reference hops; 4 096 cross-reference sections; 16 filters per stream; encrypted files refused | `PDFLimits` |
+| PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
@@ -1556,7 +1590,7 @@ itself and checks PROPFIND bodies before `XMLParser` sees them.
 
 Not part of a vault and never stored in one: a reader may keep, per device,
 the summaries of a vault's notes (title, tags, notebook, deleted flag, page,
-stroke and recognised-page counts, newest `wall`) so that listing the vault
+stroke and recognised-page counts, the recognised text of each page for search, newest `wall`) so that listing the vault
 again does not decrypt every note. The reference implementation keeps it in
 the app's Application Support folder and, for the CLI, in
 `$XDG_CACHE_HOME/sempere/` (default `~/.cache/sempere/`). Other readers need

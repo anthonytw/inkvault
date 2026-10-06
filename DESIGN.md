@@ -61,7 +61,7 @@ drawing stays vector; in our log that is one `removeStroke` plus the
 surviving pieces as `addStroke`s.
 
 Each page may also carry its recognised handwriting text (`format.md` §5.5):
-produced on device by PencilKit's handwriting recognition (iPadOS 27) or
+produced on device by Vision's text recognition on a rendering of the page (iPadOS 26) or
 carried in by an importer (Notability ships its own), stored inside the
 encrypted note body like everything else, and used to power search. It is
 derived data, replaced as a whole, so it merges last-writer-wins per page.

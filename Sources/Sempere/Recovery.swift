@@ -61,3 +61,32 @@ public enum Recovery {
         return RecoveredRevision(json: json, verified: unframed.verified, tagMismatch: mismatch)
     }
 }
+
+/// What `Recovery.decryptBlob` found.
+public struct RecoveredBlob: Hashable, Sendable {
+    /// The blob's header: content hash and length.
+    public var header: BlobHeader
+    /// True when the file name was checked against the vault secret and
+    /// verified (format.md §8.1.2); false when no vault secret was available.
+    /// The content hash is always checked.
+    public var nameVerified: Bool
+}
+
+extension Recovery {
+    /// Decrypts one attachment blob file (`notes/<id>/att/<name>.<kind>.age`)
+    /// and streams its content to `sink`, exactly the bytes the stock-tool
+    /// recovery of format.md §8.1.7 prints. Framing, zero padding and the
+    /// content hash are always checked; the name too when `vault` is given
+    /// and unlocked. Content reaches `sink` before the hash is known: if this
+    /// throws, discard it.
+    ///
+    /// - Throws: `BlobError` (`nameMismatch` for a name that does not
+    ///   verify under the vault's secret).
+    public static func decryptBlob(at url: URL, identities: [any AgeIdentity], vault: Vault?,
+                                   _ sink: (Data) throws -> Void) throws -> RecoveredBlob {
+        let secrets = vault?.blobSecrets ?? []
+        let (header, matched) = try Vault.readBlobFile(url, identities: identities, secrets: secrets, expected: nil,
+                                                       maxContent: BlobRef.maxSize, sink: sink)
+        return RecoveredBlob(header: header, nameVerified: matched != nil)
+    }
+}

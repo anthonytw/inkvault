@@ -66,6 +66,7 @@ struct SyncWebDAVCommand: ParsableCommand {
         }
 
         let dir = try access.vaultURL()
+        OpenedVaults.shared.record(dir)   // a first pull creates the vault here
         let hasManifest = FileManager.default.fileExists(atPath: dir.appendingPathComponent("vault.json").path)
         let vault = hasManifest ? try access.openVault(.ifPossible) : nil
         let label = device ?? ProcessInfo.processInfo.hostName

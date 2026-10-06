@@ -14,6 +14,7 @@ import UIKit
 /// - `SEMPERE_DEBUG_SCROLL_Y`: page y (points) to scroll the canvas to.
 /// - `SEMPERE_DEBUG_ZOOM`: zoom as a multiple of the fit-width zoom.
 /// - `SEMPERE_DEBUG_SNAPSHOT`: path to write a PNG of the canvas to, once shown.
+/// - `SEMPERE_DEMO`: a synthetic vault for the App Store screenshots (`DemoLaunch`).
 ///
 /// Release builds compile none of this.
 enum DebugLaunch {
@@ -27,7 +28,8 @@ enum DebugLaunch {
 
     /// True when the launch environment names a vault (or asks for the most
     /// recent one, `SEMPERE_DEBUG_RECENT=1`).
-    static var isActive: Bool { environment["SEMPERE_DEBUG_VAULT"] != nil || environment["SEMPERE_DEBUG_RECENT"] != nil }
+    static var isActive: Bool { environment["SEMPERE_DEBUG_VAULT"] != nil || environment["SEMPERE_DEBUG_RECENT"] != nil
+        || DemoLaunch.isActive }
 
     /// Page y to scroll to after a note opens, if requested.
     static var scrollY: Double? { environment["SEMPERE_DEBUG_SCROLL_Y"].flatMap(Double.init) }
@@ -36,6 +38,10 @@ enum DebugLaunch {
     @MainActor
     static func run(_ model: AppModel, library: VaultLibrary) async {
         let env = environment
+        if DemoLaunch.isActive {
+            await DemoLaunch.run(model)
+            return
+        }
         if env["SEMPERE_DEBUG_RECENT"] != nil {
             await runRecent(model, library: library)
             return

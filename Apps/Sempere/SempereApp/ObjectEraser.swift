@@ -67,9 +67,7 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
                 canvas.panGestureRecognizer.allowedTouchTypes = Self.panTouchTypesWithoutPencil(saved)
             }
             let fingers = Self.fingersDraw(canvas)
-            press.allowedTouchTypes = fingers
-                ? [NSNumber(value: UITouch.TouchType.pencil.rawValue), NSNumber(value: UITouch.TouchType.direct.rawValue)]
-                : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+            press.allowedTouchTypes = Self.pressTouchTypes(fingersDraw: fingers, pointerErases: Platform.isMac)
             if fingers, savedMinimumTouches == nil {
                 savedMinimumTouches = canvas.panGestureRecognizer.minimumNumberOfTouches
                 canvas.panGestureRecognizer.minimumNumberOfTouches = 2
@@ -91,6 +89,16 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
         isActive = active
         press.isEnabled = active
         hover.isEnabled = active
+    }
+
+    /// The touches that erase: the Pencil, fingers when they draw, and on a
+    /// Mac the mouse and trackpad (`indirectPointer`), which PencilKit's own
+    /// gesture is switched off for while this eraser is active.
+    static func pressTouchTypes(fingersDraw: Bool, pointerErases: Bool) -> [NSNumber] {
+        var types = [UITouch.TouchType.pencil]
+        if fingersDraw { types.append(.direct) }
+        if pointerErases { types.append(.indirectPointer) }
+        return types.map { NSNumber(value: $0.rawValue) }
     }
 
     /// The scroll view's pan touch types minus the Pencil: fingers, and the

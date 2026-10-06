@@ -9,16 +9,65 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
+  (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
+  parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);
+  `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
+  code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
+  first (`CLAUDE.md` "CLI first").
+- Web viewer (`web/`, `docs/web-viewer.md`): a static, read-only page that opens a vault from a
+  web server (static files or WebDAV) or a local folder, decrypts it in the browser with the
+  pasted post-quantum key (typage), and shows notebooks, tags, search over titles and
+  handwriting, and the notes' pages with pan and zoom, drawn exactly like the CLI's SVG export.
+  The key stays in the tab's memory; strict Content-Security-Policy; no third-party requests.
+- CLI: `sempere vault index` writes `sempere-index.json`, the listing the web viewer reads on a
+  static server. Once written it is kept current: every command that opens the vault rewrites it
+  when the listing changed, and `sync webdav` rewrites the server's copy.
+- Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
+  note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
+  or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works
+  with a pointer), an access check for saved vault folders, and sandbox entitlements for Mac builds.
+- iPad app: handwriting search. Pages are read on the device with Vision after the strokes
+  change (and when a note opens), the text is saved as page recognition (`format.md` §5.5, new
+  optional `basis` field), and the note list searches recognised text, titles, notebooks and
+  tags and opens the matching page. Recognition from a Notability import is kept until the
+  page's strokes change.
 - Age library: streaming encryption and decryption in constant memory (`AgeEncryptor`,
   `AgeDecryptor`, file-to-file `AgeFile.encrypt` / `decrypt`), header-only rewrap that keeps the
   file key and payload (`AgeFile.rewrapHeader`) and streaming full re-encryption
   (`AgeFile.reencrypt`), for attachments.
+- Attachment blob store (`docs/format.md` §8.1; task B2): each note's `att/` holds its
+  attachments' bytes as streamed, Padmé-padded age files named by a keyed hash, verified on
+  every read (framing, padding, content hash, name). Recipient changes rewrap them: header only
+  when a device key is added, full re-encryption and renaming when one is removed or the key
+  type changes (`vault recipients … --rewrap header|reencrypt` to choose), resumable from the
+  journal. New `sempere blobs list | verify | extract | add | copy | unused | gc | repair`;
+  collection is per note and per device after a 30-day window; `recover` reads a single blob.
+  `vault.json` gains `features: ["attachments"]` with the first blob, and a build that finds an
+  unknown feature refuses to write.
 - Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
   `snapshot` and `compact` refuse a note that has them rather than drop them.
+- PDF page backgrounds in exports (attachments task C3). A new `SemperePDF` library reads PDFs
+  from untrusted attachments (cross-reference tables and streams, object streams, incremental
+  updates, rebuilding a broken file by scanning; bounded and fuzzed). PDF exports copy the original
+  page in as a Form XObject (exact, PDF 1.7); SVG and PNG exports draw it with Poppler's
+  `pdftoppm` when installed, run as a separate, time- and resource-limited process
+  (`--pdf-renderer auto|poppler|none`, `--pdf-timeout`). Anything that cannot be drawn becomes a
+  placeholder with a warning, never a failed export. Applies to notes once item ops are merged (A1).
+- Images in exports (task C1): PDF embeds JPEGs as stored (no re-encoding) and other images
+  losslessly; SVG uses data URIs or, with `export --assets DIR`, linked files; PNG export decodes
+  and resamples them (pure-Swift baseline/progressive JPEG and PNG decoders). Location and camera
+  metadata is removed from every exported image unless `--keep-image-metadata`. Images that
+  cannot be drawn (missing attachment, HEIC in the CLI, over 100 MP) become placeholders with a
+  warning. Images and PDF page backgrounds share one export report and placeholder path, and
+  Markdown and HTML exports draw both.
 
 ### Changed
+
+- `sempere notes list --notebook PATH` now lists the notes in that notebook and below it, comparing
+  canonical paths by segment as the app's sidebar does (it compared raw names before).
 
 - **Faster vault opening** (#54). Note summaries skip stroke geometry, are read in parallel,
   and are kept in an encrypted per-device cache (`docs/format.md` §10), so a 600-note vault

@@ -1,0 +1,654 @@
+// The format's JSON model (format.md §5.1–§5.6), decoded with the rules of
+// Sources/Sempere/Model.swift and Revision.swift, and encoded back the way
+// Swift's `InkJSON.encoder` writes it (so a reconstructed note can be compared
+// with `sempere export --format json`).
+
+import {
+  DecodeError, type JSONObject, arr, arrayOf, bool, fail, int, num, obj, opt, optWith, req, reqWith, round3,
+  str, uuid,
+} from "./json.ts";
+import {
+  Included, type Origin, type RevisionKind, type RevisionName, isDeviceID, isHLC, maxSeq, normalizeEntry,
+  parseTagInstance, originString,
+} from "./ids.ts";
+import { parseRFC3339 } from "./rfc3339.ts";
+import { Budget, checkItemChange, checkRecordingChange, decodeItem, decodeRecording } from "./attachments.ts";
+
+export const inkTools = ["pen", "pencil", "marker", "monoline", "fountainPen", "watercolor", "crayon"] as const;
+export type InkTool = (typeof inkTools)[number];
+
+/** `#RRGGBBAA`, uppercase: how Swift re-encodes any colour it read. */
+export type Color = string;
+
+export interface Ink {
+  tool: InkTool;
+  color: Color;
+  width: number;
+}
+
+/** Stride of `Stroke.points`: `[x, y, t, w, h, o, f, az, al]` per control point. */
+export const pointStride = 9;
+
+export interface RecordingLink {
+  id: string;
+  at: number;
+}
+
+export interface Stroke {
+  id: string;
+  ink: Ink;
+  /** Control points, `pointStride` numbers each. */
+  points: Float64Array;
+  /** `[a, b, c, d, tx, ty]`; absent is identity. */
+  transform?: number[];
+  parent?: string;
+  origin?: string;
+  rec?: RecordingLink;
+}
+
+export interface RecognitionWord {
+  t: string;
+  box: [number, number, number, number];
+}
+
+export interface Recognition {
+  engine: string;
+  text: string;
+  words: RecognitionWord[];
+  basis?: string;
+}
+
+export const paperKinds = ["blank", "ruled", "grid", "dot", "marginRuled", "isoDot", "isoGrid", "cornell", "staff"] as const;
+export type PaperKind = (typeof paperKinds)[number];
+
+export interface Paper {
+  /** `kind` as written; an unknown name renders as blank (§5.4.2). */
+  kindName: string;
+  spacing: number;
+  background: Color;
+  lineColor: Color;
+  lineWidth: number;
+  dotRadius: number;
+  marginLeft: number;
+  marginTop: number;
+  marginColor: Color;
+  cueWidth: number;
+  summaryHeight: number;
+  staffSpacing: number;
+  staffGap: number;
+}
+
+export interface PageSize {
+  width: number;
+  height: number;
+  infinite: boolean;
+  breakHeight?: number;
+}
+
+export interface NoteMeta {
+  title: string;
+  tags: string[];
+  notebook?: string;
+  favorite: boolean;
+  /** Unix milliseconds. */
+  created: number;
+  paper: Paper;
+  pageSize: PageSize;
+}
+
+export interface Page {
+  id: string;
+  order: string;
+  strokes: Stroke[];
+  orderClock?: string;
+  origin?: string;
+  recognition?: Recognition;
+  recognitionClock?: string;
+  parent?: string;
+  paper?: Paper;
+  paperClock?: string;
+  /** Placed items (§8.2), decoded and validated but not merged yet (as in Swift, task A1). */
+  items: unknown[];
+}
+
+export interface TagInstance {
+  tag: string;
+  origin: Origin;
+}
+
+export interface TagRemoval {
+  key: string;
+  origin: Origin;
+}
+
+export interface TagSet {
+  instances: TagInstance[];
+  removed: TagRemoval[];
+  legacy?: { tags: string[]; clock: string };
+}
+
+export interface Tombstones {
+  strokes: string[];
+  pages: string[];
+  items: string[];
+  recordings: string[];
+}
+
+export interface NoteState {
+  deleted: boolean;
+  meta: NoteMeta;
+  pages: Page[];
+  clocks?: Record<string, string>;
+  tombstones?: Tombstones;
+  tagSet?: TagSet;
+  recordings: unknown[];
+}
+
+export type MetaChange =
+  | { field: "title"; value: string }
+  | { field: "tags"; value: string[] }
+  | { field: "notebook"; value: string | undefined }
+  | { field: "favorite"; value: boolean }
+  | { field: "paper"; value: Paper }
+  | { field: "pageSize"; value: PageSize };
+
+export type Op =
+  | { op: "addStroke"; page: string; stroke: Stroke }
+  | { op: "removeStroke"; page: string; strokeId: string }
+  | { op: "addPage"; page: Page }
+  | { op: "removePage"; pageId: string }
+  | { op: "setPageOrder"; pageId: string; order: string }
+  | { op: "setPageRecognition"; pageId: string; recognition: Recognition | undefined }
+  | { op: "setPagePaper"; pageId: string; paper: Paper | undefined }
+  | { op: "setMeta"; change: MetaChange }
+  | { op: "addTag"; tag: string }
+  | { op: "removeTag"; tag: string; observed: Origin[] }
+  | { op: "deleteNote" }
+  | { op: "restoreNote" }
+  | { op: "addItem" | "removeItem" | "setItem" | "addRecording" | "removeRecording" | "setRecording" };
+
+export type RevisionBody =
+  | { type: "delta"; ops: Op[] }
+  | { type: "snapshot"; included: Included; state: NoteState };
+
+export interface Revision {
+  noteId: string;
+  device: string;
+  seq: number;
+  hlc: string;
+  /** Unix milliseconds. */
+  wall: number;
+  app: string;
+  body: RevisionBody;
+}
+
+export function revisionName(r: Revision): RevisionName {
+  return { hlc: r.hlc, device: r.device, seq: r.seq, kind: r.body.type };
+}
+
+// MARK: - Decoding
+
+/**
+ * `#RRGGBB` or `#RRGGBBAA`, as Swift's `Color(hex:)`, which parses the digits
+ * with `UInt32(_:radix:)` (so a leading sign is tolerated). Returns the
+ * canonical uppercase `#RRGGBBAA`.
+ */
+export function parseColor(s: string): Color | undefined {
+  const body = s.startsWith("#") ? s.slice(1) : s;
+  const count = [...body].length;
+  if (count !== 6 && count !== 8) return undefined;
+  let digits = body;
+  if (digits.startsWith("+")) digits = digits.slice(1);
+  else if (digits.startsWith("-")) {
+    if (!/^-0+$/.test(digits)) return undefined;
+    digits = "0";
+  }
+  if (!/^[0-9a-fA-F]+$/.test(digits)) return undefined;
+  let v = parseInt(digits, 16);
+  if (count === 6) v = v * 256 + 255;
+  return "#" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
+}
+
+function color(v: unknown, path: string): Color {
+  const s = str(v, path);
+  const c = parseColor(s);
+  if (c === undefined) fail(path, "bad colour");
+  return c;
+}
+
+function date(v: unknown, path: string): number {
+  const ms = parseRFC3339(str(v, path));
+  if (ms === undefined) fail(path, "bad date");
+  return ms;
+}
+
+function hlc(v: unknown, path: string): string {
+  const s = str(v, path);
+  if (!isHLC(s)) fail(path, "bad hlc");
+  return s;
+}
+
+function deviceID(v: unknown, path: string): string {
+  const s = str(v, path);
+  if (!isDeviceID(s)) fail(path, "bad device id");
+  return s;
+}
+
+function strings(v: unknown, path: string): string[] {
+  return arrayOf(v, path, str);
+}
+
+function numbers(v: unknown, path: string, count: number, exact: boolean): number[] {
+  const a = arr(v, path);
+  if (a.length < count || (exact && a.length > count)) fail(path, `expected ${count} numbers`);
+  return a.slice(0, count).map((e, i) => num(e, `${path}[${i}]`));
+}
+
+function recordingLink(v: unknown, path: string): RecordingLink {
+  const o = obj(v, path);
+  return { id: reqWith(o, "id", path, uuid), at: reqWith(o, "at", path, num) };
+}
+
+export function decodeStroke(v: unknown, path: string): Stroke {
+  const o = obj(v, path);
+  const inkO = obj(req(o, "ink", path), `${path}.ink`);
+  const toolName = reqWith(inkO, "tool", `${path}.ink`, str);
+  const tool: InkTool = (inkTools as readonly string[]).includes(toolName) ? toolName as InkTool : "pen";
+  const ink: Ink = {
+    tool,
+    color: reqWith(inkO, "color", `${path}.ink`, color),
+    width: reqWith(inkO, "width", `${path}.ink`, num),
+  };
+  const pts = arr(req(o, "points", path), `${path}.points`);
+  const points = new Float64Array(pts.length * pointStride);
+  pts.forEach((p, i) => {
+    // Swift's unkeyed decode reads nine numbers and ignores any beyond them.
+    const a = numbers(p, `${path}.points[${i}]`, pointStride, false);
+    points.set(a, i * pointStride);
+  });
+  const s: Stroke = { id: reqWith(o, "id", path, uuid), ink, points };
+  const transform = optWith(o, "transform", path, (t, p) => numbers(t, p, 6, false));
+  if (transform) s.transform = transform;
+  const parent = optWith(o, "parent", path, uuid);
+  if (parent !== undefined) s.parent = parent;
+  const origin = optWith(o, "origin", path, str);
+  if (origin !== undefined) s.origin = origin;
+  const rec = optWith(o, "rec", path, recordingLink);
+  if (rec) s.rec = rec;
+  return s;
+}
+
+export function decodeRecognition(v: unknown, path: string): Recognition {
+  const o = obj(v, path);
+  const r: Recognition = {
+    engine: reqWith(o, "engine", path, str),
+    text: reqWith(o, "text", path, str),
+    words: reqWith(o, "words", path, (w, p) => arrayOf(w, p, (e, q) => {
+      const wo = obj(e, q);
+      const box = reqWith(wo, "box", q, (b, bp) => numbers(b, bp, 4, false)) as [number, number, number, number];
+      return { t: reqWith(wo, "t", q, str), box };
+    })),
+  };
+  // Readers ignore a basis they do not understand (`try?` in Swift).
+  const basis = opt(o, "basis");
+  if (typeof basis === "string") r.basis = basis;
+  return r;
+}
+
+/** The default paper of a kind (Swift's `Paper(kind:)`). */
+export function defaultPaper(kindName: string): Paper {
+  return {
+    kindName, spacing: 24, background: "#FFFFFFFF", lineColor: "#D0D8E8FF", lineWidth: 0.5, dotRadius: 0.9,
+    marginLeft: kindName === "marginRuled" ? 72 : 0, marginTop: 0, marginColor: "#F2A6A6FF",
+    cueWidth: 150, summaryHeight: 120, staffSpacing: 7, staffGap: 40,
+  };
+}
+
+/** The kind a renderer draws: an unknown name is blank. */
+export function paperKind(p: Paper): PaperKind {
+  return (paperKinds as readonly string[]).includes(p.kindName) ? p.kindName as PaperKind : "blank";
+}
+
+const paperNumberFields = ["spacing", "lineWidth", "dotRadius", "marginLeft", "marginTop", "cueWidth",
+  "summaryHeight", "staffSpacing", "staffGap"] as const;
+const paperColorFields = ["background", "lineColor", "marginColor"] as const;
+
+export function decodePaper(v: unknown, path: string): Paper {
+  const o = obj(v, path);
+  const name = reqWith(o, "kind", path, str);
+  // Defaults follow the kind as this reader knows it (an unknown kind is blank).
+  const p = defaultPaper(paperKinds.includes(name as PaperKind) ? name : "blank");
+  p.kindName = name;
+  for (const f of paperNumberFields) {
+    const x = optWith(o, f, path, num);
+    if (x !== undefined) p[f] = x;
+  }
+  for (const f of paperColorFields) {
+    const x = optWith(o, f, path, color);
+    if (x !== undefined) p[f] = x;
+  }
+  return p;
+}
+
+function decodePageSize(v: unknown, path: string): PageSize {
+  const o = obj(v, path);
+  const s: PageSize = {
+    width: reqWith(o, "width", path, num),
+    height: reqWith(o, "height", path, num),
+    infinite: reqWith(o, "infinite", path, bool),
+  };
+  const b = optWith(o, "breakHeight", path, num);
+  if (b !== undefined) s.breakHeight = b;
+  return s;
+}
+
+export function decodePage(v: unknown, path: string, budget: Budget): Page {
+  const o = obj(v, path);
+  const p: Page = {
+    id: reqWith(o, "id", path, uuid),
+    order: reqWith(o, "order", path, str),
+    strokes: optWith(o, "strokes", path, (s, q) => arrayOf(s, q, decodeStroke)) ?? [],
+    items: optWith(o, "items", path, (s, q) => arrayOf(s, q, (e, r) => decodeItem(e, r, budget))) ?? [],
+  };
+  const orderClock = optWith(o, "orderClock", path, str);
+  if (orderClock !== undefined) p.orderClock = orderClock;
+  const origin = optWith(o, "origin", path, str);
+  if (origin !== undefined) p.origin = origin;
+  const recognition = optWith(o, "recognition", path, decodeRecognition);
+  if (recognition) p.recognition = recognition;
+  const recognitionClock = optWith(o, "recognitionClock", path, str);
+  if (recognitionClock !== undefined) p.recognitionClock = recognitionClock;
+  const parent = optWith(o, "parent", path, uuid);
+  if (parent !== undefined) p.parent = parent;
+  const paper = optWith(o, "paper", path, decodePaper);
+  if (paper) p.paper = paper;
+  const paperClock = optWith(o, "paperClock", path, str);
+  if (paperClock !== undefined) p.paperClock = paperClock;
+  return p;
+}
+
+function decodeMeta(v: unknown, path: string): NoteMeta {
+  const o = obj(v, path);
+  const m: NoteMeta = {
+    title: reqWith(o, "title", path, str),
+    tags: reqWith(o, "tags", path, strings),
+    favorite: reqWith(o, "favorite", path, bool),
+    created: reqWith(o, "created", path, date),
+    paper: reqWith(o, "paper", path, decodePaper),
+    pageSize: reqWith(o, "pageSize", path, decodePageSize),
+  };
+  const notebook = optWith(o, "notebook", path, str);
+  if (notebook !== undefined) m.notebook = notebook;
+  return m;
+}
+
+function tagOrigin(v: unknown, path: string): Origin {
+  const s = str(v, path);
+  const o = parseTagInstance(s);
+  if (!o) fail(path, "bad tag instance");
+  return o;
+}
+
+function decodeTagSet(v: unknown, path: string): TagSet {
+  const o = obj(v, path);
+  const t: TagSet = {
+    instances: optWith(o, "instances", path, (a, p) => arrayOf(a, p, (e, q) => {
+      const io = obj(e, q);
+      return { tag: reqWith(io, "tag", q, str), origin: reqWith(io, "origin", q, tagOrigin) };
+    })) ?? [],
+    removed: optWith(o, "removed", path, (a, p) => arrayOf(a, p, (e, q) => {
+      const ro = obj(e, q);
+      return { key: reqWith(ro, "key", q, str), origin: reqWith(ro, "origin", q, tagOrigin) };
+    })) ?? [],
+  };
+  const legacy = optWith(o, "legacy", path, (l, p) => {
+    const lo = obj(l, p);
+    return { tags: reqWith(lo, "tags", p, strings), clock: reqWith(lo, "clock", p, str) };
+  });
+  if (legacy) t.legacy = legacy;
+  return t;
+}
+
+function uuids(v: unknown, path: string): string[] {
+  return arrayOf(v, path, uuid);
+}
+
+function decodeTombstones(v: unknown, path: string): Tombstones {
+  const o = obj(v, path);
+  return {
+    strokes: optWith(o, "strokes", path, uuids) ?? [],
+    pages: optWith(o, "pages", path, uuids) ?? [],
+    items: optWith(o, "items", path, uuids) ?? [],
+    recordings: optWith(o, "recordings", path, uuids) ?? [],
+  };
+}
+
+function decodeClocks(v: unknown, path: string): Record<string, string> {
+  const o = obj(v, path);
+  const out: Record<string, string> = {};
+  for (const [k, x] of Object.entries(o)) out[k] = str(x, `${path}.${k}`);
+  return out;
+}
+
+export function decodeState(v: unknown, path: string, budget: Budget): NoteState {
+  const o = obj(v, path);
+  const s: NoteState = {
+    deleted: reqWith(o, "deleted", path, bool),
+    meta: reqWith(o, "meta", path, decodeMeta),
+    pages: reqWith(o, "pages", path, (a, p) => arrayOf(a, p, (e, q) => decodePage(e, q, budget))),
+    recordings: optWith(o, "recordings", path, (a, p) => arrayOf(a, p, (e, q) => decodeRecording(e, q, budget))) ?? [],
+  };
+  const clocks = optWith(o, "clocks", path, decodeClocks);
+  if (clocks) s.clocks = clocks;
+  const tombstones = optWith(o, "tombstones", path, decodeTombstones);
+  if (tombstones) s.tombstones = tombstones;
+  const tagSet = optWith(o, "tagSet", path, decodeTagSet);
+  if (tagSet) s.tagSet = tagSet;
+  return s;
+}
+
+function decodeIncluded(v: unknown, path: string): Included {
+  const o = obj(v, path);
+  const inc = new Included();
+  for (const [d, e] of Object.entries(o)) {
+    if (!isDeviceID(d)) fail(path, `bad device id ${d}`);
+    const eo = obj(e, `${path}.${d}`);
+    const upTo = reqWith(eo, "upTo", `${path}.${d}`, int);
+    const extra = reqWith(eo, "extra", `${path}.${d}`, (a, p) => arrayOf(a, p, int));
+    if (upTo > maxSeq || extra.some((x) => x > maxSeq)) fail(`${path}.${d}`, "seq out of range");
+    inc.entries.set(d, normalizeEntry(upTo, extra));
+  }
+  return inc;
+}
+
+function decodeMetaChange(o: JSONObject, path: string): MetaChange {
+  const field = reqWith(o, "field", path, str);
+  switch (field) {
+    case "title": return { field, value: reqWith(o, "value", path, str) };
+    case "tags": return { field, value: reqWith(o, "value", path, strings) };
+    case "notebook": return { field, value: optWith(o, "value", path, str) };
+    case "favorite": return { field, value: reqWith(o, "value", path, bool) };
+    case "paper": return { field, value: reqWith(o, "value", path, decodePaper) };
+    case "pageSize": return { field, value: reqWith(o, "value", path, decodePageSize) };
+    default: fail(`${path}.field`, `unknown meta field ${field}`);
+  }
+}
+
+export function decodeOp(v: unknown, path: string, budget: Budget): Op {
+  const o = obj(v, path);
+  const op = reqWith(o, "op", path, str);
+  switch (op) {
+    case "addStroke":
+      return { op, page: reqWith(o, "page", path, uuid), stroke: reqWith(o, "stroke", path, decodeStroke) };
+    case "removeStroke":
+      return { op, page: reqWith(o, "page", path, uuid), strokeId: reqWith(o, "strokeId", path, uuid) };
+    case "addPage":
+      return { op, page: reqWith(o, "page", path, (p, q) => decodePage(p, q, budget)) };
+    case "removePage":
+      return { op, pageId: reqWith(o, "pageId", path, uuid) };
+    case "setPageOrder":
+      return { op, pageId: reqWith(o, "pageId", path, uuid), order: reqWith(o, "order", path, str) };
+    case "setPageRecognition":
+      return { op, pageId: reqWith(o, "pageId", path, uuid), recognition: optWith(o, "recognition", path, decodeRecognition) };
+    case "setPagePaper":
+      return { op, pageId: reqWith(o, "pageId", path, uuid), paper: optWith(o, "paper", path, decodePaper) };
+    case "setMeta":
+      return { op, change: decodeMetaChange(o, path) };
+    case "addTag":
+      return { op, tag: reqWith(o, "tag", path, str) };
+    case "removeTag":
+      return {
+        op, tag: reqWith(o, "tag", path, str),
+        observed: reqWith(o, "observed", path, (a, p) => arrayOf(a, p, tagOrigin)),
+      };
+    case "deleteNote":
+    case "restoreNote":
+      return { op };
+    case "addItem":
+      reqWith(o, "page", path, uuid);
+      reqWith(o, "item", path, (i, p) => decodeItem(i, p, budget));
+      return { op };
+    case "removeItem":
+      reqWith(o, "page", path, uuid);
+      reqWith(o, "itemId", path, uuid);
+      return { op };
+    case "setItem": {
+      const field = reqWith(o, "field", path, str);
+      reqWith(o, "page", path, uuid);
+      reqWith(o, "itemId", path, uuid);
+      checkItemChange(field, opt(o, "value") ?? null, `${path}.value`, budget);
+      return { op };
+    }
+    case "addRecording":
+      reqWith(o, "recording", path, (r, p) => decodeRecording(r, p, budget));
+      return { op };
+    case "removeRecording":
+      reqWith(o, "recordingId", path, uuid);
+      return { op };
+    case "setRecording": {
+      const field = reqWith(o, "field", path, str);
+      reqWith(o, "recordingId", path, uuid);
+      checkRecordingChange(field, opt(o, "value") ?? null, `${path}.value`, budget);
+      return { op };
+    }
+    default:
+      // Fail closed on an op this reader does not know (format.md §7).
+      fail(`${path}.op`, `unknown op ${op}`);
+  }
+}
+
+/** Decodes a revision's JSON (already parsed). */
+export function decodeRevision(v: unknown): Revision {
+  const path = "$";
+  const o = obj(v, path);
+  const budget = new Budget();
+  const noteId = reqWith(o, "noteId", path, uuid);
+  const device = reqWith(o, "device", path, deviceID);
+  const seq = reqWith(o, "seq", path, int);
+  if (seq < 1 || seq > maxSeq) fail(`${path}.seq`, `seq must be 1...${maxSeq}`);
+  const r = {
+    noteId, device, seq,
+    hlc: reqWith(o, "hlc", path, hlc),
+    wall: reqWith(o, "wall", path, date),
+    app: reqWith(o, "app", path, str),
+  };
+  const type = reqWith(o, "type", path, str);
+  let body: RevisionBody;
+  if (type === "delta") {
+    body = { type, ops: reqWith(o, "ops", path, (a, p) => arrayOf(a, p, (e, q) => decodeOp(e, q, budget))) };
+  } else if (type === "snapshot") {
+    body = {
+      type,
+      included: reqWith(o, "included", path, decodeIncluded),
+      state: reqWith(o, "state", path, (s, p) => decodeState(s, p, budget)),
+    };
+  } else {
+    fail(`${path}.type`, `unknown revision type ${type}`);
+  }
+  return { ...r, body };
+}
+
+export function isDecodeError(e: unknown): e is DecodeError {
+  return e instanceof DecodeError;
+}
+
+// MARK: - Encoding (Swift `InkJSON.encoder`, keys sorted by the caller)
+
+function encodeStroke(s: Stroke): JSONObject {
+  const pts: number[][] = [];
+  for (let i = 0; i < s.points.length; i += pointStride) {
+    pts.push(Array.from(s.points.subarray(i, i + pointStride), round3));
+  }
+  const o: JSONObject = { id: s.id, ink: { tool: s.ink.tool, color: s.ink.color, width: s.ink.width }, points: pts };
+  if (s.transform && !isIdentity(s.transform)) o.transform = s.transform.map(round3);
+  if (s.parent !== undefined) o.parent = s.parent;
+  if (s.origin !== undefined) o.origin = s.origin;
+  if (s.rec) o.rec = { id: s.rec.id, at: round3(s.rec.at) };
+  return o;
+}
+
+export function isIdentity(t: number[]): boolean {
+  return t[0] === 1 && t[1] === 0 && t[2] === 0 && t[3] === 1 && t[4] === 0 && t[5] === 0;
+}
+
+export function encodePaper(p: Paper): JSONObject {
+  const o: JSONObject = { kind: p.kindName, spacing: p.spacing, background: p.background, lineColor: p.lineColor };
+  const d = defaultPaper(paperKind(p));
+  for (const f of ["lineWidth", "dotRadius", "marginLeft", "marginTop", "cueWidth", "summaryHeight",
+    "staffSpacing", "staffGap", "marginColor"] as const) {
+    if (p[f] !== d[f]) o[f] = p[f];
+  }
+  return o;
+}
+
+function encodeRecognition(r: Recognition): JSONObject {
+  const o: JSONObject = { engine: r.engine, text: r.text, words: r.words.map((w) => ({ t: w.t, box: w.box.map(round3) })) };
+  if (r.basis !== undefined) o.basis = r.basis;
+  return o;
+}
+
+function encodePage(p: Page): JSONObject {
+  const o: JSONObject = { id: p.id, order: p.order, strokes: p.strokes.map(encodeStroke) };
+  if (p.orderClock !== undefined) o.orderClock = p.orderClock;
+  if (p.origin !== undefined) o.origin = p.origin;
+  if (p.recognition) o.recognition = encodeRecognition(p.recognition);
+  if (p.recognitionClock !== undefined) o.recognitionClock = p.recognitionClock;
+  if (p.parent !== undefined) o.parent = p.parent;
+  if (p.paper) o.paper = encodePaper(p.paper);
+  if (p.paperClock !== undefined) o.paperClock = p.paperClock;
+  return o;
+}
+
+/**
+ * A reconstructed note as `sempere export --format json` writes it (the
+ * reducer's output carries no items or recordings, as in Swift).
+ */
+export function encodeState(s: NoteState, formatDate: (ms: number) => string): JSONObject {
+  const m = s.meta;
+  const meta: JSONObject = {
+    title: m.title, tags: m.tags, favorite: m.favorite, created: formatDate(m.created),
+    paper: encodePaper(m.paper), pageSize: { ...m.pageSize },
+  };
+  if (m.notebook !== undefined) meta.notebook = m.notebook;
+  const o: JSONObject = { deleted: s.deleted, meta, pages: s.pages.map(encodePage) };
+  if (s.clocks && Object.keys(s.clocks).length > 0) o.clocks = s.clocks;
+  const t = s.tombstones;
+  if (t && (t.strokes.length || t.pages.length || t.items.length || t.recordings.length)) {
+    const to: JSONObject = { strokes: t.strokes, pages: t.pages };
+    if (t.items.length) to.items = t.items;
+    if (t.recordings.length) to.recordings = t.recordings;
+    o.tombstones = to;
+  }
+  if (s.tagSet) {
+    const ts: JSONObject = {
+      instances: s.tagSet.instances.map((i) => ({ tag: i.tag, origin: originString(i.origin) })),
+      removed: s.tagSet.removed.map((r) => ({ key: r.key, origin: originString(r.origin) })),
+    };
+    if (s.tagSet.legacy) ts.legacy = s.tagSet.legacy;
+    o.tagSet = ts;
+  }
+  return o;
+}
+
+/** Re-exported for callers that only need the revision kind type. */
+export type { RevisionKind };
