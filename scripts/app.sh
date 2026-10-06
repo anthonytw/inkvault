@@ -2,6 +2,7 @@
 # Build and test the iPad/Mac app (Apps/Sempere). Needs Xcode; macOS only.
 #
 #   scripts/app.sh test       # xcodebuild test on an iPad simulator
+#   scripts/app.sh test-phone # the iPhone suites (PhoneLayoutTests) on an iPhone simulator
 #   scripts/app.sh catalyst   # Mac Catalyst build, unsigned
 #   scripts/app.sh simulator  # print the simulator id `test` would use
 #
@@ -12,11 +13,14 @@ project=Apps/Sempere/Sempere.xcodeproj
 scheme=SempereApp
 derived=${SEMPERE_DERIVED_DATA:-.build/xcode}
 
-# The newest available iPad simulator on the newest iOS runtime.
+# The newest available simulator whose name starts with $1 (iPad or iPhone, default iPad) on the
+# newest iOS runtime. SEMPERE_SIM_ID overrides it.
 pick_simulator() {
+  local family=${1:-iPad}
   if [[ -n "${SEMPERE_SIM_ID:-}" ]]; then echo "$SEMPERE_SIM_ID"; return; fi
   xcrun simctl list devices available --json | /usr/bin/python3 -c '
 import json, re, sys
+family = sys.argv[1]
 devices = json.load(sys.stdin)["devices"]
 best = None
 for runtime, devs in devices.items():
@@ -24,18 +28,18 @@ for runtime, devs in devices.items():
     if not m:
         continue
     version = (int(m.group(1)), int(m.group(2)))
-    if version < (26, 0):  # the app targets iPadOS 26
+    if version < (26, 0):  # the app targets iPadOS 26 and iOS 26
         continue
     for d in devs:
-        if d.get("isAvailable") and d["name"].startswith("iPad"):
+        if d.get("isAvailable") and d["name"].startswith(family):
             key = (version, d["name"])
             if best is None or key > best[0]:
                 best = (key, d["udid"], d["name"], version)
 if best is None:
-    sys.exit("no available iPad simulator on iOS 26 or newer (xcrun simctl list runtimes; xcodebuild -downloadPlatform iOS)")
+    sys.exit("no available " + family + " simulator on iOS 26 or newer (xcrun simctl list runtimes; xcodebuild -downloadPlatform iOS)")
 print(f"using {best[2]} (iOS {best[3][0]}.{best[3][1]})", file=sys.stderr)
 print(best[1])
-'
+' "$family"
 }
 
 case "${1:-}" in
@@ -47,13 +51,22 @@ case "${1:-}" in
     xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination "platform=iOS Simulator,id=$sim" CODE_SIGNING_ALLOWED=NO
     ;;
+  test-phone)
+    # Same build products as `test` (the simulator SDK is shared), so after it this only runs the suites.
+    sim=$(pick_simulator iPhone)
+    xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
+      -destination "platform=iOS Simulator,id=$sim" CODE_SIGNING_ALLOWED=NO \
+      -only-testing:SempereAppTests/CompactNavigationTests -only-testing:SempereAppTests/PhoneReadingTests \
+      -only-testing:SempereAppTests/PhoneCanvasTests -only-testing:SempereAppTests/PhoneRootTests \
+      -only-testing:SempereAppTests/ZoomStepsTests
+    ;;
   catalyst)
     xcodebuild build -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination 'platform=macOS,variant=Mac Catalyst' \
       CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=-
     ;;
   *)
-    echo "usage: $0 test|catalyst|simulator" >&2
+    echo "usage: $0 test|test-phone|catalyst|simulator" >&2
     exit 2
     ;;
 esac

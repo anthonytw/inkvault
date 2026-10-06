@@ -14,6 +14,9 @@ struct PageCanvasView: UIViewRepresentable {
     /// The tool palette's shown/compact state (`ToolPalette`).
     var paletteVisible = true
     var paletteCompact = false
+    /// Reading on an iPhone: the canvas only pans and zooms, the palette is hidden
+    /// (`PhoneReading`).
+    var drawingSuspended = false
     /// `NoteEditor.canvasGeneration`: a change reloads the drawing even when
     /// the page id stays the same.
     var generation = 0
@@ -49,6 +52,7 @@ struct PageCanvasView: UIViewRepresentable {
         }
         host.paletteCompact = paletteCompact
         host.paletteVisible = paletteVisible
+        host.drawingSuspended = drawingSuspended
         host.apply(paper: paper, pageSize: pageSize)
     }
 
@@ -167,6 +171,15 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         didSet { if paletteCompact != oldValue { rebuildToolPicker() } }
     }
 
+    /// Reading mode (iPhone): fingers scroll and zoom, nothing draws, no palette.
+    var drawingSuspended = false {
+        didSet {
+            guard drawingSuspended != oldValue else { return }
+            updateEraser()
+            updateToolPicker()
+        }
+    }
+
     var isReadOnly = false {
         didSet {
             guard isReadOnly != oldValue else { return }
@@ -203,7 +216,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.overrideUserInterfaceStyle = .light
         // A Mac has no Pencil: the mouse and trackpad always draw, whatever
         // the system's Pencil preference says (`.default` follows it).
-        canvas.drawingPolicy = Platform.isMac ? .anyInput : .default
+        // An iPhone has no Pencil: a finger draws (once annotating is switched on).
+        canvas.drawingPolicy = Platform.isMac || Platform.isPhone ? .anyInput : .default
         canvas.alwaysBounceVertical = true
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
@@ -262,7 +276,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let editable = !isReadOnly && !isPreparing
+        let editable = !isReadOnly && !isPreparing && !drawingSuspended
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
@@ -279,9 +293,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     private func updateToolPicker() {
         guard window != nil else { return }
         defer { updateEraser() }
-        let show = !isReadOnly && paletteVisible
+        let show = !isReadOnly && !drawingSuspended && paletteVisible
         toolPicker.setVisible(show, forFirstResponder: canvas)
-        if !isReadOnly { canvas.becomeFirstResponder() }
+        if !isReadOnly && !drawingSuspended { canvas.becomeFirstResponder() }
     }
 
     /// Swaps in a picker of the other size, keeping the selected tool when the

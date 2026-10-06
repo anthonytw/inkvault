@@ -38,20 +38,20 @@ struct NoteListView: View {
         }
         .toolbar {
             if model.isSelectingNotes {
-                ToolbarItem { ExportMenu(ids: model.exportTargetIDs) }
+                ToolbarItem(placement: secondary) { ExportMenu(ids: model.exportTargetIDs) }
             }
-            ToolbarItem {
+            ToolbarItem(placement: secondary) {
                 Button(model.isSelectingNotes ? "Done" : "Select") { setSelecting(!model.isSelectingNotes) }
                     .disabled(model.phase != .unlocked)
             }
-            ToolbarItem {
+            ToolbarItem(placement: secondary) {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
                     Picker("Sort By", selection: $model.sortOrder) {
                         ForEach(NoteSort.allCases) { Text($0.rawValue).tag($0) }
                     }
                 }
             }
-            ToolbarItem {
+            ToolbarItem(placement: secondary) {
                 Menu("Handwriting", systemImage: "text.viewfinder") {
                     Toggle("Recognize Handwriting", isOn: Binding(get: { model.recognizer != nil },
                                                                   set: { model.setHandwritingRecognition($0) }))
@@ -94,6 +94,11 @@ struct NoteListView: View {
             }
             Button("Cancel", role: .cancel) { prompt = nil }
         }
+    }
+
+    /// On an iPhone the list's bar keeps New Note and moves the rest into the overflow menu.
+    private var secondary: ToolbarItemPlacement {
+        Platform.isPhone ? .secondaryAction : .automatic
     }
 
     private var notesList: some View {

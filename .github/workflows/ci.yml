@@ -173,7 +173,7 @@ jobs:
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
 
   app:
-    name: iPad app (simulator + Mac Catalyst)
+    name: iPad and iPhone app (simulators + Mac Catalyst)
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: macos-26
@@ -195,6 +195,10 @@ jobs:
           restore-keys: ${{ steps.cachekey.outputs.key }}-
       - name: Test on an iPad simulator
         run: scripts/app.sh test
+      # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
+      # so this adds a boot and a few seconds of tests.
+      - name: Test the iPhone layouts on an iPhone simulator
+        run: scripts/app.sh test-phone
       # Same target and sources as the simulator build; checked on main only.
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'

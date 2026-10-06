@@ -53,9 +53,13 @@ final class RememberedKeys {
         self.store = store
     }
 
-    /// "this iPad", or "this Mac" under Mac Catalyst.
-    static var deviceName: String {
-        ProcessInfo.processInfo.isMacCatalystApp ? "this Mac" : "this iPad"
+    /// "this iPad", "this iPhone", or "this Mac" under Mac Catalyst.
+    @MainActor static var deviceName: String {
+        name(isMac: ProcessInfo.processInfo.isMacCatalystApp, isPhone: Platform.isPhone)
+    }
+
+    static func name(isMac: Bool, isPhone: Bool) -> String {
+        isMac ? "this Mac" : (isPhone ? "this iPhone" : "this iPad")
     }
 
     /// The device's biometry ("Face ID", "Touch ID", "Optic ID") when one is

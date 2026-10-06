@@ -26,9 +26,14 @@ struct RootView: View {
     /// then nothing is saved, so the first selections do not overwrite it.
     @State private var restoredVault: UUID?
 
+    /// The stack column an iPhone shows (`CompactNavigation`); the other devices ignore it.
+    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
+
+    /// The split view's columns. An iPhone leaves them to the system (a stack when
+    /// compact, columns in a wide landscape) and never stores a hidden list.
     private var columns: Binding<NavigationSplitViewVisibility> {
-        Binding(get: { ColumnLayout.visibility(from: storedColumns) },
-                set: { storedColumns = ColumnLayout.stored($0) })
+        Binding(get: { Platform.isPhone ? .automatic : ColumnLayout.visibility(from: storedColumns) },
+                set: { if !Platform.isPhone { storedColumns = ColumnLayout.stored($0) } })
     }
 
     /// The window: its content, then what the Mac menus and scene restoration need.
@@ -68,12 +73,28 @@ struct RootView: View {
                 // A legacy vault: nothing but its migration (format.md §3.3.2).
                 MigrationView()
             } else {
-                NavigationSplitView(columnVisibility: columns) {
+                NavigationSplitView(columnVisibility: columns, preferredCompactColumn: $compactColumn) {
                     SidebarView()
                 } content: {
                     NoteListView()
                 } detail: {
                     NoteCanvasView()
+                }
+                .onAppear {
+                    // The vault opens on its notebooks: nothing is selected, so a tap pushes.
+                    if Platform.isPhone, compactColumn == .sidebar { model.sidebarSelection = nil }
+                }
+                .onChange(of: model.selectedNoteID) { followSelection() }
+                .onChange(of: model.sidebarSelection) { followSelection() }
+                .onChange(of: compactColumn) { _, column in
+                    guard Platform.isPhone else { return }
+                    let clear = CompactNavigation.clear(whenShowing: column)
+                    if clear.note, model.selectedNoteID != nil {
+                        model.selectedNoteID = nil
+                        // The note's view is gone with the pop, so its own task will not close the editor.
+                        Task { await model.showSelectedNote() }
+                    }
+                    if clear.sidebar, model.sidebarSelection != nil { model.sidebarSelection = nil }
                 }
             }
         }
@@ -142,6 +163,13 @@ struct RootView: View {
             triedAutoOpen = true
             await reopen(last, pickOnFailure: false)
         }
+    }
+
+    /// A selection made in code (a search hit, the demo launch) moves the iPhone's stack.
+    private func followSelection() {
+        guard Platform.isPhone, let next = CompactNavigation.column(
+            note: model.selectedNoteID, sidebar: model.sidebarSelection, current: compactColumn) else { return }
+        compactColumn = next
     }
 
     private var currentNotebook: String? {
