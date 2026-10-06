@@ -291,8 +291,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   never replaced unless the editor itself changed that page's strokes (`touchedPages`), via
   `RecognitionPolicy.needsRecognition`. The editor saves strokes first, recognises off the main
   actor (`VisionPageRecognizer`, ink drawn black on white, markers skipped), re-checks the digest
-  before writing and drops the result if strokes changed meanwhile; it writes through its own
-  `NoteWriter`. Vault-wide reading ("Recognize N Notes Now") goes through `commit(_:building:)`
+  before writing and drops the result if strokes changed meanwhile; it writes one delta per
+  pass (all pages read) through its own `NoteWriter`, and stops without writing once closed or
+  switched off. A page that cannot be drawn is an error, never stored as empty text. Vault-wide reading ("Recognize N Notes Now") goes through `commit(_:building:)`
   and rewrites each page only if its digest still matches. App tests inject `FakeRecognizer`;
   `AppModel()` defaults to no recognizer so existing tests write no extra deltas. Search is
   `NoteSearch.search` over `NoteSummary.pageTexts` (filled by `Vault.summary`), run off the main

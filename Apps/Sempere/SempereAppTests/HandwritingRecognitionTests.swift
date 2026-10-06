@@ -91,7 +91,8 @@ struct EditorRecognitionTests {
             if case .addStroke = op { return "stroke" }
             return "other"
         }
-        #expect(kinds == ["recognition", "recognition", "stroke", "recognition"])
+        // One delta per pass: both pages on open, then the edited page.
+        #expect(kinds == ["recognition", "stroke", "recognition"])
     }
 
     @Test func importedRecognitionStaysUntilTheStrokesChange() async throws {
@@ -181,6 +182,57 @@ struct EditorRecognitionTests {
         let saved = try Self.page(vault, page.id)
         #expect(saved.recognition?.basis == RecognitionBasis.digest(of: saved))
         #expect(saved.recognition?.text == "fake 3")
+    }
+
+    @Test func aPassWritesOneDeltaForAllItsPages() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let before = try vault.revisionNames(of: Self.lecture).count
+        let (editor, _) = try await Self.open(vault, recognizer: FakeRecognizer())
+        await editor.recognizePending()
+        #expect(editor.recognitionsWritten == 2)
+        // One revision for the pass, not one per page.
+        #expect(try vault.revisionNames(of: Self.lecture).count == before + 1)
+        let newest = try #require(try vault.loadNote(Self.lecture).revisions.max { $0.name < $1.name })
+        guard case .delta(let ops) = newest.body else { Issue.record("not a delta"); return }
+        let pages = ops.compactMap { op -> UUID? in
+            if case .setPageRecognition(let id, _) = op { return id } else { return nil }
+        }
+        #expect(ops.count == 2)
+        #expect(Set(pages) == Set(editor.pages.map(\.id)))
+    }
+
+    @Test func switchingRecognitionOffMidPassStopsItWritingNothing() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let gate = Gate()
+        await gate.close()
+        let fake = FakeRecognizer(gate: gate)
+        let (editor, _) = try await Self.open(vault, recognizer: fake)
+        let before = try vault.revisionNames(of: Self.lecture).count
+        let running = Task { await editor.recognizePending() }
+        await gate.waitForArrivals(1)
+        editor.recognizer = nil
+        await gate.open()
+        await running.value
+        #expect(fake.calls.count == 1, "the second page is not read")
+        #expect(editor.recognitionsWritten == 0)
+        #expect(try vault.revisionNames(of: Self.lecture).count == before)
+    }
+
+    @Test func closingTheEditorMidPassStopsItWritingNothing() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let gate = Gate()
+        await gate.close()
+        let fake = FakeRecognizer(gate: gate)
+        let (editor, _) = try await Self.open(vault, recognizer: fake)
+        let before = try vault.revisionNames(of: Self.lecture).count
+        let running = Task { await editor.recognizePending() }
+        await gate.waitForArrivals(1)
+        await editor.close()
+        await gate.open()
+        await running.value
+        #expect(fake.calls.count == 1)
+        #expect(editor.recognitionsWritten == 0)
+        #expect(try vault.revisionNames(of: Self.lecture).count == before)
     }
 
     @Test func aFailingRecogniserWritesNothingAndReportsIt() async throws {

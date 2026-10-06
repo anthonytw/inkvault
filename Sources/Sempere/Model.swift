@@ -214,6 +214,18 @@ public struct Recognition: Hashable, Sendable, Codable {
     public init(engine: String, text: String, words: [Word] = [], basis: String? = nil) {
         self.engine = engine; self.text = text; self.words = words; self.basis = basis
     }
+
+    enum CodingKeys: String, CodingKey { case engine, text, words, basis }
+
+    /// Readers ignore a `basis` they do not understand (format.md §5.5): one
+    /// that is not a string reads as nil instead of making the revision unreadable.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        engine = try c.decode(String.self, forKey: .engine)
+        text = try c.decode(String.self, forKey: .text)
+        words = try c.decode([Word].self, forKey: .words)
+        basis = try? c.decodeIfPresent(String.self, forKey: .basis)
+    }
 }
 
 public struct Page: Hashable, Sendable, Codable, Identifiable {

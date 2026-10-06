@@ -24,6 +24,24 @@ final class RecognitionSupportTests: VaultTestCase {
                        RecognitionBasis.digest(of: [UUID(uuidString: "aaaaaaaa-0000-4000-8000-000000000001")!]))
     }
 
+    /// format.md §5.5: readers ignore a `basis` they do not understand. A
+    /// non-string one must not make the revision unreadable.
+    func testABasisThatIsNotAStringIsIgnored() throws {
+        for basis in ["5", "{\"v\":2}", "[\"a\"]", "null"] {
+            let json = Data(#"{"engine":"x-1","text":"hi","words":[],"basis":\#(basis)}"#.utf8)
+            let r = try JSONDecoder().decode(Recognition.self, from: json)
+            XCTAssertEqual(r.text, "hi", basis)
+            XCTAssertNil(r.basis, basis)
+        }
+        let json = Data(#"{"engine":"x-1","text":"hi","words":[],"basis":"abc"}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(Recognition.self, from: json).basis, "abc")
+        // Round trip: encoded as before (no basis key when nil).
+        let plain = Recognition(engine: "x-1", text: "hi")
+        let encoded = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("basis"))
+        XCTAssertEqual(try JSONDecoder().decode(Recognition.self, from: Data(encoded.utf8)), plain)
+    }
+
     func testPolicyForOurOwnRecognition() {
         let ids = [id(1), id(2)]
         let current = Recognition(engine: "e", text: "x", basis: RecognitionBasis.digest(of: ids))

@@ -90,8 +90,9 @@ public enum NoteSearch {
         let words = words(query)
         guard !words.isEmpty else { return [] }
         let hits = notes.compactMap { hit(words, in: $0) }
-        let modified = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.modified ?? .distantPast) })
-        let titles = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.title.lowercased()) })
+        // Not `uniqueKeysWithValues`: a list holding one id twice must not trap.
+        let modified = Dictionary(notes.map { ($0.id, $0.modified ?? .distantPast) }, uniquingKeysWith: { a, _ in a })
+        let titles = Dictionary(notes.map { ($0.id, $0.title.lowercased()) }, uniquingKeysWith: { a, _ in a })
         return hits.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
             let (a, b) = (modified[$0.id] ?? .distantPast, modified[$1.id] ?? .distantPast)
@@ -141,8 +142,9 @@ public enum NoteSearch {
         var page: PageText?
         var snippet: NoteSearchHit.Snippet?
         if let bestIndex = pageWords.max(by: { ($0.value.count, -$0.key) < ($1.value.count, -$1.key) })?.key {
-            page = note.pageTexts[bestIndex]
-            snippet = Self.snippet(page!.text, words: words.map(\.text))
+            let best = note.pageTexts[bestIndex]
+            page = best
+            snippet = Self.snippet(best.text, words: words.map(\.text))
             score += 5 * (pageWords[bestIndex]?.count ?? 0) + min(pageWords.count, 5)
         }
         return NoteSearchHit(note: note.id, fields: fields.sorted(), page: page, snippet: snippet,
