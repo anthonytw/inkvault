@@ -283,6 +283,10 @@ extension Vault {
     /// writer of the same content won), atomically over an invalid one
     /// (format.md §8.1.4 step 2).
     private func place(_ tmp: URL, at target: URL, ref: BlobRef) throws {
+        if FileIO.exists(target), !isValidBlob(target, ref: ref) {
+            try FileIO.place(tmp, at: target)
+            return
+        }
         do { try FileIO.placeNew(tmp, at: target) } catch VaultError.alreadyExists {
             if isValidBlob(target, ref: ref) { return }
             throw VaultError.alreadyExists(target.path)

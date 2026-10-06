@@ -616,7 +616,7 @@ public struct Vault: Sendable {
     /// matching type per recipient (and no other stanzas) and its tag
     /// verifies under the current secret; such files are skipped, which is
     /// what makes a second run finish an interrupted one.
-    func rewrapNotes(blobs: RewrapMethod, stopAfter: Int?) throws -> RewrapReport {
+    func rewrapNotes(blobs: RewrapMethod = .reencrypt, stopAfter: Int?) throws -> RewrapReport {
         let current = try requireSecret()
         let recips = try ageRecipients()
         let expected = Self.expectedStanzas(recips)
