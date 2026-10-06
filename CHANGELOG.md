@@ -9,6 +9,8 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI: `sempere items list|move|rotate|front|delete|duplicate|copy`, the app's item gestures (one
+  delta each, through the same `NoteOps` builders; `copy` copies attachments to the other note first).
 - Attachment plumbing in the app (task E0, `docs/attachments.md` §13–14): a note's images, text
   boxes and PDF pages are drawn between the paper and the ink (a placeholder while a blob
   downloads or when it is missing), and Select Items mode selects, moves, resizes, duplicates,

@@ -92,7 +92,12 @@ streamed through the vault's checks into a private temporary file (mode
 512 MB, everything deleted when the vault closes or changes. Meanwhile the
 item shows a placeholder with a download symbol. Blobs are written
 (`NoteWriter.addBlob`, `copyBlob`) inside the same coordinated write of the
-note's folder as deltas.
+note's folder as deltas. Before a blob is written or copied into a note, that
+note's copy of it, if iCloud lists one, is downloaded first
+(`NoteEditor.prepareBlobWrite`, `AppModel.blobWritePreparer`): blob names
+depend only on the content, so an evicted copy is the same blob and is
+reused, never written a second time beside iCloud's placeholder (blob files
+are write-once).
 
 Progressive loading: only the small unlocking files (`vault.json`, the
 rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are

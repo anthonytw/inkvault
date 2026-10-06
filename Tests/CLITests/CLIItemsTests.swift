@@ -38,8 +38,11 @@ final class CLIItemsTests: CLITestCase {
             return try XCTUnwrap(r.json as? [[String: Any]])
         }
         XCTAssertEqual(try items("Board").map { $0["kind"] as? String }, ["image", "text"])
-        let image = String(imageId.uuidString.lowercased().prefix(8))
+        let image = String(imageId.uuidString.lowercased().prefix(13))   // the 8-character prefix is shared: ambiguous
 
+        let ambiguous = try cli(["items", "front", "Board", "eeeeeeee"] + args)
+        XCTAssertEqual(ambiguous.status, 1)
+        XCTAssertTrue(ambiguous.err.contains("names 2 items"), ambiguous.err)
         var before = try revisions(vault, note)
         let move = try cli(["items", "move", "Board", image, "--frame", "20,30,200,150", "--json"] + args)
         XCTAssertEqual(move.status, 0, move.err)
@@ -58,7 +61,7 @@ final class CLIItemsTests: CLITestCase {
         before = try revisions(vault, note)
         XCTAssertEqual(try cli(["items", "duplicate", "Board", image] + args).status, 0)
         XCTAssertEqual(try items("Board").count, 3)
-        XCTAssertEqual(try cli(["items", "delete", "Board", String(textId.uuidString.lowercased().prefix(8))] + args).status, 0)
+        XCTAssertEqual(try cli(["items", "delete", "Board", String(textId.uuidString.lowercased().prefix(13))] + args).status, 0)
         XCTAssertEqual(try items("Board").count, 2)
         XCTAssertEqual(try revisions(vault, note), before + 2)
 
