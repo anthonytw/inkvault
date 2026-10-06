@@ -53,9 +53,12 @@ final class BlobRecoveryTests: VaultTestCase {
         XCTAssertEqual(sha, ref.sha256, file: file, line: line)
         let lHex = String(decoding: try bash("\(dec) | head -c 45 | tail -c 8 | \(hex)"), as: UTF8.self)
         XCTAssertEqual(Int(lHex, radix: 16), content.count, file: file, line: line)
-        let out = tmp.appendingPathComponent("out-\(UUID().uuidString)")
-        _ = try bash("\(dec) | tail -c +46 | head -c \"$((16#\(lHex)))\" > \(quote(out.path))")
-        XCTAssertEqual(try Data(contentsOf: out), content, file: file, line: line)
+        // BSD head (macOS) refuses `-c 0`: an empty blob has nothing to extract.
+        if !content.isEmpty {
+            let out = tmp.appendingPathComponent("out-\(UUID().uuidString)")
+            _ = try bash("\(dec) | tail -c +46 | head -c \"$((16#\(lHex)))\" > \(quote(out.path))")
+            XCTAssertEqual(try Data(contentsOf: out), content, file: file, line: line)
+        }
         // Without head -c the zero padding follows.
         let padded = try bash("\(dec) | tail -c +46")
         XCTAssertEqual(padded.prefix(content.count), content, file: file, line: line)

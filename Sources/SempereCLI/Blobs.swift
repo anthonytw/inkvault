@@ -183,7 +183,7 @@ struct BlobsExtract: ParsableCommand {
             }
         } else {
             do {
-                try vault.streamBlob(note: id, ref) { FileHandle.standardOutput.write($0) }
+                try vault.streamBlob(note: id, ref) { piece in autoreleasing { FileHandle.standardOutput.write(piece) } }
             } catch {
                 throw CLIError.failure("\(CLIError.from(error).message); discard the output printed so far")
             }
@@ -208,6 +208,16 @@ func findReference(_ query: String, note: UUID, in vault: Vault) throws -> BlobR
     return first.value
 }
 
+/// `autoreleasepool` on Apple platforms (streamed `FileHandle` I/O
+/// autoreleases its buffers), nothing elsewhere.
+func autoreleasing<T>(_ body: () throws -> T) rethrows -> T {
+    #if canImport(ObjectiveC)
+    return try autoreleasepool { try body() }
+    #else
+    return try body()
+    #endif
+}
+
 /// Creates `url` with the bytes `body` writes: a private temporary file next
 /// to it, put in place with `link(2)` only once `body` succeeded (never over
 /// an existing file).
@@ -218,7 +228,7 @@ func writeNewFileAtomically(_ url: URL, _ body: (_ write: (Data) throws -> Void)
     guard fd >= 0 else { throw CLIError.failure("cannot create \(tmp.path): \(String(cString: strerror(errno)))") }
     let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     defer { try? FileManager.default.removeItem(at: tmp) }
-    try body { try handle.write(contentsOf: $0) }
+    try body { piece in try autoreleasing { try handle.write(contentsOf: piece) } }
     try handle.synchronize()
     guard link(tmp.path, url.path) == 0 else {
         if errno == EEXIST { throw CLIError.failure("refusing to overwrite \(url.path)") }

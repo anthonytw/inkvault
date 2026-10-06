@@ -308,7 +308,7 @@ extension Vault {
         defer { try? handle.close() }
         while true {
             let piece: Data
-            do { piece = try handle.read(upToCount: blobPieceSize) ?? Data() } catch {
+            do { piece = try autoreleasing { try handle.read(upToCount: blobPieceSize) ?? Data() } } catch {
                 throw VaultError.io("read \(url.path): \(error)")
             }
             if piece.isEmpty { return }
@@ -406,7 +406,7 @@ extension Vault {
         do {
             let decryptor = try AgeDecryptor(identities: identities) { n in
                 let piece: Data
-                do { piece = try handle.read(upToCount: n) ?? Data() } catch {
+                do { piece = try autoreleasing { try handle.read(upToCount: n) ?? Data() } } catch {
                     throw BlobError.unreadable("read \(url.path): \(error)")
                 }
                 total += piece.count

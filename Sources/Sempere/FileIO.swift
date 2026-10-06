@@ -70,7 +70,9 @@ enum FileIO {
         do {
             try body { data in
                 guard !data.isEmpty else { return }
-                do { try handle.write(contentsOf: data) } catch { throw VaultError.io("write \(url.path): \(error)") }
+                do { try autoreleasing { try handle.write(contentsOf: data) } } catch {
+                    throw VaultError.io("write \(url.path): \(error)")
+                }
             }
             do {
                 try handle.synchronize()
@@ -188,6 +190,18 @@ enum FileIO {
         do { try fm.removeItem(at: url) } catch { throw VaultError.io("remove \(url.path): \(error)") }
         try syncDirectory(url.deletingLastPathComponent())
     }
+}
+
+/// Runs `body` in its own autorelease pool on Apple platforms, where
+/// `FileHandle` reads and writes autorelease their buffers: in a loop over a
+/// large blob they would otherwise pile up until the caller's pool drains (a
+/// whole file's worth of memory). A no-op elsewhere.
+func autoreleasing<T>(_ body: () throws -> T) rethrows -> T {
+    #if canImport(ObjectiveC)
+    return try autoreleasepool { try body() }
+    #else
+    return try body()
+    #endif
 }
 
 /// Reading files that may come from a sync server or a shared folder: only

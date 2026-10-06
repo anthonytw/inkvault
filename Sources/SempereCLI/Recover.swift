@@ -92,8 +92,8 @@ struct RecoverCommand: ParsableCommand {
     private func recoverBlob(_ url: URL, identities: [any AgeIdentity], vault: Vault?, why: String) throws {
         let result: RecoveredBlob
         do {
-            result = try Recovery.decryptBlob(at: url, identities: identities, vault: vault) {
-                FileHandle.standardOutput.write($0)
+            result = try Recovery.decryptBlob(at: url, identities: identities, vault: vault) { piece in
+                autoreleasing { FileHandle.standardOutput.write(piece) }
             }
         } catch BlobError.nameMismatch {
             throw CLIError.failure("the blob's name does not match its content under this vault's secret: altered, "

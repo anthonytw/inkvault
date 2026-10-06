@@ -1086,7 +1086,8 @@ age -d -i key.txt "$B" | tail -c +46 | head -c "$((16#<L hex>))" > out
 The content hash matches the `sha256` of the item or recording that uses the
 blob (readable from any revision of the same note, §4); `KIND` and
 `file out` tell the type. Without `head -c` the output carries the zero
-padding after the content. `$((16#…))` is bash/zsh arithmetic; where `xxd`
+padding after the content. `$((16#…))` is bash/zsh arithmetic, and BSD `head` (macOS) refuses
+`-c 0` (an empty content has nothing to extract); where `xxd`
 is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
