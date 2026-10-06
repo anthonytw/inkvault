@@ -874,7 +874,9 @@ blobs instead of re-encrypting them (§8.1.5). The name does not depend on the
 note, so a blob file copied byte for byte into another note's `att/` is valid
 there.
 
-`kind` is derived from the reference's `type`:
+`kind` is derived from the reference's `type`, compared on its type and
+subtype only: ASCII case-insensitively, with any parameters (`; codecs=…`)
+ignored:
 
 | `type` | `kind` |
 | --- | --- |
@@ -921,13 +923,13 @@ padme(n) = n                                  if n < 2
 Readers accept any amount of padding but reject non-zero padding bytes.
 
 Test vector: vault secret bytes `00 01 02 … 1f`, content the 16 ASCII bytes
-`hello, sempere\n`, type `text/plain` (kind `bin`):
+`hello, sempere!\n`, type `text/plain` (kind `bin`):
 
 ```
-sha256    b023506dad39637be6e6e2ec3a0c31f8c0af3fe9bc060be0223b789cb75e5c00
-blobName  634be1aa11f40878a731812e96fb37920e7b9a3272f392a133a1bbc831c3d1b2
-path      notes/<noteId>/att/634be1aa…d1b2.bin.age
-header    494e4b4201 b023…5c00 0000000000000010   (45 bytes)
+sha256    8ff2ca4079cee96a407a038a996ef5d0dd317f201fddc04174f0d89b763add65
+blobName  13ddeae851cf51d7e9a970d82ca2c99f1dbaa3efaf792248da32b8374d6869af
+path      notes/<noteId>/att/13ddeae8…69af.bin.age
+header    494e4b4201 8ff2…dd65 0000000000000010   (45 bytes)
 padme     61 → 64 (3 zero bytes); 1000 → 1024; 482158 → 483328; 28311597 → 28835840
 ```
 
@@ -1102,6 +1104,16 @@ plus the fields of its kind (§8.2.4–§8.2.7).
 
 Numbers are rounded to at most 3 decimals by writers.
 
+The fields of a defined kind (§8.2.4–§8.2.6) are required unless that section
+says what their absence means (`rotation`, `crop`, `orientation`, `family`,
+`lang`, …). An item of a defined kind that lacks one, holds one of the wrong
+type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
+side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
+`size` outside its range) is invalid like a bad common field: the revision is
+rejected. A field of another kind on an item (an image with `pageIndex`) is
+an unknown field there and kept (§7); so are all fields beyond the common ones
+on an item of an unknown kind.
+
 #### 8.2.2 Registers, ops and merge
 
 Every field an item has is either a *register*, changed with `setItem` and
@@ -1116,10 +1128,13 @@ and never changed.
 | `pdfPage` | `crop` | `blob`, `pageIndex`, `pageSize` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
-- `setItem` with `field` naming an immutable field is invalid (the revision
-  is rejected). `value: null` resets an optional register (`rotation`,
+- `setItem` with `field` naming an immutable field of any kind, or the
+  snapshot-only `origin` or `clocks`, is invalid (the revision is rejected),
+  as is a value of the wrong type or out of range for a register in the table.
+  `value: null` (or no `value`) resets an optional register (`rotation`,
   `crop`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
-  the reader does not know is a register (§7).
+  the reader does not know is a register (§7), and `null` is a value of it
+  like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
 - Items merge as sets like strokes (§5.3), with permanent tombstones (§5.4).
   An item belongs to one page; moving it to another page is `removeItem`
@@ -1302,7 +1317,10 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
 - Registers: `title` (string; absent means `""`) and `transcript` (a blob
   reference or `null`), changed with `setRecording` and merged LWW per
   (recording, field) like item registers (§8.2.2), with `clocks` in
-  snapshots. Every other field is immutable. Unknown fields as in §7.
+  snapshots. Every other field is immutable: a `setRecording` naming one, or
+  `origin` or `clocks`, or giving `title` a non-string or `transcript` a value
+  that is not a blob reference, is invalid (the revision is rejected); `null`
+  resets `title` to absent. Unknown fields as in §7.
 - Recordings merge as sets like items, with permanent tombstones (§5.4).
 
 #### 8.3.2 Transcript
@@ -1337,6 +1355,11 @@ A transcript is a blob whose content is UTF-8 JSON (not compressed):
   `t` (the word as it appears in `text`), `start`, `end` (as for segments,
   within the segment's range) and optional `c` (confidence 0…1). A segment
   has all its words or none.
+
+A transcript whose `format` is not `sempere-transcript/1`, or whose segments
+or words break these rules (order, overlap, `start ≤ end`, words inside their
+segment, confidences in 0…1), is invalid: readers treat it like a blob that
+fails verification (reported, shown as missing, §8.1.4).
 
 Segments are what search and the transcript view use; word timings let a
 player highlight each word as it is read back and seek from a tapped word,
