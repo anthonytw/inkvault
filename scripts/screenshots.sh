@@ -56,7 +56,8 @@ ipad() {
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$dir" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination "platform=iOS Simulator,id=$sim" \
     -only-testing:SempereAppUITests -parallel-testing-enabled NO -resultBundlePath "$out/ipad.xcresult" \
-    CODE_SIGNING_ALLOWED=NO || status=$?
+    CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$out/ipad.log" || status=${PIPESTATUS[0]}
+  grep -E "error: |SHOTDEBUG" "$out/ipad.log" > "$out/ipad-summary.txt" || true
   ls "$dir"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
   for f in "$dir"/*.png; do
     if [[ "$(pixels "$f")" != 2064x2752 ]]; then echo "error: $f is $(pixels "$f"), want 2064x2752" >&2; bad=1; fi
@@ -74,7 +75,8 @@ mac() {
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$raw" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination 'platform=macOS,variant=Mac Catalyst' \
     -only-testing:SempereAppUITests -resultBundlePath "$out/mac.xcresult" \
-    CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES || status=$?
+    CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES 2>&1 | tee "$out/mac.log" || status=${PIPESTATUS[0]}
+  grep -E "error: |SHOTDEBUG" "$out/mac.log" > "$out/mac-summary.txt" || true
   ls "$raw"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
   local f size w h scaled
   for f in "$raw"/*.png; do

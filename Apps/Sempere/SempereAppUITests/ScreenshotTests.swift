@@ -66,8 +66,13 @@ final class ScreenshotTests: XCTestCase {
         app.launchEnvironment = shot.environment
         app.launch()
         let label = NSPredicate(format: "label CONTAINS %@", shot.waitFor)
-        let found = app.descendants(matching: .any).matching(label).firstMatch.waitForExistence(timeout: 90)
+        let found = app.descendants(matching: .any).matching(label).firstMatch.waitForExistence(timeout: 45)
         XCTAssertTrue(found, "\(shot.name): never showed “\(shot.waitFor)”")
+        if !found {
+            // What was on screen, for the CI log.
+            let labels = app.descendants(matching: .any).allElementsBoundByIndex.prefix(60).map(\.label).filter { !$0.isEmpty }
+            print("SHOTDEBUG \(shot.name): \(labels)")
+        }
         // PencilKit draws its tiles asynchronously; the sheets and the palette settle too.
         Thread.sleep(forTimeInterval: 6)
         let screenshot = Self.isMac ? app.windows.firstMatch.screenshot() : XCUIScreen.main.screenshot()

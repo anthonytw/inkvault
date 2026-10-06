@@ -210,6 +210,11 @@ jobs:
         if: always()
         continue-on-error: true
         run: scripts/screenshots.sh mac
+      - name: Summary of errors
+        if: always()
+        run: |
+          for f in build/screenshots/*-summary.txt; do echo "== $f"; cut -c1-1500 "$f" | tail -40; done
+          ls -l build/screenshots/ipad build/screenshots/mac 2>&1 | head -30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -218,5 +223,6 @@ jobs:
             build/screenshots/ipad/*.png
             build/screenshots/mac/*.png
             build/screenshots/mac-raw/*.png
+            build/screenshots/*.log
             build/screenshots/*.xcresult
           if-no-files-found: warn
