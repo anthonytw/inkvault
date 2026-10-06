@@ -14,9 +14,15 @@ struct NoteWindowView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @State private var ui = WindowUI()
-    @State private var editor: NoteEditor?
     @State private var failure: String?
 
+    /// The model's editor for this note, never a copy kept here: a delete,
+    /// restore or key change replaces or closes it, and the window must
+    /// follow (a kept copy would go on taking ink for a closed editor).
+    private var editor: NoteEditor? {
+        guard let open = model.windowEditors[value.noteID], !open.isShutDown else { return nil }
+        return open
+    }
     private var note: NoteSummary? { model.notes.first { $0.id == value.noteID } }
     private var otherVault: Bool { model.phase == .unlocked && model.vault?.vaultId != value.vaultID }
     private var ready: Bool { model.phase == .unlocked && !otherVault && note != nil }
@@ -48,7 +54,7 @@ struct NoteWindowView: View {
         .task {
             // Restored without the library window: bring it up to open and unlock the vault.
             try? await Task.sleep(for: .seconds(1))
-            if model.phase == .noVault, model.libraryWindowCount == 0 { openWindow(id: "library") }
+            if model.phase == .noVault, model.shouldOpenLibraryWindow() { openWindow(id: "library") }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active, let editor { Task { await editor.flush() } }
@@ -88,7 +94,7 @@ struct NoteWindowView: View {
             } description: {
                 Text("Open and unlock the vault in the library window.")
             } actions: {
-                Button("Show Library") { openWindow(id: "library") }
+                Button("Show Library") { if model.shouldOpenLibraryWindow() { openWindow(id: "library") } }
             }
         } else if ready || model.isBusy {
             ProgressView("Opening…")
@@ -99,12 +105,11 @@ struct NoteWindowView: View {
     }
 
     private func load() async {
-        editor = nil
         failure = nil
         guard ready else { return }
         await model.claimNote(value.noteID)
         do {
-            editor = try await model.openWindowNote(value.noteID)
+            _ = try await model.openWindowNote(value.noteID)
         } catch is CancellationError {
         } catch {
             failure = "\(error)"
@@ -119,6 +124,7 @@ struct NoteWindowView: View {
         context.noteDeleted = note?.deleted ?? false
         context.libraryWindowOpen = model.libraryWindowCount > 0
         context.hasRecents = !library.recents.isEmpty
+        context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil
         EditorCommands.fill(&context, from: editor)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
                              paletteVisible: paletteVisible) { command in

@@ -41,8 +41,14 @@ struct RootView: View {
             .sheet(isPresented: $ui.creatingNote) {
                 NewNoteView(notebook: currentNotebook)
             }
-            .onAppear { model.libraryWindowCount += 1 }
-            .onDisappear { model.libraryWindowCount -= 1 }
+            .onAppear {
+                model.libraryWindowCount += 1
+                if model.canvasWindow == nil { model.canvasWindow = ui.id }
+            }
+            .onDisappear {
+                model.libraryWindowCount -= 1
+                if model.canvasWindow == ui.id { model.canvasWindow = nil }
+            }
             .onChange(of: model.phase == .unlocked && !model.isBusy) { _, ready in
                 if ready { restoreSelection() }
             }
@@ -168,7 +174,9 @@ struct RootView: View {
         context.hasNote = note != nil && !model.placeholderNoteIDs.contains(note?.id ?? UUID())
         context.noteDeleted = note?.deleted ?? false
         context.hasRecents = !library.recents.isEmpty
-        let shown = model.editor?.noteID == model.selectedNoteID ? model.editor : nil
+        // Only the window whose detail pane hosts the canvas drives the editor.
+        let shown = model.editor?.noteID == model.selectedNoteID && model.canvasWindow == ui.id ? model.editor : nil
+        context.editingText = ui.searchPresented || ui.renameNoteID != nil || ui.tagsNoteID != nil
         EditorCommands.fill(&context, from: shown)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
                              paletteVisible: paletteVisible,

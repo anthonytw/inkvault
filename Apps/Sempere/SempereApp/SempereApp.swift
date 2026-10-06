@@ -15,6 +15,12 @@ struct SempereApp: App {
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 
+    init() {
+        // Plaintext PDFs dragged out in an earlier run that quit with a vault
+        // open (each model empties only its own folder, when the vault closes).
+        NotePDFExport.purge(olderThan: 0)
+    }
+
     var body: some Scene {
         libraryScene
         WindowGroup("Note", id: NoteWindowValue.sceneID, for: NoteWindowValue.self) { $value in

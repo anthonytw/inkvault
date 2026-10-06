@@ -87,8 +87,17 @@ command does nothing there.
 has at most one `NoteEditor` (two would keep separate stroke ledgers and write
 diverging deltas): while a window shows a note (`claimNote`), the library
 window's detail pane shows "Open in Its Own Window" instead of opening it, and
-takes it back when the window closes (`releaseNote`). Closing the vault, or
-changing the vault's keys, saves and closes every editor first.
+takes it back when the window closes (`releaseNote`, once the window's last
+save is written). An open that finishes after a window took its note, or after
+its window closed, is dropped. Closing the vault, or changing the vault's keys,
+saves and closes every editor first; a closed editor takes no more changes and
+writes nothing (`NoteEditor.isShutDown`), and a note window always shows the
+model's editor for its note (`windowEditors`), never a copy of its own. Only one
+library window shows the canvas (`AppModel.canvasWindow`, "Show Here" in the
+others): two canvases on one editor would each report a drawing without the
+other's new strokes, which the ledger takes as erasures. Restored note windows
+ask for at most one library window (`shouldOpenLibraryWindow`). Note > Move to
+Recently Deleted (⌘⌫) is off while a search, rename or tag field may have focus.
 
 ## Drag a note out as PDF
 
@@ -101,8 +110,8 @@ is downloaded (`AppModel.exportPDF`), with `SempereRender.PDFWriter`, the same
 renderer as `sempere export`. A note with unreadable revisions is refused
 rather than exported with pages missing. The file is plaintext, written under
 `$TMPDIR/SempereExport/<model id>/<random id>/<title>.pdf`; the folder is
-emptied when the vault closes, files older than ten minutes are removed on the
-next export, and folders of earlier runs older than an hour likewise. Bulk
+emptied when the vault closes and at launch, and files older than ten minutes
+are removed on the next export. Bulk
 export is the CLI's (`sempere export`); the share and export work in the app
 adds its own menu entries to `MenuCommand`.
 
@@ -114,8 +123,12 @@ mark on the key that unlocked the vault. From it:
 
 * **Add Device Key…** pastes another device's public key (`age1pq1…`) with a
   label, or generates a post-quantum key for it, adds it, and shows the secret
-  once (copy: local only, cleared after three minutes). Classic X25519 keys are
-  refused (`docs/post-quantum.md`).
+  once (copy: local only, cleared after three minutes; the text is not
+  selectable, so ⌘C cannot bypass that). The secret is shown whenever the
+  vault already lists the key, even if the rest of the change failed or the
+  vault was closed meanwhile. Classic X25519 keys are refused
+  (`docs/post-quantum.md`). The sheet and the Remove dialog act only on the
+  vault they were opened for (`KeyError.vaultChanged`).
 * **Remove…** drops a key. The key that unlocked the vault, and the last key,
   cannot be removed. Removal rotates the vault secret and re-encrypts every
   note (`Vault.removeRecipient`, `docs/io.md` "Recipient changes").
@@ -127,8 +140,9 @@ Adding and removing re-encrypt every file, which takes as long as the vault is
 large and needs every note local in iCloud Drive (`downloadEverything`).
 Open editors hold a copy of the vault with the old secret, so all of them are
 saved and closed first, the vault is replaced (`adoptRewrapped`), and
-`keyEpoch` makes every view open its note again. Edits from the note list wait
-on the edit gate meanwhile. If some files cannot be re-encrypted the change
+`keyEpoch` makes every view open its note again. No editor opens while the
+change runs (`isChangingKeys`), and one whose open began before it is dropped.
+Edits from the note list wait on the edit gate meanwhile. If some files cannot be re-encrypted the change
 stays pending (`KeyError.incomplete`) and the next try finishes it.
 
 ## Mouse and trackpad
