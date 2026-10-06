@@ -202,4 +202,27 @@ final class TextLayoutTests: XCTestCase {
         XCTAssertTrue(glyphs.contains { $0.glyph == 0 })
         XCTAssertTrue(glyphs.contains { $0.text == "o" && $0.glyph != 0 })
     }
+
+    // MARK: Bounded work (format.md §9)
+
+    /// Text at the format's limit (65 536 UTF-8 bytes) in the shapes that
+    /// would be quadratic: one unbreakable word in a narrow frame (thousands
+    /// of lines), many words in a very wide frame (one long line), only
+    /// spaces, Arabic with a mark on every letter. Each lays out in time
+    /// proportional to its length.
+    func testMaximumTextLaysOutInBoundedTime() throws {
+        let cases: [(String, Double)] = [
+            (String(repeating: "a", count: 65_000), 30),
+            (String(repeating: "ab ", count: 21_000), 1e5),
+            (String(repeating: " ", count: 65_000), 100),
+            (String(repeating: "\u{628}\u{64E}", count: 16_000), 200),
+        ]
+        for (text, width) in cases {
+            let t0 = Date()
+            let s = try Self.shaper.shape(Self.text([TextRun(text)]), frame: Rect(x: 0, y: 0, w: width, h: 10))
+            let elapsed = Date().timeIntervalSince(t0)
+            XCTAssertLessThan(elapsed, 60, "\(text.prefix(3)) × \(text.unicodeScalars.count), width \(width): \(elapsed) s")
+            XCTAssertTrue(text.hasPrefix(" ") || !s.lines.isEmpty)
+        }
+    }
 }

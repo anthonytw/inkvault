@@ -184,17 +184,28 @@ public struct DefaultTextShaper: TextShaper {
         let rtl = bidi.level == 1
         var segments = try itemize(chars, para, content: content, levels: bidi.levels, out: &out)
         for i in segments.indices { try shapeSegment(&segments[i], chars, content: content, sizes: sizes) }
-        // Width attributed to each character (its glyphs' advances).
+        // Width attributed to each character (its glyphs' advances), as prefix sums,
+        // and the end of each prefix without trailing white space: widths in O(1).
         var advance = [Double](repeating: 0, count: chars.count)
         var segmentOf = [Int](repeating: 0, count: chars.count)
+        var glyphsOf: [Int: [(segment: Int, glyph: Int)]] = [:]
         for (si, seg) in segments.enumerated() {
             for i in seg.range { segmentOf[i] = si }
-            for g in seg.glyphs { advance[g.cluster] += g.advance }
+            for (gi, g) in seg.glyphs.enumerated() {
+                advance[g.cluster] += g.advance
+                glyphsOf[g.cluster, default: []].append((si, gi))
+            }
         }
+        var prefix = [Double](repeating: 0, count: chars.count + 1)
+        var lastInk = [Int](repeating: 0, count: chars.count + 1)   // lastInk[e]: end of [.., e) without trailing white space
+        for i in para {
+            prefix[i + 1] = prefix[i] + advance[i]
+            lastInk[i + 1] = Self.isWhiteSpace(chars[i].scalar) ? lastInk[i] : i + 1
+        }
+        lastInk[para.lowerBound] = para.lowerBound
         func width(_ r: Range<Int>) -> Double {
-            var e = r.upperBound
-            while e > r.lowerBound, Self.isWhiteSpace(chars[e - 1].scalar) { e -= 1 }
-            return (r.lowerBound..<e).reduce(0) { $0 + advance[$1] }
+            let e = max(lastInk[r.upperBound], r.lowerBound)
+            return prefix[e] - prefix[r.lowerBound]
         }
         // Lines (absolute ranges).
         var lines: [Range<Int>] = []
@@ -220,8 +231,14 @@ public struct DefaultTextShaper: TextShaper {
                 } else {
                     // A word wider than the frame: break it between grapheme clusters.
                     var cut = s
-                    for c in clusters where c > s && c < b {
+                    // The first cluster boundary after `s` (binary search), then forward.
+                    var lo = 0, hi = clusters.count
+                    while lo < hi { let mid = (lo + hi) / 2; if clusters[mid] <= s { lo = mid + 1 } else { hi = mid } }
+                    var ci = lo
+                    while ci < clusters.count, clusters[ci] < b {
+                        let c = clusters[ci]
                         if width(s..<c) <= frame.w + 1e-9 || cut == s { cut = c } else { break }
+                        ci += 1
                     }
                     if cut == s || cut >= b {
                         if mandatory { lines.append(s..<b); s = b } else { lastFit = b }
@@ -238,9 +255,7 @@ public struct DefaultTextShaper: TextShaper {
         for line in lines {
             let lineSize = line.map { sizes[chars[$0].run] }.max() ?? content.size
             let baseline = y + 0.95 * lineSize
-            var visible = line.upperBound
-            while visible > line.lowerBound, Self.isWhiteSpace(chars[visible - 1].scalar) { visible -= 1 }
-            let drawn = line.lowerBound..<visible
+            let drawn = line.lowerBound..<max(lastInk[line.upperBound], line.lowerBound)
             // Clusters (a base and the marks after it), in visual order.
             let order = drawn.isEmpty ? [] : bidi.visualOrder((drawn.lowerBound - para.lowerBound)..<(drawn.upperBound - para.lowerBound))
                 .map { $0 + para.lowerBound }
@@ -259,8 +274,7 @@ public struct DefaultTextShaper: TextShaper {
                 guard let b = clusterOf[i], emitted.insert(b).inserted else { continue }
                 var j = b
                 while j < drawn.upperBound, clusterOf[j] == b {
-                    let si = segmentOf[j]
-                    for (gi, g) in segments[si].glyphs.enumerated() where g.cluster == j { sequence.append((si, gi)) }
+                    sequence += glyphsOf[j] ?? []
                     j += 1
                 }
             }
@@ -288,10 +302,9 @@ public struct DefaultTextShaper: TextShaper {
                 let run = content.runs[seg.run]
                 let color = run.color ?? content.color
                 let size = sizes[seg.run]
-                if var last = runs.last, last.face.key == seg.face.key, last.size == size, last.color == color,
+                if let last = runs.last, last.face.key == seg.face.key, last.size == size, last.color == color,
                    last.syntheticBold == seg.syntheticBold, last.syntheticItalic == seg.syntheticItalic {
-                    last.glyphs.append(pg)
-                    runs[runs.count - 1] = last
+                    runs[runs.count - 1].glyphs.append(pg)   // in place: a copy would make long lines quadratic
                 } else {
                     runs.append(GlyphRun(face: seg.face, size: size, color: color, syntheticBold: seg.syntheticBold,
                                          syntheticItalic: seg.syntheticItalic, glyphs: [pg]))
@@ -353,10 +366,9 @@ public struct DefaultTextShaper: TextShaper {
             if Self.complexScripts.contains(scripts[k]) { out.approximateScripts.insert(scripts[k]) }
             prevFace = face
             let fontBold = face.font.weight >= 600, fontItalic = face.font.italic
-            if var lastSeg = segments.last, lastSeg.face.key == face.key, lastSeg.run == ch.run,
+            if let lastSeg = segments.last, lastSeg.face.key == face.key, lastSeg.run == ch.run,
                lastSeg.level == levels[k], lastSeg.script == scripts[k] {
-                lastSeg.range = lastSeg.range.lowerBound..<(i + 1)
-                segments[segments.count - 1] = lastSeg
+                segments[segments.count - 1].range = lastSeg.range.lowerBound..<(i + 1)
             } else {
                 segments.append(Segment(range: i..<(i + 1), face: face, run: ch.run, level: levels[k], script: scripts[k],
                                         syntheticBold: bold && !fontBold, syntheticItalic: italic && !fontItalic))
@@ -414,14 +426,16 @@ public struct DefaultTextShaper: TextShaper {
             }
             // Rebuild the glyphs; the first glyph of each cluster carries the
             // cluster's characters (all of a ligature's components).
-            let clusters = applier.buffer.map(\.cluster)
-            let starts = Set(clusters).sorted()
+            let starts = Set(applier.buffer.map(\.cluster)).sorted()
+            var position: [Int: Int] = [:]
+            for (k, c) in starts.enumerated() { position[c] = k }
             var rebuilt: [ShapedGlyph] = []
             var seen = Set<Int>()
             for e in applier.buffer {
                 var text = ""
                 if seen.insert(e.cluster).inserted {
-                    let next = starts.first { $0 > e.cluster } ?? seg.range.upperBound
+                    let k = position[e.cluster] ?? starts.count
+                    let next = k + 1 < starts.count ? starts[k + 1] : seg.range.upperBound
                     for j in e.cluster..<next where !Self.isIgnorable(chars[j].scalar) || Self.isVariationSelector(chars[j].scalar) == false {
                         if let u = Unicode.Scalar(chars[j].scalar), !Self.isVariationSelector(chars[j].scalar) { text.unicodeScalars.append(u) }
                     }
@@ -443,7 +457,7 @@ public struct DefaultTextShaper: TextShaper {
                 // mark: the closest base (or ligature) before; mkmk: the mark right before.
                 var b = k - 1
                 if feature != "mkmk" {
-                    while b >= 0 {
+                    while b >= 0 && k - b <= 64 {
                         let bc = layout.glyphClasses != nil ? layout.glyphClass(glyphs[b].glyph)
                             : (UnicodeProperties.isMark(chars[glyphs[b].cluster].scalar) ? 3 : 1)
                         if bc != 3 { break }
@@ -469,19 +483,22 @@ public struct DefaultTextShaper: TextShaper {
     /// character in `range` (ArabicShaping.txt; transparent characters skipped).
     static func joiningForms(_ chars: [Char], _ range: Range<Int>) -> [Int: String] {
         var out: [Int: String] = [:]
-        let types = chars.map { UnicodeProperties.joiningType[$0.scalar] }
-        func neighbour(_ i: Int, _ step: Int) -> JoiningType? {
-            var j = i + step
-            while j >= 0, j < chars.count, chars[j].scalar != 0x0A {
-                if types[j] != .T { return types[j] }
-                j += step
-            }
-            return nil
-        }
+        // The paragraph around `range`, and the nearest non-transparent joining type on each side (two sweeps).
+        var lo = range.lowerBound, hi = range.upperBound
+        while lo > 0, chars[lo - 1].scalar != 0x0A { lo -= 1 }
+        while hi < chars.count, chars[hi].scalar != 0x0A { hi += 1 }
+        let types = chars[lo..<hi].map { UnicodeProperties.joiningType[$0.scalar] }
+        var before = [JoiningType?](repeating: nil, count: types.count)
+        var after = [JoiningType?](repeating: nil, count: types.count)
+        var last: JoiningType?
+        for k in types.indices { before[k] = last; if types[k] != .T { last = types[k] } }
+        last = nil
+        for k in types.indices.reversed() { after[k] = last; if types[k] != .T { last = types[k] } }
         for i in range {
-            let t = types[i]
+            let k = i - lo
+            let t = types[k]
             guard t == .D || t == .R || t == .L || t == .C else { continue }
-            let prev = neighbour(i, -1), next = neighbour(i, 1)
+            let prev = before[k], next = after[k]
             let joinsPrev = (t == .D || t == .R || t == .C) && (prev == .D || prev == .L || prev == .C)
             let joinsNext = (t == .D || t == .L || t == .C) && (next == .D || next == .R || next == .C)
             out[i] = joinsPrev ? (joinsNext ? "medi" : "fina") : (joinsNext ? "init" : "isol")

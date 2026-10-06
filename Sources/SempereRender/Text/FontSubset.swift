@@ -132,7 +132,9 @@ struct FontSubset {
         var hmtx: [UInt8] = []
         for g in glyphs {
             hmtx += be16(font.advance(g))
-            let lsb = g < font.numberOfHMetrics ? (try? font.bytes.u16((font.tables["hmtx"]?.lowerBound ?? 0) + 4 * g + 2)) ?? 0 : 0
+            let hmtxAt = font.tables["hmtx"]?.lowerBound ?? 0
+            let lsbAt = g < font.numberOfHMetrics ? hmtxAt + 4 * g + 2 : hmtxAt + 4 * font.numberOfHMetrics + 2 * (g - font.numberOfHMetrics)
+            let lsb = (try? font.bytes.u16(lsbAt)) ?? 0
             hmtx += be16(lsb)
         }
         var tables: [String: [UInt8]] = ["glyf": glyf, "loca": loca, "hmtx": hmtx]

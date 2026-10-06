@@ -147,10 +147,11 @@ struct OpenTypeLayout: Sendable {
 
     /// The longest ligature of lookup `index` starting at `glyphs[i]`:
     /// the ligature glyph and the positions it consumes, or nil.
-    func ligatureSubtable(_ s: Int, _ flag: Int, _ glyphs: [Int], at i: Int) -> (glyph: Int, positions: [Int])? {
-        guard i < glyphs.count else { return nil }
+    func ligatureSubtable(_ s: Int, _ flag: Int, count: Int, glyph glyphAt: (Int) -> Int, at i: Int)
+        -> (glyph: Int, positions: [Int])? {
+        guard i < count else { return nil }
         do {
-            guard let cov = try? b.u16(s + 2), let ci = coverage(s + cov, glyphs[i]),
+            guard let cov = try? b.u16(s + 2), let ci = coverage(s + cov, glyphAt(i)),
                   let setCount = try? b.u16(s + 4), ci < setCount, let so = try? b.u16(s + 6 + 2 * ci) else { return nil }
             let set = s + so
             guard let n = try? b.u16(set) else { return nil }
@@ -161,8 +162,8 @@ struct OpenTypeLayout: Sendable {
                 var j = i + 1
                 var ok = true
                 for c in 1..<comps {
-                    while j < glyphs.count, ignores(flag, glyphs[j]) { j += 1 }
-                    guard j < glyphs.count, let want = try? b.u16(set + lo + 4 + 2 * (c - 1)), want == glyphs[j] else {
+                    while j < count, j - i < 64, ignores(flag, glyphAt(j)) { j += 1 }
+                    guard j < count, let want = try? b.u16(set + lo + 4 + 2 * (c - 1)), want == glyphAt(j) else {
                         ok = false; break
                     }
                     positions.append(j)
@@ -269,7 +270,8 @@ struct GSUBApplier {
                 buffer.replaceSubrange(i...i, with: seq)
                 return i + count
             case 4:
-                if let lig = layout.ligatureSubtable(s, l.flag, buffer.map(\.glyph), at: i) {
+                let buf = buffer
+                if let lig = layout.ligatureSubtable(s, l.flag, count: buf.count, glyph: { buf[$0].glyph }, at: i) {
                     buffer[i].glyph = lig.glyph
                     for p in lig.positions.dropFirst().reversed() { buffer.remove(at: p) }
                     return i + 1
@@ -289,7 +291,9 @@ struct GSUBApplier {
         var out: [Int] = []
         var j = i
         while out.count < count {
-            while j < buffer.count, layout.ignores(flag, buffer[j].glyph) { j += 1 }
+            // Skipped glyphs are capped so a match costs O(1), not O(buffer).
+            let skipStart = j
+            while j < buffer.count, j - skipStart < 64, layout.ignores(flag, buffer[j].glyph) { j += 1 }
             guard j < buffer.count, match(out.count, buffer[j].glyph) else { return nil }
             out.append(j)
             j += 1
@@ -301,7 +305,8 @@ struct GSUBApplier {
         var n = 0
         var j = i - 1
         while n < count {
-            while j >= 0, layout.ignores(flag, buffer[j].glyph) { j -= 1 }
+            let skipStart = j
+            while j >= 0, skipStart - j < 64, layout.ignores(flag, buffer[j].glyph) { j -= 1 }
             guard j >= 0, match(n, buffer[j].glyph) else { return false }
             n += 1
             j -= 1

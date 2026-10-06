@@ -307,30 +307,19 @@ struct BidiParagraph {
     /// L1–L2: the logical indices of `range` (one line) in visual order, left
     /// to right. Characters removed by X9 are kept (at the level L1 gives them).
     func visualOrder(_ range: Range<Int>) -> [Int] {
-        var lv = levels.map(Int.init)
-        // L1.
-        var trailing = true
-        for i in range.reversed() {
-            let c = classes[i]
-            if c == .S || c == .B {
-                lv[i] = level
-                trailing = true
-            } else if [.WS, .FSI, .LRI, .RLI, .PDI, .BN, .RLE, .LRE, .RLO, .LRO, .PDF].contains(c) {
-                if trailing { lv[i] = level }
-            } else {
-                trailing = false
-            }
-        }
+        // L1 on the line's own levels (work proportional to the line).
+        let line = lineLevels(range)
+        func lvOf(_ i: Int) -> Int { Int(line[i - range.lowerBound]) }
         var order = Array(range)
-        guard let maxLevel = range.map({ lv[$0] }).max() else { return order }
-        let minOdd = (range.map { lv[$0] }.filter { $0 % 2 == 1 }.min()) ?? maxLevel + 1
+        guard let maxLevel = range.map({ lvOf($0) }).max() else { return order }
+        let minOdd = (range.map { lvOf($0) }.filter { $0 % 2 == 1 }.min()) ?? maxLevel + 1
         var l = maxLevel
         while l >= minOdd && l > 0 {
             var k = 0
             while k < order.count {
-                if lv[order[k]] >= l {
+                if lvOf(order[k]) >= l {
                     var e = k
-                    while e < order.count, lv[order[e]] >= l { e += 1 }
+                    while e < order.count, lvOf(order[e]) >= l { e += 1 }
                     order[k..<e].reverse()
                     k = e
                 } else {
@@ -345,15 +334,16 @@ struct BidiParagraph {
     /// The level of each character of `range` after L1 (what decides a
     /// run's direction on that line).
     func lineLevels(_ range: Range<Int>) -> [UInt8] {
-        var lv = levels
+        var lv = Array(levels[range])
+        let base = range.lowerBound
         var trailing = true
         for i in range.reversed() {
             let c = classes[i]
-            if c == .S || c == .B { lv[i] = UInt8(level); trailing = true }
+            if c == .S || c == .B { lv[i - base] = UInt8(level); trailing = true }
             else if [.WS, .FSI, .LRI, .RLI, .PDI, .BN, .RLE, .LRE, .RLO, .LRO, .PDF].contains(c) {
-                if trailing { lv[i] = UInt8(level) }
+                if trailing { lv[i - base] = UInt8(level) }
             } else { trailing = false }
         }
-        return Array(lv[range])
+        return lv
     }
 }
