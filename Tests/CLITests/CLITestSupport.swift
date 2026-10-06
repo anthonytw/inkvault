@@ -1,9 +1,9 @@
 import Age
 import Foundation
-import InkVault
+import Sempere
 import XCTest
 
-/// Result of one `inkvault` run.
+/// Result of one `sempere` run.
 struct CLIResult {
     var status: Int32
     var out: String
@@ -17,7 +17,7 @@ class CLITestCase: XCTestCase {
     var tmp: URL!
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory.appendingPathComponent("inkvault-cli-\(UUID().uuidString)")
+        tmp = FileManager.default.temporaryDirectory.appendingPathComponent("sempere-cli-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }
 
@@ -26,16 +26,16 @@ class CLITestCase: XCTestCase {
     }
 
     static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("InkVaultTests/Fixtures")
-    static var fixtureVault: String { fixtures.appendingPathComponent("sample.inkvault").path }
+        .appendingPathComponent("SempereTests/Fixtures")
+    static var fixtureVault: String { fixtures.appendingPathComponent("sample.sempere").path }
     static var fixtureKey: String { fixtures.appendingPathComponent("sample.key").path }
-    static let passphrase = "inkvault-test"
+    static let passphrase = "sempere-test"
     static let lecture = "11111111-1111-4111-8111-111111111111"
 
-    /// Runs the binary with a clean INKVAULT_* environment.
+    /// Runs the binary with a clean SEMPERE_* environment.
     @discardableResult
     func cli(_ args: [String], env: [String: String] = [:]) throws -> CLIResult {
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("INKVAULT_") }
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("SEMPERE_") }
         environment["XDG_STATE_HOME"] = tmp.appendingPathComponent("state").path
         environment.merge(env) { $1 }
         let p = Process()
@@ -65,18 +65,18 @@ class CLITestCase: XCTestCase {
     func path(_ name: String) -> String { tmp.appendingPathComponent(name).path }
 
     /// A writable copy of the fixture vault.
-    func copyFixtureVault(as name: String = "copy.inkvault") throws -> String {
+    func copyFixtureVault(as name: String = "copy.sempere") throws -> String {
         let dest = tmp.appendingPathComponent(name)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: Self.fixtureVault), to: dest)
         return dest.path
     }
 
     /// The legacy (X25519) fixture: same notes, opened only to migrate.
-    static var legacyVault: String { fixtures.appendingPathComponent("legacy.inkvault").path }
+    static var legacyVault: String { fixtures.appendingPathComponent("legacy.sempere").path }
     static var legacyKey: String { fixtures.appendingPathComponent("legacy.key").path }
 
     /// A writable copy of the legacy fixture vault.
-    func copyLegacyVault(as name: String = "legacy.inkvault") throws -> String {
+    func copyLegacyVault(as name: String = "legacy.sempere") throws -> String {
         let dest = tmp.appendingPathComponent(name)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: Self.legacyVault), to: dest)
         return dest.path
@@ -92,7 +92,7 @@ class CLITestCase: XCTestCase {
 
     /// Creates a vault through the library and writes a two-page note plus a
     /// one-page note. Returns the vault, the identity and the key file path.
-    func makeVault(named name: String = "mine.inkvault") throws -> (vault: Vault, identity: NativeIdentity, keyPath: String) {
+    func makeVault(named name: String = "mine.sempere") throws -> (vault: Vault, identity: NativeIdentity, keyPath: String) {
         let id = try NativeIdentity.generate(.postQuantum)
         let keyPath = path("\(name).key")
         try IdentityFile.render(id, created: Date()).write(toFile: keyPath, atomically: true, encoding: .utf8)

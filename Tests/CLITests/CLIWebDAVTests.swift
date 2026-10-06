@@ -1,5 +1,5 @@
 import Foundation
-import InkVault
+import Sempere
 import XCTest
 
 final class CLIWebDAVTests: CLITestCase {
@@ -24,10 +24,10 @@ final class CLIWebDAVTests: CLITestCase {
     /// Needs a live server: set by scripts/test-webdav.sh, skipped otherwise.
     func testSyncAgainstRealServer() throws {
         let env = ProcessInfo.processInfo.environment
-        guard let base = env["INKVAULT_WEBDAV_TEST_URL"], let user = env["INKVAULT_WEBDAV_TEST_USER"],
-              let password = env["INKVAULT_WEBDAV_TEST_PASSWORD"] else { throw XCTSkip("no WebDAV test server") }
+        guard let base = env["SEMPERE_WEBDAV_TEST_URL"], let user = env["SEMPERE_WEBDAV_TEST_USER"],
+              let password = env["SEMPERE_WEBDAV_TEST_PASSWORD"] else { throw XCTSkip("no WebDAV test server") }
         let url = base + "cli-\(UUID().uuidString.lowercased())/vault/"
-        let vault = try copyFixtureVault(as: "one.inkvault")
+        let vault = try copyFixtureVault(as: "one.sempere")
         let e = ["TEST_DAV_PW": password]
         let common = ["--user", user, "--password-env", "TEST_DAV_PW"]
 
@@ -42,7 +42,7 @@ final class CLIWebDAVTests: CLITestCase {
         XCTAssertEqual(up.status, 0, up.err)
         XCTAssertEqual((up.json as? [String: Any])?["uploaded"] as? [String] ?? [], dryJSON["uploaded"] as? [String] ?? ["?"])
 
-        let other = path("two.inkvault")
+        let other = path("two.sempere")
         let down = try cli(["sync", "webdav", url, "--vault", other, "--json"] + common, env: e)
         XCTAssertEqual(down.status, 0, down.err)
         XCTAssertEqual(((down.json as? [String: Any])?["downloaded"] as? [String])?.count, planned)

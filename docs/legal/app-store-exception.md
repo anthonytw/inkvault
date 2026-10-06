@@ -5,13 +5,13 @@
 
 ## Decision
 
-InkVault is licensed **GPL-3.0-or-later with an App Store exception**: the GNU GPL version 3
+Sempere is licensed **GPL-3.0-or-later with an App Store exception**: the GNU GPL version 3
 (`LICENSE`) plus an *additional permission* under GPLv3 section 7 (`LICENSE-EXCEPTION`).
 There is **no contributor licence agreement**. Contributors keep their copyright and license
 their contributions under the same terms as the project (inbound = outbound, see
 `CONTRIBUTING.md`), certified with the Developer Certificate of Origin sign-off.
 
-The App Store listing is named **Sempere**; InkVault is the project, format and CLI name.
+The App Store listing is named **Sempere**; Sempere is the project, format and CLI name.
 
 ## Why an exception is needed
 
@@ -46,7 +46,7 @@ any third party may ship a fork there under the same conditions.
 
 ## Consequences for the project
 
-- Every file's effective licence is `GPL-3.0-or-later WITH LicenseRef-InkVault-App-Store-Exception`.
+- Every file's effective licence is `GPL-3.0-or-later WITH LicenseRef-Sempere-App-Store-Exception`.
   The root `README.md` and `LICENSE-EXCEPTION` state it; per-file headers are not required.
 - Code copied in from elsewhere must be under a licence compatible with GPL-3.0-or-later *and*
   with App Store distribution (MIT, BSD, Apache-2.0, ISC). Code under GPL-only without this

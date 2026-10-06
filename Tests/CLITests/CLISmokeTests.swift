@@ -1,17 +1,17 @@
 import Foundation
 import XCTest
 
-/// CLI tests drive the built `inkvault` binary as a subprocess, which works
+/// CLI tests drive the built `sempere` binary as a subprocess, which works
 /// identically on Linux and macOS and avoids linking the executable's `main`
 /// into the test bundle.
 final class CLISmokeTests: XCTestCase {
     static var binary: URL {
-        // .build/<config>/CLITests.xctest or .build/<config>/inkvault-corePackageTests.xctest
+        // .build/<config>/CLITests.xctest or .build/<config>/sempere-corePackageTests.xctest
         var url = Bundle(for: CLISmokeTests.self).bundleURL
-        while url.pathComponents.count > 1, !FileManager.default.fileExists(atPath: url.appendingPathComponent("inkvault").path) {
+        while url.pathComponents.count > 1, !FileManager.default.fileExists(atPath: url.appendingPathComponent("sempere").path) {
             url.deleteLastPathComponent()
         }
-        return url.appendingPathComponent("inkvault")
+        return url.appendingPathComponent("sempere")
     }
 
     static func run(_ args: [String]) throws -> (status: Int32, out: String, err: String) {

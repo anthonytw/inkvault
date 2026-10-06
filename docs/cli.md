@@ -1,17 +1,17 @@
-# The `inkvault` command line
+# The `sempere` command line
 
-The Linux and macOS face of InkVault: keys, vault management, verification,
-export and recovery. It builds with `swift build -c release --product inkvault`
+The Linux and macOS face of Sempere: keys, vault management, verification,
+export and recovery. It builds with `swift build -c release --product sempere`
 and CI publishes a static Linux binary. The executable only parses arguments,
 talks to the terminal and sets exit codes; everything else lives in
-`Sources/InkVault` and `Sources/InkRender`.
+`Sources/Sempere` and `Sources/SempereRender`.
 
 ## Global conventions
 
 | Option | Meaning |
 | --- | --- |
-| `--vault PATH` | The vault directory (`*.inkvault`). Env `INKVAULT_VAULT`. |
-| `--identity FILE` | An age identity file (`age-keygen` style). Repeatable. Env `INKVAULT_IDENTITY` (one path). |
+| `--vault PATH` | The vault directory (`*.sempere`). Env `SEMPERE_VAULT`. |
+| `--identity FILE` | An age identity file (`age-keygen` style). Repeatable. Env `SEMPERE_IDENTITY` (one path). |
 | `--passphrase-env VAR` | Name of the environment variable holding the passphrase of the vault's stored key file. |
 | `--json` | Machine-readable output where it makes sense (everything except `recover`, `keys generate` without `--out`, and `keys export` without `--out`). |
 | `-q`, `-v` | Quieter (data only, or only problems) / more detail. |
@@ -22,9 +22,9 @@ an existing vault. Times are printed in your local time zone with an offset;
 `--json` uses UTC (`Z`).
 
 **Getting a key.** Commands that read notes need an identity. In order:
-`--identity` files (or `$INKVAULT_IDENTITY`); otherwise the passphrase-wrapped
+`--identity` files (or `$SEMPERE_IDENTITY`); otherwise the passphrase-wrapped
 key stored in the vault's `keys/` directory, unlocked with the passphrase from
-`--passphrase-env VAR`, else `$INKVAULT_PASSPHRASE`, else a no-echo prompt on
+`--passphrase-env VAR`, else `$SEMPERE_PASSPHRASE`, else a no-echo prompt on
 the terminal. A passphrase never goes on the command line. Secret keys are
 printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 
@@ -37,7 +37,7 @@ printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 | 2 | Usage error (unknown option, missing vault, bad recipient string). |
 | 3 | `vault verify` or `backup verify` found problems, a restored vault is not healthy, or a recipient change is incomplete. |
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
-| 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: inkvault vault recipients replace OLD NEW`. |
+| 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: sempere vault recipients replace OLD NEW`. |
 
 **Legacy vaults** (format.md §3.3.2) are migrate-only. On a vault that lists a
 classic X25519 recipient, alone or next to post-quantum ones, only these run:
@@ -53,15 +53,15 @@ and a copy before migrating is a good idea. `restore` is refused because it
 would hand back a legacy vault; migrate the backup folder (itself a vault)
 first. `keys generate` and `keys show` do not touch a vault.
 
-Errors go to stderr, one line each, prefixed `inkvault:`.
+Errors go to stderr, one line each, prefixed `sempere:`.
 
 **Environment**
 
 | Variable | Use |
 | --- | --- |
-| `INKVAULT_VAULT` | Default for `--vault`. |
-| `INKVAULT_IDENTITY` | Default identity file. |
-| `INKVAULT_PASSPHRASE` | Passphrase for the vault's stored key file, for scripts and tests. |
+| `SEMPERE_VAULT` | Default for `--vault`. |
+| `SEMPERE_IDENTITY` | Default identity file. |
+| `SEMPERE_PASSPHRASE` | Passphrase for the vault's stored key file, for scripts and tests. |
 | `XDG_STATE_HOME` | Where `device.json` lives (default `~/.local/state`). |
 
 ## Commands
@@ -69,10 +69,10 @@ Errors go to stderr, one line each, prefixed `inkvault:`.
 ### Keys
 
 ```
-inkvault keys generate [--out FILE]
-inkvault keys show FILE
-inkvault keys export --vault V [--recipient age1...] [--out FILE]
-inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [--work-factor 15...18]]
+sempere keys generate [--out FILE]
+sempere keys show FILE
+sempere keys export --vault V [--recipient age1...] [--out FILE]
+sempere keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [--work-factor 15...18]]
                     [--paper letter|a4]
 ```
 
@@ -94,7 +94,7 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
   `--vault` the vault name, id and creation date; a boxed warning that **the
   sheet is the key**. Page 2: recovery step by step with stock tools
   (`age -d -i key.txt FILE.age | tail -c +38 | gunzip | jq .`, a loop that dumps
-  every note's newest snapshot) and with `inkvault restore` / `export`.
+  every note's newest snapshot) and with `sempere restore` / `export`.
   The line checksum is the first 4 hex digits of SHA-256 of the line as typed:
   `printf '%s' 'LINE' | sha256sum | cut -c1-4`. The key also carries its own
   Bech32 checksum (its last 6 characters, a BCH code over the whole key): any
@@ -108,7 +108,7 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
   the secret key line, so a post-quantum key's 1959-character public key never
   ends up in the QR code (it would not fit). The passphrase is the one of the
   vault's stored key file for this key (checked by opening it), otherwise one
-  you choose (`--passphrase-env VAR` / `$INKVAULT_PASSPHRASE` / the terminal,
+  you choose (`--passphrase-env VAR` / `$SEMPERE_PASSPHRASE` / the terminal,
   confirmed). Either way the command decrypts what it prints before writing the PDF.
   That sheet is safe to store less carefully, but useless without the
   passphrase. `--json` emits `path`, `variant` (`plain` or `passphrase`),
@@ -132,17 +132,17 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
 ### Vault
 
 ```
-inkvault vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...]
+sempere vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...]
                          [--store-key FILE [--passphrase-env VAR] [--work-factor 15...18]]
-inkvault vault info
-inkvault vault recipients add age1pq1... [--label TEXT] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
-inkvault vault recipients remove age1...
-inkvault vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
-inkvault vault rewrap-resume
-inkvault vault verify
+sempere vault info
+sempere vault recipients add age1pq1... [--label TEXT] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
+sempere vault recipients remove age1...
+sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
+sempere vault rewrap-resume
+sempere vault verify
 ```
 
-- `init` creates the vault. `PATH` must end in `.inkvault`. Give no `--label`
+- `init` creates the vault. `PATH` must end in `.sempere`. Give no `--label`
   or one per `--recipient`. `--store-key` also writes that identity,
   passphrase-wrapped, into `keys/` (the passphrase is confirmed when typed).
 - `info` prints vault id, creation time, recipients with labels, number of
@@ -162,7 +162,7 @@ inkvault vault verify
 - `recipients add` / `replace --store-key FILE` also store the new
   recipient's identity (FILE, which must be that key) passphrase-wrapped in
   `keys/`, with the passphrase from `--store-passphrase-env VAR`, else
-  `$INKVAULT_PASSPHRASE`, else the terminal (confirmed). Use it when the
+  `$SEMPERE_PASSPHRASE`, else the terminal (confirmed). Use it when the
   vault is unlocked by passphrase: only key files of current recipients are
   offered for passphrase unlocking, so after a `replace` the old key file
   (left in `keys/`) no longer is.
@@ -187,13 +187,13 @@ inkvault vault verify
 ### Backup and restore
 
 ```
-inkvault backup [V] --to DIR [--prune] [--checksum]
-inkvault backup [V] --archive FILE.tar
-inkvault backup verify DIR [--identity FILE]
-inkvault restore DIR --to NEWPATH.inkvault [--identity FILE]
+sempere backup [V] --to DIR [--prune] [--checksum]
+sempere backup [V] --archive FILE.tar
+sempere backup verify DIR [--identity FILE]
+sempere restore DIR --to NEWPATH.sempere [--identity FILE]
 ```
 
-`V` is the vault (else `--vault` / `$INKVAULT_VAULT`). Backups only ever hold
+`V` is the vault (else `--vault` / `$SEMPERE_VAULT`). Backups only ever hold
 the encrypted files: nothing is decrypted to disk, and no key is needed except
 for `--prune` and for a full `verify`.
 
@@ -221,7 +221,7 @@ for `--prune` and for a full `verify`.
   without). An interrupted run
   (crash, full disk, Ctrl-C) leaves only complete files; running it again
   finishes the job and removes leftover temporary files.
-  `DIR` is itself a vault (`inkvault --vault DIR` reads it) plus
+  `DIR` is itself a vault (`sempere --vault DIR` reads it) plus
   `DIR/backup.json` (vault id, and SHA-256 and size of every file the backup
   wrote) and `DIR/versions/`. Output: `copied`, `replaced` and `pruned` lines
   and a count line (`-v` adds versioned and kept files). `--json` emits
@@ -229,7 +229,7 @@ for `--prune` and for a full `verify`.
   `pruned`, `kept` and `errors` (`{path, message}`). One failing file does not
   stop the run. Exit 0 ok, 1 some files failed, 2 usage, 4 `--prune` without a key.
 - `backup V --archive FILE.tar` writes one uncompressed POSIX tar of the
-  encrypted files under `<name>.inkvault/` (refuses an existing file). It is
+  encrypted files under `<name>.sempere/` (refuses an existing file). It is
   written to a temporary file, read back and checked member by member, then
   renamed. `tar xf FILE.tar` gives back a vault folder. `--json`: `archive`,
   `vaultId`, `files`, `bytes`, `sha256`.
@@ -246,13 +246,13 @@ for `--prune` and for a full `verify`.
   problem statuses).
 - `restore DIR --to NEWPATH` copies `vault.json`, `keys/` and `notes/` (not
   `versions/` or `backup.json`) into a new or empty folder ending in
-  `.inkvault`, checking every file against `backup.json`; a file that does not
+  `.sempere`, checking every file against `backup.json`; a file that does not
   match is not restored and is reported. `DIR` may also be any vault folder
   (say, an extracted tar). `vault.json` is written last, so an interrupted
   restore is never mistaken for a vault; the same command finishes it. The
   result is then verified: every revision with `--identity`, structure only
   without. Exit 0 ok, 1 files not restored, 2 usage (`NEWPATH` without
-  `.inkvault`), 3 the restored vault is not healthy, 4 wrong key.
+  `.sempere`), 3 the restored vault is not healthy, 4 wrong key.
 
 #### Scheduling backups
 
@@ -263,11 +263,11 @@ scheduled job unless you use `--prune`).
 cron (Linux, macOS), every hour, plus a weekly check:
 
 ```cron
-0 * * * *  /usr/local/bin/inkvault backup /home/me/Sync/notes.inkvault --to /mnt/backup/notes -q
-30 3 * * 0 /usr/local/bin/inkvault backup verify /mnt/backup/notes -q
+0 * * * *  /usr/local/bin/sempere backup /home/me/Sync/notes.sempere --to /mnt/backup/notes -q
+30 3 * * 0 /usr/local/bin/sempere backup verify /mnt/backup/notes -q
 ```
 
-launchd (macOS), `~/Library/LaunchAgents/io.github.anthonytw.inkvault-backup.plist`,
+launchd (macOS), `~/Library/LaunchAgents/io.github.anthonytw.sempere-backup.plist`,
 then `launchctl load` it:
 
 ```xml
@@ -275,38 +275,38 @@ then `launchctl load` it:
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>io.github.anthonytw.inkvault-backup</string>
+  <key>Label</key><string>io.github.anthonytw.sempere-backup</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/inkvault</string><string>backup</string>
-    <string>/Users/me/Library/Mobile Documents/com~apple~CloudDocs/notes.inkvault</string>
+    <string>/usr/local/bin/sempere</string><string>backup</string>
+    <string>/Users/me/Library/Mobile Documents/com~apple~CloudDocs/notes.sempere</string>
     <string>--to</string><string>/Volumes/Backup/notes</string><string>-q</string>
   </array>
   <key>StartInterval</key><integer>3600</integer>
-  <key>StandardErrorPath</key><string>/tmp/inkvault-backup.log</string>
+  <key>StandardErrorPath</key><string>/tmp/sempere-backup.log</string>
 </dict>
 </plist>
 ```
 
 (An iCloud Drive vault must be downloaded on that Mac: an evicted file is not
-there to copy. Give `inkvault` Full Disk Access if the target is an external
+there to copy. Give `sempere` Full Disk Access if the target is an external
 disk.)
 
-systemd user timer (Linux), `~/.config/systemd/user/inkvault-backup.service`
-and `.timer`, then `systemctl --user enable --now inkvault-backup.timer`:
+systemd user timer (Linux), `~/.config/systemd/user/sempere-backup.service`
+and `.timer`, then `systemctl --user enable --now sempere-backup.timer`:
 
 ```ini
-# inkvault-backup.service
+# sempere-backup.service
 [Unit]
-Description=Back up the InkVault vault
+Description=Back up the Sempere vault
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/inkvault backup %h/Sync/notes.inkvault --to /mnt/backup/notes -q
+ExecStart=/usr/local/bin/sempere backup %h/Sync/notes.sempere --to /mnt/backup/notes -q
 
-# inkvault-backup.timer
+# sempere-backup.timer
 [Unit]
-Description=Hourly InkVault backup
+Description=Hourly Sempere backup
 
 [Timer]
 OnCalendar=hourly
@@ -317,17 +317,17 @@ WantedBy=timers.target
 ```
 
 A failed run exits non-zero, which cron mails, launchd logs and
-`systemctl --user status inkvault-backup` shows. For an off-site copy, sync
+`systemctl --user status sempere-backup` shows. For an off-site copy, sync
 the backup folder (or a weekly `--archive` tar) with any tool: it holds only
 encrypted files.
 
 ### Notes
 
 ```
-inkvault notes list [--tag T] [--notebook N] [--deleted]
-inkvault notes show ID|TITLE
-inkvault notes history ID|TITLE
-inkvault notes restore ID|TITLE --to REVISION [--dry-run]
+sempere notes list [--tag T] [--notebook N] [--deleted]
+sempere notes show ID|TITLE
+sempere notes history ID|TITLE
+sempere notes restore ID|TITLE --to REVISION [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
@@ -366,7 +366,7 @@ an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 ### Import
 
 ```
-inkvault import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
+sempere import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
                                    [--no-folder-tags] [--tag T ...]
 ```
 
@@ -412,7 +412,7 @@ found.
 ### Search
 
 ```
-inkvault search TERM
+sempere search TERM
 ```
 
 Case-insensitive substring search over every page's recognised text (the
@@ -426,7 +426,7 @@ prints `No matches.` (an empty list with `--json`) and exits 0.
 ### Export
 
 ```
-inkvault export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
+sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
                 [--notebook NAME] [--images none|png] [--clean]
 ```
@@ -479,7 +479,7 @@ never collide; for markdown `[ ] # ^` in the stem also become `-` (they break
 Obsidian wikilinks). A segment or stem is at most 120 UTF-8 bytes (file names are
 limited in bytes, not characters); a notebook folder named like a Windows device
 (`CON`, `NUL`, `COM1`, ...) or like an index file the export writes (`README.md`,
-`index.html`) gets a `_` appended. The `.inkvault-export-<format>.json` manifest is
+`index.html`) gets a `_` appended. The `.sempere-export-<format>.json` manifest is
 not trusted: entries that would leave `--out` are ignored, so a doctored one in a
 shared folder cannot make an export write or `--clean` delete elsewhere.
 
@@ -491,7 +491,7 @@ shared folder cannot make an export write or `--clean` delete elsewhere.
   `tags` (a list; `[]` when none; Obsidian-safe: `#` dropped, whitespace
   becomes `-`, case-insensitive duplicates merged), `notebook` (canonical
   path, omitted when none), `favorite` (only when true), `pages`, `source`
-  (`inkvault:<vault id>`). Every string is a double-quoted YAML scalar with
+  (`sempere:<vault id>`). Every string is a double-quoted YAML scalar with
   `"` `\` newlines, control characters and U+0085/U+2028/U+2029 escaped; other
   Unicode is kept as is.
 - `<stem>.pdf` (the PDF writer), embedded as `![[<stem>.pdf]]` and linked as a
@@ -520,7 +520,7 @@ well-formed XML as well as HTML.
 **Re-export.** Each file is rewritten only if its content would change
 (`Wrote ...` lists those; the last line counts written and unchanged files), so
 re-running is cheap for sync tools and keeps timestamps. The export records
-what it wrote in `.inkvault-export-<format>.json` in `--out`. Renamed, moved or
+what it wrote in `.sempere-export-<format>.json` in `--out`. Renamed, moved or
 deleted notes leave their old files until `--clean` (needs `--all`): it removes
 files recorded there that this run did not produce (restricted to the
 `--notebook` filter, if any), and the folders that leaves empty. It never
@@ -530,13 +530,13 @@ touches files it did not write. A note that fails to export keeps its old files.
 ### Recover
 
 ```
-inkvault recover FILE.age [--note-id UUID] [--identity FILE ...] [--vault PATH] [--no-verify]
+sempere recover FILE.age [--note-id UUID] [--identity FILE ...] [--vault PATH] [--no-verify]
 ```
 
 Decrypts one revision file and prints its JSON to stdout, byte for byte what
 `age -d -i KEY FILE | tail -c +38 | gunzip` prints. It needs only an identity
 file and the one `.age` file. If a vault is known (`--vault`, else `vault.json`
-found in a parent directory of the file, else `$INKVAULT_VAULT`) and the identity
+found in a parent directory of the file, else `$SEMPERE_VAULT`) and the identity
 opens it, the inner HMAC tag is verified (the note id is the
 file's directory name unless `--note-id` says otherwise); otherwise
 `UNVERIFIED: ...` is printed to stderr and the JSON is printed anyway. A tag
@@ -548,8 +548,8 @@ another vault` to stderr and exits 3 so scripts can tell. Wrong key: exit 4.
 ### Maintenance
 
 ```
-inkvault compact (ID|TITLE | --all) [--retention DAYS] [--dry-run]
-inkvault snapshot ID|TITLE
+sempere compact (ID|TITLE | --all) [--retention DAYS] [--dry-run]
+sempere snapshot ID|TITLE
 ```
 
 `compact` deletes only what a snapshot makes redundant and what is older than
@@ -562,8 +562,8 @@ writes a snapshot first (device id and clock as for `snapshot`), then compacts.
 revision) is reported on stderr, the other notes are still processed, and the
 exit code is 1. `snapshot` writes a snapshot of the note. Both need a
 key. Snapshots stamp the file with this machine's
-device id and clock from `$XDG_STATE_HOME/inkvault/device.json` (default
-`~/.local/state/inkvault/device.json`), created on first use:
+device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
+`~/.local/state/sempere/device.json`), created on first use:
 
 ```json
 { "device": "3fa9c01e", "millis": 1760000000000, "counter": 0 }
@@ -572,7 +572,7 @@ device id and clock from `$XDG_STATE_HOME/inkvault/device.json` (default
 ### Sync
 
 ```
-inkvault sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
+sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
                          [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
 ```
 
@@ -581,18 +581,18 @@ sync"); the server needs no logic. `URL` must be `https://`, or `http://` to
 `localhost`, `127.0.0.1` or `[::1]`; anything else is refused (exit 2) before a
 request is made, and so are credentials inside the URL. The password is read
 from the environment variable named by `--password-env` (default
-`INKVAULT_WEBDAV_PASSWORD`) and never from the command line. The vault folder
+`SEMPERE_WEBDAV_PASSWORD`) and never from the command line. The vault folder
 may be missing or empty: the first run pulls everything.
 
 Revision files are copied to the side that lacks them and never overwritten.
 `vault.json` and `rewrap-journal.json` are compared with the last sync (state
-in `$XDG_STATE_HOME/inkvault/sync/`); a change on one side is copied over, a
+in `$XDG_STATE_HOME/sempere/sync/`); a change on one side is copied over, a
 change on both keeps both copies (`vault.conflict-<device>-<time>.json` next to
 the local file; `--device` names this machine, default the host name) and exits
 3. Deletions follow only compaction: a file removed on one side is removed on
 the other only if the compaction rules (`docs/format.md` §5.3) allow it with
 the revisions held locally, which needs the vault unlocked (`--identity`, or
-`--passphrase-env`/`$INKVAULT_PASSPHRASE` for the stored key file); otherwise
+`--passphrase-env`/`$SEMPERE_PASSPHRASE` for the stored key file); otherwise
 it is restored, or, with the vault locked, left alone and listed as skipped.
 `--dry-run` makes no request that changes anything and writes nothing; it
 lists `would upload`, `would download` and `would delete` lines. It cannot see
@@ -611,10 +611,10 @@ run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts.
 ### Make sure a lost device or key costs nothing
 
 ```bash
-inkvault keys paper --identity ~/.config/inkvault/key.txt --vault ~/Sync/notes.inkvault --out kit.pdf
+sempere keys paper --identity ~/.config/sempere/key.txt --vault ~/Sync/notes.sempere --out kit.pdf
 lp kit.pdf && rm kit.pdf          # print it, keep it with your passport
-inkvault backup ~/Sync/notes.inkvault --to /mnt/usb/notes-backup
-inkvault backup verify /mnt/usb/notes-backup --identity ~/.config/inkvault/key.txt
+sempere backup ~/Sync/notes.sempere --to /mnt/usb/notes-backup
+sempere backup verify /mnt/usb/notes-backup --identity ~/.config/sempere/key.txt
 ```
 
 Later, on a new computer with only the sheet and the backup disk:
@@ -622,8 +622,8 @@ Later, on a new computer with only the sheet and the backup disk:
 ```bash
 # type the key lines into key.txt (or zbarimg --raw -q photo.png > key.txt)
 age-keygen -y key.txt                                  # prints the public key on the sheet
-inkvault restore /mnt/usb/notes-backup --to ~/notes.inkvault --identity key.txt
-inkvault export --all --format pdf --out ~/notes-pdf --vault ~/notes.inkvault --identity key.txt
+sempere restore /mnt/usb/notes-backup --to ~/notes.sempere --identity key.txt
+sempere export --all --format pdf --out ~/notes-pdf --vault ~/notes.sempere --identity key.txt
 ```
 
 ### Move a key to a second device
@@ -632,41 +632,41 @@ The vault stores your identity passphrase-wrapped (`vault init --store-key`).
 On the second device, with the vault folder synced over:
 
 ```bash
-inkvault keys export --vault ~/Sync/notes.inkvault --out ~/.config/inkvault/key.txt
+sempere keys export --vault ~/Sync/notes.sempere --out ~/.config/sempere/key.txt
 # Vault passphrase: ********
-export INKVAULT_IDENTITY=~/.config/inkvault/key.txt
-inkvault vault verify --vault ~/Sync/notes.inkvault
+export SEMPERE_IDENTITY=~/.config/sempere/key.txt
+sempere vault verify --vault ~/Sync/notes.sempere
 ```
 
 Prefer a key per device? Generate one there and add it from a device that
 already has access:
 
 ```bash
-inkvault keys generate --out ~/.config/inkvault/key.txt        # prints age1new...
+sempere keys generate --out ~/.config/sempere/key.txt        # prints age1new...
 # on the first device:
-inkvault vault recipients add age1new... --label "linux box" \
-    --vault ~/Sync/notes.inkvault --identity ~/.config/inkvault/key.txt
+sempere vault recipients add age1new... --label "linux box" \
+    --vault ~/Sync/notes.sempere --identity ~/.config/sempere/key.txt
 ```
 
 ### Export everything to PDF on Linux from a backup
 
 ```bash
-tar xf notes-backup.tar            # from `inkvault backup --archive`: contains notes.inkvault/
-export INKVAULT_VAULT=$PWD/notes.inkvault
-export INKVAULT_IDENTITY=~/key.txt
-inkvault vault verify              # exit 0 = every file decrypts and its tag matches
-inkvault export --all --format pdf --out ~/notes-pdf
-inkvault export --all --merge --format pdf --out ~/all-notes.pdf
+tar xf notes-backup.tar            # from `sempere backup --archive`: contains notes.sempere/
+export SEMPERE_VAULT=$PWD/notes.sempere
+export SEMPERE_IDENTITY=~/key.txt
+sempere vault verify              # exit 0 = every file decrypts and its tag matches
+sempere export --all --format pdf --out ~/notes-pdf
+sempere export --all --merge --format pdf --out ~/all-notes.pdf
 ```
 
 Add `--deleted` to include notes you deleted. With only the passphrase-wrapped
-key in the backup, drop `INKVAULT_IDENTITY` and run with
-`INKVAULT_PASSPHRASE` set (or answer the prompt).
+key in the backup, drop `SEMPERE_IDENTITY` and run with
+`SEMPERE_PASSPHRASE` set (or answer the prompt).
 
 ### Recover one note with nothing but age
 
 You have `key.txt` and one file, `17600...-ab12cd34-3.snapshot.age`, and no
-`inkvault` binary:
+`sempere` binary:
 
 ```bash
 age -d -i key.txt 17600...-ab12cd34-3.snapshot.age | tail -c +38 | gunzip | jq .
@@ -675,8 +675,8 @@ age -d -i key.txt 17600...-ab12cd34-3.snapshot.age | tail -c +38 | gunzip | jq .
 A post-quantum key (`AGE-SECRET-KEY-PQ-1...`) needs `age` 1.3 or later (the
 official release binaries; distribution packages may be older).
 
-The first 37 bytes of the decrypted body are the `INKV` header and HMAC tag
+The first 37 bytes of the decrypted body are the `SMPR` header and HMAC tag
 (`docs/format.md` §4); `tail -c +38` skips them. Newest snapshot first: it
 carries the whole note (title, pages, strokes). With the binary, the same
-thing is `inkvault recover FILE.age --identity key.txt`, which also checks the
+thing is `sempere recover FILE.age --identity key.txt`, which also checks the
 tag when the vault folder is next to the file.

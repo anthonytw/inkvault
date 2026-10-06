@@ -18,7 +18,7 @@ tasks.
 7. Images
 8. PDF page backgrounds
 9. Audio recordings and transcripts
-10. Rendering and export (InkRender)
+10. Rendering and export (SempereRender)
 11. Notability import
 12. Compatibility and versioning
 13. Apple-side notes (app tasks)
@@ -64,7 +64,7 @@ content hash (`format.md` §8.1.1).
 ### Layout: `notes/<id>/att/<keyed-hash>.<kind>.age` (decided)
 
 ```
-Notes.inkvault/
+Notes.sempere/
   notes/
     <noteId>/
       <hlc>-<device>-<seq>.delta.age
@@ -157,7 +157,7 @@ acceptable when the payload is re-encrypted anyway (the default on removal,
 below), but it would forbid ever choosing a header-only rewrite on removal.
 
 Decided instead: **the name is the tag.** `blobName =
-HMAC-SHA256(vaultSecret, "inkvault/1" ‖ 0 ‖ "blob" ‖ 0 ‖ sha256(content))`. A
+HMAC-SHA256(vaultSecret, "sempere/1" ‖ 0 ‖ "blob" ‖ 0 ‖ sha256(content))`. A
 blob is authentic when its content hashes to the value in its header and the
 name derived from that hash under the vault secret is its file name; only a
 holder of the secret can produce that name. Read through a reference, the
@@ -174,7 +174,7 @@ confirmation by size. What remains visible: per note, the number of blobs,
 their kind and size class, their times, and that two notes hold the same
 content (equal names in two `att/` folders).
 
-Domain separation: body tags hash `"inkvault/1" ‖ 0 ‖ noteId ‖ …` and a
+Domain separation: body tags hash `"sempere/1" ‖ 0 ‖ noteId ‖ …` and a
 note id is never `blob`, so the two message spaces cannot collide.
 
 Why not bind the note id into the name? It would hide cross-note equality,
@@ -189,7 +189,7 @@ unreferenced file there.
 **What "recipients" means.** A vault's recipients are its device keys: one
 age key per iPad, Mac or paper backup that may open the vault. "Adding a
 recipient" is setting up a new device; "removing a recipient" is locking out
-a lost, stolen or retired one. It is not sharing: InkVault has no sharing
+a lost, stolen or retired one. It is not sharing: Sempere has no sharing
 between people (`DESIGN.md` non-goals), and giving a note to someone else is
 an export (PDF, SVG, PNG), which leaves the vault's recipients alone.
 
@@ -310,7 +310,7 @@ the current notes no longer show but a surviving restore point does); it
 frees itself when compaction drops those revisions after the retention
 window.
 
-The CLI's `inkvault blobs gc [--dry-run] [NOTE…]` applies the same rule per
+The CLI's `sempere blobs gc [--dry-run] [NOTE…]` applies the same rule per
 note from its own device-local state; collection is never a side effect of
 opening, syncing or compacting.
 
@@ -432,12 +432,12 @@ direction (`dir`, default automatic per UAX #9).
 | --- | --- | --- |
 | App (iPad, Mac Catalyst): display and its own exports | system fonts through CoreText: `sans` = the system font (SF Pro), `serif` = New York, `mono` = SF Mono, with CoreText's cascade list for every other script (PingFang, Hiragino, Apple SD Gothic Neo, SF Arabic, SF Hebrew, Kohinoor, Apple Color Emoji, …) | complete: every script iPadOS can display, including CJK, Arabic and Hebrew with correct shaping and right-to-left layout |
 | Linux and macOS CLI | bundled **Noto Sans, Noto Serif, Noto Sans Mono** (regular, bold, italic, bold italic where the family has them) | Latin, Greek, Cyrillic |
-| CLI, optional | a font pack: any OpenType or TrueType font in `$INKVAULT_FONT_DIR`, `$XDG_DATA_HOME/inkvault/fonts` or the system font directories (e.g. Debian's `fonts-noto-cjk`, `fonts-noto-core`), chosen by `cmap` coverage and `lang` | whatever is installed: CJK, Arabic, Hebrew, Devanagari, … |
+| CLI, optional | a font pack: any OpenType or TrueType font in `$SEMPERE_FONT_DIR`, `$XDG_DATA_HOME/sempere/fonts` or the system font directories (e.g. Debian's `fonts-noto-cjk`, `fonts-noto-core`), chosen by `cmap` coverage and `lang` | whatever is installed: CJK, Arabic, Hebrew, Devanagari, … |
 
 Noto is under the SIL Open Font License 1.1, which allows bundling and
 redistribution. The fonts ship as separate data files under their own
 license file, not combined into the program's code, so the OFL and
-InkVault's GPL do not interact (as with the fonts every Linux distribution
+Sempere's GPL do not interact (as with the fonts every Linux distribution
 ships beside GPL software). About 5–6 MB for the Latin/Greek/Cyrillic files.
 
 When the CLI meets a character that no available font covers, it draws the
@@ -445,7 +445,7 @@ missing-glyph box for that character only, finishes the export, and reports
 it clearly, naming the script and what to install:
 `warning: note "Lecture 3", page 2: text uses Han characters; no installed
 font covers them (install fonts-noto-cjk or put a font in
-~/.local/share/inkvault/fonts)`. It never silently ships boxes.
+~/.local/share/sempere/fonts)`. It never silently ships boxes.
 
 **Exports embed font subsets.** Every exporter embeds, per font it used, a
 subset holding exactly the glyphs the export draws (any script), so a PDF
@@ -521,7 +521,7 @@ candidates, all GPL-compatible:
 
 Recommendation for the task: SwiftMath first (native, small, MIT), with
 MathJax as the fallback if coverage is insufficient. Apache-2.0 is
-compatible with GPLv3 (not with GPLv2-only, which InkVault is not).
+compatible with GPLv3 (not with GPLv2-only, which Sempere is not).
 Handwriting → LaTeX (write an equation, get its source) is a later,
 on-device-only feature (a Core ML model; no services); the conversion would
 be one delta that removes the strokes and adds the `math` item, so the item
@@ -698,7 +698,7 @@ stroke sliced by the eraser passes its stamp to the pieces. The app takes
 `at` from `PKStroke.path.creationDate` minus the recording's start date
 (both wall clock; PencilKit records stroke creation dates).
 
-## 10. Rendering and export (InkRender)
+## 10. Rendering and export (SempereRender)
 
 ### Inputs
 
@@ -706,7 +706,7 @@ Renderers stay pure: they get the note state plus an optional
 `BlobSource` (how to get a blob of this note's `att/` as verified bytes, or a
 temporary file for large ones), an optional `PDFPageRasterizer` (the app
 implements it with PDFKit, the CLI with Poppler, below) and an optional
-`TextShaper` (the app implements it with CoreText; the CLI uses InkRender's
+`TextShaper` (the app implements it with CoreText; the CLI uses SempereRender's
 own). Without a blob source every blob-backed item is a placeholder
 (`format.md` §8.5.2); text renders regardless. Every exporter returns a list
 of placeholders and warnings, which the CLI prints.
@@ -741,7 +741,7 @@ the minimal reader. So:
   (`CGPDFPage`).
 - **Linux and macOS CLI:** an optional external renderer. If Poppler's
   `pdftoppm` (or `pdftocairo`) is on `PATH` (or named by
-  `INKVAULT_PDFTOPPM`), the CLI's rasterizer runs it as a separate process
+  `SEMPERE_PDFTOPPM`), the CLI's rasterizer runs it as a separate process
   on the verified temporary plaintext of the PDF blob, e.g. `pdftoppm -png
   -r DPI -f N -l N -singlefile TMP.pdf OUT` with the effective-page crop,
   and places the PNG through the usual placement transform (SVG embeds it as
@@ -750,9 +750,9 @@ the minimal reader. So:
   files are private and deleted afterwards. Running the PDF parser in
   another process also isolates the CLI from a hostile PDF. Poppler is
   GPL-2.0-or-later; it is not linked, only executed, so it adds no license
-  terms to InkVault (and is GPL-compatible anyway). `Process` exists on
+  terms to Sempere (and is GPL-compatible anyway). `Process` exists on
   macOS and Linux but not iOS, so the rasterizer lives in
-  `Sources/InkVaultCLI`, not in `InkRender`. `--pdf-renderer auto|poppler|none`
+  `Sources/SempereCLI`, not in `SempereRender`. `--pdf-renderer auto|poppler|none`
   selects it; `auto` is the default.
 - **No renderer available:** the page is a placeholder (`format.md`
   §8.5.2) and the export prints a clear warning:
@@ -761,8 +761,8 @@ the minimal reader. So:
 
 ### Minimal PDF reader (for Form XObjects and page boxes)
 
-A new Linux-portable target `InkPDF` (Foundation + CZlib), used by InkRender
-(export) and InkImport (page boxes, page count). Subset:
+A new Linux-portable target `SemperePDF` (Foundation + CZlib), used by SempereRender
+(export) and SempereImport (page boxes, page count). Subset:
 
 - File structure: header, `startxref` from the last 1 KiB, classic xref
   tables and trailers, xref streams (`/Type /XRef`, `/W`, `/Index`, Flate
@@ -805,7 +805,7 @@ subset keeps the glyphs the export draws (plus `.notdef`), renumbered, with
 `ToUnicode` CMap built from the shaped runs (so ligatures and Arabic forms
 still copy as the original characters). Subset font names get the usual
 six-letter tag (`ABCDEF+NotoSans-Regular`). In the CLI the glyph ids and
-advances come from InkRender's shaper (§6); in the app from CoreText through
+advances come from SempereRender's shaper (§6); in the app from CoreText through
 the `TextShaper` hook, which also hands over the font's tables
 (`CTFontCopyTable`) for subsetting. Bold and italic use the family's faces;
 synthesised ones (`format.md` §8.5.3) use an outline stroke or a `Tm` shear
@@ -825,7 +825,7 @@ Pages never show recordings. Options for the PDF (decided):
   title, start time, duration and its transcript text (when there is one);
   `--recordings list,attach` does both.
 
-SVG and PNG exports omit recordings. A separate `inkvault export --format
+SVG and PNG exports omit recordings. A separate `sempere export --format
 media` writes the note's original blobs (images, PDFs, audio, transcripts) as
 files, named `<title>-<n>.<ext>`.
 
@@ -854,7 +854,7 @@ drops today (`Dropped`). Every mapping below keeps the existing geometry
   frame `[0, y, 612, 612 · H'/W']` at
   `y = (kPageLayoutDocumentPageNumberKey − 1) · stride`, where `stride` is the
   page height the importer already computes (`⌈W × aspect⌉ × 612 / W`), and
-  `W' × H'` the effective page size read with `InkPDF` (it replaces the
+  `W' × H'` the effective page size read with `SemperePDF` (it replaces the
   thumbnail-derived aspect when available, which fixes the mixed-size case).
   `z` follows the page order.
 - Paper under PDF pages: the note keeps its paper; the backgrounds hide its
@@ -954,7 +954,7 @@ readers); `rec` on strokes is new and is lost if an older build rewrites
 a stroke into a snapshot. Pre-1.0 this is acceptable: all devices update
 before the first recording.
 
-Versioning: `format` stays `inkvault/1` and the body version byte `0x01`
+Versioning: `format` stays `sempere/1` and the body version byte `0x01`
 (pre-1.0, `format.md` §7). Today's builds reject revisions with the new ops
 (fail closed, reported), skip `att/` when listing revisions (it is a
 directory, not a canonical revision name) and report it as an unknown entry
@@ -1051,7 +1051,7 @@ for its note (§4).
   options (verify the output has no `/Encrypt`) and store that; otherwise
   store the original bytes unchanged.
 - Page geometry: `PDFPage.bounds(for: .cropBox)` and `rotation` give the
-  effective size; must agree with `InkPDF` (test both on fixtures).
+  effective size; must agree with `SemperePDF` (test both on fixtures).
 - Display under `PKCanvasView`: a background view between `PaperView` and
   the canvas, drawing each visible `pdfPage` item with
   `CGContext.drawPDFPage` in a `CATiledLayer` (sharp at 4× zoom without
@@ -1100,7 +1100,7 @@ anything.
 API sketch (A0 and B2 own these names; others code against them):
 
 ```swift
-// InkVault (A0)
+// Sempere (A0)
 public enum JSONValue: Hashable, Sendable, Codable { case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue]) }
 public struct Rect: Hashable, Sendable, Codable { var x, y, w, h: Double }                         // [x, y, w, h]
 public struct BlobRef: Hashable, Sendable, Codable { var sha256: String; var size: Int64; var type: String; var extra: [String: JSONValue]; var kind: String { get } }  // kind per format.md §8.1.2
@@ -1123,7 +1123,7 @@ public struct Transcript: Hashable, Sendable, Codable { /* format.md §8.3.2: se
 //     .addRecording(Recording), .removeRecording(recordingId:), .setRecording(recordingId:field:value:)
 //     (field: String, value: JSONValue; typed accessors for the known fields)
 
-// InkVault (B2)
+// Sempere (B2)
 public enum RewrapMethod: Sendable { case headerOnly, reencrypt }
 public struct RewrapPolicy: Sendable { var onAdd: RewrapMethod = .headerOnly; var onRemoveOrTypeChange: RewrapMethod = .reencrypt }
 extension Vault {
@@ -1137,19 +1137,19 @@ extension Vault {
     public func collectBlobs(note: UUID, state: inout BlobCollectorState, now: Date, dryRun: Bool) throws -> BlobCollectionReport
     // changeRecipients(…, policy: RewrapPolicy) extends the existing recipient-change API
 }
-public protocol BlobSource: Sendable {                                           // InkVault (B2); a per-note view of Vault conforms
+public protocol BlobSource: Sendable {                                           // Sempere (B2); a per-note view of Vault conforms
     func data(for ref: BlobRef, maxBytes: Int) throws -> Data
     func withFile<T>(for ref: BlobRef, _ body: (URL) throws -> T) throws -> T
 }
 
-// InkRender (C1–C3)
+// SempereRender (C1–C3)
 public protocol PDFPageRasterizer: Sendable { func rasterize(pdf: URL, pageIndex: Int, pixelWidth: Int, pixelHeight: Int) throws -> RGBAImage }
 public protocol TextShaper: Sendable { func shape(_ text: TextContent, frame: Rect) throws -> ShapedText }   // glyph runs + font programs to subset; CLI default, app via CoreText
 // RenderOptions gains: blobs: (any BlobSource)?, pdfRasterizer: (any PDFPageRasterizer)?, shaper: (any TextShaper)?, recordings: RecordingExport, keepImageMetadata: Bool
 // Writers gain a `report` (placeholders, warnings) output.
 ```
 
-### A. Core model, ops, merge (`Sources/InkVault`; Opus)
+### A. Core model, ops, merge (`Sources/Sempere`; Opus)
 
 **A0 — model types.** Types above with Codable exactly per `format.md` §8
 (lowercase UUIDs, 3-decimal rounding, omitted defaults, integer `layer`),
@@ -1196,8 +1196,8 @@ trip runs with bounded memory (chunk-level API, no whole-file `Data`);
 interop with the `age` CLI both ways for streamed files and for a rewrapped
 header; a truncated or reordered chunk is rejected at the right chunk.
 
-**B2 — blob store, verify, rewrap, collection, CLI** (`Sources/InkVault`,
-`Sources/InkVaultCLI`; Opus). Per-note `att/` paths with kinds, names,
+**B2 — blob store, verify, rewrap, collection, CLI** (`Sources/Sempere`,
+`Sources/SempereCLI`; Opus). Per-note `att/` paths with kinds, names,
 framing, Padmé, write/read/verify/copy (streaming, via B1; start on the
 one-shot API if B1 is not merged), revision listings skip `att/`,
 `Vault.verify` reports blobs per note (`missing`, `invalid`, `unreferenced`,
@@ -1206,8 +1206,8 @@ one-shot API if B1 is not merged), revision listings skip `att/`,
 recipient-type change by default; `rekeyBlobs` in the journal; rename on
 removal; journal fallback lookup; resumable), `features` in `vault.json`,
 per-note inventory and collection per `format.md` §8.1.6 with device-local
-state (`$XDG_STATE_HOME/inkvault/blobs/<vaultId>.json`; the app keeps its
-own in Application Support). CLI: `inkvault blobs list [NOTE] | verify |
+state (`$XDG_STATE_HOME/sempere/blobs/<vaultId>.json`; the app keeps its
+own in Application Support). CLI: `sempere blobs list [NOTE] | verify |
 extract NOTE SHA256 [--out] | unused [NOTE] | gc [--dry-run] [NOTE…] |
 repair`, `vault recipients add|remove … [--rewrap header|reencrypt]`,
 `recover` extracting a note's attachments with the stock framing.
@@ -1221,7 +1221,7 @@ note unaffected by an unreadable revision in another, collection never
 removing a blob that a surviving restore point needs, fixture vault with
 blobs.
 
-**B3 — WebDAV sync of blobs** (`Sources/InkWebDAV`; Sonnet, Opus review).
+**B3 — WebDAV sync of blobs** (`Sources/SempereWebDAV`; Sonnet, Opus review).
 Each note's `att/` collection per §4 above; streaming GET to a temp file and
 PUT from a file; `maxBlobBytes` (default 1 GiB + 64 MiB) separate from
 `maxFileBytes`; deletion only under rules 1–3 for the note on the deleting
@@ -1230,9 +1230,9 @@ side; remote names validated (`<64 hex>.<kind>.age`).
 blobs, a dropped-but-referenced blob is copied back, a hostile name is
 ignored, a 300 MB blob syncs with bounded memory; wsgidav integration test.
 
-### C. InkRender export
+### C. SempereRender export
 
-**C1 — images** (`Sources/InkRender`; Sonnet, Opus for the JPEG decoder).
+**C1 — images** (`Sources/SempereRender`; Sonnet, Opus for the JPEG decoder).
 Placement math (`format.md` §8.5.1 tables), PDF Image XObjects (JPEG
 DCTDecode passthrough with SOF parsing and metadata stripping on export;
 PNG decode → Flate + SMask), SVG data URIs and `--assets`, PNG raster with a
@@ -1245,7 +1245,7 @@ committed as fixtures) within ±2 per channel; an exported JPEG carries no
 APP1 even when the blob does; malformed and truncated inputs fail cleanly
 (fuzz test); the 100 MP cap is enforced.
 
-**C2 — text** (`Sources/InkRender` + font resources; Opus). Bundled Noto
+**C2 — text** (`Sources/SempereRender` + font resources; Opus). Bundled Noto
 Sans/Serif/Mono (package resources; the static CLI artifact ships the
 resource bundle next to the binary, CI updated), font-pack discovery and
 selection by `cmap` coverage and `lang`, OpenType reader (`head`, `hhea`,
@@ -1262,8 +1262,8 @@ reorder and join correctly against reference renderings; with a CJK font
 pack, `pdftotext` (poppler) extracts the CJK text and `pdffonts` shows only
 subset fonts; without it, the warning names the script; goldens.
 
-**C3 — PDF backgrounds** (new target `Sources/InkPDF`, `Sources/InkRender`,
-`Sources/InkVaultCLI`; Opus). The reader subset of §10, page boxes and count,
+**C3 — PDF backgrounds** (new target `Sources/SemperePDF`, `Sources/SempereRender`,
+`Sources/SempereCLI`; Opus). The reader subset of §10, page boxes and count,
 Form XObject import, `PDFWriter` 1.7 when embedding, SVG/PNG via a
 `PDFPageRasterizer`: the CLI's Poppler rasterizer (§10) when `pdftoppm` or
 `pdftocairo` is installed, else a placeholder with a warning.
@@ -1277,20 +1277,20 @@ Poppler process hang or crash yields a placeholder, not a hung export; the
 fuzz test never crashes; portability check passes (no `Process` outside the
 CLI target).
 
-**C4 — recordings in exports** (`Sources/InkRender`, `Sources/InkVaultCLI`;
+**C4 — recordings in exports** (`Sources/SempereRender`, `Sources/SempereCLI`;
 Sonnet). `--recordings none|list|attach` (combinable: `list,attach`), the
 list page (uses C2's text), PDF embedded files (audio and transcript text),
 `export --format media`.
 *Done when:* `pdfdetach -list` shows the attached audio; the list page shows
 title, start time, duration and transcript.
 
-### D. Notability import (`Sources/InkImport`; Opus for reverse engineering, Sonnet after)
+### D. Notability import (`Sources/SempereImport`; Opus for reverse engineering, Sonnet after)
 
 Each starts by answering its unknowns in §11 on the user's backup (findings go
 into `docs/import-notability.md`, never the data itself) and by extending the
 synthetic `.note` fixture so CI covers the mapping.
 
-- **D1 — PDF backgrounds** (needs C3's `InkPDF` for page boxes; can start
+- **D1 — PDF backgrounds** (needs C3's `SemperePDF` for page boxes; can start
   with `pageSize` from thumbnails). *Done when:* the 26 PDF notes import with
   their pages at the right bands (`RealNotabilityTests` checks recognition
   origins still align; the eval oracle compares with PDF-composited
@@ -1363,7 +1363,7 @@ synthetic `.note` fixture so CI covers the mapping.
   30 days after it was first seen unreferenced; a late delta that references
   it again resets it; delete goes through B2's per-note collection.
 
-### F. CLI and search (`Sources/InkVaultCLI`; Sonnet)
+### F. CLI and search (`Sources/SempereCLI`; Sonnet)
 
 `notes show` lists items and recordings; `search` covers typed text and
 (`--transcripts`) transcripts; `export` wires the note's blobs as
@@ -1398,7 +1398,7 @@ interface text only; note content was already full Unicode (§6).
 A0 ──► A1
 A0 ──► B2 ──► B3          B1 ──► B2 (B2 may start on one-shot Age)
 A0 ──► C1, C2, C3, C4     (C* need BlobSource from B2: stub it in tests)
-C3 ──► D1 (InkPDF); A0 ──► D2, D3, D4 (write through B2)
+C3 ──► D1 (SemperePDF); A0 ──► D2, D3, D4 (write through B2)
 A1 + B2 ──► E0 ──► E1, E2, E3, E4 ──► E5
 E0 ──► E7 ──► E6 (storage section); E6's other sections only need the feature they configure
 C2 ──► E2 (TextShaper), C4

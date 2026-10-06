@@ -2,7 +2,7 @@
 # Runs the WebDAV integration tests against a local wsgidav server.
 #   pip install wsgidav cheroot      (once)
 #   scripts/test-webdav.sh
-# CI skips them: they only run when INKVAULT_WEBDAV_TEST_URL is set.
+# CI skips them: they only run when SEMPERE_WEBDAV_TEST_URL is set.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${PORT:-8765}"
@@ -22,7 +22,7 @@ http_authenticator:
 simple_dc:
   user_mapping:
     "*":
-      inkvault:
+      sempere:
         password: "test-password"
 verbose: 1
 YAML
@@ -32,7 +32,7 @@ for _ in $(seq 1 50); do
   curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break
   sleep 0.2
 done
-export INKVAULT_WEBDAV_TEST_URL="http://127.0.0.1:$PORT/"
-export INKVAULT_WEBDAV_TEST_USER=inkvault
-export INKVAULT_WEBDAV_TEST_PASSWORD=test-password
+export SEMPERE_WEBDAV_TEST_URL="http://127.0.0.1:$PORT/"
+export SEMPERE_WEBDAV_TEST_USER=sempere
+export SEMPERE_WEBDAV_TEST_PASSWORD=test-password
 swift test --filter 'WebDAVIntegrationTests|CLIWebDAVTests' "$@"

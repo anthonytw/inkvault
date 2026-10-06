@@ -1,4 +1,4 @@
-# Contributing to InkVault
+# Contributing to Sempere
 
 Thanks for helping. Read `DESIGN.md` (why), `docs/format.md` (the on-disk format, normative)
 and `CLAUDE.md` (the rules for working in this repository, including the hard ones: Linux-buildable
@@ -36,7 +36,7 @@ module, no force-unwraps outside tests, `///` on public API, XCTest for tests.
 
 ## Licence and sign-off
 
-InkVault is licensed **GPL-3.0-or-later with an App Store exception** (`LICENSE`,
+Sempere is licensed **GPL-3.0-or-later with an App Store exception** (`LICENSE`,
 `LICENSE-EXCEPTION`; background and consequences in
 [docs/legal/app-store-exception.md](docs/legal/app-store-exception.md)). The exception is a
 GPLv3 section 7 additional permission that lets anyone, the maintainer included, distribute

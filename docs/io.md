@@ -1,17 +1,17 @@
 # Vault I/O
 
-How `Sources/InkVault` reads and writes a vault directory. Not normative:
+How `Sources/Sempere` reads and writes a vault directory. Not normative:
 `docs/format.md` is the format; this records the implementation choices on
 top of it.
 
 ## Types
 
 - `VaultManifest`: `vault.json` (§2), InkJSON conventions, pretty-printed.
-- `BodyFraming`: `INKV` ‖ `0x01` ‖ tag ‖ `gzip(JSON)` (§4). gzip comes from
+- `BodyFraming`: `SMPR` ‖ `0x01` ‖ tag ‖ `gzip(JSON)` (§4). gzip comes from
   CZlib with `windowBits = 15 + 16`; the gzip header has mtime 0 and OS 255,
   so output does not depend on the platform. Unframing without the vault
   secret returns the body marked `verified == false`.
-- `Vault`: a `.inkvault` directory plus the identities it was opened with.
+- `Vault`: a `.sempere` directory plus the identities it was opened with.
   Opened without identities it is locked (`isLocked`) and only lists
   names. Created with `identities: []` it is write-only: it holds the secret
   and can write revisions, but `canRead` is false, read paths throw
@@ -55,7 +55,7 @@ names for new edits; it never rewrites names it does not touch.
 On iPadOS, a file iCloud Drive has not downloaded is only a placeholder: a
 hidden `.<name>.icloud` stand-in (or, with newer File Provider versions, the
 real name with status "not downloaded"). A listing skips the stand-ins, so an
-evicted vault looks empty. The app (`Apps/InkVault/InkVaultApp/CloudVault.swift`,
+evicted vault looks empty. The app (`Apps/Sempere/SempereApp/CloudVault.swift`,
 `CloudScan.swift`, `AppModel+Cloud.swift`) therefore, when the vault folder is
 ubiquitous (`FileManager.isUbiquitousItem(at:)`):
 
@@ -128,18 +128,18 @@ outside iCloud skip all of this: no scan, no coordination.
 
 ## Vaults as single items (app)
 
-The app exports the UTType `io.github.anthonytw.inkvault.vault` (extension
-`inkvault`, conforms to `com.apple.package` and `public.directory`;
-`Apps/InkVault/InkVaultInfo.plist`, merged into the generated Info.plist), so
-Files shows a vault folder as one document and opening it launches InkVault.
+The app exports the UTType `io.github.anthonytw.sempere.vault` (extension
+`sempere`, conforms to `com.apple.package` and `public.directory`;
+`Apps/Sempere/SempereInfo.plist`, merged into the generated Info.plist), so
+Files shows a vault folder as one document and opening it launches Sempere.
 The picker accepts that type and plain folders. `VaultLocator.resolve` turns
 what was picked into the vault folder: a folder holding exactly one
-`.inkvault` resolves to it (several: an error naming them). A file or folder
+`.sempere` resolves to it (several: an error naming them). A file or folder
 inside a vault (`vault.json`, `notes/…`) is an error naming the vault: the
 access the picker grants covers the picked item and what is below it, never
 its parents, so the vault could not be read from it.
-New vaults are always created as `<name>.inkvault`. Security scope is held on
-the URL the user picked. On macOS, Finder shows `.inkvault` as a package
+New vaults are always created as `<name>.sempere`. Security scope is held on
+the URL the user picked. On macOS, Finder shows `.sempere` as a package
 (Show Package Contents opens the folder); the CLI and the on-disk layout are
 unaffected.
 
@@ -148,7 +148,7 @@ unaffected.
 Every file the library writes (revisions, `vault.json`, identity files, the
 rewrap journal) goes through one helper:
 
-1. write the bytes to `.inkvault-tmp-<uuid>` **in the destination directory**
+1. write the bytes to `.sempere-tmp-<uuid>` **in the destination directory**
    (same filesystem, so the rename cannot turn into a copy);
 2. `fsync` it;
 3. `rename(2)` it onto the final name;
@@ -173,16 +173,16 @@ would make readers drop the new delta).
 
 ## Backups
 
-`Backup` (`Sources/InkVault/Backup.swift`) copies a vault's format files
+`Backup` (`Sources/Sempere/Backup.swift`) copies a vault's format files
 (`vault.json`, `rewrap-journal.json`, `keys/*.key.age`, `notes/<id>/<revision>`,
 `notes/<id>/att/<blob>`;
 nothing else) with the same atomic-write helper, then reads each copy back
 and compares SHA-256. The backup folder is a vault plus `backup.json`
-(`format: inkvault-backup/1`, `vaultId`, and `files`: path → `sha256`, `size`)
+(`format: sempere-backup/1`, `vaultId`, and `files`: path → `sha256`, `size`)
 and `versions/<UTC time>/` (previous copies of files a run replaced or, for
 the journal, removed). Revisions are copied first and `vault.json` last, so a
 run cut short never leaves a manifest newer than its notes; `restore` writes
-`vault.json` last for the same reason, behind a `.inkvault-restore.json`
+`vault.json` last for the same reason, behind a `.sempere-restore.json`
 marker that lets the same command resume. `backup.json` is saved every 100
 files and at the end; a file on disk that it does not list is hashed against
 the source before it is trusted. `--prune` uses `CompactionPlanner` with
@@ -273,7 +273,7 @@ deleted and never counts as coverage. `verify()` never throws: it re-checks
 `vault.json` (format, recipients, the secret's stanza count) and gives every
 entry a status.
 
-## WebDAV sync (`Sources/InkWebDAV`)
+## WebDAV sync (`Sources/SempereWebDAV`)
 
 The one target with network code. It talks to a plain WebDAV collection that
 holds a copy of the vault folder (same layout, `vault.json` at the collection
@@ -312,7 +312,7 @@ sets with the set recorded at the last sync (`SyncState.files`):
 | no | yes | yes | we dropped it: delete remotely if compaction allows, else download it again |
 
 An existing file is never overwritten on either side. Downloads go to a
-`.inkvault-tmp-<uuid>` file in the target directory, are fsynced, and are
+`.sempere-tmp-<uuid>` file in the target directory, are fsynced, and are
 linked into place with `link(2)` (fails if the name exists), so a partial file
 never appears under its final name and a file that showed up meanwhile wins.
 
@@ -347,10 +347,10 @@ retire the old one. `rewrap-journal.json` left on the server by a finished
 change is harmless but stays there. Syncing during an unfinished rewrap can
 copy a mix of old and new files.
 
-**State.** `$XDG_STATE_HOME/inkvault/sync/<hash of URL and vault path>.json`:
+**State.** `$XDG_STATE_HOME/sempere/sync/<hash of URL and vault path>.json`:
 file names, hashes, ETags and snapshot coverage, no secrets. Deleting it makes
 the next run a first sync: nothing is deleted, nothing overwritten.
 
 **Testing.** `scripts/test-webdav.sh` starts a local wsgidav
 (`pip install wsgidav cheroot`) and runs the integration tests, which are
-skipped unless `INKVAULT_WEBDAV_TEST_URL` is set.
+skipped unless `SEMPERE_WEBDAV_TEST_URL` is set.

@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Build and test the iPad/Mac app (Apps/InkVault). Needs Xcode; macOS only.
+# Build and test the iPad/Mac app (Apps/Sempere). Needs Xcode; macOS only.
 #
 #   scripts/app.sh test       # xcodebuild test on an iPad simulator
 #   scripts/app.sh catalyst   # Mac Catalyst build, unsigned
 #   scripts/app.sh simulator  # print the simulator id `test` would use
 #
-# INKVAULT_SIM_ID overrides the simulator choice.
+# SEMPERE_SIM_ID overrides the simulator choice.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-project=Apps/InkVault/InkVault.xcodeproj
-scheme=InkVaultApp
-derived=${INKVAULT_DERIVED_DATA:-.build/xcode}
+project=Apps/Sempere/Sempere.xcodeproj
+scheme=SempereApp
+derived=${SEMPERE_DERIVED_DATA:-.build/xcode}
 
 # The newest available iPad simulator on the newest iOS runtime.
 pick_simulator() {
-  if [[ -n "${INKVAULT_SIM_ID:-}" ]]; then echo "$INKVAULT_SIM_ID"; return; fi
+  if [[ -n "${SEMPERE_SIM_ID:-}" ]]; then echo "$SEMPERE_SIM_ID"; return; fi
   xcrun simctl list devices available --json | /usr/bin/python3 -c '
 import json, re, sys
 devices = json.load(sys.stdin)["devices"]

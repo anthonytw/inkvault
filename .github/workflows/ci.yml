@@ -40,10 +40,10 @@ jobs:
           has() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
           # Swift package: Linux + macOS build and test.
           package=$(has '^(Sources/|Tests/|Package\.(swift|resolved)$|scripts/|\.github/workflows/ci\.yml$)')
-          # The app links Age, InkVault and InkRender (and CZlib under them), and its
+          # The app links Age, Sempere and SempereRender (and CZlib under them), and its
           # tests open the package's fixture vault; CLI, importer and WebDAV changes
           # cannot affect it.
-          app=$(has '^(Apps/|Sources/(Age|InkVault|InkRender|CZlib)/|Tests/InkVaultTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
+          app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
           echo "package=$package" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
           echo "package=$package app=$app"
@@ -79,7 +79,7 @@ jobs:
         run: swift build --build-tests
       - name: Test
         env:
-          INKVAULT_REQUIRE_AGE_PQ: "1"
+          SEMPERE_REQUIRE_AGE_PQ: "1"
         run: swift test --skip-build --parallel
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'
@@ -94,7 +94,7 @@ jobs:
         # Swift 6.4's default build system does not link Foundation's own static
         # dependencies under --static-swift-stdlib; name them explicitly (CLAUDE.md).
         run: >-
-          swift build -c release --product inkvault --static-swift-stdlib
+          swift build -c release --product sempere --static-swift-stdlib
           -Xlinker -lCoreFoundation -Xlinker -l_FoundationICU
           -Xlinker -l_FoundationCollections -Xlinker -l_FoundationCShims
           -Xlinker -lswiftSynchronization -Xlinker -l_CFXMLInterface
@@ -102,14 +102,14 @@ jobs:
       - name: Verify the CLI is static
         if: github.event_name != 'pull_request'
         run: |
-          .build/release/inkvault --version
-          ldd .build/release/inkvault
-          if ldd .build/release/inkvault | grep -Eq 'libswift|libFoundation'; then echo "not static" >&2; exit 1; fi
+          .build/release/sempere --version
+          ldd .build/release/sempere
+          if ldd .build/release/sempere | grep -Eq 'libswift|libFoundation'; then echo "not static" >&2; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: success() && github.event_name != 'pull_request'
         with:
-          name: inkvault-linux-x86_64
-          path: .build/release/inkvault
+          name: sempere-linux-x86_64
+          path: .build/release/sempere
           if-no-files-found: ignore
 
   macos:
@@ -142,7 +142,7 @@ jobs:
         run: swift build --build-tests
       - name: Test
         env:
-          INKVAULT_REQUIRE_AGE_PQ: "1"
+          SEMPERE_REQUIRE_AGE_PQ: "1"
         run: swift test --skip-build --parallel
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'

@@ -1,14 +1,14 @@
-# InkVault on-disk format, version 1
+# Sempere on-disk format, version 1
 
 Normative. Changes to this file are format changes and need a version bump
 or a documented compatible extension.
 
 ## 1. Vault layout
 
-A vault is a directory whose name ends in `.inkvault`.
+A vault is a directory whose name ends in `.sempere`.
 
 ```
-Notes.inkvault/
+Notes.sempere/
   vault.json                              plaintext manifest (§2)
   keys/
     <key-name>.key.age                    optional passphrase-wrapped identity (§3.2)
@@ -30,7 +30,7 @@ Unknown files and directories must be ignored, never deleted.
 
 ```json
 {
-  "format": "inkvault/1",
+  "format": "sempere/1",
   "vaultId": "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c",
   "created": "2026-10-04T16:20:00Z",
   "recipients": [
@@ -134,12 +134,12 @@ change can be finished by any device holding an identity of the new set:
    before step 2):
 
    ```json
-   { "format": "inkvault/1",
+   { "format": "sempere/1",
      "previousVaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n",
      "rekeyBlobs": true }
    ```
 
-   - `format`: `inkvault/1`.
+   - `format`: `sempere/1`.
    - `previousVaultSecret`: present only when the secret is rotated
      (removal): the outgoing 32-byte vault secret, age-encrypted and
      armored to the **new** recipient set. Absent when adding.
@@ -220,13 +220,13 @@ plaintext is (blobs in `att/` use their own framing, §8.1.3):
 
 | Offset | Size | Content |
 | --- | --- | --- |
-| 0 | 4 | ASCII `INKV` |
+| 0 | 4 | ASCII `SMPR` |
 | 4 | 1 | body version, `0x01` |
 | 5 | 32 | HMAC-SHA256 tag (below) |
 | 37 | rest | `gzip(JSON)` (§5), gzip framing so `gunzip` reads it |
 
 Tag = HMAC-SHA256(key = vaultSecret,
-message = `"inkvault/1" ‖ 0x00 ‖ noteId ‖ 0x00 ‖ filename ‖ 0x00 ‖ gzipBytes`),
+message = `"sempere/1" ‖ 0x00 ‖ noteId ‖ 0x00 ‖ filename ‖ 0x00 ‖ gzipBytes`),
 where `filename` is the file's base name (e.g. `00017596...-a1b2c3d4-12.delta.age`)
 and `noteId` is the note directory name. Binding the file name stops a
 revision being replayed under another note or name.
@@ -284,7 +284,7 @@ like any other unreadable file.
   "seq": 12,
   "hlc": "17596320000000003",
   "wall": "2026-10-04T16:20:00.123Z",
-  "app": "inkvault-ios/0.1"
+  "app": "sempere-ios/0.1"
 }
 ```
 
@@ -709,7 +709,7 @@ snapshot holding it, at op index equal to its position.
   PencilKit's `PKStrokePath` exposes them: location `x,y` in points with
   origin top-left and y down; `t` time offset in seconds; `w,h` the width
   the ink is drawn at, in points (the nib's extent across the stroke, as
-  InkRender draws it); `o` opacity 0...1; `f` force; `az` azimuth and `al`
+  SempereRender draws it); `o` opacity 0...1; `f` force; `az` azimuth and `al`
   altitude in radians. Writers round to at most 3 decimals.
 - `w,h` are not `PKStrokePoint.size`: PencilKit draws a pen of size `s`
   `2s − 4` wide (nothing below 2), so a PencilKit reader or writer converts
@@ -842,7 +842,7 @@ Revisions name a blob with a *blob reference*:
 - `size`: the content's length in bytes.
 - `type`: its media type. Defined: `image/jpeg`, `image/png`, `image/heic`
   (§8.2.5), `application/pdf` (§8.2.6), `audio/mp4` (§8.3.1),
-  `application/vnd.inkvault.transcript+json` (§8.3.2). Others are kept (§7).
+  `application/vnd.sempere.transcript+json` (§8.3.2). Others are kept (§7).
 
 Every blob reference in a revision is a JSON object with these three keys
 (and possibly unknown ones, §7); no other object in a revision body has a
@@ -861,7 +861,7 @@ A blob of note `noteId` is stored as
 
 ```
 blobName = lowercase hex of HMAC-SHA256(key = vaultSecret,
-             message = "inkvault/1" ‖ 0x00 ‖ "blob" ‖ 0x00 ‖ sha256)
+             message = "sempere/1" ‖ 0x00 ‖ "blob" ‖ 0x00 ‖ sha256)
 ```
 
 and `sha256` is the content hash as 32 raw bytes. Names are 64 hex digits.
@@ -882,7 +882,7 @@ there.
 | `application/pdf` | `pdf` |
 | `audio/*` | `audio` |
 | `video/*` | `video` (reserved, §8.2.7) |
-| `application/vnd.inkvault.transcript+json` | `transcript` |
+| `application/vnd.sempere.transcript+json` | `transcript` |
 | anything else | `bin` |
 
 A reader looks a blob up by the path computed from the reference; it never
@@ -921,7 +921,7 @@ padme(n) = n                                  if n < 2
 Readers accept any amount of padding but reject non-zero padding bytes.
 
 Test vector: vault secret bytes `00 01 02 … 1f`, content the 16 ASCII bytes
-`hello, inkvault\n`, type `text/plain` (kind `bin`):
+`hello, sempere\n`, type `text/plain` (kind `bin`):
 
 ```
 sha256    b023506dad39637be6e6e2ec3a0c31f8c0af3fe9bc060be0223b789cb75e5c00
@@ -1285,7 +1285,7 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
   "codec": "aac", "sampleRate": 48000, "channels": 1, "bitRate": 64000,
   "title": "Lecture 3",
   "transcript": { "sha256": "…", "size": 52011,
-                  "type": "application/vnd.inkvault.transcript+json" },
+                  "type": "application/vnd.sempere.transcript+json" },
   "parent": "…", "origin": "…", "clocks": { "title": "…" } }
 ```
 
@@ -1310,7 +1310,7 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
 A transcript is a blob whose content is UTF-8 JSON (not compressed):
 
 ```json
-{ "format": "inkvault-transcript/1",
+{ "format": "sempere-transcript/1",
   "recording": "<recording id>",
   "engine": "apple-speechtranscriber-26.4",
   "language": "en-US",
@@ -1496,7 +1496,7 @@ where the table says how they degrade.
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |
-| `backup.json`, export manifest (`.inkvault-export-*.json`) | 256 MiB | `BoundedRead` |
+| `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |
 | files read at all | regular files only (no FIFOs or devices; symlinks followed in a vault, not in an imported package) | `BoundedRead` |
 | JSON nesting | 512 levels (Foundation's decoder) | |
 | `seq`, `included` `upTo` / `extra` | 1 … 2^53 − 1 | `RevisionName.maxSeq` |

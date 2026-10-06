@@ -16,7 +16,7 @@ working state.
 | 5 | Attachments, batches of 3–4 cloud sessions along the §14 dependencies | math, video |
 | 6 | Mac polish → App Store submission (iPad + Mac) → `/ultrareview` | public release |
 
-## Shared library (`Sources/`: Age, InkVault, InkRender, InkImport, InkWebDAV)
+## Shared library (`Sources/`: Age, Sempere, SempereRender, SempereImport, SempereWebDAV)
 
 | Area | Feature | Status |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ working state.
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3) | 📋 |
 
-## CLI (`inkvault`, renamed `sempere`; one codebase for both platforms)
+## CLI (`sempere`, renamed `sempere`; one codebase for both platforms)
 
 | Feature | Linux | macOS |
 | --- | --- | --- |

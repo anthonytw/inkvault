@@ -1,6 +1,6 @@
 # Importing from Notability
 
-`Sources/InkImport` reads Notability's `.note` packages (and the newer
+`Sources/SempereImport` reads Notability's `.note` packages (and the newer
 `.ntb` bundles) and writes them into a vault as ordinary notes. Notability's format is undocumented; everything
 below was reverse-engineered from a real backup of 130 notes written by
 Notability 10.2 through 14.9 (session format versions 5 to 9) and checked
@@ -48,7 +48,7 @@ whatever happens to it: nothing is silently ignored.
   sees (`removeTag`), so it drops the old folder's tags when a note moved,
   while a tag another device added concurrently survives (§5.4.1). The notebook is unchanged by this. One function builds the set
   (`NotabilityImporter.tags(for:folder:options:)`).
-- **Idempotent**: the note id is `UUID.derived(from: "inkvault-notability:"
+- **Idempotent**: the note id is `UUID.derived(from: "sempere-notability:"
   + uuidKey)` (SHA-256, RFC 9562 version 8). A note already in the vault is
   skipped; `overwrite` removes its pages and writes the content again with
   fresh page and stroke ids salted with the overwriting delta's
@@ -178,17 +178,17 @@ extra entries are ignored, and the curves concerned are counted in
 makes the geometry ambiguous and fails the note. No other per-curve array
 was short in the backup.
 
-Real-data checks live in `Tests/InkImportTests/RealNotabilityTests.swift`
-and are skipped unless `INKVAULT_NOTABILITY_SAMPLES` points at a backup zip
+Real-data checks live in `Tests/SempereImportTests/RealNotabilityTests.swift`
+and are skipped unless `SEMPERE_NOTABILITY_SAMPLES` points at a backup zip
 or directory, or several joined by `:` (`testBundlesMatchTheirNotes`
 compares every `.ntb` with its `.note`):
 
 ```bash
-INKVAULT_NOTABILITY_SAMPLES=data/Notability-backup.zip \
-INKVAULT_NOTABILITY_RENDER_DIR=data/render \
+SEMPERE_NOTABILITY_SAMPLES=data/Notability-backup.zip \
+SEMPERE_NOTABILITY_RENDER_DIR=data/render \
   swift test --filter RealNotabilityTests            # parse all, render + compare, page geometry
-INKVAULT_NOTABILITY_SAMPLES=data/Notability-backup.zip \
-INKVAULT_NOTABILITY_BULK_VAULT=data/scratch.inkvault \
+SEMPERE_NOTABILITY_SAMPLES=data/Notability-backup.zip \
+SEMPERE_NOTABILITY_BULK_VAULT=data/scratch.sempere \
   swift test --filter testBulkImport                 # full import, prints report
 ```
 
@@ -201,10 +201,10 @@ any importer, renderer or canvas change:
 ```bash
 scripts/import-eval.sh data/Notability-backup.zip      # writes data/eval/report.html, summary.json
 scripts/import-eval.sh --out data/eval-full data/Notability-*-1-00{1,2,3}.zip   # a split backup: all parts
-INKVAULT_EVAL_SKIP_CANVAS=1 scripts/import-eval.sh …   # import + PDF + thumbnails only (minutes, no simulator)
+SEMPERE_EVAL_SKIP_CANVAS=1 scripts/import-eval.sh …   # import + PDF + thumbnails only (minutes, no simulator)
 ```
 
-It needs macOS, Xcode with an iPadOS 26+ simulator (`INKVAULT_SIM_ID`
+It needs macOS, Xcode with an iPadOS 26+ simulator (`SEMPERE_SIM_ID`
 picks one; use an iPadOS 26.x one, the user's iPad cannot run 27) and `uv`.
 The output directory (default `data/eval`, git-ignored) must be ignored by
 git, since everything in it is derived from personal notes; the script
@@ -212,8 +212,8 @@ refuses otherwise. Notes are named only by the first 8 hex digits of their
 vault id (a hash of Notability's uuid). Three stages:
 
 1. **Import oracle** (`ImportFidelityEvalTests`, gated on
-   `INKVAULT_NOTABILITY_SAMPLES` and `INKVAULT_EVAL_DIR`): imports the backup
-   into a fresh scratch vault (`work/vault.inkvault`, new key
+   `SEMPERE_NOTABILITY_SAMPLES` and `SEMPERE_EVAL_DIR`): imports the backup
+   into a fresh scratch vault (`work/vault.sempere`, new key
    `work/identity.key`) with the normal importer, reads every note back from
    the vault, and renders its first Notability page (`PNGWriter`, no paper,
    one `breakHeight` tall) at the width of each thumbnail in the package
@@ -231,7 +231,7 @@ vault id (a hash of Notability's uuid). Three stages:
    -enable-testing`): rendering every page in a debug build is ten times
    slower (about 5 minutes for the full backup in release).
 2. **Canvas vs export** (`CanvasExportEvalTests` in the app tests, gated on
-   `INKVAULT_EVAL_VAULT`, `INKVAULT_EVAL_IDENTITY`, `INKVAULT_EVAL_OUT`, passed
+   `SEMPERE_EVAL_VAULT`, `SEMPERE_EVAL_IDENTITY`, `SEMPERE_EVAL_OUT`, passed
    as `TEST_RUNNER_…` to `xcodebuild test`): for every band (export page,
    one `breakHeight`) of every page of every note, including every band of
    tall infinite pages, an on-screen snapshot of a `PageCanvasHost` showing
@@ -240,7 +240,7 @@ vault id (a hash of Notability's uuid). Three stages:
    band; `PKDrawing.image` of the same rect; and `PNGWriter`'s page for the band.
    The canvas page is extended to whole bands so the last band scrolls to the
    top like the others. About 3 s per band plus about 20 s per note (PencilKit tiles settle for
-   `INKVAULT_EVAL_SETTLE_MS`, default 1200).
+   `SEMPERE_EVAL_SETTLE_MS`, default 1200).
 3. **Metrics and report** (`scripts/import_eval.py`, run with `uv`, one
    worker process per CPU): writes
    `summary.json` (every metric per thumbnail and per band, aggregates,
@@ -621,7 +621,7 @@ height`. `engine` is `notability-<app version>`.
 
 ## Mapping
 
-| Notability | InkVault |
+| Notability | Sempere |
 | --- | --- |
 | `noteName` | `title` |
 | folders under `Notability/`, else subject | `notebook` |
@@ -631,7 +631,7 @@ height`. `engine` is `notability-<app version>`.
 | `lineStyle2` / `lineStyle` | `paper.kind`, `paper.spacing` |
 | curve | one `Stroke`; id derived from the note uuid and curve index |
 | style 3 / 4 | `pen` / `marker` (highlighters are written first so they sit behind the ink) |
-| colour bytes | `ink.color`; for markers alpha is set to opaque, since the marker tool supplies the translucency (as PencilKit's does; InkRender draws markers at 50 %, where Notability's stored alpha 0x6B shows highlighters at about 42 %) |
+| colour bytes | `ink.color`; for markers alpha is set to opaque, since the marker tool supplies the translucency (as PencilKit's does; SempereRender draws markers at 50 %, where Notability's stored alpha 0x6B shows highlighters at about 42 %) |
 | `curveswidth` | `ink.width` |
 | Bézier polygon | B-spline control points (below) |
 | width × fractional width | `w`, `h` |

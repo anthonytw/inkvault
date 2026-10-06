@@ -1,4 +1,7 @@
-# InkVault
+# Sempere
+
+*Formerly InkVault (renamed 2026-10-05; the name nods to the Sempere bookshop in
+Carlos Ruiz Zafón's* La sombra del viento*).*
 
 A stripped-down handwriting notes app for iPad (and Mac), with the few features
 that matter and nothing else:
@@ -12,11 +15,11 @@ that matter and nothing else:
   History is browsable, edits from two devices merge, and sync tools never
   see a conflict.
 - **Readable without the app.** `age -d` plus `gunzip` plus `jq` recovers any
-  note. The `inkvault` CLI exports PDF and SVG from a backup on any machine.
+  note. The `sempere` CLI exports PDF and SVG from a backup on any machine.
 - **Real ink.** Strokes are vectors (PencilKit B-splines), so erasing, export
   and search stay clean.
 
-Free software under the GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`), no telemetry. The `inkvault` CLI is a
+Free software under the GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`), no telemetry. The `sempere` CLI is a
 first-class Linux citizen: keys, unlock, verify, recovery and PDF/SVG export
 all run natively on Linux, and CI publishes a static Linux binary.
 
@@ -25,22 +28,22 @@ all run natively on Linux, and CI publishes a static Linux binary.
 | Path | What |
 | --- | --- |
 | `Sources/Age` | Spec-exact Swift implementation of the age v1 format |
-| `Sources/InkVault` | Vault layout, note log, merge, keys |
-| `Sources/InkRender` | Stroke geometry, PDF and SVG writers |
-| `Sources/InkVaultCLI` | Command-line tool: keys, verify, export, recover |
-| `Apps/InkVault` | iPad app, Mac via Catalyst (Xcode project, phase 1; a shell so far) |
+| `Sources/Sempere` | Vault layout, note log, merge, keys |
+| `Sources/SempereRender` | Stroke geometry, PDF and SVG writers |
+| `Sources/SempereCLI` | Command-line tool: keys, verify, export, recover |
+| `Apps/Sempere` | iPad app, Mac via Catalyst (Xcode project, phase 1; a shell so far) |
 | `docs/format.md` | The on-disk format, normative |
 | `DESIGN.md` | Why it is built this way |
 | `docs/plan.md` | Phases and task board |
 
 Everything under `Sources/` builds and tests on Linux and macOS with
 `swift test`. The apps need Xcode 26 or newer: open
-`Apps/InkVault/InkVault.xcodeproj` (scheme `InkVaultApp`), or run
+`Apps/Sempere/Sempere.xcodeproj` (scheme `SempereApp`), or run
 `scripts/app.sh test` (iPad simulator) and `scripts/app.sh catalyst` (Mac).
 
 ## Status
 
-Phase 0 (core library and CLI) is nearly done: the `inkvault` CLI (keys, vault, verify, export, recover; see `docs/cli.md`) works on Linux and macOS. The iPad app is a scaffold: it opens and unlocks a vault and lists its notes; drawing comes next.
+Phase 0 (core library and CLI) is nearly done: the `sempere` CLI (keys, vault, verify, export, recover; see `docs/cli.md`) works on Linux and macOS. The iPad app is a scaffold: it opens and unlocks a vault and lists its notes; drawing comes next.
 
 ## Releases, contributing, security
 

@@ -1,6 +1,6 @@
 Additional permission under GNU GPL version 3 section 7 (the "App Store exception")
 
-This permission applies to the InkVault source code in this repository, which is licensed
+This permission applies to the Sempere source code in this repository, which is licensed
 under the GNU General Public License, version 3 or (at your option) any later version.
 
 If you convey a covered work, in object code form only, through Apple's App Store,
@@ -24,4 +24,4 @@ code that is part of a work but not part of this Program, which stays under its 
 As GPL version 3 section 7 allows, you may remove this additional permission from your copy
 of a covered work, or from any part of it; it then no longer applies to that copy or part.
 
-SPDX: GPL-3.0-or-later WITH LicenseRef-InkVault-App-Store-Exception
+SPDX: GPL-3.0-or-later WITH LicenseRef-Sempere-App-Store-Exception

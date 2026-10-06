@@ -14,15 +14,15 @@ import Darwin
 // thread under a watchdog, and the run fails on a case that hangs, runs past
 // its time budget or grows peak memory past a budget. A trap (overflow, index
 // out of range, force unwrap) kills the test process, which is the signal; set
-// INKVAULT_FUZZ_DUMP=<dir> to keep the input being run in `<dir>/<target>.last`.
+// SEMPERE_FUZZ_DUMP=<dir> to keep the input being run in `<dir>/<target>.last`.
 //
 // Environment:
-//   INKVAULT_FUZZ_LONG=1          100× the iterations, no per-target time cap
-//   INKVAULT_FUZZ_ITERATIONS=N    exactly N cases per target
-//   INKVAULT_FUZZ_SEED=S          base seed (default 0); each target mixes in its name
-//   INKVAULT_FUZZ_DUMP=dir        write each input to dir/<target>.last before running it
-//   INKVAULT_FUZZ_VERBOSE=1       print every case index
-//   INKVAULT_FUZZ_REPRO=file      run only that saved input (`<target>-<case>.bin` or
+//   SEMPERE_FUZZ_LONG=1          100× the iterations, no per-target time cap
+//   SEMPERE_FUZZ_ITERATIONS=N    exactly N cases per target
+//   SEMPERE_FUZZ_SEED=S          base seed (default 0); each target mixes in its name
+//   SEMPERE_FUZZ_DUMP=dir        write each input to dir/<target>.last before running it
+//   SEMPERE_FUZZ_VERBOSE=1       print every case index
+//   SEMPERE_FUZZ_REPRO=file      run only that saved input (`<target>-<case>.bin` or
 //                                 `<target>.last`), on the test thread, in the target it names
 
 /// SplitMix64: tiny, fast and deterministic on every platform.
@@ -64,12 +64,12 @@ public struct FuzzConfig: Sendable {
 
     public static var current: FuzzConfig {
         let env = ProcessInfo.processInfo.environment
-        let long = env["INKVAULT_FUZZ_LONG"].map { $0 == "1" || $0.lowercased() == "true" } ?? false
+        let long = env["SEMPERE_FUZZ_LONG"].map { $0 == "1" || $0.lowercased() == "true" } ?? false
         return FuzzConfig(long: long,
-                          fixedIterations: env["INKVAULT_FUZZ_ITERATIONS"].flatMap { Int($0) },
-                          seed: env["INKVAULT_FUZZ_SEED"].flatMap { UInt64($0) } ?? 0,
-                          dump: env["INKVAULT_FUZZ_DUMP"].map { URL(fileURLWithPath: $0, isDirectory: true) },
-                          verbose: env["INKVAULT_FUZZ_VERBOSE"] == "1",
+                          fixedIterations: env["SEMPERE_FUZZ_ITERATIONS"].flatMap { Int($0) },
+                          seed: env["SEMPERE_FUZZ_SEED"].flatMap { UInt64($0) } ?? 0,
+                          dump: env["SEMPERE_FUZZ_DUMP"].map { URL(fileURLWithPath: $0, isDirectory: true) },
+                          verbose: env["SEMPERE_FUZZ_VERBOSE"] == "1",
                           caseTimeout: long ? 60 : 10,
                           targetSeconds: long ? nil : 3,
                           memoryBudget: 768 << 20)
@@ -368,7 +368,7 @@ public enum Fuzz {
                            generate: ((inout FuzzRNG) -> Data)? = nil,
                            body: @escaping @Sendable (Data) -> String?) -> FuzzReport {
         var report = FuzzReport(target: target)
-        if let repro = ProcessInfo.processInfo.environment["INKVAULT_FUZZ_REPRO"] {
+        if let repro = ProcessInfo.processInfo.environment["SEMPERE_FUZZ_REPRO"] {
             let url = URL(fileURLWithPath: repro)
             let name = url.deletingPathExtension().lastPathComponent
             report.cases = 1
@@ -391,7 +391,7 @@ public enum Fuzz {
         if let dump = config.dump { try? FileManager.default.createDirectory(at: dump, withIntermediateDirectories: true) }
 
         func save(_ input: Data, _ i: Int) -> URL? {
-            let dir = config.dump ?? FileManager.default.temporaryDirectory.appendingPathComponent("inkvault-fuzz")
+            let dir = config.dump ?? FileManager.default.temporaryDirectory.appendingPathComponent("sempere-fuzz")
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let url = dir.appendingPathComponent("\(target)-\(i).bin")
             return (try? input.write(to: url)) == nil ? nil : url

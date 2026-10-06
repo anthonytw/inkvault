@@ -44,9 +44,9 @@ jobs:
             echo "::error::tag '$tag' is not vMAJOR.MINOR.PATCH[-prerelease]"; exit 1
           fi
           version="${tag#v}"
-          source_version="$(sed -n 's/^let inkvaultVersion = "\(.*\)"$/\1/p' Sources/InkVaultCLI/Version.swift)"
+          source_version="$(sed -n 's/^let sempereVersion = "\(.*\)"$/\1/p' Sources/SempereCLI/Version.swift)"
           if [ "$source_version" != "$version" ]; then
-            echo "::error::tag $tag but Sources/InkVaultCLI/Version.swift says $source_version"; exit 1
+            echo "::error::tag $tag but Sources/SempereCLI/Version.swift says $source_version"; exit 1
           fi
           scripts/changelog-section.sh "$version" > /dev/null
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -71,15 +71,15 @@ jobs:
           apt-get update -q
           apt-get install -y -q zlib1g-dev
       - name: Build
-        run: swift build -c release --product inkvault $STATIC_FLAGS
+        run: swift build -c release --product sempere $STATIC_FLAGS
       - name: Verify the CLI is static and reports the tag's version
         run: |
-          bin=.build/release/inkvault
+          bin=.build/release/sempere
           test "$($bin --version)" = "${{ needs.prepare.outputs.version }}"
           ldd "$bin"
           if ldd "$bin" | grep -Eq 'libswift|libFoundation'; then echo "not static" >&2; exit 1; fi
       - name: Package
-        run: scripts/package-cli.sh .build/release/inkvault "${{ needs.prepare.outputs.version }}" "linux-${{ matrix.arch }}" dist
+        run: scripts/package-cli.sh .build/release/sempere "${{ needs.prepare.outputs.version }}" "linux-${{ matrix.arch }}" dist
       - uses: actions/upload-artifact@v4
         with:
           name: dist-linux-${{ matrix.arch }}
@@ -95,10 +95,10 @@ jobs:
       - name: Select newest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
       - name: Build arm64 + x86_64
-        run: swift build -c release --product inkvault --arch arm64 --arch x86_64
+        run: swift build -c release --product sempere --arch arm64 --arch x86_64
       - name: Verify the binary
         run: |
-          bin="$(swift build -c release --product inkvault --arch arm64 --arch x86_64 --show-bin-path)/inkvault"
+          bin="$(swift build -c release --product sempere --arch arm64 --arch x86_64 --show-bin-path)/sempere"
           lipo -archs "$bin" | tee /dev/stderr | grep -q arm64
           lipo -archs "$bin" | grep -q x86_64
           test "$("$bin" --version)" = "${{ needs.prepare.outputs.version }}"
@@ -146,4 +146,4 @@ jobs:
           # A tag with a prerelease suffix (v1.0.0-rc.1) is published as a prerelease.
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS \
-            --title "InkVault CLI $GITHUB_REF_NAME" --notes-file release-notes.md --verify-tag "${flags[@]}"
+            --title "Sempere CLI $GITHUB_REF_NAME" --notes-file release-notes.md --verify-tag "${flags[@]}"

@@ -11,11 +11,11 @@ Open-source (GPL-3.0-or-later + App Store exception), end-to-end-encrypted
 handwriting notes for iPad (iPadOS 26+) and Mac (Catalyst), a stripped-down
 Notability. Vault = a plain folder of write-once age-encrypted revision files
 (any storage: iCloud Drive, Files providers, WebDAV, a folder); user-owned keys;
-PencilKit canvas with vector strokes; Notability importer; CLI (`inkvault`,
-Linux + macOS) for recovery/export. Repo: github.com/anthonytw/inkvault
+PencilKit canvas with vector strokes; Notability importer; CLI (`sempere`,
+Linux + macOS) for recovery/export. Repo: github.com/anthonytw/sempere
 (public, GitHub only — never Gitea).
 
-**Renaming to "Sempere"** (nod to *La sombra del viento*; "InkVault" is taken
+**Renaming to "Sempere"** (nod to *La sombra del viento*; "Sempere" is taken
 on the App Store). See "Rename sweep" below; until it lands, code uses the old
 names.
 
@@ -93,7 +93,7 @@ parts `Notability-20261005T121200Z-1-00{1,2,3}.zip` (pass all three together:
 928 `.note`, 603 `.ntb`, 395 Notability PDF exports) and the latest fidelity
 report `data/eval-full/`. `data/README.md` says the same. Never commit, quote or
 paste its contents (code, tests, docs, commits, PR bodies, other agents).
-Real-data tests are gated on `INKVAULT_NOTABILITY_SAMPLES`; scratch output goes
+Real-data tests are gated on `SEMPERE_NOTABILITY_SAMPLES`; scratch output goes
 under `data/<name>/` and is deleted when done. Keep `data/`: re-imports are
 needed after the PQ switch and for release.
 
@@ -108,8 +108,8 @@ yet: PDF/image backgrounds, typed text, media/recordings (attachments work).
 - iPad: "antpad", iPad Pro 12.9" 4th gen (A12Z, Face ID, Pencil 2, no hover),
   **iPadOS 26.7.1, cannot update to 27** — every feature must work on 26.
   UDID 00008027-001D30E02131802E.
-- Test vault: iCloud Drive `InkVault/Notes.inkvault` (127 notes from an old
-  partial backup, classic X25519 key `~/.config/inkvault/identity.key`). To be
+- Test vault: iCloud Drive `Sempere/Notes.sempere` (127 notes from an old
+  partial backup, classic X25519 key `~/.config/sempere/identity.key`). To be
   REBUILT after #33 + rename: new post-quantum key, full backup import with
   folder tags. Put the key on the iPad with `pbcopy < key`, clear the clipboard
   after ~3 min.
@@ -133,17 +133,22 @@ the API key (`xcodebuild -exportArchive` / `xcrun altool` or `notarytool`-style
 upload), add the user as internal tester; set `ITSAppUsesNonExemptEncryption`
 per the export decision. Optional later: CI uploads on merge.
 
-## Rename sweep (do after the open PRs merge)
+## Rename to Sempere (done 2026-10-05)
 
-One PR: app name "Sempere", bundle `io.github.anthonytw.sempere`, repo →
-`anthonytw/sempere` (GitHub rename keeps redirects; update remotes, the cloud
-environment's repo, docs), CLI `sempere`, Swift modules `Sempere*` (Sempere,
-SempereRender, SempereImport, SempereWebDAV, SempereCLI; app target),
-vault extension `.sempere` + UTType, format ids (`sempere/1`, new file magic,
-HMAC/KDF labels — breaks existing vaults, fine pre-1.0), Keychain service,
-UserDefaults keys, DEBUG env vars (`SEMPERE_DEBUG_*`), `~/.config/sempere/`,
-docs. Then rebuild the test vault and do the first TestFlight build. Then run
-one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
+The project was called InkVault until this rename; old PRs, commits and
+sessions use that name. Everything was renamed in one PR:
+- the app "Sempere", bundle `io.github.anthonytw.sempere`;
+- the CLI `sempere`, the modules `Sempere*`, the app target `SempereApp`;
+- the vault extension `.sempere` and its UTType;
+- the format ids `sempere/1` and `sempere-backup/1`, the body magic `SMPR`
+  and the HMAC label (existing vaults no longer open, which is fine before
+  1.0);
+- the Keychain service, the `SEMPERE_*` env vars and `~/.config/sempere/`;
+- the repo, now `anthonytw/sempere`, with redirects from the old name.
+
+Next: rebuild the test vault (post-quantum key, full import), then the first
+TestFlight build, then one `/ultrareview` (the user has 3 free cloud
+multi-agent reviews; the user triggers it).
 
 ## How work gets done (what worked, what didn't)
 
@@ -170,7 +175,7 @@ one `/ultrareview` (user has 3 free cloud multi-agent reviews; user-triggered).
   is "not enabled for your account").
 - **Cloud VM:** Ubuntu, no Xcode. It builds/tests `Sources/` + `Tests/`; app
   code is compiled only by the GitHub Actions `app` job (push → `gh pr checks
-  --watch` → `gh run view --log-failed`). The `inkvault` environment's setup
+  --watch` → `gh run view --log-failed`). The `sempere` environment's setup
   script (`scripts/cloud-setup.sh`) installs Swift 6.4.0 into /usr/local/bin.
   Sessions use GitHub MCP tools (the VM's `gh` token is invalid).
 - **Local agents:** create the worktree yourself
@@ -239,23 +244,23 @@ Phase 1 task detail (historical, for reference):
 
 2. **Phase 1, iPad app** (needs Xcode on the Mac or the macOS CI runner;
    Opus for 3a/3c, Sonnet for the rest). Split:
-   - 3a **done** (branch `feat/ipad-app-scaffold`): `Apps/InkVault/InkVault.xcodeproj`,
+   - 3a **done** (branch `feat/ipad-app-scaffold`): `Apps/Sempere/Sempere.xcodeproj`,
      hand-maintained with folder-synchronized groups (no XcodeGen/Tuist),
-     scheme `InkVaultApp`, iPadOS 26, Catalyst on, links the package's
-     `InkVault` + `Age` products. Shell: `AppModel` (`@Observable`,
+     scheme `SempereApp`, iPadOS 26, Catalyst on, links the package's
+     `Sempere` + `Age` products. Shell: `AppModel` (`@Observable`,
      `@MainActor`) opens a vault folder locked, unlocks with a pasted
      identity or a stored key file's passphrase, loads `Vault.summaries()`
      off the main actor and filters by sidebar selection (all, notebook,
      tag, deleted); `RootView` is a three-column `NavigationSplitView`
      (sidebar, note list, placeholder canvas) with a folder picker and an
-     unlock sheet. Tests: Swift Testing in `InkVaultAppTests` against the
+     unlock sheet. Tests: Swift Testing in `SempereAppTests` against the
      fixture vault. Build/run: open the project in Xcode and run on an iPad
      simulator, or `scripts/app.sh test` / `scripts/app.sh catalyst`
      (CI job `app`). The folder picker does not persist access yet: 3b adds
      bookmarks, iCloud, vault creation and a real sidebar.
    - 3b **done** (branch `feat/app-vault-browser`): vault browser.
      `VaultLibrary` (recent vaults as bookmarks in
-     `Application Support/InkVault/recents.json`, vault creation, folder-name
+     `Application Support/Sempere/recents.json`, vault creation, folder-name
      validation), welcome screen (recents, vaults in the app's Documents folder,
      New Vault, Open Folder), `NewVaultView` (name, "On This Device" or any
      picked folder, generate an X25519 key or paste an `age1…` recipient,
@@ -267,7 +272,7 @@ Phase 1 task detail (historical, for reference):
      context menu / swipe: add/remove tag, move to notebook, delete, restore.
      Every edit is one delta through `NoteWriter.append` with the same
      `DeviceClock` as the canvas (device id and clock in
-     `Application Support/InkVault/device.json`; `Vault.apply` in
+     `Application Support/Sempere/device.json`; `Vault.apply` in
      `Edit.swift` stays for the CLI), the app writes no vault file itself. Tests: `BrowserTests` (app), `EditTests` (package).
      Leftovers: iCloud Drive works only through the picker (a folder inside
      iCloud Drive; the ubiquity container needs the iCloud entitlement
@@ -288,11 +293,11 @@ Phase 1 task detail (historical, for reference):
      does not exist without a note (notebook is a note field).
    - 3c **done** (branch `feat/app-canvas`): `NoteCanvasView` shows one page
      at a time (`PageCanvasView`: `PKCanvasView` + system `PKToolPicker`,
-     `PaperView` vector ruling from `InkRender.PaperRenderer` under it, fit
+     `PaperView` vector ruling from `SempereRender.PaperRenderer` under it, fit
      to width, pinch to 4x; infinite pages grow 400 pt below the ink and save
      the new `pageSize`). Conversion in `StrokeConversion.swift`; masked
      (pixel-erased) strokes become one stroke per `maskedPathRanges` range via
-     the Linux-tested `BSpline.substroke` (InkRender). Stable ids:
+     the Linux-tested `BSpline.substroke` (SempereRender). Stable ids:
      `StrokeLedger` (pure, per page) matches canvas strokes by an O(1)
      content fingerprint (`CanvasStrokeInfo`) as a multiset, mints fresh ids
      for new content, infers `parent` (retired same-content stroke → same
@@ -330,13 +335,13 @@ Phase 1 task detail (historical, for reference):
      no longer opens the vault is offered for replacement). Sidebar key menu:
      "Forget Key for This Vault". `VaultKeyStore` (protocol) /
      `KeychainVaultKeyStore` (one generic-password item per vault id, service
-     `io.github.anthonytw.inkvault.vault-key`, label "InkVault — <name>"),
+     `io.github.anthonytw.sempere.vault-key`, label "Sempere — <name>"),
      `RememberedKeys` (observable, separate from `AppModel`), tests with
      `FakeKeyStore`. Untested on hardware: Face ID prompts, iCloud Keychain
      sync, Catalyst keychain (needs a signed build). Still open in 3d: key
      generation/export/QR/AirDrop, add-recipient flow, offering to remember
      the key of a newly created vault.
-   - 3e Export: PDF via `InkRender` through the share sheet; whole-vault zip
+   - 3e Export: PDF via `SempereRender` through the share sheet; whole-vault zip
      dump; `verify` screen.
    - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
      per page after edits; search field over recognition text with word-box
@@ -374,5 +379,5 @@ See `CLAUDE.md § Gotchas` (case-insensitive paths, FoundationXML, static
 link flags, test-output grepping, the app project). Also: GitHub's `macos-26` runner has an
 older compiler than local Xcode 27, so dense expressions that compile locally
 can time out there; swift-crypto types are not `Sendable` on Linux (store raw
-bytes); InkImport reads binary plists with its own `BinaryPlist` reader, since
+bytes); SempereImport reads binary plists with its own `BinaryPlist` reader, since
 `PropertyListSerialization` crashes on some hostile binary plists on Linux.

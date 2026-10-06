@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "inkvault-core",
+    name: "sempere-core",
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "Age", targets: ["Age"]),
-        .library(name: "InkVault", targets: ["InkVault"]),
-        .library(name: "InkRender", targets: ["InkRender"]),
-        .library(name: "InkImport", targets: ["InkImport"]),
-        .library(name: "InkWebDAV", targets: ["InkWebDAV"]),
-        .executable(name: "inkvault", targets: ["InkVaultCLI"]),
+        .library(name: "Sempere", targets: ["Sempere"]),
+        .library(name: "SempereRender", targets: ["SempereRender"]),
+        .library(name: "SempereImport", targets: ["SempereImport"]),
+        .library(name: "SempereWebDAV", targets: ["SempereWebDAV"]),
+        .executable(name: "sempere", targets: ["SempereCLI"]),
     ],
     dependencies: [
         // 4.0 adds X-Wing (ML-KEM-768 + X25519) and HPKE with it, for the
@@ -32,26 +32,26 @@ let package = Package(
             swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]
         ),
         .target(
-            name: "InkVault",
+            name: "Sempere",
             dependencies: ["Age", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
         .target(
-            name: "InkRender",
-            dependencies: ["InkVault", "CZlib"]
+            name: "SempereRender",
+            dependencies: ["Sempere", "CZlib"]
         ),
         .target(
-            name: "InkImport",
-            dependencies: ["InkVault", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
+            name: "SempereImport",
+            dependencies: ["Sempere", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
         // The only target allowed network code (CLAUDE.md).
         .target(
-            name: "InkWebDAV",
-            dependencies: ["InkVault", .product(name: "Crypto", package: "swift-crypto")]
+            name: "SempereWebDAV",
+            dependencies: ["Sempere", .product(name: "Crypto", package: "swift-crypto")]
         ),
         .executableTarget(
-            name: "InkVaultCLI",
+            name: "SempereCLI",
             dependencies: [
-                "Age", "InkVault", "InkRender", "InkImport", "InkWebDAV",
+                "Age", "Sempere", "SempereRender", "SempereImport", "SempereWebDAV",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -59,15 +59,15 @@ let package = Package(
         .target(name: "FuzzSupport", path: "Tests/FuzzSupport"),
         .testTarget(name: "AgeTests", dependencies: ["Age", "CZlib", "FuzzSupport"],
                     resources: [.copy("Vectors")]),
-        .testTarget(name: "InkVaultTests", dependencies: ["InkVault", "FuzzSupport"],
+        .testTarget(name: "SempereTests", dependencies: ["Sempere", "FuzzSupport"],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "InkRenderTests", dependencies: ["InkRender", "FuzzSupport"],
+        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "FuzzSupport"],
                     exclude: ["generate_sample_note.py", "generate_qr_vectors.py"],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "InkImportTests",
-                    dependencies: ["InkImport", "InkVault", "InkRender", "Age", "CZlib", "FuzzSupport"]),
-        .testTarget(name: "InkWebDAVTests", dependencies: ["InkWebDAV", "InkVault", "Age", "FuzzSupport"]),
-        .testTarget(name: "CLITests", dependencies: ["Age", "InkVault"], exclude: ["Fixtures"]),
+        .testTarget(name: "SempereImportTests",
+                    dependencies: ["SempereImport", "Sempere", "SempereRender", "Age", "CZlib", "FuzzSupport"]),
+        .testTarget(name: "SempereWebDAVTests", dependencies: ["SempereWebDAV", "Sempere", "Age", "FuzzSupport"]),
+        .testTarget(name: "CLITests", dependencies: ["Age", "Sempere"], exclude: ["Fixtures"]),
     ],
     swiftLanguageModes: [.v6]
 )
