@@ -1628,3 +1628,39 @@ authenticate or decompress, does not parse, or has another `schema` is
 ignored and replaced on the next write. Because entries trust file names, a
 revision damaged in place after it was cached is reported only when the note
 is opened, not in the listing.
+
+### 10.1 Other per-device caches
+
+A reader may keep other caches derived from a vault on a device, under the
+same rules as §10: never in the vault, unreadable and unlinkable to the vault
+without its secret, and never trusted over the vault. Each cache has a
+*purpose* (a short ASCII word) and a 5-byte magic. With `vaultSecret` as
+HKDF-SHA256 input key material (empty salt):
+
+```
+key      = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 <purpose> key",   L = 32)
+entryKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 <purpose> entry", L = 32)
+name     = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 <purpose> name",  L = 16)
+folder   = lowercase hex(name)
+entry    = lowercase hex(first 16 bytes of HMAC-SHA256(entryKey, label)) ‖ suffix
+```
+
+where `label` is the implementation's description of the entry (for example
+a note id and its revision file names). Each entry file is `magic` ‖
+ChaCha20-Poly1305 sealed box (12-byte random nonce ‖ ciphertext ‖ 16-byte
+tag) under `key`, with associated data `magic` ‖ the entry's file name
+(UTF-8), so an entry renamed or copied over another fails to open. A file that
+is missing, too large or fails to open is a miss. A vault whose secret rotates
+(§3.3) derives another folder; the old one is never read again and may be
+deleted.
+
+The reference app keeps one such cache, the **drawing cache** (purpose
+`drawing-cache`, magic `SMPD` ‖ `0x01`), in its Caches folder: per note
+*version* (the note id and the sorted file names of its revisions, which
+identify its content because revision files are write-once, §5), the note's
+state without stroke geometry (a JSON `layout`) and, per page, PencilKit's
+`dataRepresentation` of the page's ink, one canvas stroke per stored stroke.
+Its contents are the implementation's own, change with its schema number, and
+are checked against the revisions read from the vault before they are drawn
+on. It is limited in size (least recently used entries go first) and deleted
+when the vault is closed on that device.

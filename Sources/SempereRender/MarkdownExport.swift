@@ -153,14 +153,17 @@ public enum MarkdownExport {
     /// The note's Markdown file.
     ///
     /// - Parameters:
-    ///   - pdfName: file name of the note's PDF, next to the `.md`.
+    ///   - pdfName: file name of the note's PDF, next to the `.md`; nil when
+    ///     the export has no PDF (the file then leads with the recognised text).
     ///   - pageImages: per note page, the images (paths relative to the `.md`) of that page; may be empty.
-    public static func note(info: ExportNoteInfo, state: NoteState, pdfName: String,
+    public static func note(info: ExportNoteInfo, state: NoteState, pdfName: String?,
                             pageImages: [[String]] = []) -> String {
         var md = frontMatter(info) + "\n"
-        md += "# \(oneLine(info.displayTitle))\n\n"
-        md += "![[\(pdfName)]]\n\n"
-        md += "[\(linkText(pdfName))](\(linkPath(pdfName)))\n"
+        md += "# \(oneLine(info.displayTitle))\n"
+        if let pdfName {
+            md += "\n![[\(pdfName)]]\n\n"
+            md += "[\(linkText(pdfName))](\(linkPath(pdfName)))\n"
+        }
         for (i, page) in state.pages.enumerated() {
             let images = i < pageImages.count ? pageImages[i] : []
             let text = page.recognition.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""

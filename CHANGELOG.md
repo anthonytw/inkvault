@@ -82,6 +82,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   key is accepted, shows "Opening vault: n of m" while the list fills in, shows cached summaries
   at once on a reopen, and always says why the list is empty.
 
+- **Instant reopen and fast note opening in the app** (#56). The note list opens from the
+  encrypted local index and only notes whose revision files changed are downloaded and read
+  (an iCloud vault no longer re-checks every file on every launch); a file presenter wakes the
+  sync for the notes it names, a full validation runs at low priority, and list updates are
+  throttled differences. Notes opened before open from an encrypted drawing cache (200 MB,
+  least recently used first, deleted with the vault on this device); others are converted off
+  the main thread, the strokes on screen first. Revisions decode their stroke points about twice
+  as fast (same JSON). Every phase has an os_signpost interval; debug builds log timings to
+  `Library/Logs/SemperePerf.log`.
+- The app's Markdown export is now "Text (Markdown)": it leads with the recognised text, the
+  PDF is optional (off), and it is disabled for notes without recognised text. HTML export is
+  CLI-only.
+
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
   additional permission). Contributions are licensed under the same terms and certified with a
   DCO sign-off; there is no contributor licence agreement.

@@ -105,6 +105,14 @@ extension AppModel {
         }
         let current = Dictionary(notes.map { ($0.id, $0.notebook) }, uniquingKeysWith: { a, _ in a })
         let edits = NoteOps.renameNotebook(old, to: target, notebooks: current)
+        // iCloud: a note shown from the index may be evicted (its names did not
+        // change, so it is not pending). Every note is made local before the
+        // first delta is written, so a rename never stops halfway.
+        let gen = generation
+        for edit in edits {
+            try await downloadNote(edit.noteId)
+            try ensureCurrent(gen)
+        }
         try await commit(edits.map { (id: $0.noteId, ops: $0.ops) })
         if case .notebook(let selected)? = sidebarSelection, NotebookPath.name(selected, isWithin: old) {
             sidebarSelection = NotebookPath.renamed(selected, from: old, to: target).map(SidebarItem.notebook) ?? .allNotes
@@ -254,11 +262,16 @@ extension AppModel {
         let gen = generation
         let coordinate = coordinationURL
         let cache = summaryCache
-        let fresh = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try vault.summaries(of: ids, cache: cache, saveCache: false) }
+        let entries = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) {
+                try vault.summaryEntries(of: ids, cache: cache, saveCache: false)
+                    .map { NamedSummary(summary: $0.summary, revisions: $0.revisions) }
+            }
         }
         try ensureCurrent(gen)
         for id in ids { summaryEpochs[id, default: 0] += 1 }
+        let fresh = entries.map(\.summary)
+        for e in entries { indexedNames[e.summary.id] = e.revisions }
         merge(fresh)
         verifiedNoteIDs.formUnion(fresh.map(\.id))
         saveSummaryCache()

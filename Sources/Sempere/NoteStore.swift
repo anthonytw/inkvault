@@ -114,9 +114,11 @@ extension Vault {
     /// Decodes verified revision JSON and checks it names this note and file.
     static func decodeRevisionJSON(_ json: Data, note: String, name: RevisionName,
                                    detail: RevisionDetail) throws -> Revision {
-        let body = detail == .full ? json : StrokePointsFilter.strip(json)
         let rev: Revision
-        do { rev = try InkJSON.decoder().decode(Revision.self, from: body) } catch {
+        do {
+            rev = detail == .full ? try FastRevisionDecoder.decode(json)
+                : try InkJSON.decoder().decode(Revision.self, from: StrokePointsFilter.strip(json))
+        } catch {
             throw RevisionReadError.undecodable("\(error)")
         }
         guard rev.noteId.uuidString.lowercased() == note, rev.name == name else {
