@@ -206,6 +206,17 @@ extension Vault {
         return LoadedNote(revisions: revs, failures: failures)
     }
 
+    /// `reconstruct(noteId:)` of each of `ids` (strict: any unreadable
+    /// revision fails that note), on up to `maxConcurrency` threads (0: one
+    /// per core, at most 8), in `ids` order. With `.withoutStrokePoints` the
+    /// states have no stroke geometry: for search and listings only.
+    public func states(of ids: [UUID], detail: RevisionDetail = .full,
+                       maxConcurrency: Int = 0) -> [Result<NoteState, any Error>] {
+        Parallel.map(ids, width: maxConcurrency > 0 ? maxConcurrency : Parallel.defaultWidth) { id in
+            Result { try NoteReducer.reconstruct(Self.strictRevisions(of: try loadNote(id, detail: detail))) }
+        }
+    }
+
     /// Reconstructs a note from all its revisions (`NoteReducer`).
     ///
     /// - Throws: `VaultError.revision` for the first unreadable revision

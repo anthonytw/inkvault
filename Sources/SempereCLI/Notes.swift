@@ -33,7 +33,10 @@ struct NotesList: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "List notes: id, title, pages, strokes, modified.",
-        discussion: "Deleted notes are hidden unless --deleted."
+        discussion: """
+            Deleted notes are hidden unless --deleted. Summaries are kept in an encrypted per-device cache \
+            ($XDG_CACHE_HOME/sempere, default ~/.cache/sempere), so only notes with new revisions are read again.
+            """
     )
 
     @Option(name: .long, help: ArgumentHelp("Only notes with this tag.", valueName: "tag"))
@@ -47,10 +50,11 @@ struct NotesList: ParsableCommand {
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
+    @OptionGroup var cache: CacheOptions
 
     func run() throws {
         let vault = try access.openVault(.required)
-        let notes = try vault.summaries().filter { n in
+        let notes = try vault.summaries(of: nil, cache: cache.cache(for: vault)).filter { n in
             (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { n.notebook == $0 } ?? true)
         }
         if output.json { try output.emitJSON(notes.map(NoteJSON.init)); return }
@@ -81,7 +85,7 @@ struct NotesShow: ParsableCommand {
     func run() throws {
         let vault = try access.openVault(.required)
         let id = try vault.resolveNote(note)
-        let loaded = try vault.loadNote(id)
+        let loaded = try vault.loadNote(id, detail: .withoutStrokePoints)
         let summary = vault.summary(of: id, loaded: loaded)
         let history = loaded.history
         if output.json {

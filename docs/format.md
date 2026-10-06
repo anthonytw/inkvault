@@ -1517,6 +1517,7 @@ where the table says how they degrade.
 | paper ruling | 40 000 commands per band, 1 M per page (plain background beyond) | `RenderLimits.maxPaperCommands…` |
 | PNG image | 40 M pixels by default | `PNGOptions.maxPixels` |
 | notebook levels shown | 64 | `NotebookNode.maxDepth` |
+| summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
 on Linux, `PropertyListSerialization` crashes on a binary plist holding a
@@ -1525,3 +1526,44 @@ crashes on an element name that is not UTF-8 or on a processing
 instruction without data. The library parses dates and binary plists
 itself and checks PROPFIND bodies before `XMLParser` sees them.
 `Tests/FuzzSupport` fuzzes every parser above on each test run.
+
+## 10. Per-device summary cache (outside the vault)
+
+Not part of a vault and never stored in one: a reader may keep, per device,
+the summaries of a vault's notes (title, tags, notebook, deleted flag, page,
+stroke and recognised-page counts, newest `wall`) so that listing the vault
+again does not decrypt every note. The reference implementation keeps it in
+the app's Application Support folder and, for the CLI, in
+`$XDG_CACHE_HOME/sempere/` (default `~/.cache/sempere/`). Other readers need
+not read or write it; it is documented because it is derived from the vault
+secret and holds note metadata.
+
+**Key and name.** With `vaultSecret` (§2) as HKDF-SHA256 input key material
+(RFC 5869, empty salt):
+
+```
+key  = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 summary-cache key",  L = 32)
+name = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 summary-cache name", L = 16)
+file = lowercase hex(name) ‖ ".summaries"
+```
+
+The file name says nothing about the vault without its secret; a vault whose
+secret rotates (§3.3) gets a new, empty cache, and the old file is never read
+again.
+
+**File.** `SMPS` ‖ `0x01` ‖ ChaCha20-Poly1305 sealed box (12-byte random
+nonce ‖ ciphertext ‖ 16-byte tag) under `key`, with associated data
+`SMPS` ‖ `0x01` ‖ the file name (UTF-8). The plaintext is `gzip(JSON)` of
+`{"schema": N, "notes": …}`: per note id, the sorted file names of the
+revisions the summary was made from and the summary. Its JSON shape is the
+implementation's own and changes with `schema`.
+
+**Validity.** Revision files are write-once and named by `(hlc, device,
+seq)` (§5), so an entry is used only when the note's current revision file
+names are exactly the entry's; anything else (a new, compacted or removed
+revision) means the note is read again. Summaries of notes with unreadable
+revisions are not stored. A file that is missing, too large, fails to
+authenticate or decompress, does not parse, or has another `schema` is
+ignored and replaced on the next write. Because entries trust file names, a
+revision damaged in place after it was cached is reported only when the note
+is opened, not in the listing.
