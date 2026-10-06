@@ -338,36 +338,49 @@ extension StrokePointsFilter {
     private static let powersOfTen: [Double] = (0...22).map { e in (0..<e).reduce(1.0) { a, _ in a * 10 } }
 
     /// The number at `from` (the grammar of `numberEnd`) and its value,
-    /// correctly rounded; nil when it is not such a number.
+    /// correctly rounded; nil when it is not such a number. One pass: the
+    /// grammar is checked while the digits are accumulated.
     static func parseNumber(_ b: UnsafeBufferPointer<UInt8>, from: Int) -> (Int, Double)? {
-        guard let end = numberEnd(b, from: from) else { return nil }
+        let n = b.count
         var i = from
-        let negative = b[i] == 0x2D
+        let negative = i < n && b[i] == 0x2D
         if negative { i += 1 }
+        guard i < n, isDigit(b[i]) else { return nil }
         var mantissa: UInt64 = 0
         var digits = 0          // significant digits (leading zeros skipped)
         var fraction = 0        // digits after the point
-        var inFraction = false
-        while i < end {
-            let c = b[i]
-            if c == 0x2E { inFraction = true; i += 1; continue }
-            if inFraction { fraction += 1 }
-            if mantissa == 0 && c == 0x30 {
-                i += 1
-                continue
-            }
-            digits += 1
-            if digits > 15 { break }
-            mantissa = mantissa * 10 + UInt64(c - 0x30)
+        if b[i] == 0x30 {
             i += 1
+        } else {
+            let first = i
+            while i < n, isDigit(b[i]) {
+                digits += 1
+                if digits <= 15 { mantissa = mantissa &* 10 &+ UInt64(b[i] &- 0x30) }
+                i += 1
+            }
+            guard i - first <= maxIntegerDigits else { return nil }
         }
+        if i < n, b[i] == 0x2E {   // .
+            i += 1
+            guard i < n, isDigit(b[i]) else { return nil }
+            while i < n, isDigit(b[i]) {
+                fraction += 1
+                if mantissa != 0 || b[i] != 0x30 {
+                    digits += 1
+                    if digits <= 15 { mantissa = mantissa &* 10 &+ UInt64(b[i] &- 0x30) }
+                }
+                i += 1
+            }
+        }
+        // An exponent (or a digit after a leading 0, which is invalid JSON) is left to the decoder.
+        if i < n, b[i] == 0x65 || b[i] == 0x45 || isDigit(b[i]) { return nil }
         if digits <= 15 && fraction <= 22 {
             // m < 10^15 < 2^53 and 10^fraction are exact: one rounding.
             let magnitude = Double(mantissa) / powersOfTen[fraction]
-            return (end, negative ? -magnitude : magnitude)
+            return (i, negative ? -magnitude : magnitude)
         }
-        let text = String(decoding: UnsafeBufferPointer(rebasing: b[from..<end]), as: UTF8.self)
+        let text = String(decoding: UnsafeBufferPointer(rebasing: b[from..<i]), as: UTF8.self)
         guard let value = Double(text), value.isFinite else { return nil }
-        return (end, value)
+        return (i, value)
     }
 }

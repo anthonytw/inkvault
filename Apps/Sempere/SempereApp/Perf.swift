@@ -73,7 +73,8 @@ enum Perf {
     }
 
     #if canImport(os)
-    static let signposter = OSSignposter(subsystem: "io.github.anthonytw.sempere", category: .pointsOfInterest)
+    nonisolated(unsafe) static let signposter = OSSignposter(subsystem: "io.github.anthonytw.sempere",
+                                                             category: .pointsOfInterest)
     #endif
 
     /// Starts an interval of `phase`.
@@ -108,11 +109,12 @@ enum Perf {
 
     /// A point event (no duration), e.g. a change notification.
     static func event(_ phase: Phase, _ detail: @autoclosure () -> String = "") {
+        let text = detail()
         #if canImport(os)
-        signposter.emitEvent(phase.signpostName, "\(detail(), privacy: .public)")
+        signposter.emitEvent(phase.signpostName, "\(text, privacy: .public)")
         #endif
         #if DEBUG
-        PerfLog.shared.record(phase, duration: nil, detail: detail())
+        PerfLog.shared.record(phase, duration: nil, detail: text)
         #endif
     }
 

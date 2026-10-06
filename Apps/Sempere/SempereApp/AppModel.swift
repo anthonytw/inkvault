@@ -339,11 +339,13 @@ final class AppModel {
         let gen = generation
         let holder = scope ?? url
         let scoped = holder.startAccessingSecurityScopedResource()
+        let interval = Perf.begin(.vaultOpen)
         do {
             let cloud = try await fetchFromICloud(url, scope: .essentials)
             try ensureCurrent(gen)
             let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             try ensureCurrent(gen)
+            Perf.end(interval, "cloud=\(cloud)")
             if scoped { scopedURL = holder }
             isCloudVault = cloud
             vault = opened
@@ -352,6 +354,7 @@ final class AppModel {
             // The notes start downloading while the user enters the key.
             startCloudSync()
         } catch {
+            Perf.end(interval, "failed")
             if scoped { holder.stopAccessingSecurityScopedResource() }
             throw error
         }

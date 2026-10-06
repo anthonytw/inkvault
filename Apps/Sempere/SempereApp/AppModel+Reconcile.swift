@@ -120,9 +120,8 @@ extension AppModel {
             // Indexed but not shown yet: its summary is current.
             if let s = summaryCache?.summary(for: id, names: names[id] ?? []) { added.append(s) }
         }
-        let cached = Dictionary((summaryCache?.storedSummaries ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         for id in pending where !shown.contains(id) {
-            if let c = cached[id] { added.append(c) } else {
+            if let c = summaryCache?.storedSummary(of: id) { added.append(c) } else {
                 added.append(Self.placeholderSummary(id))
                 placeholders.insert(id)
             }

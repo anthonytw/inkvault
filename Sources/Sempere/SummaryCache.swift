@@ -118,6 +118,12 @@ public final class SummaryCache: @unchecked Sendable {
         return entries.mapValues(\.revisions)
     }
 
+    /// The stored summary of `id`, whether or not it is still current.
+    public func storedSummary(of id: UUID) -> NoteSummary? {
+        lock.lock(); defer { lock.unlock() }
+        return entries[id]?.summary
+    }
+
     /// The sorted revision file names the stored summary of `id` was made from.
     public func storedRevisionNames(of id: UUID) -> [String]? {
         lock.lock(); defer { lock.unlock() }

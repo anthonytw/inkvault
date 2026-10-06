@@ -257,6 +257,22 @@ final class SummaryTests: VaultTestCase {
         XCTAssertEqual(Set(second), Set(try vault.noteIDs().map { try fullSummary(vault, $0) }))
     }
 
+    /// The names each entry was made from are what a listing compares with.
+    func testStoredNamesAreTheRevisionFileNames() throws {
+        let (vault, dir, _) = try makeCachedVault()
+        let cache = try SummaryCache(directory: dir, vault: vault)
+        let all = try vault.summaries(of: nil, cache: cache)
+        for s in all {
+            let names = try vault.revisionNames(of: s.id).map(\.filename).sorted()
+            XCTAssertEqual(cache.storedRevisionNames[s.id], names)
+            XCTAssertEqual(cache.storedRevisionNames(of: s.id), names)
+            XCTAssertEqual(cache.storedSummary(of: s.id), s)
+            XCTAssertEqual(cache.summary(for: s.id, names: names), s)
+            XCTAssertNil(cache.summary(for: s.id, names: names + ["x"]))
+        }
+        XCTAssertNil(cache.storedSummary(of: UUID()))
+    }
+
     /// A caller reading in batches defers the save (every save rewrites the
     /// whole file) and saves once at the end.
     func testBatchedReadsSaveOnlyWhenAsked() throws {
