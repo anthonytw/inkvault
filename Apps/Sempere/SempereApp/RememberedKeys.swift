@@ -58,7 +58,7 @@ final class RememberedKeys {
         name(isMac: ProcessInfo.processInfo.isMacCatalystApp, isPhone: Platform.isPhone)
     }
 
-    static func name(isMac: Bool, isPhone: Bool) -> String {
+    nonisolated static func name(isMac: Bool, isPhone: Bool) -> String {
         isMac ? "this Mac" : (isPhone ? "this iPhone" : "this iPad")
     }
 
