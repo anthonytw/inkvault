@@ -67,7 +67,7 @@ jobs:
     container: swift:6.4-noble
     steps:
       - uses: actions/checkout@v4
-      - name: Install zlib headers, zbar and poppler (QR decode tests)
+      - name: Install zlib headers, zbar and poppler (QR decode tests, PDF background pixel checks)
         run: |
           apt-get update -q
           apt-get install -y -q zlib1g-dev curl zbar-tools poppler-utils
@@ -91,6 +91,8 @@ jobs:
       - name: Test
         env:
           SEMPERE_REQUIRE_AGE_PQ: "1"
+          # PDF background pixel checks against pdftoppm (poppler-utils, installed above).
+          SEMPERE_REQUIRE_POPPLER: "1"
         run: swift test --skip-build --parallel
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'

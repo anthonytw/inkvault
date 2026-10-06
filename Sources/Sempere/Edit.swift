@@ -75,7 +75,110 @@ public enum NoteOps {
     }
 }
 
+/// One note's ops in a multi-note edit (`NoteOps.renameNotebook`).
+public struct NoteEdit: Hashable, Sendable {
+    public var noteId: UUID
+    public var ops: [Op]
+
+    public init(noteId: UUID, ops: [Op]) { self.noteId = noteId; self.ops = ops }
+}
+
+extension NoteOps {
+    /// The op that renames a note in `state` to `title` (trimmed), or none
+    /// when the title is already that. Titles are labels, not keys: any
+    /// title, including one another note has, is fine.
+    public static func rename(to title: String, state: NoteState) -> [Op] {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return state.meta.title == title ? [] : [.setMeta(.title(title))]
+    }
+
+    /// The op that puts a note in `state` into the notebook path `notebook`
+    /// (canonicalised, format.md §5.4; nil or blank: no notebook), or none
+    /// when it is already there.
+    public static func move(toNotebook notebook: String?, state: NoteState) -> [Op] {
+        let target = NotebookPath.canonical(notebook)
+        return state.meta.notebook == target ? [] : [.setMeta(.notebook(target))]
+    }
+
+    /// The op that moves a note in `state` to Recently Deleted, or none when
+    /// it is there already.
+    public static func delete(_ state: NoteState) -> [Op] { state.deleted ? [] : [.deleteNote] }
+
+    /// The op that brings a deleted note in `state` back, or none when it is
+    /// not deleted.
+    public static func undelete(_ state: NoteState) -> [Op] { state.deleted ? [.restoreNote] : [] }
+
+    /// The edits that rename or move the notebook `old` to `new`
+    /// (format.md §5.4): every note in it or below it, deleted ones too, gets
+    /// the `old` prefix of its notebook replaced by `new`
+    /// (`NotebookPath.renamed`), one `setMeta(.notebook)` per note that
+    /// changes. An empty `new` takes the notes directly in `old` out of any
+    /// notebook and lifts its sub-notebooks to the top level. Empty when `old`
+    /// names no notebook or the rename changes nothing. Sorted by note id.
+    ///
+    /// - Parameter notebooks: every note of the vault with its current
+    ///   notebook; a note left out is left behind.
+    public static func renameNotebook(_ old: String, to new: String?, notebooks: [UUID: String?]) -> [NoteEdit] {
+        guard let old = NotebookPath.canonical(old) else { return [] }
+        let target = NotebookPath.canonical(new)
+        guard target != old else { return [] }
+        return notebooks.sorted { $0.key.uuidString < $1.key.uuidString }.compactMap { id, notebook in
+            guard NotebookPath.name(notebook, isWithin: old) else { return nil }
+            let renamed = NotebookPath.renamed(notebook, from: old, to: target)
+            return renamed == notebook ? nil : NoteEdit(noteId: id, ops: [.setMeta(.notebook(renamed))])
+        }
+    }
+
+    /// The spelling to store for a typed tag: the spelling of the same tag
+    /// (`tagKey`) already in `existing` (the vault's tags), else the typed one
+    /// normalised. Keeps "Math" from becoming "math" on one note.
+    public static func tagSpelling(_ typed: String, among existing: [String]) -> String {
+        let typed = normalizedTag(typed)
+        return existing.first { tagKey($0) == tagKey(typed) }.map(normalizedTag) ?? typed
+    }
+
+    /// The vault's tags as the app lists them: each key once, in the first
+    /// spelling met, from notes that are not deleted, sorted as Finder sorts names.
+    public static func vaultTags(_ notes: [NoteSummary]) -> [String] {
+        var byKey: [String: String] = [:]
+        for tag in notes.filter({ !$0.deleted }).flatMap(\.tags) where byKey[tagKey(tag)] == nil {
+            byKey[tagKey(tag)] = tag
+        }
+        return byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// The op that appends `count` blank pages after the last page of a note
+    /// with `pages` (the app's Add Page), or none when `count` is not positive.
+    public static func appendPages(_ count: Int, after pages: [Page]) -> [Op] {
+        var last = pages.last?.order
+        return (0..<max(count, 0)).map { _ in
+            let page = Page(order: PageOrder.between(last, nil))
+            last = page.order
+            return .addPage(page)
+        }
+    }
+}
+
 extension Vault {
+    /// Writes one delta for an existing note whose ops `build` computes from
+    /// the note as it is on disk now, as this device (see
+    /// `apply(_:to:deviceState:app:wall:)`). Nothing is written, and nil is
+    /// returned, when `build` returns no ops.
+    ///
+    /// - Throws: `VaultError.revision` when any revision of the note is
+    ///   unreadable (ops computed from part of a note could undo what the
+    ///   unreadable part holds), and what `apply` throws.
+    @discardableResult
+    public func apply(to noteId: UUID, deviceState: URL, app: String, wall: Date = Date(),
+                      building build: (NoteState) throws -> [Op]) throws -> Revision? {
+        try requireMigrated()
+        guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
+        let loaded = try loadNote(noteId)
+        let ops = try build(try reconstruct(loaded))
+        guard !ops.isEmpty else { return nil }
+        return try write(ops, to: noteId, loaded: loaded, deviceState: deviceState, app: app, wall: wall)
+    }
+
     /// Writes one delta of `ops` for a note as this device: the device id and
     /// clock come from the state file at `deviceState` (created on first use;
     /// saved before the revision is written, so the clock only ever moves
@@ -91,7 +194,11 @@ extension Vault {
                       wall: Date = Date()) throws -> Revision {
         try requireMigrated()
         guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
-        let loaded = try loadNote(noteId)
+        return try write(ops, to: noteId, loaded: try loadNote(noteId), deviceState: deviceState, app: app, wall: wall)
+    }
+
+    private func write(_ ops: [Op], to noteId: UUID, loaded: LoadedNote, deviceState: URL, app: String,
+                       wall: Date) throws -> Revision {
         var state = try DeviceState.loadOrCreate(at: deviceState)
         var clock = state.clock
         for r in loaded.revisions { clock.observe(r.hlc, wall: wall) }

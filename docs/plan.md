@@ -12,6 +12,7 @@
 | 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`); CLI `import notability` (done, `docs/cli.md`) | `Sources/SempereImport`, `Sources/SempereCLI` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
 | 0.7 | CLI `search` over page recognition text (done, `docs/cli.md`; matching note title, notebook and tags is not implemented) | `Sources/SempereCLI` | end-to-end test: import fixture → search finds a recognised word |
 | 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
+| 0.9 | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); still to do: page delete/move/duplicate and layout after #52, `recognize` after #44 | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
 
 ## Phase 1 — iPad app
 
@@ -77,7 +78,7 @@ goes first; after it, the rest run in parallel along the dependencies in
 | B3 | WebDAV sync of each note's `att/` (streaming, own size limit, GC-safe deletes) | `Sources/SempereWebDAV` | B2 | write-once table tests with blobs; 300 MB blob with bounded memory |
 | C1 | Export images (DCT passthrough with metadata stripped, PNG/JPEG decoders, SVG data URIs, HEIC placeholder) | `Sources/SempereRender` | A0 | golden tests for orientations/crops/rotation; decoder fixtures; fuzz |
 | C2 | Export text: full Unicode (Noto + optional font packs, OpenType reader, UAX #9/#14/#29, small shaper, stored `breaks`, font **subsets** in PDF/SVG, missing-script report) | `Sources/SempereRender` | A0 | layout tests incl. RTL; CJK via font pack in `pdftotext`; subset-only fonts; goldens |
-| C3 | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
+| C3 | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning. **In review (#61)**: `Sources/SemperePDF`, `SempereRender` (`Items.swift`, `PDFBackgrounds.swift`), CLI `PopplerRasterizer.swift`; reads blobs through B2's `BlobSource` | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
 | C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
 | D1 | Notability PDF backgrounds | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
 | D2 | Notability images | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |

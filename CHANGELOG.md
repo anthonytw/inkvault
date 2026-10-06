@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
+  (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
+  parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);
+  `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
+  code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
+  first (`CLAUDE.md` "CLI first").
 - Web viewer (`web/`, `docs/web-viewer.md`): a static, read-only page that opens a vault from a
   web server (static files or WebDAV) or a local folder, decrypts it in the browser with the
   pasted post-quantum key (typage), and shows notebooks, tags, search over titles and
@@ -43,8 +49,18 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
   `snapshot` and `compact` refuse a note that has them rather than drop them.
+- PDF page backgrounds in exports (attachments task C3). A new `SemperePDF` library reads PDFs
+  from untrusted attachments (cross-reference tables and streams, object streams, incremental
+  updates, rebuilding a broken file by scanning; bounded and fuzzed). PDF exports copy the original
+  page in as a Form XObject (exact, PDF 1.7); SVG and PNG exports draw it with Poppler's
+  `pdftoppm` when installed, run as a separate, time- and resource-limited process
+  (`--pdf-renderer auto|poppler|none`, `--pdf-timeout`). Anything that cannot be drawn becomes a
+  placeholder with a warning, never a failed export. Applies to notes once item ops are merged (A1).
 
 ### Changed
+
+- `sempere notes list --notebook PATH` now lists the notes in that notebook and below it, comparing
+  canonical paths by segment as the app's sidebar does (it compared raw names before).
 
 - **Faster vault opening** (#54). Note summaries skip stroke geometry, are read in parallel,
   and are kept in an encrypted per-device cache (`docs/format.md` §10), so a 600-note vault

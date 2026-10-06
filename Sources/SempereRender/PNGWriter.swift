@@ -36,10 +36,20 @@ public enum PNGWriter {
     ///   (checked before any pixel memory is allocated).
     public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
+        var report = RenderReport()
+        return try render(note: note, options: options, png: png, report: &report)
+    }
+
+    /// Like `render(note:options:png:)`, reporting placeholders. PDF pages
+    /// are drawn from `options.pdfRasterizer` at the output resolution.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
+                              png: PNGOptions = PNGOptions(), report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
         var images: [Data] = []
-        for page in note.pages {
-            images += try render(page: page, meta: note.meta, options: options, png: png)
+        for (i, page) in note.pages.enumerated() {
+            images += try render(page: page, meta: note.meta, options: options, png: png, pageNumber: i + 1,
+                                 backgrounds: backgrounds, report: &report)
         }
         if images.isEmpty {
             images = try render(page: Page(order: "a"), meta: note.meta, options: options, png: png)
@@ -51,17 +61,40 @@ public enum PNGWriter {
     /// One PNG per output page of a single note page (several for an infinite page).
     public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
+        var report = RenderReport()
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        return try render(page: page, meta: meta, options: options, png: png, pageNumber: 1, backgrounds: backgrounds,
+                          report: &report)
+    }
+
+    static func render(page: Page, meta: NoteMeta, options: RenderOptions, png: PNGOptions, pageNumber: Int,
+                       backgrounds: PDFBackgrounds, report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
-        let prepared = try PreparedPage(page: page, meta: meta, options: options)
+        let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, scale: png.scale,
+                                        maxPixels: options.maxBackgroundPixels, report: &report)
         var out: [Data] = []
         for (chunk, size) in zip(chunks, sizes) {
             let layers = prepared.layers(for: chunk)
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
-            for c in layers.paper + layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
+            for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
+            for it in prepared.items(for: chunk) {
+                if it.fillsBackground, options.paper {
+                    paint(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                }
+                switch draws[it.item.id] {
+                case .raster(let r)?:
+                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(r.placement)
+                    raster.draw(r, toDevice: device)
+                default:
+                    for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
+                }
+            }
+            for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
             out.append(try PNGEncoder.encode(width: size.width, height: size.height, rgba: raster.pixels))
         }
         return out

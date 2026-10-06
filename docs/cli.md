@@ -1,7 +1,9 @@
 # The `sempere` command line
 
-The Linux and macOS face of Sempere: keys, vault management, verification,
-export and recovery. It builds with `swift build -c release --product sempere`
+The Linux and macOS face of Sempere: keys, vault management, note editing,
+verification, export and recovery. Everything the app does to vault data can
+be done here and scripted with `--json` (the CLI-first rule in `CLAUDE.md`);
+only the drawing itself needs the app. It builds with `swift build -c release --product sempere`
 and CI publishes a static Linux binary. The executable only parses arguments,
 talks to the terminal and sets exit codes; everything else lives in
 `Sources/Sempere` and `Sources/SempereRender`.
@@ -44,7 +46,7 @@ classic X25519 recipient, alone or next to post-quantum ones, only these run:
 `vault info`, `vault recipients add` (post-quantum key) / `remove` /
 `replace`, `vault rewrap-resume`, and `recover` (the stock-`age` equivalent,
 which reads one file and needs no migration). Every other command that opens
-a vault (`notes …`, `export`, `search`, `compact`, `snapshot`, `import`,
+a vault (`notes …`, `notebooks …`, `tags …`, `pages …`, `export`, `search`, `compact`, `snapshot`, `import`,
 `vault verify`, `keys export`, `keys paper --vault`, `sync webdav`,
 `backup --prune`, `backup verify`, `restore`) exits 5 before asking for a key
 or passphrase. `backup V --to DIR` (without `--prune`) and `backup V --archive`
@@ -62,6 +64,7 @@ Errors go to stderr, one line each, prefixed `sempere:`.
 | `SEMPERE_VAULT` | Default for `--vault`. |
 | `SEMPERE_IDENTITY` | Default identity file. |
 | `SEMPERE_PASSPHRASE` | Passphrase for the vault's stored key file, for scripts and tests. |
+| `SEMPERE_PDFTOPPM` | Poppler's `pdftoppm` for PDF page backgrounds in SVG/PNG exports (default: `pdftoppm` on `PATH`). |
 | `XDG_STATE_HOME` | Where `device.json` lives (default `~/.local/state`). |
 
 ## Commands
@@ -410,12 +413,21 @@ encrypted files.
 ```
 sempere notes list [--tag T] [--notebook N] [--deleted] [--no-cache]
 sempere notes show ID|TITLE
+sempere notes new TITLE [--notebook PATH] [--tag T]... [--paper KIND] [PAPER OPTIONS] [--page-size letter|a4] [--no-cache]
+sempere notes rename ID|TITLE NEW-TITLE
+sempere notes tag ID|TITLE [--add T]... [--remove T]... [--no-cache]
+sempere notes move ID|TITLE (NOTEBOOK | --none)
+sempere notes paper ID|TITLE [KIND] [--page N] [PAPER OPTIONS]
+sempere notes delete ID|TITLE
+sempere notes undelete ID|TITLE
 sempere notes history ID|TITLE
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
-hidden unless `--deleted`. Notes are read in parallel without their stroke
+hidden unless `--deleted`. `--notebook` takes a notebook path and lists the
+notes in it or below it, comparing whole segments (`A/B` holds `A/B/C` but not
+`A/Bc`), as the app's sidebar does; `--tag` ignores case. Notes are read in parallel without their stroke
 geometry, and the summaries are kept in an encrypted per-device cache
 (`$XDG_CACHE_HOME/sempere/`, default `~/.cache/sempere/`; `format.md` §10), so
 a later `list` reads only notes whose revision files changed. A damaged cache
@@ -450,6 +462,111 @@ an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 `changed`, `file` (the delta written, if any) and `changes` (`pagesRemoved`,
 `pagesRestored`, `strokesRemoved`, `strokesRestored`, `pageOrderChanges`,
 `recognitionChanges`, `metaFields`, `deleted`).
+
+#### Editing notes
+
+The editing commands make the same changes as the app's note browser and
+canvas, with the same core code (`NoteOps`, `Vault.apply`): each writes **one
+delta** per note, stamped with this machine's device id and clock
+(`$XDG_STATE_HOME/sempere/device.json`, as for `snapshot`), and nothing at all
+when the note already is that way. A note with an unreadable revision is not
+edited (exit 1): ops computed from part of a note could undo the rest. Notes
+are named as for `show`. With `--json` each prints `note` (the note after the
+edit, as in `notes list --json`), `changed` and `file` (the delta written, or
+absent).
+
+- `new` creates a note with one blank page: title (trimmed; titles need not
+  be unique), notebook, paper (default `ruled`, with the paper options below),
+  page size (`letter`, the default, or `a4`) and one `addTag` per `--tag`, in
+  the spelling the vault already uses for that tag (as `tag --add` below).
+  Prints the new id (the `Created …` line goes to stderr).
+- `rename` sets the title (trimmed).
+- `tag` adds and removes tags in one delta. Tags match case-insensitively and
+  merge per tag (`format.md` §5.4.1): `--add` writes an `addTag` unless the
+  note has the tag in any spelling, in the spelling the vault already uses
+  for it ("math" becomes "Math" if another note has "Math"); `--remove`
+  writes a `removeTag` observing every instance of the tag. Adding and
+  removing the same tag is a usage error.
+- `move` puts the note in a notebook, a `/`-separated path stored in
+  canonical form (`" A//B "` is `A/B`); `--none` (or an empty name) takes it
+  out of any notebook.
+- `paper` sets the paper. Without `--page` the note's paper is set and every
+  page with its own paper follows the note again (`setMeta paper` plus
+  `setPagePaper null`); `--page N` (1 is the first page) gives only that page
+  its own paper (`setPagePaper`). `KIND` starts from that kind's defaults, as
+  the app's picker does; without it, the options change the current paper of
+  the note (or the page). A deleted note is refused (exit 1). `--json` prints
+  `note` (the id), `changed`, `file`, `page` and `paper` (in the format's JSON
+  form).
+- `delete` moves the note to Recently Deleted; `undelete` brings it back.
+  (`restore` is a different thing: it rolls a note back to an earlier
+  revision.)
+
+Paper kinds (`format.md` §5.4.2): `blank`, `ruled`, `grid`, `dot`,
+`marginRuled`, `isoDot`, `isoGrid`, `cornell`, `staff` (any case; `margin-ruled`
+works too). Paper options, in points unless stated; a value outside the
+format's limits is a usage error (exit 2), not clamped:
+
+| Option | Range | |
+| --- | --- | --- |
+| `--spacing` | 4–200 | line, dot or grid spacing |
+| `--line-width` | 0.1–4 | rules |
+| `--dot-radius` | 0.3–4 | `dot`, `isoDot` |
+| `--margin-left`, `--margin-top` | 0–300 | margin lines from the edge; 0 is none |
+| `--cue-width`, `--summary-height` | 40–400 | `cornell` |
+| `--staff-spacing` | 3–20 | `staff`: between lines |
+| `--staff-gap` | 8–150 | `staff`: between staves |
+| `--background`, `--line-color`, `--margin-color` | `#RRGGBB` or `#RRGGBBAA` | colours |
+
+```
+sempere notes new "Week 3" --notebook School/Physics --tag physics --paper grid --spacing 18
+sempere notes paper "Week 3" cornell --page 2
+sempere notes tag "Week 3" --add exam --remove draft
+```
+
+### Notebooks and tags
+
+```
+sempere notebooks list [--deleted] [--no-cache]
+sempere notebooks rename OLD NEW [--dry-run]
+sempere tags list [--no-cache]
+```
+
+`notebooks list` prints the notebook tree (parents included, even when they
+hold no note directly) with `NOTES`, the notes directly in a notebook, and
+`TOTAL`, those in it or below it; deleted notes count only with `--deleted`.
+`--json` gives `path`, `depth`, `notes` and `total` per notebook.
+
+`notebooks rename` renames or moves a notebook with everything below it: each
+note in `OLD` or below it, deleted ones too, gets the `OLD` prefix of its
+notebook replaced by `NEW`, one delta per note (as the app's sidebar rename).
+Paths compare by whole segments, so renaming `A/B` leaves `A/Bc` alone. An
+empty `NEW` (`""`) takes the notes directly in `OLD` out of any notebook and
+lifts its sub-notebooks to the top level. Every note is read first, without
+the cache; if any cannot be read the command writes nothing and exits 1 (its
+notebook is unknown, so it would be left behind). `--dry-run` lists the notes
+that would move. `--json` gives `from`, `to`, `dryRun` and `notes`
+(`note`, `title`, `from`, `to`, `file`).
+
+`tags list` prints each tag once (tags match case-insensitively; the first
+spelling found is shown, as in the app's sidebar) with the number of notes
+that carry it. Deleted notes do not count. `--json` gives `tag` and `notes`.
+
+### Pages
+
+```
+sempere pages list ID|TITLE
+sempere pages add ID|TITLE [--count N]
+```
+
+`list` prints each page's number, id, stroke count, paper (its own, or the
+note's marked `*`) and whether it has recognised text. `--json` gives `note`,
+`paper` and `pageSize` (the note's) and `pages` (`page`, `id`, `strokes`,
+`paper` when the page has its own, `recognized`).
+
+`add` appends `N` blank pages (1–100, default 1) after the last page, in one
+delta, as the app's Add Page; they follow the note's paper. A deleted note is
+refused (exit 1). `--json` as for the editing commands.
 
 ### Import
 
@@ -518,6 +635,7 @@ in parallel and without stroke geometry, as for `notes list`.
 sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
                 [--notebook NAME] [--images none|png] [--clean]
+                [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -549,7 +667,49 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 `.pdf`/`.json`. `--all` skips deleted notes unless `--deleted`; a deleted note
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
-written is printed.
+written is printed. With `--json`, each entry has `note`, `files` and, when
+some items were drawn as placeholders, `placeholders` (their number).
+
+#### PDF page backgrounds
+
+A `pdfPage` item (an annotated PDF, `docs/format.md` §8.2.6) is read from the
+note's attachments, verified (`docs/format.md` §8.1.4), and drawn under the ink:
+
+- `pdf` copies the original page into the export as a Form XObject: exact
+  vectors, text and images, on every platform, with no renderer. The file is
+  PDF 1.7 when it holds such pages. Only the page's content and resources are
+  copied (annotations, form fields and metadata are not). A page whose content
+  uses a stream filter the reader does not decode (anything but Flate, LZW,
+  ASCII85, ASCIIHex and RunLength) is rasterized by the renderer below, or is a
+  placeholder.
+- `svg` and `png` need the page as pixels. `--pdf-renderer auto` (the default)
+  uses Poppler's `pdftoppm` when it is installed (`$SEMPERE_PDFTOPPM`, else
+  `pdftoppm` on `PATH`; `apt install poppler-utils`, `brew install poppler`);
+  `poppler` requires it (exit 1 when it is missing); `none` never runs it. SVG
+  embeds the page as a PNG data URI clipped to the item's frame (at 2 pixels
+  per drawn point); PNG composites it at `--dpi`. A page is drawn with at most
+  16 million pixels, and one export rasterizes at most 256 million.
+- Poppler runs as a separate process on a private temporary copy of the
+  verified PDF (deleted afterwards), started with an argument vector (never a
+  shell) and under resource limits: `--pdf-timeout` seconds of wall-clock time
+  per page (default 30; then SIGTERM, then SIGKILL), as much CPU time, 3 GiB
+  of address space where the OS enforces it, an output file no larger than the
+  requested pixels need, no core dumps. A PDF that makes Poppler hang, crash
+  or write garbage costs at most one timeout and becomes a placeholder.
+- Anything that cannot be drawn (no renderer, a missing or invalid
+  attachment, an unreadable or encrypted PDF, a failed render, an item kind
+  this export does not draw yet) is a placeholder: the item's frame outlined in
+  grey with both diagonals (`docs/format.md` §8.5.2). The export still
+  succeeds (exit 0) and prints one warning per kind of problem, e.g.
+
+  ```
+  sempere: warning: 0d1c6a1e: 12 PDF background pages drawn as placeholders: install poppler (pdftoppm) to render them, or export as PDF, which keeps them exactly
+  sempere: warning: 0d1c6a1e: pdfPage item drawn as a placeholder (PDF renderer failed: pdftoppm timed out after 30 s)
+  ```
+
+Notes hold `pdfPage` items once item ops are merged (attachments task A1);
+until then this applies to no note in a vault. `markdown` and `html` exports
+do not read attachments yet.
 
 #### Markdown and HTML exports
 

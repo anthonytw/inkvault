@@ -33,4 +33,6 @@ func runCLI(_ arguments: [String]) -> Int32 {
     }
 }
 
-exit(runCLI(Array(CommandLine.arguments.dropFirst())))
+let arguments = Array(CommandLine.arguments.dropFirst())
+if arguments.first == ExecLimited.command { ExecLimited.main(Array(arguments.dropFirst())) }
+exit(runCLI(arguments))
