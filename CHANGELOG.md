@@ -9,6 +9,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Attachment plumbing in the app (task E0, `docs/attachments.md` §13–14): a note's images, text
+  boxes and PDF pages are drawn between the paper and the ink (a placeholder while a blob
+  downloads or when it is missing), and Select Items mode selects, moves, resizes, duplicates,
+  copies and pastes (between notes too), brings to front and deletes them, each gesture one
+  delta with undo. In iCloud Drive a note's attachments download on demand: images and PDF
+  pages when a page shows them, never with the note. The shared `NoteOps` item builders and
+  `ItemRaster` (one item drawn as the exports draw it) are in the library for the CLI too.
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
   last-writer-wins registers (unknown fields included), in the library and the web viewer.

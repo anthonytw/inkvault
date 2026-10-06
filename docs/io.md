@@ -77,6 +77,23 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
    `notes/<id>/` folder (vault creation: of the new vault folder), so iCloud
    sees and uploads the new revision files.
 
+Attachments (`notes/<id>/att/`, `format.md` §8.1) are never fetched with
+the note: the vault scan, `downloadNote` and `CloudVault.requireLocal` list
+only a note's revision files, so an evicted, unlisted or missing `att/`
+never makes a note look empty or pending (`docs/attachments.md` §4). When
+the canvas shows a page, the `image` and `pdf` blobs its items reference are
+requested without waiting (`BlobFetchPolicy`, `AppModel.prefetchBlobs`);
+other kinds (audio, video, transcripts) only when used. Drawing an item reads
+its blob through the model's `BlobCache` (`AppModel+Attachments`): that one
+file is downloaded and awaited (`CloudVault.downloadBlob`), then read inside a
+coordinated read that checks it is local (`CloudVault.requireBlob`) and
+streamed through the vault's checks into a private temporary file (mode
+0600, Data Protection `complete`), least recently used files dropped beyond
+512 MB, everything deleted when the vault closes or changes. Meanwhile the
+item shows a placeholder with a download symbol. Blobs are written
+(`NoteWriter.addBlob`, `copyBlob`) inside the same coordinated write of the
+note's folder as deltas.
+
 Progressive loading: only the small unlocking files (`vault.json`, the
 rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are
 not. As soon as the vault opens (still locked) `AppModel.startCloudSync`

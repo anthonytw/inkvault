@@ -362,6 +362,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   changes rewrap them by `RewrapPolicy`. References are found structurally (any
   object with `sha256`) with `JSONSerialization`, whose `NSNumber` says `is Bool`
   for 0 and 1: test `objCType == "c"` for booleans instead.
+- Placed items on the canvas (task E0, `docs/attachments.md` §14): build item ops
+  with the `NoteOps` item builders (`Sources/Sempere/ItemOps.swift`), apply them in
+  the app through `NoteEditor+Items` (`applyItemEdit`: one delta per gesture) and
+  `ItemActions` (undo; a deleted item comes back under a new id with `parent`, item
+  tombstones are permanent). New attachments: `NoteEditor.addAttachment(file:|data:…)`
+  (blob first, then the delta). The item layer (`ItemLayerView`, between `PaperView`
+  and PencilKit's ink) draws through `ItemRaster` from the model's `BlobCache` (cleared
+  whenever `AppModel.vault` changes); never read blobs for display any other way.
+  Copied items live in `ItemClipboard`, never the system pasteboard. Selection mode
+  turns PencilKit's drawing gesture off like the object eraser does.
 - Handwriting search (`PageRecognizer.swift`, `NoteEditor` extension, `AppModel+Search.swift`;
   pure logic in `Sources/Sempere/RecognitionSupport.swift` and `NoteSearch.swift`, tested on
   Linux). Recognition carries `basis` = `RecognitionBasis.digest` of the page's live stroke ids

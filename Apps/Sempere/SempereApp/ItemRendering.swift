@@ -86,7 +86,7 @@ enum ItemRendering {
             let options = RenderOptions(paper: false, blobs: source, pdfRasterizer: PDFKitRasterizer(),
                                         imageDecoder: ImageIODecoder())
             do {
-                let r = try ItemRaster.render(item, scale: key.scale, maxPixels: maxPixels, paper: key.paper, options: options)
+                let r = try ItemRaster.render(item, scale: key.scale, maxPixels: ItemRendering.maxPixels, paper: key.paper, options: options)
                 if let reason = r.placeholder { return .failed(reason.description) }
                 return .pixels(r.image, r.bounds)
             } catch {

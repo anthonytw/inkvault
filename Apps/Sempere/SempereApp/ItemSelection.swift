@@ -154,8 +154,6 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, UIEd
             g.isEnabled = false
             canvas.addGestureRecognizer(g)
         }
-        // Scrolling waits for a drag on an item to be ruled out (at once: `gestureRecognizerShouldBegin`).
-        canvas.panGestureRecognizer.require(toFail: pan)
         let menu = UIEditMenuInteraction(delegate: self)
         canvas.addInteraction(menu)
         self.menu = menu
@@ -249,6 +247,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, UIEd
             guard let item = items.first(where: { $0.id == id }) else { return }
             drag = (d, item)
             select(id)
+            // A drag on an item moves the item, not the page: stop a scroll that started with it.
+            if let scroll = canvas?.panGestureRecognizer, scroll.state == .began || scroll.state == .changed {
+                scroll.isEnabled = false
+                scroll.isEnabled = true
+            }
             fallthrough
         case .changed:
             guard let current = drag else { return }
