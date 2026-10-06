@@ -224,3 +224,61 @@ public enum SearchMatches {
         return out
     }
 }
+
+/// Steps through the matches of a search in one note (across its pages): the
+/// canvas highlights them and shows "3 of 12" with next and previous buttons.
+public struct SearchMatchCursor: Hashable, Sendable {
+    /// Page order, then reading order (`SearchMatches`).
+    public private(set) var matches: [SearchMatch]
+    /// Index of the current match in `matches`.
+    public private(set) var index: Int
+    /// The words being looked for, kept so the list can be rebuilt after the pages change.
+    public let words: [String]
+
+    /// The cursor for `query` over `pages`, on the first match of
+    /// `preferredPage` when it has one (the page a search result named), else
+    /// on the first match; nil when no word has a box.
+    public init?(query: String, pages: [Page], preferredPage: UUID? = nil) {
+        let words = NoteSearch.words(query).filter { !$0.tagOnly }.map(\.text)
+        let found = SearchMatches.matches(words: words, in: pages)
+        guard !found.isEmpty else { return nil }
+        self.words = words
+        matches = found
+        index = preferredPage.flatMap { p in found.firstIndex { $0.pageId == p } } ?? 0
+    }
+
+    public var count: Int { matches.count }
+    public var current: SearchMatch { matches[index] }
+    /// 1-based, as shown ("3 of 12").
+    public var position: Int { index + 1 }
+
+    /// Moves by `delta` matches, wrapping around the end of the note.
+    public mutating func step(_ delta: Int) {
+        let n = matches.count
+        index = ((index + delta) % n + n) % n
+    }
+
+    /// The matches on page `id` with their index in `matches`.
+    public func matches(onPage id: UUID) -> [(index: Int, match: SearchMatch)] {
+        matches.enumerated().filter { $0.element.pageId == id }.map { ($0.offset, $0.element) }
+    }
+
+    /// Rebuilds the list for `pages` (their recognition changed), staying on the
+    /// current match when it is still there, else the first one after it
+    /// (by page and position); nil when nothing matches any more.
+    public func refreshed(pages: [Page]) -> SearchMatchCursor? {
+        let found = SearchMatches.matches(words: words, in: pages)
+        guard !found.isEmpty else { return nil }
+        var copy = self
+        copy.matches = found
+        let now = current
+        if let same = found.firstIndex(of: now) {
+            copy.index = same
+        } else {
+            let order = pages.map(\.id)
+            let rank = { (m: SearchMatch) in order.firstIndex(of: m.pageId) ?? Int.max }
+            copy.index = found.firstIndex { rank($0) > rank(now) || (rank($0) == rank(now) && $0.box.y >= now.box.y) } ?? 0
+        }
+        return copy
+    }
+}

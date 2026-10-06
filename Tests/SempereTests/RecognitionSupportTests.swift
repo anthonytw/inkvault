@@ -299,3 +299,58 @@ final class SearchMatchesTests: XCTestCase {
         XCTAssertEqual(SearchMatches.matches("a", in: [many]).count, SearchMatches.maxMatches)
     }
 }
+
+final class SearchMatchCursorTests: XCTestCase {
+    private func page(_ words: [(String, Double)]) -> Page {
+        var p = Page(id: UUID(), order: PageOrder.between(nil, nil))
+        p.recognition = Recognition(engine: "t", text: words.map(\.0).joined(separator: " "),
+                                    words: words.map { .init(text: $0.0, box: .init(x: $0.1, y: $0.1, w: 10, h: 5)) })
+        return p
+    }
+
+    func testStartsOnThePreferredPageAndWrapsAround() throws {
+        let pages = [page([("cat", 0), ("dog", 10)]), page([("cat", 0), ("cat", 30)]), page([("bird", 0)])]
+        var c = try XCTUnwrap(SearchMatchCursor(query: "cat", pages: pages))
+        XCTAssertEqual(c.count, 3)
+        XCTAssertEqual(c.position, 1)
+        XCTAssertEqual(c.current.page, 1)
+        c.step(1); c.step(1)
+        XCTAssertEqual(c.position, 3)
+        XCTAssertEqual(c.current.box.y, 30)
+        c.step(1)
+        XCTAssertEqual(c.position, 1, "next after the last wraps to the first")
+        c.step(-1)
+        XCTAssertEqual(c.position, 3, "previous before the first wraps to the last")
+        c.step(-7)   // far steps stay in range
+        XCTAssertTrue((1...3).contains(c.position))
+
+        let onSecond = try XCTUnwrap(SearchMatchCursor(query: "cat", pages: pages, preferredPage: pages[1].id))
+        XCTAssertEqual(onSecond.position, 2)
+        XCTAssertEqual(onSecond.matches(onPage: pages[1].id).map(\.index), [1, 2])
+        XCTAssertEqual(onSecond.matches(onPage: pages[2].id).count, 0)
+        // A preferred page without a match falls back to the first match.
+        XCTAssertEqual(SearchMatchCursor(query: "cat", pages: pages, preferredPage: pages[2].id)?.position, 1)
+    }
+
+    func testNoBoxesNoCursor() {
+        XCTAssertNil(SearchMatchCursor(query: "zebra", pages: [page([("cat", 0)])]))
+        XCTAssertNil(SearchMatchCursor(query: "#cat", pages: [page([("cat", 0)])]))
+        XCTAssertNil(SearchMatchCursor(query: "cat", pages: []))
+    }
+
+    func testRefreshKeepsTheCurrentMatchOrMovesOn() throws {
+        var pages = [page([("cat", 0), ("cat", 20), ("cat", 40)])]
+        var c = try XCTUnwrap(SearchMatchCursor(query: "cat", pages: pages))
+        c.step(1)   // the one at y = 20
+        // Unchanged pages: same match.
+        XCTAssertEqual(c.refreshed(pages: pages)?.position, 2)
+        // The current word disappears: the next one after it.
+        pages[0].recognition?.words.remove(at: 1)
+        let moved = try XCTUnwrap(c.refreshed(pages: pages))
+        XCTAssertEqual(moved.count, 2)
+        XCTAssertEqual(moved.current.box.y, 40)
+        // Nothing matches any more.
+        pages[0].recognition = nil
+        XCTAssertNil(c.refreshed(pages: pages))
+    }
+}

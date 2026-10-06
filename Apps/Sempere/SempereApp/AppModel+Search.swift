@@ -15,6 +15,9 @@ enum SearchScope: String, CaseIterable, Identifiable, Sendable {
 struct PageJump: Equatable, Sendable {
     var note: UUID
     var page: UUID
+    /// The search the page was found with: its words are highlighted on the
+    /// canvas (`NoteEditor.highlightSearch`). Nil: just show the page.
+    var query: String? = nil
 }
 
 /// "Recognise All Notes" while it runs.
@@ -95,7 +98,8 @@ extension AppModel {
 
     /// Opens the note of `hit` on the page that matched.
     func openSearchHit(_ hit: NoteSearchHit) {
-        pendingJump = hit.page.map { PageJump(note: hit.note, page: $0.pageId) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingJump = hit.page.map { PageJump(note: hit.note, page: $0.pageId, query: query.isEmpty ? nil : query) }
         selectedNoteID = hit.note
         applyPendingJump()
     }
@@ -110,6 +114,7 @@ extension AppModel {
         }
         pendingJump = nil
         editor.showPage(id: jump.page)
+        if let query = jump.query { editor.highlightSearch(query: query, page: jump.page) }
     }
 
     // MARK: - Recognition
