@@ -4,10 +4,18 @@
 // lazily as they come near the viewport.
 
 import { type NoteState, type Page, type Paper, paperKind, pointStride } from "../format/model.ts";
-import { chunkHeight, defaultRenderOptions, pageSVG } from "../render/page.ts";
+import { imageInfo, imageLimits, stripMetadata } from "../render/images.ts";
+import {
+  type PreparedItem, after, imageTransform, maxItemsPerPage, pdfCrop, placement, prepareItem, translate,
+} from "../render/items.ts";
+import { type ItemDraw, placeholderNodes, rasterNode, resolveItems, textNode } from "../render/itemsvg.ts";
+import { PreparedPage, chunkHeight, defaultRenderOptions, elementSpec } from "../render/page.ts";
 import { RenderLimits } from "../render/primitives.ts";
 import { applyTransform, meanScale, transformOf } from "../render/stroke.ts";
-import { h, s } from "./dom.ts";
+import { type Measure, fontStacks } from "../render/text.ts";
+import { BlobError, type NoteBlobs } from "../vault/blobs.ts";
+import { h, s, svgTree } from "./dom.ts";
+import { NotePDFs, maxPDFBytes } from "./pdf.ts";
 
 const gap = 24;
 const minZoom = 0.05, maxZoom = 12;
@@ -29,8 +37,49 @@ export function pageExtent(page: Page, state: NoteState): number {
     }
     if (n > 0) low = Math.max(low, hi + Math.min(radius * meanScale(xf), RenderLimits.maxNibWidth) / 2 + 1);
   }
+  for (const item of page.items.slice(0, maxItemsPerPage)) {
+    const p = prepareItem(item);
+    if (typeof p !== "string") low = Math.max(low, p.maxY);
+  }
   const e = Math.max(size.height, Math.ceil(low), chunkHeight(defaultRenderOptions, state.meta));
   return Number.isFinite(e) ? Math.min(e, RenderLimits.maxExtent) : size.height;
+}
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+/** Text widths from the browser's fonts, for text boxes without usable stored breaks (§8.5.3). */
+const canvasMeasure: Measure = (text, style, font) => {
+  measureContext ??= document.createElement("canvas").getContext("2d");
+  if (!measureContext) return text.length * style.size * 0.5;
+  measureContext.font = `${style.italic ? "italic " : ""}${style.bold ? "bold " : ""}${style.size}px ${fontStacks[font]}`;
+  return measureContext.measureText(text).width;
+};
+
+/** An image or PDF page waiting to be fetched until it comes on screen. */
+interface PendingItem {
+  draw: Extract<ItemDraw, { kind: "image" | "pdf" }>;
+  g: SVGElement;
+  minX: number;
+  maxX: number;
+  state: "idle" | "loading" | "done";
+  /** PDF pages: pixels per point of the current rendering. */
+  scale?: number;
+  url?: string;
+}
+
+/** An item drawn as a placeholder, and why (format.md §8.5.2). */
+export interface ItemProblem {
+  page: number;
+  item: string;
+  kind: string;
+  reason: string;
+}
+
+let viewCount = 0;
+
+function why(e: unknown): string {
+  if (e instanceof BlobError) return e.code === "missing" ? "attachment file is missing" : `attachment unreadable: ${e.message}`;
+  return e instanceof Error ? e.message : String(e);
 }
 
 interface Slot {
@@ -42,6 +91,7 @@ interface Slot {
   height: number;
   el: HTMLElement;
   drawn: boolean;
+  pending: PendingItem[];
 }
 
 export class NoteView {
@@ -59,8 +109,17 @@ export class NoteView {
   private readonly pointers = new Map<number, { x: number; y: number }>();
   private pinch?: { dist: number; z: number; cx: number; cy: number };
   private readonly resize: ResizeObserver;
+  private readonly uid = `n${++viewCount}`;
+  private readonly pdfs = new NotePDFs();
+  private readonly urls = new Set<string>();
+  private readonly problems = new Map<string, ItemProblem>();
+  /** The list of placeholders and why; the caller puts it with the note's other warnings. */
+  readonly problemsEl = h("details", { class: "warning item-problems" });
+  private destroyed = false;
+  private rerender?: ReturnType<typeof setTimeout>;
 
-  constructor(private readonly state: NoteState) {
+  /** `blobs` reads the note's attachments; without it every image and PDF page is a placeholder. */
+  constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs) {
     this.content = h("div", { class: "pages" });
     this.viewport = h("div", { class: "viewport", attrs: { tabindex: "0", role: "region", "aria-label": "Note pages" } }, this.content);
     this.zoomLabel = h("span", { class: "zoom-label" });
@@ -70,6 +129,7 @@ export class NoteView {
       button("−", "Zoom out (−)", () => this.zoomBy(1 / 1.25)), this.zoomLabel,
       button("+", "Zoom in (+)", () => this.zoomBy(1.25)),
       button("Fit", "Fit width (0)", () => this.fitWidth()), button("1:1", "Actual size (1)", () => this.setZoom(1)));
+    this.problemsEl.hidden = true;
     this.root = h("div", { class: "note-canvas" }, toolbar, this.viewport);
     this.layout();
     this.bind();
@@ -79,7 +139,27 @@ export class NoteView {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.resize.disconnect();
+    clearTimeout(this.rerender);
+    this.pdfs.destroy();
+    for (const u of this.urls) URL.revokeObjectURL(u);
+    this.urls.clear();
+  }
+
+  /** Items drawn as placeholders so far (only items that came on screen are tried). */
+  itemProblems(): ItemProblem[] {
+    return [...this.problems.values()];
+  }
+
+  private report(slot: Slot, it: PreparedItem | { item: { id?: unknown }; kind: string }, reason: string): void {
+    const id = String(it.item.id);
+    this.problems.set(`${slot.index}/${id}`, { page: slot.index + 1, item: id, kind: it.kind, reason });
+    const list = [...this.problems.values()];
+    this.problemsEl.hidden = false;
+    this.problemsEl.replaceChildren(
+      h("summary", { text: `${list.length} item${list.length === 1 ? "" : "s"} shown as placeholders (crossed boxes)` }),
+      h("ul", {}, ...list.map((p) => h("li", { text: `Page ${p.page}: ${p.kind} ${p.item.slice(0, 8)}: ${p.reason}` }))));
   }
 
   private layout(): void {
@@ -101,7 +181,7 @@ export class NoteView {
       el.style.height = `${height}px`;
       el.style.left = `${(this.contentWidth - width) / 2}px`;
       el.style.top = `${top}px`;
-      const slot = { page, index, top, left: (this.contentWidth - width) / 2, width, height, el, drawn: false };
+      const slot: Slot = { page, index, top, left: (this.contentWidth - width) / 2, width, height, el, drawn: false, pending: [] };
       top += height + gap;
       this.content.append(el);
       return slot;
@@ -114,17 +194,141 @@ export class NoteView {
   private draw(slot: Slot): void {
     slot.drawn = true;
     try {
-      const p = pageSVG(slot.page, this.state.meta);
-      const svg = s("svg", [["viewBox", `0 0 ${p.width} ${p.height}`], ["width", String(p.width)], ["height", String(p.height)]]);
-      const paper = s("g"), ink = s("g");
-      for (const e of p.paper) paper.append(s(e.tag, e.attrs));
-      for (const e of p.strokes) ink.append(s(e.tag, e.attrs));
-      svg.append(paper, ink);
-      slot.el.style.height = `${p.height}px`;
+      const prepared = new PreparedPage(slot.page, this.state.meta);
+      const width = this.state.meta.pageSize.width, height = prepared.extent;
+      const svg = s("svg", [["viewBox", `0 0 ${width} ${height}`], ["width", String(width)], ["height", String(height)]]);
+      const paper = s("g"), items = s("g"), ink = s("g");
+      for (const c of prepared.fullPagePaper()) {
+        const e = elementSpec(c);
+        paper.append(s(e.tag, e.attrs));
+      }
+      for (const w of prepared.warnings) this.report(slot, { item: { id: "-" }, kind: "item" }, w);
+      for (const r of resolveItems(prepared, canvasMeasure)) {
+        if (r.fill) items.append(s(r.fill.tag, r.fill.attrs));
+        const d = r.draw;
+        switch (d.kind) {
+          case "placeholder":
+            for (const n of placeholderNodes(d.it)) items.append(svgTree(n));
+            this.report(slot, d.it, d.reason);
+            break;
+          case "text":
+            items.append(svgTree(textNode(d.it, d.content, d.layout)));
+            break;
+          default: {
+            const g = s("g");
+            items.append(g);
+            const xs = d.it.corners.map((p) => p.x);
+            slot.pending.push({ draw: d, g, minX: Math.min(...xs), maxX: Math.max(...xs), state: "idle" });
+          }
+        }
+      }
+      for (const c of prepared.allStrokeCommands()) {
+        const e = elementSpec(c);
+        ink.append(s(e.tag, e.attrs));
+      }
+      svg.append(paper, items, ink);
+      slot.el.style.height = `${height}px`;
       slot.el.replaceChildren(svg);
     } catch (e) {
       slot.el.replaceChildren(h("div", { class: "page-error", text: `Page ${slot.index + 1} cannot be drawn: ${e instanceof Error ? e.message : String(e)}` }));
     }
+  }
+
+  /** Pixels per point a PDF crop needs at the current zoom (at least 2, at most 8). */
+  private pdfScale(p: PendingItem): number {
+    const d = p.draw as Extract<ItemDraw, { kind: "pdf" }>;
+    const crop = pdfCrop(d.it, d.pageSize.w, d.pageSize.h);
+    const perPoint = Math.max(d.it.frame.w / crop.w, d.it.frame.h / crop.h);
+    return Math.min(Math.max(perPoint * this.z * (globalThis.devicePixelRatio || 1), 2), 8);
+  }
+
+  /** Fetches and draws the images and PDF pages that are on screen (or nearly). */
+  private loadVisible(top: number, bottom: number, left: number, right: number): void {
+    let wantsSharper = false;
+    for (const slot of this.slots) {
+      if (!slot.drawn || slot.top > bottom || slot.top + slot.height < top) continue;
+      for (const p of slot.pending) {
+        const it = p.draw.it;
+        if (slot.top + it.maxY < top || slot.top + it.minY > bottom || slot.left + p.maxX < left || slot.left + p.minX > right) continue;
+        if (p.state === "idle") void this.load(slot, p);
+        else if (p.state === "done" && p.draw.kind === "pdf" && p.scale !== undefined && this.pdfScale(p) > p.scale * 1.5) wantsSharper = true;
+      }
+    }
+    if (wantsSharper) {
+      clearTimeout(this.rerender);
+      this.rerender = setTimeout(() => this.sharpen(top, bottom), 400);
+    }
+  }
+
+  private sharpen(top: number, bottom: number): void {
+    for (const slot of this.slots) {
+      for (const p of slot.pending) {
+        const it = p.draw.it;
+        if (p.state !== "done" || p.draw.kind !== "pdf" || p.scale === undefined) continue;
+        if (slot.top + it.maxY < top || slot.top + it.minY > bottom) continue;
+        if (this.pdfScale(p) > p.scale * 1.5) void this.load(slot, p);
+      }
+    }
+  }
+
+  private async load(slot: Slot, p: PendingItem): Promise<void> {
+    p.state = "loading";
+    const d = p.draw;
+    const clipId = `${this.uid}-p${slot.index}-i${slot.pending.indexOf(p)}`;
+    try {
+      if (!this.blobs) throw new Error("attachments are not available");
+      let url: string, width: number, height: number, transform;
+      if (d.kind === "image") {
+        const bytes = new Uint8Array(await (await this.blobs.get(d.ref, imageLimits.maxBlobBytes)).arrayBuffer());
+        const info = imageInfo(bytes);
+        const m = imageTransform(d.it, info.width, info.height);
+        if (typeof m === "string") throw new Error(m);
+        url = this.url(new Blob([stripMetadata(bytes) as Uint8Array<ArrayBuffer>], { type: info.type }));
+        const img = new Image();
+        img.src = url;
+        try {
+          await img.decode();
+        } catch {
+          throw new Error("the image cannot be decoded");
+        }
+        if (img.naturalWidth !== info.width || img.naturalHeight !== info.height) throw new Error("the image does not decode to its stated size");
+        ({ width, height } = info);
+        transform = m;
+      } else {
+        const blobs = this.blobs;
+        const doc = await this.pdfs.document(d.ref.sha256, async () => new Uint8Array(await (await blobs.get(d.ref, maxPDFBytes)).arrayBuffer()));
+        const page = await this.pdfs.page(doc, d.pageIndex);
+        const eff = NotePDFs.effectiveSize(page);
+        const crop = pdfCrop(d.it, eff.w, eff.h);
+        const scale = this.pdfScale(p);
+        const canvas = await this.pdfs.render(page, crop, scale);
+        const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!png) throw new Error("the PDF page cannot be drawn");
+        url = this.url(png);
+        width = crop.w;
+        height = crop.h;
+        transform = after(placement(crop, d.it.frame, d.it.rotation), translate(crop.x, crop.y));
+        p.scale = scale;
+      }
+      if (this.destroyed) return;
+      if (p.url) URL.revokeObjectURL(p.url);
+      this.urls.delete(p.url ?? "");
+      p.url = url;
+      p.g.replaceChildren(svgTree(rasterNode(d.it, url, width, height, transform, clipId)));
+      p.state = "done";
+    } catch (e) {
+      if (this.destroyed) return;
+      p.state = "done";
+      p.scale = undefined;
+      p.g.replaceChildren(...placeholderNodes(d.it).map(svgTree));
+      this.report(slot, d.it, why(e));
+    }
+  }
+
+  private url(b: Blob): string {
+    const u = URL.createObjectURL(b);
+    this.urls.add(u);
+    return u;
   }
 
   private schedule(): void {
@@ -144,6 +348,9 @@ export class NoteView {
     for (const slot of this.slots) {
       if (!slot.drawn && slot.top + slot.height >= top && slot.top <= bottom) this.draw(slot);
     }
+    // Attachments load only when on screen (half a screen ahead).
+    const vw = this.viewport.clientWidth;
+    this.loadVisible((-this.y - vh / 2) / this.z, (-this.y + 1.5 * vh) / this.z, (-this.x - vw / 2) / this.z, (-this.x + 1.5 * vw) / this.z);
   }
 
   private clampPan(): void {

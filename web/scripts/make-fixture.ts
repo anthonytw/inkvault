@@ -348,6 +348,7 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
     { media: [0, 0, 400, 300], crop: [20, 20, 380, 280], rotate: 90, content: "1 0.9 0.8 rg 0 0 400 300 re f 0.7 0.1 0.1 rg 40 40 120 80 re f BT /F1 24 Tf 0 0 0 rg 60 200 Td (Rotated page 2) Tj ET" },
   ]), "application/pdf");
   const missing = await blob(note, enc.encode("never written"), "image/png", { skip: true });
+  const missingAudio = await blob(note, enc.encode("never written either"), "audio/mp4", { skip: true });
   // A valid blob file stored under another content's name: the name binding fails.
   const forged = await blob(note, readFileSync(join(media, "dot.png")).subarray(0, 100), "image/png", { skip: true });
   await blob(note, readFileSync(join(media, "dot.png")), "image/png", { asName: blobName(Buffer.from(forged.sha256, "hex")) });
@@ -398,7 +399,7 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
     { op: "addItem", page: p2, item: item(0x731, "pdfPage", 100, [340, 400, 200, 150], "a1", { blob: pdf, pageIndex: 0, pageSize: [612, 792], crop: [36, 400, 400, 300], rotation: -20 }) },
     { op: "addItem", page: p2, item: item(0x732, "pdfPage", 100, [72, 600, 100, 100], "a2", { blob: pdf, pageIndex: 7, pageSize: [612, 792] }) },
     { op: "addRecording", recording: { id: rec1, blob: tone, started: wall(30), duration: 1, codec: "aac", sampleRate: 22050, channels: 1, bitRate: 24000, title: "Synthetic tone", transcript } },
-    { op: "addRecording", recording: { id: rec2, blob: missing, started: wall(32), duration: 3.5 } },
+    { op: "addRecording", recording: { id: rec2, blob: missingAudio, started: wall(32), duration: 3.5 } },
   ]));
 }
 

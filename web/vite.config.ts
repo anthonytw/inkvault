@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
@@ -15,16 +17,20 @@ export function contentSecurityPolicy(connect: string[] = []): string {
     "default-src 'none'",
     "script-src 'self'",
     "style-src 'self'",
-    "img-src 'self' data:",
+    // blob: URLs are made by the page itself from verified attachment blobs.
+    "img-src 'self' data: blob:",
+    "media-src blob:",
     `connect-src ${["'self'", ...connect].join(" ")}`,
     "base-uri 'none'",
     "form-action 'none'",
     "object-src 'none'",
     "frame-src 'none'",
-    "worker-src 'none'",
+    // pdf.js's worker, a file of the viewer (docs/web-viewer.md).
+    "worker-src 'self'",
     "manifest-src 'none'",
     "require-trusted-types-for 'script'",
-    "trusted-types 'none'",
+    // One policy, which admits only the pdf.js worker's URL (src/ui/pdf.ts).
+    "trusted-types sempere-pdf-worker",
   ].join("; ");
 }
 
@@ -51,9 +57,39 @@ function csp(): Plugin {
   };
 }
 
+/**
+ * The pdf.js data the viewer serves itself (src/ui/pdf.ts): standard fonts
+ * and CMaps for PDFs that do not embed their fonts, and the JavaScript JPEG
+ * 2000 and JBIG2 decoders (no WebAssembly: the CSP has no 'wasm-unsafe-eval').
+ * Emitted under `pdfjs/` in the build, served from node_modules in dev.
+ */
+function pdfjsAssets(): Plugin {
+  const root = join(import.meta.dirname, "node_modules", "pdfjs-dist");
+  const files = (): [string, string][] => [
+    ...["standard_fonts", "cmaps"].flatMap((d) => readdirSync(join(root, d)).map((f): [string, string] => [`${d}/${f}`, join(root, d, f)])),
+    ...["openjpeg_nowasm_fallback.js", "jbig2_nowasm_fallback.js"].map((f): [string, string] => [`wasm/${f}`, join(root, "wasm", f)]),
+  ];
+  return {
+    name: "sempere-pdfjs-assets",
+    configureServer(server) {
+      const map = new Map(files());
+      server.middlewares.use((req, res, next) => {
+        const m = /\/pdfjs\/([^?]+)/.exec(req.url ?? "");
+        const file = m ? map.get(m[1] ?? "") : undefined;
+        if (!file) return next();
+        res.setHeader("Content-Type", file.endsWith(".js") ? "text/javascript" : "application/octet-stream");
+        res.end(readFileSync(file));
+      });
+    },
+    generateBundle() {
+      for (const [name, file] of files()) this.emitFile({ type: "asset", fileName: `pdfjs/${name}`, source: readFileSync(file) });
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
-  plugins: [csp()],
+  plugins: [csp(), pdfjsAssets()],
   build: {
     target: "es2022",
     modulePreload: { polyfill: false },
