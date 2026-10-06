@@ -68,7 +68,10 @@ struct ExportSheet: View {
     private var settings: some View {
         Section("Format") {
             Picker("Format", selection: $options.format) {
-                ForEach(ShareFormat.allCases) { Text($0.title).tag($0) }
+                ForEach(ExportCommand.formats) { format in
+                    Text(format.title).tag(format)
+                        .disabled(!model.canExport(format, ids: request.noteIDs))
+                }
             }
             .pickerStyle(.inline)
             .labelsHidden()
@@ -84,6 +87,7 @@ struct ExportSheet: View {
                 Toggle("One PDF for All Notes", isOn: $options.mergePDF)
             }
             if options.format == .markdown {
+                Toggle("Include the PDF", isOn: $options.markdownPDF)
                 Toggle("Add a PNG for Each Page", isOn: Binding(get: { options.markdownImages == .png },
                                                                 set: { options.markdownImages = $0 ? .png : .none }))
             }
@@ -128,8 +132,12 @@ struct ExportSheet: View {
         switch options.format {
         case .pdf: return many && options.mergePDF ? "One PDF with every note." : many ? "One PDF per note." : "A PDF with one page per note page."
         case .png: return many ? "A folder of PNG images per note." : "One PNG image per page."
-        case .markdown: return many ? "A folder tree like your notebooks, one Markdown file and PDF per note, for Obsidian."
-            : "A folder with a Markdown file and the PDF, for Obsidian."
+        case .markdown:
+            let extra = options.markdownPDF ? " and PDF" : ""
+            if many { return "A folder tree like your notebooks, one Markdown file\(extra) per note, with the recognised text." }
+            return options.markdownPDF || options.markdownImages != .none
+                ? "A folder with a Markdown file of the recognised text\(extra)."
+                : "A Markdown file with the recognised handwriting, page by page."
         case .html: return many ? "A folder with one self-contained HTML file per note and an index."
             : "One self-contained HTML file."
         }

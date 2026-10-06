@@ -12,7 +12,7 @@ public enum ShareFormat: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .pdf: return "PDF"
         case .png: return "PNG Pages"
-        case .markdown: return "Markdown (Obsidian)"
+        case .markdown: return "Text (Markdown)"
         case .html: return "HTML"
         }
     }
@@ -27,13 +27,16 @@ public struct ShareOptions: Sendable, Equatable {
     public var dpi: Double
     /// PDF only: one file with every note instead of one per note.
     public var mergePDF: Bool
-    /// Markdown only: a PNG per page next to the note's PDF.
+    /// Markdown only: a PNG per page next to the note's `.md`.
     public var markdownImages: ExportImages
+    /// Markdown only: a PDF of the note next to its `.md`, embedded at the
+    /// top. Off by default, so the file leads with the recognised text.
+    public var markdownPDF: Bool
 
     public init(format: ShareFormat, paper: Bool = true, dpi: Double = 144, mergePDF: Bool = false,
-                markdownImages: ExportImages = .none) {
+                markdownImages: ExportImages = .none, markdownPDF: Bool = false) {
         self.format = format; self.paper = paper; self.dpi = dpi; self.mergePDF = mergePDF
-        self.markdownImages = markdownImages
+        self.markdownImages = markdownImages; self.markdownPDF = markdownPDF
     }
 
     /// The largest `dpi` the exporters take (as the CLI's `--dpi`).
@@ -72,7 +75,7 @@ public struct ShareResult: Sendable {
 /// | --- | --- | --- |
 /// | PDF | `<stem>.pdf` | `<stem>.pdf` each, or one merged `Sempere-Notes.pdf` |
 /// | PNG | `<stem>-p001.png`, ... | a folder `<stem>/` per note with `p001.png`, ... |
-/// | Markdown | folder `<stem>/` with the `.md`, the PDF (+ page PNGs) and a `README.md` | folder `Sempere Export/` mirroring the notebooks |
+/// | Markdown | `<stem>.md`; with the PDF or page PNGs, a folder `<stem>/` with the `.md`, those files and a `README.md` | folder `Sempere Export/` mirroring the notebooks |
 /// | HTML | one self-contained `<stem>.html` | folder `Sempere Export/` with one file per note and `index.html` |
 ///
 /// Everything is blocking: call `run` off the main actor. It checks
@@ -131,11 +134,25 @@ public enum ShareExport {
                 progress(1, 1)
                 break
             }
+            if options.format == .markdown && notes.count == 1 && !options.markdownPDF && options.markdownImages == .none,
+               let (s, state) = notes.first {
+                // Nothing to put next to the text: one file, no folder.
+                progress(0, 1)
+                try Task.checkCancellation()
+                let md = MarkdownExport.note(info: Self.info(s, state, source: vaultSource), state: state, pdfName: nil)
+                let url = scratch.appendingPathComponent(name(s, state) + ".md")
+                try write(Data(md.utf8), url)
+                items = [url]
+                exported = 1
+                progress(1, 1)
+                break
+            }
             let format: TreeFormat = options.format == .markdown ? .markdown : .html
             let root = scratch.appendingPathComponent(
                 options.format == .markdown && notes.count == 1 ? name(notes[0].0, notes[0].1) : treeFolderName,
                 isDirectory: true)
-            let tree = TreeExporter(root: root, format: format, images: options.markdownImages, options: render,
+            let tree = TreeExporter(root: root, format: format, images: options.markdownImages,
+                                    pdf: format == .markdown ? options.markdownPDF : true, options: render,
                                     png: PNGOptions(dpi: options.dpi), source: "sempere", errorText: errorText)
             let r = try tree.run(notes, protected: [], vaultSource: vaultSource, onNote: progress)
             // A one-off share keeps no manifest: it only serves `--clean` and re-runs into the same folder.

@@ -105,10 +105,33 @@ final class ShareExportTests: XCTestCase {
 
     // MARK: Markdown
 
+    /// The default: no PDF, so one `.md` that leads with the recognised text.
+    func testSingleNoteMarkdownIsOneFileLeadingWithTheText() throws {
+        let dir = try scratch()
+        var n = note(1, title: "Lecture 1", notebook: "School/Math", pages: 2)
+        n.1.pages[1].recognition = Recognition(engine: "test", text: "Maxwell equations")
+        let r = try ShareExport.run([n], options: ShareOptions(format: .markdown), into: dir, vaultSource: "sempere:v")
+        XCTAssertEqual(names(r.items), ["Lecture-1-0d1c6a1e.md"])
+        XCTAssertEqual(try listing(dir), ["Lecture-1-0d1c6a1e.md"])
+        let md = String(decoding: try data(r.items[0]), as: UTF8.self)
+        XCTAssertTrue(md.hasPrefix("---\n"), md)
+        XCTAssertFalse(md.contains(".pdf"), md)
+        let body = md.components(separatedBy: "\n---\n").dropFirst().joined()
+        XCTAssertTrue(body.hasPrefix("\n# Lecture 1\n\n## Page 2\n"), body)
+        XCTAssertTrue(body.contains("Maxwell equations"), body)
+    }
+
+    func testSeveralNotesMarkdownWithoutPDF() throws {
+        let r = try ShareExport.run([note(1, title: "A", notebook: "School"), note(2, title: "B")],
+                                    options: ShareOptions(format: .markdown), into: try scratch(), vaultSource: "s")
+        XCTAssertEqual(try listing(r.items[0]), ["B-0d1c6a1e.md", "README.md", "School/A-0d1c6a1e.md", "School/README.md"])
+    }
+
     func testSingleNoteMarkdownIsAFolderWithMarkdownAndPDF() throws {
         let dir = try scratch()
         let r = try ShareExport.run([note(1, title: "Lecture 1", notebook: "School/Math")],
-                                    options: ShareOptions(format: .markdown), into: dir, vaultSource: "sempere:v")
+                                    options: ShareOptions(format: .markdown, markdownPDF: true), into: dir,
+                                    vaultSource: "sempere:v")
         XCTAssertEqual(names(r.items), ["Lecture-1-0d1c6a1e"])
         let files = try listing(r.items[0])
         let stem = r.items[0].lastPathComponent
@@ -124,7 +147,7 @@ final class ShareExportTests: XCTestCase {
 
     func testMarkdownWithPageImages() throws {
         let r = try ShareExport.run([note(1, title: "Imgs", pages: 2)],
-                                    options: ShareOptions(format: .markdown, dpi: 36, markdownImages: .png),
+                                    options: ShareOptions(format: .markdown, dpi: 36, markdownImages: .png, markdownPDF: true),
                                     into: try scratch(), vaultSource: "s")
         let files = try listing(r.items[0])
         XCTAssertTrue(files.contains("Imgs-0d1c6a1e-assets/p001.png") && files.contains("Imgs-0d1c6a1e-assets/p002.png"), "\(files)")
@@ -133,7 +156,8 @@ final class ShareExportTests: XCTestCase {
 
     func testSeveralNotesMarkdownMirrorsNotebooks() throws {
         let r = try ShareExport.run([note(1, title: "A", notebook: "School"), note(2, title: "B")],
-                                    options: ShareOptions(format: .markdown), into: try scratch(), vaultSource: "s")
+                                    options: ShareOptions(format: .markdown, markdownPDF: true), into: try scratch(),
+                                    vaultSource: "s")
         XCTAssertEqual(names(r.items), [ShareExport.treeFolderName])
         XCTAssertEqual(try listing(r.items[0]), ["B-0d1c6a1e.md", "B-0d1c6a1e.pdf", "README.md", "School/A-0d1c6a1e.md",
                                                  "School/A-0d1c6a1e.pdf", "School/README.md"])

@@ -84,6 +84,9 @@ public struct TreeExporter: Sendable {
     public var root: URL
     public var format: TreeFormat
     public var images: ExportImages
+    /// Markdown only: write each note's PDF next to its `.md` and embed it
+    /// (the CLI always does; the app's "Text (Markdown)" export makes it optional).
+    public var pdf: Bool
     public var options: RenderOptions
     public var png: PNGOptions
     public var source: String
@@ -92,10 +95,11 @@ public struct TreeExporter: Sendable {
     /// How a note's failure is worded in `run`'s `errors`.
     public var errorText: @Sendable (Error) -> String
 
-    public init(root: URL, format: TreeFormat, images: ExportImages = .none, options: RenderOptions = RenderOptions(),
+    public init(root: URL, format: TreeFormat, images: ExportImages = .none, pdf: Bool = true,
+                options: RenderOptions = RenderOptions(),
                 png: PNGOptions = PNGOptions(), source: String, clean: Bool = false, notebookFilter: String? = nil,
                 errorText: @escaping @Sendable (Error) -> String = { "\($0)" }) {
-        self.root = root; self.format = format; self.images = images; self.options = options; self.png = png
+        self.root = root; self.format = format; self.images = images; self.pdf = pdf; self.options = options; self.png = png
         self.source = source; self.clean = clean; self.notebookFilter = notebookFilter; self.errorText = errorText
     }
 
@@ -194,7 +198,7 @@ public struct TreeExporter: Sendable {
                 var searchText: String?
                 switch format {
                 case .markdown:
-                    outputs.append((prefix + ".pdf", try PDFWriter.render(note: state, options: options)))
+                    if pdf { outputs.append((prefix + ".pdf", try PDFWriter.render(note: state, options: options))) }
                     var pageImages: [[String]] = []
                     if images == .png {
                         for (i, page) in state.pages.enumerated() {
@@ -208,7 +212,8 @@ public struct TreeExporter: Sendable {
                             pageImages.append(names)
                         }
                     }
-                    let md = MarkdownExport.note(info: info, state: state, pdfName: stem + ".pdf", pageImages: pageImages)
+                    let md = MarkdownExport.note(info: info, state: state, pdfName: pdf ? stem + ".pdf" : nil,
+                                                    pageImages: pageImages)
                     outputs.append((prefix + ".md", Data(md.utf8)))
                 case .html:
                     let svgs = try SVGWriter.render(note: state, options: options)
