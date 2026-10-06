@@ -65,3 +65,58 @@ final class NotebookTests: XCTestCase {
         XCTAssertEqual(Set(NotebookNode.flatten(tree)).count, 4)
     }
 }
+
+final class NotebookSuggestionTests: XCTestCase {
+    private let notebooks: [String?] = ["School/Math 9", "School/Math 10", "School/Physics", "Work/Atlas", "Personal", nil,
+                                        "  School // Math 9 ", "Café/Menu"]
+
+    func testBlankTextOffersEveryNotebookAndLevel() {
+        XCTAssertEqual(NotebookPath.suggestions(matching: "", among: notebooks),
+                       ["Café", "Café/Menu", "Personal", "School", "School/Math 9", "School/Math 10", "School/Physics",
+                        "Work", "Work/Atlas"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: " / ", among: notebooks).count, 9)
+        XCTAssertEqual(NotebookPath.suggestions(matching: "", among: []), [])
+    }
+
+    func testFiltersAsYouTypeIgnoringCaseAndAccents() {
+        XCTAssertEqual(NotebookPath.suggestions(matching: "sch", among: notebooks),
+                       ["School", "School/Math 9", "School/Math 10", "School/Physics"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "CAFE", among: notebooks), ["Café", "Café/Menu"])
+        // A level starting with the text ranks above a mere substring.
+        XCTAssertEqual(NotebookPath.suggestions(matching: "math", among: notebooks), ["School/Math 9", "School/Math 10"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "at", among: notebooks),
+                       ["Work/Atlas", "School/Math 9", "School/Math 10"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "zzz", among: notebooks), [])
+    }
+
+    func testTypedPathIsCanonicalisedBeforeMatching() {
+        XCTAssertEqual(NotebookPath.suggestions(matching: " school // math ", among: notebooks),
+                       ["School/Math 9", "School/Math 10"])
+        // The notebook typed exactly comes first, then what lies below it.
+        XCTAssertEqual(NotebookPath.suggestions(matching: "School", among: notebooks).first, "School")
+    }
+
+    func testTrailingSlashOffersTheChildren() {
+        XCTAssertEqual(NotebookPath.suggestions(matching: "School/", among: notebooks),
+                       ["School/Math 9", "School/Math 10", "School/Physics"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "school/ph", among: notebooks), ["School/Physics"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "Personal/", among: notebooks), [])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "Sch/", among: notebooks), [])   // whole levels only
+    }
+
+    func testExcludingAndLimit() {
+        XCTAssertFalse(NotebookPath.suggestions(matching: "", among: notebooks, excluding: " school ").contains("School"))
+        XCTAssertEqual(NotebookPath.suggestions(matching: "", among: notebooks, limit: 2), ["Café", "Café/Menu"])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "", among: notebooks, limit: 0), [])
+        XCTAssertEqual(NotebookPath.suggestions(matching: "x", among: notebooks, limit: -1), [])
+    }
+
+    /// Every suggestion is a canonical name, so picking it needs no further cleanup.
+    func testSuggestionsAreCanonical() {
+        for text in ["", "s", "school/", "/"] {
+            for s in NotebookPath.suggestions(matching: text, among: notebooks) {
+                XCTAssertEqual(NotebookPath.canonical(s), s)
+            }
+        }
+    }
+}

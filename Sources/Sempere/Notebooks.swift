@@ -42,6 +42,64 @@ public enum NotebookPath {
     }
 }
 
+extension NotebookPath {
+    /// Existing notebooks to offer while `typed` is being entered in a
+    /// notebook field (a combo box: type a new `/`-separated path or pick one).
+    ///
+    /// `notebooks` are the names notes carry; every level above them counts
+    /// as a notebook too (`A/B/C` offers `A` and `A/B`). Matching ignores case,
+    /// accents and width, and compares canonical paths. Typed text ending in
+    /// `/` offers what lies below that notebook. Order: the notebook typed
+    /// exactly, then paths starting with the text, then paths with a level
+    /// starting with it, then paths containing it; ties by depth, then name.
+    /// Blank text offers everything. Cost: O(n log n) in the notebooks.
+    ///
+    /// - Parameters:
+    ///   - excluding: a notebook never offered (the note's own, when moving).
+    ///   - limit: at most this many results.
+    public static func suggestions(matching typed: String, among notebooks: [String?],
+                                   excluding: String? = nil, limit: Int = 50) -> [String] {
+        let all = NotebookNode.flatten(NotebookNode.tree(notebooks))
+        let skip = canonical(excluding).map(fold)
+        let candidates = all.filter { skip == nil || fold($0) != skip }
+        let query = canonical(typed).map(fold)
+        let below = typed.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("/")
+        guard let query else { return Array(candidates.prefix(max(limit, 0))) }
+        var ranked: [(rank: Int, depth: Int, path: String)] = []
+        for path in candidates {
+            let f = fold(path)
+            let rank: Int
+            if f == query {
+                if below { continue }
+                rank = 0
+            } else if f.hasPrefix(query + "/") {
+                rank = 1
+            } else if below {
+                continue   // "A/" offers what is inside A, not other paths containing "a"
+            } else if f.hasPrefix(query) {
+                rank = 2
+            } else if f.contains("/" + query) {
+                rank = 3
+            } else if f.contains(query) {
+                rank = 4
+            } else {
+                continue
+            }
+            ranked.append((rank, components(path).count, path))
+        }
+        ranked.sort {
+            if $0.rank != $1.rank { return $0.rank < $1.rank }
+            if $0.depth != $1.depth { return $0.depth < $1.depth }
+            return NotebookNode.ascending($0.path, $1.path)
+        }
+        return ranked.prefix(max(limit, 0)).map(\.path)
+    }
+
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+}
+
 /// One notebook in the sidebar's hierarchy.
 public struct NotebookNode: Hashable, Sendable, Identifiable {
     /// The last segment, for display.

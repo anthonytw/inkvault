@@ -162,3 +162,140 @@ final class RecognitionSupportTests: VaultTestCase {
         XCTAssertEqual(RecognitionLayout.assemble(engine: "e", lines: [], basis: nil).text, "")
     }
 }
+
+final class RecognitionRunTests: VaultTestCase {
+    var stateURL: URL { tmp.appendingPathComponent("device.json") }
+
+    private func note(_ vault: Vault, title: String, strokes: Int, pages: Int = 1) throws -> UUID {
+        let id = UUID()
+        let first = UUID()
+        var ops = NoteOps.newNote(title: title, pageId: first)
+        for n in 1..<max(pages, 1) { ops.append(.addPage(Page(id: UUID(), order: PageOrder.between(PageOrder.between(nil, nil), nil)))); _ = n }
+        for _ in 0..<strokes { ops.append(.addStroke(page: first, stroke: stroke())) }
+        try vault.apply(ops, to: id, deviceState: stateURL, app: "test")
+        return id
+    }
+
+    private func fake(_ text: String) -> (Page) throws -> Recognition {
+        { page in
+            Recognition(engine: "fake-1", text: text,
+                        words: RecognitionLayout.distribute(text: text, in: .init(x: 0, y: 0, w: 100, h: 10)))
+        }
+    }
+
+    func testRecognizesPagesAndReportsTheNote() throws {
+        let vault = try makeVault(pqIdentity())
+        let id = try note(vault, title: "Lecture", strokes: 2, pages: 2)
+        let report = try XCTUnwrap(try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: fake("hello wombat")))
+        XCTAssertEqual(report.id, id)
+        XCTAssertEqual(report.title, "Lecture")
+        XCTAssertEqual(report.pages, 2)
+        XCTAssertEqual(report.pagesRecognized, 1, "the second page has no strokes and nothing to clear")
+        let state = try vault.reconstruct(noteId: id)
+        let recognition = try XCTUnwrap(state.pages[0].recognition)
+        XCTAssertEqual(recognition.text, "hello wombat")
+        XCTAssertEqual(recognition.basis, RecognitionBasis.digest(of: state.pages[0]))
+        XCTAssertEqual(try vault.summary(of: id).pagesNeedingRecognition, 0)
+    }
+
+    func testNothingToDoWritesNoDelta() throws {
+        let vault = try makeVault(pqIdentity())
+        let id = try note(vault, title: "T", strokes: 1)
+        try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: fake("a"))
+        let before = try vault.revisionNames(of: id).count
+        XCTAssertNil(try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: { _ in
+            XCTFail("a current page is not read again"); return Recognition(engine: "x", text: "")
+        }))
+        XCTAssertEqual(try vault.revisionNames(of: id).count, before)
+        // A note without ink needs nothing either.
+        let empty = try note(vault, title: "E", strokes: 0)
+        XCTAssertNil(try vault.recognizeNote(empty, deviceState: stateURL, app: "test", recognize: fake("x")))
+    }
+
+    func testDeletedNotesAreSkippedAndFailuresWriteNothing() throws {
+        let vault = try makeVault(pqIdentity())
+        let gone = try note(vault, title: "Gone", strokes: 1)
+        try vault.apply([.deleteNote], to: gone, deviceState: stateURL, app: "test")
+        XCTAssertNil(try vault.recognizeNote(gone, deviceState: stateURL, app: "test", recognize: fake("x")))
+
+        struct Boom: Error {}
+        let id = try note(vault, title: "T", strokes: 1)
+        let count = try vault.revisionNames(of: id).count
+        XCTAssertThrowsError(try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: { _ in throw Boom() }))
+        XCTAssertEqual(try vault.revisionNames(of: id).count, count)
+    }
+
+    /// Strokes added while the page was being read (another device): the text
+    /// no longer describes the page and is dropped.
+    func testPageEditedMeanwhileIsNotWritten() throws {
+        let vault = try makeVault(pqIdentity())
+        let id = try note(vault, title: "T", strokes: 1)
+        let page = try vault.reconstruct(noteId: id).pages[0].id
+        let report = try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: { _ in
+            try! vault.apply([.addStroke(page: page, stroke: stroke())], to: id, deviceState: self.stateURL, app: "other")
+            return Recognition(engine: "fake", text: "stale")
+        })
+        XCTAssertNil(report)
+        XCTAssertNil(try vault.reconstruct(noteId: id).pages[0].recognition)
+    }
+
+    func testOpsGuardAgainstChangedAndMissingPages() {
+        let page = Page(id: UUID(), order: PageOrder.between(nil, nil), strokes: [stroke()])
+        let state = NoteState(meta: NoteMeta(title: "T", created: Date(timeIntervalSince1970: 0)), pages: [page])
+        let digest = RecognitionBasis.digest(of: page)
+        let r = Recognition(engine: "e", text: "t")
+        let ok = RecognitionJob(page: page.id, digest: digest, recognition: r)
+        XCTAssertEqual(RecognitionRun.ops(for: [ok], in: state).count, 1)
+        XCTAssertTrue(RecognitionRun.ops(for: [RecognitionJob(page: page.id, digest: "0", recognition: r)], in: state).isEmpty)
+        XCTAssertTrue(RecognitionRun.ops(for: [RecognitionJob(page: UUID(), digest: digest, recognition: r)], in: state).isEmpty)
+        XCTAssertTrue(RecognitionRun.ops(for: [ok], in: nil).isEmpty)
+        var deleted = state; deleted.deleted = true
+        XCTAssertTrue(RecognitionRun.ops(for: [ok], in: deleted).isEmpty)
+    }
+
+    func testRecognizedNoteJSON() throws {
+        let id = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        let json = try JSONEncoder().encode(RecognizedNote(id: id, title: "T", pages: 3, pagesRecognized: 2))
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        XCTAssertEqual(obj["note"] as? String, id.uuidString)
+        XCTAssertEqual(obj["pagesRecognized"] as? Int, 2)
+    }
+}
+
+final class SearchMatchesTests: XCTestCase {
+    private func page(_ words: [(String, Double)], strokes: Int = 0) -> Page {
+        var p = Page(id: UUID(), order: PageOrder.between(nil, nil))
+        p.recognition = Recognition(engine: "t", text: words.map(\.0).joined(separator: " "),
+                                    words: words.map { .init(text: $0.0, box: .init(x: $0.1, y: 0, w: 10, h: 5)) })
+        return p
+    }
+
+    func testMatchesAcrossPagesInOrder() {
+        let pages = [page([("Wombat", 0), ("eats", 20), ("roots", 40)]),
+                     page([("nothing", 0)]),
+                     page([("wombats", 5), ("Café", 30), ("WOMBAT", 60)])]
+        let m = SearchMatches.matches("wombat", in: pages)
+        XCTAssertEqual(m.map(\.text), ["Wombat", "wombats", "WOMBAT"])
+        XCTAssertEqual(m.map(\.page), [1, 3, 3])
+        XCTAssertEqual(m.map(\.pageId), [pages[0].id, pages[2].id, pages[2].id])
+        XCTAssertEqual(m.map(\.box.x), [0, 5, 60])
+        XCTAssertEqual(SearchMatches.matches("cafe", in: pages).map(\.text), ["Café"], "accents are ignored")
+    }
+
+    func testSeveralWordsAndTagsAndEmptyQueries() {
+        let pages = [page([("red", 0), ("green", 20), ("blue", 40)])]
+        XCTAssertEqual(SearchMatches.matches("RED blue", in: pages).map(\.text), ["red", "blue"])
+        XCTAssertEqual(SearchMatches.matches("#red", in: pages), [], "a #word only matches tags")
+        XCTAssertEqual(SearchMatches.matches("  ", in: pages), [])
+        XCTAssertEqual(SearchMatches.matches("red", in: []), [])
+        // Text without boxes (an import without words) cannot be located.
+        var bare = page([])
+        bare.recognition = Recognition(engine: "t", text: "red")
+        XCTAssertEqual(SearchMatches.matches("red", in: [bare]), [])
+    }
+
+    func testMatchListIsCapped() {
+        let many = page((0..<(SearchMatches.maxMatches + 50)).map { ("a", Double($0)) })
+        XCTAssertEqual(SearchMatches.matches("a", in: [many]).count, SearchMatches.maxMatches)
+    }
+}

@@ -182,3 +182,45 @@ public enum NoteSearch {
         return .init(text: shown, matches: matches.sorted { $0.lowerBound < $1.lowerBound })
     }
 }
+
+/// One word of recognised handwriting that a search matched, with its box
+/// on the page (`format.md` §5.5): what the canvas highlights.
+public struct SearchMatch: Hashable, Sendable, Codable {
+    public var pageId: UUID
+    /// 1-based position of the page in the note.
+    public var page: Int
+    /// The recognised word.
+    public var text: String
+    public var box: Recognition.Box
+}
+
+/// Where a query's words are on a note's pages.
+public enum SearchMatches {
+    /// Caps the list: a page holds at most this many words in total, but a
+    /// hostile note may claim more, and the UI steps through them one by one.
+    public static let maxMatches = 10_000
+
+    /// The recognised words of `pages` containing a word of `query` (case,
+    /// accents and width ignored, substrings count, `#tag` words skipped), in
+    /// page order and, within a page, in the order the words are stored
+    /// (reading order). Pages without word boxes give none, so a page
+    /// found by text alone has no match here. Cost: O(Σ words × query words).
+    public static func matches(_ query: String, in pages: [Page]) -> [SearchMatch] {
+        let words = NoteSearch.words(query).filter { !$0.tagOnly }.map(\.text)
+        return matches(words: words, in: pages)
+    }
+
+    /// `matches(_:in:)` for already split words (any of them matches).
+    public static func matches(words: [String], in pages: [Page]) -> [SearchMatch] {
+        guard !words.isEmpty else { return [] }
+        var out: [SearchMatch] = []
+        for (index, page) in pages.enumerated() {
+            for word in page.recognition?.words ?? [] {
+                guard words.contains(where: { word.text.range(of: $0, options: NoteSearch.options) != nil }) else { continue }
+                out.append(SearchMatch(pageId: page.id, page: index + 1, text: word.text, box: word.box))
+                if out.count >= maxMatches { return out }
+            }
+        }
+        return out
+    }
+}
