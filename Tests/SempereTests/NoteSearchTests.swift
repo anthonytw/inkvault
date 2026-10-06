@@ -25,6 +25,11 @@ final class NoteSearchTests: XCTestCase {
         XCTAssertEqual(snippet.matches.map { String(snippet.text[$0]) }, ["momentum"])
     }
 
+    func testTheSameNoteListedTwiceDoesNotTrap() {
+        let a = note("Physics", pages: ["momentum"])
+        XCTAssertEqual(NoteSearch.search("momentum", in: [a, a]).map(\.note), [a.id, a.id])
+    }
+
     func testIgnoresCaseAccentsAndWidth() {
         let a = note("Reunión", pages: ["Café con leche", "ＦＵＬＬ width"])
         XCTAssertEqual(NoteSearch.search("reunion", in: [a]).count, 1)

@@ -13,6 +13,14 @@ protocol PageRecognizing: Sendable {
     func recognize(strokes: [Stroke]) async throws -> Recognition
 }
 
+/// Why a page could not be read.
+enum RecognitionFailure: Error, CustomStringConvertible {
+    /// The page's ink could not be drawn into an image (for example, out of memory).
+    case cannotRender
+
+    var description: String { "The page could not be drawn for reading." }
+}
+
 /// Whether the app recognises handwriting on its own (default on). It is
 /// on-device only: Vision runs here and nothing leaves the device.
 enum RecognitionPreference {
@@ -59,7 +67,11 @@ struct VisionPageRecognizer: PageRecognizing {
         let region = bounds.insetBy(dx: -margin, dy: -margin)
         let scale = min(2, (maxPixels / (region.width * region.height)).squareRoot(),
                         maxSide / max(region.width, region.height))
-        guard scale > 0, let image = render(drawing, region: region, scale: scale) else { return empty }
+        // A page whose ink cannot be drawn is an error, not "nothing legible": an
+        // empty result would be stored as current and never read again.
+        guard scale > 0, scale.isFinite, let image = render(drawing, region: region, scale: scale) else {
+            throw RecognitionFailure.cannotRender
+        }
         let lines = try VisionText.lines(in: image, region: .init(x: Double(region.minX), y: Double(region.minY),
                                                                   w: Double(region.width), h: Double(region.height)))
         return RecognitionLayout.assemble(engine: engine, lines: lines, basis: nil)

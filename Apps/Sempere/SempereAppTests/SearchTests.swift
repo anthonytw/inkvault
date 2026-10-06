@@ -128,6 +128,42 @@ struct SearchTests {
         #expect(pages.count == 2)
     }
 
+    /// The commit-time re-check: a page another device edited while it was
+    /// being read gets no recognition; the others do.
+    @Test func recognizeAllDropsAPageEditedWhileItWasRead() async throws {
+        let gate = Gate()
+        await gate.close()
+        let fake = FakeRecognizer(gate: gate)
+        let (model, vault, pages) = try await Self.model(recognizer: fake, texts: nil)
+        model.startRecognizingNotes()
+        await gate.waitForArrivals(1)
+        try vault.apply([.addStroke(page: pages[1], stroke: TS.stroke(x: 60, y: 400))], to: Self.lecture,
+                        deviceState: TS.deviceStateURL(), app: "test")
+        await gate.open()
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionProgress == nil && model.recognitionTask == nil })
+        #expect(fake.calls.count == 2)
+        let state = try vault.reconstruct(noteId: Self.lecture)
+        #expect(state.pages[0].recognition?.engine == "fake-1")
+        #expect(state.pages[1].recognition == nil, "read from strokes that changed since")
+    }
+
+    @Test func recognizeAllWritesNothingIntoANoteDeletedWhileItWasRead() async throws {
+        let gate = Gate()
+        await gate.close()
+        let fake = FakeRecognizer(gate: gate)
+        let (model, vault, _) = try await Self.model(recognizer: fake, texts: nil)
+        model.startRecognizingNotes()
+        await gate.waitForArrivals(1)
+        try vault.apply([.deleteNote], to: Self.lecture, deviceState: TS.deviceStateURL(), app: "test")
+        let count = try vault.revisionNames(of: Self.lecture).count
+        await gate.open()
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionProgress == nil && model.recognitionTask == nil })
+        #expect(try vault.revisionNames(of: Self.lecture).count == count)
+        let state = try vault.reconstruct(noteId: Self.lecture)
+        #expect(state.deleted)
+        #expect(state.pages.allSatisfy { $0.recognition == nil })
+    }
+
     @Test func switchingRecognitionOffStopsReadingAndIsRemembered() async throws {
         let saved = RecognitionPreference.enabled
         defer { RecognitionPreference.enabled = saved }

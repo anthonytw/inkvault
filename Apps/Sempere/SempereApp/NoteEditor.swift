@@ -319,10 +319,12 @@ extension NoteEditor {
     }
 
     /// Saves pending strokes, then reads every page whose recognition is
-    /// missing or stale (`RecognitionPolicy`) and writes one
-    /// `setPageRecognition` delta per page. Reading runs off the main actor;
-    /// a page whose strokes changed meanwhile is dropped (the change
-    /// schedules another pass).
+    /// missing or stale (`RecognitionPolicy`) and writes what it read as one
+    /// delta of `setPageRecognition` ops (one per page) for the whole pass.
+    /// Reading runs off the main actor; a page whose strokes changed
+    /// meanwhile is dropped (the change schedules another pass). The pass
+    /// stops, writing nothing, once the editor closes or recognition is
+    /// switched off (`recognizer` set to nil).
     func recognizePending() async {
         guard recognizer != nil, !isReadOnly else { return }
         if recognitionBusy { recognitionAgain = true; return }
@@ -334,11 +336,17 @@ extension NoteEditor {
         } while recognitionAgain && !isClosed
     }
 
+    /// Whether a pass may go on: the editor is open and recognition still on.
+    private var recognitionWanted: Bool { !isClosed && recognizer != nil }
+
     private func recognizeOnce() async {
         guard let recognizer, let writer, !isClosed else { return }
         await flush()
-        guard saveError == nil, !isClosed else { return }   // never recognise strokes that are not on disk
+        guard saveError == nil, recognitionWanted else { return }   // never recognise strokes that are not on disk
+        var read: [(pageID: UUID, digest: String, recognition: Recognition?)] = []
+        var failed = false
         for page in pages {
+            guard recognitionWanted else { return }
             let strokes = currentStrokes(of: page)
             let digest = RecognitionBasis.digest(of: strokes.map(\.id))
             guard RecognitionPolicy.needsRecognition(page.recognition, strokeIDs: strokes.map(\.id),
@@ -351,25 +359,34 @@ extension NoteEditor {
                     result = r
                 } catch {
                     recognitionError = "Could not read handwriting: \(error)"
+                    failed = true
                     continue
                 }
             }
-            guard !isClosed, let index = pages.firstIndex(where: { $0.id == page.id }),
-                  RecognitionBasis.digest(of: currentStrokes(of: pages[index]).map(\.id)) == digest else { continue }
-            let op = Op.setPageRecognition(pageId: page.id, recognition: result)
-            let write = Task { _ = try await writer.write([op]) }
-            recognitionWrite = write
-            do {
-                try await write.value
-            } catch {
-                recognitionError = "Could not save recognised text: \(error)"
-                continue
-            }
-            pages[index].recognition = result
-            touchedPages.remove(page.id)
-            recognitionsWritten += 1
-            recognitionError = nil
-            onRecognized?(noteID)
+            read.append((page.id, digest, result))
         }
+        guard recognitionWanted else { return }
+        // Only pages whose strokes are still the ones that were read.
+        let current = read.filter { r in
+            guard let page = pages.first(where: { $0.id == r.pageID }) else { return false }
+            return RecognitionBasis.digest(of: currentStrokes(of: page).map(\.id)) == r.digest
+        }
+        guard !current.isEmpty else { return }
+        let ops = current.map { Op.setPageRecognition(pageId: $0.pageID, recognition: $0.recognition) }
+        let write = Task { _ = try await writer.write(ops) }
+        recognitionWrite = write
+        do {
+            try await write.value
+        } catch {
+            recognitionError = "Could not save recognised text: \(error)"
+            return
+        }
+        for r in current {
+            if let index = pages.firstIndex(where: { $0.id == r.pageID }) { pages[index].recognition = r.recognition }
+            touchedPages.remove(r.pageID)
+        }
+        recognitionsWritten += current.count
+        if !failed { recognitionError = nil }
+        onRecognized?(noteID)
     }
 }

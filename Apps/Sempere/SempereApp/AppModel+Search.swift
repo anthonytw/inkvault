@@ -180,7 +180,8 @@ extension AppModel {
         guard !jobs.isEmpty else { return }
         let planned = jobs
         try await commit(id) { current in
-            guard let current else { return [] }
+            // Deleted meanwhile (another device): no writes into Recently Deleted.
+            guard let current, !current.deleted else { return [] }
             return planned.compactMap { job -> Op? in
                 guard let page = current.pages.first(where: { $0.id == job.page }),
                       RecognitionBasis.digest(of: page) == job.digest else { return nil }
