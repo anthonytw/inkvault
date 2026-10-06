@@ -26,13 +26,44 @@ public enum NotabilityImporter {
         public var tagsFromFolders: Bool
         /// Tags added to every imported note.
         public var extraTags: [String]
+        /// Import attachments: PDF page backgrounds and images, written as
+        /// blobs of the note (docs/import-notability.md "Attachments"). Off
+        /// imports ink, recognition and metadata only, and reports every
+        /// attachment as dropped.
+        public var attachments: Bool
+        /// Store images as they are in the package; by default JPEG and PNG
+        /// metadata (camera, location) is stripped (format.md §8.2.5).
+        public var keepImageMetadata: Bool
 
         public init(overwrite: Bool = false, notebook: String? = nil, app: String = "sempere-import/0.1",
-                    scaleToLetterWidth: Bool = true, tagsFromFolders: Bool = false, extraTags: [String] = []) {
+                    scaleToLetterWidth: Bool = true, tagsFromFolders: Bool = false, extraTags: [String] = [],
+                    attachments: Bool = true, keepImageMetadata: Bool = false) {
             self.overwrite = overwrite; self.notebook = notebook; self.app = app
             self.scaleToLetterWidth = scaleToLetterWidth
             self.tagsFromFolders = tagsFromFolders; self.extraTags = extraTags
+            self.attachments = attachments; self.keepImageMetadata = keepImageMetadata
         }
+    }
+
+    /// Attachments written for a note.
+    public struct ImportedAttachments: Hashable, Sendable {
+        /// PDF files shown by at least one placed page (one blob each).
+        public var pdfs = 0
+        /// Notability pages placed as `pdfPage` backgrounds.
+        public var pdfPages = 0
+        /// Backgrounds placed for a `TemplatePDF:` paper, one per page.
+        public var templatePages = 0
+        /// Images placed as `image` items.
+        public var images = 0
+        /// Blobs written (distinct contents).
+        public var blobs = 0
+        /// Their total size in bytes.
+        public var blobBytes: Int64 = 0
+
+        public init() {}
+
+        /// True when nothing was imported.
+        public var isEmpty: Bool { self == ImportedAttachments() }
     }
 
     /// Content of a Notability note that the import leaves behind.
@@ -41,11 +72,16 @@ public enum NotabilityImporter {
         public var typedTextCharacters = 0
         /// Imported PDFs the ink was written on.
         public var pdfs = 0
-        /// Pages of the note that were PDF pages (the PDF is not imported, so
-        /// they become blank paper; a note without ink is then empty).
+        /// Pages of the note that were PDF pages and are not imported as
+        /// backgrounds (the PDF is missing, encrypted or unreadable, or
+        /// attachments are off): blank paper there.
         public var pdfPages = 0
-        /// Images and other media objects.
+        /// Images and other media objects not placed.
         public var media = 0
+        /// `PDFFile.highlights` entries (format unknown; never seen non-empty).
+        public var pdfHighlights = 0
+        /// 1 when the paper is a `TemplatePDF:` whose PDF is not imported.
+        public var templatePDFs = 0
         /// Audio recordings.
         public var recordings = 0
         /// Strokes imported solid although Notability draws them dashed.
@@ -111,6 +147,11 @@ public enum NotabilityImporter {
         public var extraVersion = false
         /// For a note with several sources: why this one was chosen, or why it was not.
         public var selection: String?
+        /// Attachments written.
+        public var attachments = ImportedAttachments()
+        /// Attachments left out or placed by a guess, one line each (file
+        /// names and Notability field names, never note content).
+        public var warnings: [String] = []
 
         public init(source: String, status: Status) { self.source = source; self.status = status }
     }
@@ -166,8 +207,13 @@ public enum NotabilityImporter {
     ///   - key: the identity the ids are derived from (default: Notability's
     ///     uuid, `sourceKey`); the importer passes its own for `.ntb` notes and
     ///     extra versions.
+    ///   - attachments: what `NotabilityAttachments.resolve` read from the
+    ///     package: placed as items (PDF backgrounds in layer 0, images in
+    ///     layer 100), its page boxes giving the page height and the top of
+    ///     each Notability page. Nil imports no attachments.
     public static func convert(_ note: NotabilityNote, notebook: String? = nil, idSalt: String? = nil,
-                               scaleToLetterWidth: Bool = true, key sourceKeyOverride: String? = nil) -> NoteState {
+                               scaleToLetterWidth: Bool = true, key sourceKeyOverride: String? = nil,
+                               attachments: NotabilityAttachments? = nil) -> NoteState {
         let k = scaleToLetterWidth ? letterWidth / note.paper.width : 1
         let key = "sempere-notability:" + (sourceKeyOverride ?? sourceKey(note)) + (idSalt.map { ":gen:" + $0 } ?? "")
         let pageId = UUID.derived(from: key + ":page")
@@ -200,16 +246,40 @@ public enum NotabilityImporter {
             for p in pts where p.y.isFinite { maxY = max(maxY, p.y + max(p.w, c.width * k) / 2) }
         }
 
+        var items: [Item] = []
+        var lastZ: [ItemLayer: String] = [:]
+        for p in attachments?.placements ?? [] {
+            let z = PageOrder.between(lastZ[p.layer], nil)
+            lastZ[p.layer] = z
+            let id = UUID.derived(from: key + ":item:" + p.tag)
+            let frame = Rect(x: p.frame.x * k, y: p.frame.y * k, w: p.frame.w * k, h: p.frame.h * k)
+            let item: Item
+            switch p.content {
+            case let .pdfPage(blob, pageIndex, pageSize):
+                item = .pdfPage(id: id, blob: blob, pageIndex: pageIndex, pageSize: pageSize, frame: frame, z: z,
+                                layer: p.layer)
+            case let .image(blob, pixelSize, orientation, crop):
+                var i = Item.image(id: id, blob: blob, pixelSize: pixelSize, orientation: orientation, crop: crop,
+                                   frame: frame, z: z, layer: p.layer)
+                i.rotation = p.rotation
+                item = i
+            }
+            items.append(item)
+        }
+        if let a = attachments { maxY = max(maxY, a.extent * k) }
+
         let paper = note.paper
+        let pageHeight = attachments?.pageStride ?? paper.pageHeight
         let meta = NoteMeta(title: note.metadata.name, tags: note.metadata.tags,
                             notebook: notebook ?? note.metadata.subject,
                             created: note.metadata.created ?? Date(timeIntervalSince1970: 0),
                             paper: Paper(kind: paper.kind, spacing: (paper.spacing ?? 24 / k) * k),
                             pageSize: PageSize(width: paper.width * k,
-                                               height: max(paper.pageHeight * k, maxY.rounded(.up)), infinite: true,
-                                               breakHeight: paper.pageHeight * k))
+                                               height: max(pageHeight * k, maxY.rounded(.up)), infinite: true,
+                                               breakHeight: pageHeight * k))
         let page = Page(id: pageId, order: PageOrder.between(nil, nil), strokes: strokes,
-                        recognition: recognition(note, scale: k))
+                        recognition: recognition(note, scale: k, attachments: attachments),
+                        items: items.sorted(by: Item.drawsBefore))
         return NoteState(meta: meta, pages: [page])
     }
 
@@ -218,14 +288,20 @@ public enum NotabilityImporter {
     /// words built by grouping character boxes between whitespace, boxes moved
     /// by `pageContentOrigin` and the page's offset (`(n - 1) × pageHeight`).
     /// Every box is then multiplied by `scale`.
-    public static func recognition(_ note: NotabilityNote, scale: Double = 1) -> Recognition? {
+    ///
+    /// With `attachments` from a note made from a PDF, page `n` starts at the
+    /// sum of the heights of the pages above it (`NotabilityAttachments.top`).
+    public static func recognition(_ note: NotabilityNote, scale: Double = 1,
+                                   attachments: NotabilityAttachments? = nil) -> Recognition? {
         guard !note.recognition.isEmpty else { return nil }
         var texts: [String] = []
         var words: [Recognition.Word] = []
         for number in note.recognition.keys.sorted() {
             guard let page = note.recognition[number] else { continue }
             texts.append(page.text)
-            let dx = page.origin.x + note.paper.insetX, dy = page.origin.y + Double(number - 1) * note.paper.pageHeight
+            let top = attachments.map { $0.top(ofPage: number, pageHeight: $0.pageStride ?? note.paper.pageHeight) }
+                ?? Double(number - 1) * note.paper.pageHeight
+            let dx = page.origin.x + note.paper.insetX, dy = page.origin.y + top
             var current = "", box: Recognition.Box?
             func flush() {
                 if !current.isEmpty, let b = box {
@@ -257,13 +333,24 @@ public enum NotabilityImporter {
         return Recognition.Box(x: x0, y: y0, w: x1 - x0, h: y1 - y0)
     }
 
-    /// What `convert` leaves out of `note`.
-    public static func dropped(_ note: NotabilityNote) -> Dropped {
+    /// What `convert` leaves out of `note`: with `attachments`, the
+    /// attachments it could not place; without, every attachment.
+    public static func dropped(_ note: NotabilityNote, attachments: NotabilityAttachments? = nil) -> Dropped {
         var d = Dropped()
         d.typedTextCharacters = note.typedText.trimmingCharacters(in: .whitespacesAndNewlines).count
-        d.pdfs = note.pdfCount
-        d.pdfPages = note.pdfPageCount
-        d.media = note.mediaCount
+        if let a = attachments, note.sourceFormat == .note {
+            d.pdfs = a.dropped.pdfs
+            d.pdfPages = a.dropped.pdfPages
+            d.media = a.dropped.media
+            d.pdfHighlights = a.dropped.pdfHighlights
+            d.templatePDFs = a.dropped.templatePDFs
+        } else {
+            d.pdfs = note.pdfCount
+            d.pdfPages = note.pdfPageCount
+            d.media = note.mediaCount
+            d.pdfHighlights = note.pdfHighlights
+            d.templatePDFs = note.paper.identifier?.hasPrefix("TemplatePDF:") == true ? 1 : 0
+        }
         d.recordings = note.recordingCount
         d.dashedStrokes = note.curves.filter(\.dashed).count
         d.unknownStyleStrokes = note.curves.filter {
@@ -277,7 +364,7 @@ public enum NotabilityImporter {
     }
 
     /// The ops of one import delta for `state` (as `convert` builds it):
-    /// `addPage`, one `addStroke` per stroke, `setMeta` for title, notebook
+    /// `addPage`, one `addStroke` per stroke, one `addItem` per item, `setMeta` for title, notebook
     /// (even when empty), paper and page size, one `addTag` per tag, and
     /// `setPageRecognition`. An overwrite removes the old tags separately.
     public static func ops(for state: NoteState) -> [Op] {
@@ -285,6 +372,7 @@ public enum NotabilityImporter {
         for page in state.pages {
             ops.append(.addPage(Page(id: page.id, order: page.order)))
             for s in page.strokes { ops.append(.addStroke(page: page.id, stroke: s)) }
+            for item in page.items { ops.append(.addItem(page: page.id, item: item)) }
         }
         let m = state.meta
         ops.append(.setMeta(.title(m.title)))
@@ -311,10 +399,13 @@ public enum NotabilityImporter {
         var load: () throws -> NotePackage
 
         /// Parses the source in its format.
-        func parse() throws -> NotabilityNote {
+        func parse() throws -> NotabilityNote { try parse(load()) }
+
+        /// Parses the source from its already opened package.
+        func parse(_ pkg: NotePackage) throws -> NotabilityNote {
             switch format {
-            case .note: return try NotabilityNote.parse(package: load())
-            case .ntb: return try NotabilityBundle.parse(package: load())
+            case .note: return try NotabilityNote.parse(package: pkg)
+            case .ntb: return try NotabilityBundle.parse(package: pkg)
             }
         }
     }
@@ -677,7 +768,11 @@ public enum NotabilityImporter {
             break
         }
         let note: NotabilityNote
-        do { note = try source.parse() } catch {
+        let pkg: NotePackage
+        do {
+            pkg = try source.load()
+            note = try source.parse(pkg)
+        } catch {
             result.status = .failed(describe(error)); return result
         }
         var key = decision.key.isEmpty ? sourceKey(note) : decision.key
@@ -696,8 +791,8 @@ public enum NotabilityImporter {
         result.title = title
         let notebook = options.notebook ?? source.notebook ?? note.metadata.subject
         result.notebook = notebook
-        result.dropped = dropped(note)
         result.originalWidth = note.paper.width
+        result.dropped = dropped(note)
         guard seen.insert(id).inserted else {
             result.status = .skipped("duplicate of an earlier note in this import (same Notability uuid)")
             return result
@@ -706,6 +801,11 @@ public enum NotabilityImporter {
         if exists && !options.overwrite {
             result.status = .skipped("already in the vault"); return result
         }
+        // Read only for a note that is written.
+        let attachments = options.attachments
+            ? NotabilityAttachments.resolve(note, package: pkg, keepImageMetadata: options.keepImageMetadata) : nil
+        result.dropped = dropped(note, attachments: attachments)
+        result.warnings = attachments?.warnings ?? []
         do {
             var ops: [Op] = []
             var seq = 1
@@ -728,10 +828,18 @@ public enum NotabilityImporter {
                 ops += old.meta.tags.compactMap { NoteOps.removeTag($0, from: old) }
             }
             var state = convert(note, notebook: notebook, idSalt: salt,
-                                scaleToLetterWidth: options.scaleToLetterWidth, key: key)
+                                scaleToLetterWidth: options.scaleToLetterWidth, key: key, attachments: attachments)
             state.meta.title = title
             state.meta.tags = tags(for: note, folder: source.notebook ?? note.metadata.subject, options: options)
             ops += Self.ops(for: state)
+            // Blobs first: a delta never references a blob that is not
+            // written yet (format.md §8.1.4).
+            var imported = attachments?.imported ?? ImportedAttachments()
+            for (_, blob) in (attachments?.blobs ?? [:]).sorted(by: { $0.key < $1.key }) {
+                try vault.writeBlob(note: id, blob.data, type: blob.ref.type)
+                imported.blobs += 1
+                imported.blobBytes += blob.ref.size
+            }
             let wall = note.metadata.created ?? now()
             let hlc = clock.tick(wall: now())
             try vault.write(Revision(noteId: id, device: device, seq: seq, hlc: hlc, wall: wall,
@@ -740,6 +848,7 @@ public enum NotabilityImporter {
             result.strokes = state.pages.reduce(0) { $0 + $1.strokes.count }
             result.shapes = note.shapeCount
             result.recognizedPages = note.recognition.count
+            result.attachments = imported
         } catch {
             result.status = .failed(describe(error))
         }

@@ -1,0 +1,370 @@
+import Foundation
+import Sempere
+import SemperePDF
+import SempereRender
+
+/// A Notability note's attachments read from its package and laid out on the
+/// imported page (docs/import-notability.md "Attachments", docs/attachments.md
+/// §11): PDF page backgrounds (D1) and images (D2).
+///
+/// `resolve` reads every byte it needs from the package, so `convert` stays
+/// pure: blob references are content hashes (`BlobRef(content:type:)`), the
+/// same ones `Vault.writeBlob` returns for these bytes. Placements are in
+/// Notability document units, page coordinates (the ink's x inset applied);
+/// `convert` scales them with the ink.
+///
+/// Everything the package says is untrusted (format.md §9): a missing,
+/// encrypted or unreadable file, a page number out of range or a frame that is
+/// not a finite positive box leaves that attachment out, counted in `dropped`
+/// and explained in `warnings`, never failing the note.
+public struct NotabilityAttachments: Sendable {
+    /// One item to place, in document units (page coordinates).
+    public struct Placement: Hashable, Sendable {
+        public enum Content: Hashable, Sendable {
+            /// A PDF page: `pageIndex` 0-based, `pageSize` the effective page in points.
+            case pdfPage(blob: BlobRef, pageIndex: Int, pageSize: Size)
+            /// An image: `pixelSize` after `orientation`; `crop` in oriented pixels.
+            case image(blob: BlobRef, pixelSize: Size, orientation: Int?, crop: Rect?)
+        }
+        public var content: Content
+        public var layer: ItemLayer
+        public var frame: Rect
+        /// Degrees clockwise; nil for none.
+        public var rotation: Double?
+        /// Names the item's id (with the note's key): `pdf:<n>`, `template:<n>`, `image:<n>`.
+        public var tag: String
+    }
+
+    /// Bytes to write as blobs before the delta, by `BlobRef.sha256` (one per
+    /// content: two PDFs with the same bytes are one blob, format.md §8.1.1).
+    public var blobs: [String: (ref: BlobRef, data: Data)] = [:]
+    /// Items, background first, each layer in Notability's order.
+    public var placements: [Placement] = []
+    /// Top of each Notability page of a note made from a PDF (index 0 is page
+    /// 1), document units: the heights of the pages before it added up. Empty
+    /// for a note on paper (pages are `paper.pageHeight` apart).
+    public var pageTops: [Double] = []
+    /// Height of each page of `pageTops`.
+    public var pageHeights: [Double] = []
+    /// The note's page height (`breakHeight`) when the PDF's own page boxes
+    /// give it: the first PDF page's height, `⌈width × H'/W'⌉`. Nil keeps
+    /// `paper.pageHeight` (from the thumbnails).
+    public var pageStride: Double?
+    /// Lowest point of every placement, document units.
+    public var extent = 0.0
+    /// What could not be placed (only the attachment fields are set).
+    public var dropped = NotabilityImporter.Dropped()
+    /// Imported counts, for the report.
+    public var imported = NotabilityImporter.ImportedAttachments()
+    /// One line per attachment left out or placed by a guess (no note content).
+    public var warnings: [String] = []
+
+    public init() {}
+
+    /// Most items placed on the page (format.md §8.4 allows 10 000 per page).
+    public static let maxItems = 10_000
+
+    /// Top of Notability page `n` (1-based), document units.
+    public func top(ofPage n: Int, pageHeight: Double) -> Double {
+        guard n >= 1 else { return 0 }
+        if n <= pageTops.count { return pageTops[n - 1] }
+        guard let last = pageTops.last, let h = pageHeights.last else { return Double(n - 1) * pageHeight }
+        return last + h + Double(n - pageTops.count - 1) * pageHeight
+    }
+
+    // MARK: - Reading
+
+    /// Reads the attachments of `note` from `pkg` (the package it was parsed from).
+    ///
+    /// - Parameter keepImageMetadata: store images as they are in the package;
+    ///   by default JPEG and PNG metadata (EXIF, location, …) is stripped
+    ///   (format.md §8.2.5).
+    public static func resolve(_ note: NotabilityNote, package pkg: NotePackage,
+                               keepImageMetadata: Bool = false) -> NotabilityAttachments {
+        var r = NotabilityAttachments()
+        guard note.sourceFormat == .note else { return r }
+        let prefix = NotabilityNote.packagePrefix(pkg) ?? ""
+        r.resolvePDFs(note, pkg, prefix: prefix)
+        r.resolveImages(note, pkg, prefix: prefix, keepMetadata: keepImageMetadata)
+        return r
+    }
+
+    /// A parsed PDF of the package: its blob and page sizes.
+    struct LoadedPDF {
+        var ref: BlobRef
+        var pages: [Size?]
+    }
+
+    /// Reads `PDFs/<name>`; nil (with a warning) when it is missing or unreadable.
+    mutating func loadPDF(_ name: String, _ pkg: NotePackage, prefix: String,
+                          cache: inout [String: LoadedPDF?]) -> LoadedPDF? {
+        if let hit = cache[name] { return hit }
+        var loaded: LoadedPDF?
+        defer { cache[name] = loaded }
+        let path = prefix + "PDFs/" + name
+        guard !name.contains("/"), !name.hasPrefix("."), pkg.contains(path) else {
+            warnings.append("PDF \(name): not in the package")
+            return nil
+        }
+        let data: Data
+        do { data = try pkg.read(path) } catch {
+            warnings.append("PDF \(name): cannot be read (\(NotabilityImporter.describe(error)))")
+            return nil
+        }
+        do {
+            let pdf = try PDFFile(data: data)
+            let count = pdf.pageCount
+            guard count > 0 else { throw PDFError.badPageTree("no pages") }
+            // Boxes of the pages Notability shows; a page whose box cannot be
+            // read is left out by itself.
+            let pages: [Size?] = (0..<min(count, Self.maxItems)).map { i in
+                guard let p = try? pdf.page(i), p.effectiveWidth > 0, p.effectiveHeight > 0 else { return nil }
+                return Size(w: p.effectiveWidth, h: p.effectiveHeight)
+            }
+            let ref = BlobRef(content: data, type: "application/pdf")
+            if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, data) }
+            loaded = LoadedPDF(ref: ref, pages: pages)
+        } catch PDFError.encrypted {
+            warnings.append("PDF \(name): encrypted (format.md §8.2.6 stores PDFs without encryption); remove the password and import again")
+        } catch {
+            warnings.append("PDF \(name): not readable as a PDF (\(error))")
+        }
+        return loaded
+    }
+
+    // MARK: PDF pages (D1)
+
+    mutating func resolvePDFs(_ note: NotabilityNote, _ pkg: NotePackage, prefix: String) {
+        let w = note.paper.width
+        var cache: [String: LoadedPDF?] = [:]
+        if note.pdfHighlights > 0 {
+            dropped.pdfHighlights = note.pdfHighlights
+            warnings.append("\(note.pdfHighlights) PDF highlight(s) (PDFFile.highlights) not imported: their format is unknown")
+        }
+        // The pages in Notability's order: by document page number when the
+        // entries number 1…n, else as stored.
+        var layout = note.pdfLayout
+        let numbers = layout.compactMap(\.documentPage)
+        if numbers.count == layout.count, Set(numbers) == Set(1...max(layout.count, 1)), !layout.isEmpty {
+            layout.sort { ($0.documentPage ?? 0) < ($1.documentPage ?? 0) }
+        } else if !layout.isEmpty {
+            warnings.append("page layout numbers are not 1…\(layout.count); pages taken in stored order")
+        }
+        // PDF page numbers are 1-based (Notability's PDF export and the
+        // source pages agree that way, docs/import-notability.md); a note
+        // holding a 0 numbers from 0.
+        let zeroBased = layout.contains { $0.isPDF && $0.pdfPage == 0 }
+        if zeroBased { warnings.append("PDF page numbers start at 0; read as 0-based") }
+        var top = 0.0
+        var stride: Double?
+        var heights = Set<Double>()
+        var usedFiles = Set<String>()
+        for (i, entry) in layout.enumerated() {
+            var height = note.paper.pageHeight
+            defer { pageTops.append(top); pageHeights.append(height); top += height }
+            guard entry.isPDF else { continue }
+            guard placements.count < Self.maxItems else { dropped.pdfPages += 1; continue }
+            guard let name = entry.fileName else {
+                dropped.pdfPages += 1
+                warnings.append("page \(i + 1): names a PDF without a file name")
+                continue
+            }
+            guard let pdf = loadPDF(name, pkg, prefix: prefix, cache: &cache) else { dropped.pdfPages += 1; continue }
+            let index = (entry.pdfPage ?? (zeroBased ? 0 : 1)) - (zeroBased ? 0 : 1)
+            guard index >= 0, index < pdf.pages.count, let size = pdf.pages[index] else {
+                dropped.pdfPages += 1
+                warnings.append("page \(i + 1): PDF page \(entry.pdfPage.map(String.init) ?? "?") of \(name) "
+                                + "is not in the file (\(pdf.pages.count) pages) or has no page box")
+                continue
+            }
+            // Laid out at the document width; pages stack every ⌈width × H'/W'⌉ units.
+            let h = w * size.h / size.w
+            guard size.w >= 1, size.h >= 1, NotabilityNote.plausibleAspect(size.h / size.w) != nil else {
+                dropped.pdfPages += 1
+                warnings.append("page \(i + 1): PDF page \(index + 1) of \(name) is \(size.w) × \(size.h) pt, not a plausible page")
+                continue
+            }
+            height = (h - 1e-6).rounded(.up)
+            if stride == nil { stride = height }
+            heights.insert(height)
+            usedFiles.insert(pdf.ref.sha256)
+            placements.append(Placement(content: .pdfPage(blob: pdf.ref, pageIndex: index, pageSize: size),
+                                        layer: .background, frame: Rect(x: 0, y: top, w: w, h: h), rotation: nil,
+                                        tag: "pdf:\(i)"))
+            imported.pdfPages += 1
+            extent = max(extent, top + h)
+        }
+        if layout.isEmpty { pageTops = []; pageHeights = [] }
+        pageStride = stride
+        if heights.count > 1 {
+            warnings.append("PDF pages of \(heights.count) heights; each Notability page is placed at the sum of the "
+                            + "heights above it (unverified on real notes), the note breaks at the first page's height")
+        }
+        imported.pdfs = usedFiles.count
+        // Files Notability lists that no page shows (or that could not be read).
+        let listed = Set(note.pdfFileNames)
+        let shown = Set(layout.compactMap(\.fileName))
+        let failed = shown.filter { (cache[$0] ?? nil) == nil }
+        dropped.pdfs = listed.subtracting(shown).count + failed.count
+        resolveTemplate(note, pkg, prefix: prefix, cache: &cache)
+    }
+
+    /// A `TemplatePDF:<uuid>` paper: the PDF drawn as paper on every page.
+    /// Where Notability keeps that PDF is not known; a PDF in the package
+    /// whose name holds the uuid is used, one background per page, else it
+    /// is reported.
+    mutating func resolveTemplate(_ note: NotabilityNote, _ pkg: NotePackage, prefix: String,
+                                  cache: inout [String: LoadedPDF?]) {
+        guard let id = note.paper.identifier, id.hasPrefix("TemplatePDF:") else { return }
+        let uuid = id.dropFirst("TemplatePDF:".count).split(separator: ":").first.map(String.init) ?? ""
+        let candidates = pkg.paths.filter {
+            $0.hasPrefix(prefix + "PDFs/") && $0.lowercased().hasSuffix(".pdf") && !uuid.isEmpty
+                && $0.lowercased().contains(uuid.lowercased())
+        }
+        guard !note.pdfLayout.contains(where: \.isPDF) else {
+            dropped.templatePDFs = 1
+            warnings.append("template PDF paper on a note made from a PDF is not imported")
+            return
+        }
+        guard let path = candidates.first,
+              let pdf = loadPDF(String(path.dropFirst((prefix + "PDFs/").count)), pkg, prefix: prefix, cache: &cache),
+              let size = pdf.pages.first ?? nil else {
+            dropped.templatePDFs = 1
+            warnings.append("template PDF paper \(uuid.isEmpty ? "(no uuid)" : uuid): no such PDF in the package; the note keeps blank paper")
+            return
+        }
+        let w = note.paper.width, pageHeight = note.paper.pageHeight
+        let h = w * size.h / size.w
+        guard size.w >= 1, size.h >= 1, NotabilityNote.plausibleAspect(size.h / size.w) != nil, pageHeight > 0,
+              placements.count < Self.maxItems else {
+            dropped.templatePDFs = 1
+            warnings.append("template PDF paper \(uuid): its page is not a plausible page")
+            return
+        }
+        // One background per page down to the lowest ink (at least one page).
+        let inkBottom = note.curves.lazy.flatMap(\.points).map(\.y).filter(\.isFinite).max() ?? 0
+        let pages = max(1, Int(min((inkBottom / pageHeight).rounded(.down) + 1, Double(Self.maxItems - placements.count))))
+        for b in 0..<pages {
+            placements.append(Placement(content: .pdfPage(blob: pdf.ref, pageIndex: 0, pageSize: size),
+                                        layer: .background, frame: Rect(x: 0, y: Double(b) * pageHeight, w: w, h: h),
+                                        rotation: nil, tag: "template:\(b)"))
+            extent = max(extent, Double(b) * pageHeight + h)
+        }
+        imported.templatePages = pages
+        imported.pdfs += 1
+        warnings.append("template PDF paper \(uuid): \(path.dropFirst(prefix.count)) used on \(pages) page(s) (location guessed)")
+    }
+
+    // MARK: Images (D2)
+
+    /// Files that can hold media: anything but the parts the importer reads
+    /// otherwise (session, metadata, thumbnails, handwriting index, PDFs,
+    /// recordings), images and assets first.
+    static func mediaFiles(_ pkg: NotePackage, prefix: String) -> [String] {
+        let skip = ["Session.plist", "metadata.plist", "HandwritingIndex/", "PDFs/", "NBPDFIndex/", "Recordings/", "thumb"]
+        let rel = pkg.paths.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+            .filter { r in !skip.contains { r.hasPrefix($0) } }
+        let preferred = rel.filter { $0.hasPrefix("Images/") || $0.hasPrefix("Assets/") }
+        return preferred + rel.filter { !preferred.contains($0) }
+    }
+
+    /// The package file a media object names: a string value equal to a
+    /// file's relative path, or a path ending in it, or with its file name.
+    static func file(for m: NotabilityNote.MediaObject, in files: [String]) -> String? {
+        let byPath = Set(files)
+        var byName: [String: String] = [:]
+        for f in files { let n = f.split(separator: "/").last.map(String.init) ?? f; if byName[n] == nil { byName[n] = f } }
+        for s in m.strings where !s.isEmpty && s.utf8.count <= 1024 {
+            let t = s.hasPrefix("/") ? String(s.drop { $0 == "/" }) : s
+            if byPath.contains(t) { return t }
+            if let f = files.first(where: { t.hasSuffix("/" + $0) }) { return f }
+            if let name = t.split(separator: "/").last.map(String.init), name.contains("."), let f = byName[name] { return f }
+        }
+        return nil
+    }
+
+    mutating func resolveImages(_ note: NotabilityNote, _ pkg: NotePackage, prefix: String, keepMetadata: Bool) {
+        guard !note.mediaObjects.isEmpty else { return }
+        let files = Self.mediaFiles(pkg, prefix: prefix)
+        var prepared: [String: Result<ImageImport.Prepared, ImageImport.Failure>] = [:]
+        var z = 0
+        for (i, m) in note.mediaObjects.enumerated() {
+            let label = "media object \(i + 1) (\(m.className))"
+            func drop(_ why: String) {
+                dropped.media += 1
+                warnings.append("\(label): \(why)")
+            }
+            guard placements.count < Self.maxItems else { drop("over \(Self.maxItems) items on the page"); continue }
+            guard let path = Self.file(for: m, in: files) else {
+                drop("no file of the package named in it (fields: \(m.fieldNames.joined(separator: ", ")))")
+                continue
+            }
+            let result: Result<ImageImport.Prepared, ImageImport.Failure>
+            if let hit = prepared[path] { result = hit } else {
+                do {
+                    result = .success(try ImageImport.prepare(try pkg.read(prefix + path), keepMetadata: keepMetadata))
+                } catch let f as ImageImport.Failure {
+                    result = .failure(f)
+                } catch {
+                    drop("\(path) cannot be read (\(NotabilityImporter.describe(error)))"); continue
+                }
+                prepared[path] = result
+            }
+            let image: ImageImport.Prepared
+            switch result {
+            case .success(let p): image = p
+            case .failure(let f): drop("\(path): \(f)"); continue
+            }
+            guard var frame = m.frame else {
+                drop("\(path) found, but no frame among its fields (\(m.fieldNames.joined(separator: ", ")))")
+                continue
+            }
+            frame.x += note.paper.insetX
+            let limit = NotabilityNote.maxCoordinate
+            guard [frame.x, frame.y, frame.w, frame.h].allSatisfy({ $0.isFinite && abs($0) <= limit }),
+                  frame.w >= 1, frame.h >= 1 else {
+                drop("frame is not a finite box of at least 1 × 1 unit (from \(m.geometrySource ?? "?"))"); continue
+            }
+            let px = Size(w: Double(image.width), h: Double(image.height))
+            var crop = m.crop
+            if m.cropIsUnit, let c = crop { crop = Rect(x: c.x * px.w, y: c.y * px.h, w: c.w * px.w, h: c.h * px.h) }
+            if let c = crop, !([c.x, c.y, c.w, c.h].allSatisfy { $0.isFinite && abs($0) <= limit } && c.hasPositiveSize) {
+                crop = nil
+                warnings.append("\(label): crop ignored (not a positive box)")
+            }
+            // The whole image is the default; a crop equal to it says nothing.
+            if let c = crop, c == Rect(x: 0, y: 0, w: px.w, h: px.h) { crop = nil }
+            let rotation = m.rotation.flatMap { r -> Double? in
+                guard r.isFinite else { return nil }
+                let d = r.truncatingRemainder(dividingBy: 360)
+                return abs(d) < 1e-9 ? nil : d
+            }
+            let ref = BlobRef(content: image.data, type: image.type)
+            if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, image.data) }
+            placements.append(Placement(content: .image(blob: ref, pixelSize: px, orientation: image.orientation, crop: crop),
+                                        layer: .content, frame: frame, rotation: rotation, tag: "image:\(z)"))
+            z += 1
+            imported.images += 1
+            if image.type == "image/heic" { warnings.append("\(label): HEIC stored as is (metadata not stripped)") }
+            warnings.append("\(label): placed from \(m.geometrySource ?? "?") (field names unconfirmed on real notes)")
+            extent = max(extent, Self.lowest(frame, rotation: rotation))
+        }
+    }
+
+    /// Lowest y of `frame` rotated by `rotation` degrees about its centre.
+    static func lowest(_ frame: Rect, rotation: Double?) -> Double {
+        let t = (rotation ?? 0) * .pi / 180
+        let half = (abs(sin(t)) * frame.w + abs(cos(t)) * frame.h) / 2
+        return frame.y + frame.h / 2 + half
+    }
+}
+
+extension NotabilityNote {
+    /// The directory holding `Session.plist` (`<name>/`), or `""` for a
+    /// package with it at the root; nil when there is none.
+    static func packagePrefix(_ pkg: NotePackage) -> String? {
+        let session = pkg.paths.first { $0 == "Session.plist" }
+            ?? pkg.paths.first { $0.hasSuffix("/Session.plist") && $0.split(separator: "/").count == 2 }
+        return session.map { String($0.dropLast("Session.plist".count)) }
+    }
+}
