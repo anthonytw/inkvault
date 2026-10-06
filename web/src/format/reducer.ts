@@ -475,8 +475,10 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     }
     outPages.push(page);
   }
-  // Byte-wise (code point) order, not a normalising comparison.
-  outPages.sort((l, r) => cmpUTF8(l.order, r.order) || cmpStr(l.id, r.id));
+  // As Swift: keys that are canonically equal (Swift `!=`) tie and fall back
+  // to the id; others order byte-wise (code points), not by normalised form.
+  outPages.sort((l, r) => (l.order.normalize("NFC") === r.order.normalize("NFC") ? 0 : cmpUTF8(l.order, r.order))
+    || cmpStr(l.id, r.id));
 
   // What a new `included` would reflect.
   let included = new Included();

@@ -473,3 +473,26 @@ describe("tag convergence (format.md §5.3, §5.4.1)", () => {
     expect(nonEmpty).toBeGreaterThan(20);
   });
 });
+
+describe("Unicode details that must match Swift", () => {
+  it("lowercases Σ to σ everywhere, as Swift does (no final sigma)", () => {
+    const log = new LogBuilder();
+    const a = log.delta(devA, 100, [op.addTag("οδοσ")]);
+    const b = log.delta(devB, 150, [op.addTag("ΟΔΟΣ")]);
+    expect(tags([a, b])).toEqual(["οδοσ"]);
+    const rm = log.delta(devB, 200, [op.removeTag("ΟΔΟΣ", [instance(a)])]);
+    expect(tags([a, rm])).toEqual([]);
+    expect(tagKey("ΟΔΟΣ")).toBe("οδοσ");
+  });
+
+  it("splits on whole characters: a space with a combining mark is whitespace", () => {
+    expect(normalizedTag("a ́b")).toBe("a b");
+    expect(normalizedTag(" a\r\nb　c ")).toBe("a b c");
+  });
+
+  it("orders canonically equal page keys by id", () => {
+    const id1 = "00000000-0000-4000-8000-000000000001", id2 = "00000000-0000-4000-8000-000000000002";
+    const add = new LogBuilder().delta(devA, 0, [op.addPage(id2, "é"), op.addPage(id1, "é")]);
+    expect(reconstruct([add]).pages.map((p) => p.id)).toEqual([id1, id2]);
+  });
+});
