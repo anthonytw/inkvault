@@ -25,6 +25,7 @@ jobs:
     outputs:
       package: ${{ steps.f.outputs.package }}
       app: ${{ steps.f.outputs.app }}
+      web: ${{ steps.f.outputs.web }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +34,8 @@ jobs:
         name: Classify changed paths
         run: |
           if [ "${{ github.event_name }}" != pull_request ]; then
-            echo "package=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "package=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}")"
           echo "$files"
@@ -44,9 +46,13 @@ jobs:
           # tests open the package's fixture vault; CLI, importer and WebDAV changes
           # cannot affect it.
           app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
+          # Web viewer (web/): its own job; Swift and app changes do not run it on a PR
+          # (main runs everything, so a Swift change that moves the goldens shows there).
+          web=$(has '^(web/|\.github/workflows/ci\.yml$)')
           echo "package=$package" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "package=$package app=$app"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "package=$package app=$app web=$web"
 
   linux:
     name: Linux (swift:6.4-noble)
@@ -182,3 +188,57 @@ jobs:
         with:
           path: .build/xcode
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+
+  web:
+    name: Web viewer (lint, typecheck, tests, build)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install (lockfile only)
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests and cross-check against the committed Swift goldens
+        run: npm test
+      - name: Build (strict CSP)
+        run: |
+          npm run build
+          grep -q 'Content-Security-Policy' dist/index.html
+
+  web-golden:
+    name: Web viewer goldens match the Swift CLI
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zlib headers
+        run: apt-get update -q && apt-get install -y -q zlib1g-dev
+      # Restores the Linux job's cache from main (same key); never saves.
+      - id: cachekey
+        name: Cache key (toolchain + resolved packages)
+        run: echo "key=linux-$(echo "$GITHUB_WORKSPACE" | cksum | cut -d" " -f1)-$(swift --version 2>&1 | head -1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+          restore-keys: ${{ steps.cachekey.outputs.key }}-
+      - name: Build the CLI
+        run: swift build --product sempere
+      - name: Export the fixture vaults with the CLI and compare with web/test/golden
+        run: |
+          SEMPERE=.build/debug/sempere web/scripts/golden.sh /tmp/golden
+          diff -r web/test/golden /tmp/golden

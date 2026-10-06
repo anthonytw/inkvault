@@ -9,6 +9,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Web viewer (`web/`, `docs/web-viewer.md`): a static, read-only page that opens a vault from a
+  web server (static files or WebDAV) or a local folder, decrypts it in the browser with the
+  pasted post-quantum key (typage), and shows notebooks, tags, search over titles and
+  handwriting, and the notes' pages with pan and zoom, drawn exactly like the CLI's SVG export.
+  The key stays in the tab's memory; strict Content-Security-Policy; no third-party requests.
+- CLI: `sempere vault index` writes `sempere-index.json`, the listing the web viewer reads on a
+  static server.
+
 - iPad app: handwriting search. Pages are read on the device with Vision after the strokes
   change (and when a note opens), the text is saved as page recognition (`format.md` §5.5, new
   optional `basis` field), and the note list searches recognised text, titles, notebooks and

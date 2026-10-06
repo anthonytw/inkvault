@@ -140,6 +140,7 @@ sempere vault recipients remove age1...
 sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
 sempere vault rewrap-resume
 sempere vault verify
+sempere vault index [--out PATH|-]
 ```
 
 - `init` creates the vault. `PATH` must end in `.sempere`. Give no `--label`
@@ -183,6 +184,13 @@ sempere vault verify
   `status  path` per file plus counts. Exit 0 only if the vault is healthy,
   else 3. `-q` lists only problem files. `--json` emits `healthy`,
   `manifestProblems`, `rewrapPending`, `journalProblem`, `counts` and `files`.
+- `index` writes `sempere-index.json` at the vault root (or `--out PATH`;
+  `--out -` prints it): every note id and its revision file names, the
+  listing the web viewer reads on a static server that cannot list folders
+  (`docs/web-viewer.md` "Hosting"). It needs no key and holds only names that
+  storage already shows. Re-run it after every update of the hosted copy; a
+  WebDAV share needs no index. Legacy vaults are refused (exit 5), as the
+  viewer cannot read them. `--json` emits `path`, `notes` and `revisions`.
 
 ### Backup and restore
 
