@@ -307,7 +307,8 @@ struct ProgressiveLoadTests {
         let tagging = Task { try await model.addTag("new", to: Self.lecture) }
         try await Task.sleep(for: .milliseconds(100))
         let dir = url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())")
-        let before = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { !$0.hasPrefix(".") }
+        let before = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { !$0.hasPrefix(".") && $0 != "att" }   // `att/` (blobs) is not evicted with the revisions
         #expect(before.isEmpty)                     // nothing written while the note is missing
         try cloud.deliver(Self.lecture)
         try await tagging.value

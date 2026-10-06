@@ -241,15 +241,7 @@ public enum Backup {
 
     /// `<64 lowercase hex>.<kind>.age`, kind 1–16 lowercase ASCII letters or
     /// digits (format.md §8.1.2); anything else in `att/` is an unknown file.
-    static func isBlobFileName(_ name: String) -> Bool {
-        let parts = name.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 3, parts[2] == "age", parts[0].count == 64, (1...16).contains(parts[1].count) else {
-            return false
-        }
-        let hex = parts[0].utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
-        let kind = parts[1].utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7A).contains($0) }
-        return hex && kind
-    }
+    static func isBlobFileName(_ name: String) -> Bool { BlobName.parse(name) != nil }
 
     /// Whether `path` is an attachment blob, which a backup never prunes:
     /// blob collection is per device and per note (format.md §8.1.6), not

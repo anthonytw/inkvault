@@ -131,10 +131,10 @@ final class CLIBackupTests: CLITestCase {
         let first = try cli(["backup", vault, "--to", dir, "--json"])
         XCTAssertEqual(first.status, 0, first.err)
         let report = try XCTUnwrap(first.json as? [String: Any])
-        XCTAssertEqual((report["copied"] as? [String])?.count, 9)
+        XCTAssertEqual((report["copied"] as? [String])?.count, 10)   // 7 revisions, key file, blob, vault.json
         let second = try cli(["backup", "--vault", vault, "--to", dir, "--json"])
         XCTAssertEqual(second.status, 0, second.err)
-        XCTAssertEqual((second.json as? [String: Any])?["unchanged"] as? Int, 9)
+        XCTAssertEqual((second.json as? [String: Any])?["unchanged"] as? Int, 10)
 
         let locked = try cli(["backup", "verify", dir])
         XCTAssertEqual(locked.status, 0, locked.out + locked.err)
@@ -218,7 +218,7 @@ final class CLIBackupTests: CLITestCase {
         let tar = path("notes.tar")
         let r = try cli(["backup", vault, "--archive", tar, "--json"])
         XCTAssertEqual(r.status, 0, r.err)
-        XCTAssertEqual((r.json as? [String: Any])?["files"] as? Int, 9)
+        XCTAssertEqual((r.json as? [String: Any])?["files"] as? Int, 10)
         XCTAssertEqual(try cli(["backup", vault, "--archive", tar]).status, 1, "refuses to overwrite")
         let bytes = try Data(contentsOf: URL(fileURLWithPath: tar))
         XCTAssertNil(String(decoding: bytes, as: UTF8.self).range(of: "Fixture lecture"), "no plaintext in the archive")
