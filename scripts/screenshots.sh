@@ -46,12 +46,9 @@ ipad() {
   sim=$(pick_simulator)
   rm -rf "$dir"; mkdir -p "$dir"
   xcrun simctl bootstatus "$sim" -b >/dev/null
-  # No clutter: 9:41 on a fixed date, full battery, full bars, light mode. The iPad status
-  # bar also shows the date, which only an ISO date sets; it is local time with the host's
-  # offset on that day, so the bar reads 9:41 in any time zone.
-  local when
-  when=$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime(2026, 10, 5, 9, 41).astimezone().isoformat())')
-  xcrun simctl status_bar "$sim" override --time "$when" --dataNetwork wifi --wifiMode active --wifiBars 3 \
+  # No clutter: 9:41, full battery, full bars, light mode. (The iPad status bar also shows
+  # the date, which this does not fix: simctl on Xcode 26.6 refused an ISO date with an offset.)
+  xcrun simctl status_bar "$sim" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
     --cellularMode notSupported --batteryState charged --batteryLevel 100
   xcrun simctl ui "$sim" appearance light
   trap 'xcrun simctl status_bar "$sim" clear || true' RETURN
