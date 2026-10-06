@@ -80,16 +80,19 @@ final class PDFBackgrounds {
     }
 
     /// Pixel size for drawing the effective page `w × h` points at `scale`
-    /// pixels per point, scaled down to fit `RenderLimits.maxBackgroundPixels`.
-    static func pixelSize(width w: Double, height h: Double, scale: Double) -> (Int, Int)? {
-        guard w.isFinite, h.isFinite, scale.isFinite, w > 0, h > 0, scale > 0 else { return nil }
+    /// pixels per point, scaled down to fit `maxPixels`.
+    static func pixelSize(width w: Double, height h: Double, scale: Double,
+                          maxPixels: Int = RenderLimits.maxBackgroundPixels) -> (Int, Int)? {
+        guard w.isFinite, h.isFinite, scale.isFinite, w > 0, h > 0, scale > 0, maxPixels > 0 else { return nil }
         var pw = w * scale, ph = h * scale
-        let cap = Double(RenderLimits.maxBackgroundPixels)
-        if pw * ph > cap {
+        let cap = Double(maxPixels)
+        if !(pw * ph <= cap) {
             let k = (cap / (pw * ph)).squareRoot()
             pw *= k; ph *= k
         }
-        return (max(1, Int(pw.rounded())), max(1, Int(ph.rounded())))
+        // A very thin page keeps at least one pixel across; the product stays within the cap.
+        let iw = max(1, min(Int(min(pw, cap).rounded()), maxPixels)), ih = max(1, min(Int(min(ph, cap).rounded()), maxPixels / iw))
+        return (iw, ih)
     }
 
     static func describe(_ error: Error) -> String {

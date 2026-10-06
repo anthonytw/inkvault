@@ -100,6 +100,9 @@ public struct RenderOptions: Sendable {
     /// Pixels per point for rasterized PDF pages in SVG and PDF output (PNG
     /// uses its own resolution).
     public var rasterScale: Double
+    /// Most pixels one rasterized PDF page may have; larger ones are drawn at
+    /// a lower resolution.
+    public var maxBackgroundPixels: Int = RenderLimits.maxBackgroundPixels
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
     public init(paper: Bool = true, compress: Bool = true, tolerance: Double = 0.05,

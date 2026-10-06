@@ -57,7 +57,7 @@ let package = Package(
         .executableTarget(
             name: "SempereCLI",
             dependencies: [
-                "Age", "Sempere", "SempereRender", "SempereImport", "SempereWebDAV",
+                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),

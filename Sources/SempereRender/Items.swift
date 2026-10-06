@@ -227,7 +227,7 @@ enum RasterItems {
         case placeholder(PlaceholderReason)
     }
 
-    static func resolve(_ items: [PreparedItem], backgrounds: PDFBackgrounds, scale: Double,
+    static func resolve(_ items: [PreparedItem], backgrounds: PDFBackgrounds, scale: Double, maxPixels: Int,
                         report: inout RenderReport) -> [UUID: Draw] {
         var out: [UUID: Draw] = [:]
         for it in items {
@@ -239,7 +239,7 @@ enum RasterItems {
             } else if backgrounds.rasterizer == nil {
                 d = .placeholder(.noRasterizer)
             } else {
-                switch PDFWriter.rasterized(it, backgrounds: backgrounds, scale: scale) {
+                switch PDFWriter.rasterized(it, backgrounds: backgrounds, scale: scale, maxPixels: maxPixels) {
                 case .success(let r)?: d = .raster(r)
                 case .failure(let reason)?: d = .placeholder(reason)
                 case nil:

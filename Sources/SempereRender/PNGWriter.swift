@@ -74,7 +74,8 @@ public enum PNGWriter {
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
-        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, scale: png.scale, report: &report)
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, scale: png.scale,
+                                        maxPixels: options.maxBackgroundPixels, report: &report)
         var out: [Data] = []
         for (chunk, size) in zip(chunks, sizes) {
             let layers = prepared.layers(for: chunk)

@@ -191,7 +191,8 @@ public enum PDFWriter {
         }
         // A PDF that cannot be copied may still be drawn by the rasterizer.
         guard case .pdfUnreadable = reason, options.pdfRasterizer != nil,
-              let raster = rasterized(it, backgrounds: backgrounds, scale: options.rasterScale) else {
+              let raster = rasterized(it, backgrounds: backgrounds, scale: options.rasterScale,
+                                         maxPixels: options.maxBackgroundPixels) else {
             return .placeholder(reason)
         }
         switch raster {
@@ -207,14 +208,15 @@ public enum PDFWriter {
     /// The effective page as pixels at `scale` pixels per drawn point, with the
     /// placement from effective-page coordinates to page coordinates and the
     /// effective page's size. nil when the page's geometry is unknown.
-    static func rasterized(_ it: PreparedItem, backgrounds: PDFBackgrounds,
-                           scale: Double) -> Result<RasterBackground, PlaceholderReason>? {
+    static func rasterized(_ it: PreparedItem, backgrounds: PDFBackgrounds, scale: Double,
+                           maxPixels: Int) -> Result<RasterBackground, PlaceholderReason>? {
         let item = it.item
         guard let info = backgrounds.page(item) else { return nil }
         let w = info.effectiveWidth, h = info.effectiveHeight
         let crop = item.crop ?? Rect(x: 0, y: 0, w: w, h: h)
         guard let (pw, ph) = PDFBackgrounds.pixelSize(width: w * item.frame.w / crop.w,
-                                                      height: h * item.frame.h / crop.h, scale: scale) else {
+                                                      height: h * item.frame.h / crop.h, scale: scale,
+                                                      maxPixels: maxPixels) else {
             return nil
         }
         let placement = ItemGeometry.placement(crop: crop, frame: item.frame, degrees: item.rotation ?? 0)

@@ -33,7 +33,7 @@ public enum SVGWriter {
                        backgrounds: PDFBackgrounds, report: inout RenderReport) throws -> String {
         let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
         let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, scale: options.rasterScale,
-                                        report: &report)
+                                        maxPixels: options.maxBackgroundPixels, report: &report)
         let width = meta.pageSize.width
         let height = prepared.extent
         let paperCommands = prepared.fullPagePaper()

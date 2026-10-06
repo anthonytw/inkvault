@@ -1,3 +1,4 @@
+import FuzzSupport
 import Foundation
 import Sempere
 import SemperePDF
@@ -209,8 +210,12 @@ final class PDFBackgroundTests: XCTestCase {
         guard case .success = backgrounds.raster(it, pixelWidth: 100, pixelHeight: 100) else { return XCTFail() }
         guard case .success = backgrounds.raster(it, pixelWidth: 100, pixelHeight: 100) else { return XCTFail() }   // cached
         guard case .failure(.rasterBudget) = backgrounds.raster(it, pixelWidth: 80, pixelHeight: 80) else { return XCTFail() }
-        XCTAssertEqual(PDFBackgrounds.pixelSize(width: 1e6, height: 1e6, scale: 2).map { $0.0 * $0.1 }.map { $0 <= 16_000_000 },
-                       true)
+        for (w, h) in [(1e6, 1e6), (1e9, 1e-9), (1e-9, 1e9), (400, 300)] {
+            let size = try XCTUnwrap(PDFBackgrounds.pixelSize(width: w, height: h, scale: 2))
+            XCTAssertLessThanOrEqual(size.0 * size.1, RenderLimits.maxBackgroundPixels, "\(w) × \(h)")
+            XCTAssertGreaterThan(size.0 * size.1, 0)
+        }
+        XCTAssertNil(PDFBackgrounds.pixelSize(width: .nan, height: 1, scale: 2))
     }
 
     // MARK: Poppler pixel checks (CI installs poppler-utils)
@@ -259,5 +264,46 @@ final class PDFBackgroundTests: XCTestCase {
         let d = Poppler.compare(viaForm, viaRaster, threshold: 96)
         XCTAssertLessThan(d.bad, 0.02, "\(d)")
         XCTAssertLessThan(d.mean, 6, "\(d)")
+    }
+}
+
+/// Fuzzing the export of PDF backgrounds: mutated PDF bytes behind `pdfPage`
+/// items, hostile placement. Every writer renders or throws `RenderError`;
+/// a bad PDF is only ever a placeholder.
+final class PDFBackgroundFuzzTests: XCTestCase {
+    static func typed(_ body: () throws -> Void) -> String? {
+        do { try body() } catch is RenderError {} catch { return "untyped error \(type(of: error)): \(error)" }
+        return nil
+    }
+
+    func testFuzzPDFBackgrounds() throws {
+        let seeds = try ["classic.pdf", "objstm.pdf", "incremental.pdf", "rotated.pdf", "broken-xref.pdf", "filters.pdf"]
+            .map { try PDFFixture.data($0) }
+        let report = Fuzz.run("render-pdf", seeds: seeds, quick: 300, text: true, maxSize: 32 << 10) { input in
+            var blobs = MemoryBlobs()
+            let ref = blobs.add(input)
+            var rng = FuzzRNG(seed: UInt64(input.count))
+            let rotations: [Double] = [0, 90, 33, -720.5, 1e300]
+            let items = (0..<3).map { k in
+                var it = Item.pdfPage(blob: ref, pageIndex: rng.pick([0, 1, 5, -1]), pageSize: Size(w: 100, h: 80),
+                                      crop: rng.oneIn(2) ? Rect(x: rng.pick([0, -50, 1e6]), y: 3, w: rng.pick([1e-9, 10, 1e9]), h: 7)
+                                          : nil,
+                                      frame: Rect(x: rng.pick([0, -10, 150]), y: 10, w: rng.pick([1e-3, 50, 1e5]), h: 40),
+                                      z: "a\(k)")
+                it.rotation = rng.pick(rotations)
+                return it
+            }
+            let note = PDFFixture.note(size: (200, 200), items: items)
+            return Self.typed {
+                var report = RenderReport()
+                var options = RenderOptions(blobs: blobs, pdfRasterizer: QuadrantRasterizer(), rasterScale: 0.5)
+                options.maxBackgroundPixels = 40_000
+                _ = try PDFWriter.render(note: note, options: options, report: &report)
+                _ = try SVGWriter.render(note: note, options: options, report: &report)
+                _ = try PNGWriter.render(note: note, options: options, png: PNGOptions(scale: 0.5), report: &report)
+            }
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
     }
 }
