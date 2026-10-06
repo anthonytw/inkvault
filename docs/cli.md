@@ -271,6 +271,91 @@ another note's blobs. NOTE is an id or a title; without one, every note.
 
 `recover` also reads a single blob file without the vault (see "Recover").
 
+#### Adding attachments
+
+```
+sempere attach image NOTE FILE [--page N] [--frame X,Y,W,H | --at X,Y [--width W]] [--crop X,Y,W,H]
+                               [--rotation DEG] [--layer content|background] [--keep-metadata]
+                               [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
+sempere attach pdf NOTE FILE [--pages 1-3,5,7-] [--after N]
+                             [--page N [--frame ... | --at ... --width ...] [--crop X,Y,W,H]] [--dry-run]
+sempere attach text NOTE (TEXT | --file FILE|-) [--page N] [--frame ... | --at ... --width ...]
+                             [--font sans|serif|mono] [--size PT] [--color #RRGGBB[AA]]
+                             [--align start|center|end|left|right] [--bold] [--italic] [--lang TAG]
+                             [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
+sempere attach recording NOTE FILE [--title T] [--started TIME] [--type MEDIA/TYPE] [--duration S]
+                             [--codec NAME] [--sample-rate HZ] [--channels N] [--bit-rate BPS]
+sempere attach transcript NOTE RECORDING FILE [--dry-run]
+```
+
+The commands the app's add flows have, scriptable (`docs/attachments.md` §14
+task F). Each stores the file's bytes as an encrypted blob of the note
+(`blobs add` does the same without a placement), then writes **one delta**
+through the same `NoteOps` the app uses, with this machine's device id and
+clock (as `snapshot`). NOTE is an id, an id prefix or an exact title; a
+deleted note is refused. Pages are numbered from 1 as `pages list` prints
+them (`--page` defaults to 1); coordinates are points from the page's top-left.
+Standard output is the new item's (or recording's) id, one per line, so
+`ID=$(sempere attach image …)` works; the confirmation goes to standard error
+(`-q` silences it). `--json` prints `{note, file, dryRun, blob, items,
+recording, pagesAdded}`: `file` is the delta written (`null` with `--dry-run`),
+`blob` the reference stored (`sha256`, `size`, `type`), `items` the added items
+as `notes show --json` prints them (`{page, pageId, item}`), `recording` the
+recording added or changed. `--dry-run` checks the file and the placement and
+says what would be added; it writes neither the blob nor a delta. A blob
+stored before a failing delta is unreferenced; `blobs gc` collects it. Nothing
+is stored when the file or the placement is refused (exit 1; bad options are
+exit 2).
+
+- `image` takes a JPEG or PNG. The stored bytes have location and camera
+  metadata removed (every APPn segment but JFIF, ICC and Adobe, and comments,
+  in a JPEG; ancillary chunks but the colour ones in a PNG) unless
+  `--keep-metadata`; a JPEG's EXIF orientation is first copied to the item's
+  `orientation`, so it still shows upright (`format.md` §8.2.5). HEIC, WebP,
+  GIF, TIFF and CMYK or arithmetic-coded JPEGs are refused: convert them first.
+  The file must decode, stay under 100 megapixels and 64 MiB. Without a frame
+  the image is shown at one pixel per point, shrunk to fit inside a 36 pt
+  margin, centred across the page and a margin from its top; `--at` and
+  `--width` set its corner and width (the height follows the aspect of the image
+  or its `--crop`, given in oriented pixels), `--frame` all four numbers.
+  `--rotation` is degrees clockwise. Items stack in the order they are added
+  (each gets a `z` above the layer's others); `--layer background` puts the image
+  under the page's other items.
+- `pdf` stores the PDF once and places pages of it (`--pages`, default all;
+  the list keeps its order). By default each selected page becomes a **new note
+  page** with the PDF page as a background that fills it (layer 0; fitted and
+  centred when its size differs from the note's page size), inserted after note
+  page `--after` (0: before the first; default the end), all in one delta.
+  The note's page size is not changed, and a pageless note takes no inserted pages.
+  With `--page` (and `--frame`, or `--at` and `--width`, and `--crop` on the
+  effective page) **one** PDF page is instead placed as a figure on an existing
+  page, in the content layer; `--pages` must then select exactly one. Encrypted
+  PDFs, files that are not PDFs, PDFs with more than 2 000 pages or a page
+  without a usable size are refused. Annotations and form fields are not drawn
+  (`format.md` §8.2.6).
+- `text` adds a text box. The text is the argument, or `--file` (`-` is standard
+  input), at most 65 536 bytes of UTF-8, stored as NFC with `\n` line breaks in
+  one style (one trailing newline of a file is dropped). Without a frame the box
+  is as wide as the page inside a 36 pt margin (or `--width`), a margin from
+  the top and left (or `--at`) and as tall as its lines at 1.2 × `--size`
+  (default 14); soft line breaks are left to each renderer (no `breaks` are
+  stored, `format.md` §8.5.3). `--lang` picks fonts for CJK text. Typed text is
+  searchable (`search`).
+- `recording` stores an audio file and adds it to the note. MPEG-4 audio (`.m4a`;
+  AAC-LC, HE-AAC or ALAC, `audio/mp4`) is read for its duration, codec, sample
+  rate, channels and average bit rate; each option overrides what was read.
+  Another format needs `--type audio/…` (stored and listed, perhaps not playable
+  in the app). `--started` is the wall time of the first sample (RFC 3339);
+  without it the file's modification time minus its duration. At most 1 000
+  recordings per note. `--rec ID` on `image` and `text` links an item to a
+  recording (id, id prefix of 4+ characters or exact title) at `--rec-at` seconds
+  (`format.md` §8.3.3).
+- `transcript` sets a recording's transcript from a `sempere-transcript/1` JSON
+  file (`format.md` §8.3.2). The file is checked (format, segment order and
+  times, confidences, and that it names the recording by id); it replaces any
+  transcript the recording has, in one `setRecording` delta.
+
+
 ### Backup and restore
 
 ```
@@ -676,20 +761,50 @@ so the report is exact but neither the vault nor `device.json` is touched.
 if any note failed, a path does not exist, or no `.note` or `.ntb` file was
 found.
 
+#### `import pdf`
+
+```
+sempere import pdf FILE... [--title T] [--notebook N] [--tag T ...] [--pages 1-3,5,7-] [--dry-run]
+```
+
+Makes a **new note from each PDF**: the PDF is stored as one blob of the note
+and every page becomes a note page with a `pdfPage` item filling it in the
+background layer, so the note opens as a PDF to annotate (`docs/attachments.md`
+§8). The note's page size is the first page's effective size (crop box,
+rotation); later pages of another size are fitted and centred; paper is blank.
+The whole note is one delta. The title is `--title` (one file only) or the file
+name without `.pdf`; `--notebook` and `--tag` as for `notes new`; `--pages`
+imports a subset. Encrypted PDFs (remove the password first, e.g. `qpdf
+--decrypt`), non-PDFs and PDFs with more than 2 000 pages are refused. Prints
+each new note's id (`-q`: only the ids); a file that fails does not stop the
+others and the exit code is 1. `--dry-run` checks the files and writes nothing.
+`--json` emits `{dryRun, imported, failed, notes}`, one entry per file:
+`source`, `status` (`imported`, `would import`, `failed`), `reason`, `id`,
+`title`, `pages`, `blob`, `file`. Exports draw the pages as the originals (see
+"PDF page backgrounds").
+
 ### Search
 
 ```
-sempere search TERM
+sempere search TERM [--transcripts]
 ```
 
-Case-insensitive substring search over every page's recognised text (the
-Notability import, later on-device recognition) in all notes except deleted
-ones. Human output is one row per matching page: note title, page number and a
-snippet. `--json` emits a list of hits with `noteId`, `title`, `notebook`,
-`page` (1-based), `pageId`, `snippet`, `matches`, `engine` and `words`, the
-recognised words containing the term with their `[x, y, w, h]` boxes. No match
-prints `No matches.` (an empty list with `--json`) and exits 0. Notes are read
-in parallel and without stroke geometry, as for `notes list`.
+Case-insensitive, accent-insensitive substring search over every page's
+recognised handwriting text (the Notability import, on-device recognition)
+**and the text of every text box**, in all notes except deleted ones. With
+`--transcripts` it also searches the transcript of every recording, which means
+decrypting each transcript blob (a transcript that cannot be read is reported
+on stderr and makes the exit code 1). Human output is one row per hit: note
+title, where (`p3` handwriting on page 3, `p3 text` a text box, `rec 12:03
+Title` a transcript segment at that time) and a snippet. `--json` emits a list
+of hits with `noteId`, `title`, `notebook`, `snippet`, `matches`, `source`
+(`handwriting`, `text` or `transcript`) and per source: `page` (1-based),
+`pageId`, `engine` and `words` (the recognised words containing the term with
+their `[x, y, w, h]` boxes) for handwriting; `page`, `pageId`, `itemId` and `box`
+(the text box's frame) for text; `recordingId`, `recordingTitle`, `start`,
+`end` (seconds), `engine` for a transcript (no `page`). No match prints `No
+matches.` (an empty list with `--json`) and exits 0. Notes are read in parallel
+and without stroke geometry, as for `notes list`.
 
 ### Export
 
@@ -726,7 +841,12 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
   40 million pixels (a letter page above about 620 dpi) is an error naming the
   limit, not an allocation; lower `--dpi`. With `--no-paper` the background is
   transparent.
-- `json`: the reconstructed note (`NoteState`, `docs/format.md` §6).
+- `json`: the reconstructed note (`NoteState`, `docs/format.md` §6), items and recordings included.
+
+Every item kind is drawn by `pdf`, `svg` and `png`: text boxes (bundled fonts and font packs, "Text in
+exports"), images ("Images in exports") and PDF pages ("PDF page backgrounds"), from the
+note's own blobs. Recordings are listed in `json` and `notes show`; drawing them into exports
+(`docs/attachments.md` task C4) is not done yet.
 
 - `markdown` and `html`: a folder tree, see "Markdown and HTML exports" below.
   `--notebook NAME` (with `--all`, any format) keeps only notes in that
@@ -894,6 +1014,8 @@ shared folder cannot make an export write or `--clean` delete elsewhere.
 - Recognised text (`format.md` §5.5), when a page has it, under that page as
   `Machine-recognized text (engine ..., may contain errors):` followed by a
   fenced `text` block, so it stays literal and Obsidian or `grep` finds it.
+- The text of the page's text boxes, in drawing order, under `Typed text:` as
+  fenced `text` blocks (a page with only typed text gets a section too).
 - `README.md` in the root and every folder: sub-notebooks and notes (title,
   pages, modified, tags). These list every note the output folder has been
   exported with, not only this run's.
@@ -905,7 +1027,8 @@ and a search box filtering as you type over title, notebook, tags and
 recognised text (a few lines of inline script; the page works without it,
 unfiltered). Recognised words are also laid over the ink as an invisible
 selectable SVG text layer, and each page's text is listed below it in a
-collapsed "Machine-recognized text" block. There are no external resources:
+collapsed "Machine-recognized text" block, and the text of its text boxes in a
+collapsed "Typed text" block; the index search covers both. There are no external resources:
 no scripts, fonts, stylesheets or images are fetched, and the file is
 well-formed XML as well as HTML.
 

@@ -6,14 +6,38 @@ struct SearchHit: Encodable {
     var noteId: String
     var title: String
     var notebook: String?
-    var page: Int
-    var pageId: String
+    /// 1-based; absent for a transcript hit.
+    var page: Int?
+    var pageId: String?
     var snippet: String
     var matches: Int
-    var engine: String
+    /// `handwriting` (page recognition), `text` (a text box) or `transcript` (a recording's).
+    var source: String
+    /// The recogniser's name (`handwriting` and `transcript` hits; absent for a text box).
+    var engine: String?
+    /// The recognised words containing the term (`handwriting` hits only; empty otherwise).
     var words: [Word]
+    /// The text box (`text` hits).
+    var itemId: String?
+    /// Its frame `[x, y, w, h]`.
+    var box: [Double]?
+    /// The recording and the segment's time in seconds (`transcript` hits).
+    var recordingId: String?
+    var recordingTitle: String?
+    var start: Double?
+    var end: Double?
 
     struct Word: Encodable { var text: String; var box: [Double] }
+
+    /// Where the hit is, for the table: `p3`, `p3 text` or `rec 12:03`.
+    var place: String {
+        if let page { return "p\(page)" + (source == "text" ? " text" : "") }
+        // A transcript's times are only checked to be ordered and ≥ 0 (format.md §8.3.2):
+        // anything past a million hours is shown as unknown, never converted (Int(1e300) traps).
+        let time = start.flatMap { $0.isFinite && $0 >= 0 && $0 < 3.6e9 ? Int($0) : nil }
+            .map { String(format: "%d:%02d", $0 / 60, $0 % 60) } ?? "?:??"
+        return "rec \(time)" + (recordingTitle.map { " \($0)" } ?? "")
+    }
 }
 
 enum RecognitionSearch {
@@ -42,16 +66,21 @@ enum RecognitionSearch {
 struct SearchCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "search",
-        abstract: "Search the recognised handwriting text of all notes.",
+        abstract: "Search the recognised handwriting, typed text and (with --transcripts) transcripts of all notes.",
         discussion: """
             Case-insensitive substring search over each page's recognised text (from the Notability
-            import or on-device recognition). Prints note title, page number and a snippet; --json adds
-            ids and the boxes of the matching words. Deleted notes are skipped.
+            import or on-device recognition) and over the text of every text box. With --transcripts it
+            also searches the transcript of each recording (this decrypts each transcript blob, so it is
+            slower). Prints note title, where (p3, p3 text, rec 12:03) and a snippet; --json adds ids,
+            the source of each hit and the boxes of the matching words. Deleted notes are skipped.
             """
     )
 
     @Argument(help: ArgumentHelp("Text to look for.", valueName: "term"))
     var term: String
+
+    @Flag(name: .long, help: "Also search the transcripts of recordings (decrypts each transcript).")
+    var transcripts = false
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -66,6 +95,7 @@ struct SearchCommand: ParsableCommand {
         let tokens = needle.split(whereSeparator: \.isWhitespace).map(String.init)
         var hits: [SearchHit] = []
         var unreadable = 0
+        var transcriptProblems = 0
         let ids = try vault.noteIDs()
         for (id, result) in zip(ids, vault.states(of: ids, detail: .withoutStrokePoints)) {
             let state: NoteState
@@ -79,30 +109,72 @@ struct SearchCommand: ParsableCommand {
             }
             guard !state.deleted else { continue }
             title = state.meta.title
+            let noteId = id.uuidString.lowercased()
             for (index, page) in state.pages.enumerated() {
-                guard let rec = page.recognition else { continue }
-                let found = RecognitionSearch.ranges(of: needle, in: rec.text)
-                guard let first = found.first else { continue }
-                let words = rec.words.filter { w in
-                    tokens.contains { w.text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+                let pageId = page.id.uuidString.lowercased()
+                if let rec = page.recognition {
+                    let found = RecognitionSearch.ranges(of: needle, in: rec.text)
+                    if let first = found.first {
+                        let words = rec.words.filter { w in
+                            tokens.contains { w.text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+                        }
+                        hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
+                                              pageId: pageId, snippet: RecognitionSearch.snippet(rec.text, around: first),
+                                              matches: found.count, source: "handwriting", engine: rec.engine,
+                                              words: words.map { .init(text: $0.text, box: [$0.box.x, $0.box.y, $0.box.w, $0.box.h]) }))
+                    }
                 }
-                hits.append(SearchHit(noteId: id.uuidString.lowercased(), title: title, notebook: state.meta.notebook,
-                                      page: index + 1, pageId: page.id.uuidString.lowercased(),
-                                      snippet: RecognitionSearch.snippet(rec.text, around: first), matches: found.count,
-                                      engine: rec.engine,
-                                      words: words.map { .init(text: $0.text, box: [$0.box.x, $0.box.y, $0.box.w, $0.box.h]) }))
+                for item in page.items where item.kind == .text {
+                    guard let text = item.text?.string else { continue }
+                    let found = RecognitionSearch.ranges(of: needle, in: text)
+                    guard let first = found.first else { continue }
+                    hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
+                                          pageId: pageId, snippet: RecognitionSearch.snippet(text, around: first),
+                                          matches: found.count, source: "text", engine: nil, words: [],
+                                          itemId: item.id.uuidString.lowercased(),
+                                          box: [item.frame.x, item.frame.y, item.frame.w, item.frame.h]))
+                }
+            }
+            if transcripts {
+                for recording in state.recordings {
+                    guard let ref = recording.transcript else { continue }
+                    let transcript: Transcript
+                    do {
+                        transcript = try Transcript.decode(try vault.readBlob(note: id, ref, maxBytes: Transcript.maxSize))
+                        guard transcript.recording == recording.id else {
+                            throw CLIError.failure("it names another recording")
+                        }
+                    } catch {
+                        transcriptProblems += 1
+                        printStderr("warning: cannot read the transcript of recording \(recording.id.uuidString.lowercased()) in note \(noteId): \(CLIError.from(error).message)")
+                        continue
+                    }
+                    for segment in transcript.segments {
+                        let found = RecognitionSearch.ranges(of: needle, in: segment.text)
+                        guard let first = found.first else { continue }
+                        hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: nil, pageId: nil,
+                                              snippet: RecognitionSearch.snippet(segment.text, around: first), matches: found.count,
+                                              source: "transcript", engine: transcript.engine, words: [],
+                                              recordingId: recording.id.uuidString.lowercased(), recordingTitle: recording.title,
+                                              start: segment.start, end: segment.end))
+                    }
+                }
             }
         }
-        hits.sort { ($0.title.lowercased(), $0.noteId, $0.page) < ($1.title.lowercased(), $1.noteId, $1.page) }
+        hits.sort {
+            ($0.title.lowercased(), $0.noteId, $0.page ?? Int.max, $0.start ?? 0, $0.source)
+                < ($1.title.lowercased(), $1.noteId, $1.page ?? Int.max, $1.start ?? 0, $1.source)
+        }
         if output.json {
             try output.emitJSON(hits)
         } else if hits.isEmpty {
             output.info("No matches.")
         } else {
-            var rows = output.quiet ? [] : [["TITLE", "PAGE", "TEXT"]]
-            for h in hits { rows.append([h.title.isEmpty ? "(untitled)" : h.title, String(h.page), h.snippet]) }
+            var rows = output.quiet ? [] : [["TITLE", "WHERE", "TEXT"]]
+            for h in hits { rows.append([h.title.isEmpty ? "(untitled)" : h.title, h.place, h.snippet]) }
             print(Format.table(rows))
         }
         if unreadable > 0 { throw CLIError.failure("\(unreadable) note(s) could not be read") }
+        if transcriptProblems > 0 { throw CLIError.failure("\(transcriptProblems) transcript(s) could not be read") }
     }
 }

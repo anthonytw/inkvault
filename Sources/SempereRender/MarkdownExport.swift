@@ -167,7 +167,8 @@ public enum MarkdownExport {
         for (i, page) in state.pages.enumerated() {
             let images = i < pageImages.count ? pageImages[i] : []
             let text = page.recognition.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
-            if images.isEmpty && text.isEmpty { continue }
+            let typed = typedText(page)
+            if images.isEmpty && text.isEmpty && typed.isEmpty { continue }
             md += "\n## Page \(i + 1)\n\n"
             for img in images { md += "![Page \(i + 1)](\(linkPath(img)))\n" }
             if !text.isEmpty {
@@ -175,8 +176,19 @@ public enum MarkdownExport {
                 md += "Machine-recognized text (engine `\(oneLine(page.recognition?.engine ?? "").replacingOccurrences(of: "`", with: "'"))`, may contain errors):\n\n"
                 md += fenced(text)
             }
+            if !typed.isEmpty {
+                if !images.isEmpty || !text.isEmpty { md += "\n" }
+                md += "Typed text:\n\n"
+                md += typed.map(fenced).joined(separator: "\n")
+            }
         }
         return md
+    }
+
+    /// The text of the page's text boxes (format.md §8.2.4) in drawing order, trimmed, empty ones left out.
+    static func typedText(_ page: Page) -> [String] {
+        page.items.filter { $0.kind == .text }.sorted(by: Item.drawsBefore)
+            .compactMap { $0.text?.string.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
     /// A folder's `README.md`: sub-folders (name, link relative to the folder) and notes.
