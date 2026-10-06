@@ -148,6 +148,48 @@ Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
 
+## Saved folder access (sandboxed Mac)
+
+The app opens a vault folder through the system picker and remembers it as a
+bookmark (`VaultBookmark`, recent vaults in `VaultLibrary`). Whether a
+remembered folder is still usable after a relaunch is the platform's decision:
+
+* **iPadOS:** a bookmark made from a picker URL carries its security scope;
+  `startAccessingSecurityScopedResource()` on the resolved URL grants access.
+  Verified on devices.
+* **Mac Catalyst, not sandboxed:** the app can read what the user can; scope
+  calls return false and nothing depends on them.
+* **Mac Catalyst, sandboxed (Mac App Store, `Sempere.entitlements`):**
+  `.withSecurityScope` is AppKit-only and is not in the Catalyst SDK, so
+  bookmarks are made with plain options, as on iOS (`VaultBookmark.make`).
+  Apple documents security-scoped bookmarks for sandboxed apps with the
+  `com.apple.security.files.bookmarks.app-scope` entitlement (set) and
+  `files.user-selected.read-write` (set); whether a plain bookmark of a
+  picker URL brings the sandbox extension back after a relaunch under
+  Catalyst **has not been verified**: it needs a signed sandboxed build on a
+  Mac, which the cloud sessions and CI do not have.
+
+What the code does so that either answer is safe:
+
+* `AppModel.openVault` lists the folder before reading anything
+  (`FolderAccess.check`). When the system refuses (`EPERM`/`EACCES`, Cocoa
+  257/513, also as an underlying error) it throws `FolderAccess.Problem.noAccess`
+  naming the vault folder, instead of a file error from inside `Vault.open`.
+* `RootView.reopen` already turns any failure of a recent vault into a message
+  and the folder picker, so a lost permission ends with the user choosing the
+  folder again, and `remember` saves a fresh bookmark from that scope.
+  At launch (`pickOnFailure: false`) only the message shows.
+* A stale bookmark is re-saved while its scope is held (`VaultBookmark.resolve`).
+* DEBUG builds log `SempereDebug folderAccess scoped=<0|1> listable=<0|1>` for
+  every open (no names), to read the answer off a real sandboxed build: after
+  choosing a folder and relaunching, `scoped=0 listable=0` means the plain
+  bookmark does not survive, and the fix is a Catalyst-only
+  `NSURL` bookmark call through an Objective-C shim, which this repository
+  does not have.
+* The vault's own files under `notes/` are written only through the open
+  scope; nothing outside the picked folder is touched. The temporary PDFs of
+  drag and drop (`docs/mac.md`) are in the app's container.
+
 ## Share and export (app)
 
 The app exports notes through the system share sheet and Save to Files. It
@@ -224,6 +266,21 @@ lack the `.age` suffix, so every listing ignores them. Deletions (compaction,
 the journal) also fsync their directory. Filesystems that cannot fsync a
 directory (`EINVAL`, `ENOTSUP`) are accepted (`verify` reports a
 leftover as `unknownFile`; nothing deletes it automatically).
+
+**Blobs** (`notes/<id>/att/`, `format.md` §8.1.4) are streamed: the age
+file is written chunk by chunk to `.sempere-tmp-<uuid>` in the note's `att/`
+(mode 0600) and `fsync`ed, then put in place with `link(2)` onto the final
+name, which fails rather than replace an existing file, then the temporary
+name is unlinked and the directory `fsync`ed. On file systems without hard
+links (FAT, some network shares) it falls back to the existence check and
+`rename(2)` above. The only blob that is ever replaced is one whose first
+chunk does not decrypt to a valid header for its name (format.md §8.1.4
+step 2), or, during a recipient change, a blob rewritten in place or a
+damaged file under its new name (§8.1.5). Writers write the blob before the
+revision that references it, so a crash leaves an unreferenced blob, never
+a dangling reference. `withBlobFile` and `blobs extract --out` decrypt to a
+private file that appears (or is handed out) only once the whole content
+verified.
 
 Revisions are write-once: `write` refuses an existing name and a reused
 `(device, seq)` before renaming. The existence check and the rename are not
@@ -303,6 +360,21 @@ rewrapped still verify (if the journal cannot be read, `open` records why in
 `addRecipient` / `removeRecipient` / `replaceRecipient` call) finishes step 3 and 4. Files that
 are already current are skipped, so a run can be repeated any number of
 times.
+
+**Blobs in a recipient change** (`Sources/Sempere/BlobRewrap.swift`). After
+a note's revisions, each blob in its `att/` is checked from its first chunk
+only (stanza counts, and the name against the hash in its header): complete
+blobs are skipped. Others are rewritten by the method the journal records
+(`rekeyBlobs`, chosen by `RewrapPolicy`): header-only (`AgeFile.rewrapHeader`)
+or full re-encryption (`AgeFile.reencrypt`), streaming, with the whole
+plaintext checked on the way (framing, zero padding, hash), to a temporary
+file. A blob named under the current secret (an addition) replaces itself; one
+named under `previousVaultSecret` (a removal) goes to its new name and then the
+old name is deleted, and a run that finds a complete copy already under the new
+name (a crash between the two) only deletes the old one. A blob whose name
+verifies under neither secret, or whose content fails a check, is left as it is
+and reported, which keeps the journal. While the journal exists, lookups try
+the current name, then the previous one.
 
 Why a stanza count and not "the header lists all recipients": X25519 and
 mlkem768x25519 stanzas carry only an ephemeral share or encapsulation, not

@@ -90,7 +90,7 @@ final class CLICommandTests: CLITestCase {
         let json = try cli(["vault", "verify", "--vault", Self.fixtureVault, "--identity", Self.fixtureKey, "--json"])
         let obj = try XCTUnwrap(json.json as? [String: Any])
         XCTAssertEqual(obj["healthy"] as? Bool, true)
-        XCTAssertEqual((obj["files"] as? [[String: Any]])?.count, 8)
+        XCTAssertEqual((obj["files"] as? [[String: Any]])?.count, 9)   // 7 revisions, 1 key file, 1 blob
 
         let copy = try copyFixtureVault()
         let victim = "notes/\(Self.lecture)/17911308020000000-99ee00ff-1.delta.age"

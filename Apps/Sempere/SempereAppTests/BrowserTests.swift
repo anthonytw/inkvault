@@ -257,7 +257,8 @@ struct BrowserTests {
         let dir = vault.url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())")
         func files() throws -> [String: Data] {
             var out: [String: Data] = [:]
-            for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) {
+            // Revision files (the note also has an `att/` folder of blobs).
+            for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) where name.hasSuffix(".age") {
                 out[name] = try Data(contentsOf: dir.appendingPathComponent(name))
             }
             return out

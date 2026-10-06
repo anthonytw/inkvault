@@ -7,7 +7,8 @@ final class CLIHistoryTests: CLITestCase {
     static let first = "17911308010000000-a1b2c3d4-1.delta.age"
 
     func revisionFiles(_ vault: String) throws -> [String] {
-        try FileManager.default.contentsOfDirectory(atPath: vault + "/notes/\(Self.lecture)").sorted()
+        // Revisions only: the note also holds an `att/` folder of blobs.
+        try FileManager.default.contentsOfDirectory(atPath: vault + "/notes/\(Self.lecture)").filter { $0.hasSuffix(".age") }.sorted()
     }
 
     func testHistoryListsOneRestorePointPerRevision() throws {

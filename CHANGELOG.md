@@ -15,11 +15,28 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
   code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
   first (`CLAUDE.md` "CLI first").
-
+- Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
+  note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
+  or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works
+  with a pointer), an access check for saved vault folders, and sandbox entitlements for Mac builds.
+- iPad app: handwriting search. Pages are read on the device with Vision after the strokes
+  change (and when a note opens), the text is saved as page recognition (`format.md` §5.5, new
+  optional `basis` field), and the note list searches recognised text, titles, notebooks and
+  tags and opens the matching page. Recognition from a Notability import is kept until the
+  page's strokes change.
 - Age library: streaming encryption and decryption in constant memory (`AgeEncryptor`,
   `AgeDecryptor`, file-to-file `AgeFile.encrypt` / `decrypt`), header-only rewrap that keeps the
   file key and payload (`AgeFile.rewrapHeader`) and streaming full re-encryption
   (`AgeFile.reencrypt`), for attachments.
+- Attachment blob store (`docs/format.md` §8.1; task B2): each note's `att/` holds its
+  attachments' bytes as streamed, Padmé-padded age files named by a keyed hash, verified on
+  every read (framing, padding, content hash, name). Recipient changes rewrap them: header only
+  when a device key is added, full re-encryption and renaming when one is removed or the key
+  type changes (`vault recipients … --rewrap header|reencrypt` to choose), resumable from the
+  journal. New `sempere blobs list | verify | extract | add | copy | unused | gc | repair`;
+  collection is per note and per device after a 30-day window; `recover` reads a single blob.
+  `vault.json` gains `features: ["attachments"]` with the first blob, and a build that finds an
+  unknown feature refuses to write.
 - Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so

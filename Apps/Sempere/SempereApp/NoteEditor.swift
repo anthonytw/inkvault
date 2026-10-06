@@ -30,6 +30,8 @@ final class NoteEditor {
     var isReadOnly: Bool { readOnlyReason != nil }
     var currentPage: Page? { pages.indices.contains(pageIndex) ? pages[pageIndex] : nil }
 
+    /// The canvas showing this note, for menu commands (`CanvasCommandTarget`).
+    @ObservationIgnored weak var canvasTarget: (any CanvasCommandTarget)?
     @ObservationIgnored private var ledgers: [UUID: StrokeLedger] = [:]
     @ObservationIgnored private var committedPageSize: PageSize
     /// Page additions and paper changes not yet written (written before any stroke ops).
@@ -38,6 +40,32 @@ final class NoteEditor {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var chain: Task<Void, Never>?
+    /// Set by `close()` once its last save is done: a closed editor takes no
+    /// more changes and writes nothing. A window or view may still show it for
+    /// a moment, and it holds the vault as it was opened (with the old secret
+    /// after a key change), so nothing it holds may reach the vault.
+    @ObservationIgnored private(set) var isShutDown = false
+
+    // Handwriting recognition (`PageRecognizing`).
+    /// Reads pages after strokes change and on open; nil turns recognition off.
+    @ObservationIgnored var recognizer: (any PageRecognizing)? {
+        didSet { if recognizer != nil { scheduleRecognition() } }
+    }
+    /// Called with the note id after a page's recognition was written.
+    @ObservationIgnored var onRecognized: (@MainActor (UUID) -> Void)?
+    /// Pages whose strokes this editor changed and whose recognition is not
+    /// redone yet: it replaces recognition that cannot be checked (an import).
+    @ObservationIgnored private var touchedPages: Set<UUID> = []
+    @ObservationIgnored private var recognitionDelay: Duration
+    @ObservationIgnored private var recognitionTimer: Task<Void, Never>?
+    @ObservationIgnored private var recognitionBusy = false
+    @ObservationIgnored private var recognitionAgain = false
+    @ObservationIgnored private var recognitionWrite: Task<Void, any Error>?
+    @ObservationIgnored private var isClosed = false
+    /// Recognitions written by this editor (for tests and the UI).
+    private(set) var recognitionsWritten = 0
+    /// The last recognition failure; cleared by the next success.
+    private(set) var recognitionError: String?
 
     /// Ink closer than this to the bottom of an infinite page grows it.
     static let growMargin = 200.0
@@ -45,9 +73,12 @@ final class NoteEditor {
     static let growStep = 400.0
     /// Default pause before an autosave.
     static let defaultDebounce = Duration.milliseconds(1500)
+    /// Default pause after the last stroke change before pages are recognised.
+    static let defaultRecognitionDelay = Duration.seconds(4)
 
     init(noteID: UUID, state: NoteState, writer: NoteWriter?, readOnlyReason: String?,
-         debounce: Duration = NoteEditor.defaultDebounce) {
+         debounce: Duration = NoteEditor.defaultDebounce, recognizer: (any PageRecognizing)? = nil,
+         recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay) {
         self.noteID = noteID
         self.pages = state.pages
         self.meta = state.meta
@@ -56,6 +87,8 @@ final class NoteEditor {
         self.writer = writer
         self.readOnlyReason = writer == nil ? (readOnlyReason ?? "This note is read-only.") : readOnlyReason
         self.debounce = debounce
+        self.recognizer = recognizer
+        self.recognitionDelay = recognitionDelay
     }
 
     /// Loads and reconstructs a note off the main actor. A note with
@@ -66,6 +99,8 @@ final class NoteEditor {
     /// to refuse a note whose files are not all local (`CloudVault.requireLocal`).
     static func open(vault: Vault, noteID: UUID, clock: DeviceClock,
                      debounce: Duration = NoteEditor.defaultDebounce,
+                     recognizer: (any PageRecognizing)? = nil,
+                     recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
                      coordinated: Bool = false,
                      verify: (@Sendable () throws -> Void)? = nil) async throws -> NoteEditor {
         let device = clock.device
@@ -89,7 +124,10 @@ final class NoteEditor {
         }
         let writer = reason == nil ? NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: nextSeq,
                                                 coordinated: coordinated) : nil
-        return NoteEditor(noteID: noteID, state: state, writer: writer, readOnlyReason: reason, debounce: debounce)
+        let editor = NoteEditor(noteID: noteID, state: state, writer: writer, readOnlyReason: reason,
+                                debounce: debounce, recognizer: recognizer, recognitionDelay: recognitionDelay)
+        editor.scheduleRecognition()   // pages that were never read, or changed elsewhere
+        return editor
     }
 
     // MARK: - Pages
@@ -115,6 +153,11 @@ final class NoteEditor {
     /// Live strokes of a page (saved or not).
     func liveStrokes(of pageID: UUID) -> [Stroke] { ledger(pageID).live }
 
+    /// Shows the page `id` (a search hit); no-op when the note has no such page.
+    func showPage(id: UUID) {
+        if let i = pages.firstIndex(where: { $0.id == id }) { selectPage(i) }
+    }
+
     /// Shows another page; pending changes are saved first.
     func selectPage(_ index: Int) {
         guard pages.indices.contains(index), index != pageIndex else { return }
@@ -137,7 +180,7 @@ final class NoteEditor {
     /// at once on screen; saved with the next delta (`NoteOps.setPaper`).
     func setPaper(_ paper: Paper, allPages: Bool) {
         previewPaper = nil
-        guard !isReadOnly, let page = currentPage else { return }
+        guard !isReadOnly, !isShutDown, let page = currentPage else { return }
         let ops = NoteOps.setPaper(paper, scope: allPages ? .allPages : .page(page.id), note: meta, pages: pages)
         guard !ops.isEmpty else { return }
         for op in ops {
@@ -154,7 +197,7 @@ final class NoteEditor {
 
     /// Appends a blank page and shows it; saved with the next delta.
     func addPage() {
-        guard !isReadOnly else { return }
+        guard !isReadOnly, !isShutDown else { return }
         guard case .addPage(let page)? = NoteOps.appendPages(1, after: pages).first else { return }
         pages.append(page)
         pendingPageOps.append(.addPage(page))
@@ -168,12 +211,16 @@ final class NoteEditor {
     /// moved, undone, redone). Updates ids now; saves after the pause.
     @discardableResult
     func drawingDidChange(pageID: UUID, items: [StrokeLedger.Item], inkMaxY: Double?) -> StrokeLedger.Change {
-        guard !isReadOnly else { return .init() }
+        guard !isReadOnly, !isShutDown else { return .init() }
         var l = ledger(pageID)
         let change = l.update(items)
         ledgers[pageID] = l
         if let inkMaxY { growPage(toFit: inkMaxY) }
         if !change.isEmpty || pageSize != committedPageSize { scheduleSave() }
+        if !change.isEmpty {
+            touchedPages.insert(pageID)
+            scheduleRecognition()
+        }
         return change
     }
 
@@ -218,13 +265,19 @@ final class NoteEditor {
         await task.value
     }
 
-    /// Saves what is pending and stops autosaving.
+    /// Saves what is pending and stops autosaving; afterwards the editor takes
+    /// no more changes and writes nothing (`isShutDown`).
     func close() async {
+        isClosed = true
+        recognitionTimer?.cancel()
+        // A recognition write already started finishes; none starts after this.
+        _ = await recognitionWrite?.result
         await flush()
+        isShutDown = true
     }
 
     private func writePending() async {
-        guard let writer else { return }
+        guard let writer, !isShutDown else { return }
         let pageOps = pendingPageOps
         var ops = pageOps
         // Ledgers commit before the write (see `StrokeLedger.beginSave`) and
@@ -250,5 +303,99 @@ final class NoteEditor {
         committedPageSize = size
         deltasWritten += 1
         saveError = nil
+    }
+}
+
+// MARK: - Handwriting recognition
+
+extension NoteEditor {
+    /// The page's strokes as of now: the ledger's once the page was shown or
+    /// edited, else the stored ones (no ledger is built just to read ids).
+    private func currentStrokes(of page: Page) -> [Stroke] {
+        ledgers[page.id]?.live ?? page.strokes
+    }
+
+    /// Recognises the pages that need it after `recognitionDelay` without
+    /// further stroke changes (and once when the note opens).
+    func scheduleRecognition() {
+        guard recognizer != nil, !isReadOnly, !isClosed else { return }
+        recognitionTimer?.cancel()
+        let delay = recognitionDelay
+        recognitionTimer = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            await self?.recognizePending()
+        }
+    }
+
+    /// Saves pending strokes, then reads every page whose recognition is
+    /// missing or stale (`RecognitionPolicy`) and writes what it read as one
+    /// delta of `setPageRecognition` ops (one per page) for the whole pass.
+    /// Reading runs off the main actor; a page whose strokes changed
+    /// meanwhile is dropped (the change schedules another pass). The pass
+    /// stops, writing nothing, once the editor closes or recognition is
+    /// switched off (`recognizer` set to nil).
+    func recognizePending() async {
+        guard recognizer != nil, !isReadOnly else { return }
+        if recognitionBusy { recognitionAgain = true; return }
+        recognitionBusy = true
+        defer { recognitionBusy = false }
+        repeat {
+            recognitionAgain = false
+            await recognizeOnce()
+        } while recognitionAgain && !isClosed
+    }
+
+    /// Whether a pass may go on: the editor is open and recognition still on.
+    private var recognitionWanted: Bool { !isClosed && recognizer != nil }
+
+    private func recognizeOnce() async {
+        guard let recognizer, let writer, !isClosed else { return }
+        await flush()
+        guard saveError == nil, recognitionWanted else { return }   // never recognise strokes that are not on disk
+        var read: [(pageID: UUID, digest: String, recognition: Recognition?)] = []
+        var failed = false
+        for page in pages {
+            guard recognitionWanted else { return }
+            let strokes = currentStrokes(of: page)
+            let digest = RecognitionBasis.digest(of: strokes.map(\.id))
+            guard RecognitionPolicy.needsRecognition(page.recognition, strokeIDs: strokes.map(\.id),
+                                                     touched: touchedPages.contains(page.id)) else { continue }
+            var result: Recognition?
+            if !strokes.isEmpty {
+                do {
+                    var r = try await recognizer.recognize(strokes: strokes)
+                    r.basis = digest
+                    result = r
+                } catch {
+                    recognitionError = "Could not read handwriting: \(error)"
+                    failed = true
+                    continue
+                }
+            }
+            read.append((page.id, digest, result))
+        }
+        guard recognitionWanted else { return }
+        // Only pages whose strokes are still the ones that were read.
+        let current = read.filter { r in
+            guard let page = pages.first(where: { $0.id == r.pageID }) else { return false }
+            return RecognitionBasis.digest(of: currentStrokes(of: page).map(\.id)) == r.digest
+        }
+        guard !current.isEmpty else { return }
+        let ops = current.map { Op.setPageRecognition(pageId: $0.pageID, recognition: $0.recognition) }
+        let write = Task { _ = try await writer.write(ops) }
+        recognitionWrite = write
+        do {
+            try await write.value
+        } catch {
+            recognitionError = "Could not save recognised text: \(error)"
+            return
+        }
+        for r in current {
+            if let index = pages.firstIndex(where: { $0.id == r.pageID }) { pages[index].recognition = r.recognition }
+            touchedPages.remove(r.pageID)
+        }
+        recognitionsWritten += current.count
+        if !failed { recognitionError = nil }
+        onRecognized?(noteID)
     }
 }
