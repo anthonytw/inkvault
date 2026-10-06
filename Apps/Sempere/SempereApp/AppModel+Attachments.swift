@@ -95,3 +95,19 @@ extension AppModel {
         }
     }
 }
+
+extension AppModel {
+    /// What the canvas's item layer draws from.
+    var itemLayerSource: ItemLayerSource {
+        ItemLayerSource(cache: attachmentCache(), prefetch: { [weak self] note, items in
+            self?.prefetchBlobs(note: note, items: items)
+        })
+    }
+
+    /// Copy and paste of items for the canvas.
+    var itemCommands: ItemCommands {
+        ItemCommands(copy: { [weak self] items, note in self?.itemClipboard.copy(items, from: note) },
+                     canPaste: { [weak self] in self?.itemClipboard.entry != nil },
+                     paste: { [weak self] page, actions in await self?.pasteItems(into: page, with: actions) ?? [] })
+    }
+}

@@ -108,7 +108,7 @@ private struct HistoryPreviewView: View {
         VStack(spacing: 0) {
             if let preview, let page = preview.currentPage {
                 PageCanvasView(editor: preview, pageID: page.id, paper: preview.displayedPaper(of: page),
-                               pageSize: preview.pageSize, paletteVisible: false)
+                               pageSize: preview.pageSize, paletteVisible: false, itemSource: model.itemLayerSource)
                     .id(page.id)
             } else if let failure {
                 ContentUnavailableView("Cannot Show This Version", systemImage: "exclamationmark.triangle",

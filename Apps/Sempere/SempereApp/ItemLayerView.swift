@@ -1,0 +1,220 @@
+import Sempere
+import UIKit
+
+/// Where the item layer gets a note's attachments from (the model's).
+struct ItemLayerSource {
+    /// The decrypted blobs of the open vault; nil: every blob-backed item is a placeholder.
+    var cache: BlobCache?
+    /// Asks iCloud for the image and PDF blobs of the items shown (`AppModel.prefetchBlobs`).
+    var prefetch: @MainActor (_ note: UUID, _ items: [Item]) -> Void = { _, _ in }
+}
+
+/// A page's placed items, drawn between the paper and the ink (format.md
+/// §8.2.3: ink is always on top). One sublayer per item, in drawing order,
+/// in canvas content coordinates (page points × zoom). Items are drawn off
+/// the main actor (`ItemRendering`) at a power-of-two scale of the zoom
+/// (`ItemScale`) and drawn again only when that step, the item or the
+/// paper changes; meanwhile, and for what cannot be drawn, a placeholder.
+/// Not interactive: selection is `ItemSelectionController`'s.
+final class ItemLayerView: UIView {
+    private(set) var noteID: UUID?
+    private(set) var items: [Item] = []
+    private var source = ItemLayerSource()
+    private var paper = Paper.blank
+    private var zoom: CGFloat = 1
+    /// Frames shown instead of the stored ones while a gesture moves or resizes an item.
+    private var previews: [UUID: Rect] = [:]
+    private var sublayers: [UUID: ItemSublayer] = [:]
+    /// Drawn pictures, by what they depend on (kept across small changes, such as undo of a move).
+    private var pictures: [ItemRenderKey: ItemPicture] = [:]
+    private var tasks: [ItemRenderKey: Task<Void, Never>] = [:]
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        isOpaque = false
+        accessibilityIdentifier = "itemLayer"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Items on screen, by id (for tests and the selection overlay).
+    var shownItemIDs: [UUID] { items.map(\.id) }
+
+    /// Shows `items` of note `note` (in any order) over `paper`.
+    func show(_ items: [Item], note: UUID, paper: Paper, source: ItemLayerSource) {
+        let sorted = items.sorted(by: Item.drawsBefore)
+        let changedNote = note != noteID
+        let changed = changedNote || sorted != self.items || paper != self.paper
+        self.source = source
+        guard changed else { return }
+        if changedNote {
+            for task in tasks.values { task.cancel() }
+            tasks = [:]
+            pictures = [:]
+            previews = [:]
+        }
+        noteID = note
+        let newIDs = Set(sorted.map(\.id))
+        if changedNote || Set(self.items.map(\.id)) != newIDs { source.prefetch(note, sorted) }
+        self.items = sorted
+        self.paper = paper
+        for (id, layer) in sublayers where !newIDs.contains(id) {
+            layer.removeFromSuperlayer()
+            sublayers[id] = nil
+        }
+        previews = previews.filter { newIDs.contains($0.key) }
+        layout()
+    }
+
+    /// The canvas zoom changed.
+    func setZoom(_ zoom: CGFloat) {
+        guard zoom > 0, zoom != self.zoom else { return }
+        self.zoom = zoom
+        layout()
+    }
+
+    /// Shows `frame` for item `id` while a gesture changes it (nil: the stored one).
+    func preview(_ id: UUID, frame: Rect?) {
+        previews[id] = frame
+        layout()
+    }
+
+    /// The frame item `id` is shown with (a preview's while one is set).
+    func shownFrame(of id: UUID) -> Rect? {
+        previews[id] ?? items.first { $0.id == id }?.frame
+    }
+
+    private var scaleStep: Double {
+        ItemScale.bucket(zoom: Double(zoom), screenScale: Double(traitCollection.displayScale))
+    }
+
+    private func layout() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let step = scaleStep
+        var wanted: Set<ItemRenderKey> = []
+        for (index, item) in items.enumerated() {
+            let sub: ItemSublayer
+            if let existing = sublayers[item.id] {
+                sub = existing
+            } else {
+                sub = ItemSublayer()
+                layer.addSublayer(sub)
+                sublayers[item.id] = sub
+            }
+            sub.zPosition = CGFloat(index)
+            let key = ItemRenderKey(item, scale: step, paper: paper)
+            wanted.insert(key)
+            if let picture = pictures[key] {
+                sub.show(picture, item: item)
+            } else if sub.item?.id != item.id || sub.picture == nil {
+                sub.show(.placeholder(.loading), item: item)
+            }
+            // A picture of an older version stays up (stretched to the frame) until the new one is drawn.
+            sub.place(frame: previews[item.id] ?? item.frame, rotation: item.rotation, zoom: zoom)
+            if pictures[key] == nil, tasks[key] == nil { draw(key) }
+        }
+        for (key, task) in tasks where !wanted.contains(key) {
+            task.cancel()
+            tasks[key] = nil
+        }
+        // Keep the current pictures and a few others (an undo brings one back).
+        if pictures.count > wanted.count + 16 {
+            for key in pictures.keys where !wanted.contains(key) { pictures[key] = nil }
+        }
+    }
+
+    private func draw(_ key: ItemRenderKey) {
+        guard let note = noteID else { return }
+        let cache = source.cache
+        tasks[key] = Task { @MainActor [weak self] in
+            let picture = await ItemRendering.render(key, note: note, cache: cache)
+            guard let self, !Task.isCancelled, self.noteID == note else { return }
+            self.tasks[key] = nil
+            self.pictures[key] = picture
+            self.layout()
+        }
+    }
+
+    /// Whether every item shown has its final picture (tests).
+    var isSettled: Bool { tasks.isEmpty }
+
+    /// What item `id` shows now (tests).
+    func picture(of id: UUID) -> ItemPicture? { sublayers[id]?.picture }
+}
+
+/// One item: its picture (bounds of the rotated frame), or a placeholder
+/// frame with diagonals and a symbol (loading, unavailable).
+final class ItemSublayer: CALayer {
+    private(set) var item: Item?
+    private(set) var picture: ItemPicture?
+    private let outline = CAShapeLayer()
+    private let symbol = CALayer()
+    /// The page area the picture covers, for placing it.
+    private var pictureBounds: Rect?
+
+    override init() {
+        super.init()
+        outline.fillColor = nil
+        outline.strokeColor = UIColor(red: 0x9A / 255, green: 0xA0 / 255, blue: 0xA6 / 255, alpha: 1).cgColor
+        outline.lineWidth = 1
+        addSublayer(outline)
+        symbol.contentsGravity = .resizeAspect
+        addSublayer(symbol)
+        contentsGravity = .resize
+        actions = ["contents": NSNull(), "position": NSNull(), "bounds": NSNull()]
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func show(_ picture: ItemPicture, item: Item) {
+        self.item = item
+        self.picture = picture
+        switch picture {
+        case .image(let image, let bounds):
+            contents = image
+            pictureBounds = bounds
+            outline.isHidden = true
+            symbol.isHidden = true
+        case .placeholder(let reason):
+            contents = nil
+            pictureBounds = nil
+            outline.isHidden = false
+            symbol.isHidden = false
+            let name = reason == .loading ? "icloud.and.arrow.down" : "exclamationmark.triangle"
+            let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+            symbol.contents = UIImage(systemName: name, withConfiguration: config)?
+                .withTintColor(.systemGray, renderingMode: .alwaysOriginal).cgImage
+        }
+    }
+
+    /// Puts the item at `frame` (page points) turned by `rotation`, at `zoom`.
+    func place(frame: Rect, rotation: Double?, zoom: CGFloat) {
+        let bounds = ItemFrames.bounds(frame, rotation: rotation)
+        let z = Double(zoom)
+        self.frame = CGRect(x: bounds.x * z, y: bounds.y * z, width: bounds.w * z, height: bounds.h * z)
+        // The placeholder: the rotated frame and both diagonals, in this layer's coordinates.
+        let corners = ItemFrames.corners(frame, rotation: rotation).map {
+            CGPoint(x: ($0.x - bounds.x) * z, y: ($0.y - bounds.y) * z)
+        }
+        let path = UIBezierPath()
+        path.move(to: corners[0])
+        for p in corners.dropFirst() { path.addLine(to: p) }
+        path.close()
+        path.move(to: corners[0]); path.addLine(to: corners[2])
+        path.move(to: corners[1]); path.addLine(to: corners[3])
+        outline.frame = self.bounds
+        outline.path = path.cgPath
+        let side = min(28, self.bounds.width / 2, self.bounds.height / 2)
+        symbol.frame = CGRect(x: self.bounds.midX - side / 2, y: self.bounds.midY - side / 2, width: side, height: side)
+    }
+}

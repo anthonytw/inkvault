@@ -1,0 +1,338 @@
+import Sempere
+import UIKit
+
+/// What selecting items does, decided without UIKit (tested): which item a
+/// touch picks, whether a drag moves or resizes, and the frame it leads to.
+struct ItemSelectionModel {
+    /// Handle radius on screen, in points; touches this close to a corner resize.
+    static let handleRadius = 22.0
+    /// Extra room around an item that still selects it, on screen.
+    static let slop = 8.0
+
+    /// The selected item, if any.
+    var selected: UUID?
+
+    /// What a drag starting at a page point does.
+    enum Drag: Equatable {
+        case move(UUID)
+        case resize(UUID, ItemFrames.Corner)
+    }
+
+    /// The item a tap at `p` (page points) selects, at `zoom`.
+    static func hit(_ p: ItemFrames.Point, items: [Item], zoom: Double) -> Item? {
+        ItemFrames.item(at: p, in: items, slop: slop / max(zoom, 0.01))
+    }
+
+    /// What a drag from `p` does: a corner of the selected item resizes it,
+    /// the inside of an item (the selected one first) moves it; nil leaves
+    /// the drag to scrolling.
+    func drag(at p: ItemFrames.Point, items: [Item], zoom: Double) -> Drag? {
+        let z = max(zoom, 0.01)
+        if let id = selected, let item = items.first(where: { $0.id == id }) {
+            let corners = ItemFrames.corners(item.frame, rotation: item.rotation)
+            let r = Self.handleRadius / z
+            if let i = corners.indices.min(by: { Self.distance(corners[$0], p) < Self.distance(corners[$1], p) }),
+               Self.distance(corners[i], p) <= r, let corner = ItemFrames.Corner(rawValue: i) {
+                return .resize(id, corner)
+            }
+            if ItemFrames.contains(item.frame, rotation: item.rotation, p, slop: Self.slop / z) { return .move(id) }
+        }
+        return Self.hit(p, items: items, zoom: zoom).map { .move($0.id) }
+    }
+
+    /// The frame a drag by `dx`, `dy` (page points) gives `item`.
+    static func frame(for drag: Drag, item: Item, dx: Double, dy: Double) -> Rect {
+        switch drag {
+        case .move:
+            return ItemFrames.moved(item.frame, dx: dx, dy: dy)
+        case .resize(_, let corner):
+            // Pictures keep their proportions; text boxes and unknown kinds do not.
+            let keep = item.kind == .image || item.kind == .pdfPage
+            return ItemFrames.resized(item.frame, rotation: item.rotation, corner: corner, dx: dx, dy: dy, keepAspect: keep)
+        }
+    }
+
+    static func distance(_ a: ItemFrames.Point, _ b: ItemFrames.Point) -> Double {
+        ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).squareRoot()
+    }
+}
+
+/// The selected item's outline and resize handles, in canvas content
+/// coordinates, above the ink. Not interactive.
+final class ItemSelectionView: UIView {
+    private let outline = CAShapeLayer()
+    private var handles: [CAShapeLayer] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        outline.fillColor = nil
+        outline.strokeColor = UIColor.tintColor.cgColor
+        outline.lineWidth = 1.5
+        outline.lineDashPattern = [6, 4]
+        layer.addSublayer(outline)
+        for _ in 0..<4 {
+            let h = CAShapeLayer()
+            h.fillColor = UIColor.white.cgColor
+            h.strokeColor = UIColor.tintColor.cgColor
+            h.lineWidth = 1.5
+            layer.addSublayer(h)
+            handles.append(h)
+        }
+        isHidden = true
+        accessibilityIdentifier = "itemSelection"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Outlines `frame` turned by `rotation` at `zoom`; nil hides the selection.
+    func show(frame: Rect?, rotation: Double?, zoom: CGFloat, handles showHandles: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let frame else { isHidden = true; return }
+        isHidden = false
+        let corners = ItemFrames.corners(frame, rotation: rotation).map { CGPoint(x: $0.x * Double(zoom), y: $0.y * Double(zoom)) }
+        let path = UIBezierPath()
+        path.move(to: corners[0])
+        for p in corners.dropFirst() { path.addLine(to: p) }
+        path.close()
+        outline.path = path.cgPath
+        for (h, c) in zip(handles, corners) {
+            h.isHidden = !showHandles
+            h.path = UIBezierPath(ovalIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)).cgPath
+        }
+    }
+}
+
+/// What the selection needs from the app: the clipboard and pasting
+/// (`AppModel`), and how to leave selection mode.
+struct ItemCommands {
+    var copy: @MainActor (_ items: [Item], _ note: UUID) -> Void = { _, _ in }
+    var canPaste: @MainActor () -> Bool = { false }
+    var paste: @MainActor (_ page: UUID, _ actions: ItemActions) async -> [Item] = { _, _ in [] }
+}
+
+/// Selecting, moving, resizing and deleting items on the canvas while
+/// selection mode is on (`PageCanvasHost.itemSelectionActive`): PencilKit's
+/// drawing gesture is off then, a tap selects the topmost item (content
+/// before backgrounds), a drag on it moves it, a drag on a corner resizes it,
+/// and a tap on the selected item opens its menu. Every gesture ends in one
+/// delta and one undo step (`ItemActions`); while it runs, the item layer
+/// shows the frame it would get.
+@MainActor
+final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
+    private weak var canvas: UIScrollView?
+    private weak var itemLayer: ItemLayerView?
+    private let overlay = ItemSelectionView()
+    private let tap = UITapGestureRecognizer()
+    private let pan = UIPanGestureRecognizer()
+    private var menu: UIEditMenuInteraction?
+    private var model = ItemSelectionModel()
+    private var drag: (ItemSelectionModel.Drag, Item)?
+
+    var editor: NoteEditor?
+    var pageID: UUID?
+    var commands = ItemCommands()
+    /// Undo and redo of item gestures, on the canvas's undo manager.
+    private(set) var actions: ItemActions?
+
+    /// The selected item (tests, menus).
+    var selectedID: UUID? { model.selected }
+
+    func attach(to canvas: UIScrollView, itemLayer: ItemLayerView) {
+        self.canvas = canvas
+        self.itemLayer = itemLayer
+        canvas.addSubview(overlay)
+        tap.addTarget(self, action: #selector(tapped(_:)))
+        pan.addTarget(self, action: #selector(panned(_:)))
+        pan.maximumNumberOfTouches = 1
+        for g in [tap, pan] as [UIGestureRecognizer] {
+            g.delegate = self
+            g.isEnabled = false
+            canvas.addGestureRecognizer(g)
+        }
+        // Scrolling waits for a drag on an item to be ruled out (at once: `gestureRecognizerShouldBegin`).
+        canvas.panGestureRecognizer.require(toFail: pan)
+        let menu = UIEditMenuInteraction(delegate: self)
+        canvas.addInteraction(menu)
+        self.menu = menu
+    }
+
+    /// Selection mode on or off; off clears the selection.
+    func setActive(_ active: Bool) {
+        tap.isEnabled = active
+        pan.isEnabled = active
+        if !active { select(nil) }
+    }
+
+    var isActive: Bool { tap.isEnabled }
+
+    /// The note or page on the canvas changed.
+    func reset(editor: NoteEditor, pageID: UUID, undoManager: UndoManager?) {
+        if self.editor !== editor || self.pageID != pageID || actions?.undoManager !== undoManager {
+            self.editor = editor
+            self.pageID = pageID
+            actions = ItemActions(editor: editor, undoManager: undoManager)
+            select(nil)
+        }
+    }
+
+    private var items: [Item] {
+        guard let editor, let pageID else { return [] }
+        return editor.items(on: pageID)
+    }
+
+    private var zoom: CGFloat { max(canvas?.zoomScale ?? 1, 0.01) }
+
+    private func pagePoint(_ g: UIGestureRecognizer) -> ItemFrames.Point {
+        let p = g.location(in: canvas)
+        return ItemFrames.Point(x: Double(p.x / zoom), y: Double(p.y / zoom))
+    }
+
+    /// Selects `id` (nil: nothing) and redraws the outline.
+    func select(_ id: UUID?) {
+        model.selected = id
+        refresh()
+    }
+
+    /// Redraws the outline (the zoom, the item or the selection changed).
+    func refresh() {
+        overlay.frame = CGRect(origin: .zero, size: canvas?.contentSize ?? .zero)
+        canvas?.bringSubviewToFront(overlay)
+        guard let id = model.selected, let item = items.first(where: { $0.id == id }) else {
+            if model.selected != nil, drag == nil { model.selected = nil }
+            overlay.show(frame: nil, rotation: nil, zoom: zoom, handles: false)
+            return
+        }
+        let frame = itemLayer?.shownFrame(of: id) ?? item.frame
+        overlay.show(frame: frame, rotation: item.rotation, zoom: zoom, handles: editor?.canEditItems ?? false)
+    }
+
+    // MARK: Gestures
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard g === pan else { return true }
+        // Only a drag on an item (or a handle) is ours; any other scrolls.
+        guard editor?.canEditItems == true else { return false }
+        return model.drag(at: pagePoint(g), items: items, zoom: Double(zoom)) != nil
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    @objc private func tapped(_ g: UITapGestureRecognizer) {
+        let p = pagePoint(g)
+        let hit = ItemSelectionModel.hit(p, items: items, zoom: Double(zoom))
+        if let hit, hit.id == model.selected {
+            presentMenu(at: g.location(in: canvas))
+        } else if let hit {
+            select(hit.id)
+        } else {
+            select(nil)
+            if commands.canPaste(), editor?.canEditItems == true { presentMenu(at: g.location(in: canvas)) }
+        }
+    }
+
+    @objc private func panned(_ g: UIPanGestureRecognizer) {
+        switch g.state {
+        case .began:
+            let start = pagePoint(g)
+            let translation = g.translation(in: canvas)
+            let origin = ItemFrames.Point(x: start.x - Double(translation.x / zoom), y: start.y - Double(translation.y / zoom))
+            guard let d = model.drag(at: origin, items: items, zoom: Double(zoom)) else { return }
+            let id: UUID
+            switch d { case .move(let i), .resize(let i, _): id = i }
+            guard let item = items.first(where: { $0.id == id }) else { return }
+            drag = (d, item)
+            select(id)
+            fallthrough
+        case .changed:
+            guard let current = drag else { return }
+            let (d, item) = current
+            let t = g.translation(in: canvas)
+            let frame = ItemSelectionModel.frame(for: d, item: item, dx: Double(t.x / zoom), dy: Double(t.y / zoom))
+            itemLayer?.preview(item.id, frame: frame)
+            refresh()
+        case .ended:
+            guard let current = drag, let pageID else { return cancelDrag() }
+            let (d, item) = current
+            let t = g.translation(in: canvas)
+            let frame = ItemSelectionModel.frame(for: d, item: item, dx: Double(t.x / zoom), dy: Double(t.y / zoom))
+            drag = nil
+            itemLayer?.preview(item.id, frame: nil)
+            if case .resize = d {
+                actions?.setFrame(item.id, to: frame, on: pageID, name: "Resize")
+            } else {
+                actions?.setFrame(item.id, to: frame, on: pageID, name: "Move")
+            }
+            refresh()
+        default:
+            cancelDrag()
+        }
+    }
+
+    private func cancelDrag() {
+        if let current = drag { itemLayer?.preview(current.1.id, frame: nil) }
+        drag = nil
+        refresh()
+    }
+
+    // MARK: Menu
+
+    private func presentMenu(at point: CGPoint) {
+        menu?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        var elements: [UIMenuElement] = []
+        let editable = editor?.canEditItems == true
+        if let id = model.selected, let pageID, let editor, let item = editor.item(id, on: pageID) {
+            elements.append(UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+                self?.commands.copy([item], editor.noteID)
+            })
+            if editable {
+                elements.append(UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
+                    guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
+                    self.select(new.id)
+                })
+                elements.append(UIAction(title: "Bring to Front", image: UIImage(systemName: "square.3.layers.3d.top.filled")) {
+                    [weak self] _ in
+                    self?.actions?.bringToFront(id, on: pageID)
+                    self?.refresh()
+                })
+                elements.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) {
+                    [weak self] _ in
+                    self?.deleteSelection()
+                })
+            }
+        }
+        if editable, commands.canPaste() {
+            elements.append(UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
+                self?.pasteClipboard()
+            })
+        }
+        return elements.isEmpty ? nil : UIMenu(children: elements)
+    }
+
+    /// Deletes the selected item (one delta, undoable).
+    func deleteSelection() {
+        guard let id = model.selected, let pageID else { return }
+        actions?.delete([id], on: pageID)
+        select(nil)
+    }
+
+    /// Pastes the clipboard onto this page and selects the first pasted item.
+    func pasteClipboard() {
+        guard let pageID, let actions else { return }
+        let paste = commands.paste
+        Task { [weak self] in
+            let pasted = await paste(pageID, actions)
+            if let first = pasted.first { self?.select(first.id) }
+        }
+    }
+}
