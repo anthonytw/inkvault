@@ -26,7 +26,10 @@ let package = Package(
         ),
         .target(
             name: "Age",
-            dependencies: [.product(name: "Crypto", package: "swift-crypto")]
+            dependencies: [.product(name: "Crypto", package: "swift-crypto")],
+            // scrypt and X25519 are ~70x slower unoptimized: debug-build tests that
+            // unlock a passphrase-wrapped key took minutes on CI (docs/HANDOFF.md "CI").
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]
         ),
         .target(
             name: "InkVault",

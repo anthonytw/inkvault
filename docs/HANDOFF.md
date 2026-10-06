@@ -203,6 +203,11 @@ queued for up to 30 minutes.
   WebDAV changes skip the app job. App-only changes skip Linux and macOS.
   `main` always runs everything.
 - **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
+- **PRs skip what only matters for shipping.** The static Linux release build
+  and the Mac Catalyst build run on `main` only. Tests run with `--parallel`.
+- **Age is compiled with `-O` even in debug builds** (`Package.swift`).
+  Unoptimized scrypt made the passphrase tests take minutes: 37 s for one test
+  on macOS CI, and 138 s for one app test. Keep that flag.
 - Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
   the work is done and the local `swift test` passes.
 
