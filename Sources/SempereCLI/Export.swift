@@ -4,6 +4,8 @@ import SempereFonts
 import SempereRender
 import Sempere
 
+extension PageBreaks: ExpressibleByArgument {}
+
 enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
     case pdf, svg, png, json, markdown, html
 
@@ -85,6 +87,9 @@ struct ExportCommand: ParsableCommand {
 
     @Flag(name: .long, help: "pdf only: write all notes into one PDF file.")
     var merge = false
+
+    @Option(name: .long, help: ArgumentHelp("pdf/png: where pageless pages are cut: gaps (at each sheet height, moved up to a gap in the ink) or fixed.", valueName: "gaps|fixed"))
+    var breaks: PageBreaks = .gaps
 
     @Option(name: .long, help: "png only: resolution in dots per inch (a page point is 1/72 inch).")
     var dpi: Double = 144
@@ -213,8 +218,8 @@ struct ExportCommand: ParsableCommand {
         if SempereFonts.directory == nil && !output.json {
             printStderr("sempere: warning: the bundled fonts were not found next to the program; text uses font packs only")
         }
-        let options = RenderOptions(paper: !noPaper, pdfRasterizer: try rasterizer(), keepImageMetadata: keepImageMetadata,
-                                    shaper: DefaultTextShaper(library: fonts))
+        let options = RenderOptions(paper: !noPaper, breaks: breaks, pdfRasterizer: try rasterizer(),
+                                    keepImageMetadata: keepImageMetadata, shaper: DefaultTextShaper(library: fonts))
         var placeholders = 0
         func warn(_ report: RenderReport, note: String) {
             placeholders += report.placeholders.count

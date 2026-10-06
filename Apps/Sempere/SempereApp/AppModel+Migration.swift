@@ -59,7 +59,7 @@ extension AppModel {
                     + "encrypted to (the classic key while one is listed) and try again."
             case .notDownloaded(let n):
                 return "iCloud Drive has not delivered \(n) note\(n == 1 ? "" : "s") yet. Every note must be on this "
-                    + "iPad before the vault can be re-encrypted. Check that it is online and try again."
+                    + "device before the vault can be re-encrypted. Check that it is online and try again."
             }
         }
     }

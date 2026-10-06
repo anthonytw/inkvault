@@ -38,16 +38,48 @@ struct CompactNavigationTests {
         #expect(CompactNavigation.column(note: nil, sidebar: nil, current: .sidebar) == nil)
     }
 
-    /// Back, tap the same row again: the clear makes the second tap a change.
-    @Test func theSameRowCanBeTappedAgainAfterABackSwipe() {
-        var note: UUID? = UUID()
-        var column = NavigationSplitViewColumn.detail
-        let first = note
-        column = .content
-        if CompactNavigation.clear(whenShowing: column).note { note = nil }
-        #expect(note == nil)
-        note = first   // the list reports a selection change again
-        #expect(CompactNavigation.column(note: note, sidebar: nil, current: column) == .detail)
+}
+
+/// What a back swipe does to the model (`AppModel.didShowCompactColumn`, the
+/// handler `RootView` runs on an iPhone).
+@MainActor
+struct CompactBackTests {
+    static let lecture = AppModelTests.lecture
+
+    /// Back to the list: the note is deselected (so its row can be tapped
+    /// again), its editor closed and its pending ink saved; the notebook stays.
+    /// Back to the notebooks: the sidebar selection goes too.
+    @Test func backSavesTheNoteAndClearsTheSelectionsItLeft() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .seconds(60))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        model.sidebarSelection = .allNotes
+        model.selectedNoteID = Self.lecture
+        await model.showSelectedNote()
+        let editor = try #require(model.editor)
+        let page = try #require(editor.currentPage)
+        var drawing = editor.drawing(for: page.id)
+        drawing.strokes.append(TS.canvasStroke(TS.stroke(y: 500)))
+        editor.drawingDidChange(pageID: page.id, drawing: drawing, tool: nil)
+        let vault = try #require(model.vault)
+        let before = try vault.reconstruct(noteId: Self.lecture).pages.first { $0.id == page.id }?.strokes.count ?? 0
+
+        await model.didShowCompactColumn(.content)
+        #expect(model.selectedNoteID == nil)
+        #expect(model.editor == nil)
+        #expect(model.sidebarSelection == .allNotes)
+        let after = try vault.reconstruct(noteId: Self.lecture).pages.first { $0.id == page.id }?.strokes.count ?? 0
+        #expect(after == before + 1, "the stroke drawn before going back was saved")
+
+        // The same row again: a change, so the stack pushes the note.
+        #expect(CompactNavigation.column(note: Self.lecture, sidebar: model.sidebarSelection, current: .content) == .detail)
+
+        await model.didShowCompactColumn(.sidebar)
+        #expect(model.sidebarSelection == nil)
+        await model.didShowCompactColumn(.detail)   // nothing to drop
+        #expect(model.sidebarSelection == nil && model.selectedNoteID == nil)
+        model.close()
     }
 }
 
@@ -70,6 +102,15 @@ struct PhoneReadingTests {
 
     @Test func annotationStartsOffForTheNextNote() {
         #expect(!PhoneReading.annotatingAfterNoteChange())
+    }
+
+    /// The footer below a finite page never writes while an iPhone is reading.
+    @Test func theFooterAddsAPageOnlyWhenTheNoteIsBeingWritten() {
+        #expect(PhoneReading.footer(infinite: false, isLast: true, readOnly: false, drawingSuspended: false) == .addPage)
+        #expect(PhoneReading.footer(infinite: false, isLast: true, readOnly: false, drawingSuspended: true) == .none)
+        #expect(PhoneReading.footer(infinite: false, isLast: true, readOnly: true, drawingSuspended: false) == .none)
+        #expect(PhoneReading.footer(infinite: false, isLast: false, readOnly: false, drawingSuspended: true) == .nextPage)
+        #expect(PhoneReading.footer(infinite: true, isLast: false, readOnly: false, drawingSuspended: false) == .none)
     }
 
     @Test func deviceNamesInTheKeyTexts() {
@@ -134,11 +175,16 @@ struct PhoneCanvasTests {
         window.isHidden = true
     }
 
-    @Test func fingersDrawOnAPhoneAndTheIdiomMatchesTheDestination() {
+    /// Fingers draw on a phone (it has no Pencil); the iPad keeps the system's
+    /// Pencil preference (`.default`) and the Mac draws with the pointer.
+    @Test func theDrawingPolicyFollowsTheDevice() {
         let (window, host) = Self.host(size: Self.sizes[0])
-        let phone = UIDevice.current.userInterfaceIdiom == .phone
-        #expect(Platform.isPhone == phone)
-        if phone { #expect(host.canvas.drawingPolicy == .anyInput) }
+        switch UIDevice.current.userInterfaceIdiom {
+        case .phone: #expect(host.canvas.drawingPolicy == .anyInput)
+        case .pad where !ProcessInfo.processInfo.isMacCatalystApp: #expect(host.canvas.drawingPolicy == .default)
+        default: #expect(host.canvas.drawingPolicy == .anyInput)
+        }
+        #expect(!(Platform.isPhone && Platform.isMac))
         window.isHidden = true
     }
 
@@ -165,8 +211,7 @@ struct PhoneCanvasTests {
 @MainActor
 @Suite(.serialized)
 struct PhoneRootTests {
-    @Test func theWelcomeScreenLaysOutAtPhoneWidth() {
-        let model = AppModel()
+    static func host(_ model: AppModel) -> (UIWindow, UIViewController) {
         let controller = UIHostingController(rootView: RootView()
             .environment(model).environment(VaultLibrary(storeURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathComponent("recents.json"))).environment(RememberedKeys(store: FakeKeyStore())))
@@ -174,8 +219,32 @@ struct PhoneRootTests {
         window.rootViewController = controller
         window.isHidden = false
         controller.view.layoutIfNeeded()
+        return (window, controller)
+    }
+
+    @Test func theWelcomeScreenLaysOutAtPhoneWidth() {
+        let model = AppModel()
+        let (window, controller) = Self.host(model)
         #expect(controller.view.bounds.width == 402)
         #expect(model.phase == .noVault)
         window.isHidden = true
+    }
+
+    /// The split view with an unlocked vault and a note open, at phone width.
+    @Test func anUnlockedVaultWithANoteLaysOutAtPhoneWidth() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        let (window, controller) = Self.host(model)
+        model.selectedNoteID = AppModelTests.lecture
+        await model.showSelectedNote()
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        #expect(controller.view.bounds.width == 402)
+        #expect(model.phase == .unlocked)
+        #expect(model.editor?.noteID == AppModelTests.lecture)
+        window.isHidden = true
+        model.close()
     }
 }

@@ -176,7 +176,7 @@ extension AppModel {
                     }
                     if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
                         self.cloudSync?.problem = "iCloud Drive has not delivered \(pending) note\(pending == 1 ? "" : "s") for "
-                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this iPad is online and "
+                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this device is online and "
                             + "signed in to iCloud Drive. Sempere keeps trying."
                         interval = self.cloudIdleInterval
                     }

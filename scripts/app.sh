@@ -56,7 +56,8 @@ case "${1:-}" in
     sim=$(pick_simulator iPhone)
     xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination "platform=iOS Simulator,id=$sim" CODE_SIGNING_ALLOWED=NO \
-      -only-testing:SempereAppTests/CompactNavigationTests -only-testing:SempereAppTests/PhoneReadingTests \
+      -only-testing:SempereAppTests/CompactNavigationTests -only-testing:SempereAppTests/CompactBackTests \
+      -only-testing:SempereAppTests/PhoneReadingTests \
       -only-testing:SempereAppTests/PhoneCanvasTests -only-testing:SempereAppTests/PhoneRootTests \
       -only-testing:SempereAppTests/ZoomStepsTests
     ;;

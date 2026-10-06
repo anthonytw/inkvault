@@ -21,7 +21,10 @@ The stack follows the selection (`CompactNavigation`): a note chosen anywhere (a
 shows the note, a sidebar item with no note shows its list. A `List(selection:)` pushes only when
 the selection *changes*, so going back clears the selection of the column that was left (note on
 back to the list; note and sidebar on back to the vault), and the same row can be tapped again.
-Closing the note this way also closes its editor (a pop removes the view whose task would have).
+Closing the note this way also saves and closes its editor (`AppModel.didShowCompactColumn`; a pop
+removes the view whose task would have). Only the iPhone binds the stack's column
+(`preferredCompactColumn`): an iPad in compact width (Slide Over, a narrow Split View) keeps the
+split view's own behaviour, unchanged.
 A wide landscape iPhone (Pro Max) is a regular-width split view: the columns are shown by the
 system and the stored column choice (`ColumnLayout`) is ignored on the phone, so a list can never
 be left hidden.
@@ -31,7 +34,8 @@ be left hidden.
 Read-first:
 
 - **Pan and zoom.** The page fits the width (`fitWidth`); pinch zooms up to 4x, one finger pans.
-  Infinite pages scroll one screen past the ink; finite pages end with "Next Page".
+  Infinite pages scroll one screen past the ink; finite pages end with "Next Page". The last page
+  shows "Add Page" only while annotating (`PhoneReading.footer`): a tap while reading never writes.
 - **Page navigation** in the bottom bar (previous, "n / N", next) for notes with several pages;
   swiping up from the end of a finite page uses the "Next Page" button.
 - **Light annotation.** The pencil button ("Annotate") switches finger drawing on. Until then the
@@ -50,15 +54,17 @@ Read-first:
 All of them are the shared views and model code: handwriting search over the recognised text
 (Vision recognition also runs on the iPhone if switched on; the text is stored in the vault so
 the iPad's recognition is searchable here), share/export sheets, the history browser and its
-restore, and key unlock. Remembered keys use the Keychain with Face ID exactly as on the iPad
+restore, and key unlock. Status texts name "this device" where they meant the iPad. Remembered keys use the Keychain with Face ID exactly as on the iPad
 (`RememberedKeys`, "Remember on this iPhone"); the unlock screen is a sheet.
 
 ## Tests
 
-- `PhoneLayoutTests.swift` (app tests): `CompactNavigationTests`, `PhoneReadingTests`, `PhoneCanvasTests`
+- `PhoneLayoutTests.swift` (app tests): `CompactNavigationTests`, `CompactBackTests` (a back swipe on
+  the model: selections dropped, the note's pending ink saved), `PhoneReadingTests`, `PhoneCanvasTests`
   (a `PageCanvasHost` in windows of iPhone sizes: the page fits the width, reading mode disables
   drawing and keeps scrolling and zooming, annotating enables it, the iPad's canvas is not suspended) and
-  `PhoneRootTests` (the root view hosted at an iPhone width). They run on the iPad destination
+  `PhoneRootTests` (the root view hosted at an iPhone width, on the welcome screen and with an
+  unlocked vault and a note open). They run on the iPad destination
   as well (the idiom-dependent expectations follow the destination).
 - CI runs them on an iPhone simulator after the iPad run (`scripts/app.sh test-phone`; the
   build products are shared, so it adds a boot and a few seconds). Run it locally the same way;

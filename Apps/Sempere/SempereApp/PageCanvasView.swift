@@ -44,11 +44,16 @@ struct PageCanvasView: UIViewRepresentable {
         host.isReadOnly = editor.isReadOnly
         let index = editor.pages.firstIndex { $0.id == pageID }
         let isLast = index == editor.pages.count - 1
-        host.footer = pageSize.infinite ? .none
-            : (isLast ? (editor.isReadOnly ? .none : .addPage) : .nextPage)
+        let footer = PhoneReading.footer(infinite: pageSize.infinite, isLast: isLast, readOnly: editor.isReadOnly,
+                                         drawingSuspended: drawingSuspended)
+        host.footer = footer
         host.footerAction = { [weak editor] in
             guard let editor else { return }
-            if isLast { editor.addPage() } else if let index { editor.selectPage(index + 1) }
+            switch footer {
+            case .addPage: editor.addPage()
+            case .nextPage: if let index { editor.selectPage(index + 1) }
+            case .none: break
+            }
         }
         host.paletteCompact = paletteCompact
         host.paletteVisible = paletteVisible

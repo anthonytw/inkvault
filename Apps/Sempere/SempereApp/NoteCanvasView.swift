@@ -138,6 +138,9 @@ struct EditorView: View {
     @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
     /// iPhone only: finger annotation is off until the pencil button turns it on.
     @State private var annotating = false
+    @AppStorage(PageStrip.visibleKey) private var stripVisible = false
+    /// Deleted pages the undo banner has already been shown for.
+    @State private var undoBannerFor = 0
 
     var body: some View {
         @Bindable var ui = ui
@@ -147,6 +150,20 @@ struct EditorView: View {
             }
             if let error = editor.saveError {
                 Banner(text: error, systemImage: "exclamationmark.triangle", tint: .orange)
+            }
+            if undoBannerFor > 0, undoBannerFor == editor.deletedPages.count {
+                HStack {
+                    Label("Page deleted.", systemImage: "trash").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Undo") { editor.undoDeletePage() }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+                .background(.bar)
+                .task(id: undoBannerFor) {
+                    try? await Task.sleep(for: .seconds(6))
+                    undoBannerFor = 0
+                }
             }
             if let page = editor.currentPage {
                 PageCanvasView(editor: editor, pageID: page.id, paper: editor.displayedPaper(of: page), pageSize: editor.pageSize,
@@ -166,6 +183,13 @@ struct EditorView: View {
                     }
                 }
             }
+        }
+        .inspector(isPresented: Binding(get: { stripVisible && !editor.isPageless }, set: { stripVisible = $0 })) {
+            PageStripView(editor: editor)
+                .inspectorColumnWidth(min: 150, ideal: 180, max: 260)
+        }
+        .onChange(of: editor.deletedPages.count) { old, new in
+            undoBannerFor = new > old ? new : 0
         }
         #if DEBUG
         .task {
@@ -267,6 +291,18 @@ struct EditorView: View {
                     Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
                         .disabled(editor.currentPage == nil)
                 }
+                ToolbarItem(placement: .secondaryAction) {
+                    // Switching never deletes ink (format.md §5.4.3); it is one delta.
+                    Picker(selection: Binding(
+                        get: { editor.isPageless },
+                        set: { pageless in Task { await editor.setLayout(pageless: pageless) } })) {
+                        Label("Pages", systemImage: "doc.on.doc").tag(false)
+                        Label("Pageless", systemImage: "scroll").tag(true)
+                    } label: {
+                        Label("Page Layout", systemImage: "rectangle.split.1x2")
+                    }
+                    .pickerStyle(.menu)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     // Tap: show or hide the palette. Press and hold: compact palette.
                     Menu {
@@ -295,7 +331,8 @@ struct EditorView: View {
                     .help("Size of the object eraser; the pixel eraser's size is in the tool palette")
                 }
             }
-            if editor.pages.count > 1 || !editor.isReadOnly {
+            // A pageless note is one page (an older one may have several: they can be browsed).
+            if editor.pages.count > 1 || (!editor.isReadOnly && !editor.isPageless) {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
                         .disabled(editor.pageIndex == 0)
@@ -303,8 +340,30 @@ struct EditorView: View {
                         .monospacedDigit()
                     Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
                         .disabled(editor.pageIndex + 1 >= editor.pages.count)
-                    if !editor.isReadOnly {
-                        Button("Add Page", systemImage: "doc.badge.plus") { editor.addPage() }
+                    if !editor.isReadOnly && !editor.isPageless {
+                        // Tap: a page after this one. Press and hold: the other page actions.
+                        Menu {
+                            Button("Add Page After This One", systemImage: "doc.badge.plus") { editor.addPageAfterCurrent() }
+                            Button("Add Page at End", systemImage: "arrow.down.to.line") { editor.addPage() }
+                            if let page = editor.currentPage {
+                                Button("Duplicate Page", systemImage: "plus.square.on.square") { editor.duplicatePage(page.id) }
+                                Button("Delete Page", systemImage: "trash", role: .destructive) { editor.deletePage(page.id) }
+                                    .disabled(!editor.canDeletePage)
+                            }
+                            if !editor.deletedPages.isEmpty {
+                                Button("Undo Delete Page", systemImage: "arrow.uturn.backward") { editor.undoDeletePage() }
+                            }
+                        } label: {
+                            Label("Add Page", systemImage: "doc.badge.plus")
+                        } primaryAction: {
+                            editor.addPageAfterCurrent()
+                        }
+                    }
+                    if !editor.isPageless {
+                        Button(stripVisible ? "Hide Pages" : "Show Pages", systemImage: "sidebar.right") {
+                            stripVisible.toggle()
+                        }
+                        .help("Page thumbnails: tap to go to a page, drag to reorder")
                     }
                 }
             }

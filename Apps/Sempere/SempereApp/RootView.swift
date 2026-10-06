@@ -73,13 +73,7 @@ struct RootView: View {
                 // A legacy vault: nothing but its migration (format.md §3.3.2).
                 MigrationView()
             } else {
-                NavigationSplitView(columnVisibility: columns, preferredCompactColumn: $compactColumn) {
-                    SidebarView()
-                } content: {
-                    NoteListView()
-                } detail: {
-                    NoteCanvasView()
-                }
+                splitView
                 .onAppear {
                     // The vault opens on its notebooks: nothing is selected, so a tap pushes.
                     if Platform.isPhone, compactColumn == .sidebar { model.sidebarSelection = nil }
@@ -88,13 +82,7 @@ struct RootView: View {
                 .onChange(of: model.sidebarSelection) { followSelection() }
                 .onChange(of: compactColumn) { _, column in
                     guard Platform.isPhone else { return }
-                    let clear = CompactNavigation.clear(whenShowing: column)
-                    if clear.note, model.selectedNoteID != nil {
-                        model.selectedNoteID = nil
-                        // The note's view is gone with the pop, so its own task will not close the editor.
-                        Task { await model.showSelectedNote() }
-                    }
-                    if clear.sidebar, model.sidebarSelection != nil { model.sidebarSelection = nil }
+                    Task { await model.didShowCompactColumn(column) }
                 }
             }
         }
@@ -162,6 +150,30 @@ struct RootView: View {
             #endif
             triedAutoOpen = true
             await reopen(last, pickOnFailure: false)
+        }
+    }
+
+    /// The three columns. Only an iPhone binds the stack's column
+    /// (`preferredCompactColumn`): the iPad (Slide Over, narrow Split View) and
+    /// the Mac keep the split view exactly as before.
+    @ViewBuilder
+    private var splitView: some View {
+        if Platform.isPhone {
+            NavigationSplitView(columnVisibility: columns, preferredCompactColumn: $compactColumn) {
+                SidebarView()
+            } content: {
+                NoteListView()
+            } detail: {
+                NoteCanvasView()
+            }
+        } else {
+            NavigationSplitView(columnVisibility: columns) {
+                SidebarView()
+            } content: {
+                NoteListView()
+            } detail: {
+                NoteCanvasView()
+            }
         }
     }
 
