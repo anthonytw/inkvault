@@ -48,8 +48,9 @@ Unknown files and directories must be ignored, never deleted.
   opened only to migrate it (§3.3.2).
 - `vaultSecret`: 32 random bytes, age-encrypted and armored, to exactly the
   listed recipients. It keys the inner authentication tag (§4) and the blob
-  names (§8.1.2), and nothing else. It is rotated whenever a recipient is
-  removed.
+  names (§8.1.2), and nothing else in the vault; outside it, a reader may
+  derive a per-device summary cache key from it (§10). It is rotated
+  whenever a recipient is removed.
 - `features` (optional, *new: attachments*): array of strings naming format
   extensions the vault uses. A writer adds `"attachments"` before it writes
   the first blob or attachment op (§8). A writer that finds a feature it does

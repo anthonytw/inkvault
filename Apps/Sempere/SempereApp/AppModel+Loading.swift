@@ -114,15 +114,19 @@ extension AppModel {
         defer { loadGate.release() }
         try ensureCurrent(gen)
         let coordinate = coordinationURL
+        // Only notes listed before the scan can be gone: one created meanwhile
+        // (`createNote`) is not in the scan but must stay, and stay selected.
+        let before = Set(notes.map(\.id))
         let ids = try await offMain { try CloudVault.coordinatedRead(coordinate) { try vault.noteIDs() } }
         try ensureCurrent(gen)
         let present = Set(ids)
-        notes.removeAll { !present.contains($0.id) }
+        notes.removeAll { before.contains($0.id) && !present.contains($0.id) }
         try await readSummaries(ids)
         try ensureCurrent(gen)
-        summaryCache?.retain(only: present)
+        summaryCache?.retain(only: present.union(notes.map(\.id)))
         saveSummaryCache()
         listLoaded = true
+        loadFailure = nil
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
     }
 
@@ -145,14 +149,19 @@ extension AppModel {
         var start = 0
         while start < ids.count {
             let batch = Array(ids[start..<min(ids.count, start + max(1, loadBatchSize))])
+            let epochs = summaryEpochs
+            // The cache file is written once per listing (`saveSummaryCache`), not per batch.
             let read = try await offMain {
                 try CloudVault.coordinatedRead(coordinate) {
-                    try vault.summaries(of: batch, cache: cache, maxConcurrency: width)
+                    try vault.summaries(of: batch, cache: cache, maxConcurrency: width, saveCache: false)
                 }
             }
             try ensureCurrent(gen)
             try Task.checkCancellation()
-            merge(read)
+            // An edit re-read a note while this batch was being read: its summary is newer.
+            let current = read.filter { summaryEpochs[$0.id] == epochs[$0.id] }
+            merge(current)
+            verifiedNoteIDs.formUnion(current.map(\.id))
             onBatch?(read)
             start += batch.count
             loading?.done = start
@@ -160,11 +169,22 @@ extension AppModel {
     }
 
     /// Puts `summaries` into `notes`, replacing older ones of the same notes.
+    /// Nothing is published when every one is already there unchanged (a
+    /// reopen re-confirms every cached summary, batch after batch).
     func merge(_ summaries: [NoteSummary]) {
         guard !summaries.isEmpty else { return }
         var byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        guard summaries.contains(where: { byID[$0.id] != $0 }) else { return }
         for s in summaries { byID[s.id] = s }
         notes = Self.byTitle(Array(byID.values))
+    }
+
+    /// Re-reads note `id` when its summary was not read in this session
+    /// (`verifiedNoteIDs`), so an edit never decides from an earlier launch's
+    /// cache or a summary still being listed.
+    func verifySummary(_ id: UUID) async throws {
+        guard !verifiedNoteIDs.contains(id) else { return }
+        try await refresh([id])
     }
 
     /// Writes the summary cache in the background; a failure only costs the

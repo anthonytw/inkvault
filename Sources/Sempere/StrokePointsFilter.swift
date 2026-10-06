@@ -24,24 +24,46 @@ import Foundation
 /// - A key spelled with escapes (`"points"`) is not recognised: its value
 ///   is simply decoded in full.
 ///
+/// - Only UTF-8 is filtered: a body holding a NUL byte (UTF-16 or UTF-32,
+///   which the decoder also accepts; valid UTF-8 JSON never holds one) is
+///   returned unchanged, since its bytes are not its characters.
+/// - Replacing a value removes nesting levels, so a document nested near the
+///   decoder's limit (512 levels) could decode only once stripped: one
+///   reaching `maxDepth` outside the replaced values is returned unchanged.
+///
 /// Cost: one pass over the bytes, O(n) time, output at most n bytes. No
 /// allocation until the first replacement.
 enum StrokePointsFilter {
     /// Integer digits beyond which a number might not be a finite `Double`
     /// (the largest finite one has 309); such a points value is kept.
     static let maxIntegerDigits = 300
+    /// Nesting depth (outside replaced values) from which the input is left
+    /// as it is: a replaced value nests two more levels, still below the
+    /// decoder's 512.
+    static let maxDepth = 500
 
     /// `json` with every certainly-decodable `"points"` value replaced by `[]`.
     static func strip(_ json: Data) -> Data {
-        json.withUnsafeBytes { raw -> Data in
+        guard !json.contains(0) else { return json }   // not UTF-8
+        return json.withUnsafeBytes { raw -> Data in
             let b = raw.bindMemory(to: UInt8.self)
             guard let base = b.baseAddress else { return json }
             let n = b.count
             var out: Data?
             var copied = 0
             var i = 0
+            var depth = 0
             while i < n {
-                guard b[i] == quote else { i += 1; continue }
+                guard b[i] == quote else {
+                    if b[i] == open || b[i] == brace {
+                        depth += 1
+                        if depth >= maxDepth { return json }
+                    } else if b[i] == close || b[i] == closeBrace {
+                        depth -= 1
+                    }
+                    i += 1
+                    continue
+                }
                 // A string from i + 1 to its closing quote.
                 let start = i + 1
                 var j = start
@@ -76,6 +98,7 @@ enum StrokePointsFilter {
 
     private static let quote: UInt8 = 0x22, backslash: UInt8 = 0x5C, colon: UInt8 = 0x3A
     private static let open: UInt8 = 0x5B, close: UInt8 = 0x5D, comma: UInt8 = 0x2C
+    private static let brace: UInt8 = 0x7B, closeBrace: UInt8 = 0x7D
 
     private static func skipSpace(_ b: UnsafeBufferPointer<UInt8>, _ from: Int) -> Int {
         var i = from

@@ -180,7 +180,7 @@ extension Vault {
     /// - Throws: `VaultError` when the vault cannot read or a note folder
     ///   cannot be listed (the first such note in `ids` order). Unreadable
     ///   revisions are not errors: they set the summary's `problem`.
-    public func summaries(of ids: [UUID]?, cache: SummaryCache? = nil, maxConcurrency: Int = 0,
+    public func summaries(of ids: [UUID]?, cache: SummaryCache? = nil, maxConcurrency: Int = 0, saveCache: Bool = true,
                           progress: (@Sendable (SummaryProgress) -> Void)? = nil) throws -> [NoteSummary] {
         try requireMigrated()
         _ = try requireReadable()
@@ -205,7 +205,9 @@ extension Vault {
         for r in results { out.append(try r.get().0) }
         if let cache {
             if all { cache.retain(only: Set(ids)) }
-            try? cache.save()
+            // A caller reading in batches passes false and saves once at the
+            // end: every save rewrites the whole file.
+            if saveCache { try? cache.save() }
         }
         return out.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
     }

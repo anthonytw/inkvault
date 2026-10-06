@@ -39,10 +39,18 @@ public final class SummaryCache: @unchecked Sendable {
     /// Why an existing file was ignored by `load`; nil when it was absent or read.
     public private(set) var loadProblem: String?
     /// Why the last `save` failed, if it did.
-    public private(set) var saveProblem: String?
+    public var saveProblem: String? {
+        lock.lock(); defer { lock.unlock() }
+        return storedSaveProblem
+    }
+    /// `saveProblem`, written by `save` (which may run on another thread): read under `lock`.
+    private var storedSaveProblem: String?
 
     private let key: Data
     private let lock = NSLock()
+    /// Held for a whole `save`, so two saves cannot land out of order (an
+    /// older snapshot written last would lose the newer entries).
+    private let saveLock = NSLock()
     private var entries: [UUID: Entry] = [:]
     private var dirty = false
 
@@ -136,6 +144,8 @@ public final class SummaryCache: @unchecked Sendable {
     /// Writes the cache if anything changed since it was read or saved.
     /// Atomic: a reader sees the old or the new file.
     public func save() throws {
+        saveLock.lock()
+        defer { saveLock.unlock() }
         lock.lock()
         guard dirty else { lock.unlock(); return }
         let payload = Payload(schema: Self.schemaVersion, notes: entries)
@@ -146,9 +156,9 @@ public final class SummaryCache: @unchecked Sendable {
                                        aad: aad)
             try FileIO.createDirectory(fileURL.deletingLastPathComponent())
             try FileIO.writeAtomically(sealed, to: fileURL, replacing: true)
-            lock.lock(); saveProblem = nil; lock.unlock()
+            lock.lock(); storedSaveProblem = nil; lock.unlock()
         } catch {
-            lock.lock(); dirty = true; saveProblem = "\(error)"; lock.unlock()
+            lock.lock(); dirty = true; storedSaveProblem = "\(error)"; lock.unlock()
             throw error
         }
     }

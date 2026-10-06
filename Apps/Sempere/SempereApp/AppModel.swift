@@ -60,7 +60,7 @@ final class AppModel {
             case .noteNotDownloaded:
                 return "iCloud Drive has not delivered all of this note's files yet. Try again in a moment."
             case .notesStillDownloading:
-                return "Some notes are still downloading from iCloud Drive. Try again once the list has finished loading."
+                return "Some notes are still loading or downloading from iCloud Drive. Try again once the list has finished loading."
             }
         }
     }
@@ -82,6 +82,14 @@ final class AppModel {
     var listLoaded = false
     /// Why the last listing failed, shown in an empty list (cleared by the next one).
     var loadFailure: String?
+    /// Notes whose summary in `notes` was read (or confirmed from the cache)
+    /// in this session. A summary shown from an earlier launch's cache, or a
+    /// placeholder, is not: edits that decide from a summary re-read the
+    /// note first, and a notebook rename waits until every note is verified.
+    var verifiedNoteIDs: Set<UUID> = []
+    /// Bumped per note by `refresh` (an edit's own re-read): a listing batch
+    /// read before it must not merge its older summary over the newer one.
+    var summaryEpochs: [UUID: Int] = [:]
 
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
@@ -526,6 +534,8 @@ final class AppModel {
         loading = nil
         listLoaded = false
         loadFailure = nil
+        verifiedNoteIDs = []
+        summaryEpochs = [:]
         summaryCache = nil
         vault = nil
         migration = nil

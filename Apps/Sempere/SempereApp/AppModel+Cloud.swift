@@ -122,6 +122,8 @@ extension AppModel {
         let url = vault.url
         let priority = selectedNoteID
         let window = cloudWindow
+        // Only notes listed before the scan can be gone (see `listLocalNotes`).
+        let before = Set(notes.map(\.id))
         let pass = try await offMain { try ProgressiveLoad.pass(vault: url, priority: priority, window: window, hooks: hooks) }
         try ensureCurrent(gen)
         // A replaced (or paused) sync loop's pass is stale: never publish it over a newer one.
@@ -141,7 +143,7 @@ extension AppModel {
             return pass.pending.count
         }
         let present = Set(pass.all)
-        notes.removeAll { !present.contains($0.id) }   // deleted remotely
+        notes.removeAll { before.contains($0.id) && !present.contains($0.id) }   // deleted remotely
         // Pending notes: the cached summary if any (marked downloading), else a placeholder.
         var placeholders = placeholderNoteIDs.intersection(present)
         let shown = Set(notes.map(\.id))
@@ -175,9 +177,10 @@ extension AppModel {
         placeholderNoteIDs.subtract(pass.ready)
         pendingNoteIDs = stillPending
         loadedPendingIDs = stillPending
-        summaryCache?.retain(only: present)
+        summaryCache?.retain(only: present.union(notes.map(\.id)))
         saveSummaryCache()
         listLoaded = true
+        loadFailure = nil
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
         return pass.pending.count
     }

@@ -4,6 +4,35 @@ import Sempere
 import Testing
 @testable import SempereApp
 
+/// Holds the first piece of off-main work after `arm()` until `release()`;
+/// all other work passes.
+actor HeldRead {
+    private var armed = false
+    private var holding = false
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func arm() { armed = true; released = false }
+
+    func passIfArmed() async {
+        guard armed else { return }
+        armed = false
+        holding = true
+        if released { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func waitUntilHolding() async {
+        while !holding { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    func release() {
+        released = true
+        waiter?.resume()
+        waiter = nil
+    }
+}
+
 /// Opening a vault: the note list loads in the background with progress,
 /// fills in batch by batch, comes from the summary cache on a reopen, and
 /// says why whenever it is empty.
@@ -70,15 +99,110 @@ struct VaultOpeningTests {
         let (model, key, _) = try await Self.lockedModel(gate: gate)
         await gate.close()
         let start = await gate.arrivals
-        let unlocking = Task { try await model.unlock(identityText: key, awaitNotes: false) }
+        // Awaiting the notes: the task is cancelled while the listing waits at the gate.
+        let unlocking = Task { _ = try? await model.unlock(identityText: key, awaitNotes: true) }
         await gate.waitForArrivals(start + 1)
-        await gate.releaseOne()
-        try await unlocking.value
+        await gate.releaseOne()                  // the key check
+        await gate.waitForArrivals(start + 2)    // the listing, held
         unlocking.cancel()
-        await gate.waitForArrivals(start + 2)
         await gate.open()
         #expect(await TS.waitUntil { model.listLoaded })
         #expect(model.notes.count == 2)
+    }
+
+    // MARK: - Edits while the list is loading
+
+    /// A model whose I/O hook holds exactly one piece of off-main work, the
+    /// first one after `hold.arm()`; everything else goes through.
+    static func modelHoldingOneRead(cache: URL? = nil) throws -> (AppModel, HeldRead, key: String, vault: URL) {
+        let (url, keyURL) = try AppModelTests.fixtureVault()
+        let held = HeldRead()
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), summaryCacheDirectory: cache,
+                             afterIO: { await held.passIfArmed() })
+        return (model, held, try key(keyURL), url)
+    }
+
+    /// While the first listing is under way, notes not read yet have no known
+    /// notebook: renaming a notebook would leave them behind.
+    @Test func aNotebookRenameWaitsForTheListing() async throws {
+        let gate = Gate()
+        let (model, key, _) = try await Self.lockedModel(gate: gate)
+        model.loadBatchSize = 1
+        let start = try await Self.unlockGated(model, key: key, gate: gate)
+        await gate.waitForArrivals(start + 2)
+        await gate.releaseOne()                  // the note folders
+        await gate.waitForArrivals(start + 3)
+        await gate.releaseOne()                  // the first note
+        #expect(await TS.waitUntil { model.notes.count == 1 })
+        await #expect(throws: AppModel.ModelError.notesStillDownloading) { try await model.renameNotebook("Fixture", to: "Other") }
+        await gate.open()
+        #expect(await TS.waitUntil { model.listLoaded })
+        try await model.renameNotebook("Nothing here", to: "Other")   // allowed once every note is read
+    }
+
+    /// A reopen shows an earlier launch's summaries: an edit that decides
+    /// from the summary (here: "the title is already that") re-reads the note
+    /// first instead of trusting the cache.
+    @Test func anEditDuringAReopenDecidesFromTheNoteNotTheCache() async throws {
+        let cacheDir = Self.tempDir()
+        let (first, key, url) = try await Self.lockedModel(cache: cacheDir)
+        try await first.unlock(identityText: key)
+        let cachedTitle = try #require(first.notes.first { $0.id == Self.lecture }?.title)
+        first.close()
+        #expect(await TS.waitUntil {
+            ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1
+        })
+        let vault = try Vault.open(at: url, identities: [try IdentityFile.parse(key)])
+        _ = try vault.apply([.setMeta(.title("Renamed elsewhere"))], to: Self.lecture,
+                            deviceState: Self.tempDir().appendingPathComponent("device.json"), app: "test/0")
+
+        let gate = Gate()
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), summaryCacheDirectory: cacheDir,
+                             afterIO: { await gate.pass() })
+        try await model.openVault(at: url)
+        let start = try await Self.unlockGated(model, key: key, gate: gate)
+        await gate.waitForArrivals(start + 2)
+        await gate.releaseOne()                  // the cache file: the old title is shown
+        #expect(await TS.waitUntil { model.notes.first { $0.id == Self.lecture }?.title == cachedTitle })
+        let renaming = Task { try await model.renameNote(Self.lecture, to: cachedTitle) }
+        await gate.open()
+        try await renaming.value
+        #expect(await TS.waitUntil { model.listLoaded })
+        #expect(try vault.reconstruct(noteId: Self.lecture).meta.title == cachedTitle, "the rename was written")
+        model.close()
+    }
+
+    /// A listing batch read before an edit must not put its older summary
+    /// back over the edit's.
+    @Test func aBatchReadBeforeAnEditDoesNotUndoIt() async throws {
+        let (model, held, key, url) = try Self.modelHoldingOneRead()
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: key)
+        await held.arm()
+        let reading = Task { try await model.readSummaries([Self.lecture]) }
+        await held.waitUntilHolding()            // read with the old title, not merged yet
+        try await model.renameNote(Self.lecture, to: "Newer title")
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Newer title")
+        await held.release()
+        try await reading.value
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Newer title")
+    }
+
+    /// A note created while the note folders are being listed is not in that
+    /// listing, and must not be taken out of the list (or unselected) by it.
+    @Test func aNoteCreatedDuringAListingStays() async throws {
+        let (model, held, key, url) = try Self.modelHoldingOneRead()
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: key)
+        await held.arm()
+        let listing = Task { try await model.listLocalNotes() }
+        await held.waitUntilHolding()            // the folders were listed
+        let id = try await model.createNote(title: "Made meanwhile", paper: .blank, notebook: nil)
+        model.selectedNoteID = id
+        await held.release()
+        try await listing.value
+        #expect(model.notes.contains { $0.id == id })
+        #expect(model.selectedNoteID == id)
     }
 
     @Test func notesArriveBatchByBatchWithACount() async throws {

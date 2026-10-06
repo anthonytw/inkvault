@@ -105,6 +105,36 @@ final class StrokePointsFilterTests: XCTestCase {
 
     /// Mutated revision JSON: the filtered bytes decode exactly when the
     /// original does, and then to the original without points.
+    /// Stripping removes nesting levels: a document near the decoder's limit
+    /// must not decode only once stripped (the listing would call a note
+    /// healthy that cannot be opened).
+    func testDeeplyNestedInputIsLeftAsItIs() throws {
+        func doc(_ k: Int) -> Data {
+            Data((String(repeating: "[", count: k) + #"{"points":[[0,0,0,0,0,0,0,0,0]]}"# + String(repeating: "]", count: k)).utf8)
+        }
+        for k in 495...515 {
+            let json = doc(k), stripped = StrokePointsFilter.strip(json)
+            let full = (try? InkJSON.decoder().decode(JSONAny.self, from: json)) != nil
+            let lite = (try? InkJSON.decoder().decode(JSONAny.self, from: stripped)) != nil
+            XCTAssertEqual(full, lite, "depth \(k)")
+        }
+        XCTAssertNotEqual(StrokePointsFilter.strip(doc(400)), doc(400), "well below the limit it still strips")
+        XCTAssertEqual(StrokePointsFilter.strip(doc(StrokePointsFilter.maxDepth)), doc(StrokePointsFilter.maxDepth))
+        let shallow = Data(#"[{"points":[[0,0,0,0,0,0,0,0,0]]}]"#.utf8)
+        XCTAssertEqual(String(decoding: StrokePointsFilter.strip(shallow), as: UTF8.self), #"[{"points":[]}]"#)
+    }
+
+    /// A UTF-16 body (the decoder accepts it) is not scanned as bytes: its
+    /// bytes are not its characters, and a string could be cut.
+    func testNonUTF8BodiesAreLeftAsTheyAre() throws {
+        let text = #"{"title":"x","points":[[0,0,0,0,0,0,0,0,0]]}"#
+        for encoding in [String.Encoding.utf16LittleEndian, .utf16BigEndian, .utf16, .utf32] {
+            let data = try XCTUnwrap(text.data(using: encoding))
+            XCTAssertEqual(StrokePointsFilter.strip(data), data, "\(encoding)")
+        }
+        XCTAssertNotEqual(StrokePointsFilter.strip(Data(text.utf8)), Data(text.utf8))
+    }
+
     func testFuzzFilterAgreesWithTheDecoder() throws {
         let seeds = try SempereFuzzTests.seedLog().map(SempereFuzzTests.json)
         let report = Fuzz.run("strip-points", seeds: seeds, quick: 1200, text: true) { input in
@@ -227,6 +257,25 @@ final class SummaryTests: VaultTestCase {
         XCTAssertEqual(Set(second), Set(try vault.noteIDs().map { try fullSummary(vault, $0) }))
     }
 
+    /// A caller reading in batches defers the save (every save rewrites the
+    /// whole file) and saves once at the end.
+    func testBatchedReadsSaveOnlyWhenAsked() throws {
+        let (vault, dir, _) = try makeCachedVault()
+        let ids = try vault.noteIDs()
+        let cache = try SummaryCache(directory: dir, vault: vault)
+        _ = try vault.summaries(of: Array(ids.prefix(2)), cache: cache, saveCache: false)
+        _ = try vault.summaries(of: Array(ids.dropFirst(2)), cache: cache, saveCache: false)
+        XCTAssertTrue(cache.hasChanges)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.fileURL.path))
+        try cache.save()
+        XCTAssertFalse(cache.hasChanges)
+        XCTAssertEqual(Set(try SummaryCache(directory: dir, vault: vault).storedSummaries.map(\.id)), Set(ids))
+        // The default still saves.
+        let other = try SummaryCache(directory: tmp.appendingPathComponent("cache2"), vault: vault)
+        _ = try vault.summaries(of: ids, cache: other)
+        XCTAssertFalse(other.hasChanges)
+    }
+
     func testCacheDropsDeletedNotesAndKeepsNoProblems() throws {
         let (vault, dir, _) = try makeCachedVault()
         let ids = try vault.noteIDs()
@@ -302,13 +351,16 @@ final class SummaryTests: VaultTestCase {
         let (vault, dir, _) = try makeCachedVault()
         _ = try vault.summaries(of: nil, cache: try SummaryCache(directory: dir, vault: vault))
         // Same file under another secret: neither its name nor its key match.
-        let other = SummaryCache(directory: dir, secret: VaultSecret.random())
+        let otherSecret = VaultSecret.random()
+        let other = SummaryCache(directory: dir, secret: otherSecret)
         XCTAssertNil(other.loadProblem)
         XCTAssertTrue(other.storedSummaries.isEmpty)
         let mine = try SummaryCache(directory: dir, vault: vault)
         try FileManager.default.copyItem(at: mine.fileURL, to: other.fileURL.appendingPathExtension("x"))
         try FileManager.default.moveItem(at: other.fileURL.appendingPathExtension("x"), to: other.fileURL)
-        let swapped = SummaryCache(directory: dir, secret: VaultSecret.random())
+        // The copied file is read under the other secret's name and fails to authenticate.
+        let swapped = SummaryCache(directory: dir, secret: otherSecret)
+        XCTAssertNotNil(swapped.loadProblem)
         XCTAssertTrue(swapped.storedSummaries.isEmpty)
         // An authentic file of another schema version.
         let secret = try vault.requireSecret()
@@ -335,6 +387,26 @@ final class SummaryTests: VaultTestCase {
 }
 
 /// A value behind a lock, for counting from concurrent callbacks.
+/// Any JSON value, decoded only to see whether the decoder accepts it.
+private enum JSONAny: Decodable {
+    case value
+    init(from decoder: Decoder) throws {
+        if var a = try? decoder.unkeyedContainer() {
+            while !a.isAtEnd { _ = try a.decode(JSONAny.self) }
+        } else if let o = try? decoder.container(keyedBy: AnyCodingKey.self) {
+            for k in o.allKeys { _ = try o.decode(JSONAny.self, forKey: k) }
+        }
+        self = .value
+    }
+
+    private struct AnyCodingKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+}
+
 final class Locked<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: T

@@ -116,7 +116,14 @@ batches of 24 that are merged into the list as they finish; the bar under the
 list shows "Opening vault: n of m notes" (or "Updating notes" when the list
 already shows every note) next to the iCloud progress. On a reopen the cached
 summaries are shown before anything is read, and only notes whose revision
-file names changed are decrypted. Listings never overlap (`loadGate`). An
+file names changed are decrypted. Listings never overlap (`loadGate`), and
+the cache file is written once per listing, not per batch. The list is usable
+while it loads, so edits never decide from a summary not read in this session
+(`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
+first), a notebook rename waits until every note was read, a batch read
+before an edit's own re-read does not merge over it (`summaryEpochs`), and a
+listing only removes notes it saw before its scan (a note created meanwhile
+stays, and stays selected). An
 empty list always says why: loading (with the count), downloading from
 iCloud, the listing failed (with Try Again), no search match, nothing in the
 selected notebook or tag, or an empty vault (`EmptyListReason`).
