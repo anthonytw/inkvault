@@ -17,7 +17,7 @@ struct PreparedDrawing: @unchecked Sendable {
 
 /// A drawing handed between actors as it is (PencilKit's value types are
 /// immutable once built).
-struct DrawingBox: @unchecked Sendable {
+struct SendableDrawing: @unchecked Sendable {
     let drawing: PKDrawing
     init(_ drawing: PKDrawing) { self.drawing = drawing }
 }

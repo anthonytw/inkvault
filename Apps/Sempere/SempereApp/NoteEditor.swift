@@ -223,7 +223,7 @@ final class NoteEditor {
         guard isPreparing else { return }
         finishing = true
         let sameVersion = loaded.failures == 0 && cacheKey?.revisions == loaded.names
-        let shownPages = canvasDrawings.mapValues(DrawingBox.init)
+        let shownPages = canvasDrawings.mapValues(SendableDrawing.init)
         let pagesByID = Dictionary(loaded.state.pages.map { ($0.id, $0.strokes) }, uniquingKeysWith: { a, _ in a })
         // Checking and fingerprinting 15 000 strokes is a few milliseconds: off the main actor anyway.
         let checked: [UUID: PreparedDrawing] = sameVersion ? await Task.detached(priority: .userInitiated) {
@@ -323,13 +323,13 @@ final class NoteEditor {
             // Opened from the cache and still being read: this page from the cache if it is there.
             if let cache = drawingCache, let key = cacheKey {
                 let noteID = self.noteID
-                let cached = await Task.detached(priority: .userInitiated) { () -> DrawingBox? in
+                let cached = await Task.detached(priority: .userInitiated) { () -> SendableDrawing? in
                     let interval = Perf.begin(.noteCache)
                     let data = cache.drawing(key, page: pageID)
                     let drawing = data.flatMap { try? PKDrawing(data: $0) }
                     Perf.end(interval, "\(drawing == nil ? "miss" : "hit") page \(Perf.short(noteID)) bytes=\(data?.count ?? 0)")
                     // Fingerprinted once the strokes are read (`finishLoading`), not now.
-                    return drawing.map(DrawingBox.init)
+                    return drawing.map(SendableDrawing.init)
                 }.value
                 if isPreparing, !finishing, let cached {
                     canvasDrawings[pageID] = cached.drawing
@@ -356,14 +356,14 @@ final class NoteEditor {
             let prepared = Perf.measure(.noteConvert, "\(Perf.short(noteID)) strokes=\(strokes.count)") {
                 DrawingPreparation.convert(strokes, visible: visible, visibleFirst: partial.map { show in
                     { drawing in
-                        let box = DrawingBox(drawing)
+                        let box = SendableDrawing(drawing)
                         Task { @MainActor in show(box.drawing) }
                     }
                 })
             }
             if let cache, let key {
                 // Stored after the page is shown, not before.
-                let box = DrawingBox(prepared.drawing)
+                let box = SendableDrawing(prepared.drawing)
                 Task.detached(priority: .utility) {
                     Perf.measure(.cacheWrite, "page \(Perf.short(noteID))") {
                         cache.store(drawing: box.drawing.dataRepresentation(), for: key, page: pageID)
@@ -530,7 +530,7 @@ final class NoteEditor {
         guard key != base else { return }   // nothing written: the cache already has this version
         var state = NoteState(deleted: false, meta: meta, pages: pages)
         state.meta.pageSize = pageSize
-        var clean: [UUID: DrawingBox] = [:]
+        var clean: [UUID: SendableDrawing] = [:]
         var changed: [UUID: [Stroke]] = [:]
         for i in state.pages.indices {
             let id = state.pages[i].id
@@ -538,7 +538,7 @@ final class NoteEditor {
             if dirtyPages.contains(id) {
                 changed[id] = state.pages[i].strokes
             } else if let drawing = canvasDrawings[id], ledgers[id] != nil {
-                clean[id] = DrawingBox(drawing)
+                clean[id] = SendableDrawing(drawing)
             }
         }
         let layout = DrawingCache.Layout(state)
