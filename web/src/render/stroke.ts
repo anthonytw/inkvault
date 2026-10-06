@@ -141,8 +141,8 @@ export function samples(stroke: Stroke, tolerance = 0.05, maxSpacing = 1.0, offs
     dedup.push(s);
   }
   if (dedup.length < 2) {
-    const only = dedup[0] ?? (out[0]);
-    return [only, only];
+    const only = dedup[0] ?? out[0];
+    return only ? [only, only] : [];
   }
   return dedup;
 }
