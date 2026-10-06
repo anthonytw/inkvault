@@ -21,7 +21,9 @@ public enum Armor {
         return window[start...].starts(with: header)
     }
 
-    static func encode(_ data: Data) -> Data {
+    /// Armors a binary age file (64-column base64 between the BEGIN and END
+    /// lines, LF line endings).
+    public static func encode(_ data: Data) -> Data {
         let b64 = Array(Base64.encodePadded(data).utf8)
         var out = header + [0x0A]
         var i = 0

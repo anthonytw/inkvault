@@ -131,8 +131,18 @@ public enum NoteReducer {
             for case .removeStroke(_, let id) in d.ops { removedStrokes.insert(id) }
         }
         // Page tombstones are permanent (§5.4), so every removePage counts.
+        // So are removed tag instances (§5.4.1).
+        var tagRemovals = Set<TagSet.Removal>()
         for d in deltas {
-            for case .removePage(let id) in d.ops { removedPages.insert(id) }
+            for op in d.ops {
+                switch op {
+                case .removePage(let id): removedPages.insert(id)
+                case .removeTag(let tag, let observed):
+                    let key = NoteOps.tagKey(tag)
+                    for o in observed { tagRemovals.insert(TagSet.Removal(key: key, origin: o)) }
+                default: break
+                }
+            }
         }
 
         // Orphans (§5.3): a delta whose page-targeting op names a page nobody
@@ -191,11 +201,20 @@ public enum NoteReducer {
             strokes[e.item.id] = e
         }
 
+        var tags = TagMerge()
         for s in snapshots {
             let stamp = s.name.stamp
             for k in NoteState.ClockKey.allCases {
+                // A snapshot with a tag set keeps its legacy register there (§5.4.1).
+                if k == .tags, let set = s.state.tagSet {
+                    if let legacy = set.legacy {
+                        offer(.meta(.tags(legacy.tags)), .base(Stamp(legacy.clock) ?? stamp, s.name))
+                    }
+                    continue
+                }
                 offer(RegisterValue(k, in: s.state), .base(s.state.clocks?[k.rawValue].flatMap(Stamp.init) ?? stamp, s.name))
             }
+            if let set = s.state.tagSet { tags.add(set) }
             let m = s.state.meta
             created = min(created ?? m.created, m.created)
 
@@ -211,7 +230,7 @@ public enum NoteReducer {
                     offerRecognition(p.id, p.recognition,
                                      .base(p.recognitionClock.flatMap(Stamp.init) ?? stamp, s.name))
                 }
-                // Likewise a page with neither paper nor its clock follows the note (§5.4.1).
+                // Likewise a page with neither paper nor its clock follows the note (§5.4.2).
                 if p.paper != nil || p.paperClock != nil {
                     offerPaper(p.id, p.paper, .base(p.paperClock.flatMap(Stamp.init) ?? stamp, s.name))
                 }
@@ -242,9 +261,10 @@ public enum NoteReducer {
                 case .setPagePaper(let id, let value):
                     offerPaper(id, value, k)
                 case .setMeta(let change): offer(.meta(change), k)
+                case .addTag(let tag): tags.add(tag, Origin(d.name, op: i))
                 case .deleteNote: offer(.deleted(true), k)
                 case .restoreNote: offer(.deleted(false), k)
-                case .removeStroke, .removePage: break
+                case .removeStroke, .removePage, .removeTag: break
                 }
             }
         }
@@ -316,16 +336,87 @@ public enum NoteReducer {
                               tombstones: tomb.isEmpty ? nil : tomb)
         state.meta.created = created ?? defaults.meta.created
         var clocks: [String: String] = [:]
-        for (k, reg) in registers {
+        for (k, reg) in registers where k != .tags {
             reg.value.apply(to: &state)
             clocks[k.rawValue] = reg.key.stamp.description
         }
         state.clocks = clocks
+        tags.removed.formUnion(tagRemovals)
+        var legacy: TagSet.Legacy?
+        if let reg = registers[.tags], reg.key > .unset, case .meta(.tags(let value)) = reg.value {
+            legacy = TagSet.Legacy(tags: value, clock: reg.key.stamp.description)
+        }
+        state.tagSet = tags.resolve(legacy: legacy)
+        state.meta.tags = state.tagSet?.tags ?? []
         return Resolution(state: state, included: included)
     }
 
     private static func sortedIds(_ ids: Set<UUID>) -> [UUID] {
         ids.sorted { $0.uuidString.lowercased() < $1.uuidString.lowercased() }
+    }
+}
+
+/// Tag instances and removals collected from every source (format.md §5.4.1).
+struct TagMerge {
+    /// Instance identity is (key, origin); the spelling is the instance's.
+    var added: [TagSet.Removal: String] = [:]
+    var removed = Set<TagSet.Removal>()
+
+    /// Adds one instance. The spelling is normalised as writers must have
+    /// done; an instance whose tag is empty (blank) is ignored (§5.4.1).
+    mutating func add(_ tag: String, _ origin: Origin) {
+        let tag = NoteOps.normalizedTag(tag)
+        guard !tag.isEmpty else { return }
+        let id = TagSet.Removal(key: NoteOps.tagKey(tag), origin: origin)
+        // One identity always has one spelling; pick deterministically regardless.
+        if let cur = added[id], !tag.utf8.lexicographicallyPrecedes(cur.utf8) { return }
+        added[id] = tag
+    }
+
+    /// A snapshot's set. Its baseline instances (`seq` 0) are not taken:
+    /// they are derived from the winning legacy write alone (§5.4.1).
+    mutating func add(_ set: TagSet) {
+        for i in set.instances where i.origin.seq >= 1 { add(i.tag, i.origin) }
+        removed.formUnion(set.removed)
+    }
+
+    /// The tag set after the legacy baseline and its supersession are applied.
+    func resolve(legacy: TagSet.Legacy?) -> TagSet {
+        var all = added
+        var legacyKeys = Set<String>()
+        var legacyStamp: Stamp?
+        if let legacy, let stamp = Stamp(legacy.clock) {
+            legacyStamp = stamp
+            for (i, tag) in legacy.tags.enumerated() {
+                let tag = NoteOps.normalizedTag(tag)
+                let key = NoteOps.tagKey(tag)
+                guard !key.isEmpty, legacyKeys.insert(key).inserted else { continue }
+                all[TagSet.Removal(key: key, origin: Origin(hlc: stamp.hlc, device: stamp.device, seq: 0, op: i))] = tag
+            }
+        }
+        // The legacy write replaced the whole set at its stamp: every older
+        // instance goes, whatever its key (the keys it lists live on as its
+        // baseline). A superseded instance can never come back, since the
+        // winning stamp only grows, so a snapshot may drop it (§5.4.1).
+        let live = all.filter { id, _ in
+            guard !removed.contains(id) else { return false }
+            if let legacyStamp, id.origin.stamp < legacyStamp { return false }
+            return true
+        }
+        let instances = live.map { TagSet.Instance(tag: $0.value, origin: $0.key.origin) }
+            .sorted { ($0.origin, $0.key) < ($1.origin, $1.key) }
+        let removals = removed.sorted { ($0.origin, $0.key) < ($1.origin, $1.key) }
+        return TagSet(instances: instances, removed: removals, legacy: legacy)
+    }
+}
+
+extension TagSet {
+    /// The tags on the note, one per key: the spelling of the key's earliest
+    /// live instance, in the order of those instances (format.md §5.4.1).
+    public var tags: [String] {
+        var seen = Set<String>()
+        return instances.sorted { ($0.origin, $0.key) < ($1.origin, $1.key) }
+            .filter { seen.insert($0.key).inserted }.map(\.tag)
     }
 }
 

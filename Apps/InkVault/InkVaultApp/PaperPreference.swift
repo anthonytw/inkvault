@@ -2,7 +2,7 @@ import Foundation
 import InkVault
 
 /// The paper new notes start with, remembered across launches in
-/// `UserDefaults` as the paper's format JSON (format.md §5.4.1). The paper
+/// `UserDefaults` as the paper's format JSON (format.md §5.4.2). The paper
 /// picker's "Use as default for new notes" writes it; the new-note sheet reads it.
 enum PaperPreference {
     static let defaultsKey = "InkVault.defaultPaper"

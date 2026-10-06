@@ -204,4 +204,37 @@ final class PaperTests: XCTestCase {
             }
         }
     }
+
+    /// The per-band and per-page caps (#25) rely on `rulingCount` being an
+    /// upper bound on what `commands` draws, for every kind, margins included.
+    func testRulingCountBoundsEveryKind() throws {
+        for kind in PaperKind.allCases where kind != .blank {
+            var paper = Paper.template(kind)
+            if kind.supportsMargins { paper.marginLeft = 50; paper.marginTop = 30 }
+            for (y0, y1) in [(0.0, 792.0), (700.0, 1500.0), (10_000.0, 10_792.0)] {
+                let drawn = PaperRenderer.commands(paper: paper, width: 612, height: y1 - y0, yOffset: y0, yEnd: y1,
+                                                   includeBackground: false, sheetHeight: 792)
+                let bound = try XCTUnwrap(PaperRenderer.rulingCount(paper: paper, width: 612, yOffset: y0, yEnd: y1,
+                                                                    sheetHeight: 792), "\(kind)")
+                XCTAssertLessThanOrEqual(Double(drawn.count), bound, "\(kind) \(y0)...\(y1)")
+                XCTAssertFalse(drawn.isEmpty, "\(kind) draws its ruling in a letter-sized band")
+            }
+        }
+        XCTAssertNil(PaperRenderer.rulingCount(paper: .blank, width: 612, yOffset: 0, yEnd: 792, sheetHeight: 792))
+    }
+
+    /// The per-page budget counts the page's own paper, not the note's: a very
+    /// tall infinite page whose own paper is 4 pt dots renders on plain
+    /// background, while the same page following the note's ruled paper keeps
+    /// its ruling.
+    func testPerPageBudgetUsesThePagesOwnPaper() throws {
+        let tall = PageSize(width: 612, height: 150_000, infinite: true)
+        let meta = NoteMeta(title: "t", created: Date(timeIntervalSince1970: 0), paper: .ruled, pageSize: tall)
+        let follows = Page(order: "a0")
+        XCTAssertEqual(try PreparedPage(page: follows, meta: meta, options: RenderOptions()).drawnPaper.kind, .ruled)
+        let dense = Page(order: "a0", paper: Paper(kind: .dot, spacing: 4, background: Paper.cream))
+        let drawn = try PreparedPage(page: dense, meta: meta, options: RenderOptions()).drawnPaper
+        XCTAssertEqual(drawn.kind, .blank)
+        XCTAssertEqual(drawn.background, Paper.cream)   // the page's own background stays
+    }
 }

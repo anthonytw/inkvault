@@ -33,7 +33,14 @@ public struct RevisionName: Hashable, Comparable, Sendable, CustomStringConverti
         self.hlc = hlc; self.device = device; self.seq = seq; self.kind = kind
     }
 
-    /// Parses a file base name. Rejects non-canonical `seq` (leading zeros, 0).
+    /// The largest `seq` a reader accepts (2^53 − 1, the largest integer every
+    /// JSON implementation represents exactly). Larger values in a file name,
+    /// a revision or a snapshot's `included` are rejected, so `seq + 1` never
+    /// overflows.
+    public static let maxSeq = 9_007_199_254_740_991
+
+    /// Parses a file base name. Rejects non-canonical `seq` (leading zeros, 0)
+    /// and `seq` above `maxSeq`.
     public init?(_ filename: String) {
         let dot = filename.split(separator: ".", omittingEmptySubsequences: false)
         guard dot.count == 3, dot[2] == "age", let kind = Kind(rawValue: String(dot[1])) else { return nil }
@@ -43,7 +50,7 @@ public struct RevisionName: Hashable, Comparable, Sendable, CustomStringConverti
               let device = DeviceID(String(dash[1])) else { return nil }
         let s = dash[2]
         guard !s.isEmpty, s.utf8.allSatisfy({ (0x30...0x39).contains($0) }), s.first != "0",
-              let seq = Int(s) else { return nil }
+              let seq = Int(s), seq <= Self.maxSeq else { return nil }
         self.init(hlc: hlc, device: device, seq: seq, kind: kind)
     }
 
@@ -92,6 +99,18 @@ public struct Origin: Hashable, Comparable, Sendable, CustomStringConvertible {
         self.init(hlc: h, device: d, seq: seq, op: op)
     }
 
+    /// Parses a tag instance id (format.md §5.4.1): an origin whose `seq` may
+    /// be 0, which marks a legacy baseline instance.
+    static func tagInstance(_ string: String) -> Origin? {
+        let p = string.split(separator: "-", omittingEmptySubsequences: false)
+        guard p.count == 4, let h = HLC(String(p[0])), let d = DeviceID(String(p[1])),
+              let seq = Origin.decimal(p[2]), let op = Origin.decimal(p[3]) else { return nil }
+        return Origin(hlc: h, device: d, seq: seq, op: op)
+    }
+
+    /// The `(hlc, device)` of the revision this origin names.
+    var stamp: Stamp { Stamp(hlc: hlc, device: device) }
+
     private static func decimal(_ s: Substring) -> Int? {
         guard !s.isEmpty, s.utf8.allSatisfy({ (0x30...0x39).contains($0) }), s == "0" || s.first != "0" else { return nil }
         return Int(s)
@@ -112,9 +131,10 @@ public struct Included: Hashable, Sendable {
     /// Coverage for one device.
     public struct Entry: Hashable, Sendable, Codable {
         /// Every `seq` from 1 through `upTo` is covered (inclusive; may be 0).
-        public var upTo: Int
-        /// Sorted, all greater than `upTo + 1`.
-        public var extra: [Int]
+        public internal(set) var upTo: Int
+        /// Sorted, all greater than `upTo + 1`. Read-only outside the module:
+        /// `covers` relies on the order (binary search).
+        public internal(set) var extra: [Int]
 
         public init(upTo: Int = 0, extra: [Int] = []) {
             self.upTo = upTo
@@ -122,20 +142,64 @@ public struct Included: Hashable, Sendable {
             normalize()
         }
 
-        /// True for a covered `seq`; never for `seq < 1`.
-        public func covers(_ seq: Int) -> Bool { seq >= 1 && (seq <= upTo || extra.contains(seq)) }
+        /// True for a covered `seq`; never for `seq < 1`. O(log extra.count):
+        /// merging calls this per item and snapshot, and a hostile snapshot
+        /// may list millions of extras.
+        public func covers(_ seq: Int) -> Bool {
+            guard seq >= 1 else { return false }
+            if seq <= upTo { return true }
+            let i = insertionIndex(seq)
+            return i < extra.count && extra[i] == seq
+        }
 
+        /// The first index of `extra` whose value is not below `seq`.
+        func insertionIndex(_ seq: Int) -> Int {
+            var lo = 0, hi = extra.count
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2
+                if extra[mid] < seq { lo = mid + 1 } else { hi = mid }
+            }
+            return lo
+        }
+
+        /// Adds one `seq` without re-sorting `extra`.
         mutating func insert(_ seq: Int) {
             guard seq >= 1, !covers(seq) else { return }
-            extra.append(seq)
-            normalize()
+            guard seq == upTo + 1 else {   // seq > upTo here, so upTo < Int.max
+                extra.insert(seq, at: insertionIndex(seq))
+                return
+            }
+            upTo = seq
+            var absorbed = 0
+            while absorbed < extra.count, upTo < Int.max, extra[absorbed] == upTo + 1 {
+                upTo += 1
+                absorbed += 1
+            }
+            extra.removeFirst(absorbed)
         }
 
         mutating func normalize() {
             upTo = max(upTo, 0)
             var set = Set(extra.filter { $0 > upTo })
-            while set.remove(upTo + 1) != nil { upTo += 1 }
+            // `upTo` may be `Int.max` (built in code, or decoded before the
+            // range check below): never compute `upTo + 1` past it.
+            while upTo < Int.max, set.remove(upTo + 1) != nil { upTo += 1 }
             extra = set.sorted()
+        }
+
+        enum CodingKeys: String, CodingKey { case upTo, extra }
+
+        /// Rejects any `seq` above `RevisionName.maxSeq`, so `upTo + 1` (the
+        /// next seq a device may use) always fits in an `Int`.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let upTo = try c.decode(Int.self, forKey: .upTo)
+            let extra = try c.decode([Int].self, forKey: .extra)
+            guard upTo <= RevisionName.maxSeq, extra.allSatisfy({ $0 <= RevisionName.maxSeq }) else {
+                throw DecodingError.dataCorruptedError(forKey: .upTo, in: c,
+                                                       debugDescription: "seq above \(RevisionName.maxSeq)")
+            }
+            self.init(upTo: upTo, extra: extra)
         }
     }
 
@@ -258,8 +322,9 @@ extension Revision: Codable {
         noteId = try c.decode(LowercaseUUID.self, forKey: .noteId).uuid
         device = try c.decode(DeviceID.self, forKey: .device)
         seq = try c.decode(Int.self, forKey: .seq)
-        guard seq >= 1 else {
-            throw DecodingError.dataCorruptedError(forKey: .seq, in: c, debugDescription: "seq must be ≥ 1")
+        guard seq >= 1, seq <= RevisionName.maxSeq else {
+            throw DecodingError.dataCorruptedError(forKey: .seq, in: c,
+                                                   debugDescription: "seq must be 1...\(RevisionName.maxSeq)")
         }
         hlc = try c.decode(HLC.self, forKey: .hlc)
         wall = try c.decode(Date.self, forKey: .wall)

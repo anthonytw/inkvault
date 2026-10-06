@@ -56,10 +56,10 @@ jobs:
     container: swift:6.4-noble
     steps:
       - uses: actions/checkout@v4
-      - name: Install zlib headers and age CLI
+      - name: Install zlib headers, age CLI, zbar and poppler (QR decode tests)
         run: |
           apt-get update -q
-          apt-get install -y -q zlib1g-dev age
+          apt-get install -y -q zlib1g-dev age zbar-tools poppler-utils
       - name: Build
         run: swift build --build-tests
       - name: Test

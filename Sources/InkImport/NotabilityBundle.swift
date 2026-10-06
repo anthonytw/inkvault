@@ -96,7 +96,10 @@ public enum NotabilityBundle {
             let payload = try fb.table(atRef: payloadField)
             switch type {
             case .document:
+                // Every record may point at one shared title: charge its bytes.
+                try budget.spend(64)
                 if let f = try fb.field(payload, 0), let s = try fb.field(fb.table(atRef: f), 0) {
+                    try budget.spend(try fb.vector(atRef: s, elementSize: 1).count)
                     title = try fb.string(atRef: s)
                 }
                 if let f = try fb.field(payload, 1), let l = try fb.field(fb.table(atRef: f), 0) {
@@ -171,13 +174,19 @@ public enum NotabilityBundle {
         default: kind = .blank
         }
         let spacing = kind == .blank ? nil : paperSpacing.flatMap { $0.isFinite && $0 > 0 && $0 < width ? $0 : nil }
-        let created = createdMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        // Dates the vault cannot store (beyond years 0001...9999) are dropped,
+        // as for a `.note` (`NotabilityNote.writable`): the import would
+        // otherwise trap turning them back into milliseconds.
+        func date(_ ms: Int64?) -> Date? {
+            ms.flatMap { NotabilityNote.writable(Date(timeIntervalSince1970: Double($0) / 1000)) }
+        }
+        let created = date(createdMs)
         var note = NotabilityNote(
             metadata: .init(name: title.map { $0.isEmpty ? "Untitled" : $0 } ?? "Untitled", created: created),
             paper: .init(width: width, pageHeight: pageHeight, kind: kind, spacing: spacing),
             curves: all, pdfCount: pdfs, mediaCount: media)
         note.sourceFormat = .ntb
-        note.bundleModified = lastEdit.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        note.bundleModified = date(lastEdit)
         note.shapeCount = lines.count
         note.unsupportedShapes = unsupportedShapes
         note.unsupportedStrokes = unsupportedStrokes
@@ -209,7 +218,7 @@ public enum NotabilityBundle {
         } ?? Color(r: 0, g: 0, b: 0, a: 255)
         let width = try fb.field(p, 8).map { Double(try fb.f32($0)) } ?? NotabilityNote.defaultCurveWidth
         let tool = try fb.field(p, 4).map { try fb.u8($0) } ?? 0
-        guard width.isFinite, width > 0 else { return nil }
+        guard width.isFinite, width > 0, width <= NotabilityNote.maxCoordinate else { return nil }
         return pieces.map { geo in
             NotabilityNote.Curve(points: geo.points, fractionalWidths: geo.fw, forces: geo.forces,
                                  altitudes: geo.altitudes, azimuths: geo.azimuths, width: width, color: color,
@@ -305,7 +314,7 @@ public enum NotabilityBundle {
             Color(r: try fb.u8(f), g: try fb.u8(f + 1), b: try fb.u8(f + 2), a: try fb.u8(f + 3))
         } ?? Color(r: 0, g: 0, b: 0, a: 255)
         let width = try fb.field(p, 10).map { Double(try fb.f32($0)) } ?? NotabilityNote.defaultCurveWidth
-        guard width.isFinite, width > 0 else { return nil }
+        guard width.isFinite, width > 0, width <= NotabilityNote.maxCoordinate else { return nil }
         return NotabilityNote.Curve(points: NotabilityShapes.line(a, b), fractionalWidths: [1, 1], width: width,
                                     color: color, style: NotabilityNote.penStyle)
     }

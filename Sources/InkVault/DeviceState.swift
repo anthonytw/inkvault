@@ -39,7 +39,10 @@ public struct DeviceState: Codable, Equatable, Sendable {
     ///   malformed, or cannot be created.
     public static func loadOrCreate(at url: URL) throws -> DeviceState {
         if FileManager.default.fileExists(atPath: url.path) {
-            do { return try JSONDecoder().decode(DeviceState.self, from: Data(contentsOf: url)) } catch {
+            do {
+                let data = try BoundedRead.contents(of: url, maxBytes: BoundedRead.maxSmallFileBytes)
+                return try JSONDecoder().decode(DeviceState.self, from: data)
+            } catch {
                 throw VaultError.io("device state \(url.path): \(error)")
             }
         }

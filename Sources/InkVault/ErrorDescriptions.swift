@@ -23,6 +23,7 @@ extension VaultError: CustomStringConvertible {
             return "a recipient change is unfinished (\(files.count) file(s) not rewrapped)"
         case .invalidNoteId(let n): return "'\(n)' is not a note id (lowercase UUID)"
         case .seqInUse(let device, let seq): return "device \(device) already has a revision with sequence number \(seq)"
+        case .seqOutOfRange(let seq): return "sequence number \(seq) is outside 1...\(RevisionName.maxSeq)"
         case .revision(let name, let inner): return "\(name): \(inner)"
         case .workFactorOutOfRange(let n): return "scrypt work factor \(n) is outside the allowed range 15...18"
         case .workFactorTooHigh: return "the key file needs more scrypt work than this reader allows"
@@ -32,6 +33,7 @@ extension VaultError: CustomStringConvertible {
         case .identityMismatch(let r): return "the stored key file does not belong to recipient \(r)"
         case .rewrapJournalUnreadable(let why): return "the rewrap journal cannot be read: \(why)"
         case .interrupted: return "interrupted (test hook)"
+        case .fileTooLarge(let path, let limit): return "\(path) is larger than the \(limit)-byte limit"
         case .io(let why): return why
         }
     }

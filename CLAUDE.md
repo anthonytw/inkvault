@@ -13,6 +13,7 @@ swift test --filter AgeTests
 scripts/test-linux.sh       # on a Mac with Docker, or in a cloud VM: run tests in swift:6.4-noble
 scripts/app.sh test         # iPad app: xcodebuild test on the newest iPadOS 26+ simulator
 scripts/app.sh catalyst     # iPad app: unsigned Mac Catalyst build
+INKVAULT_FUZZ_LONG=1 swift test --filter Fuzz   # deep fuzz run (quick mode runs in every swift test)
 ```
 
 The app lives in `Apps/InkVault/InkVault.xcodeproj` (open it in Xcode; scheme
@@ -53,6 +54,25 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 `area: imperative summary`. Co-author line as the harness instructs.
 
 ## Gotchas
+
+- Untrusted input (`docs/format.md` §9): every byte from a vault folder, a
+  sync server or an import may be hostile, and readers must fail with a typed
+  error, never trap, hang or allocate without bound. Foundation's parsers are
+  not safe on such bytes on Linux: `PropertyListSerialization` segfaults on a
+  binary plist with a set, `ISO8601DateFormatter` dies in ICU on a long
+  fraction, `XMLParser` crashes on non-UTF-8 names or data-less processing
+  instructions. Use `BinaryPlist` (InkImport), `RFC3339` / `InkJSON` and the
+  `PropfindParser` pre-checks; read files with `BoundedRead`, never
+  `Data(contentsOf:)`. Range-check decoded integers before arithmetic
+  (`seq + 1`, count × size, `Int(someDouble)`), and bound work by input size,
+  not by the extents or counts the input claims.
+- Fuzzing: `Tests/FuzzSupport` is a seeded mutation fuzzer used by a
+  `*FuzzTests` class in each test target (quick mode, at most 3 s per target, in
+  every `swift test`). `INKVAULT_FUZZ_DUMP=dir` keeps the input being run as
+  `dir/<target>.last` (a trap kills the process, so that file is the culprit);
+  `INKVAULT_FUZZ_REPRO=dir/<target>.last` replays just it. A new parser of
+  untrusted bytes gets a fuzz target; each fixed crash gets a regression test
+  in that target's `Untrusted*Tests`.
 
 - macOS file systems are case-insensitive: never create two paths that differ
   only by case (`Sources/inkvault` vs `Sources/InkVault` collide). The CLI
@@ -195,6 +215,11 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   minimises or docks the system palette by dragging it to an edge or tapping its
   collapse handle. Changing the compact option swaps the picker object.
 - Tags match case-insensitively (`NoteOps.tagKey`); titles are never keys.
+  Tags merge per tag (`format.md` §5.4.1): write `addTag` / `removeTag` via
+  `NoteOps.addTag` / `removeTag` / `setTags` (a remove lists the instances it
+  observed, so it needs the note's state), never `setMeta(.tags)` (legacy,
+  read only). A snapshot without `tagSet` is a legacy one: keep the committed
+  fixture vault that way.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are
@@ -209,6 +234,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `errSecMissingEntitlement`, so tests use `FakeKeyStore`, never the real
   Keychain. Face ID needs `INFOPLIST_KEY_NSFaceIDUsageDescription` (pbxproj).
   Generic-password items from apps are generally not listed in the Passwords app.
+  Saving never deletes before the new key is stored: `KeychainVaultKeyStore.replace`
+  adds (or updates the same-storage item) first and only then deletes the
+  other storage's copy (`KeychainReplaceTests` pin the order with
+  `FakeKeychainItems`). Device-only keys are Face ID only, no passcode
+  fallback: after a lockout the user unlocks with the key or passphrase, and
+  the remember sheet says so (`RememberedKeys.deviceOnlyFooter`).
 - The object eraser is the app's (`ObjectEraser.swift`, `EraserGeometry.swift`):
   PencilKit's `.vector` eraser has no size. When the picker's eraser is in
   object mode, `PageCanvasHost` disables `drawingGestureRecognizer` and

@@ -92,7 +92,7 @@ extension Vault {
         let cap = min(max(maxWorkFactor, 1), IdentityFile.maxAllowedWorkFactor)
         let identity = ScryptIdentity(passphrase: passphrase, maxWorkFactor: cap, maxMemoryBytes: 1 << (cap + 10))
         let plain: Data
-        do { plain = try AgeFile.decrypt(try FileIO.read(file), with: [identity]) } catch let e as AgeError {
+        do { plain = try AgeFile.decrypt(try FileIO.read(file, maxBytes: BoundedRead.maxSmallFileBytes), with: [identity]) } catch let e as AgeError {
             switch e {
             case .scryptWorkFactor: throw VaultError.workFactorTooHigh
             case .noMatchingIdentity: throw VaultError.wrongPassphrase
@@ -102,6 +102,16 @@ extension Vault {
         let id = try IdentityFile.parse(String(decoding: plain, as: UTF8.self))
         guard id.recipient == recipient else { throw VaultError.identityMismatch(recipient.string) }
         return id
+    }
+
+    /// The raw bytes of `keys/<recipient>.key.age` (still passphrase-wrapped),
+    /// for printing or copying the file as it is.
+    ///
+    /// - Throws: `identityFileMissing`, `VaultError.io`.
+    public func identityFileData(recipient: X25519Recipient) throws -> Data {
+        let file = keysURL.appendingPathComponent(IdentityFile.fileName(for: recipient))
+        guard FileIO.exists(file) else { throw VaultError.identityFileMissing(file.lastPathComponent) }
+        return try FileIO.read(file, maxBytes: BoundedRead.maxSmallFileBytes)
     }
 
     /// Recipients that have a passphrase-wrapped identity file in `keys/`.

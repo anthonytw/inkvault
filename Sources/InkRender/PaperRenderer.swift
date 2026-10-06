@@ -37,6 +37,8 @@ public enum PaperRenderer {
     /// band up to 612 x 792 pt (a letter page, or an infinite-page chunk of
     /// width <= 612 pt) renders its full ruling at every spacing >= 4 pt.
     /// Music staves use `staffSpacing` / `staffGap` instead of `spacing`.
+    /// (`PreparedPage` may still draw a whole page blank when all its bands
+    /// together exceed `RenderLimits.maxPaperCommandsPerPage`.)
     public static func commands(paper rawPaper: Paper, width: Double, height: Double,
                                 yOffset: Double = 0, yEnd: Double? = nil,
                                 originY: Double? = nil, includeBackground: Bool = true,
@@ -49,11 +51,9 @@ public enum PaperRenderer {
         }
         let s = paper.spacing
         let bottom = yEnd ?? (yOffset + height)
-        let usesSpacing = paper.kind != .staff
-        guard paper.kind != .blank, !usesSpacing || (s.isFinite && s >= RenderLimits.minPaperSpacing),
-              width.isFinite, width > 0, bottom.isFinite, yOffset.isFinite,
-              width <= RenderLimits.maxExtent, abs(bottom) <= RenderLimits.maxExtent * 2,
-              abs(yOffset) <= RenderLimits.maxExtent * 2 else { return out }
+        guard let estimate = rulingCount(paper: paper, width: width, yOffset: yOffset, yEnd: bottom,
+                                         sheetHeight: sheetHeight ?? max(height, 1)),
+              estimate <= RenderLimits.maxPaperCommands else { return out }
 
         let band = max(bottom - yOffset, 0)
         let line = Paint(paper.lineColor)
@@ -180,5 +180,56 @@ public enum PaperRenderer {
             }
         }
         return out
+    }
+
+    /// How many ruling commands the band `[yOffset, yEnd)` of a `width`-wide
+    /// page needs (an upper bound, margin lines included), or nil when the
+    /// paper draws no ruling there: blank, a spacing below
+    /// `RenderLimits.minPaperSpacing` (staves ignore `spacing`), or a band or
+    /// Cornell `sheetHeight` out of range. `commands` draws nothing for a band
+    /// over `RenderLimits.maxPaperCommands`; `PreparedPage` sums the bands of a
+    /// page against `RenderLimits.maxPaperCommandsPerPage`.
+    static func rulingCount(paper rawPaper: Paper, width: Double, yOffset: Double, yEnd bottom: Double,
+                            sheetHeight: Double) -> Double? {
+        let paper = rawPaper.rendered()
+        let s = paper.spacing
+        let usesSpacing = paper.kind != .staff
+        guard paper.kind != .blank, !usesSpacing || (s.isFinite && s >= RenderLimits.minPaperSpacing),
+              width.isFinite, width > 0, bottom.isFinite, yOffset.isFinite,
+              width <= RenderLimits.maxExtent, abs(bottom) <= RenderLimits.maxExtent * 2,
+              abs(yOffset) <= RenderLimits.maxExtent * 2 else { return nil }
+        let rowStartD = max((yOffset / s).rounded(.up), 1)
+        let rowEndD = (bottom / s).rounded(.up)
+        let colEndD = (width / s).rounded(.up)
+        let rowCountD = max(rowEndD - rowStartD, 0), colCountD = max(colEndD - 1, 0)
+        var n: Double
+        switch paper.kind {
+        case .blank: return nil
+        case .ruled, .marginRuled: n = rowCountD
+        case .grid: n = rowCountD + colCountD
+        case .dot: n = rowCountD * colCountD
+        case .isoDot, .isoGrid:
+            let rowH = s * 0.8660254037844386
+            let rows = max((bottom / rowH).rounded(.up) - max((yOffset / rowH).rounded(.up), 1), 0)
+            if paper.kind == .isoDot {
+                n = rows * (width / s + 1)
+            } else {
+                let slope = 1 / 3.0.squareRoot()
+                let nLo = ((0 - bottom * slope) / s).rounded(.up), nHi = ((width - yOffset * slope) / s).rounded(.down)
+                let nB0 = ((yOffset * slope) / s).rounded(.up), nB1 = ((width + bottom * slope) / s).rounded(.down)
+                n = rows + max(nHi - nLo + 1, 0) + max(nB1 - nB0 + 1, 0)
+            }
+        case .cornell:
+            guard sheetHeight.isFinite, sheetHeight >= 1 else { return nil }
+            let sheets = max((bottom / sheetHeight).rounded(.up), 1) - max((yOffset / sheetHeight).rounded(.down), 0)
+            n = max(sheets, 0) * (sheetHeight / s + 4)
+        case .staff:
+            let period = 4 * paper.staffSpacing + paper.staffGap
+            let staves = max(((bottom - paper.staffGap) / period).rounded(.up), 0)
+                - max(((yOffset - paper.staffGap - 4 * paper.staffSpacing) / period).rounded(.down), 0)
+            n = max(staves, 0) * 5
+        }
+        if paper.kind.supportsMargins { n += 2 }
+        return n
     }
 }

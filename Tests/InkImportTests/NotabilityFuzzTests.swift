@@ -146,11 +146,11 @@ final class NotabilityFuzzTests: XCTestCase {
     /// fix/untrusted-input-hardening replaces; this targets the converter.)
     func testShapeMutantsConvert() throws {
         let seed = try PlistValue.parse(NotabilityBackupTests.shapesPlist())
-        XCTAssertEqual(NotabilityShapes.curves(plist: seed).curves.count, 3)
+        XCTAssertEqual(try NotabilityShapes.curves(plist: seed).curves.count, 3)
         var rng = RNG(state: 7)
         var converted = 0
         for _ in 0..<20_000 {
-            let (curves, _) = NotabilityShapes.curves(plist: Self.mutate(seed, &rng))
+            let (curves, _) = try NotabilityShapes.curves(plist: Self.mutate(seed, &rng))
             converted += curves.count
             for c in curves {
                 XCTAssertEqual((c.points.count - 1) % 3, 0)

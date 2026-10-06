@@ -25,6 +25,23 @@ final class BodyFramingTests: VaultTestCase {
         }
     }
 
+    /// zlib's `avail_in` is 32-bit: input of 4 GiB or more (a zip64 entry)
+    /// must be fed in slices, not trap converting its length. Small slices
+    /// exercise the same refill, with the same strictness.
+    func testInflateFeedsInputInSlices() throws {
+        let big = Data((0..<200_000).map { UInt8(truncatingIfNeeded: ($0 &* 2_654_435_761) >> 13) })
+        let gz = try Gzip.compress(big)
+        let gzipBits: Int32 = 15 + 16
+        for slice in [1, 7, 4096, gz.count - 1, gz.count, gz.count + 1] {
+            XCTAssertEqual(try Gzip.inflateStream(gz, windowBits: gzipBits, maxOutput: 1 << 20, maxInputSlice: slice),
+                           big, "slice \(slice)")
+            XCTAssertThrowsError(try Gzip.inflateStream(gz.dropLast(1), windowBits: gzipBits, maxOutput: 1 << 20,
+                                                        maxInputSlice: slice), "truncated, slice \(slice)")
+            XCTAssertThrowsError(try Gzip.inflateStream(gz + Data([0]), windowBits: gzipBits, maxOutput: 1 << 20,
+                                                        maxInputSlice: slice), "trailing byte, slice \(slice)")
+        }
+    }
+
     func testRoundTrip() throws {
         let secret = VaultSecret.random()
         let framed = try BodyFraming.frame(json: json, noteId: note, filename: file, secret: secret)

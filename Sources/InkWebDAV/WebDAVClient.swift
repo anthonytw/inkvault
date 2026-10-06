@@ -276,6 +276,21 @@ final class PropfindParser: NSObject, XMLParserDelegate {
     private var failed: String?
 
     static func parse(_ data: Data) throws -> [PropfindItem] {
+        // swift-corelibs-foundation's XMLParser crashes on an element name
+        // that is not valid UTF-8 (`<a><b\u{C3}/></a>` traps) and on a
+        // processing instruction without data (`<?x?>` calls strlen(NULL)),
+        // so both are refused before parsing. A multistatus has no use for a
+        // DTD either; refusing one rules out entity expansion whatever
+        // libxml2's own limits are.
+        guard isValidUTF8(data) else {
+            throw WebDAVError.malformedResponse("PROPFIND body is not valid UTF-8")
+        }
+        guard data.firstRange(of: Data("<!DOCTYPE".utf8)) == nil else {
+            throw WebDAVError.malformedResponse("PROPFIND body has a DTD")
+        }
+        guard afterDeclaration(data).firstRange(of: Data("<?".utf8)) == nil else {
+            throw WebDAVError.malformedResponse("PROPFIND body has a processing instruction")
+        }
         let p = PropfindParser()
         let xml = XMLParser(data: data)
         xml.delegate = p
@@ -284,6 +299,30 @@ final class PropfindParser: NSObject, XMLParserDelegate {
             throw WebDAVError.malformedResponse("PROPFIND body is not valid XML: \(p.failed ?? xml.parserError?.localizedDescription ?? "?")")
         }
         return p.items
+    }
+
+    /// `data` after a leading `<?xml …?>` declaration (and any BOM or
+    /// whitespace before it); all of `data` when there is none.
+    static func afterDeclaration(_ data: Data) -> Data.SubSequence {
+        var rest = data[...]
+        if rest.starts(with: [0xEF, 0xBB, 0xBF]) { rest = rest.dropFirst(3) }
+        rest = rest.drop { [0x20, 0x09, 0x0A, 0x0D].contains($0) }
+        guard rest.starts(with: Data("<?xml".utf8)), rest.count > 5,
+              [0x20, 0x09, 0x0A, 0x0D].contains(rest[rest.startIndex + 5]),
+              let end = rest.firstRange(of: Data("?>".utf8)) else { return data[...] }
+        return rest[end.upperBound...]
+    }
+
+    static func isValidUTF8(_ data: Data) -> Bool {
+        var it = data.makeIterator()
+        var decoder = UTF8()
+        while true {
+            switch decoder.decode(&it) {
+            case .scalarValue: continue
+            case .emptyInput: return true
+            case .error: return false
+            }
+        }
     }
 
     private func local(_ name: String) -> String {
