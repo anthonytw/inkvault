@@ -69,69 +69,12 @@ the owning session (`claude -p "…" --cloud <session_id>`).
 - **Licensing:** GPLv3 + App Store exception (§7 additional permission), no
   CLA. All deps are Apache-2.0 (swift-crypto incl. vendored BoringSSL,
   argument-parser, asn1) + zlib: GPL-compatible.
-- **Export compliance:** mass-market, standard published algorithms, full
-  strength.
-- **Attachments design (#22):** per-note storage `notes/<id>/att/`, keyed-hash
-  names, Padmé padding, LWW item fields, integer z-layers (0 background, 100
-  content, ink above), full Unicode (system fonts in app, glyph-subset
-  embedding in exports; Noto on Linux), Spanish localization + reserved `math`
-  (LaTeX) and `video` items, settings panel (audio codec/quality, EXIF strip on
-  by default, rewrap modes), auto rewrap policy (add device = header-only;
-  remove device / PQ migration = full re-encrypt) with settings, time-stamped
-  transcript segments, `rec: {id, at}` ink–audio sync, Poppler on Linux for PDF
-  backgrounds in SVG/PNG (else placeholder), "PDF + attachments" export option,
-  unused-attachments index in Settings, on-device AI only.
-- **Notes are keyed by UUID; duplicate titles are fine everywhere.** Notebooks
-  are `/`-separated paths shown as a tree. Folder names become tags on import.
-- **Pages vs pageless:** per-note choice (paged = reorderable fixed pages,
-  pageless = one infinite page) — app task, not started.
+- **Export compliance:** `ITSAppUsesNonExemptEncryption = YES` (standard algorithms).
+Availability excludes France until the ANSSI declaration is approved
+(`docs/appstore/france-declaration.md`). Then add `ITSEncryptionExportComplianceCode`
+and France. With France available and no code, uploads are refused.
 
-## Personal data
-
-`data/` is git-ignored: the user's full Notability backup as three Google Drive
-parts `Notability-20261005T121200Z-1-00{1,2,3}.zip` (pass all three together:
-928 `.note`, 603 `.ntb`, 395 Notability PDF exports) and the latest fidelity
-report `data/eval-full/`. `data/README.md` says the same. Never commit, quote or
-paste its contents (code, tests, docs, commits, PR bodies, other agents).
-Real-data tests are gated on `SEMPERE_NOTABILITY_SAMPLES`; scratch output goes
-under `data/<name>/` and is deleted when done. Keep `data/`: re-imports are
-needed after the PQ switch and for release.
-
-Importer results on the full backup: 640 imported (629 `.note`, 6 `.ntb`-only,
-5 separate versions of divergent copies), 891 skipped (identical copies, older
-versions, superseded `.ntb`), 0 failed. Fidelity vs Notability's PDFs: 753
-inked pages, F1 median 1.000 (p10 0.998), chamfer median 0.013 pt. Not imported
-yet: PDF/image backgrounds, typed text, media/recordings (attachments work).
-
-## Test vault and the user's iPad
-
-- iPad: "antpad", iPad Pro 12.9" 4th gen (A12Z, Face ID, Pencil 2, no hover),
-  **iPadOS 26.7.1, cannot update to 27** — every feature must work on 26.
-  UDID 00008027-001D30E02131802E.
-- Test vault: iCloud Drive `Sempere/Notes.sempere` (127 notes from an old
-  partial backup, classic X25519 key `~/.config/sempere/identity.key`). To be
-  REBUILT after #33 + rename: new post-quantum key, full backup import with
-  folder tags. Put the key on the iPad with `pbcopy < key`, clear the clipboard
-  after ~3 min.
-- Device builds: `xcodebuild … -destination 'id=<UDID>' -allowProvisioningUpdates
-  DEVELOPMENT_TEAM=6X3PT3FXGA build` then `xcrun devicectl device install app`
-  / `process launch`. Never commit `DEVELOPMENT_TEAM`. A scratch worktree
-  `.worktrees/device` is used for this.
-- Debug on the device without the user: DEBUG launch env vars (`CLAUDE.md`),
-  `devicectl device copy to/from --domain-type appDataContainer`, `--console`
-  for logs. Ask the user to set Auto-Lock to Never while plugged in.
-
-## Apple developer / App Store / TestFlight
-
-Paid Apple Developer Program active (team 6X3PT3FXGA, individual; same ID as
-the old personal team). App Store Connect record **"Sempere"** (iOS + macOS),
-bundle id **`io.github.anthonytw.sempere`** (registered). API key: Key ID
-`3M856V593J`, Issuer `24e225fb-771e-4dc7-b322-632d16493446`, file
-`~/.config/sempere/AuthKey_3M856V593J.p8` (0600). Next: after the rename sweep,
-archive a signed Release build with the new bundle id, upload to TestFlight via
-the API key (`xcodebuild -exportArchive` / `xcrun altool` or `notarytool`-style
-upload), add the user as internal tester; set `ITSAppUsesNonExemptEncryption`
-per the export decision. Optional later: CI uploads on merge.
+**Never commit `DEVELOPMENT_TEAM`.**
 
 ## Rename to Sempere (done 2026-10-05)
 
@@ -215,7 +158,7 @@ queued for up to 30 minutes.
   on macOS CI, and 138 s for one app test. Keep that flag.
 - **Build caches:** each job restores `.build` (or `.build/xcode` for the app)
   from the newest cache saved by a `main` run; PRs never save. The key is the
-  toolchain version plus `Package.resolved`, so changing either starts a
+  checkout path, toolchain version and `Package.resolved` (precompiled modules embed absolute paths, so a repo rename must start fresh caches), so changing either starts a
   fresh cache. If a build ever fails in a way a clean build would not (stale
   products), run `gh cache delete --all` and re-run.
 - Tell every cloud session in its prompt: draft PR first, `gh pr ready` once

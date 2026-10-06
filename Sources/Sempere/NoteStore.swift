@@ -13,6 +13,19 @@ public struct HistoryEntry: Hashable, Sendable {
     public var error: RevisionReadError?
 }
 
+/// How much of a revision to decode.
+public enum RevisionDetail: Hashable, Sendable {
+    /// Everything.
+    case full
+    /// Everything but stroke geometry: every stroke's `points` is empty
+    /// (`StrokePointsFilter`). Ids, inks, transforms, origins, pages, metadata,
+    /// tags and recognition are decoded and checked exactly as in `.full`, so
+    /// `NoteReducer` gives the same pages, strokes and metadata. For listings
+    /// and search; such revisions must never be written, snapshotted,
+    /// rendered or diffed.
+    case withoutStrokePoints
+}
+
 /// Revisions of one note loaded leniently: what could be read, and why the
 /// rest could not.
 public struct LoadedNote: Hashable, Sendable {
@@ -52,7 +65,7 @@ extension Vault {
     ///
     /// - Throws: `VaultError.locked` or `.noIdentities` when the vault cannot
     ///   read at all; otherwise `RevisionReadError`, one case per failing stage.
-    public func readRevision(noteId: UUID, name: RevisionName) throws -> Revision {
+    public func readRevision(noteId: UUID, name: RevisionName, detail: RevisionDetail = .full) throws -> Revision {
         try requireMigrated()
         let secret = try requireReadable()
         let note = noteId.uuidString.lowercased()
@@ -62,10 +75,11 @@ extension Vault {
         } catch {
             throw RevisionReadError.unreadable("\(error)")
         }
-        return try decodeRevisionFile(data, note: note, name: name, secret: secret)
+        return try decodeRevisionFile(data, note: note, name: name, secret: secret, detail: detail)
     }
 
-    func decodeRevisionFile(_ data: Data, note: String, name: RevisionName, secret: VaultSecret) throws -> Revision {
+    func decodeRevisionFile(_ data: Data, note: String, name: RevisionName, secret: VaultSecret,
+                            detail: RevisionDetail = .full) throws -> Revision {
         let plain: Data
         do { plain = try AgeFile.decrypt(data, with: identities) } catch {
             throw RevisionReadError.undecryptable("\(error)")
@@ -87,8 +101,9 @@ extension Vault {
         do { json = try Gzip.decompress(unframed.gzip) } catch {
             throw RevisionReadError.corruptBody("\(error)")
         }
+        let body = detail == .full ? json : StrokePointsFilter.strip(json)
         let rev: Revision
-        do { rev = try InkJSON.decoder().decode(Revision.self, from: json) } catch {
+        do { rev = try InkJSON.decoder().decode(Revision.self, from: body) } catch {
             throw RevisionReadError.undecodable("\(error)")
         }
         guard rev.noteId.uuidString.lowercased() == note, rev.name == name else {
@@ -173,17 +188,33 @@ extension Vault {
 
     /// Reads every revision of a note, collecting failures instead of
     /// throwing on them.
-    public func loadNote(_ noteId: UUID) throws -> LoadedNote {
+    public func loadNote(_ noteId: UUID, detail: RevisionDetail = .full) throws -> LoadedNote {
+        try loadNote(noteId, names: try revisionNames(of: noteId), detail: detail)
+    }
+
+    /// `loadNote` for names already listed (`revisionNames(of:)`).
+    func loadNote(_ noteId: UUID, names: [RevisionName], detail: RevisionDetail) throws -> LoadedNote {
         try requireMigrated()
         _ = try requireReadable()
         var revs: [Revision] = []
         var failures: [RevisionName: RevisionReadError] = [:]
-        for n in try revisionNames(of: noteId) {
-            do { revs.append(try readRevision(noteId: noteId, name: n)) } catch let e as RevisionReadError {
+        for n in names {
+            do { revs.append(try readRevision(noteId: noteId, name: n, detail: detail)) } catch let e as RevisionReadError {
                 failures[n] = e
             }
         }
         return LoadedNote(revisions: revs, failures: failures)
+    }
+
+    /// `reconstruct(noteId:)` of each of `ids` (strict: any unreadable
+    /// revision fails that note), on up to `maxConcurrency` threads (0: one
+    /// per core, at most 8), in `ids` order. With `.withoutStrokePoints` the
+    /// states have no stroke geometry: for search and listings only.
+    public func states(of ids: [UUID], detail: RevisionDetail = .full,
+                       maxConcurrency: Int = 0) -> [Result<NoteState, any Error>] {
+        Parallel.map(ids, width: maxConcurrency > 0 ? maxConcurrency : Parallel.defaultWidth) { id in
+            Result { try NoteReducer.reconstruct(Self.strictRevisions(of: try loadNote(id, detail: detail))) }
+        }
     }
 
     /// Reconstructs a note from all its revisions (`NoteReducer`).

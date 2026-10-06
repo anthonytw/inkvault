@@ -82,6 +82,9 @@ struct NoteCanvasView: View {
                     Button("Rename…", systemImage: "pencil") { startRename(note) }
                 }
                 ToolbarItem(placement: .secondaryAction) {
+                    ExportMenu(ids: [note.id])
+                }
+                ToolbarItem(placement: .secondaryAction) {
                     Button("Version History…", systemImage: "clock.arrow.circlepath") { showingHistory = true }
                 }
                 ToolbarItem(placement: .secondaryAction) {

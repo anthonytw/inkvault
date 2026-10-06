@@ -135,7 +135,9 @@ final class RememberedKeys {
             return .failed("The saved key could not be read: \(error)")
         }
         do {
-            try await model.unlock(identityText: identity)
+            // The notes load in the background (`AppModel.startLoadingNotes`): the
+            // sheet closes as soon as the key works, and no view can cancel the listing.
+            try await model.unlock(identityText: identity, awaitNotes: false)
             brokenVaultID = nil
             return .unlocked
         } catch is CancellationError {
@@ -161,7 +163,7 @@ final class RememberedKeys {
     func unlock(_ model: AppModel, identityText: String) async throws {
         isManualUnlocking = true
         defer { isManualUnlocking = false }
-        let identity = try await model.unlock(identityText: identityText)
+        let identity = try await model.unlock(identityText: identityText, awaitNotes: false)
         offerToRemember(identity, model)
     }
 
@@ -170,7 +172,7 @@ final class RememberedKeys {
     func unlock(_ model: AppModel, passphrase: String) async throws {
         isManualUnlocking = true
         defer { isManualUnlocking = false }
-        let identity = try await model.unlock(passphrase: passphrase)
+        let identity = try await model.unlock(passphrase: passphrase, awaitNotes: false)
         offerToRemember(identity, model)
     }
 

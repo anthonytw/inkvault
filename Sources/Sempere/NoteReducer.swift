@@ -265,6 +265,9 @@ public enum NoteReducer {
                 case .deleteNote: offer(.deleted(true), k)
                 case .restoreNote: offer(.deleted(false), k)
                 case .removeStroke, .removePage, .removeTag: break
+                // A1: items and recordings are decoded but not merged yet;
+                // `SnapshotBuilder` refuses revisions that hold them.
+                case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: break
                 }
             }
         }
@@ -291,7 +294,10 @@ public enum NoteReducer {
         var outPages: [Page] = []
         for id in livePages {
             guard let e = pages[id], let reg = order[id] else { continue }
-            let list = (byPage[id] ?? []).sorted { ($0.origin, $0.item.id.uuidString) < ($1.origin, $1.item.id.uuidString) }
+            // `(origin, id string)` order; the string is only built on an origin tie.
+            let list = (byPage[id] ?? []).sorted {
+                $0.origin != $1.origin ? $0.origin < $1.origin : $0.item.id.uuidString < $1.item.id.uuidString
+            }
             let rec = recognition[id]
             let pp = pagePaper[id]
             outPages.append(Page(id: id, order: reg.value,
@@ -472,6 +478,17 @@ extension Revision {
         if case .delta(let ops) = body { return ops }
         return []
     }
+
+    /// True when the revision holds an attachment op, or is a snapshot with
+    /// items, recordings or their tombstones (format.md §8).
+    public var holdsAttachments: Bool {
+        switch body {
+        case .delta(let ops): return ops.contains(where: \.isAttachmentOp)
+        case .snapshot(_, let state):
+            return !state.recordings.isEmpty || state.pages.contains { !$0.items.isEmpty }
+                || !(state.tombstones?.items.isEmpty ?? true) || !(state.tombstones?.recordings.isEmpty ?? true)
+        }
+    }
 }
 
 // MARK: - Snapshots
@@ -485,6 +502,9 @@ public enum SnapshotBuilder {
     public static func makeSnapshot(from revisions: [Revision], device: DeviceID, seq: Int,
                                     clock: inout HybridClock, wall: Date, app: String) throws -> Revision {
         let revs = try NoteReducer.canonical(revisions)
+        // A1: until the merge keeps attachments, a snapshot would cover their
+        // ops (or replace a snapshot holding them) without them, losing them.
+        if let r = revs.first(where: \.holdsAttachments) { throw NoteLogError.attachmentsNotMerged(r.name) }
         let res = NoteReducer.resolve(revs)
         for r in revs { clock.observe(r.hlc, wall: wall) }
         var included = res.included

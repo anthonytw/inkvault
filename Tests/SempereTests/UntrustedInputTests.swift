@@ -311,4 +311,67 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertTrue(NotebookPath.name(deep, isWithin: "a/a"))
         XCTAssertLessThan(Date().timeIntervalSince(t0), 20)
     }
+    // MARK: - Unknown fields kept verbatim (JSONValue)
+
+    /// Runs `body` on a thread with the 512 KiB stack of an iOS
+    /// cooperative-pool thread, where the app decodes notes.
+    private func onSmallStack(_ body: @escaping @Sendable () -> Void) {
+        let done = DispatchSemaphore(value: 0)
+        let thread = Thread { body(); done.signal() }
+        thread.stackSize = 512 * 1024
+        thread.start()
+        done.wait()
+    }
+
+    private final class Outcome: @unchecked Sendable {
+        private let lock = NSLock()
+        private var error: (any Error)?
+        private var finished = false
+        func set(_ e: (any Error)?) { lock.lock(); error = e; finished = true; lock.unlock() }
+        var value: (finished: Bool, error: (any Error)?) { lock.lock(); defer { lock.unlock() }; return (finished, error) }
+    }
+
+    /// An unknown item field nested a few hundred deep overflowed a 512 KiB
+    /// stack (SIGSEGV from about 250 levels): decoding recursed once per level.
+    func testDeeplyNestedUnknownFieldIsRefusedNotAStackOverflow() throws {
+        let page = UUID()
+        var log = LogBuilder()
+        let rev = log.delta(devA, 0, [.addItem(page: page, item: .text(TextContent(size: 12, color: .black, runs: [TextRun("x")]),
+                                                                       frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "a"))])
+        let plain = String(decoding: try InkJSON.encoder().encode(rev), as: UTF8.self)
+        XCTAssertTrue(plain.contains(#""z":"a""#))
+        let depth = 500
+        let nested = String(repeating: #"{"a":"#, count: depth) + "1" + String(repeating: "}", count: depth)
+        let hostile = Data(plain.replacingOccurrences(of: #""z":"a""#, with: #""x":\#(nested),"z":"a""#).utf8)
+        let outcome = Outcome()
+        onSmallStack {
+            do { _ = try InkJSON.decoder().decode(Revision.self, from: hostile); outcome.set(nil) } catch { outcome.set(error) }
+        }
+        XCTAssertTrue(outcome.value.finished)
+        XCTAssertTrue(outcome.value.error is DecodingError, "\(String(describing: outcome.value.error))")
+        // A shallow unknown field is still kept.
+        let shallow = Data(plain.replacingOccurrences(of: #""z":"a""#, with: #""x":{"a":[1,{"b":null}]},"z":"a""#).utf8)
+        XCTAssertNoThrow(try InkJSON.decoder().decode(Revision.self, from: shallow))
+        // JSONValue on its own: nesting beyond the limit is refused.
+        let tooDeep = String(repeating: "[", count: JSONValue.maxDepth + 2) + String(repeating: "]", count: JSONValue.maxDepth + 2)
+        XCTAssertThrowsError(try InkJSON.decoder().decode(JSONValue.self, from: Data(tooDeep.utf8)))
+        let deepest = String(repeating: "[", count: JSONValue.maxDepth) + String(repeating: "]", count: JSONValue.maxDepth)
+        XCTAssertNoThrow(try InkJSON.decoder().decode(JSONValue.self, from: Data(deepest.utf8)))
+    }
+
+    /// Every unknown value costs several trial decodes, each O(depth): a
+    /// 600 KB field took 11 minutes in a debug build. Decoding stops at
+    /// `JSONValue.maxValues` values per file.
+    func testAHugeUnknownFieldIsRefusedQuickly() throws {
+        let depth = JSONValue.maxDepth - 2
+        let leaves = Array(repeating: #""""#, count: JSONValue.maxValues + 10).joined(separator: ",")
+        let input = Data((String(repeating: "[", count: depth) + leaves + String(repeating: "]", count: depth)).utf8)
+        let start = Date()
+        XCTAssertThrowsError(try InkJSON.decoder().decode(JSONValue.self, from: input)) { XCTAssert($0 is DecodingError) }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 30)
+        // Within the budget it decodes; a fresh decoder has a fresh budget.
+        let fits = Array(repeating: "1", count: JSONValue.maxValues - 1).joined(separator: ",")
+        XCTAssertNoThrow(try InkJSON.decoder().decode(JSONValue.self, from: Data("[\(fits)]".utf8)))
+        XCTAssertNoThrow(try InkJSON.decoder().decode(JSONValue.self, from: Data("[\(fits)]".utf8)))
+    }
 }

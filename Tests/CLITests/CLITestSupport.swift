@@ -37,6 +37,7 @@ class CLITestCase: XCTestCase {
     func cli(_ args: [String], env: [String: String] = [:]) throws -> CLIResult {
         var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("SEMPERE_") }
         environment["XDG_STATE_HOME"] = tmp.appendingPathComponent("state").path
+        environment["XDG_CACHE_HOME"] = tmp.appendingPathComponent("cache").path
         environment.merge(env) { $1 }
         let p = Process()
         p.executableURL = CLISmokeTests.binary
