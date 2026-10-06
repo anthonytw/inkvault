@@ -93,7 +93,7 @@ private struct RememberKeyView: View {
             Section {
                 Toggle("Remember on \(RememberedKeys.deviceName)", isOn: $remember)
             } footer: {
-                Text("Next time, \(offer.vaultName) opens after Face ID (or your passcode). The key stays in this device's Keychain and is not included in backups.")
+                Text(RememberedKeys.deviceOnlyFooter(vaultName: offer.vaultName, biometry: RememberedKeys.biometryName))
             }
             Section {
                 Toggle("Also sync via iCloud Keychain", isOn: $sync)
