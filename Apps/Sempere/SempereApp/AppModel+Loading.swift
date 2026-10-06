@@ -182,8 +182,10 @@ extension AppModel {
     /// Re-reads note `id` when its summary was not read in this session
     /// (`verifiedNoteIDs`), so an edit never decides from an earlier launch's
     /// cache or a summary still being listed.
+    /// A note not in the list is left to the caller (`noteNotFound`): reading
+    /// an unknown id would list it as an empty note with a problem.
     func verifySummary(_ id: UUID) async throws {
-        guard !verifiedNoteIDs.contains(id) else { return }
+        guard !verifiedNoteIDs.contains(id), notes.contains(where: { $0.id == id }) else { return }
         try await refresh([id])
     }
 
