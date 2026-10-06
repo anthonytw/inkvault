@@ -107,6 +107,12 @@ def main():
     base.save(path, "JPEG", quality=90, exif=exif, comment=b"synthetic comment",
               xmp=b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>")
     write("metadata.rgba", reference(path))
+    # Quadrants (red, green / blue, yellow): orientation, crop and rotation goldens.
+    q = Image.new("RGB", (40, 30))
+    qd = ImageDraw.Draw(q)
+    for (x0, y0, colour) in ((0, 0, (255, 0, 0)), (20, 0, (0, 255, 0)), (0, 15, (0, 0, 255)), (20, 15, (255, 255, 0))):
+        qd.rectangle([x0, y0, x0 + 19, y0 + 14], fill=colour)
+    save_jpeg("quadrants", q, quality=95, subsampling=0)
     # CMYK: valid JPEG, unsupported by the format (writers convert it).
     base.convert("CMYK").save(os.path.join(OUT, "cmyk.jpg"), "JPEG", quality=90)
 
