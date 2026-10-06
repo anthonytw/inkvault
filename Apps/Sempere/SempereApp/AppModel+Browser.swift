@@ -254,17 +254,16 @@ extension AppModel {
         let gen = generation
         let coordinate = coordinationURL
         let cache = summaryCache
-        let (fresh, listed) = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { () throws -> ([NoteSummary], [NoteListing]) in
-                // Names first: if a revision lands in between, the next pass sees new names and reads again.
-                let listed = try VaultEnumeration.listNotes(vault: vault.url, only: Set(ids))
-                return (try vault.summaries(of: ids, cache: cache, saveCache: false), listed)
+        let entries = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) {
+                try vault.summaryEntries(of: ids, cache: cache, saveCache: false)
+                    .map { NamedSummary(summary: $0.summary, revisions: $0.revisions) }
             }
         }
         try ensureCurrent(gen)
         for id in ids { summaryEpochs[id, default: 0] += 1 }
-        let names = Dictionary(listed.map { ($0.id, $0.names) }, uniquingKeysWith: { a, _ in a })
-        for s in fresh { indexedNames[s.id] = cache?.storedRevisionNames(of: s.id) ?? names[s.id] }
+        let fresh = entries.map(\.summary)
+        for e in entries { indexedNames[e.summary.id] = e.revisions }
         merge(fresh)
         verifiedNoteIDs.formUnion(fresh.map(\.id))
         saveSummaryCache()

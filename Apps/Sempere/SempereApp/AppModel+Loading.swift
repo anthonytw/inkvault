@@ -37,6 +37,12 @@ enum EmptyListReason: Equatable, Sendable {
     case emptyVault
 }
 
+/// A summary and the sorted revision file names it was made from.
+struct NamedSummary: Sendable {
+    var summary: NoteSummary
+    var revisions: [String]
+}
+
 extension AppModel {
     /// Summary caches of every vault this install opened: one encrypted file
     /// per vault secret in Application Support (`format.md` §10). Not backed up.
@@ -172,21 +178,23 @@ extension AppModel {
             let batch = Array(ids[start..<min(ids.count, start + max(1, loadBatchSize))])
             let epochs = summaryEpochs
             // The cache file is written once per listing (`saveSummaryCache`), not per batch.
-            let read = try await offMain {
+            let entries = try await offMain {
                 try Perf.measure(.reconcileRead, "notes=\(batch.count)") {
                     try CloudVault.coordinatedRead(coordinate) {
-                        try vault.summaries(of: batch, cache: cache, maxConcurrency: width, saveCache: false)
+                        try vault.summaryEntries(of: batch, cache: cache, maxConcurrency: width, saveCache: false)
+                            .map { NamedSummary(summary: $0.summary, revisions: $0.revisions) }
                     }
                 }
             }
+            let read = entries.map(\.summary)
+            let readNames = Dictionary(entries.map { ($0.summary.id, $0.revisions) }, uniquingKeysWith: { a, _ in a })
             try ensureCurrent(gen)
             try Task.checkCancellation()
             onSummaryRead?(batch.count)
             // An edit re-read a note while this batch was being read: its summary is newer.
             let current = read.filter { summaryEpochs[$0.id] == epochs[$0.id] }
-            for s in current {
-                indexedNames[s.id] = cache?.storedRevisionNames(of: s.id) ?? listedNames[s.id]
-            }
+            // The names this read used, not the listing's or the shared cache's (another read may have stored newer ones).
+            for s in current { indexedNames[s.id] = readNames[s.id] ?? listedNames[s.id] }
             queueListUpdate(upserts: current)
             verifiedNoteIDs.formUnion(current.map(\.id))
             onBatch?(read)

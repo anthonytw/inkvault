@@ -149,6 +149,7 @@ final class AppModel {
     @ObservationIgnored var notesPresenter: NotesFolderPresenter?
     /// The background validation in progress (`validateIfDue`).
     @ObservationIgnored var validationTask: Task<Void, Never>?
+    @ObservationIgnored var validationRun = 0
     /// When the background validation (`validateVault`) last finished.
     @ObservationIgnored var lastValidation: ContinuousClock.Instant?
     /// How often the background validation runs while the vault is open
@@ -556,7 +557,8 @@ final class AppModel {
         do {
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
                                                coordinated: isCloudVault, verify: verify, cache: cache,
-                                               listedNames: listed, beforeFinishing: editorLoadHook)
+                                               listedNames: listed, beforeFinishing: editorLoadHook,
+                                               redownload: { [weak self] in try await self?.downloadNote(noteID) })
         } catch CloudVault.CloudError.noteNotLocal {
             // A file went missing (or a new one was listed) since `downloadNote`: once more.
             try ensureCurrent(gen)

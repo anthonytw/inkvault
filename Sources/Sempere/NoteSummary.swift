@@ -182,6 +182,15 @@ extension Vault {
     ///   revisions are not errors: they set the summary's `problem`.
     public func summaries(of ids: [UUID]?, cache: SummaryCache? = nil, maxConcurrency: Int = 0, saveCache: Bool = true,
                           progress: (@Sendable (SummaryProgress) -> Void)? = nil) throws -> [NoteSummary] {
+        try summaryEntries(of: ids, cache: cache, maxConcurrency: maxConcurrency, saveCache: saveCache, progress: progress)
+            .map(\.summary)
+    }
+
+    /// `summaries(of:cache:...)` with, per summary, the sorted revision file
+    /// names it was made from (what a reader compares later listings with).
+    public func summaryEntries(of ids: [UUID]?, cache: SummaryCache? = nil, maxConcurrency: Int = 0,
+                               saveCache: Bool = true, progress: (@Sendable (SummaryProgress) -> Void)? = nil) throws
+        -> [(summary: NoteSummary, revisions: [String])] {
         try requireMigrated()
         _ = try requireReadable()
         let all = ids == nil
@@ -189,27 +198,33 @@ extension Vault {
         let counter = ProgressCounter()
         let total = ids.count
         let results = Parallel.map(ids, width: maxConcurrency > 0 ? maxConcurrency : Parallel.defaultWidth) { id in
-            Result { () throws -> (NoteSummary, Bool) in
+            Result { () throws -> (NoteSummary, Bool, [String]) in
                 let names = try revisionNames(of: id)
-                if let hit = cache?.summary(for: id, revisions: names) { return (hit, true) }
+                let files = names.map(\.filename).sorted()
+                if let hit = cache?.summary(for: id, revisions: names) { return (hit, true, files) }
                 let s = summary(of: id, loaded: try loadNote(id, names: names, detail: .withoutStrokePoints))
                 cache?.store(s, revisions: names)
-                return (s, false)
+                return (s, false, files)
             }
         } done: { _, result in
-            guard let progress, case .success(let (s, cached)) = result else { return }
+            guard let progress, case .success(let (s, cached, _)) = result else { return }
             progress(SummaryProgress(summary: s, cached: cached, completed: counter.increment(), total: total))
         }
-        var out: [NoteSummary] = []
+        var out: [(summary: NoteSummary, revisions: [String])] = []
         out.reserveCapacity(results.count)
-        for r in results { out.append(try r.get().0) }
+        for r in results {
+            let (s, _, files) = try r.get()
+            out.append((s, files))
+        }
         if let cache {
             if all { cache.retain(only: Set(ids)) }
             // A caller reading in batches passes false and saves once at the
             // end: every save rewrites the whole file.
             if saveCache { try? cache.save() }
         }
-        return out.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
+        return out.sorted {
+            ($0.summary.title.lowercased(), $0.summary.id.uuidString) < ($1.summary.title.lowercased(), $1.summary.id.uuidString)
+        }
     }
 
     /// Resolves a full id, an id prefix of 4 or more characters, or an exact

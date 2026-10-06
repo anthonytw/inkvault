@@ -28,6 +28,9 @@ final class NoteEditor {
     private(set) var isPreparing = false
     /// True when the editor opened from the drawing cache (`open(..., cache:)`).
     private(set) var openedFromCache = false
+    /// The background read of an editor opened from the cache failed: it
+    /// shows what the cache had, read-only, and never converts or stores.
+    private(set) var loadFailed = false
     /// Bumped when the canvas must reload the shown page's drawing although
     /// the page stayed the same (the read note differed from the cache).
     private(set) var canvasGeneration = 0
@@ -57,6 +60,9 @@ final class NoteEditor {
     @ObservationIgnored private var writtenNames: [String] = []
     /// The read that completes an editor opened from the cache.
     @ObservationIgnored private var fullLoad: Task<Void, Never>?
+    /// Set when `finishLoading` starts: no more cache hits are handed out
+    /// unchecked from then on.
+    @ObservationIgnored private var finishing = false
     /// `note.firstRender`: from the open until the canvas shows ink (`didShowInk`).
     @ObservationIgnored var openInterval: Perf.Interval?
     @ObservationIgnored private var committedPageSize: PageSize
@@ -128,7 +134,8 @@ final class NoteEditor {
                      coordinated: Bool = false,
                      verify: (@Sendable () throws -> Void)? = nil,
                      cache: DrawingCache? = nil, listedNames: [String]? = nil,
-                     beforeFinishing: (@Sendable () async -> Void)? = nil) async throws -> NoteEditor {
+                     beforeFinishing: (@Sendable () async -> Void)? = nil,
+                     redownload: (@MainActor @Sendable () async throws -> Void)? = nil) async throws -> NoteEditor {
         if let cache, let listedNames, !listedNames.isEmpty {
             let key = DrawingCache.Key(note: noteID, revisions: listedNames)
             let layout = await Task.detached(priority: .userInitiated) {
@@ -140,8 +147,16 @@ final class NoteEditor {
                 editor.cacheKey = key
                 editor.fullLoad = Task { [weak editor] in
                     do {
-                        let loaded = try await read(vault: vault, noteID: noteID, device: clock.device,
+                        let loaded: Loaded
+                        do {
+                            loaded = try await read(vault: vault, noteID: noteID, device: clock.device,
                                                     coordinated: coordinated, verify: verify)
+                        } catch CloudVault.CloudError.noteNotLocal where redownload != nil {
+                            // A file went missing (or a new one was listed) since the download: once more.
+                            try await redownload?()
+                            loaded = try await read(vault: vault, noteID: noteID, device: clock.device,
+                                                    coordinated: coordinated, verify: verify)
+                        }
                         await clock.observe(loaded.readings)
                         await beforeFinishing?()
                         await editor?.finishLoading(loaded, vault: vault, clock: clock, coordinated: coordinated)
@@ -206,6 +221,7 @@ final class NoteEditor {
     /// reloaded from the strokes when not), and the note becomes editable.
     private func finishLoading(_ loaded: Loaded, vault: Vault, clock: DeviceClock, coordinated: Bool) async {
         guard isPreparing else { return }
+        finishing = true
         let sameVersion = loaded.failures == 0 && cacheKey?.revisions == loaded.names
         let shownPages = canvasDrawings.mapValues(DrawingBox.init)
         let pagesByID = Dictionary(loaded.state.pages.map { ($0.id, $0.strokes) }, uniquingKeysWith: { a, _ in a })
@@ -220,6 +236,7 @@ final class NoteEditor {
         }.value : [:]
         guard isPreparing else { return }
         let shown = currentPage?.id
+        let shownNow = canvasDrawings   // what the canvas may show now (no hit is handed out after `finishing`)
         pages = loaded.state.pages
         meta = loaded.state.meta
         pageSize = loaded.state.meta.pageSize
@@ -236,7 +253,7 @@ final class NoteEditor {
             ledgers[page.id] = ledger
             canvasDrawings[page.id] = ready.drawing
         }
-        if let shown, shownPages[shown] != nil, checked[shown] == nil {
+        if let shown, shownPages[shown] != nil || shownNow[shown] != nil, checked[shown] == nil {
             // The cached drawing on screen was not this note's: show the real one.
             Perf.event(.noteCache, "mismatch \(Perf.short(noteID))")
             canvasGeneration &+= 1
@@ -249,6 +266,7 @@ final class NoteEditor {
     private func failLoading(_ error: any Error) {
         guard isPreparing else { return }
         readOnlyReason = "This note could not be read: \(error)"
+        loadFailed = true
         isPreparing = false
     }
 
@@ -272,7 +290,8 @@ final class NoteEditor {
     /// each. Re-keys the page's ledger to match. Converts on the calling
     /// (main) actor; the canvas uses `readyDrawing` / `prepareDrawing`.
     func drawing(for pageID: UUID) -> PKDrawing {
-        if isPreparing { return canvasDrawings[pageID] ?? PKDrawing() }   // no ledger before the strokes are read
+        // No ledger before the strokes are read (or when they could not be).
+        if isPreparing || loadFailed { return canvasDrawings[pageID] ?? PKDrawing() }
         var l = ledger(pageID)
         l.rebase(info: CanvasStrokeInfo.init(stored:))
         ledgers[pageID] = l
@@ -285,7 +304,7 @@ final class NoteEditor {
     /// anything: what it showed last (or what the cache gave while the note
     /// is being read). Nil when it must be prepared (`prepareDrawing`).
     func readyDrawing(for pageID: UUID) -> PKDrawing? {
-        guard let drawing = canvasDrawings[pageID], isPreparing || ledgers[pageID] != nil else { return nil }
+        guard let drawing = canvasDrawings[pageID], isPreparing || loadFailed || ledgers[pageID] != nil else { return nil }
         return drawing
     }
 
@@ -312,7 +331,7 @@ final class NoteEditor {
                     // Fingerprinted once the strokes are read (`finishLoading`), not now.
                     return drawing.map(DrawingBox.init)
                 }.value
-                if isPreparing, let cached {
+                if isPreparing, !finishing, let cached {
                     canvasDrawings[pageID] = cached.drawing
                     return cached.drawing
                 }
@@ -320,7 +339,8 @@ final class NoteEditor {
             await fullLoad?.value
             if let ready = readyDrawing(for: pageID) { return ready }
         }
-        guard !isPreparing, pages.contains(where: { $0.id == pageID }) else { return nil }
+        // A failed read leaves pages without strokes: nothing to convert or store.
+        guard !isPreparing, !loadFailed, pages.contains(where: { $0.id == pageID }) else { return nil }
         let strokes = ledgers[pageID]?.live ?? pages.first { $0.id == pageID }?.strokes ?? []
         let ids = strokes.map(\.id)
         let cache = dirtyPages.contains(pageID) ? nil : drawingCache
@@ -378,7 +398,7 @@ final class NoteEditor {
 
     /// Live strokes of a page (saved or not). Empty while the note is being
     /// read (`isPreparing`).
-    func liveStrokes(of pageID: UUID) -> [Stroke] { isPreparing ? [] : ledger(pageID).live }
+    func liveStrokes(of pageID: UUID) -> [Stroke] { isPreparing || loadFailed ? [] : ledger(pageID).live }
 
     /// Shows another page; pending changes are saved first.
     func selectPage(_ index: Int) {

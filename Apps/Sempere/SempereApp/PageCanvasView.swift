@@ -87,6 +87,7 @@ struct PageCanvasView: UIViewRepresentable {
                 return
             }
             host.canvas.drawing = PKDrawing()
+            host.canvas.undoManager?.removeAllActions()   // the previous page's undo must not run on this one
             host.isPreparing = true
             let visible = host.visiblePageRect
             loadTask = Task { @MainActor [weak self, weak host, weak editor] in

@@ -242,9 +242,12 @@ extension AppModel {
         guard validationTask == nil, phase == .unlocked else { return }
         if let last = lastValidation, ContinuousClock.now - last < cloudValidationInterval { return }
         let gen = generation
+        validationRun &+= 1
+        let run = validationRun
         validationTask = Task(priority: .background) { [weak self] in
             try? await self?.validateVault()
-            guard let self, self.generation == gen else { return }
+            // A newer validation (after a pause and resume) is not this one's to clear.
+            guard let self, self.generation == gen, self.validationRun == run else { return }
             self.validationTask = nil
         }
     }
