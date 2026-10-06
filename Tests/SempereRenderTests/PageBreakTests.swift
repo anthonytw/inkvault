@@ -39,6 +39,26 @@ final class PageBreakTests: XCTestCase {
         XCTAssertEqual(drawn(p, p.chunks[1]), 2)
     }
 
+    /// Items take part in cuts like ink (format.md §5.4.3): a cut is not put
+    /// through an image when it can move up to its top, and an image centred
+    /// below a finite page adds an output page.
+    func testItemsTakePartInCuts() throws {
+        let ref = BlobRef(content: Data("synthetic".utf8), type: "image/png")
+        let image = Item.image(blob: ref, pixelSize: Size(w: 10, h: 10), frame: Rect(x: 20, y: 260, w: 100, h: 80), z: "a")
+        let page = Page(order: "a", strokes: [line(20, 200)], items: [image])
+        let p = try PreparedPage(page: page, meta: T.meta(paper: .ruled, size: pageless), options: RenderOptions())
+        XCTAssertEqual(p.chunks.count, 2)
+        XCTAssertEqual(p.chunks[0].contentEnd, 260, accuracy: 1, "the cut moved up to the image's top")
+        XCTAssertTrue(p.chunks[0].endsAtGap)
+
+        let finite = PageSize(width: 200, height: 300)
+        let below = Item.image(blob: ref, pixelSize: Size(w: 10, h: 10), frame: Rect(x: 20, y: 400, w: 100, h: 80), z: "a")
+        let q = try PreparedPage(page: Page(order: "a", strokes: [line(20, 200)], items: [below]),
+                                 meta: T.meta(paper: .ruled, size: finite), options: RenderOptions())
+        XCTAssertEqual(q.chunks.count, 2, "the image below the page gets a page of its own")
+        XCTAssertTrue(q.chunks[1].belowPage)
+    }
+
     func testCutStaysWhenNoGapInTheLastQuarter() throws {
         // One block of ink from 100 to 400: its top is above 3/4 of the sheet.
         let p = try prepared([line(100, 250), line(240, 400)])

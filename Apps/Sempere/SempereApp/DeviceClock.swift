@@ -57,12 +57,15 @@ actor NoteWriter {
     let clock: DeviceClock
     let app: String
     let coordinated: Bool
+    /// The wall-clock time of every revision this writer writes; nil: the time of each write.
+    /// Only the demo vault for the App Store screenshots sets it (`DemoVault`).
+    let wall: Date?
     private var nextSeq: Int
 
     init(vault: Vault, noteID: UUID, clock: DeviceClock, nextSeq: Int, app: String = NoteWriter.appName,
-         coordinated: Bool = false) {
+         coordinated: Bool = false, wall: Date? = nil) {
         self.vault = vault; self.noteID = noteID; self.clock = clock; self.nextSeq = nextSeq; self.app = app
-        self.coordinated = coordinated
+        self.coordinated = coordinated; self.wall = wall
     }
 
     /// `sempere-ios/<version>` (format.md §5.1 `app`).
@@ -87,12 +90,13 @@ actor NoteWriter {
     /// and the clock must never come from a partial log.
     @discardableResult
     static func append(_ ops: [Op], to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
-                       coordinated: Bool = false,
+                       coordinated: Bool = false, wall: Date? = nil,
                        verify: (@Sendable () throws -> Void)? = nil) async throws -> RevisionName {
         let (readings, seq, _) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
                                                 verify: verify, build: nil)
         await clock.observe(readings)
-        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated)
+        let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated,
+                                wall: wall)
         return try await writer.write(ops)
     }
 
@@ -183,8 +187,9 @@ actor NoteWriter {
     }
 
     private func attempt(_ ops: [Op]) async throws -> RevisionName {
-        let hlc = try await clock.tick()
-        let rev = Revision(noteId: noteID, device: clock.device, seq: nextSeq, hlc: hlc, wall: Date(), app: app,
+        let now = wall ?? Date()
+        let hlc = try await clock.tick(wall: now)
+        let rev = Revision(noteId: noteID, device: clock.device, seq: nextSeq, hlc: hlc, wall: now, app: app,
                            body: .delta(ops: ops))
         try CloudVault.coordinatedWrite(coordinationURL) { try vault.write(rev) }
         nextSeq += 1

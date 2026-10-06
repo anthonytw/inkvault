@@ -439,7 +439,7 @@ whose strokes are all in it are reported as `superseded: .ntb copy of the
 note imported from …`. A bundle without such a `.note` (6: 3 of the 9 alone
 by path have their `.note` in another folder) is imported on its own (id
 derived from `ntb-created:<ms>`, title from the document record, notebook
-from its folder; no recognition, which the bundle does not have; 4 of them
+from its folder; recognition from `ios/HandwritingIndex.fb` when present; 4 of them
 sit on PDFs the bundle does not contain). Bundles are never silently
 ignored: each gets a report row.
 
@@ -618,6 +618,30 @@ the single page's `recognition`: texts joined with `\n` in page order,
 words grouped between whitespace with the union of their character boxes,
 moved by `pageContentOrigin`, the 18.8-unit inset and `(n − 1) × page
 height`. `engine` is `notability-<app version>`.
+
+## ios/HandwritingIndex.fb (.ntb)
+
+Newer bundles keep Notability's recognition in `ios/HandwritingIndex.fb`, a
+FlatBuffers buffer read without a schema. Its fields mirror
+`HandwritingIndex/index.plist`. It exists only where Notability has indexed the
+note (2 of 603 `.ntb` files in the reference backup).
+
+- Root: field 0 and field 1 are bytes (4 and 5, versions); field 3 is 8 bytes;
+  field 2 is a table whose field 0 lists the page tables. Its field 1 lists them again.
+- Page table:
+  - field 0: three 32-bit words, the third being the **0-based page index**
+    (the same convention as stroke records);
+  - field 1: the text, lines separated by `\n`;
+  - field 2: one 8-byte struct per UTF-16 unit of the text, four IEEE half
+    floats `(x, y, w, h)`, with whitespace stored as infinities (the `.note`
+    `characterRects` encoding);
+  - field 3: a 32-byte hash (presumably `sha256Hash`).
+- Boxes are **page coordinates**, as the bundle's strokes are. The importer
+  gives each page the origin `(−inset, 0)`, so the usual merge
+  (`(n − 1) × page height`, plus the inset) places the words exactly where the
+  strokes go. On the reference notes every word box contains ink.
+- Recognition is auxiliary: a missing or malformed index imports the note
+  without text, never without its ink.
 
 ## Mapping
 

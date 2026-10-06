@@ -13,6 +13,11 @@ if grep -rEn "$netpattern" Sources/ --exclude-dir=SempereWebDAV; then
   echo "error: network code outside Sources/SempereWebDAV" >&2
   exit 1
 fi
+# Subprocesses (Poppler for PDF backgrounds) only in the CLI: Process does not exist on iOS.
+if grep -rEn '\bProcess\(\)|: Process\b' Sources/ --exclude-dir=SempereCLI; then
+  echo "error: Process outside Sources/SempereCLI" >&2
+  exit 1
+fi
 # Unavailable on iOS and Mac Catalyst, which link Sources/ too (CLAUDE.md).
 if grep -rEn 'homeDirectoryForCurrentUser' Sources/; then
   echo "error: FileManager.homeDirectoryForCurrentUser is macOS-only; use NSHomeDirectory()" >&2

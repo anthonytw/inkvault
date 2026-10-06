@@ -472,17 +472,28 @@ extension AgeFile {
     /// (format.md §8.1.5). No payload is encrypted twice under one key:
     /// the payload bytes are the same bytes.
     ///
+    /// `inspect`, when given, sees every authenticated plaintext chunk in
+    /// order (callers check the content, e.g. a blob's framing and hash,
+    /// format.md §8.1.4); anything it throws fails the rewrap and removes the
+    /// output. It is not told when the stream ends: the call returning is
+    /// that signal.
+    ///
     /// - Throws: as `AgeDecryptor` for the input, as `AgeFile.encrypt` for
-    ///   the recipients, `AgeError.io` for the files.
+    ///   the recipients, `AgeError.io` for the files, and whatever `inspect`
+    ///   throws.
     public static func rewrapHeader(contentsOf input: URL, to output: URL, identities: [any AgeIdentity],
-                                    recipients: [any AgeRecipient], allowMixedPostQuantum: Bool = false) throws
+                                    recipients: [any AgeRecipient], allowMixedPostQuantum: Bool = false,
+                                    inspect: ((Data) throws -> Void)? = nil) throws
     {
         let decryptor = try AgeDecryptor(contentsOf: input, identities: identities)
         let newHeader = try header(fileKey: decryptor.fileKey, recipients: recipients,
                                    allowMixedPostQuantum: allowMixedPostQuantum)
         try FileStreams.writeNew(output) { write in
             try write(newHeader + decryptor.nonce)
-            while let (sealed, _) = try decryptor.nextSealed() { try write(sealed) }
+            while let (sealed, plain) = try decryptor.nextSealed() {
+                try inspect?(plain)
+                try write(sealed)
+            }
         }
     }
 
@@ -492,15 +503,22 @@ extension AgeFile {
     /// time in memory, never on disk. The output is removed unless the whole
     /// input authenticated.
     ///
+    /// `inspect` as for `rewrapHeader(contentsOf:to:identities:recipients:allowMixedPostQuantum:inspect:)`.
+    ///
     /// - Throws: as `AgeDecryptor` for the input, as `AgeFile.encrypt` for
-    ///   the recipients, `AgeError.io` for the files.
+    ///   the recipients, `AgeError.io` for the files, and whatever `inspect`
+    ///   throws.
     public static func reencrypt(contentsOf input: URL, to output: URL, identities: [any AgeIdentity],
-                                 recipients: [any AgeRecipient], allowMixedPostQuantum: Bool = false) throws
+                                 recipients: [any AgeRecipient], allowMixedPostQuantum: Bool = false,
+                                 inspect: ((Data) throws -> Void)? = nil) throws
     {
         let decryptor = try AgeDecryptor(contentsOf: input, identities: identities)
         let encryptor = try AgeEncryptor(to: recipients, allowMixedPostQuantum: allowMixedPostQuantum)
         try FileStreams.writeNew(output) { write in
-            while let chunk = try decryptor.next() { try write(try encryptor.update(chunk)) }
+            while let chunk = try decryptor.next() {
+                try inspect?(chunk)
+                try write(try encryptor.update(chunk))
+            }
             try write(try encryptor.finish())
         }
     }

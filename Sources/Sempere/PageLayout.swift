@@ -111,8 +111,8 @@ extension NoteOps {
                                  strokeParents: Bool, newID: () -> UUID) -> PageEdit {
         let strokes = page.strokes.map { moved($0, id: newID(), by: 0, parent: strokeParents ? $0.id : nil) }
         let items = page.items.map { moved($0, id: newID(), by: 0, parent: strokeParents ? $0.id : nil) }
-        let copy = Page(id: id, order: "", strokes: strokes, recognition: page.recognition, parent: parent,
-                        paper: page.paper, items: items)
+        var copy = Page(id: id, order: "", strokes: strokes, parent: parent, paper: page.paper, items: items)
+        copy.recognition = rebased(page.recognition, basisState(page), on: copy)
         return insert([copy], at: index, in: pages) { placed in
             let p = placed[0]
             var ops: [Op] = [.addPage(Page(id: p.id, order: p.order, parent: p.parent))]
@@ -231,7 +231,7 @@ extension NoteOps {
             ops.append(.removePage(pageId: page.id))
         }
         if pages.dropFirst().contains(where: { $0.recognition != nil }) {
-            let r = joinedRecognition(recognitions)
+            let r = rebased(joinedRecognition(recognitions), combined(pages.map(basisState)), on: joined)
             joined.recognition = r
             ops.append(.setPageRecognition(pageId: first.id, recognition: r))
         }
@@ -283,8 +283,12 @@ extension NoteOps {
             var first = page
             first.strokes = bySheet[0] ?? []
             first.items = itemsBySheet[0] ?? []
+            // Text without words stays on sheet 0 but describes ink that moved away: stale.
+            let wordless = page.recognition?.words.isEmpty ?? false
+            let source = basisState(page)
+            let state = wordless && lastSheet > 0 && source == .current ? .stale : source
             if page.recognition != nil, lastSheet > 0 {
-                first.recognition = sheetRecognition(page.recognition, words[0] ?? [], dy: 0)
+                first.recognition = rebased(sheetRecognition(page.recognition, words[0] ?? [], dy: 0), state, on: first)
                 if first.recognition != page.recognition {
                     ops.append(.setPageRecognition(pageId: page.id, recognition: first.recognition))
                 }
@@ -314,7 +318,7 @@ extension NoteOps {
                     ops.append(.addItem(page: sheet.id, item: copy))
                     sheet.items.append(copy)
                 }
-                if let r = sheetRecognition(page.recognition, words[k] ?? [], dy: dy) {
+                if let r = rebased(sheetRecognition(page.recognition, words[k] ?? [], dy: dy), state, on: sheet) {
                     sheet.recognition = r
                     ops.append(.setPageRecognition(pageId: sheet.id, recognition: r))
                 }
@@ -444,6 +448,35 @@ extension NoteOps {
             rest = rest[range.upperBound...]
         }
         return out
+    }
+
+    /// How current a page's recognition is before its ink moves (format.md
+    /// §5.4.3, §5.5): current (its `basis` matches, or the page is blank
+    /// without any), unchecked (no `basis`: an import) or stale (another
+    /// basis, or ink never read).
+    enum MovedBasis: Comparable { case current, unchecked, stale }
+
+    static func basisState(_ page: Page) -> MovedBasis {
+        guard let r = page.recognition else { return page.strokes.isEmpty ? .current : .stale }
+        guard let basis = r.basis else { return .unchecked }
+        return basis == RecognitionBasis.digest(of: page) ? .current : .stale
+    }
+
+    /// The state of recognition merged from several pages: the worst of theirs.
+    static func combined(_ states: [MovedBasis]) -> MovedBasis { states.max() ?? .current }
+
+    /// `r` on `page` (its final strokes) with the `basis` a moved recognition
+    /// gets (format.md §5.4.3): the page's digest when every source was
+    /// current, none when one was unchecked, and one that matches no strokes
+    /// (the digest of a fresh id) when one was stale, so it is read again.
+    static func rebased(_ r: Recognition?, _ state: MovedBasis, on page: Page) -> Recognition? {
+        guard var r else { return nil }
+        switch state {
+        case .current: r.basis = RecognitionBasis.digest(of: page)
+        case .unchecked: r.basis = nil
+        case .stale: r.basis = RecognitionBasis.digest(of: [UUID()])
+        }
+        return r
     }
 
     /// Recognitions of consecutive pages joined onto one: texts separated by

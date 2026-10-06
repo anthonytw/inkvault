@@ -209,6 +209,26 @@ struct PageEditorTests {
         #expect(try NoteEditorTests.myDeltas(vault, clock, note: AppModelTests.deleted).isEmpty)
     }
 
+    /// A closed editor (a window or view may still show it) takes no page
+    /// gestures: they would change what it shows without ever being written.
+    @Test func aClosedEditorTakesNoPageGestures() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, clock) = try await NoteEditorTests.open(vault)
+        await editor.close()
+        let page = try #require(editor.currentPage)
+        let before = editor.pages
+        let layout = editor.isPageless
+        editor.addPageAfterCurrent()
+        editor.duplicatePage(page.id)
+        editor.deletePage(page.id)
+        editor.movePage(from: 0, to: 1)
+        await editor.setLayout(pageless: !editor.isPageless)
+        #expect(editor.pages == before)
+        #expect(editor.isPageless == layout)
+        #expect(!editor.canDeletePage)
+        #expect(try NoteEditorTests.myDeltas(vault, clock).isEmpty)
+    }
+
     @Test func newNoteLayouts() async throws {
         #expect(NewNoteLayout.letter.pageSize == .letter)
         #expect(NewNoteLayout.a4.pageSize == .a4)

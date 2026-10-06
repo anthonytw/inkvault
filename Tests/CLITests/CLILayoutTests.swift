@@ -41,6 +41,17 @@ final class CLILayoutTests: CLITestCase {
         XCTAssertEqual(try cli(["vault", "verify"] + access).status, 0)
     }
 
+    func testLayoutOfADeletedNoteIsRefused() throws {
+        let vault = try copyFixtureVault()
+        let access = ["--vault", vault, "--identity", Self.fixtureKey]
+        XCTAssertEqual(try cli(["notes", "delete", Self.lecture] + access).status, 0)
+        for extra in [[], ["--dry-run"]] {
+            let r = try cli(["notes", "layout", Self.lecture, "pageless"] + extra + access)
+            XCTAssertEqual(r.status, 1, r.err)
+            XCTAssertTrue(r.err.contains("undelete"), r.err)
+        }
+    }
+
     func testExportBreaksOption() throws {
         let access = ["--vault", Self.fixtureVault, "--identity", Self.fixtureKey]
         for breaks in ["gaps", "fixed"] {

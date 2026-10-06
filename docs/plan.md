@@ -12,6 +12,7 @@
 | 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`); CLI `import notability` (done, `docs/cli.md`) | `Sources/SempereImport`, `Sources/SempereCLI` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
 | 0.7 | CLI `search` over page recognition text (done, `docs/cli.md`; matching note title, notebook and tags is not implemented) | `Sources/SempereCLI` | end-to-end test: import fixture → search finds a recognised word |
 | 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
+| 0.9 | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); still to do: page delete/move/duplicate and layout after #52, `recognize` after #44 | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
 
 ## Phase 1 — iPad app
 
@@ -19,13 +20,16 @@ Xcode project under `Apps/`. SwiftUI shell; PencilKit canvas with the system
 tool picker; paper layer; notebook/tag sidebar; autosave to the note log;
 vault location picker (on device, iCloud Drive, Files-app folder); key
 generate/import (AirDrop, QR, paste)/export; PDF share sheet; Face ID unlock;
-on-device handwriting recognition (PencilKit, iPadOS 27) writes page
-recognition (`format.md` §5.5); search UI over it.
+on-device handwriting recognition (Vision `VNRecognizeTextRequest` on
+rendered pages, iPadOS 26) writes page recognition (`format.md` §5.5); search
+UI over it (done: `PageRecognizer.swift`, `NoteEditor` recognition,
+`AppModel+Search.swift`, `Sources/Sempere/NoteSearch.swift`).
 
 ## Phase 2 — Mac companion
 
 Same target via Catalyst: menus, keyboard shortcuts, multi-window, drag and
-drop export, bulk export, key management.
+drop export, key management, pointer input (`docs/mac.md`; bulk export from
+the app comes with the share/export work).
 
 ## Phase 3 — nice to have
 
@@ -67,14 +71,14 @@ goes first; after it, the rest run in parallel along the dependencies in
 
 | # | Task | Owner target | Depends on | Done when (summary) |
 | --- | --- | --- | --- | --- |
-| A0 | Model types: items (integer layers), recordings, transcripts, blob refs, text (Unicode, `breaks`), `rec`, six ops, open fields (`JSONValue`). **In review (#47)**: `Sources/Sempere/Attachments.swift`, `JSONValue.swift`; snapshots refuse attachments until A1 | `Sources/Sempere` | — | every `format.md` §8 example round-trips; unknown kinds/fields/layers re-emitted verbatim |
+| A0 | Model types: items (integer layers), recordings, transcripts, blob refs, text (Unicode, `breaks`), `rec`, six ops, open fields (`JSONValue`). **Done (#47)**: `Sources/Sempere/Attachments.swift`, `JSONValue.swift`; snapshots refuse attachments until A1 | `Sources/Sempere` | — | every `format.md` §8 example round-trips; unknown kinds/fields/layers re-emitted verbatim |
 | A1 | Merge, snapshots, tombstones, orphans, history/restore, summaries | `Sources/Sempere` | A0 | shuffled-order property test with items; concurrency scenarios of §14 |
 | B1 | Age streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt (PR #43) | `Sources/Age` | — | CCTV via streaming; 300 MB bounded-memory round trip; `age` CLI interop |
-| B2 | Per-note blob store (`notes/<id>/att/`): names, kinds, framing, Padmé, verify, copy, rewrap policy (header-only on add, re-encrypt on removal/PQ) + rename, per-note collection, `sempere blobs …` | `Sources/Sempere`, CLI | A0 (B1) | binding tests; stock-tool recovery test; both rewrap methods resumable; GC rules 1–4 each tested per note |
+| B2 | Per-note blob store (`notes/<id>/att/`): names, kinds, framing, Padmé, verify, copy, rewrap policy (header-only on add, re-encrypt on removal/PQ) + rename, per-note collection, `sempere blobs …`. **Done (#60)**: `Sources/Sempere/Blob*.swift`, `Sources/SempereCLI/Blobs.swift` | `Sources/Sempere`, CLI | A0 (B1) | binding tests; stock-tool recovery test; both rewrap methods resumable; GC rules 1–4 each tested per note |
 | B3 | WebDAV sync of each note's `att/` (streaming, own size limit, GC-safe deletes) | `Sources/SempereWebDAV` | B2 | write-once table tests with blobs; 300 MB blob with bounded memory |
-| C1 | Export images (DCT passthrough with metadata stripped, PNG/JPEG decoders, SVG data URIs, HEIC placeholder) | `Sources/SempereRender` | A0 | golden tests for orientations/crops/rotation; decoder fixtures; fuzz |
+| C1 | Export images (DCT passthrough with metadata stripped, PNG/JPEG decoders, SVG data URIs, HEIC placeholder). **In review (#62)**: `JPEG.swift`, `PNGDecoder.swift`, `Items.swift`, writers; blobs through B2's `BlobSource` (`MemoryBlobSource` for tests) | `Sources/SempereRender` | A0 | golden tests for orientations/crops/rotation; decoder fixtures; fuzz |
 | C2 | Export text: full Unicode (Noto + optional font packs, OpenType reader, UAX #9/#14/#29, small shaper, stored `breaks`, font **subsets** in PDF/SVG, missing-script report) | `Sources/SempereRender` | A0 | layout tests incl. RTL; CJK via font pack in `pdftotext`; subset-only fonts; goldens |
-| C3 | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
+| C3 | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning. **In review (#61)**: `Sources/SemperePDF`, `SempereRender` (`Items.swift`, `PDFBackgrounds.swift`), CLI `PopplerRasterizer.swift`; reads blobs through B2's `BlobSource` | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
 | C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
 | D1 | Notability PDF backgrounds | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
 | D2 | Notability images | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |

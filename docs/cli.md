@@ -1,7 +1,9 @@
 # The `sempere` command line
 
-The Linux and macOS face of Sempere: keys, vault management, verification,
-export and recovery. It builds with `swift build -c release --product sempere`
+The Linux and macOS face of Sempere: keys, vault management, note editing,
+verification, export and recovery. Everything the app does to vault data can
+be done here and scripted with `--json` (the CLI-first rule in `CLAUDE.md`);
+only the drawing itself needs the app. It builds with `swift build -c release --product sempere`
 and CI publishes a static Linux binary. The executable only parses arguments,
 talks to the terminal and sets exit codes; everything else lives in
 `Sources/Sempere` and `Sources/SempereRender`.
@@ -44,7 +46,7 @@ classic X25519 recipient, alone or next to post-quantum ones, only these run:
 `vault info`, `vault recipients add` (post-quantum key) / `remove` /
 `replace`, `vault rewrap-resume`, and `recover` (the stock-`age` equivalent,
 which reads one file and needs no migration). Every other command that opens
-a vault (`notes …`, `export`, `search`, `compact`, `snapshot`, `import`,
+a vault (`notes …`, `notebooks …`, `tags …`, `pages …`, `export`, `search`, `compact`, `snapshot`, `import`,
 `vault verify`, `keys export`, `keys paper --vault`, `sync webdav`,
 `backup --prune`, `backup verify`, `restore`) exits 5 before asking for a key
 or passphrase. `backup V --to DIR` (without `--prune`) and `backup V --archive`
@@ -62,6 +64,7 @@ Errors go to stderr, one line each, prefixed `sempere:`.
 | `SEMPERE_VAULT` | Default for `--vault`. |
 | `SEMPERE_IDENTITY` | Default identity file. |
 | `SEMPERE_PASSPHRASE` | Passphrase for the vault's stored key file, for scripts and tests. |
+| `SEMPERE_PDFTOPPM` | Poppler's `pdftoppm` for PDF page backgrounds in SVG/PNG exports (default: `pdftoppm` on `PATH`). |
 | `XDG_STATE_HOME` | Where `device.json` lives (default `~/.local/state`). |
 
 ## Commands
@@ -135,11 +138,12 @@ sempere keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [--
 sempere vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...]
                          [--store-key FILE [--passphrase-env VAR] [--work-factor 15...18]]
 sempere vault info
-sempere vault recipients add age1pq1... [--label TEXT] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
-sempere vault recipients remove age1...
-sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
+sempere vault recipients add age1pq1... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
+sempere vault recipients remove age1... [--rewrap header|reencrypt]
+sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE ...]
 sempere vault rewrap-resume
 sempere vault verify
+sempere vault index [--out PATH|-]
 ```
 
 - `init` creates the vault. `PATH` must end in `.sempere`. Give no `--label`
@@ -153,6 +157,17 @@ sempere vault verify
   (`remove` also rotates the vault secret) and print a report. If any file
   cannot be rewrapped the exit code is 3 and the message says to run
   `rewrap-resume`. Removing a key does not revoke what it already decrypted.
+- Attachment blobs (`notes/<id>/att/`, `format.md` §8.1.5) are rewrapped
+  too. By default an `add` rewrites each blob's age header only (same file
+  key, payload copied), and a `remove` or `replace` (or an `add` that changes
+  the key types, such as a post-quantum key added to a legacy vault)
+  re-encrypts each blob under a new file key; a removal also renames every
+  blob under the new vault secret. `--rewrap header|reencrypt` overrides the
+  method for this change. `header` on a removal is faster but leaves every
+  old copy of a blob (backups, file-version history) able to open the current
+  file with the removed key. The method is recorded in the journal, so
+  `rewrap-resume` (from any device) finishes with the same one. `--json`
+  reports it as `blobs`.
 - Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
   and the new key of `replace` refuse a classic `age1...` key with "create a
   new key" (exit 2), before asking for any passphrase. Legacy vaults that
@@ -183,6 +198,78 @@ sempere vault verify
   `status  path` per file plus counts. Exit 0 only if the vault is healthy,
   else 3. `-q` lists only problem files. `--json` emits `healthy`,
   `manifestProblems`, `rewrapPending`, `journalProblem`, `counts` and `files`.
+  Attachment blobs are decrypted and hashed in full: `ok`, `unreferenced`
+  (healthy: no revision of its note uses it; `blobs gc` removes it later),
+  `invalid` (bad framing, padding, hash or name), `staleRecipients`, and a
+  `missing` line for each reference with no blob.
+- `index` writes `sempere-index.json` at the vault root (or `--out PATH`;
+  `--out -` prints it): every note id and its revision file names, the
+  listing the web viewer reads on a static server that cannot list folders
+  (`docs/web-viewer.md` "Hosting"). It needs no key and holds only names that
+  storage already shows. Once it exists it is kept current automatically:
+  every command that opens the vault rewrites it when the listing changed (a
+  failure to do so is a warning), and `sync webdav` rewrites the server's
+  copy when the server has one. A WebDAV share needs no index. Legacy vaults are refused (exit 5), as the
+  viewer cannot read them. `--json` emits `path`, `notes` and `revisions`.
+
+### Attachments
+
+```
+sempere blobs list [NOTE ...]
+sempere blobs verify [NOTE ...]
+sempere blobs extract NOTE SHA256 [--out FILE]
+sempere blobs add NOTE FILE --type MEDIA/TYPE
+sempere blobs copy SHA256 --from NOTE --to NOTE
+sempere blobs unused [NOTE ...] [--retention DAYS]
+sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS]
+sempere blobs repair [NOTE ...]
+```
+
+Blobs hold the bytes of images, PDFs, recordings and transcripts, one
+encrypted file per content per note: `notes/<id>/att/<keyed hash>.<kind>.age`
+(`format.md` §8.1). Revisions reference them by SHA-256; a note never uses
+another note's blobs. NOTE is an id or a title; without one, every note.
+
+- `list` shows each blob (kind, size on disk, referenced or not) and every
+  reference with no blob (`MISSING`), unreadable revisions and unknown files.
+  It reads the revisions but decrypts no blob.
+- `verify` decrypts and checks every blob of the notes (as `vault verify`
+  does, restricted to blobs). Exit 3 unless every blob is `ok` or
+  `unreferenced`.
+- `extract` writes the verified content of the blob a revision of NOTE
+  references (SHA256, or a unique prefix of at least 8 digits). With `--out`
+  the file appears only once the whole content has verified and is never
+  overwritten; on standard output content streams as it is decrypted, so on
+  an error (exit 1) discard what was printed.
+- `add` stores a file as a blob of NOTE (streaming, any size up to 1 GiB) and
+  prints the reference to put in a revision (`{"sha256", "size", "type"}`;
+  `-q` prints only the hash). It adds no item; until a revision references
+  the blob it is unreferenced. The first blob adds `features: ["attachments"]`
+  to `vault.json`.
+- `copy` copies a blob that NOTE `--from` references into NOTE `--to` (a byte
+  copy, verified as it is read), before a revision there uses it.
+- `unused` lists blobs no revision of their note references, with the date
+  each may be collected. Read only.
+- `gc` deletes those that have been unreferenced for `--retention` days
+  (default 30), per `format.md` §8.1.6: per note, only when every revision of
+  the note was read and verified, no recipient change is pending, no revision
+  (deleted notes and old restore points included) references the blob, and
+  this device first found it so at least the window ago. The first sighting
+  is recorded in `$XDG_STATE_HOME/sempere/blobs/<vaultId>.json` (default
+  `~/.local/state/...`), never in the vault; a blob that becomes referenced
+  again loses its record. A blob is decrypted and verified in full before it
+  is deleted; one that cannot be is reported and kept. `--dry-run` deletes
+  and records nothing. Exit 3 when a note could not be collected (unreadable
+  revision, pending rewrap) or a blob could not be verified.
+  Collection never happens as a side effect of `compact`, `sync` or opening.
+- `repair` fixes blobs a recipient change by an older build left behind
+  (still named under an old vault secret, encrypted to old recipients, or
+  under the wrong kind): each is verified, re-encrypted to the current
+  recipients and renamed. Only authentic blobs are touched (the name verifies
+  under the current secret, or a verified revision of the note references the
+  content); anything else is listed and left alone (exit 3).
+
+`recover` also reads a single blob file without the vault (see "Recover").
 
 ### Backup and restore
 
@@ -326,13 +413,22 @@ encrypted files.
 ```
 sempere notes list [--tag T] [--notebook N] [--deleted] [--no-cache]
 sempere notes show ID|TITLE
+sempere notes new TITLE [--notebook PATH] [--tag T]... [--paper KIND] [PAPER OPTIONS] [--page-size letter|a4] [--no-cache]
+sempere notes rename ID|TITLE NEW-TITLE
+sempere notes tag ID|TITLE [--add T]... [--remove T]... [--no-cache]
+sempere notes move ID|TITLE (NOTEBOOK | --none)
+sempere notes paper ID|TITLE [KIND] [--page N] [PAPER OPTIONS]
+sempere notes delete ID|TITLE
+sempere notes undelete ID|TITLE
 sempere notes history ID|TITLE
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
 sempere notes layout ID|TITLE paged|pageless [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
-hidden unless `--deleted`. Notes are read in parallel without their stroke
+hidden unless `--deleted`. `--notebook` takes a notebook path and lists the
+notes in it or below it, comparing whole segments (`A/B` holds `A/B/C` but not
+`A/Bc`), as the app's sidebar does; `--tag` ignores case. Notes are read in parallel without their stroke
 geometry, and the summaries are kept in an encrypted per-device cache
 (`$XDG_CACHE_HOME/sempere/`, default `~/.cache/sempere/`; `format.md` §10), so
 a later `list` reads only notes whose revision files changed. A damaged cache
@@ -376,10 +472,130 @@ its offset, with the old page height as the sheet height (`breakHeight`);
 to the sheet that holds its vertical centre. No ink is deleted and none moves
 relative to its sheet; strokes that change page are re-added under new ids with
 `parent` naming the old ones, so `pageless` then `paged` gives the pages back.
-Nothing is written when the note already has the layout (a pageless note
-with several pages, left by concurrent edits, is joined), or with `--dry-run`.
+The switch is computed from the note as it is on disk when the delta is
+written. Nothing is written when the note already has the layout (a pageless
+note with several pages, left by concurrent edits, is joined), or with
+`--dry-run`. A deleted note is refused (exit 1).
 The device id and clock are this machine's, as for `snapshot`. `--json` emits
 `note`, `layout`, `dryRun`, `changed`, `pagesBefore`, `pagesAfter` and `file`.
+
+#### Editing notes
+
+The editing commands make the same changes as the app's note browser and
+canvas, with the same core code (`NoteOps`, `Vault.apply`): each writes **one
+delta** per note, stamped with this machine's device id and clock
+(`$XDG_STATE_HOME/sempere/device.json`, as for `snapshot`), and nothing at all
+when the note already is that way. A note with an unreadable revision is not
+edited (exit 1): ops computed from part of a note could undo the rest. Notes
+are named as for `show`. With `--json` each prints `note` (the note after the
+edit, as in `notes list --json`), `changed` and `file` (the delta written, or
+absent).
+
+- `new` creates a note with one blank page: title (trimmed; titles need not
+  be unique), notebook, paper (default `ruled`, with the paper options below),
+  page size (`letter`, the default, or `a4`) and one `addTag` per `--tag`, in
+  the spelling the vault already uses for that tag (as `tag --add` below).
+  Prints the new id (the `Created …` line goes to stderr).
+- `rename` sets the title (trimmed).
+- `tag` adds and removes tags in one delta. Tags match case-insensitively and
+  merge per tag (`format.md` §5.4.1): `--add` writes an `addTag` unless the
+  note has the tag in any spelling, in the spelling the vault already uses
+  for it ("math" becomes "Math" if another note has "Math"); `--remove`
+  writes a `removeTag` observing every instance of the tag. Adding and
+  removing the same tag is a usage error.
+- `move` puts the note in a notebook, a `/`-separated path stored in
+  canonical form (`" A//B "` is `A/B`); `--none` (or an empty name) takes it
+  out of any notebook.
+- `paper` sets the paper. Without `--page` the note's paper is set and every
+  page with its own paper follows the note again (`setMeta paper` plus
+  `setPagePaper null`); `--page N` (1 is the first page) gives only that page
+  its own paper (`setPagePaper`). `KIND` starts from that kind's defaults, as
+  the app's picker does; without it, the options change the current paper of
+  the note (or the page). A deleted note is refused (exit 1). `--json` prints
+  `note` (the id), `changed`, `file`, `page` and `paper` (in the format's JSON
+  form).
+- `delete` moves the note to Recently Deleted; `undelete` brings it back.
+  (`restore` is a different thing: it rolls a note back to an earlier
+  revision.)
+
+Paper kinds (`format.md` §5.4.2): `blank`, `ruled`, `grid`, `dot`,
+`marginRuled`, `isoDot`, `isoGrid`, `cornell`, `staff` (any case; `margin-ruled`
+works too). Paper options, in points unless stated; a value outside the
+format's limits is a usage error (exit 2), not clamped:
+
+| Option | Range | |
+| --- | --- | --- |
+| `--spacing` | 4–200 | line, dot or grid spacing |
+| `--line-width` | 0.1–4 | rules |
+| `--dot-radius` | 0.3–4 | `dot`, `isoDot` |
+| `--margin-left`, `--margin-top` | 0–300 | margin lines from the edge; 0 is none |
+| `--cue-width`, `--summary-height` | 40–400 | `cornell` |
+| `--staff-spacing` | 3–20 | `staff`: between lines |
+| `--staff-gap` | 8–150 | `staff`: between staves |
+| `--background`, `--line-color`, `--margin-color` | `#RRGGBB` or `#RRGGBBAA` | colours |
+
+```
+sempere notes new "Week 3" --notebook School/Physics --tag physics --paper grid --spacing 18
+sempere notes paper "Week 3" cornell --page 2
+sempere notes tag "Week 3" --add exam --remove draft
+```
+
+### Notebooks and tags
+
+```
+sempere notebooks list [--deleted] [--no-cache]
+sempere notebooks rename OLD NEW [--dry-run]
+sempere tags list [--no-cache]
+```
+
+`notebooks list` prints the notebook tree (parents included, even when they
+hold no note directly) with `NOTES`, the notes directly in a notebook, and
+`TOTAL`, those in it or below it; deleted notes count only with `--deleted`.
+`--json` gives `path`, `depth`, `notes` and `total` per notebook.
+
+`notebooks rename` renames or moves a notebook with everything below it: each
+note in `OLD` or below it, deleted ones too, gets the `OLD` prefix of its
+notebook replaced by `NEW`, one delta per note (as the app's sidebar rename).
+Paths compare by whole segments, so renaming `A/B` leaves `A/Bc` alone. An
+empty `NEW` (`""`) takes the notes directly in `OLD` out of any notebook and
+lifts its sub-notebooks to the top level. Every note is read first, without
+the cache; if any cannot be read the command writes nothing and exits 1 (its
+notebook is unknown, so it would be left behind). `--dry-run` lists the notes
+that would move. `--json` gives `from`, `to`, `dryRun` and `notes`
+(`note`, `title`, `from`, `to`, `file`).
+
+`tags list` prints each tag once (tags match case-insensitively; the first
+spelling found is shown, as in the app's sidebar) with the number of notes
+that carry it. Deleted notes do not count. `--json` gives `tag` and `notes`.
+
+### Pages
+
+```
+sempere pages list ID|TITLE
+sempere pages add ID|TITLE [--count N] [--after PAGE]
+sempere pages move ID|TITLE PAGE --to PAGE
+sempere pages delete ID|TITLE PAGE
+sempere pages duplicate ID|TITLE PAGE
+```
+
+`list` prints each page's number, id, stroke count, paper (its own, or the
+note's marked `*`) and whether it has recognised text. `--json` gives `note`,
+`paper` and `pageSize` (the note's) and `pages` (`page`, `id`, `strokes`,
+`paper` when the page has its own, `recognized`).
+
+`add` appends `N` blank pages (1–100, default 1) after the last page, or
+after page `--after` (0: before the first), in one delta, as the app's Add
+Page; they follow the note's paper.
+
+The page gestures of the app (`docs/format.md` §5.4.3), one delta each, with
+1-based page numbers as `list` prints them: `move` puts a page at position
+`--to` (one `setPageOrder`; nothing when it is already there), `delete`
+removes a page and its ink (`removePage`; a note keeps at least one page,
+and `notes restore --to` undoes it), `duplicate` copies a page's ink, items,
+paper and recognised text right after it under new ids.
+
+A deleted note is refused (exit 1), as is a page number out of range.
+`--json` as for the editing commands.
 
 ### Import
 
@@ -448,6 +664,8 @@ in parallel and without stroke geometry, as for `notes list`.
 sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION] [--breaks gaps|fixed]
                 [--notebook NAME] [--images none|png] [--clean]
+                [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
+                [--assets DIR] [--keep-image-metadata]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -487,7 +705,81 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 `.pdf`/`.json`. `--all` skips deleted notes unless `--deleted`; a deleted note
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
-written is printed.
+written is printed. With `--json`, each entry has `note`, `files` and, when
+some items were drawn as placeholders, `placeholders` (their number).
+
+#### PDF page backgrounds
+
+A `pdfPage` item (an annotated PDF, `docs/format.md` §8.2.6) is read from the
+note's attachments, verified (`docs/format.md` §8.1.4), and drawn under the ink:
+
+- `pdf` copies the original page into the export as a Form XObject: exact
+  vectors, text and images, on every platform, with no renderer. The file is
+  PDF 1.7 when it holds such pages. Only the page's content and resources are
+  copied (annotations, form fields and metadata are not). A page whose content
+  uses a stream filter the reader does not decode (anything but Flate, LZW,
+  ASCII85, ASCIIHex and RunLength) is rasterized by the renderer below, or is a
+  placeholder.
+- `svg` and `png` need the page as pixels. `--pdf-renderer auto` (the default)
+  uses Poppler's `pdftoppm` when it is installed (`$SEMPERE_PDFTOPPM`, else
+  `pdftoppm` on `PATH`; `apt install poppler-utils`, `brew install poppler`);
+  `poppler` requires it (exit 1 when it is missing); `none` never runs it. SVG
+  embeds the page as a PNG data URI clipped to the item's frame (at 2 pixels
+  per drawn point); PNG composites it at `--dpi`. A page is drawn with at most
+  16 million pixels, and one export rasterizes at most 256 million.
+- Poppler runs as a separate process on a private temporary copy of the
+  verified PDF (deleted afterwards), started with an argument vector (never a
+  shell) and under resource limits: `--pdf-timeout` seconds of wall-clock time
+  per page (default 30; then SIGTERM, then SIGKILL), as much CPU time, 3 GiB
+  of address space where the OS enforces it, an output file no larger than the
+  requested pixels need, no core dumps. A PDF that makes Poppler hang, crash
+  or write garbage costs at most one timeout and becomes a placeholder.
+- Anything that cannot be drawn (no renderer, a missing or invalid
+  attachment, an unreadable or encrypted PDF, a failed render, an item kind
+  this export does not draw yet) is a placeholder: the item's frame outlined in
+  grey with both diagonals (`docs/format.md` §8.5.2). The export still
+  succeeds (exit 0) and prints one warning per kind of problem, e.g.
+
+  ```
+  sempere: warning: 0d1c6a1e: 12 PDF background pages drawn as placeholders: install poppler (pdftoppm) to render them, or export as PDF, which keeps them exactly
+  sempere: warning: 0d1c6a1e: pdfPage item drawn as a placeholder (PDF renderer failed: pdftoppm timed out after 30 s)
+  ```
+
+Notes hold `pdfPage` items once item ops are merged (attachments task A1);
+until then this applies to no note in a vault. `markdown` draws them in its
+PDF (and per-page PNGs), `html` in its SVG pages, as above.
+
+#### Images in exports
+
+Image items (`docs/format.md` §8.2.5) are drawn from the note's attachments
+(`notes/<id>/att/`), each blob decrypted and checked against its reference
+(§8.1.4) before use. Placement follows §8.5.1 (EXIF orientation, crop, frame,
+rotation); images are clipped to their frame, under the ink.
+
+- `pdf`: a JPEG is embedded as stored (`DCTDecode`, never re-encoded); PNG
+  (and anything else decoded) as lossless 8-bit RGB or grey with a soft mask
+  for transparency. One copy per image however many pages use it.
+- `svg`: each image as a `data:` URI. `--assets DIR` (svg only) writes each
+  image once into `DIR` instead (named by a hash of its bytes, `.jpg`/`.png`)
+  and links it with a path relative to the SVG files.
+- `png`: images are decoded and resampled into the page (a JPEG decoded at
+  1/2, 1/4 or 1/8 size when that is all the output needs).
+- **Metadata:** location and camera data (JPEG APPn segments other than JFIF,
+  ICC and Adobe; COM; PNG text, `eXIf` and other ancillary chunks; anything
+  after the image's end) is removed from every image an export carries,
+  whatever is stored, unless `--keep-image-metadata`.
+- **Placeholders:** an item that cannot be drawn is a crossed-out grey box
+  (§8.5.2) and a warning on stderr, as for PDF pages above, e.g.
+  `sempere: warning: 0d1c6a1e: image item drawn as a placeholder (HEIC images
+  cannot be decoded here (convert it to JPEG in the app))`. Causes: a missing, unreadable or
+  damaged attachment; HEIC (the CLI has no HEVC decoder; the app exports it);
+  CMYK, 12-bit, lossless or arithmetic-coded JPEG; an image over 100
+  megapixels (§8.4) or over 64 MiB; unknown item kinds and text boxes (not
+  drawn yet). The export still succeeds; with `--json` each note's
+  `placeholders` counts them. `markdown` and `html` exports draw images too.
+
+Until item merging lands (task A1), notes read from a vault have no items, so
+these paths are exercised by the library's tests only.
 
 #### Markdown and HTML exports
 
@@ -559,6 +851,14 @@ touches files it did not write. A note that fails to export keeps its old files.
 ```
 sempere recover FILE.age [--note-id UUID] [--identity FILE ...] [--vault PATH] [--no-verify]
 ```
+
+Given an attachment blob (`notes/<id>/att/<name>.<kind>.age`) it prints the
+blob's content, byte for byte what
+`age -d -i KEY FILE | tail -c +46 | head -c LEN` prints (`format.md` §8.1.7).
+Framing, zero padding and the content hash are always checked; the file name
+too when a vault is known (a name that does not verify: exit 1, nothing
+printed); otherwise `UNVERIFIED NAME: ...` goes to stderr. Content streams as
+it is decrypted: if the command fails midway, discard the output.
 
 Decrypts one revision file and prints its JSON to stdout, byte for byte what
 `age -d -i KEY FILE | tail -c +38 | gunzip` prints. It needs only an identity

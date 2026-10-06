@@ -5,8 +5,10 @@ import Sempere
 struct NotesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notes",
-        abstract: "List notes, show their history, restore earlier revisions and switch page layout.",
-        subcommands: [NotesList.self, NotesShow.self, NotesHistory.self, NotesRestore.self, NotesLayout.self]
+        abstract: "List, create and edit notes, switch page layout, show their history and restore earlier revisions.",
+        subcommands: [NotesList.self, NotesShow.self, NotesNew.self, NotesRename.self, NotesTag.self, NotesMove.self,
+                      NotesPaper.self, NotesLayout.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
+                      NotesRestore.self]
     )
 }
 
@@ -42,7 +44,7 @@ struct NotesList: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp("Only notes with this tag.", valueName: "tag"))
     var tag: String?
 
-    @Option(name: .long, help: ArgumentHelp("Only notes in this notebook.", valueName: "name"))
+    @Option(name: .long, help: ArgumentHelp("Only notes in this notebook or below it.", valueName: "path"))
     var notebook: String?
 
     @Flag(name: .long, help: "Include deleted notes.")
@@ -55,7 +57,7 @@ struct NotesList: ParsableCommand {
     func run() throws {
         let vault = try access.openVault(.required)
         let notes = try vault.summaries(of: nil, cache: cache.cache(for: vault)).filter { n in
-            (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { n.notebook == $0 } ?? true)
+            (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { NotebookPath.name(n.notebook, isWithin: $0) } ?? true)
         }
         if output.json { try output.emitJSON(notes.map(NoteJSON.init)); return }
         if notes.isEmpty { output.info("No notes."); return }
@@ -148,30 +150,44 @@ struct NotesLayout: ParsableCommand {
     func run() throws {
         let vault = try access.openVault(.required)
         let id = try vault.resolveNote(note)
-        let state = try vault.reconstruct(try vault.loadNote(id))
-        let edit = layout == .paged
-            ? NoteOps.makePaged(pages: state.pages, pageSize: state.meta.pageSize)
-            : NoteOps.makePageless(pages: state.pages, pageSize: state.meta.pageSize)
-        let noteName = id.uuidString.lowercased()
-        var file: String?
-        if !edit.ops.isEmpty && !dryRun {
-            let r = try vault.apply(edit.ops, to: id, deviceState: DeviceState.defaultURL(), app: appName)
-            file = r.name.filename
+        let layout = self.layout
+        func switched(_ state: NoteState) -> LayoutEdit {
+            layout == .paged
+                ? NoteOps.makePaged(pages: state.pages, pageSize: state.meta.pageSize)
+                : NoteOps.makePageless(pages: state.pages, pageSize: state.meta.pageSize)
         }
+        // The switch is computed from the note as it is on disk when the delta is written.
+        var before = 0
+        var edit = LayoutEdit(ops: [], pages: [], pageSize: .letter)
+        var file: String?
+        if dryRun {
+            let state = try vault.reconstruct(try vault.loadNote(id))
+            try requireLive(state)
+            before = state.pages.count
+            edit = switched(state)
+        } else {
+            file = try editNote(vault, id) { current in
+                try requireLive(current)
+                before = current.pages.count
+                edit = switched(current)
+                return edit.ops
+            }?.name.filename
+        }
+        let noteName = id.uuidString.lowercased()
         if output.json {
             struct Out: Encodable {
                 var note: String; var layout: String; var dryRun: Bool; var changed: Bool
                 var pagesBefore: Int; var pagesAfter: Int; var file: String?
             }
             try output.emitJSON(Out(note: noteName, layout: layout.rawValue, dryRun: dryRun, changed: !edit.ops.isEmpty,
-                                    pagesBefore: state.pages.count, pagesAfter: edit.pages.count, file: file))
+                                    pagesBefore: before, pagesAfter: edit.pages.count, file: file))
             return
         }
         guard !edit.ops.isEmpty else {
             output.info("\(noteName) is already \(layout.rawValue); nothing to write.")
             return
         }
-        let what = "\(state.pages.count) page(s) -> \(edit.pages.count) page(s)"
+        let what = "\(before) page(s) -> \(edit.pages.count) page(s)"
         print("\(dryRun ? "would make" : "made") \(noteName) \(layout.rawValue): \(what)")
         if let file { output.info("Wrote \(noteName)/\(file)") }
     }

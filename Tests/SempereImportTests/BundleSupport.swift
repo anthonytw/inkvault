@@ -203,13 +203,43 @@ enum SyntheticBundle {
                                       6: .tables(records)])
     }
 
-    /// The `.ntb` zip around a bundle.
-    static func package(_ bundle: Data) -> Data {
-        ZipWriter.write([
+    /// The `.ntb` zip around a bundle, optionally with `ios/HandwritingIndex.fb`.
+    static func package(_ bundle: Data, handwritingIndex: Data? = nil) -> Data {
+        var entries: [ZipWriter.File] = [
             .init(path: "version", data: Data("1".utf8), deflate: false),
             .init(path: "noteBundle", data: bundle, deflate: false),
             .init(path: "manifest.json", data: Data("{\"appVersion\":\"16.0\"}".utf8), deflate: false),
-        ])
+        ]
+        if let handwritingIndex { entries.append(.init(path: "ios/HandwritingIndex.fb", data: handwritingIndex, deflate: true)) }
+        return ZipWriter.write(entries)
+    }
+
+    /// One recognised page of a synthetic `ios/HandwritingIndex.fb`: its
+    /// 0-based index, text, and one page-coordinate box per UTF-16 unit
+    /// (nil for whitespace, stored as infinities like Notability).
+    struct RecognizedPage {
+        var index: UInt32
+        var text: String
+        var boxes: [(Double, Double, Double, Double)?]
+    }
+
+    /// A handwriting index shaped like Notability 16's (layout in
+    /// `docs/import-notability.md`). The text is synthetic.
+    static func handwritingIndex(_ pages: [RecognizedPage]) -> Data {
+        func box(_ b: (Double, Double, Double, Double)?) -> [UInt8] {
+            let v = b.map { [$0.0, $0.1, $0.2, $0.3] } ?? [.infinity, .infinity, 0, 0]
+            return v.flatMap { x -> [UInt8] in
+                let h = x.isInfinite ? UInt16(0x7C00) : Float16Bits.encode(x)
+                return [UInt8(h & 0xFF), UInt8(h >> 8)]
+            }
+        }
+        func word(_ v: UInt32) -> [UInt8] { (0..<4).map { UInt8(v >> (8 * UInt32($0)) & 0xFF) } }
+        let tables: [[Int: FBValue]] = pages.map { p in
+            [0: .structBytes(word(0) + word(1) + word(p.index)), 1: .string(p.text),
+             2: .structVector(p.boxes.flatMap(box)), 3: .bytes([UInt8](repeating: 0xAB, count: 32))]
+        }
+        return FBWriter.buffer(root: [0: .u8(4), 1: .u8(5), 2: .table([0: .tables(tables), 1: .tables(tables)]),
+                                      3: .i64(1378 << 32)])
     }
 
     /// The synthetic `.note`'s first two curves as bundle strokes: page

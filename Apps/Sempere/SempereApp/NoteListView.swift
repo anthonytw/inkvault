@@ -1,11 +1,13 @@
 import Sempere
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The notes matching the sidebar selection, with title search, sorting and
 /// per-note actions.
 struct NoteListView: View {
     @Environment(AppModel.self) private var model
-    @State private var creating = false
+    @Environment(WindowUI.self) private var ui
+    @Environment(\.openWindow) private var openWindow
     @State private var prompt: Prompt?
     @State private var promptText = ""
 
@@ -19,27 +21,21 @@ struct NoteListView: View {
 
     var body: some View {
         @Bindable var model = model
-        List(model.visibleNotes, id: \.id, selection: listSelection) { note in
-            NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
-                    downloading: model.pendingNoteIDs.contains(note.id))
-                // A placeholder's summary is empty: nothing to act on until it arrives
-                // (the model downloads a note before any edit anyway).
-                .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
-                .swipeActions(edge: .trailing) {
-                    if model.placeholderNoteIDs.contains(note.id) {
-                        EmptyView()
-                    } else if note.deleted {
-                        Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
-                            .tint(.green)
-                    } else {
-                        Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
-                    }
-                }
+        @Bindable var ui = ui
+        Group {
+            if model.isSearchActive {
+                SearchResultsList()
+            } else {
+                notesList
+            }
         }
         .environment(\.editMode, Binding<EditMode>(get: { model.isSelectingNotes ? .active : .inactive },
                                          set: { setSelecting($0.isEditing) }))
         .navigationTitle(title)
-        .searchable(text: $model.searchText, prompt: "Search titles")
+        .searchable(text: $model.searchText, isPresented: $ui.searchPresented, prompt: "Search notes and handwriting")
+        .searchScopes($model.searchScope) {
+            ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+        }
         .toolbar {
             if model.isSelectingNotes {
                 ToolbarItem { ExportMenu(ids: model.exportTargetIDs) }
@@ -56,23 +52,32 @@ struct NoteListView: View {
                 }
             }
             ToolbarItem {
-                Button("New Note", systemImage: "square.and.pencil") { creating = true }
+                Menu("Handwriting", systemImage: "text.viewfinder") {
+                    Toggle("Recognize Handwriting", isOn: Binding(get: { model.recognizer != nil },
+                                                                  set: { model.setHandwritingRecognition($0) }))
+                    let waiting = model.notesNeedingRecognition.count
+                    Button("Recognize \(waiting) Note\(waiting == 1 ? "" : "s") Now", systemImage: "wand.and.stars") {
+                        model.startRecognizingNotes()
+                    }
+                    .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil)
+                    Text("Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it.")
+                }
+            }
+            ToolbarItem {
+                Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
                     .disabled(model.phase != .unlocked)
             }
         }
-        .overlay {
-            if let reason = model.emptyListReason {
-                EmptyListView(reason: reason) { run { try await model.reload() } }
-            }
-        }
         .safeAreaInset(edge: .bottom) {
-            VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
+            VStack(spacing: 0) {
+                if let progress = model.recognitionProgress {
+                    RecognitionBar(progress: progress) { model.cancelRecognizingNotes() }
+                }
+                VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
+            }
         }
         .refreshable {
             await model.report { try await model.reload() }
-        }
-        .sheet(isPresented: $creating) {
-            NewNoteView(notebook: currentNotebook)
         }
         .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
             TextField(promptField, text: $promptText)
@@ -88,6 +93,33 @@ struct NoteListView: View {
                 prompt = nil
             }
             Button("Cancel", role: .cancel) { prompt = nil }
+        }
+    }
+
+    private var notesList: some View {
+        List(model.visibleNotes, id: \.id, selection: listSelection) { note in
+            NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
+                    downloading: model.pendingNoteIDs.contains(note.id))
+                .modifier(NoteDragOut(note: note, enabled: Platform.isMac && model.phase == .unlocked
+                                      && !model.placeholderNoteIDs.contains(note.id)))
+                // A placeholder's summary is empty: nothing to act on until it arrives
+                // (the model downloads a note before any edit anyway).
+                .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
+                .swipeActions(edge: .trailing) {
+                    if model.placeholderNoteIDs.contains(note.id) {
+                        EmptyView()
+                    } else if note.deleted {
+                        Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
+                            .tint(.green)
+                    } else {
+                        Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
+                    }
+                }
+        }
+        .overlay {
+            if let reason = model.emptyListReason {
+                EmptyListView(reason: reason) { run { try await model.reload() } }
+            }
         }
     }
 
@@ -127,11 +159,6 @@ struct NoteListView: View {
         }
     }
 
-    private var currentNotebook: String? {
-        if case .notebook(let n)? = model.sidebarSelection { return n }
-        return nil
-    }
-
     private var promptTitle: String {
         switch prompt?.kind {
         case .tag: return "Add Tag"
@@ -158,6 +185,11 @@ struct NoteListView: View {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
             ExportMenu(ids: exportIDs(for: note))
         } else {
+            if Platform.isMac, let vault = model.vault?.vaultId {
+                Button("Open in New Window", systemImage: "macwindow") {
+                    openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: note.id))
+                }
+            }
             Button("Rename…", systemImage: "pencil") {
                 promptText = note.title; prompt = Prompt(kind: .rename, note: note.id)
             }
@@ -181,6 +213,43 @@ struct NoteListView: View {
             ExportMenu(ids: exportIDs(for: note))
             Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
         }
+    }
+}
+
+/// Drag a note out of the list to the Finder (or any app) as a PDF (Mac). The
+/// PDF is rendered when the drop asks for it (`AppModel.exportPDF`), not when
+/// the drag starts.
+private struct NoteDragOut: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let note: NoteSummary
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.onDrag { provider() }
+        } else {
+            content
+        }
+    }
+
+    private func provider() -> NSItemProvider {
+        let provider = NSItemProvider()
+        let id = note.id
+        let model = model
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
+                                            visibility: .all) { completion in
+            let progress = Progress(totalUnitCount: 1)
+            Task { @MainActor in
+                do {
+                    completion(try await model.exportPDF(noteID: id), false, nil)
+                } catch {
+                    completion(nil, false, error)
+                }
+                progress.completedUnitCount = 1
+            }
+            return progress
+        }
+        return provider
     }
 }
 
@@ -344,5 +413,101 @@ struct CloudSyncBar: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Notes matching the search, each with the page and the words that matched;
+/// a tap opens the note on that page.
+private struct SearchResultsList: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        List {
+            ForEach(model.searchResults) { hit in
+                if let note = model.note(for: hit) {
+                    Button { model.openSearchHit(hit) } label: { SearchRow(hit: hit, note: note) }
+                        .buttonStyle(.plain)
+                        .listRowBackground(model.selectedNoteID == note.id ? SwiftUI.Color.accentColor.opacity(0.15) : nil)
+                }
+            }
+        }
+        .overlay {
+            if model.isSearching && model.searchResults.isEmpty {
+                ProgressView()
+            } else if !model.isSearching && model.searchResults.isEmpty {
+                ContentUnavailableView.search(text: model.searchText)
+            }
+        }
+    }
+}
+
+private struct SearchRow: View {
+    let hit: NoteSearchHit
+    let note: NoteSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(NoteTitle.display(note.title)).font(.headline)
+                if let page = hit.page, note.pages > 1 {
+                    Text("Page \(page.number)").font(.caption.weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                }
+                if hit.matchedPages > 1 {
+                    Text("+\(hit.matchedPages - 1) more").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let snippet = hit.snippet {
+                Text(Self.highlighted(snippet)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+            }
+            HStack(spacing: 6) {
+                if let notebook = NotebookPath.canonical(note.notebook) {
+                    Label(NotebookPath.components(notebook).joined(separator: " › "), systemImage: "book.closed")
+                }
+                if hit.fields.contains(.tag) {
+                    Label(NoteOps.normalizedTags(note.tags).joined(separator: ", "), systemImage: "tag")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    static func highlighted(_ snippet: NoteSearchHit.Snippet) -> AttributedString {
+        var text = AttributedString(snippet.text)
+        for range in snippet.matches {
+            if let r = Range(range, in: text) {
+                text[r].font = .callout.bold()
+                text[r].foregroundColor = .primary
+            }
+        }
+        return text
+    }
+}
+
+/// "Recognizing handwriting: 12 of 80 notes" with a cancel button.
+struct RecognitionBar: View {
+    let progress: RecognitionProgress
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Reading handwriting: \(progress.done) of \(progress.total) notes")
+                    .font(.footnote.weight(.semibold)).monospacedDigit()
+                Spacer()
+                Button("Stop", action: cancel).font(.footnote)
+            }
+            ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+            if progress.failed > 0 {
+                Text("\(progress.failed) could not be read").font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
     }
 }

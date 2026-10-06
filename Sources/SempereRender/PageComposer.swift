@@ -46,6 +46,11 @@ struct PreparedPage {
     let paper: Paper
     let options: RenderOptions
     let strokes: [PreparedStroke]
+    /// Placed items in drawing order (`Item.drawsBefore`).
+    let items: [PreparedItem]
+    /// Items not drawn and why (frames outside the drawable area, too many
+    /// items): the writers add these to their report.
+    let warnings: [String]
     /// Total page height: `pageSize.height`, or for infinite pages the largest
     /// of that, the lowest stroke edge (rounded up) and one chunk height.
     let extent: Double
@@ -64,7 +69,7 @@ struct PreparedPage {
     ///   axis) beyond `RenderLimits.maxExtent` in magnitude. Finite coordinates
     ///   within the limit that fall outside a finite page are not an error; the
     ///   stroke is simply culled.
-    init(page: Page, meta: NoteMeta, options: RenderOptions,
+    init(page: Page, meta: NoteMeta, options: RenderOptions, pageNumber: Int = 1,
          maxOutlinePoints: Int = RenderLimits.maxOutlinePoints) throws {
         let size = meta.pageSize
         let maxE = RenderLimits.maxExtent
@@ -104,20 +109,43 @@ struct PreparedPage {
             low = max(low, hi + pad)
         }
         strokes = list
+        // Items count toward an infinite page's extent like strokes (format.md §8.2.3).
+        // An item whose frame cannot be drawn is skipped with a warning, never
+        // fatal to the page (format.md §8.5.2); at most `maxItemsPerPage` are drawn.
+        var placed: [PreparedItem] = []
+        var notes: [String] = []
+        for item in page.items.sorted(by: Item.drawsBefore).prefix(RenderLimits.maxItemsPerPage) {
+            do {
+                let p = try PreparedItem(item, pageNumber: pageNumber)
+                placed.append(p)
+                low = max(low, p.maxY)
+            } catch {
+                notes.append("page \(pageNumber): item \(item.id.uuidString.lowercased().prefix(8)): "
+                    + "outside the drawable area; not drawn")
+            }
+        }
+        if page.items.count > RenderLimits.maxItemsPerPage {
+            notes.append("page \(pageNumber): more than \(RenderLimits.maxItemsPerPage) items; the rest are not drawn")
+        }
+        items = placed
+        warnings = notes
         let chunkHeight = Self.chunkHeight(options: options, size: size)
+        // Items take part in page cuts like ink: their frame's extent, their sheet by its centre (§5.4.3).
+        let spans = list + placed.map { PreparedStroke(commands: [], minY: $0.minY, maxY: $0.maxY,
+                                                       centreY: $0.minY / 2 + $0.maxY / 2) }
         if size.infinite {
             guard low <= maxE else { throw RenderError.extentTooLarge(low) }
             extent = max(size.height, low.rounded(.up), chunkHeight)
         } else {
             // Ink below the page (a stroke centred at or below its height) adds pages after it.
             // Its outline may reach past the extent limit by its nib: culled there, not an error.
-            let below = list.filter { $0.centreY >= size.height }.map(\.maxY).max()
+            let below = spans.filter { $0.centreY >= size.height }.map(\.maxY).max()
             extent = max(size.height, min(below ?? 0, maxE).rounded(.up))
         }
         let seekGaps = options.breaks == .gaps && paper.kind != .cornell
         // Below a finite page only the ink centred there is drawn (format.md §5.4.3): a
         // stroke crossing the bottom edge is clipped by it, so it alone adds no page.
-        let blocks = Self.blocks(size.infinite ? list : list.filter { $0.centreY >= size.height })
+        let blocks = Self.blocks(size.infinite ? spans : spans.filter { $0.centreY >= size.height })
         // Pages below a finite page are cut at its sheet height, at least 72 pt: a tiny
         // `height` from hostile input must not make one output page per point.
         var cut = Self.chunks(width: size.width, firstHeight: size.infinite ? nil : size.height,
@@ -266,6 +294,11 @@ struct PreparedPage {
                                           sheetHeight: PaperRenderer.sheetHeight(for: meta.pageSize))
         }
         return out
+    }
+
+    /// Items that can touch `chunk`, in drawing order.
+    func items(for chunk: PageChunk) -> [PreparedItem] {
+        items.filter { !($0.maxY < chunk.yOffset || $0.minY > chunk.yEnd) }
     }
 
     /// Geometry of every stroke in page coordinates (no chunking).

@@ -342,6 +342,69 @@ final class PageEditTests: XCTestCase {
         XCTAssertEqual(state.pages[2].strokes[0].transform?.ty, -1600)
     }
 
+    /// Recognition that moves keeps track of the ink it was read from
+    /// (format.md §5.4.3, §5.5): current stays current on the new ids,
+    /// an import stays unchecked, stale stays stale (read again).
+    func testMovedRecognitionKeepsItsBasisState() throws {
+        let h = 800.0
+        func word(_ t: String, _ y: Double) -> Recognition.Word { .init(text: t, box: .init(x: 0, y: y, w: 10, h: 10)) }
+        func read(_ page: Page, _ text: String, _ words: [Recognition.Word]) -> Recognition {
+            Recognition(engine: "vision-26", text: text, words: words, basis: RecognitionBasis.digest(of: page))
+        }
+        // Current: a basis that matches (no basis would be "unchecked", which is not the same).
+        func current(_ p: Page) -> Bool { p.recognition?.basis == RecognitionBasis.digest(of: p) }
+
+        // Split of a current page: every sheet's share is current for its new strokes.
+        var page = Page(order: "V", strokes: [ink(100), ink(900)])
+        page.recognition = read(page, "alpha\nbeta", [word("alpha", 95), word("beta", 895)])
+        let size = PageSize(width: 612, height: 1600, infinite: true, breakHeight: h)
+        var log = LogBuilder()
+        let d0 = base(&log, [page], size: size)
+        let split = NoteOps.makePaged(pages: [page], pageSize: size)
+        var state = try NoteReducer.reconstruct([d0, log.delta(devA, 10, split.ops)])
+        assertMatches(state, split.pages)
+        XCTAssertEqual(state.pages.map { $0.recognition?.text }, ["alpha", "beta"])
+        XCTAssertTrue(state.pages.allSatisfy(current), "read from this ink: not read again")
+
+        // Join them back: still current.
+        let join = NoteOps.makePageless(pages: state.pages, pageSize: state.meta.pageSize)
+        state = try NoteReducer.reconstruct([d0, log.delta(devA, 10, split.ops), log.delta(devA, 20, join.ops)])
+        assertMatches(state, join.pages)
+        XCTAssertEqual(state.pages.first?.recognition?.text, "alpha\nbeta")
+        XCTAssertTrue(current(try XCTUnwrap(state.pages.first)))
+
+        // A join where one page's ink was never read: the joined text is stale.
+        var p0 = Page(order: "V", strokes: [ink(100)])
+        p0.recognition = read(p0, "alpha", [word("alpha", 95)])
+        let p1 = Page(order: "k", strokes: [ink(100)])   // drawn, not read yet
+        var p2 = Page(order: "s", strokes: [ink(100)])
+        p2.recognition = read(p2, "gamma", [word("gamma", 95)])
+        let stale = NoteOps.makePageless(pages: [p0, p1, p2], pageSize: .letter)
+        XCTAssertNotNil(stale.pages[0].recognition?.basis)
+        XCTAssertFalse(current(stale.pages[0]), "page 2's ink still needs reading")
+        XCTAssertTrue(RecognitionPolicy.needsRecognition(stale.pages[0]))
+
+        // An import (no basis) stays unchecked: kept, never replaced unasked.
+        var imported = Page(order: "V", strokes: [ink(100), ink(900)])
+        imported.recognition = Recognition(engine: "notability-x", text: "alpha beta",
+                                           words: [word("alpha", 95), word("beta", 895)])
+        let importedSplit = NoteOps.makePaged(pages: [imported], pageSize: size)
+        XCTAssertEqual(importedSplit.pages.map { $0.recognition?.basis }, [nil, nil])
+
+        // Text without words cannot be split: it stays on the first sheet, stale once ink left it.
+        var wordless = Page(order: "V", strokes: [ink(100), ink(900)])
+        wordless.recognition = read(wordless, "alpha beta", [])
+        let wordlessSplit = NoteOps.makePaged(pages: [wordless], pageSize: size)
+        XCTAssertEqual(wordlessSplit.pages[0].recognition?.text, "alpha beta")
+        XCTAssertTrue(RecognitionPolicy.needsRecognition(wordlessSplit.pages[0]))
+
+        // Duplicate and undo of a delete copy the ink under new ids: the copy's text is current too.
+        let dup = try XCTUnwrap(NoteOps.duplicatePage(page.id, in: [page]))
+        XCTAssertTrue(dup.pages.allSatisfy(current))
+        let restored = NoteOps.restorePage(page, at: 0, in: [])
+        XCTAssertTrue(restored.pages.allSatisfy(current))
+    }
+
     func testSplitKeepsBlankSheetsAndStoredHeight() throws {
         let page = Page(order: "V", strokes: [ink(100), ink(2500)])
         let edit = NoteOps.makePaged(pages: [page], pageSize: PageSize(width: 612, height: 5000, infinite: true))
