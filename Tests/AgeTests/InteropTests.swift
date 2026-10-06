@@ -219,4 +219,105 @@ final class InteropTests: XCTestCase {
         XCTAssertEqual(try run(age, ["-d", "-i", pqFile.path, mixed.path]), Data("mixed".utf8))
         XCTAssertEqual(try run(age, ["-d", "-i", xFile.path, mixed.path]), Data("mixed".utf8))
     }
+
+    // MARK: - Streaming, rewrap, re-encrypt (attachments B1)
+
+    /// Exit status of a tool run expected to fail (stderr discarded).
+    func status(_ exe: URL, _ args: [String]) throws -> Int32 {
+        let p = Process()
+        p.executableURL = exe
+        p.arguments = args
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        return p.terminationStatus
+    }
+
+    /// A fresh key file from `age-keygen` (post-quantum with `pq`) and our
+    /// identity parsed from it.
+    func keygen(_ keygen: URL, pq: Bool, _ name: String) throws -> (file: URL, identity: NativeIdentity) {
+        let file = tmp.appendingPathComponent(name)
+        try run(keygen, (pq ? ["-pq"] : []) + ["-o", file.path])
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let secret = try XCTUnwrap(text.split(separator: "\n").first { $0.hasPrefix("AGE-SECRET-KEY-") })
+        return (file, try NativeIdentity(string: String(secret)))
+    }
+
+    /// Files streamed by us decrypt with `age`, and files from `age`
+    /// decrypt through our streaming APIs, for both key types, at sizes
+    /// around chunk boundaries and a multi-megabyte one.
+    func testStreamingBothDirections() throws {
+        let (age, keygenTool) = try pqTools()
+        for pq in [true, false] {
+            let (keyFile, identity) = try keygen(keygenTool, pq: pq, "key-\(pq)")
+            for size in [0, 1, 65_536, 65_537, 1_000_003] {
+                let plain = random(size)
+                let input = tmp.appendingPathComponent("plain-\(pq)-\(size)")
+                try plain.write(to: input)
+
+                let ours = tmp.appendingPathComponent("ours-\(pq)-\(size).age")
+                try AgeFile.encrypt(contentsOf: input, to: ours, recipients: [identity.recipient])
+                XCTAssertEqual(try run(age, ["-d", "-i", keyFile.path, ours.path]), plain, "us -> age, pq \(pq), \(size)")
+
+                let theirs = tmp.appendingPathComponent("theirs-\(pq)-\(size).age")
+                try run(age, ["-r", identity.recipient.string, "-o", theirs.path, input.path])
+                let out = tmp.appendingPathComponent("out-\(pq)-\(size)")
+                try AgeFile.decrypt(contentsOf: theirs, to: out, identities: [identity])
+                XCTAssertEqual(try Data(contentsOf: out), plain, "age -> us, pq \(pq), \(size)")
+                XCTAssertEqual(try AgeFile.readHeader(contentsOf: theirs).stanzas.map(\.type),
+                               [pq ? "mlkem768x25519" : "X25519"])
+            }
+        }
+    }
+
+    /// A file from `age`, rewrapped header-only by us to another key, opens
+    /// with `age` and that key only, with the nonce and payload bytes
+    /// unchanged; re-encrypted by us, it opens with `age` too. Both key
+    /// types, and a mixed set during a migration.
+    func testRewrapAndReencryptWithAge() throws {
+        let (age, keygenTool) = try pqTools()
+        let plain = random(200_000)
+        let input = tmp.appendingPathComponent("plain")
+        try plain.write(to: input)
+        for pq in [true, false] {
+            let (oldKey, oldId) = try keygen(keygenTool, pq: pq, "old-\(pq)")
+            let (newKey, newId) = try keygen(keygenTool, pq: pq, "new-\(pq)")
+            let theirs = tmp.appendingPathComponent("theirs-\(pq).age")
+            try run(age, ["-r", oldId.recipient.string, "-o", theirs.path, input.path])
+
+            let rewrapped = tmp.appendingPathComponent("rewrapped-\(pq).age")
+            try AgeFile.rewrapHeader(contentsOf: theirs, to: rewrapped, identities: [oldId], recipients: [newId.recipient])
+            XCTAssertEqual(try run(age, ["-d", "-i", newKey.path, rewrapped.path]), plain, "rewrap, pq \(pq)")
+            XCTAssertNotEqual(try status(age, ["-d", "-i", oldKey.path, rewrapped.path]), 0, "old key, pq \(pq)")
+            let a = try Data(contentsOf: theirs), b = try Data(contentsOf: rewrapped)
+            XCTAssertEqual(b.dropFirst(try AgeFile.parseHeader(b).payloadStart),
+                           a.dropFirst(try AgeFile.parseHeader(a).payloadStart), "payload unchanged, pq \(pq)")
+
+            // Rewrapped to both keys, age opens it with either.
+            let both = try AgeFile.rewrapHeader(a, identities: [oldId], recipients: [oldId.recipient, newId.recipient])
+            let bothFile = tmp.appendingPathComponent("both-\(pq).age")
+            try both.write(to: bothFile)
+            for key in [oldKey, newKey] { XCTAssertEqual(try run(age, ["-d", "-i", key.path, bothFile.path]), plain) }
+
+            let reencrypted = tmp.appendingPathComponent("reencrypted-\(pq).age")
+            try AgeFile.reencrypt(contentsOf: rewrapped, to: reencrypted, identities: [newId], recipients: [oldId.recipient])
+            XCTAssertEqual(try run(age, ["-d", "-i", oldKey.path, reencrypted.path]), plain, "reencrypt, pq \(pq)")
+            XCTAssertNotEqual(try status(age, ["-d", "-i", newKey.path, reencrypted.path]), 0)
+        }
+        // Classic to post-quantum (format.md §8.1.5 type change), through a mixed header.
+        let (xKey, xId) = try keygen(keygenTool, pq: false, "x")
+        let (pqKey, pqId) = try keygen(keygenTool, pq: true, "pq")
+        let classic = tmp.appendingPathComponent("classic.age")
+        try run(age, ["-r", xId.recipient.string, "-o", classic.path, input.path])
+        let mixed = tmp.appendingPathComponent("mixed.age")
+        try AgeFile.rewrapHeader(contentsOf: classic, to: mixed, identities: [xId],
+                                 recipients: [xId.recipient, pqId.recipient], allowMixedPostQuantum: true)
+        for key in [xKey, pqKey] { XCTAssertEqual(try run(age, ["-d", "-i", key.path, mixed.path]), plain) }
+        let migrated = tmp.appendingPathComponent("migrated.age")
+        try AgeFile.reencrypt(contentsOf: mixed, to: migrated, identities: [pqId], recipients: [pqId.recipient])
+        XCTAssertEqual(try AgeFile.readHeader(contentsOf: migrated).stanzas.map(\.type), ["mlkem768x25519"])
+        XCTAssertEqual(try run(age, ["-d", "-i", pqKey.path, migrated.path]), plain)
+    }
 }
