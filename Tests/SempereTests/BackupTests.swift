@@ -419,10 +419,10 @@ final class BackupTests: VaultTestCase {
         let note = testNote.uuidString.lowercased()
         let att = vault.url.appendingPathComponent("notes/\(note)/att")
         try FileManager.default.createDirectory(at: att, withIntermediateDirectories: true)
-        let blob = String(repeating: "ab", count: 32) + ".image.age"
-        let gone = String(repeating: "cd", count: 32) + ".pdf.age"
-        try Data("blob bytes".utf8).write(to: att.appendingPathComponent(blob))
-        try Data("old blob".utf8).write(to: att.appendingPathComponent(gone))
+        // Real blobs: the backup's verify checks them like the vault's does.
+        let blob = try vault.blobFileName(for: try vault.writeBlob(note: testNote, Data("blob bytes".utf8), type: "image/png"))
+        let gone = try vault.blobFileName(for: try vault.writeBlob(note: testNote, Data("old blob".utf8), type: "application/pdf"))
+        let blobBytes = try Data(contentsOf: att.appendingPathComponent(blob))
         try Data("x".utf8).write(to: att.appendingPathComponent("notes.txt"))   // unknown: skipped
         let blobPath = "notes/\(note)/att/\(blob)", gonePath = "notes/\(note)/att/\(gone)"
 
@@ -442,7 +442,7 @@ final class BackupTests: VaultTestCase {
         let target = tmp.appendingPathComponent("WithAtt.sempere")
         let restored = try Backup.restore(from: dest, to: target, identities: [id])
         XCTAssertTrue(restored.errors.isEmpty)
-        XCTAssertEqual(try Data(contentsOf: Backup.url(target, blobPath)), Data("blob bytes".utf8))
+        XCTAssertEqual(try Data(contentsOf: Backup.url(target, blobPath)), blobBytes)
 
         let tar = try Backup.writeArchive(source: vault, to: tmp.appendingPathComponent("a.tar"))
         let members = try TarReader.files(try Data(contentsOf: URL(fileURLWithPath: tar.archive)))
