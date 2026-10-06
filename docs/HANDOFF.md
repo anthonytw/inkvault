@@ -215,7 +215,7 @@ queued for up to 30 minutes.
   on macOS CI, and 138 s for one app test. Keep that flag.
 - **Build caches:** each job restores `.build` (or `.build/xcode` for the app)
   from the newest cache saved by a `main` run; PRs never save. The key is the
-  toolchain version plus `Package.resolved`, so changing either starts a
+  checkout path, toolchain version and `Package.resolved` (precompiled modules embed absolute paths, so a repo rename must start fresh caches), so changing either starts a
   fresh cache. If a build ever fails in a way a clean build would not (stale
   products), run `gh cache delete --all` and re-run.
 - Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
