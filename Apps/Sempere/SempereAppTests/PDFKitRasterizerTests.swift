@@ -66,7 +66,8 @@ struct PDFKitRasterizerTests {
     }
 
     @Test func cropBoxIsTheVisiblePage() throws {
-        let url = try Self.pdf(crop: "[100 0 300 100]")   // clipped to the MediaBox: x 100…200
+        // Quartz returns this CropBox as stored; the rasterizer clips it to the MediaBox: x 100…200.
+        let url = try Self.pdf(crop: "[100 0 300 100]")
         defer { try? FileManager.default.removeItem(at: url) }
         let img = try PDFKitRasterizer().rasterize(pdf: url, pageIndex: 0, pixelWidth: 100, pixelHeight: 100)
         #expect(colour(img, 95, 95) == "blue")

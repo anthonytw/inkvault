@@ -27,8 +27,9 @@ struct PDFKitRasterizer: PDFPageRasterizer {
         guard document.isUnlocked else { throw Failure.locked }
         guard pageIndex >= 0, pageIndex < document.numberOfPages,
               let page = document.page(at: pageIndex + 1) else { throw Failure.noPage(pageIndex) }
-        let box = page.getBoxRect(.cropBox)   // Quartz intersects it with the MediaBox
-        guard box.width > 0, box.height > 0, box.width.isFinite, box.height.isFinite else { throw Failure.unreadable }
+        // The visible box is CropBox ∩ MediaBox (format.md §8.2.6); Quartz returns the CropBox as stored.
+        let box = page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox))
+        guard !box.isNull, box.width > 0, box.height > 0, box.width.isFinite, box.height.isFinite else { throw Failure.unreadable }
         let rotation = ((Int(page.rotationAngle) % 360) + 360) % 360
         let m = PDFPageGeometry.userToEffective(x0: box.minX, y0: box.minY, x1: box.maxX, y1: box.maxY,
                                                 rotation: rotation)
