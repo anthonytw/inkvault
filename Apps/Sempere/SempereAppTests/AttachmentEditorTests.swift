@@ -103,10 +103,12 @@ struct AttachmentEditorTests {
         let text = try editor.addItems([Self.textItem()], on: page)[0]
         await editor.flush()
         var count = try NoteEditorTests.myDeltas(vault, clock).count
-        func step(_ body: () -> Void) async throws -> [Op] {
-            undo.beginUndoGrouping()
+        // A gesture is one undo group; undo() and redo() run outside any group
+        // (undo() would close a group opened for it and undo that empty group).
+        func step(grouped: Bool = true, _ body: () -> Void) async throws -> [Op] {
+            if grouped { undo.beginUndoGrouping() }
             body()
-            undo.endUndoGrouping()
+            if grouped { undo.endUndoGrouping() }
             await editor.flush()
             let deltas = try NoteEditorTests.myDeltas(vault, clock)
             #expect(deltas.count == count + 1, "one delta per gesture")
@@ -121,20 +123,20 @@ struct AttachmentEditorTests {
             Issue.record("\(moveOps)")
         }
         // Undo the move: back to the old frame, as a new delta.
-        _ = try await step { undo.undo() }
+        _ = try await step(grouped: false) { undo.undo() }
         #expect(editor.item(text.id, on: page)?.frame == text.frame)
-        _ = try await step { undo.redo() }
+        _ = try await step(grouped: false) { undo.redo() }
         #expect(editor.item(text.id, on: page)?.frame == moved)
         // Delete, undo (restored under a new id with parent), redo.
         let deleteOps = try await step { actions.delete([text.id], on: page) }
         #expect(deleteOps == [.removeItem(page: page, itemId: text.id)])
         #expect(editor.items(on: page).isEmpty)
-        _ = try await step { undo.undo() }
+        _ = try await step(grouped: false) { undo.undo() }
         let back = try #require(editor.items(on: page).first)
         #expect(back.id != text.id)
         #expect(back.parent == text.id)
         #expect(back.frame == moved)
-        _ = try await step { undo.redo() }
+        _ = try await step(grouped: false) { undo.redo() }
         #expect(editor.items(on: page).isEmpty)
         try expectSaved(editor, vault, page: page)
     }
