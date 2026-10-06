@@ -2,8 +2,7 @@ import Foundation
 import Sempere
 import XCTest
 
-/// `export` options for images (docs/cli.md "Images in exports"). Drawing
-/// images from a vault end to end needs item merging (task A1); the
+/// `export` options for images (docs/cli.md "Images in exports"). The
 /// rendering itself is covered by SempereRenderTests.
 final class CLIImageExportTests: CLITestCase {
     func testImageOptions() throws {
