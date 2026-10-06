@@ -64,7 +64,7 @@ working state.
 | Canvas | Visual paper picker (line width, spacing) | 🔀 #28 |
 | Canvas | Pages vs pageless (reorder, delete pages) | 📋 round 2 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
-| Search | Handwriting search (Vision on rendered pages) | 📋 round 2 |
+| Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
 | App | Share/export (PDF, Markdown) from the app | 📋 round 2 |
 | App | History browser (restore points) | 📋 round 2 |
 | App | Settings panel (E6) | 📋 |

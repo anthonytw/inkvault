@@ -200,7 +200,7 @@ extension AppModel {
     /// One delta for note `id` whose ops `build` computes from the note as it
     /// is on disk when written (`NoteWriter.append(to:building:)`); nothing
     /// is written when it returns none.
-    private func commit(_ id: UUID, building build: @escaping @Sendable (NoteState?) -> [Op]) async throws {
+    func commit(_ id: UUID, building build: @escaping @Sendable (NoteState?) -> [Op]) async throws {
         try await commit(ids: [id]) { vault, clock, cloud, verifier in
             try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud,
                                         verify: verifier(id), building: build)

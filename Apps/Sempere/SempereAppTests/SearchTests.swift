@@ -1,0 +1,144 @@
+import Foundation
+import Sempere
+import Testing
+@testable import SempereApp
+
+/// Search over the vault's notes, jumping to a page, and "recognise all".
+@MainActor
+struct SearchTests {
+    static let lecture = AppModelTests.lecture
+
+    /// The fixture vault, unlocked in a model, with recognition on both pages of the lecture.
+    static func model(recognizer: (any PageRecognizing)? = nil, texts: [String]? = ["Eigenvalues of a matrix",
+                                                                                     "Kinetic energy and momentum"])
+        async throws -> (AppModel, Vault, [UUID]) {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let identity = try IdentityFile.parse(try String(contentsOf: key, encoding: .utf8))
+        let vault = try Vault.open(at: url, identities: [identity])
+        let pages = try vault.reconstruct(noteId: lecture).pages.map(\.id)
+        if let texts {
+            let ops: [Op] = zip(pages, texts).map { id, text in
+                .setPageRecognition(pageId: id, recognition: Recognition(engine: "notability-1", text: text))
+            }
+            try vault.apply(ops, to: lecture, deviceState: TS.deviceStateURL(), app: "test")
+        }
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), recognizer: recognizer)
+        model.searchDebounce = .milliseconds(10)
+        try await model.openVault(at: url, identities: [identity])
+        return (model, vault, pages)
+    }
+
+    @Test func findsHandwritingAndOpensTheMatchingPage() async throws {
+        let (model, _, pages) = try await Self.model()
+        #expect(model.notes.first { $0.id == Self.lecture }?.pageTexts.count == 2)
+        model.searchText = "momentum"
+        #expect(await TS.waitUntil { !model.searchResults.isEmpty })
+        let hit = try #require(model.searchResults.first)
+        #expect(hit.note == Self.lecture)
+        #expect(hit.page?.pageId == pages[1])
+        #expect(hit.page?.number == 2)
+        #expect(hit.fields == [.text])
+
+        model.openSearchHit(hit)
+        #expect(model.selectedNoteID == Self.lecture)
+        await model.showSelectedNote()
+        let editor = try #require(model.editor)
+        #expect(editor.currentPage?.id == pages[1])
+        #expect(model.pendingJump == nil)
+
+        // The note is already open: another hit moves its page at once.
+        model.searchText = "eigenvalues"
+        #expect(await TS.waitUntil { model.searchResults.first?.page?.number == 1 })
+        model.openSearchHit(try #require(model.searchResults.first))
+        #expect(editor.currentPage?.id == pages[0])
+    }
+
+    @Test func findsByTitleTagAndNotebookAndHonoursTheScope() async throws {
+        let (model, _, _) = try await Self.model()
+        for query in ["fixture lecture", "#fixture", "FIXTURE"] {
+            model.searchText = query
+            #expect(await TS.waitUntil { model.searchResults.map(\.note) == [Self.lecture] }, "\(query)")
+        }
+        model.searchText = "momentum unicorn"
+        #expect(await TS.waitUntil { !model.isSearching })
+        #expect(model.searchResults.isEmpty)
+
+        // "This List" searches what the sidebar shows.
+        model.searchText = "momentum"
+        #expect(await TS.waitUntil { model.searchResults.count == 1 })
+        model.sidebarSelection = .tag("nope")
+        model.searchScope = .list
+        #expect(await TS.waitUntil { model.searchResults.isEmpty && !model.isSearching })
+        model.searchScope = .everywhere
+        #expect(await TS.waitUntil { model.searchResults.count == 1 })
+        // The deleted note is not a hit outside Recently Deleted.
+        model.searchText = "fixture"
+        #expect(await TS.waitUntil { model.searchResults.map(\.note) == [Self.lecture] })
+    }
+
+    @Test func clearingTheQueryClearsTheResultsAndAJumpForAnotherNoteIsDropped() async throws {
+        let (model, _, pages) = try await Self.model()
+        model.searchText = "momentum"
+        #expect(await TS.waitUntil { !model.searchResults.isEmpty })
+        model.searchText = ""
+        #expect(await TS.waitUntil { model.searchResults.isEmpty })
+        #expect(!model.isSearching)
+
+        model.pendingJump = PageJump(note: AppModelTests.deleted, page: pages[1])
+        model.selectedNoteID = Self.lecture
+        await model.showSelectedNote()
+        #expect(model.pendingJump == nil)
+        #expect(model.editor?.currentPage?.id == pages[0])
+    }
+
+    @Test func recognizeAllReadsOnlyWhatNeedsIt() async throws {
+        let fake = FakeRecognizer()
+        let (model, vault, pages) = try await Self.model(recognizer: fake, texts: nil)
+        #expect(model.notesNeedingRecognition.map(\.id) == [Self.lecture])   // the deleted note is left alone
+        model.startRecognizingNotes()
+        #expect(model.recognitionProgress?.total == 1)
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionProgress == nil && model.recognitionTask == nil })
+        #expect(fake.calls.count == 2)
+        #expect(model.notesNeedingRecognition.isEmpty)
+        let state = try vault.reconstruct(noteId: Self.lecture)
+        #expect(state.pages.map(\.id) == pages)
+        #expect(state.pages.allSatisfy { $0.recognition?.engine == "fake-1" && $0.recognition?.basis == RecognitionBasis.digest(of: $0) })
+
+        // The summary was refreshed, so search finds the new text.
+        #expect(model.notes.first { $0.id == Self.lecture }?.pagesNeedingRecognition == 0)
+        model.searchText = "fake"
+        #expect(await TS.waitUntil { model.searchResults.map(\.note) == [Self.lecture] })
+
+        // Nothing left: a second run does nothing.
+        model.startRecognizingNotes()
+        #expect(model.recognitionProgress == nil)
+        #expect(fake.calls.count == 2)
+    }
+
+    @Test func recognizeAllKeepsImportedTextAndDropsPagesEditedMeanwhile() async throws {
+        let fake = FakeRecognizer()
+        let (model, vault, pages) = try await Self.model(recognizer: fake, texts: ["Imported text"])
+        // The first page has imported text; only the second is read.
+        model.startRecognizingNotes()
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionProgress == nil && model.recognitionTask == nil })
+        #expect(fake.calls.count == 1)
+        let state = try vault.reconstruct(noteId: Self.lecture)
+        #expect(state.pages[0].recognition?.text == "Imported text")
+        #expect(state.pages[1].recognition?.engine == "fake-1")
+        #expect(pages.count == 2)
+    }
+
+    @Test func switchingRecognitionOffStopsReadingAndIsRemembered() async throws {
+        let saved = RecognitionPreference.enabled
+        defer { RecognitionPreference.enabled = saved }
+        let (model, _, _) = try await Self.model(recognizer: FakeRecognizer(), texts: nil)
+        model.setHandwritingRecognition(false)
+        #expect(model.recognizer == nil)
+        #expect(RecognitionPreference.enabled == false)
+        model.startRecognizingNotes()
+        #expect(model.recognitionProgress == nil)
+        model.setHandwritingRecognition(true)
+        #expect(model.recognizer is VisionPageRecognizer)
+        #expect(RecognitionPreference.enabled)
+    }
+}

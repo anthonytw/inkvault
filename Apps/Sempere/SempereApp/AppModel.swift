@@ -69,16 +69,34 @@ final class AppModel {
     /// The open vault's folder.
     private(set) var vaultURL: URL?
     /// Every note in the vault, deleted ones included, sorted by title.
-    var notes: [NoteSummary] = []
+    var notes: [NoteSummary] = [] { didSet { updateSearch() } }
     /// True while vault I/O is in flight.
     private(set) var isBusy = false
     /// The last error, as a sentence for an alert; cleared by the view.
     var errorMessage: String?
 
-    var sidebarSelection: SidebarItem? = .allNotes
+    var sidebarSelection: SidebarItem? = .allNotes { didSet { updateSearch() } }
     var selectedNoteID: UUID?
-    /// Filters the note list by title (recognised-text search is task 3f).
-    var searchText = ""
+    /// The search field's text. `visibleNotes` filters by title with it; the
+    /// note list shows `searchResults` (`AppModel+Search`) while it is not empty.
+    var searchText = "" { didSet { updateSearch() } }
+    var searchScope = SearchScope.everywhere { didSet { updateSearch() } }
+    /// Notes matching `searchText` (title, notebook, tag, recognised handwriting), best first.
+    var searchResults: [NoteSearchHit] = []
+    /// True from a change of the query until its results are in.
+    var isSearching = false
+    /// The page to show once the note is open (a tapped search hit).
+    var pendingJump: PageJump?
+    @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// Pause after typing before the search runs.
+    @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
+    /// Reads handwriting on pages as they change and when notes open; nil = off.
+    var recognizer: (any PageRecognizing)? { didSet { editor?.recognizer = recognizer } }
+    /// Progress of "Recognise All Notes" (`AppModel+Search`).
+    var recognitionProgress: RecognitionProgress?
+    @ObservationIgnored var recognitionTask: Task<Void, Never>?
+    /// Pause after the last stroke change before the open note's pages are recognised.
+    let recognitionDelay: Duration
     var sortOrder = NoteSort.modified
     /// True while an edit is being written.
     var isEditing = false
@@ -147,9 +165,12 @@ final class AppModel {
     private let afterIO: (@Sendable () async -> Void)?
 
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
+         recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
         self.editorDebounce = editorDebounce
+        self.recognizer = recognizer
+        self.recognitionDelay = recognitionDelay
         self.afterIO = afterIO
     }
 
@@ -183,16 +204,20 @@ final class AppModel {
 
     /// The note list for the current sidebar selection, title search and sort order.
     var visibleNotes: [NoteSummary] {
-        let inSelection: [NoteSummary]
-        switch sidebarSelection ?? .allNotes {
-        case .allNotes: inSelection = notes.filter { !$0.deleted }
-        case .notebook(let n): inSelection = notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
-        case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
-        case .deleted: inSelection = notes.filter(\.deleted)
-        }
+        let inSelection = notesInSelection
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matching = query.isEmpty ? inSelection : inSelection.filter { $0.title.localizedCaseInsensitiveContains(query) }
         return Self.sorted(matching, by: sortOrder)
+    }
+
+    /// The notes the sidebar selection shows, before any search.
+    var notesInSelection: [NoteSummary] {
+        switch sidebarSelection ?? .allNotes {
+        case .allNotes: return notes.filter { !$0.deleted }
+        case .notebook(let n): return notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
+        case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
+        case .deleted: return notes.filter(\.deleted)
+        }
     }
 
     static func sorted(_ list: [NoteSummary], by order: NoteSort) -> [NoteSummary] {
@@ -406,12 +431,14 @@ final class AppModel {
         let opened: NoteEditor
         do {
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
+                                               recognizer: recognizer, recognitionDelay: recognitionDelay,
                                                coordinated: isCloudVault, verify: verify)
         } catch CloudVault.CloudError.noteNotLocal {
             // A file went missing (or a new one was listed) since `downloadNote`: once more.
             try ensureCurrent(gen)
             try await downloadNote(noteID)
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
+                                               recognizer: recognizer, recognitionDelay: recognitionDelay,
                                                coordinated: isCloudVault, verify: verify)
         }
         await afterIO?()
@@ -419,7 +446,12 @@ final class AppModel {
         guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
         guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
         let stale = editor
+        opened.onRecognized = { [weak self] id in
+            guard let self else { return }
+            Task { try? await self.refresh([id]) }   // search sees the new text
+        }
         editor = opened
+        applyPendingJump()
         if let stale { Task { await stale.close() } }
     }
 
@@ -485,6 +517,10 @@ final class AppModel {
         notes = []
         selectedNoteID = nil
         editorFailure = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionProgress = nil
+        pendingJump = nil
         searchText = ""
         sidebarSelection = .allNotes
         phase = .noVault

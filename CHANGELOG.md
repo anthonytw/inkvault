@@ -7,6 +7,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [Unreleased]
 
+### Added
+
+- iPad app: handwriting search. Pages are read on the device with Vision after the strokes
+  change (and when a note opens), the text is saved as page recognition (`format.md` §5.5, new
+  optional `basis` field), and the note list searches recognised text, titles, notebooks and
+  tags and opens the matching page. Recognition from a Notability import is kept until the
+  page's strokes change.
+
 ### Changed
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
