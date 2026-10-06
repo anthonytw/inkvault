@@ -48,10 +48,12 @@ let package = Package(
             name: "SempereWebDAV",
             dependencies: ["Sempere", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // Noto fonts for text in CLI exports (OFL 1.1); the app does not link them.
+        .target(name: "SempereFonts", resources: [.copy("Fonts")]),
         .executableTarget(
             name: "SempereCLI",
             dependencies: [
-                "Age", "Sempere", "SempereRender", "SempereImport", "SempereWebDAV",
+                "Age", "Sempere", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -61,7 +63,7 @@ let package = Package(
                     resources: [.copy("Vectors")]),
         .testTarget(name: "SempereTests", dependencies: ["Sempere", "FuzzSupport"],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "Age", "FuzzSupport"],
+        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "SempereFonts", "Age", "FuzzSupport"],
                     exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "SempereImportTests",
