@@ -15,6 +15,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
   code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
   first (`CLAUDE.md` "CLI first").
+- Web viewer (`web/`, `docs/web-viewer.md`): a static, read-only page that opens a vault from a
+  web server (static files or WebDAV) or a local folder, decrypts it in the browser with the
+  pasted post-quantum key (typage), and shows notebooks, tags, search over titles and
+  handwriting, and the notes' pages with pan and zoom, drawn exactly like the CLI's SVG export.
+  The key stays in the tab's memory; strict Content-Security-Policy; no third-party requests.
+- CLI: `sempere vault index` writes `sempere-index.json`, the listing the web viewer reads on a
+  static server. Once written it is kept current: every command that opens the vault rewrites it
+  when the listing changed, and `sync webdav` rewrites the server's copy.
 - Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
   note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
   or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works

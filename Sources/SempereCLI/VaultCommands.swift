@@ -7,7 +7,8 @@ struct VaultCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "vault",
         abstract: "Create, inspect, verify and re-key a vault.",
-        subcommands: [VaultInit.self, VaultInfo.self, VaultRecipients.self, VaultRewrapResume.self, VaultVerify.self]
+        subcommands: [VaultInit.self, VaultInfo.self, VaultRecipients.self, VaultRewrapResume.self, VaultVerify.self,
+                      VaultIndex.self]
     )
 }
 
