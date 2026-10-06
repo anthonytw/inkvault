@@ -90,6 +90,16 @@ enum LocalFS {
         }
     }
 
+    /// Runs `body` in its own autorelease pool on Apple platforms, where
+    /// `FileHandle` reads and writes autorelease their buffers. A no-op elsewhere.
+    static func autoreleasing<T>(_ body: () throws -> T) rethrows -> T {
+        #if canImport(ObjectiveC)
+        return try autoreleasepool { try body() }
+        #else
+        return try body()
+        #endif
+    }
+
     static func isDirectory(_ url: URL) -> Bool {
         var dir: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &dir) && dir.boolValue

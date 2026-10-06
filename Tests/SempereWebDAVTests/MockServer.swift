@@ -136,10 +136,10 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
                     var piece = piece
                     if let cut, sent + piece.count > cut.value { piece = piece.prefix(cut.value - sent) }
                     if let limit = r.maxResponseBytes, sent + piece.count > limit {
-                        try h.write(contentsOf: piece.prefix(limit - sent))
+                        try autoreleasing { try h.write(contentsOf: piece.prefix(limit - sent)) }
                         throw WebDAVError.responseTooLarge(path: key, limit: limit)
                     }
-                    try h.write(contentsOf: piece)
+                    try autoreleasing { try h.write(contentsOf: piece) }
                     sent += piece.count
                     if let cut, sent >= cut.value { throw WebDAVError.transport("connection lost (test)") }
                 }
@@ -165,7 +165,7 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
                 defer { try? h.close() }
                 try forEachPiece(of: r) { piece in
                     let piece = cut.map { piece.prefix(max($0.value - stored.size, 0)) } ?? piece
-                    try h.write(contentsOf: piece)
+                    try autoreleasing { try h.write(contentsOf: piece) }
                     stored.size += piece.count
                 }
                 stored.disk = url
@@ -218,9 +218,14 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
         defer { try? h.close() }
         try h.seek(toOffset: UInt64(start))
         var left = count
-        while left > 0, let piece = try h.read(upToCount: min(1 << 20, left)), !piece.isEmpty {
-            left -= piece.count
-            try body(piece)
+        while left > 0 {
+            let more = try autoreleasing { () throws -> Bool in
+                guard let piece = try h.read(upToCount: min(1 << 20, left)), !piece.isEmpty else { return false }
+                left -= piece.count
+                try body(piece)
+                return true
+            }
+            if !more { break }
         }
     }
 
@@ -228,7 +233,11 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
         guard let file = r.bodyFile else { return try body(r.body ?? Data()) }
         let h = try FileHandle(forReadingFrom: file)
         defer { try? h.close() }
-        while let piece = try h.read(upToCount: 1 << 20), !piece.isEmpty { try body(piece) }
+        while try autoreleasing({ () throws -> Bool in
+            guard let piece = try h.read(upToCount: 1 << 20), !piece.isEmpty else { return false }
+            try body(piece)
+            return true
+        }) {}
     }
 
     private func parent(_ p: String) -> String { String(p[..<(p.lastIndex(of: "/") ?? p.startIndex)]) }
@@ -246,4 +255,15 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
         WebDAVResponse(status: 207, headers: ["Content-Type": "application/xml"],
                        body: Data("<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\">\(body)</d:multistatus>".utf8))
     }
+}
+
+/// Runs `body` in its own autorelease pool on Apple platforms, where
+/// `FileHandle` reads and writes autorelease their buffers (in a loop over a
+/// large file they would pile up until the test's pool drains). A no-op elsewhere.
+func autoreleasing<T>(_ body: () throws -> T) rethrows -> T {
+    #if canImport(ObjectiveC)
+    return try autoreleasepool { try body() }
+    #else
+    return try body()
+    #endif
 }
