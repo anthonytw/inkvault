@@ -21,11 +21,19 @@
 			remoteGlobalIDString = A1000000000000000000A001;
 			remoteInfo = SempereApp;
 		};
+		A1000000000000000000C002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1000000000000000000A001;
+			remoteInfo = SempereApp;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A1000000000000000000F001 /* Sempere.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sempere.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000F002 /* SempereAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SempereAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000F004 /* SempereAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SempereAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000F003 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = ../../Tests/SempereTests/Fixtures; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -38,6 +46,11 @@
 		A1000000000000000000E002 /* SempereAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SempereAppTests;
+			sourceTree = "<group>";
+		};
+		A1000000000000000000E003 /* SempereAppUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SempereAppUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -60,6 +73,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000004003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -68,6 +88,7 @@
 			children = (
 				A1000000000000000000E001 /* SempereApp */,
 				A1000000000000000000E002 /* SempereAppTests */,
+				A1000000000000000000E003 /* SempereAppUITests */,
 				A10000000000000000001003 /* Fixtures (shared with the package tests) */,
 				A10000000000000000001002 /* Products */,
 			);
@@ -78,6 +99,7 @@
 			children = (
 				A1000000000000000000F001 /* Sempere.app */,
 				A1000000000000000000F002 /* SempereAppTests.xctest */,
+				A1000000000000000000F004 /* SempereAppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -139,6 +161,27 @@
 			productReference = A1000000000000000000F002 /* SempereAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		A1000000000000000000A003 /* SempereAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000003004 /* Build configuration list for PBXNativeTarget "SempereAppUITests" */;
+			buildPhases = (
+				A10000000000000000006003 /* Sources */,
+				A10000000000000000004003 /* Frameworks */,
+				A10000000000000000005003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000007002 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1000000000000000000E003 /* SempereAppUITests */,
+			);
+			name = SempereAppUITests;
+			productName = SempereAppUITests;
+			productReference = A1000000000000000000F004 /* SempereAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -153,6 +196,10 @@
 						CreatedOnToolsVersion = 26.0;
 					};
 					A1000000000000000000A002 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A1000000000000000000A001;
+					};
+					A1000000000000000000A003 = {
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = A1000000000000000000A001;
 					};
@@ -177,6 +224,7 @@
 			targets = (
 				A1000000000000000000A001 /* SempereApp */,
 				A1000000000000000000A002 /* SempereAppTests */,
+				A1000000000000000000A003 /* SempereAppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -197,6 +245,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000005003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -214,6 +269,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000006003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -221,6 +283,11 @@
 			isa = PBXTargetDependency;
 			target = A1000000000000000000A001 /* SempereApp */;
 			targetProxy = A1000000000000000000C001 /* PBXContainerItemProxy */;
+		};
+		A10000000000000000007002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1000000000000000000A001 /* SempereApp */;
+			targetProxy = A1000000000000000000C002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -371,6 +438,36 @@
 			};
 			name = Release;
 		};
+		A10000000000000000008007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.anthonytw.sempere.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_TARGET_NAME = SempereApp;
+			};
+			name = Debug;
+		};
+		A10000000000000000008008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.anthonytw.sempere.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_TARGET_NAME = SempereApp;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -397,6 +494,15 @@
 			buildConfigurations = (
 				A10000000000000000008005 /* Debug */,
 				A10000000000000000008006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000003004 /* Build configuration list for PBXNativeTarget "SempereAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000008007 /* Debug */,
+				A10000000000000000008008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

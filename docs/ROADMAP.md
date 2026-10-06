@@ -87,6 +87,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |
+| Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | 🔀 #53 |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
 
@@ -109,6 +110,7 @@ behaviour and testing on a real Mac.
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+| Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | 🔀 #53 |
 
 ## Future: iPhone and web
 

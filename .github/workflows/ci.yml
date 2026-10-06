@@ -3,7 +3,8 @@ name: CI
 # When CI runs (docs/HANDOFF.md "CI"):
 # - Draft PRs run nothing. Open work as a draft; `gh pr ready` (or "Ready for
 #   review") starts CI, and later pushes to a ready PR run it again.
-# - Any branch can be checked on demand: `gh workflow run CI --ref <branch>`.
+# - Any branch can be checked on demand: `gh workflow run CI --ref <branch>`;
+#   `-f screenshots=true` runs only the App Store screenshots job instead.
 # - A newer push to the same PR cancels the older run.
 # - Only the jobs a change can affect run (the `changes` job); main runs all.
 on:
@@ -12,15 +13,21 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      screenshots:
+        description: "Only build the App Store screenshots (docs/appstore/screenshots.md) and upload them"
+        type: boolean
+        default: false
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # A screenshots run gets its own group: it must not queue (or be replaced) behind main's CI.
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ inputs.screenshots && '-screenshots' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
     name: Decide which jobs to run
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && !inputs.screenshots
     runs-on: ubuntu-24.04
     outputs:
       package: ${{ steps.f.outputs.package }}
@@ -39,7 +46,9 @@ jobs:
           echo "$files"
           has() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
           # Swift package: Linux + macOS build and test.
-          package=$(has '^(Sources/|Tests/|Package\.(swift|resolved)$|scripts/|\.github/workflows/ci\.yml$)')
+          # scripts/screenshots.sh only drives the manual screenshots job.
+          pkgfiles="$(printf '%s\n' "$files" | grep -v '^scripts/screenshots\.sh$' || true)"
+          package=$(printf '%s\n' "$pkgfiles" | grep -Eq '^(Sources/|Tests/|Package\.(swift|resolved)$|scripts/|\.github/workflows/ci\.yml$)' && echo true || echo false)
           # The app links Age, Sempere and SempereRender (and CZlib under them), and its
           # tests open the package's fixture vault; CLI, importer and WebDAV changes
           # cannot affect it.
@@ -184,3 +193,41 @@ jobs:
         with:
           path: .build/xcode
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+
+  # Manual only (`-f screenshots=true`): the App Store screenshots from a synthetic
+  # demo vault. Nothing is uploaded to App Store Connect; download the artifact.
+  screenshots:
+    name: App Store screenshots
+    if: github.event_name == 'workflow_dispatch' && inputs.screenshots
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: iPad (iPad Pro 13-inch simulator, 2064x2752)
+        run: scripts/screenshots.sh ipad
+      # Best effort: a Mac UI test needs automation permission on the runner.
+      - name: Mac (Catalyst, 2880x1800)
+        if: always()
+        continue-on-error: true
+        run: scripts/screenshots.sh mac
+      - name: Summary of errors
+        if: always()
+        run: |
+          for f in build/screenshots/*-summary.txt; do [ -f "$f" ] || continue; echo "== $f"; cut -c1-1500 "$f" | tail -40; done
+          ls -l build/screenshots/ipad build/screenshots/mac 2>&1 | head -30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appstore-screenshots
+          path: |
+            build/screenshots/ipad/*.png
+            build/screenshots/mac/*.png
+            build/screenshots/mac-raw/*.png
+            build/screenshots/*.log
+            build/screenshots/*.xcresult
+          if-no-files-found: warn
