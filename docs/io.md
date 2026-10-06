@@ -92,7 +92,9 @@ yet"), never an empty note: every note has at least one revision, and
 iCloud lists a folder's contents after the folder itself. The app asks for
 the folder (`startDownloadingUbiquitousItem` on it) and waits.
 
-Pending notes appear in the list as "Downloading from iCloud…" rows with a
+Pending notes appear in the list with the summary this device cached for
+them on an earlier launch (`SummaryCache`, `format.md` §10) and a small
+spinner, or, when nothing is cached, as "Downloading from iCloud…" rows with a
 spinner, and are requested from iCloud at most 16 notes at a time, the
 note the user selected first. A bar under the list shows "Downloading from
 iCloud: n of m notes", a progress bar and "n of m files"
@@ -105,6 +107,26 @@ background, restarts when the app becomes active and on every reopen, and a
 pass of a loop replaced or paused meanwhile publishes nothing. 90 s without progress shows a
 problem line in the bar (not an alert) and the loop keeps trying; the line
 clears when files arrive.
+
+Listing (any vault, `AppModel+Loading`): unlocking only checks the key; the
+note list is then read by a task the model owns (`startLoadingNotes`), so the
+unlock sheet closes at once and no view going away can cancel the listing.
+Summaries are read without stroke geometry, on up to four threads, in
+batches of 24 that are merged into the list as they finish; the bar under the
+list shows "Opening vault: n of m notes" (or "Updating notes" when the list
+already shows every note) next to the iCloud progress. On a reopen the cached
+summaries are shown before anything is read, and only notes whose revision
+file names changed are decrypted. Listings never overlap (`loadGate`), and
+the cache file is written once per listing, not per batch. The list is usable
+while it loads, so edits never decide from a summary not read in this session
+(`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
+first), a notebook rename waits until every note was read, a batch read
+before an edit's own re-read does not merge over it (`summaryEpochs`), and a
+listing only removes notes it saw before its scan (a note created meanwhile
+stays, and stays selected). An
+empty list always says why: loading (with the count), downloading from
+iCloud, the listing failed (with Try Again), no search match, nothing in the
+selected notebook or tag, or an empty vault (`EmptyListReason`).
 
 Opening a note, and every browser edit of one (rename, tags, move, delete,
 restore), first lists that note's folder afresh and downloads whatever is
@@ -167,6 +189,48 @@ What the code does so that either answer is safe:
 * The vault's own files under `notes/` are written only through the open
   scope; nothing outside the picked folder is touched. The temporary PDFs of
   drag and drop (`docs/mac.md`) are in the app's container.
+
+## Share and export (app)
+
+The app exports notes through the system share sheet and Save to Files. It
+renders with the CLI's renderers: `SempereRender.ShareExport` lays the files
+out (the same bytes `sempere export` writes) and `TreeExporter` (moved from the
+CLI into `SempereRender`) writes the Markdown and HTML trees.
+
+| Format | One note | Several notes |
+| --- | --- | --- |
+| PDF | `<stem>.pdf` | one per note, or one merged `Sempere-Notes.pdf` |
+| PNG pages | `<stem>-p001.png`, ... | a folder per note |
+| Markdown (Obsidian) | a folder: `.md`, the PDF, optional page PNGs, `README.md` | `Sempere Export/`, mirroring the notebook tree |
+| HTML | one self-contained `.html` | `Sempere Export/` with one file per note and `index.html` |
+
+`<stem>` is `ExportName.stem` (sanitised title and the first 8 characters of the
+note id). Options: paper background (on), PNG resolution (72, 144, 216, 300
+dpi), merged PDF, Markdown page images. A one-off share writes no export
+manifest.
+
+- **Selection.** "Select" in the note list ticks several notes; a keyboard
+  command-click does too. The export commands act on the ticked notes, else the
+  open note. `ExportCommand` is the one place that names the actions: the list
+  toolbar and context menu, the note toolbar and the Catalyst menu bar
+  (`ExportMenuCommands`, File menu) all build from it.
+- **Off the main actor, with cancel.** `AppModel.exportNotes` reads each note
+  (iCloud notes are downloaded first, reads are coordinated and re-check
+  `CloudVault.requireLocal`, so a note missing a revision is reported as a
+  failure, never exported stale; same rules as opening a note) and renders in a detached task, checking cancellation between
+  notes. `ExportJob` drives it for the export sheet: progress over both phases,
+  Cancel, failures listed per note while the others are exported (also in a
+  merged PDF, which leaves out a note that cannot be rendered). One export at a
+  time: an Export command while the sheet is up is ignored. Closing the
+  vault cancels it (generation token). Nothing is written to the vault.
+- **Scratch files.** Output is staged under `tmp/SempereExports/<uuid>` (file
+  protection "complete" on iOS), deleted when the sheet closes and at every
+  launch. A run owns its folder: a run that is cancelled, fails or outlives
+  its sheet deletes it when it ends (the note being rendered at that moment
+  finishes, and no file is written once the run is cancelled). Share and Save to Files copy from there.
+- **Plaintext.** Exports strip nothing and encrypt nothing, exactly like the
+  CLI's; the sheet says so. Memory use is that of the CLI: the selected notes'
+  states are held at once while rendering.
 
 ## Vaults as single items (app)
 

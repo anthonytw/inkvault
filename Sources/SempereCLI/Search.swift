@@ -66,13 +66,13 @@ struct SearchCommand: ParsableCommand {
         let tokens = needle.split(whereSeparator: \.isWhitespace).map(String.init)
         var hits: [SearchHit] = []
         var unreadable = 0
-        for id in try vault.noteIDs() {
+        let ids = try vault.noteIDs()
+        for (id, result) in zip(ids, vault.states(of: ids, detail: .withoutStrokePoints)) {
             let state: NoteState
             let title: String
-            do {
-                let loaded = try vault.loadNote(id)
-                state = try vault.reconstruct(loaded)
-            } catch {
+            switch result {
+            case .success(let s): state = s
+            case .failure(let error):
                 unreadable += 1
                 printStderr("warning: cannot read note \(id.uuidString.lowercased()): \(CLIError.from(error).message)")
                 continue

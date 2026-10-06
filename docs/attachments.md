@@ -1103,25 +1103,30 @@ API sketch (A0 and B2 own these names; others code against them):
 // Sempere (A0)
 public enum JSONValue: Hashable, Sendable, Codable { case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue]) }
 public struct Rect: Hashable, Sendable, Codable { var x, y, w, h: Double }                         // [x, y, w, h]
-public struct BlobRef: Hashable, Sendable, Codable { var sha256: String; var size: Int64; var type: String; var extra: [String: JSONValue]; var kind: String { get } }  // kind per format.md §8.1.2
+public struct Size: Hashable, Sendable, Codable { var w, h: Double }                              // [w, h]
+public struct BlobKind: RawRepresentable, Hashable, Sendable { static let image, pdf, audio, video, transcript, bin; init(mediaType:) }  // open set
+public struct BlobRef: Hashable, Sendable, Codable { var sha256: String; var size: Int64; var type: String; var extra: [String: JSONValue]; var kind: BlobKind { get }; var digest: Data? { get } }  // kind per format.md §8.1.2
 public struct RecordingLink: Hashable, Sendable, Codable { var id: UUID; var at: Double }        // "rec"
 public struct TextRun: Hashable, Sendable, Codable { var t: String; var b, i, u, s: Bool; var color: Color?; var size: Double?; var lang: String?; var extra: [String: JSONValue] }
-public struct TextContent: Hashable, Sendable, Codable { var font: String; var family: String?; var size: Double; var color: Color; var align: String; var dir: String; var lang: String?; var runs: [TextRun]; var breaks: [Int]?; var extra: [String: JSONValue] }
+public struct TextContent: Hashable, Sendable, Codable { var font: Font; var family: String?; var size: Double; var color: Color; var align: Alignment?; var dir: Direction?; var lang: String?; var runs: [TextRun]; var breaks: [Int]?; var extra: [String: JSONValue]; var string: String; var validBreaks: [Int]? }  // Font/Alignment/Direction: open sets with `.effective`
 public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable { static let text, image, pdfPage; static let math, video /* reserved */ }   // open set
 public struct ItemLayer: RawRepresentable, Hashable, Sendable, Codable, Comparable { var rawValue: Int; static let background = 0, content = 100 }  // open set
 public struct Item: Hashable, Sendable, Codable, Identifiable {
     var id: UUID; var kind: ItemKind; var layer: ItemLayer; var frame: Rect; var rotation: Double?; var z: String
     var parent: UUID?; var rec: RecordingLink?; var origin: String?; var clocks: [String: String]?
-    var text: TextContent?; var blob: BlobRef?; var pixelSize: [Double]?; var orientation: Int?
-    var crop: Rect?; var pageIndex: Int?; var pageSize: [Double]?
-    var extra: [String: JSONValue]   // unknown fields, re-emitted verbatim
+    var text: TextContent?; var blob: BlobRef?; var pixelSize: Size?; var orientation: Int?
+    var crop: Rect?; var pageIndex: Int?; var pageSize: Size?   // read only for the kind that has them
+    var extra: [String: JSONValue]   // unknown fields (all non-common ones for an unknown kind), re-emitted verbatim
+    static func drawsBefore(_:_:) -> Bool                        // (layer, z, id)
 }
-public struct Recording: Hashable, Sendable, Codable, Identifiable { /* format.md §8.3.1, plus extra */ }
-public struct Transcript: Hashable, Sendable, Codable { /* format.md §8.3.2: segments, words, language, engine */ }
+public struct Recording: Hashable, Sendable, Codable, Identifiable { /* format.md §8.3.1, plus extra; static func sortsBefore */ }
+public struct Transcript: Hashable, Sendable, Codable { /* format.md §8.3.2; static func decode(Data) (64 MiB, validated), func encoded() */ }
 // Page.items: [Item]; NoteState.recordings: [Recording]; Tombstones.items, .recordings; Stroke.rec
-// Op: .addItem(page:item:), .removeItem(page:itemId:), .setItem(page:itemId:field:value:),
-//     .addRecording(Recording), .removeRecording(recordingId:), .setRecording(recordingId:field:value:)
-//     (field: String, value: JSONValue; typed accessors for the known fields)
+// Op: .addItem(page:item:), .removeItem(page:itemId:), .setItem(page:itemId:change: ItemChange),
+//     .addRecording(Recording), .removeRecording(recordingId:), .setRecording(recordingId:change: RecordingChange)
+// ItemChange: .frame(Rect), .rotation(Double?), .z(String), .text(TextContent), .crop(Rect?), .other(field:value: JSONValue)
+// RecordingChange: .title(String?), .transcript(BlobRef?), .other(field:value:)
+//     both: `field`, `init(field: String, value: JSONValue) throws ItemChangeError` (immutable field, null rules, types)
 
 // Sempere (B2)
 public enum RewrapMethod: Sendable { case headerOnly, reencrypt }
@@ -1162,6 +1167,13 @@ number and unknown fields), `Op` encoding and decoding of the six new ops,
 be released alone).
 *Done when:* JSON tests for every example; unknown kind/field/layer round
 trip; invalid `setItem` rejected; `swift test` green.
+*Status:* in review (#47). Code: `Sources/Sempere/Attachments.swift`,
+`JSONValue.swift`, the ops in `Model.swift`; tests `AttachmentModelTests`
+and the `attachment-json` / `transcript` fuzz targets. For A1: the reducer
+and `RestoreSummary` skip the six ops at the `// A1` markers, and
+`SnapshotBuilder.makeSnapshot` throws `NoteLogError.attachmentsNotMerged`
+for any input that `Revision.holdsAttachments`, so no snapshot can drop
+them in the meantime; A1 removes that guard and the error case.
 
 **A1 — merge, snapshots, history.** `NoteReducer`: items and recordings as
 sets with permanent tombstones and covered-add removal; registers per (item,

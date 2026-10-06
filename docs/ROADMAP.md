@@ -25,9 +25,11 @@ working state.
 | Crypto | Streaming encrypt/decrypt, header-only rewrap (B1) | 📋 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
+| Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | 🔀 #54 |
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
-| Vault | Attachment model + merge (A0, A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
+| Vault | Attachment model types and ops (A0) | 🔀 #47 |
+| Vault | Attachment merge (A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
@@ -43,6 +45,7 @@ working state.
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | import notability, search (recognised text) | ✅ | ✅ |
+| Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
 | Recovery kit (paper key), backup / verify / restore | 🔀 #30 | 🔀 #30 |
@@ -58,6 +61,7 @@ working state.
 | --- | --- | --- |
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
 | Vaults | Keys in the Keychain / password manager | 🔀 #24 |
+| Vaults | Fast opening: background listing with "Opening vault: n of m", list fills in as notes are read, encrypted summary cache for instant reopen, empty list always explained | 🔀 #54 |
 | Notes | Notebook tree, tags (with tag UI), rename, move, delete/restore, duplicate titles allowed | ✅ (title rename 🔀 #24) |
 | Canvas | PencilKit drawing, tool palette (full / compact), scrolling past the end, Keep Screen On | ✅ |
 | Canvas | Object eraser by default, eraser sizes and cursor | 🔀 #24 |
@@ -65,7 +69,7 @@ working state.
 | Canvas | Pages vs pageless (reorder, delete pages) | 📋 round 2 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search (Vision on rendered pages) | 📋 round 2 |
-| App | Share/export (PDF, Markdown) from the app | 📋 round 2 |
+| App | Share/export from the app: PDF, PNG pages, Markdown (Obsidian), single-file HTML, one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`) | 🔀 #42 (untested on the iPad) |
 | App | History browser (restore points) | 📋 round 2 |
 | App | Settings panel (E6) | 📋 |
 | App | Spanish localization (L) | 📋 |
@@ -88,6 +92,7 @@ behaviour and testing on a real Mac.
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
 | Saved folder access in a sandboxed Mac build | 🔀 access check, entitlements and a DEBUG probe done; the plain bookmark under the sandbox is unverified until a signed build is tried (`docs/io.md`) |
 | Menus and keyboard shortcuts | 🔀 `docs/mac.md` |
+| Export menu (File ▸ Export) | 🔀 #42 (`ExportMenuCommands`) |
 | Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md` |
 | Drag a note to the Finder as PDF | 🔀 `docs/mac.md` |
 | Bulk export from the app | 📋 with the share/export work (the CLI has it) |

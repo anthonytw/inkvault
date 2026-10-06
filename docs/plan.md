@@ -68,7 +68,7 @@ goes first; after it, the rest run in parallel along the dependencies in
 
 | # | Task | Owner target | Depends on | Done when (summary) |
 | --- | --- | --- | --- | --- |
-| A0 | Model types: items (integer layers), recordings, transcripts, blob refs, text (Unicode, `breaks`), `rec`, six ops, open fields (`JSONValue`) | `Sources/Sempere` | — | every `format.md` §8 example round-trips; unknown kinds/fields/layers re-emitted verbatim |
+| A0 | Model types: items (integer layers), recordings, transcripts, blob refs, text (Unicode, `breaks`), `rec`, six ops, open fields (`JSONValue`). **In review (#47)**: `Sources/Sempere/Attachments.swift`, `JSONValue.swift`; snapshots refuse attachments until A1 | `Sources/Sempere` | — | every `format.md` §8 example round-trips; unknown kinds/fields/layers re-emitted verbatim |
 | A1 | Merge, snapshots, tombstones, orphans, history/restore, summaries | `Sources/Sempere` | A0 | shuffled-order property test with items; concurrency scenarios of §14 |
 | B1 | Age streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt | `Sources/Age` | — | CCTV via streaming; 300 MB bounded-memory round trip; `age` CLI interop |
 | B2 | Per-note blob store (`notes/<id>/att/`): names, kinds, framing, Padmé, verify, copy, rewrap policy (header-only on add, re-encrypt on removal/PQ) + rename, per-note collection, `sempere blobs …` | `Sources/Sempere`, CLI | A0 (B1) | binding tests; stock-tool recovery test; both rewrap methods resumable; GC rules 1–4 each tested per note |

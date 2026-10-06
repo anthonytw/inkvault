@@ -60,7 +60,7 @@ final class AppModel {
             case .noteNotDownloaded:
                 return "iCloud Drive has not delivered all of this note's files yet. Try again in a moment."
             case .notesStillDownloading:
-                return "Some notes are still downloading from iCloud Drive. Try again once the list has finished loading."
+                return "Some notes are still loading or downloading from iCloud Drive. Try again once the list has finished loading."
             }
         }
     }
@@ -74,9 +74,34 @@ final class AppModel {
     private(set) var isBusy = false
     /// The last error, as a sentence for an alert; cleared by the view.
     var errorMessage: String?
+    /// Reading note summaries (opening or refreshing the vault), for the
+    /// list's "Opening vault: N of M"; nil when no read is running.
+    var loading: NoteLoading?
+    /// True once a listing of the open vault has completed (the list is
+    /// then what the vault holds, not a partial or cached view).
+    var listLoaded = false
+    /// Why the last listing failed, shown in an empty list (cleared by the next one).
+    var loadFailure: String?
+    /// Notes whose summary in `notes` was read (or confirmed from the cache)
+    /// in this session. A summary shown from an earlier launch's cache, or a
+    /// placeholder, is not: edits that decide from a summary re-read the
+    /// note first, and a notebook rename waits until every note is verified.
+    var verifiedNoteIDs: Set<UUID> = []
+    /// Bumped per note by `refresh` (an edit's own re-read): a listing batch
+    /// read before it must not merge its older summary over the newer one.
+    var summaryEpochs: [UUID: Int] = [:]
+    /// The newest summary-cache save (`saveSummaryCache`).
+    @ObservationIgnored var summaryCacheSave: Task<Void, Never>?
 
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
+    /// True while the note list ticks several notes (to export them); the
+    /// open note (`selectedNoteID`) is untouched meanwhile.
+    var isSelectingNotes = false
+    /// The ticked notes while `isSelectingNotes`.
+    var multiSelection: Set<UUID> = []
+    /// The export sheet's request (`AppModel+Export`).
+    var exportRequest: ExportRequest?
     /// Filters the note list by title (recognised-text search is task 3f).
     var searchText = ""
     var sortOrder = NoteSort.modified
@@ -115,6 +140,20 @@ final class AppModel {
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow
+    /// Notes read per published batch, and threads reading them (`AppModel+Loading`).
+    var loadBatchSize = 24
+    var loadConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
+    /// Where summaries are cached between launches (`SummaryCache`); nil (the
+    /// default, for tests): no cache. The app passes `defaultSummaryCacheDirectory`.
+    let summaryCacheDirectory: URL?
+    /// The open vault's summary cache, once unlocked.
+    @ObservationIgnored var summaryCache: SummaryCache?
+    /// The listing started by `unlock`, owned by the model so that no view
+    /// (an unlock sheet going away) can cancel it.
+    @ObservationIgnored var loadTask: Task<Void, any Error>?
+    /// Serialises listings: a reload, the iCloud sync loop and a pull to
+    /// refresh never read the same notes at once.
+    let loadGate = EditGate()
 
 
     /// Where this install keeps its device id and hybrid clock.
@@ -160,8 +199,10 @@ final class AppModel {
     private let afterIO: (@Sendable () async -> Void)?
 
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
+         summaryCacheDirectory: URL? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
+        self.summaryCacheDirectory = summaryCacheDirectory
         self.editorDebounce = editorDebounce
         self.afterIO = afterIO
     }
@@ -276,8 +317,15 @@ final class AppModel {
         try await unlock(with: identities)
     }
 
-    /// Unlocks the open vault with age identities and loads the note list.
-    func unlock(with identities: [any AgeIdentity]) async throws {
+    /// Unlocks the open vault with age identities and starts listing its
+    /// notes (`startLoadingNotes`): cached summaries at once, then the rest
+    /// as they are read. The listing belongs to the model, so a caller that
+    /// goes away (the unlock sheet) does not stop it.
+    ///
+    /// - Parameter awaitNotes: wait for the listing (and throw its error)
+    ///   before returning. The UI passes false, so the unlock sheet closes as
+    ///   soon as the key is accepted; failures then go to `errorMessage`.
+    func unlock(with identities: [any AgeIdentity], awaitNotes: Bool = true) async throws {
         guard let url = vaultURL else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
@@ -293,7 +341,8 @@ final class AppModel {
             return
         }
         phase = .unlocked
-        try await reload()
+        startLoadingNotes(reportErrors: !awaitNotes)
+        if awaitNotes { try await notesLoaded() }
     }
 
     /// Enters the migration screen for the vault just unlocked with
@@ -345,10 +394,10 @@ final class AppModel {
     /// Unlocks with the text of an identity file (or a bare
     /// `AGE-SECRET-KEY-PQ-1…` or `AGE-SECRET-KEY-1…` line). Returns the identity (`RememberedKeys`).
     @discardableResult
-    func unlock(identityText: String) async throws -> NativeIdentity {
+    func unlock(identityText: String, awaitNotes: Bool = true) async throws -> NativeIdentity {
         let identity: NativeIdentity
         do { identity = try IdentityFile.parse(identityText) } catch { throw ModelError.notAnIdentity }
-        try await unlock(with: [identity])
+        try await unlock(with: [identity], awaitNotes: awaitNotes)
         return identity
     }
 
@@ -358,7 +407,7 @@ final class AppModel {
     /// classic and the post-quantum key, and finishing it may need both.
     /// Returns the first (post-quantum first) for `RememberedKeys`.
     @discardableResult
-    func unlock(passphrase: String) async throws -> NativeIdentity {
+    func unlock(passphrase: String, awaitNotes: Bool = true) async throws -> NativeIdentity {
         guard let locked = vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
@@ -379,32 +428,43 @@ final class AppModel {
         }
         try ensureCurrent(gen)
         guard let first = identities.first else { throw ModelError.passphraseMatchesNoKey }
-        try await unlock(with: identities)
+        try await unlock(with: identities, awaitNotes: awaitNotes)
         return first
     }
 
-    /// Re-reads every note summary from disk. In iCloud Drive, notes whose files
-    /// are not downloaded yet are listed as placeholders and fill in as they
-    /// arrive (`startCloudSync`), instead of the call waiting for all of them.
+    /// Re-reads every note summary from disk: summaries whose revision files
+    /// have not changed come from the `SummaryCache`, the rest are read in
+    /// batches that are published as they finish (`loading` says how far it
+    /// got). Before the first listing of a vault the cached summaries are
+    /// shown at once. In iCloud Drive, notes whose files are not downloaded
+    /// yet are listed as placeholders (or their cached summary) and fill in
+    /// as they arrive (`startCloudSync`), instead of the call waiting for all
+    /// of them.
     func reload() async throws {
         guard let vault else { throw ModelError.noVaultOpen }
         guard phase != .migrating else { return }   // nothing is read before the migration
         let gen = generation
         isBusy = true
         defer { if gen == generation { isBusy = false } }
-        if isCloudVault {
-            // Unlocking files first (small), then the notes as they arrive.
-            _ = try await fetchFromICloud(vault.url)
+        do {
+            try await openSummaryCache()
             try ensureCurrent(gen)
-            try await loadNotes(full: true)
-            startCloudSync()
-            return
+            if isCloudVault {
+                // Unlocking files first (small), then the notes as they arrive.
+                _ = try await fetchFromICloud(vault.url)
+                try ensureCurrent(gen)
+                try await loadNotes(full: true)
+                startCloudSync()
+            } else {
+                try await listLocalNotes()
+            }
+            if gen == generation { loadFailure = nil }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if gen == generation { loadFailure = "\(error)" }
+            throw error
         }
-        let coordinate = coordinationURL
-        let loaded = try await offMain { try CloudVault.coordinatedRead(coordinate) { try vault.summaries() } }
-        try ensureCurrent(gen)
-        notes = loaded
-        if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
     }
 
     // MARK: - Editor
@@ -512,12 +572,23 @@ final class AppModel {
             }
         }
         scopedURL = nil
+        loadTask?.cancel()
+        loadTask = nil
+        loading = nil
+        listLoaded = false
+        loadFailure = nil
+        verifiedNoteIDs = []
+        summaryEpochs = [:]
+        summaryCache = nil
         vault = nil
         migration = nil
         unlockIdentities = []
         vaultURL = nil
         notes = []
         selectedNoteID = nil
+        isSelectingNotes = false
+        multiSelection = []
+        exportRequest = nil
         editorFailure = nil
         searchText = ""
         sidebarSelection = .allNotes

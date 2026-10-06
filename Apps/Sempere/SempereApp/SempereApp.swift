@@ -11,9 +11,14 @@ import SwiftUI
 /// project's build settings), and the Mac menu bar is attached for Catalyst only.
 @main
 struct SempereApp: App {
-    @State private var model = AppModel()
+    @State private var model = AppModel(summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
+
+    init() {
+        // Staged exports are plaintext copies of notes: none survives a launch.
+        ExportJob.purgeStale()
+    }
 
     var body: some Scene {
         libraryScene
@@ -34,9 +39,13 @@ struct SempereApp: App {
     @SceneBuilder private var libraryScene: some Scene {
         #if targetEnvironment(macCatalyst)
         WindowGroup("Sempere", id: "library") { libraryContent }
-            .commands { AppCommands() }
+            .commands {
+                AppCommands()
+                ExportMenuCommands(model: model)
+            }
         #else
         WindowGroup { libraryContent }
+            .commands { ExportMenuCommands(model: model) }
         #endif
     }
 
