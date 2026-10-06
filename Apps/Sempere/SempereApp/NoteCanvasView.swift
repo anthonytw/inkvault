@@ -199,6 +199,7 @@ struct EditorView: View {
             ToolbarItem(placement: .primaryAction) {
                 Toggle("Annotate", systemImage: annotating ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
                        isOn: $annotating)
+                    .toggleStyle(.button)
                     .help("Draw on the page with a finger")
             }
             ToolbarItem(placement: .secondaryAction) {
