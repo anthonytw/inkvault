@@ -84,7 +84,8 @@ final class ScreenshotTests: XCTestCase {
             do {
                 try screenshot.pngRepresentation.write(to: directory.appendingPathComponent("\(shot.name).png"))
             } catch {
-                XCTFail("\(shot.name): could not write the PNG: \(error)")
+                // The Mac runner is sandboxed; its shots are read from the result bundle's attachments.
+                if !Self.isMac { XCTFail("\(shot.name): could not write the PNG: \(error)") }
             }
         }
         app.terminate()

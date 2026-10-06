@@ -67,6 +67,29 @@ ipad() {
   return $status
 }
 
+# Copies the screenshot attachments of a result bundle to DIR as <shot name>.png.
+export_attachments() {
+  local bundle=$1 dest=$2 tmp
+  tmp=$(mktemp -d)
+  xcrun xcresulttool export attachments --path "$bundle" --output-path "$tmp"
+  /usr/bin/python3 - "$tmp" "$dest" <<'PY'
+import json, os, shutil, subprocess, sys
+src, dest = sys.argv[1:3]
+for test in json.load(open(os.path.join(src, "manifest.json"))):
+    for a in test.get("attachments", []):
+        name = a["suggestedHumanReadableName"].split("_")[0]
+        if not name[:2].isdigit():
+            continue
+        path = os.path.join(src, a["exportedFileName"])
+        out = os.path.join(dest, name + ".png")
+        if path.lower().endswith(".png"):
+            shutil.copy(path, out)
+        else:
+            subprocess.check_call(["sips", "-s", "format", "png", path, "--out", out], stdout=subprocess.DEVNULL)
+PY
+  rm -rf "$tmp"
+}
+
 # A Mac window shot has whatever size the window and the display give; scale it to fit
 # and centre it on a plain 2880x1800 canvas (App Store Connect takes only exact sizes).
 mac() {
@@ -77,7 +100,12 @@ mac() {
     -only-testing:SempereAppUITests -resultBundlePath "$out/mac.xcresult" \
     CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES 2>&1 | tee "$out/mac.log" || status=${PIPESTATUS[0]}
   grep -E "error: |SHOTDEBUG" "$out/mac.log" > "$out/mac-summary.txt" || true
-  ls "$raw"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
+  # The Mac test runner is sandboxed and cannot write into the checkout: take the shots
+  # from the result bundle's attachments instead.
+  if ! ls "$raw"/*.png >/dev/null 2>&1; then
+    export_attachments "$out/mac.xcresult" "$raw"
+  fi
+  ls "$raw"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were found" >&2; exit 1; }
   local f size w h scaled
   for f in "$raw"/*.png; do
     size=$(pixels "$f"); w=${size%x*}; h=${size#*x}
