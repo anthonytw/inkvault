@@ -37,8 +37,9 @@ final class ScreenshotTests: XCTestCase {
             Shot(name: "01-write", environment: env(all, ["SEMPERE_DEMO_NOTE": "respiration"]), waitFor: respiration),
             Shot(name: "02-sketch", environment: env(all, ["SEMPERE_DEMO_NOTE": "atlas"]), waitFor: atlas),
             Shot(name: "03-notes", environment: env("doubleColumn", ["SEMPERE_DEMO_NOTE": "respiration"]), waitFor: respiration),
+            // Narrow layouts hide the note's own title, so wait for the note's row in the list.
             Shot(name: "04-tags", environment: env("all", ["SEMPERE_DEMO_NOTE": "respiration", "SEMPERE_DEMO_SIDEBAR": "tag:lecture"]),
-                 waitFor: respiration),
+                 waitFor: "Cellular Respiration"),
             Shot(name: "05-paper", environment: env(all, ["SEMPERE_DEMO_NOTE": "atlas", "SEMPERE_DEMO_PAPER_PICKER": "1"]),
                  waitFor: "Apply to This Page"),
             Shot(name: "06-unlock", environment: env("all", ["SEMPERE_DEMO_LOCKED": "1"]), waitFor: "Unlock My Notes"),

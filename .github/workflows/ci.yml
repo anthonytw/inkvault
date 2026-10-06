@@ -207,6 +207,7 @@ jobs:
         run: scripts/screenshots.sh ipad
       # Best effort: a Mac UI test needs automation permission on the runner.
       - name: Mac (Catalyst, 2880x1800)
+        if: always()
         continue-on-error: true
         run: scripts/screenshots.sh mac
       - uses: actions/upload-artifact@v4

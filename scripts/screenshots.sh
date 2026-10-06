@@ -51,27 +51,31 @@ ipad() {
     --cellularMode notSupported --batteryState charged --batteryLevel 100
   xcrun simctl ui "$sim" appearance light
   trap 'xcrun simctl status_bar "$sim" clear || true' RETURN
+  local status=0 f bad=0
+  # A shot that never showed its screen fails the test but still leaves a PNG: keep going to check them all.
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$dir" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination "platform=iOS Simulator,id=$sim" \
     -only-testing:SempereAppUITests -parallel-testing-enabled NO -resultBundlePath "$out/ipad.xcresult" \
-    CODE_SIGNING_ALLOWED=NO
-  local f bad=0
+    CODE_SIGNING_ALLOWED=NO || status=$?
+  ls "$dir"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
   for f in "$dir"/*.png; do
     if [[ "$(pixels "$f")" != 2064x2752 ]]; then echo "error: $f is $(pixels "$f"), want 2064x2752" >&2; bad=1; fi
   done
   [[ $bad == 0 ]] || exit 1
   echo "iPad screenshots: $dir"
+  return $status
 }
 
 # A Mac window shot has whatever size the window and the display give; scale it to fit
 # and centre it on a plain 2880x1800 canvas (App Store Connect takes only exact sizes).
 mac() {
-  local dir="$out/mac" raw="$out/mac-raw"
+  local dir="$out/mac" raw="$out/mac-raw" status=0
   rm -rf "$dir" "$raw"; mkdir -p "$dir" "$raw"
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$raw" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination 'platform=macOS,variant=Mac Catalyst' \
     -only-testing:SempereAppUITests -resultBundlePath "$out/mac.xcresult" \
-    CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
+    CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES || status=$?
+  ls "$raw"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
   local f size w h scaled
   for f in "$raw"/*.png; do
     size=$(pixels "$f"); w=${size%x*}; h=${size#*x}
@@ -85,6 +89,7 @@ print(round(h * f), round(w * f))")
     [[ "$(pixels "$dir/$(basename "$f")")" == 2880x1800 ]] || { echo "error: $f did not end up 2880x1800" >&2; exit 1; }
   done
   echo "Mac screenshots: $dir"
+  return $status
 }
 
 case "${1:-all}" in
