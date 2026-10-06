@@ -9,6 +9,11 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- iPhone app, as a reader (`docs/iphone.md`): the app target now also runs on iPhone. The vault,
+  its notebooks and tags, the note list and the note are a stack; a note opens for reading (pan,
+  zoom, page bar) and the pencil button switches on light finger annotation. Search, export,
+  version history and Face ID unlock work as on the iPad. The iPad and the Mac are unchanged.
+  iPhone 6.9" App Store screenshots: `scripts/screenshots.sh iphone`.
 - CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
   (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
   parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);

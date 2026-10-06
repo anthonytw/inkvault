@@ -2,11 +2,12 @@
 # App Store screenshots from a synthetic demo vault (docs/appstore/screenshots.md).
 # Needs Xcode on a Mac. Nothing is uploaded anywhere.
 #
-#   scripts/screenshots.sh ipad   # iPad Pro 13-inch simulator, 2064x2752 portrait
-#   scripts/screenshots.sh mac    # Mac Catalyst, composed onto 2880x1800 (best effort)
-#   scripts/screenshots.sh        # both
+#   scripts/screenshots.sh ipad    # iPad Pro 13-inch simulator, 2064x2752 portrait
+#   scripts/screenshots.sh iphone  # iPhone Pro Max simulator (6.9"), 1320x2868 portrait
+#   scripts/screenshots.sh mac     # Mac Catalyst, composed onto 2880x1800 (best effort)
+#   scripts/screenshots.sh         # all three
 #
-# Output: build/screenshots/ipad/*.png and build/screenshots/mac/*.png
+# Output: build/screenshots/ipad/*.png, iphone/*.png and mac/*.png
 # (SEMPERE_SHOTS_OUT changes the folder). SEMPERE_SIM_ID picks the simulator.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,56 +18,74 @@ out=${SEMPERE_SHOTS_OUT:-build/screenshots}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)   # the test runner needs an absolute path
 
-# The newest iPad Pro 13-inch simulator on iOS 26 or newer (2064x2752 pixels).
+# The newest simulator on iOS 26 or newer whose name starts with $1: "iPad Pro 13-inch"
+# (2064x2752 pixels) or the newest "iPhone … Pro Max" (6.9": 1320x2868 or 1290x2796 pixels).
 pick_simulator() {
+  local prefix=$1
   if [[ -n "${SEMPERE_SIM_ID:-}" ]]; then echo "$SEMPERE_SIM_ID"; return; fi
   xcrun simctl list devices available --json | /usr/bin/python3 -c '
 import json, re, sys
+prefix = sys.argv[1]
 best = None
 for runtime, devs in json.load(sys.stdin)["devices"].items():
     m = re.search(r"SimRuntime\.iOS-(\d+)-(\d+)", runtime)
     if not m or (int(m.group(1)), int(m.group(2))) < (26, 0):
         continue
     for d in devs:
-        if d.get("isAvailable") and d["name"].startswith("iPad Pro 13-inch"):
+        name = d["name"]
+        wanted = name.startswith(prefix) and (not prefix.startswith("iPhone") or name.endswith("Pro Max"))
+        if d.get("isAvailable") and wanted:
             key = ((int(m.group(1)), int(m.group(2))), d["name"])
             if best is None or key > best[0]:
                 best = (key, d["udid"], d["name"])
 if best is None:
-    sys.exit("no iPad Pro 13-inch simulator on iOS 26+ (xcrun simctl list devices; xcodebuild -downloadPlatform iOS)")
+    sys.exit("no " + prefix + " simulator on iOS 26+ (xcrun simctl list devices; xcodebuild -downloadPlatform iOS)")
 print("using " + best[2], file=sys.stderr)
 print(best[1])
-'
+' "$prefix"
 }
 
 pixels() { sips -g pixelWidth -g pixelHeight "$1" | awk '/pixelWidth/ {w=$2} /pixelHeight/ {h=$2} END {print w "x" h}'; }
 
-ipad() {
-  local sim dir="$out/ipad"
-  sim=$(pick_simulator)
+# One simulator family: $1 name (ipad|iphone), $2 simulator name prefix, $3 accepted sizes
+# ("2064x2752" or "1320x2868 1290x2796"), $4 status bar flags for the connectivity icons.
+simulator_shots() {
+  local name=$1 prefix=$2 sizes=$3 sim dir="$out/$1"
+  sim=$(pick_simulator "$prefix")
   rm -rf "$dir"; mkdir -p "$dir"
   xcrun simctl bootstatus "$sim" -b >/dev/null
   # No clutter: 9:41, full battery, full bars, light mode. (The iPad status bar also shows
   # the date, which this does not fix: simctl on Xcode 26.6 refused an ISO date with an offset.)
-  xcrun simctl status_bar "$sim" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
-    --cellularMode notSupported --batteryState charged --batteryLevel 100
+  if [[ $name == iphone ]]; then
+    xcrun simctl status_bar "$sim" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
+      --cellularMode active --cellularBars 4 --operatorName "" --batteryState charged --batteryLevel 100
+  else
+    xcrun simctl status_bar "$sim" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
+      --cellularMode notSupported --batteryState charged --batteryLevel 100
+  fi
   xcrun simctl ui "$sim" appearance light
   trap 'xcrun simctl status_bar "$sim" clear || true' RETURN
-  local status=0 f bad=0
+  local status=0 f bad=0 size ok s
   # A shot that never showed its screen fails the test but still leaves a PNG: keep going to check them all.
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$dir" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination "platform=iOS Simulator,id=$sim" \
-    -only-testing:SempereAppUITests -parallel-testing-enabled NO -resultBundlePath "$out/ipad.xcresult" \
-    CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$out/ipad.log" || status=${PIPESTATUS[0]}
-  grep -E "error: |SHOTDEBUG" "$out/ipad.log" > "$out/ipad-summary.txt" || true
+    -only-testing:SempereAppUITests -parallel-testing-enabled NO -resultBundlePath "$out/$name.xcresult" \
+    CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$out/$name.log" || status=${PIPESTATUS[0]}
+  grep -E "error: |SHOTDEBUG" "$out/$name.log" > "$out/$name-summary.txt" || true
   ls "$dir"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
   for f in "$dir"/*.png; do
-    if [[ "$(pixels "$f")" != 2064x2752 ]]; then echo "error: $f is $(pixels "$f"), want 2064x2752" >&2; bad=1; fi
+    size=$(pixels "$f"); ok=0
+    for s in $sizes; do [[ "$size" == "$s" ]] && ok=1; done
+    if [[ $ok == 0 ]]; then echo "error: $f is $size, want one of: $sizes" >&2; bad=1; fi
   done
   [[ $bad == 0 ]] || exit 1
-  echo "iPad screenshots: $dir"
+  echo "$name screenshots: $dir"
   return $status
 }
+
+ipad() { simulator_shots ipad "iPad Pro 13-inch" "2064x2752"; }
+# 6.9" is the iPhone size App Store Connect scales the other iPhone sizes from.
+iphone() { simulator_shots iphone "iPhone" "1320x2868 1290x2796"; }
 
 # Copies the screenshot attachments of a result bundle to DIR as <shot name>.png.
 export_attachments() {
@@ -125,7 +144,8 @@ print(round(h * f), round(w * f))")
 
 case "${1:-all}" in
   ipad) ipad ;;
+  iphone) iphone ;;
   mac) mac ;;
-  all) ipad; mac ;;
-  *) echo "usage: $0 [ipad|mac|all]" >&2; exit 2 ;;
+  all) ipad; iphone; mac ;;
+  *) echo "usage: $0 [ipad|iphone|mac|all]" >&2; exit 2 ;;
 esac

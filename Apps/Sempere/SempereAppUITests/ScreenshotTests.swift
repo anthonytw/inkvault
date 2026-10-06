@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import XCTest
 
 /// Captures the App Store screenshots from the synthetic demo vault
@@ -23,7 +26,35 @@ final class ScreenshotTests: XCTestCase {
     #endif
 
     /// The shots for this platform, in the order they appear on the store page.
+    @MainActor
     static var shots: [Shot] {
+        #if !targetEnvironment(macCatalyst)
+        if UIDevice.current.userInterfaceIdiom == .phone { return phoneShots }
+        #endif
+        return deviceShots
+    }
+
+    /// The iPhone is a reader: a stack, so each shot is one screen of it. The launch variables
+    /// pick the screen (a note opens the note view; a sidebar item alone, its list).
+    /// "Annotate" is the note view's pencil button. The paper picker is not shown on the phone.
+    static var phoneShots: [Shot] {
+        func env(_ extra: [String: String]) -> [String: String] {
+            var e = ["SEMPERE_DEMO": "1"]
+            for (k, v) in extra { e[k] = v }
+            return e
+        }
+        return [
+            Shot(name: "01-write", environment: env(["SEMPERE_DEMO_NOTE": "respiration"]), waitFor: "Annotate"),
+            Shot(name: "02-sketch", environment: env(["SEMPERE_DEMO_NOTE": "atlas"]), waitFor: "Annotate"),
+            Shot(name: "03-notes", environment: env(["SEMPERE_DEMO_SIDEBAR": "all"]), waitFor: "New Note"),
+            Shot(name: "04-tags", environment: env(["SEMPERE_DEMO_SIDEBAR": "tag:lecture"]), waitFor: "#lecture"),
+            Shot(name: "05-library", environment: env([:]), waitFor: "Recently Deleted"),
+            Shot(name: "06-unlock", environment: env(["SEMPERE_DEMO_LOCKED": "1"]), waitFor: "Unlock My Notes"),
+        ]
+    }
+
+    /// The iPad's and the Mac's shots.
+    static var deviceShots: [Shot] {
         // "Hide Tools" / "Show Tools" is in the toolbar whenever an editable note is open; the
         // note's own title is not (a crowded toolbar drops it).
         let respiration = "Tools"
