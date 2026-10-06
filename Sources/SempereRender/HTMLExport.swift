@@ -108,6 +108,12 @@ public enum HTMLExport {
                 h += "<details><summary>Machine-recognized text (\(esc(r.engine)), may contain errors)</summary>\n"
                 h += "<pre>\(esc(r.text))</pre>\n</details>\n"
             }
+            let typed = MarkdownExport.typedText(page)
+            if !typed.isEmpty {
+                h += "<details><summary>Typed text</summary>\n"
+                h += typed.map { "<pre>\(esc($0))</pre>\n" }.joined()
+                h += "</details>\n"
+            }
             h += "</section>\n"
         }
         return h + "</main>\n" + footer
