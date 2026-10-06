@@ -159,7 +159,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var pageCount = 0
         /// A vault was opened before and can be reopened.
         var hasRecents = false
-        /// A library window exists (Window > Library opens one when not).
+        /// A library window exists (View > Library opens one when not).
         var libraryWindowOpen = true
         /// The note list is in the window (library windows only).
         var hasNoteList: Bool { window == .library }

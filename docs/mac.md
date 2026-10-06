@@ -25,7 +25,7 @@ from a text field) is used.
 
 Each window publishes a `CommandRouter` (its state for enabling, and what to
 do for a command) as a focused scene value; the menu bar acts on the focused
-window. With no window, only Window > Library is enabled.
+window. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
 
 | Menu | Command | Shortcut |
 | --- | --- | --- |
@@ -52,8 +52,8 @@ window. With no window, only Window > Library is enabled.
 | View | Zoom In, Zoom Out | ⌘=, ⌘- |
 | View | Fit Page Width, Actual Size | ⌘0, ⌘1 |
 | View | Hide or Show Note List | ⌥⌘L |
-| Window | Library (opens one when none is open) | ⌥⌘0 |
-| Window | Vault Keys | ⌥⌘K |
+| View | Library (opens a library window when none is open) | ⌥⌘0 |
+| View | Vault Keys (the key window) | ⌥⌘K |
 
 ⌘W closes a window as usual; it never closes the vault (⇧⌘W does). Zoom
 steps are 1, 1.25, 1.5, 2, 2.5, 3 and 4 times the fitted page width
@@ -108,7 +108,7 @@ adds its own menu entries to `MenuCommand`.
 
 ## Key window
 
-Window > Vault Keys (⌥⌘K) shows the keys the unlocked vault is encrypted to:
+View > Vault Keys (⌥⌘K) shows the keys the unlocked vault is encrypted to:
 label, abbreviated public key with its SHA-256 fingerprint, the date added, a
 mark on the key that unlocked the vault. From it:
 

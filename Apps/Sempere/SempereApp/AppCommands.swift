@@ -70,10 +70,11 @@ struct AppCommands: Commands {
         CommandMenu("Tools") {
             sections(MenuLayout.tools)
         }
+        // `CommandGroupPlacement.windowList` is macOS-only (unavailable in the Catalyst SDK), so the
+        // two window commands sit at the end of the View menu.
         CommandGroup(after: .toolbar) {
             sections(MenuLayout.view)
-        }
-        CommandGroup(after: .windowList) {
+            Divider()
             section(MenuLayout.window[0])
         }
     }
