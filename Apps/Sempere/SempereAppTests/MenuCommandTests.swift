@@ -77,6 +77,16 @@ struct MenuCommandTests {
         #expect(MenuCommand.restoreNote.isEnabled(in: c))
     }
 
+    /// ⌘⌫ in the search field (or a rename or tag field) deletes text, never the note.
+    @Test func deleteIsOffWhileATextFieldMayHaveFocus() {
+        var c = MenuCommand.Context(window: .library, vault: .unlocked)
+        c.hasNote = true
+        #expect(MenuCommand.deleteNote.isEnabled(in: c))
+        c.editingText = true
+        #expect(!MenuCommand.deleteNote.isEnabled(in: c))
+        #expect(MenuCommand.renameNote.isEnabled(in: c))
+    }
+
     @Test func canvasCommandsNeedAnEditableCanvas() {
         var c = MenuCommand.Context(window: .note, vault: .unlocked, hasNote: true)
         for command in [MenuCommand.toolPen, .toolEraser, .toggleRuler, .togglePalette, .addPage, .changePaper] {

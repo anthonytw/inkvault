@@ -173,6 +173,17 @@ final class AppModel {
     /// Bumped when the vault's keys changed under the open editors
     /// (`AppModel+Keys`): views reopen their notes.
     var keyEpoch = 0
+    /// True while a recipient change re-encrypts the vault (`AppModel+Keys`):
+    /// no editor opens meanwhile, since it would hold the old vault and secret.
+    var isChangingKeys = false
+    /// The library window whose detail pane shows `editor` (`WindowUI.id`).
+    /// One canvas per editor: a second canvas on the same editor would report
+    /// a drawing without the first one's new strokes, which the ledger takes
+    /// as erasures.
+    var canvasWindow: UUID?
+    /// When a note window last asked for a library window (coalesces the
+    /// requests of several restored note windows).
+    var libraryWindowRequested: Date?
     /// Where this model's PDF exports (drag to Finder) are written; emptied when the vault closes.
     let exportFolder = NotePDFExport.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
     /// Library windows on screen (a note window restored alone opens one).
@@ -377,7 +388,7 @@ final class AppModel {
     /// The vault after a recipient change made through the library
     /// (`AppModel+Keys`); every editor was closed before it.
     func adoptRewrapped(_ next: Vault) {
-        guard phase == .unlocked else { return }
+        guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
         vault = next
         keyEpoch += 1
     }
@@ -482,6 +493,8 @@ final class AppModel {
         await closingEditor?.value
         try ensureCurrent(gen)
         guard let noteID else { return }
+        guard !isChangingKeys else { throw CancellationError() }   // reopened after the change (`keyEpoch`)
+        let epoch = keyEpoch
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
         try await downloadNote(noteID)   // iCloud: this note first, before the rest of the vault
         let clock = try deviceClockForWriting()
@@ -505,6 +518,12 @@ final class AppModel {
         try ensureCurrent(gen)
         guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
         guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
+        // A note window took the note meanwhile (one editor per note), or the
+        // keys changed under the vault copy this editor was opened with.
+        guard !windowClaims.contains(noteID), !isChangingKeys, epoch == keyEpoch else {
+            Task { await opened.close() }
+            throw CancellationError()
+        }
         let stale = editor
         editor = opened
         if let stale { Task { await stale.close() } }

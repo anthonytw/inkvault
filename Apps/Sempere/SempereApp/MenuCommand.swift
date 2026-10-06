@@ -161,6 +161,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var hasRecents = false
         /// A library window exists (View > Library opens one when not).
         var libraryWindowOpen = true
+        /// A text field of the window may have focus (search, rename, tags):
+        /// ⌘⌫ there means "delete to the start of the line", and a menu key
+        /// equivalent would win over it on the Mac.
+        var editingText = false
         /// The note list is in the window (library windows only).
         var hasNoteList: Bool { window == .library }
     }
@@ -177,7 +181,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .newNote: return unlocked && context.hasNoteList
         case .openNoteInWindow: return unlocked && context.hasNoteList && context.hasNote && !context.noteDeleted
         case .renameNote, .editTags: return unlocked && context.hasNote && !context.noteDeleted
-        case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted
+        case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted && !context.editingText
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
         case .changePaper: return context.canEditNote && context.hasPage
         case .addPage: return context.canEditNote

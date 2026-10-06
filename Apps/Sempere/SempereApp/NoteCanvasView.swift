@@ -17,6 +17,13 @@ struct NoteCanvasView: View {
                 if model.windowClaims.contains(note.id) {
                     ContentUnavailableView("Open in Its Own Window", systemImage: "macwindow",
                                            description: Text("This note is shown in a window of its own."))
+                } else if model.canvasWindow != ui.id {
+                    // Another library window shows the canvas: one canvas per editor.
+                    ContentUnavailableView {
+                        Label("Shown in Another Window", systemImage: "macwindow.on.rectangle")
+                    } actions: {
+                        Button("Show Here") { model.canvasWindow = ui.id }
+                    }
                 } else if let editor = model.editor, editor.noteID == note.id {
                     EditorView(editor: editor)
                         .navigationTitle(NoteTitle.display(note.title))

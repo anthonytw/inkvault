@@ -40,6 +40,11 @@ final class NoteEditor {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var chain: Task<Void, Never>?
+    /// Set by `close()` once its last save is done: a closed editor takes no
+    /// more changes and writes nothing. A window or view may still show it for
+    /// a moment, and it holds the vault as it was opened (with the old secret
+    /// after a key change), so nothing it holds may reach the vault.
+    @ObservationIgnored private(set) var isShutDown = false
 
     /// Ink closer than this to the bottom of an infinite page grows it.
     static let growMargin = 200.0
@@ -139,7 +144,7 @@ final class NoteEditor {
     /// at once on screen; saved with the next delta (`NoteOps.setPaper`).
     func setPaper(_ paper: Paper, allPages: Bool) {
         previewPaper = nil
-        guard !isReadOnly, let page = currentPage else { return }
+        guard !isReadOnly, !isShutDown, let page = currentPage else { return }
         let ops = NoteOps.setPaper(paper, scope: allPages ? .allPages : .page(page.id), note: meta, pages: pages)
         guard !ops.isEmpty else { return }
         for op in ops {
@@ -156,7 +161,7 @@ final class NoteEditor {
 
     /// Appends a blank page and shows it; saved with the next delta.
     func addPage() {
-        guard !isReadOnly else { return }
+        guard !isReadOnly, !isShutDown else { return }
         let page = Page(order: PageOrder.between(pages.last?.order, nil))
         pages.append(page)
         pendingPageOps.append(.addPage(page))
@@ -170,7 +175,7 @@ final class NoteEditor {
     /// moved, undone, redone). Updates ids now; saves after the pause.
     @discardableResult
     func drawingDidChange(pageID: UUID, items: [StrokeLedger.Item], inkMaxY: Double?) -> StrokeLedger.Change {
-        guard !isReadOnly else { return .init() }
+        guard !isReadOnly, !isShutDown else { return .init() }
         var l = ledger(pageID)
         let change = l.update(items)
         ledgers[pageID] = l
@@ -220,13 +225,15 @@ final class NoteEditor {
         await task.value
     }
 
-    /// Saves what is pending and stops autosaving.
+    /// Saves what is pending and stops autosaving; afterwards the editor takes
+    /// no more changes and writes nothing (`isShutDown`).
     func close() async {
         await flush()
+        isShutDown = true
     }
 
     private func writePending() async {
-        guard let writer else { return }
+        guard let writer, !isShutDown else { return }
         let pageOps = pendingPageOps
         var ops = pageOps
         // Ledgers commit before the write (see `StrokeLedger.beginSave`) and

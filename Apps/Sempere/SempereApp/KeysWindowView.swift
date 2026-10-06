@@ -45,7 +45,7 @@ struct KeysWindowView: View {
         .confirmationDialog("Remove this key?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             titleVisibility: .visible, presenting: removing) { key in
             Button("Remove “\(key.label)”", role: .destructive) {
-                Task { await run("Removing the key and re-encrypting every note…") { try await model.removeDeviceKey(key.recipient) } }
+                Task { await run("Removing the key and re-encrypting every note…") { try await model.removeDeviceKey(key.recipient, expectedVault: key.vault) } }
             }
         } message: { _ in
             Text("Every note is re-encrypted without it. That device can no longer open new or changed files; it keeps what it already copied.")
@@ -166,13 +166,17 @@ private struct AddDeviceKeyView: View {
     @State private var generated: String?
     @State private var working: String?
     @State private var failure: String?
+    /// The vault this sheet was opened for: switching vaults meanwhile must not add a key to another.
+    @State private var vaultID: UUID?
 
     var body: some View {
         NavigationStack {
             Form {
                 if let generated {
                     Section {
-                        Text(generated).font(.caption.monospaced()).textSelection(.enabled)
+                        // Not selectable: ⌘C would put the secret on the clipboard with no
+                        // expiry and let Universal Clipboard sync it; Copy Key below does not.
+                        Text(generated).font(.caption.monospaced())
                         Button("Copy Key", systemImage: "doc.on.doc") { copy(generated) }
                     } header: {
                         Text("Secret key for “\(AppModel.cleanLabel(label))”")
@@ -207,6 +211,7 @@ private struct AddDeviceKeyView: View {
             }
         }
         .frame(minWidth: 460, minHeight: 320)
+        .onAppear { if vaultID == nil { vaultID = model.vault?.vaultId } }
         .interactiveDismissDisabled(generated != nil || working != nil)
         .disabled(working != nil)
         .overlay {
@@ -234,12 +239,14 @@ private struct AddDeviceKeyView: View {
             case .paste:
                 working = "Adding the key and re-encrypting every note…"
                 defer { working = nil }
-                try await model.addDeviceKey(recipient: text, label: name)
+                try await model.addDeviceKey(recipient: text, label: name, expectedVault: vaultID)
                 dismiss()
             case .generate:
                 working = "Generating the key and re-encrypting every note…"
                 defer { working = nil }
-                generated = try await model.generateDeviceKey(label: name)
+                let key = try await model.generateDeviceKey(label: name, expectedVault: vaultID)
+                generated = key.secret
+                failure = key.problem
             }
         } catch is CancellationError {
         } catch {

@@ -22,18 +22,22 @@ extension AppModel {
     }
 
     /// Gives `noteID` back (its window closed): saves and closes the window's
-    /// editor; the library window opens it again if it is selected.
+    /// editor; the library window opens it again if it is selected. The claim
+    /// ends only once the last save is written, so the library never reads
+    /// the note before it (and stays if a window took the note again meanwhile).
     func releaseNote(_ noteID: UUID) async {
         let editor = windowEditors.removeValue(forKey: noteID)
-        windowClaims.remove(noteID)
         await editor?.close()
+        if windowEditors[noteID] == nil { windowClaims.remove(noteID) }
     }
 
     /// Opens the editor of a note window. Needs an unlocked vault. A second
     /// call for the same note returns the editor already open.
     func openWindowNote(_ noteID: UUID) async throws -> NoteEditor {
         if let open = windowEditors[noteID] { return open }
+        guard !isChangingKeys else { throw CancellationError() }   // reopened after the change (`keyEpoch`)
         let gen = generation
+        let epoch = keyEpoch
         await closingEditor?.value
         try ensureCurrent(gen)
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
@@ -51,6 +55,12 @@ extension AppModel {
         if let open = windowEditors[noteID] {   // a concurrent call won
             Task { await opened.close() }
             return open
+        }
+        // The window closed meanwhile (no claim: the library may open the note
+        // itself), or the keys changed under the vault copy it was opened with.
+        guard windowClaims.contains(noteID), !Task.isCancelled, !isChangingKeys, epoch == keyEpoch else {
+            Task { await opened.close() }
+            throw CancellationError()
         }
         windowEditors[noteID] = opened
         return opened
@@ -70,6 +80,16 @@ extension AppModel {
         let all = Array(windowEditors.values)
         windowEditors = [:]
         for editor in all { await editor.close() }
+    }
+
+    /// Whether a note window should open a library window now: none is on
+    /// screen and none was asked for in the last few seconds (several note
+    /// windows restored at launch each ask, before the first one appears).
+    func shouldOpenLibraryWindow(now: Date = Date()) -> Bool {
+        guard libraryWindowCount == 0 else { return false }
+        if let last = libraryWindowRequested, now.timeIntervalSince(last) < 5 { return false }
+        libraryWindowRequested = now
+        return true
     }
 
     // MARK: - State restoration
@@ -115,10 +135,12 @@ extension AppModel {
     /// drop that asked for it, and `NotePDFExport.purge` removes it later.
     func exportPDF(noteID: UUID) async throws -> URL {
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
+        let gen = generation
         if editor?.noteID == noteID { await editor?.flush() }
         await windowEditors[noteID]?.flush()
+        try ensureCurrent(gen)
         try await downloadNote(noteID)
-        let gen = generation
+        try ensureCurrent(gen)
         let coordinate = coordinationURL
         let rendered = try await offMain {
             try CloudVault.coordinatedRead(coordinate) { try NotePDFExport.render(vault: vault, noteID: noteID) }

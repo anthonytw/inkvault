@@ -167,6 +167,8 @@ enum EditorCommands {
 @MainActor
 @Observable
 final class WindowUI {
+    /// Identifies the window (`AppModel.canvasWindow`).
+    let id = UUID()
     var creatingNote = false
     /// The note being renamed.
     var renameNoteID: UUID?

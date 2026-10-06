@@ -4,6 +4,13 @@ import Sempere
 import Testing
 @testable import SempereApp
 
+/// Hands the model to its own `afterIO` hook once, when armed.
+actor ModelBox {
+    private var model: AppModel?
+    func arm(_ model: AppModel) { self.model = model }
+    func take() -> AppModel? { defer { model = nil }; return model }
+}
+
 /// One note per window (Mac): window editors, claims, the PDF a note drags out
 /// as, and restoring the library window's selection.
 @MainActor
@@ -40,6 +47,62 @@ struct NoteWindowTests {
         #expect(!model.windowClaims.contains(Self.lecture))
         await model.showSelectedNote()
         #expect(model.editor?.noteID == Self.lecture)
+    }
+
+    /// The library's open was under way when a window took the note: it must
+    /// not end with a second editor on the note.
+    @Test func anOpenThatFinishesAfterAWindowTookTheNoteIsDropped() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let box = ModelBox()
+        let lecture = Self.lecture
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .milliseconds(200), afterIO: {
+            guard let model = await box.take() else { return }
+            await model.claimNote(lecture)
+        })
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        model.selectedNoteID = Self.lecture
+        await box.arm(model)
+        await model.showSelectedNote()
+        #expect(model.windowClaims.contains(Self.lecture))
+        #expect(model.editor == nil, "one editor per note: the window's")
+        _ = try await model.openWindowNote(Self.lecture)
+        #expect(model.windowEditors[Self.lecture] != nil)
+    }
+
+    /// The window closed while its editor was opening: no editor is kept for
+    /// a note nobody claims (the library would open a second one).
+    @Test func anEditorOpenedAfterItsWindowClosedIsNotKept() async throws {
+        let (model, _) = try await Self.unlockedModel()
+        await model.claimNote(Self.lecture)
+        await model.releaseNote(Self.lecture)
+        await #expect(throws: CancellationError.self) { _ = try await model.openWindowNote(Self.lecture) }
+        #expect(model.windowEditors.isEmpty)
+    }
+
+    @Test func releasingANoteSavesItsWindowBeforeTheLibraryMayOpenIt() async throws {
+        let (model, url) = try await Self.unlockedModel()
+        await model.claimNote(Self.lecture)
+        let window = try await model.openWindowNote(Self.lecture)
+        window.addPage()   // pending (200 ms debounce)
+        await model.releaseNote(Self.lecture)
+        #expect(!model.windowClaims.contains(Self.lecture))
+        #expect(window.isShutDown)
+        let vault = try Vault.open(at: url, identities: model.unlockIdentities)
+        #expect(try NoteReducer.reconstruct(vault.loadNote(Self.lecture).revisions).pages.count == 3)
+        model.selectedNoteID = Self.lecture
+        await model.showSelectedNote()
+        #expect(model.editor?.pages.count == 3)
+    }
+
+    @Test func restoredNoteWindowsAskForOneLibraryWindow() async throws {
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        let now = Date()
+        #expect(model.shouldOpenLibraryWindow(now: now))
+        #expect(!model.shouldOpenLibraryWindow(now: now.addingTimeInterval(1)), "a second window asks too")
+        #expect(model.shouldOpenLibraryWindow(now: now.addingTimeInterval(10)), "asked long ago and still none")
+        model.libraryWindowCount = 1
+        #expect(!model.shouldOpenLibraryWindow(now: now.addingTimeInterval(60)))
     }
 
     @Test func twoWindowsHoldTwoNotesAndShareTheClock() async throws {

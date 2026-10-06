@@ -12,6 +12,8 @@ struct DeviceKey: Identifiable, Equatable, Sendable {
     var isPostQuantum: Bool
     /// The key this window unlocked the vault with: it cannot be removed here.
     var isInUse: Bool
+    /// The vault it belongs to: a removal checks it is still the open one.
+    var vault: UUID
 
     var id: String { recipient }
 
@@ -42,6 +44,8 @@ extension AppModel {
         /// Some files could not be re-encrypted (yet); the change stays pending.
         case incomplete(Int)
         case noIdentity
+        /// Another vault was opened while the key window's sheet or dialog was up.
+        case vaultChanged
 
         var description: String {
             switch self {
@@ -54,6 +58,7 @@ extension AppModel {
             case .incomplete(let n):
                 return "\(n) file\(n == 1 ? "" : "s") could not be re-encrypted. The change is saved and finishes the next time you try again."
             case .noIdentity: return "This window does not hold a key of the vault, so it cannot print a recovery kit."
+            case .vaultChanged: return "Another vault was opened meanwhile. Nothing was changed."
             }
         }
     }
@@ -65,7 +70,7 @@ extension AppModel {
         return vault.recipients.map { r in
             DeviceKey(recipient: r.key, label: r.label, added: r.added,
                       isPostQuantum: (try? NativeRecipient(string: r.key))?.isPostQuantum == true,
-                      isInUse: held.contains(r.key))
+                      isInUse: held.contains(r.key), vault: vault.vaultId)
         }
     }
 
@@ -74,10 +79,20 @@ extension AppModel {
         Set(unlockIdentities.compactMap { ($0 as? NativeIdentity)?.recipient.string })
     }
 
-    /// Encrypts the vault to another device's public key.
-    func addDeviceKey(recipient text: String, label: String) async throws {
+    /// A generated device key: its secret, and why the change is not finished
+    /// when it is not (the vault is already encrypted to the key, so the
+    /// secret must be shown whatever happened after).
+    struct GeneratedKey: Sendable {
+        var secret: String
+        var problem: String?
+    }
+
+    /// Encrypts the vault to another device's public key. `expectedVault`:
+    /// the vault the request was made for (the key window's sheet).
+    func addDeviceKey(recipient text: String, label: String, expectedVault: UUID? = nil) async throws {
         let recipient = try Self.parseRecipient(text)
         guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         guard !vault.recipients.contains(where: { $0.key == recipient.string }) else { throw KeyError.alreadyListed }
         let name = Self.cleanLabel(label)
         try await changeRecipients { try $0.addRecipient(recipient, label: name) }
@@ -85,22 +100,41 @@ extension AppModel {
 
     /// Generates a post-quantum key for another device, encrypts the vault to
     /// it, and returns its secret text. Nothing else holds it: the caller
-    /// shows it once.
-    func generateDeviceKey(label: String) async throws -> String {
+    /// shows it once. Once the vault's manifest lists the key, the secret is
+    /// returned even if the rest of the change failed or the vault was
+    /// closed meanwhile (`problem` says so): otherwise the vault would be
+    /// encrypted to a key nobody has.
+    func generateDeviceKey(label: String, expectedVault: UUID? = nil) async throws -> GeneratedKey {
         guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         let identity = try NativeIdentity.generate(.postQuantum)
         guard !vault.recipients.contains(where: { $0.key == identity.recipient.string }) else { throw KeyError.alreadyListed }
         let name = Self.cleanLabel(label)
         let recipient = identity.recipient
-        try await changeRecipients { try $0.addRecipient(recipient, label: name) }
-        return identity.string
+        var applied = false
+        let url = vault.url
+        let identities = unlockIdentities
+        do {
+            try await changeRecipients({ try $0.addRecipient(recipient, label: name) }, applied: { applied = true })
+        } catch {
+            // The rewrap can also throw after it wrote the manifest: look at it.
+            let listed = applied || ((try? Vault.open(at: url, identities: identities))?.recipients
+                .contains { $0.key == recipient.string } ?? false)
+            guard listed else { throw error }
+            let problem = error is CancellationError
+                ? "The vault was closed before the change finished. It finishes when the vault is opened and its keys are changed again."
+                : "\(error)"
+            return GeneratedKey(secret: identity.string, problem: problem)
+        }
+        return GeneratedKey(secret: identity.string)
     }
 
     /// Stops encrypting the vault to `recipient` and re-encrypts every note
     /// with a new vault secret. That device can read nothing it has not
-    /// already copied.
-    func removeDeviceKey(_ recipient: String) async throws {
+    /// already copied. `expectedVault`: the vault the request was made for.
+    func removeDeviceKey(_ recipient: String, expectedVault: UUID? = nil) async throws {
         guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         guard vault.recipients.contains(where: { $0.key == recipient }) else { throw KeyError.notListed }
         guard vault.recipients.count > 1 else { throw KeyError.lastKey }
         guard !heldRecipients.contains(recipient) else { throw KeyError.inUse }
@@ -148,8 +182,14 @@ extension AppModel {
     /// note is local: a file the rewrap cannot see would stay encrypted to
     /// the old set). The vault is adopted even when files remain, as the
     /// change then stays pending.
-    private func changeRecipients(_ change: @escaping @Sendable (inout Vault) throws -> Vault.RewrapReport) async throws {
+    ///
+    /// `applied` is called once the change is on disk (the manifest names the
+    /// new recipient set), before anything else can fail.
+    private func changeRecipients(_ change: @escaping @Sendable (inout Vault) throws -> Vault.RewrapReport,
+                                  applied: () -> Void = {}) async throws {
         guard phase == .unlocked, let start = vault else { throw KeyError.notUnlocked }
+        isChangingKeys = true
+        defer { isChangingKeys = false }
         await editGate.acquire()
         defer { editGate.release() }
         let gen = generation
@@ -165,6 +205,7 @@ extension AppModel {
                 return (copy, report)
             }
         }
+        applied()
         try ensureCurrent(gen)
         adoptRewrapped(next)
         guard report.isComplete else { throw KeyError.incomplete(report.failures.count) }

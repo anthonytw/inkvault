@@ -39,7 +39,9 @@ struct KeyManagementTests {
 
     @Test func aGeneratedKeyIsAddedAndItsSecretReturnedOnce() async throws {
         let (model, url) = try await Self.unlockedModel()
-        let secret = try await model.generateDeviceKey(label: "")
+        let generated = try await model.generateDeviceKey(label: "")
+        #expect(generated.problem == nil)
+        let secret = generated.secret
         let identity = try IdentityFile.parse(secret)
         #expect(identity.isPostQuantum)
         #expect(model.deviceKeys.map(\.label).contains("Device"))
@@ -114,6 +116,72 @@ struct KeyManagementTests {
         vault = try Vault.open(at: url, identities: model.unlockIdentities)
         #expect(try NoteReducer.reconstruct(vault.loadNote(Self.lecture).revisions).pages.count == 4)
         #expect(try vault.loadNote(Self.lecture).failures.isEmpty)
+    }
+
+    /// The vault lists the generated key as soon as the manifest is written:
+    /// a change that then stays pending must still hand the secret over.
+    @Test func aGeneratedKeyIsReturnedEvenWhenTheChangeStaysPending() async throws {
+        let (model, url) = try await Self.unlockedModel()
+        let folder = url.appendingPathComponent("notes/\(AppModelTests.deleted.uuidString.lowercased())")
+        let file = try #require(try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { $0.hasSuffix(".age") && !$0.hasPrefix(".") }.sorted().first)
+        try Data("not an age file".utf8).write(to: folder.appendingPathComponent(file))
+        let generated = try await model.generateDeviceKey(label: "Tablet")
+        #expect(generated.problem != nil, "one file could not be re-encrypted")
+        let identity = try IdentityFile.parse(generated.secret)
+        #expect(model.deviceKeys.contains { $0.recipient == identity.recipient.string })
+        let vault = try Vault.open(at: url, identities: [identity])
+        #expect(try vault.loadNote(Self.lecture).failures.isEmpty, "the secret opens the vault")
+    }
+
+    @Test func aRequestMadeForAnotherVaultChangesNothing() async throws {
+        let (model, _) = try await Self.unlockedModel()
+        let other = try NativeIdentity.generate(.postQuantum)
+        await #expect(throws: AppModel.KeyError.vaultChanged) {
+            try await model.addDeviceKey(recipient: other.recipient.string, label: "x", expectedVault: UUID())
+        }
+        await #expect(throws: AppModel.KeyError.vaultChanged) {
+            _ = try await model.generateDeviceKey(label: "x", expectedVault: UUID())
+        }
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "x", expectedVault: model.vault?.vaultId)
+        let key = try #require(model.deviceKeys.first { $0.recipient == other.recipient.string })
+        await #expect(throws: AppModel.KeyError.vaultChanged) {
+            try await model.removeDeviceKey(key.recipient, expectedVault: UUID())
+        }
+        #expect(model.deviceKeys.count == 2)
+        try await model.removeDeviceKey(key.recipient, expectedVault: key.vault)
+        #expect(model.deviceKeys.count == 1)
+    }
+
+    /// A window editor closed for a key change holds the old vault and
+    /// secret: whatever still reaches it must never be written.
+    @Test func anEditorClosedForAKeyChangeWritesNothingMore() async throws {
+        let (model, url) = try await Self.unlockedModel()
+        await model.claimNote(Self.lecture)
+        let window = try await model.openWindowNote(Self.lecture)
+        let other = try NativeIdentity.generate(.postQuantum)
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "B")
+        #expect(window.isShutDown)
+        let before = try Vault.open(at: url, identities: model.unlockIdentities).revisionNames(of: Self.lecture).count
+        window.addPage()
+        await window.flush()
+        let after = try Vault.open(at: url, identities: model.unlockIdentities).revisionNames(of: Self.lecture).count
+        #expect(after == before)
+        #expect(window.pages.count == 2, "a closed editor takes no changes")
+    }
+
+    @Test func noEditorOpensWhileTheKeysChange() async throws {
+        let (model, _) = try await Self.unlockedModel()
+        model.selectedNoteID = Self.lecture
+        await model.claimNote(AppModelTests.deleted)
+        model.isChangingKeys = true
+        await #expect(throws: CancellationError.self) { try await model.openEditor(for: Self.lecture) }
+        await #expect(throws: CancellationError.self) { _ = try await model.openWindowNote(AppModelTests.deleted) }
+        #expect(model.editor == nil)
+        #expect(model.windowEditors.isEmpty)
+        model.isChangingKeys = false
+        try await model.openEditor(for: Self.lecture)
+        #expect(model.editor?.noteID == Self.lecture)
     }
 
     @Test func theRecoveryKitIsAPDFOfTheKeyInUse() async throws {
