@@ -25,6 +25,7 @@ working state.
 | Crypto | Streaming encrypt/decrypt, header-only rewrap (B1) | 📋 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
+| Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | 🔀 #54 |
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
 | Vault | Attachment model types and ops (A0) | 🔀 #47 |
@@ -44,6 +45,7 @@ working state.
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | import notability, search (recognised text) | ✅ | ✅ |
+| Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
 | Recovery kit (paper key), backup / verify / restore | 🔀 #30 | 🔀 #30 |
@@ -59,6 +61,7 @@ working state.
 | --- | --- | --- |
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
 | Vaults | Keys in the Keychain / password manager | 🔀 #24 |
+| Vaults | Fast opening: background listing with "Opening vault: n of m", list fills in as notes are read, encrypted summary cache for instant reopen, empty list always explained | 🔀 #54 |
 | Notes | Notebook tree, tags (with tag UI), rename, move, delete/restore, duplicate titles allowed | ✅ (title rename 🔀 #24) |
 | Canvas | PencilKit drawing, tool palette (full / compact), scrolling past the end, Keep Screen On | ✅ |
 | Canvas | Object eraser by default, eraser sizes and cursor | 🔀 #24 |

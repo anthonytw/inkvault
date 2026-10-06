@@ -92,7 +92,9 @@ yet"), never an empty note: every note has at least one revision, and
 iCloud lists a folder's contents after the folder itself. The app asks for
 the folder (`startDownloadingUbiquitousItem` on it) and waits.
 
-Pending notes appear in the list as "Downloading from iCloud…" rows with a
+Pending notes appear in the list with the summary this device cached for
+them on an earlier launch (`SummaryCache`, `format.md` §10) and a small
+spinner, or, when nothing is cached, as "Downloading from iCloud…" rows with a
 spinner, and are requested from iCloud at most 16 notes at a time, the
 note the user selected first. A bar under the list shows "Downloading from
 iCloud: n of m notes", a progress bar and "n of m files"
@@ -105,6 +107,26 @@ background, restarts when the app becomes active and on every reopen, and a
 pass of a loop replaced or paused meanwhile publishes nothing. 90 s without progress shows a
 problem line in the bar (not an alert) and the loop keeps trying; the line
 clears when files arrive.
+
+Listing (any vault, `AppModel+Loading`): unlocking only checks the key; the
+note list is then read by a task the model owns (`startLoadingNotes`), so the
+unlock sheet closes at once and no view going away can cancel the listing.
+Summaries are read without stroke geometry, on up to four threads, in
+batches of 24 that are merged into the list as they finish; the bar under the
+list shows "Opening vault: n of m notes" (or "Updating notes" when the list
+already shows every note) next to the iCloud progress. On a reopen the cached
+summaries are shown before anything is read, and only notes whose revision
+file names changed are decrypted. Listings never overlap (`loadGate`), and
+the cache file is written once per listing, not per batch. The list is usable
+while it loads, so edits never decide from a summary not read in this session
+(`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
+first), a notebook rename waits until every note was read, a batch read
+before an edit's own re-read does not merge over it (`summaryEpochs`), and a
+listing only removes notes it saw before its scan (a note created meanwhile
+stays, and stays selected). An
+empty list always says why: loading (with the count), downloading from
+iCloud, the listing failed (with Try Again), no search match, nothing in the
+selected notebook or tag, or an empty vault (`EmptyListReason`).
 
 Opening a note, and every browser edit of one (rename, tags, move, delete,
 restore), first lists that note's folder afresh and downloads whatever is

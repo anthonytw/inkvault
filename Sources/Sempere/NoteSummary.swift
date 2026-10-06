@@ -1,7 +1,11 @@
 import Foundation
 
 /// One line of a note listing.
-public struct NoteSummary: Hashable, Sendable {
+///
+/// `Codable` for `SummaryCache` only (the synthesised form, not a format):
+/// a new field is cached automatically; bump `SummaryCache.schemaVersion`
+/// whenever a field is added or computed differently.
+public struct NoteSummary: Hashable, Sendable, Codable {
     /// The note id (its directory name).
     public var id: UUID
     /// The current title; empty when never set.
@@ -113,13 +117,27 @@ extension LoadedNote {
     }
 }
 
+/// One note finished by `Vault.summaries(of:cache:maxConcurrency:progress:)`.
+public struct SummaryProgress: Hashable, Sendable {
+    /// The note's summary.
+    public var summary: NoteSummary
+    /// True when it came from the `SummaryCache` (nothing was decrypted).
+    public var cached: Bool
+    /// Notes finished so far, this one included.
+    public var completed: Int
+    /// Notes in the call.
+    public var total: Int
+}
+
 extension Vault {
-    /// Summarises one note from whatever revisions can be read.
+    /// Summarises one note from whatever revisions can be read. Stroke
+    /// geometry is skipped (`RevisionDetail.withoutStrokePoints`); the result
+    /// equals `summary(of:loaded:)` of the fully decoded note.
     public func summary(of noteId: UUID) throws -> NoteSummary {
-        summary(of: noteId, loaded: try loadNote(noteId))
+        summary(of: noteId, loaded: try loadNote(noteId, detail: .withoutStrokePoints))
     }
 
-    /// Summarises a note already loaded with `loadNote`.
+    /// Summarises a note already loaded with `loadNote` (any `RevisionDetail`).
     public func summary(of noteId: UUID, loaded: LoadedNote) -> NoteSummary {
         var s = NoteSummary(id: noteId, title: "", tags: [], notebook: nil, deleted: false, pages: 0, strokes: 0,
                             modified: loaded.revisions.map(\.wall).max(), problem: nil)
@@ -143,9 +161,55 @@ extension Vault {
 
     /// Summaries of every note, sorted by title then id.
     public func summaries() throws -> [NoteSummary] {
+        try summaries(of: nil)
+    }
+
+    /// Summaries of `ids` (every note when nil), sorted by title then id.
+    ///
+    /// Notes are read on up to `maxConcurrency` threads (0: one per core,
+    /// at most 8; `Parallel.defaultWidth`), without stroke geometry. With a
+    /// `cache`, a note whose revision file names match its entry is not
+    /// decrypted at all; fresh summaries are stored and the cache is saved
+    /// at the end (a failed save is kept in `cache.saveProblem`, the listing
+    /// still succeeds). Listing every note also drops the entries of notes
+    /// that are gone.
+    ///
+    /// `progress` is called once per note as it finishes, from worker
+    /// threads, possibly concurrently.
+    ///
+    /// - Throws: `VaultError` when the vault cannot read or a note folder
+    ///   cannot be listed (the first such note in `ids` order). Unreadable
+    ///   revisions are not errors: they set the summary's `problem`.
+    public func summaries(of ids: [UUID]?, cache: SummaryCache? = nil, maxConcurrency: Int = 0, saveCache: Bool = true,
+                          progress: (@Sendable (SummaryProgress) -> Void)? = nil) throws -> [NoteSummary] {
         try requireMigrated()
-        return try noteIDs().map { try summary(of: $0) }
-            .sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
+        _ = try requireReadable()
+        let all = ids == nil
+        let ids = try ids ?? noteIDs()
+        let counter = ProgressCounter()
+        let total = ids.count
+        let results = Parallel.map(ids, width: maxConcurrency > 0 ? maxConcurrency : Parallel.defaultWidth) { id in
+            Result { () throws -> (NoteSummary, Bool) in
+                let names = try revisionNames(of: id)
+                if let hit = cache?.summary(for: id, revisions: names) { return (hit, true) }
+                let s = summary(of: id, loaded: try loadNote(id, names: names, detail: .withoutStrokePoints))
+                cache?.store(s, revisions: names)
+                return (s, false)
+            }
+        } done: { _, result in
+            guard let progress, case .success(let (s, cached)) = result else { return }
+            progress(SummaryProgress(summary: s, cached: cached, completed: counter.increment(), total: total))
+        }
+        var out: [NoteSummary] = []
+        out.reserveCapacity(results.count)
+        for r in results { out.append(try r.get().0) }
+        if let cache {
+            if all { cache.retain(only: Set(ids)) }
+            // A caller reading in batches passes false and saves once at the
+            // end: every save rewrites the whole file.
+            if saveCache { try? cache.save() }
+        }
+        return out.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
     }
 
     /// Resolves a full id, an id prefix of 4 or more characters, or an exact
@@ -166,6 +230,18 @@ extension Vault {
     public func needsSnapshotBeforeCompaction(noteId: UUID, retention: TimeInterval = CompactionPlanner.defaultRetention,
                                               now: Date = Date()) throws -> Bool {
         try loadNote(noteId).needsSnapshotBeforeCompaction(retention: retention, now: now)
+    }
+}
+
+/// A thread-safe running count.
+final class ProgressCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func increment() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        value += 1
+        return value
     }
 }
 
