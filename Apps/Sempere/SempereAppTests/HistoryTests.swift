@@ -27,6 +27,15 @@ struct HistoryTests {
         return try #require(Set(editor.liveStrokes(of: page.id).map(\.id)).subtracting(before).first)
     }
 
+    /// The error `body` throws, if any (keeps throwing calls out of `#expect`).
+    static func thrown(_ body: () throws -> Void) -> (any Error)? {
+        do { try body(); return nil } catch { return error }
+    }
+
+    static func thrown(_ body: () async throws -> Void) async -> (any Error)? {
+        do { try await body(); return nil } catch { return error }
+    }
+
     static func strokeIDs(_ state: NoteState) -> Set<UUID> {
         Set(state.pages.flatMap(\.strokes).map(\.id))
     }
@@ -87,7 +96,8 @@ struct HistoryTests {
         let vault = try #require(model.vault)
         let count = try vault.revisionNames(of: Self.lecture).count
         await before.flush()
-        #expect(try vault.revisionNames(of: Self.lecture).count == count)
+        let nowCount = try vault.revisionNames(of: Self.lecture).count
+        #expect(nowCount == count)
     }
 
     // MARK: - Restore
@@ -114,7 +124,8 @@ struct HistoryTests {
         #expect(summary.strokesRemoved == 2)
         #expect(summary.strokesRestored == 0)
         // Exactly one delta, and the reconstructed note equals the restore point.
-        #expect(try vault.revisionNames(of: Self.lecture).count == revisions + 1)
+        let afterCount = try vault.revisionNames(of: Self.lecture).count
+        #expect(afterCount == revisions + 1)
         let now = try vault.reconstruct(noteId: Self.lecture)
         #expect(Self.strokeIDs(now) == original)
         #expect(!Self.strokeIDs(now).contains(a) && !Self.strokeIDs(now).contains(b))
@@ -154,7 +165,8 @@ struct HistoryTests {
         let editor = try #require(model.editor)
         let outcome = try await model.restoreVersion(of: Self.lecture, to: newest.name)
         #expect(outcome == nil)
-        #expect(try vault.revisionNames(of: Self.lecture).count == count)
+        let nowCount = try vault.revisionNames(of: Self.lecture).count
+        #expect(nowCount == count)
         #expect(model.editor === editor)   // nothing changed, so the canvas stays
     }
 
@@ -236,11 +248,11 @@ struct HistoryTests {
                 _ = try data.state(at: entry.id)
             } else {
                 #expect(entry.unavailableReason != nil)
-                #expect(throws: HistoryError.incompleteHistory(entry.id)) { try data.state(at: entry.id) }
+                let direct = Self.thrown { _ = try data.state(at: entry.id) }
+                #expect(direct as? HistoryError == .incompleteHistory(entry.id))
                 let note = Self.lecture
-                await #expect(throws: HistoryError.incompleteHistory(entry.id)) {
-                    try await model.restoreVersion(of: note, to: entry.id)
-                }
+                let viaModel = await Self.thrown { try await model.restoreVersion(of: note, to: entry.id) }
+                #expect(viaModel as? HistoryError == .incompleteHistory(entry.id))
             }
         }
         #expect(vault.verify().isHealthy)
@@ -269,10 +281,11 @@ struct HistoryTests {
         let hooks = cloud.hooks
         let clock = try DeviceClock(url: TS.deviceStateURL())
         let note = Self.lecture
-        await #expect(throws: CloudVault.CloudError.self) {
+        let refused = await Self.thrown {
             try await NoteWriter.restore(note, to: target.name, vault: vault, clock: clock,
                                          verify: { try CloudVault.requireLocal(note: note, vault: url, hooks: hooks) })
         }
+        #expect(refused is CloudVault.CloudError)
         let folder = url.appendingPathComponent("notes/\(note.uuidString.lowercased())")
         let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".age") }
         #expect(files.count == count)
