@@ -72,7 +72,8 @@ struct HistoryTests {
         #expect(allAvailable)
         let noReasons = entries.allSatisfy { $0.unavailableReason == nil }
         #expect(noReasons)
-        #expect(data.compactionNotice == nil)
+        // The fixture note holds a snapshot, so the compaction notice is shown.
+        #expect(data.compactionNotice != nil)
     }
 
     @Test func aNoteWithoutRevisionsHasEmptyHistory() {
@@ -146,9 +147,12 @@ struct HistoryTests {
         #expect(second !== first)
         #expect(!second.isReadOnly)
         let page = try #require(second.currentPage)
-        let reopenedIDs = Set(second.liveStrokes(of: page.id).map { $0.id })
+        let reopenedIDs = Set(second.pages.flatMap { second.liveStrokes(of: $0.id) }.map { $0.id })
         #expect(reopenedIDs == original)
-        #expect(second.drawing(for: page.id).strokes.count == original.count)
+        let targetPage = try #require(target.pages.first { $0.id == page.id })
+        let onCanvas = Set(second.liveStrokes(of: page.id).map { $0.id })
+        #expect(onCanvas == Set(targetPage.strokes.map { $0.id }))
+        #expect(second.drawing(for: page.id).strokes.count == targetPage.strokes.count)
 
         // The history kept everything: the newest version is listed first and
         // the strokes can be brought back by restoring it, as new ids.
@@ -240,7 +244,6 @@ struct HistoryTests {
         try await Self.draw(editor, y: 300)
         try await Self.draw(editor, y: 340)
         let before = try await model.loadHistory(for: Self.lecture)
-        #expect(before.compactionNotice == nil)
 
         let loaded = try vault.loadNote(Self.lecture)
         var clock = HybridClock()
@@ -272,15 +275,24 @@ struct HistoryTests {
         #expect(vault.verify().isHealthy)
     }
 
-    @Test func compactionNoticeAppearsForIncompletePoints() throws {
-        let (vault, _) = try TS.unlockedFixture()
-        var points = try vault.restorePoints(noteId: Self.lecture)
-        let first = try #require(points.first)
+    @Test func compactionNoticeAppearsOnlyForSnapshotsOrIncompletePoints() throws {
+        let device = try #require(DeviceID("aaaaaaaa"))
+        func point(_ ms: Int64, _ kind: RevisionName.Kind, complete: Bool = true) throws -> RestorePoint {
+            let hlc = try #require(HLC(millis: ms, counter: 0))
+            return RestorePoint(name: RevisionName(hlc: hlc, device: device, seq: Int(ms), kind: kind),
+                                wall: Date(timeIntervalSince1970: Double(ms)), app: "test/0", complete: complete)
+        }
+        var points = [try point(1, .delta), try point(2, .delta)]
         #expect(HistoryEntry.compactionNotice(points) == nil)
         points[0].complete = false
         #expect(HistoryEntry.compactionNotice(points) != nil)
-        #expect(HistoryEntry.entries(points, thisDevice: nil).last?.id == first.name)
-        #expect(HistoryEntry.entries(points, thisDevice: nil).last?.isAvailable == false)
+        let entries = HistoryEntry.entries(points, thisDevice: device)
+        #expect(entries.last?.id == points[0].name)
+        #expect(entries.last?.isAvailable == false)
+        #expect(entries.last?.unavailableReason != nil)
+        #expect(entries.first?.isAvailable == true)
+        let withSnapshot = [try point(1, .delta), try point(2, .snapshot)]
+        #expect(HistoryEntry.compactionNotice(withSnapshot) != nil)
     }
 
     @Test func restoreRefusesANoteWhoseFilesAreNotAllLocal() async throws {
