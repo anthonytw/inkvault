@@ -30,6 +30,7 @@ working state.
 | Vault | Attachment model + merge (A0, A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
+| Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | 🔀 #52 |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
 | Render | Images, Unicode text, PDF backgrounds, recordings in exports (C1–C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
@@ -42,6 +43,7 @@ working state.
 | Feature | Linux | macOS |
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
+| `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
@@ -62,7 +64,7 @@ working state.
 | Canvas | PencilKit drawing, tool palette (full / compact), scrolling past the end, Keep Screen On | ✅ |
 | Canvas | Object eraser by default, eraser sizes and cursor | 🔀 #24 |
 | Canvas | Visual paper picker (line width, spacing) | 🔀 #28 |
-| Canvas | Pages vs pageless (reorder, delete pages) | 📋 round 2 |
+| Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | 🔀 #52 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search (Vision on rendered pages) | 📋 round 2 |
 | App | Share/export (PDF, Markdown) from the app | 📋 round 2 |

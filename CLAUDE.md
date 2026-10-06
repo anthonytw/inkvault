@@ -208,6 +208,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   height (`PageExtent.scrollHeight`); finite pages end with an Add Page / Next
   Page button below the page. "Keep Screen On" (`KeepScreenOn`) disables the
   idle timer only while a note is open and the scene is active.
+- Paged vs pageless is only `pageSize.infinite` (`format.md` §5.4.3). Page
+  gestures (add, move, delete, undo, duplicate) and the layout switch are built
+  by `NoteOps` (`Sources/Sempere/PageLayout.swift`), which also predicts the
+  resulting pages, and are written by `NoteEditor`, one delta per gesture. A
+  stroke that changes page is re-added under a new id with its `transform`'s
+  `ty` shifted, never edited in place. A note keeps at least one page.
 - `NavigationSplitView` ignores a programmatic column change that arrives
   while the view is first being built, so the stored choice (`ColumnLayout`,
   `@AppStorage`) is never made to depend on selection state.

@@ -7,7 +7,20 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [Unreleased]
 
+### Added
+
+- **Paged and pageless notes** (`docs/format.md` §5.4.3, #52): a note has fixed-size pages
+  or one infinite page, and switches between them without deleting or moving ink
+  (`sempere notes layout ID paged|pageless`; in the app, the Page Layout menu). In the app,
+  paged notes add a page after the current one or at the end, delete (with undo),
+  duplicate, and reorder pages by dragging in a thumbnail strip; each gesture is one delta.
+
 ### Changed
+
+- Exports cut pageless pages at gaps in the ink near each sheet height instead of through
+  lines of handwriting (`export --breaks gaps`, the default; `--breaks fixed` keeps the old
+  cuts). Ink that a concurrent edit left below a fixed-size page is exported on an extra page
+  instead of being dropped.
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
   additional permission). Contributions are licensed under the same terms and certified with a
