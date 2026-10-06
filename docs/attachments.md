@@ -1379,7 +1379,7 @@ synthetic `.note` fixture so CI covers the mapping.
   names in `MediaObject` (a media object that does not match is reported with
   its field names); a `TemplatePDF:` paper uses a PDF under `PDFs/` whose
   name holds the template uuid, else is reported (`dropped.templatePDFs`).
-- *Status of D3 and D4:* in review (stacked on #70), synthetic notes only.
+- *Status of D3 and D4:* in review (#73, stacked on #70), synthetic notes only.
   Code: `NotabilityText.swift` (typed text in Notability's dictionary shape
   and as a standard `NSAttributedString`; blocks, runs, `lang` by script),
   `NotabilityAudio.swift` (library entries, MP4/CAF/WAV/AIFF/MP3 sniffing
