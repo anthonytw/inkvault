@@ -280,7 +280,28 @@ public enum NotabilityImporter {
         let page = Page(id: pageId, order: PageOrder.between(nil, nil), strokes: strokes,
                         recognition: recognition(note, scale: k, attachments: attachments),
                         items: items.sorted(by: Item.drawsBefore))
-        return NoteState(meta: meta, pages: [page])
+        var state = NoteState(meta: meta, pages: [page])
+        // One infinite page taller than the renderer's extent (format.md §8.4: writers stay
+        // within it; a long PDF note reaches it at about 250 letter pages) could not be
+        // exported at all: such a note is cut into pages of its own page height, as
+        // `notes layout paged` does (format.md §5.4.3). Ids stay derived from the key, and
+        // nothing names a `parent`: the uncut page never existed in the vault.
+        if meta.pageSize.height > PageSize.maxSheetHeight {
+            var n = 0
+            let edit = NoteOps.makePaged(pages: state.pages, pageSize: meta.pageSize) {
+                n += 1
+                return UUID.derived(from: key + ":sheet:\(n)")
+            }
+            state.pages = edit.pages.map { p in
+                var p = p
+                p.parent = nil
+                p.strokes = p.strokes.map { var s = $0; s.parent = nil; return s }
+                p.items = p.items.map { var i = $0; i.parent = nil; return i }
+                return p
+            }
+            state.meta.pageSize = edit.pageSize
+        }
+        return state
     }
 
     /// Notability's per-page recognition merged into one `Recognition` for

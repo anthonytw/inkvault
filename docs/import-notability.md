@@ -485,6 +485,11 @@ one `pdfPage` item in the background layer (`0`):
   boxes of page `n` move by its `top`.
 - the page extent covers every background, so a PDF that was never written on
   imports with all its pages.
+- a note that would be taller than the renderer's extent (200 000 pt,
+  `format.md` §8.4; a PDF of about 250 letter pages or more) is not one
+  infinite page: it is cut into pages of its page height, as `sempere notes
+  layout paged` does (`format.md` §5.4.3), with ids still derived from the
+  note, so it can be exported. Shorter notes keep the one infinite page.
 
 `PDFFile.highlights` (always empty in the samples) are counted in
 `dropped.pdfHighlights`. A `TemplatePDF:<uuid>` paper uses a PDF under `PDFs/`
@@ -512,7 +517,10 @@ Notability's order. The bytes are sniffed: JPEG and PNG are stored with
 metadata stripped (`format.md` §8.2.5; the EXIF orientation becomes the
 item's `orientation`, `pixelSize` is after it) unless `--keep-image-metadata`;
 HEIC is stored as is (sized from its `ispe`, metadata not stripped, with a
-warning); GIF, TIFF, WebP, BMP and AVIF are left out. A media object with no
+warning); GIF, TIFF, WebP, BMP and AVIF are left out, and so is an image over
+100 megapixels (`format.md` §8.4). At most 2 GiB of PDFs and images is held for
+one note while it is imported (a package entry may be 1 GiB, and a small zip
+can hold many): past that an attachment is left out with a warning. A media object with no
 file, no frame, a frame that is not a finite box of at least 1 × 1 unit, or
 any class that is not an image is counted in `dropped.media`; its warning
 names its class and top-level field names, and every placed image's warning
