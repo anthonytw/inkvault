@@ -179,10 +179,16 @@ sempere vault index --vault /srv/www/Notes.sempere     # writes Notes.sempere/se
 
 `sempere-index.json` is `{"format": "sempere-index/1", "notes":
 {"<noteId>": ["<revision file>", …]}}`: note ids and revision names only,
-which the server sees anyway. It needs no key. Re-run it after every update of
-the hosted copy (a revision missing from the index is not read). Every reader
-treats the file as an unknown file and ignores it (`format.md` §1), and `sync
-webdav` neither copies nor deletes it. `--out -` prints it, `--out PATH`
+which the server sees anyway. It needs no key. Once it exists it stays
+current with no manual step: every `sempere` command that opens the vault
+(`compact`, `import`, `snapshot`, edits, `sync webdav`, even `verify`)
+rewrites it when the vault's listing changed since, and `sync webdav`
+rewrites the server's copy, if the server has one, to list what the server
+holds after the sync. No command creates it except `vault index`. A copy made
+by other means (`rsync` of the vault folder) carries the index with it. Writes
+by the app do not update it; the next `sempere` command does. Every reader
+treats the file as an unknown file and ignores it (`format.md` §1); `sync
+webdav` never copies it from one side to the other. `--out -` prints it, `--out PATH`
 writes it elsewhere. The viewer's listing choice "Index file or WebDAV" tries
 the index first and falls back to `PROPFIND`.
 

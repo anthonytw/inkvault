@@ -48,4 +48,22 @@ final class CLIWebIndexTests: CLITestCase {
         let vault = try copyLegacyVault()
         XCTAssertEqual(try cli(["vault", "index", "--vault", vault]).status, 5)
     }
+
+    /// Once it exists, the index follows the vault: any command that
+    /// changes it (here `compact`) rewrites it, and commands never create one.
+    func testCommandsKeepAnExistingIndexCurrent() throws {
+        let vault = try copyFixtureVault()
+        let indexPath = vault + "/sempere-index.json"
+        XCTAssertEqual(try cli(["notes", "list", "--vault", vault, "--identity", Self.fixtureKey]).status, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexPath), "no command creates it")
+
+        XCTAssertEqual(try cli(["vault", "index", "--vault", vault, "-q"]).status, 0)
+        let before = try Data(contentsOf: URL(fileURLWithPath: indexPath))
+        let r = try cli(["compact", "--all", "--retention", "0", "--vault", vault, "--identity", Self.fixtureKey])
+        XCTAssertEqual(r.status, 0, r.err)
+        let after = try Data(contentsOf: URL(fileURLWithPath: indexPath))
+        XCTAssertNotEqual(after, before, "compaction deleted revisions")
+        let fresh = try cli(["vault", "index", "--vault", vault, "--out", "-"])
+        XCTAssertEqual(after, fresh.outData, "the index lists exactly what the vault holds")
+    }
 }

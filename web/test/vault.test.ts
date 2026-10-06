@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { loadNote } from "../src/vault/library.ts";
 import { RevisionReadError, UnlockedVault, VaultError, parseIdentity, parseManifest, recipientType } from "../src/vault/vault.ts";
 import { gunzip } from "../src/vault/gzip.ts";
+import { isRevisionFile } from "../src/vault/source.ts";
 import { NodeDirSource, fixtures, sampleIdentity } from "./support.ts";
 
 const lecture = "11111111-1111-4111-8111-111111111111";
@@ -114,7 +115,7 @@ describe("reading revisions", () => {
   it("reports unreadable revisions with the note and merges the rest", async () => {
     const dir = copy("sample.sempere");
     const notes = join(dir, "notes", lecture);
-    const files = readdirSync(notes).sort();
+    const files = readdirSync(notes).filter(isRevisionFile).sort();   // not att/ (format.md §8.1.2)
     // Replace the last delta's bytes with another revision's: tag mismatch.
     const last = files[files.length - 1] ?? "";
     writeFileSync(join(notes, last), readFileSync(join(notes, files[0] ?? "")));
@@ -128,7 +129,7 @@ describe("reading revisions", () => {
   it("rejects a revision whose content names another file (§5)", async () => {
     const dir = copy("sample.sempere");
     const notes = join(dir, "notes", lecture);
-    const [first] = readdirSync(notes).sort();
+    const [first] = readdirSync(notes).filter(isRevisionFile).sort();
     // Renaming changes the name the tag is checked under, so this is a tag
     // failure; the content check is the second line of defence.
     renameSync(join(notes, first ?? ""), join(notes, "17911308010000000-a1b2c3d4-9.delta.age"));

@@ -203,8 +203,10 @@ sempere vault index [--out PATH|-]
   `--out -` prints it): every note id and its revision file names, the
   listing the web viewer reads on a static server that cannot list folders
   (`docs/web-viewer.md` "Hosting"). It needs no key and holds only names that
-  storage already shows. Re-run it after every update of the hosted copy; a
-  WebDAV share needs no index. Legacy vaults are refused (exit 5), as the
+  storage already shows. Once it exists it is kept current automatically:
+  every command that opens the vault rewrites it when the listing changed (a
+  failure to do so is a warning), and `sync webdav` rewrites the server's
+  copy when the server has one. A WebDAV share needs no index. Legacy vaults are refused (exit 5), as the
   viewer cannot read them. `--json` emits `path`, `notes` and `revisions`.
 
 ### Attachments
