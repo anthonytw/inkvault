@@ -111,6 +111,13 @@ struct NotesRestore: ParsableCommand {
         if s.strokesRestored > 0 { parts.append("re-add \(s.strokesRestored) stroke(s)") }
         if s.pageOrderChanges > 0 { parts.append("reorder \(s.pageOrderChanges) page(s)") }
         if s.recognitionChanges > 0 { parts.append("reset recognition on \(s.recognitionChanges) page(s)") }
+        if s.pagePaperChanges > 0 { parts.append("reset paper on \(s.pagePaperChanges) page(s)") }
+        if s.itemsRemoved > 0 { parts.append("remove \(s.itemsRemoved) item(s)") }
+        if s.itemsRestored > 0 { parts.append("re-add \(s.itemsRestored) item(s)") }
+        if s.itemChanges > 0 { parts.append("set back \(s.itemChanges) item(s)") }
+        if s.recordingsRemoved > 0 { parts.append("remove \(s.recordingsRemoved) recording(s)") }
+        if s.recordingsRestored > 0 { parts.append("re-add \(s.recordingsRestored) recording(s)") }
+        if s.recordingChanges > 0 { parts.append("set back \(s.recordingChanges) recording(s)") }
         if !s.metaFields.isEmpty { parts.append("set \(s.metaFields.joined(separator: ", "))") }
         if let d = s.deleted { parts.append(d ? "delete the note" : "undelete the note") }
         let what = parts.joined(separator: "; ")
