@@ -39,6 +39,11 @@ extension AppModel {
         let cloud = isCloudVault
         let hooks = cloudHooks
         let canRead = vault.canRead && phase == .unlocked
+        // Changes are judged against the index: never before it is loaded.
+        if canRead {
+            try await openSummaryCache()
+            try ensureCurrent(gen)
+        }
         // Only notes listed before the scan can be gone: one created meanwhile
         // (`createNote`) is not in the scan but must stay, and stay selected.
         let before = Set(notes.map(\.id))

@@ -5,7 +5,8 @@ import SwiftUI
 /// windows are serialised by one model and never race on the device clock.
 @main
 struct SempereApp: App {
-    @State private var model = AppModel(summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory)
+    @State private var model = AppModel(summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
+                                        drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 

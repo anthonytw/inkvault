@@ -169,6 +169,8 @@ final class AppModel {
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow
+    /// Test seam: told how many notes each listing batch read.
+    @ObservationIgnored var onSummaryRead: (@Sendable (Int) -> Void)?
     /// Notes read per published batch, and threads reading them (`AppModel+Loading`).
     var loadBatchSize = 24
     var loadConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
@@ -177,6 +179,15 @@ final class AppModel {
     let summaryCacheDirectory: URL?
     /// The open vault's summary cache, once unlocked.
     @ObservationIgnored var summaryCache: SummaryCache?
+    /// The load of `summaryCache` in progress (`openSummaryCache`).
+    @ObservationIgnored var summaryCacheOpening: Task<Void, any Error>?
+    /// Where page drawings are cached between note opens (`DrawingCache`);
+    /// nil (the default, for tests): no cache. The app passes
+    /// `DrawingCache.defaultRoot`.
+    let drawingCacheRoot: URL?
+    /// The open vault's drawing cache, opened with the first note; deleted
+    /// when the vault closes.
+    @ObservationIgnored var drawingCache: DrawingCache?
     /// The listing started by `unlock`, owned by the model so that no view
     /// (an unlock sheet going away) can cancel it.
     @ObservationIgnored var loadTask: Task<Void, any Error>?
@@ -215,10 +226,11 @@ final class AppModel {
     private let afterIO: (@Sendable () async -> Void)?
 
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
-         summaryCacheDirectory: URL? = nil,
+         summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
         self.summaryCacheDirectory = summaryCacheDirectory
+        self.drawingCacheRoot = drawingCacheRoot
         self.editorDebounce = editorDebounce
         self.afterIO = afterIO
     }
@@ -502,8 +514,29 @@ final class AppModel {
         try ensureCurrent(gen)
         guard let noteID else { return }
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
-        try await downloadNote(noteID)   // iCloud: this note first, before the rest of the vault
+        let interval = Perf.begin(.noteOpen)
+        let render = Perf.begin(.noteFirstRender)
+        var shown = false
+        defer {
+            if !shown {
+                Perf.end(interval, "\(Perf.short(noteID)) not shown")
+                Perf.end(render, "\(Perf.short(noteID)) not shown")
+            }
+        }
+        // iCloud: this note first, before the rest of the vault.
+        let download = Perf.begin(.noteDownload)
+        do { try await downloadNote(noteID) } catch {
+            Perf.end(download, "\(Perf.short(noteID)) failed")
+            throw error
+        }
+        Perf.end(download, "\(Perf.short(noteID))")
         let clock = try deviceClockForWriting()
+        let cache = await openDrawingCache()
+        let url = vault.url
+        // The names say which cached version of the note is current; listing them reads no file.
+        let listed = cache == nil ? nil : try? await offMain {
+            try VaultEnumeration.listNotes(vault: url, only: [noteID]).first?.names
+        }
         var verify: (@Sendable () throws -> Void)?
         if isCloudVault, let url = vaultURL {
             let hooks = cloudHooks
@@ -512,21 +545,36 @@ final class AppModel {
         let opened: NoteEditor
         do {
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
-                                               coordinated: isCloudVault, verify: verify)
+                                               coordinated: isCloudVault, verify: verify, cache: cache,
+                                               listedNames: listed)
         } catch CloudVault.CloudError.noteNotLocal {
             // A file went missing (or a new one was listed) since `downloadNote`: once more.
             try ensureCurrent(gen)
             try await downloadNote(noteID)
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
-                                               coordinated: isCloudVault, verify: verify)
+                                               coordinated: isCloudVault, verify: verify, cache: cache)
         }
         await afterIO?()
         try ensureCurrent(gen)
         guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
         guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
         let stale = editor
+        Perf.end(interval, "\(Perf.short(noteID)) pages=\(opened.pages.count) fromCache=\(opened.isPreparing)")
+        opened.openInterval = render   // ended by the canvas when the ink is on screen
+        shown = true
         editor = opened
         if let stale { Task { await stale.close() } }
+    }
+
+    /// Opens the open vault's drawing cache (`DrawingCache`) once.
+    func openDrawingCache() async -> DrawingCache? {
+        if let drawingCache { return drawingCache }
+        guard let root = drawingCacheRoot, let vault, vault.canRead else { return nil }
+        let gen = generation
+        let cache = try? await offMain(priority: .utility) { try DrawingCache(root: root, vault: vault) }
+        guard gen == generation else { cache?.close(); return nil }
+        if drawingCache == nil { drawingCache = cache }
+        return drawingCache
     }
 
     /// Opens the selected note on the canvas for the detail pane, keeping a
@@ -597,6 +645,10 @@ final class AppModel {
         dirtyAll = false
         lastValidation = nil
         summaryCache = nil
+        summaryCacheOpening = nil
+        // Drawings of this vault's notes do not outlive it on this device.
+        drawingCache?.close()
+        drawingCache = nil
         vault = nil
         migration = nil
         unlockIdentities = []

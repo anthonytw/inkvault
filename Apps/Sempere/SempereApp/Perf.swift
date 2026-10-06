@@ -42,7 +42,7 @@ enum Perf {
         case reconcileValidate = "reconcile.validate"
         /// Applying a batch of summary changes to the note list.
         case listUpdate = "list.update"
-        /// Selecting a note until its editor exists.
+        /// Opening a note until its editor exists (from the cache, or read).
         case noteOpen = "note.open"
         /// `downloadNote`: making the note's files local.
         case noteDownload = "note.download"
@@ -54,7 +54,8 @@ enum Perf {
         case noteConvert = "note.convert"
         /// Looking the page up in the drawing cache (hit or miss).
         case noteCache = "note.cache"
-        /// From the start of the open until the canvas has the page's ink.
+        /// From the start of the open until the canvas shows ink (the strokes
+        /// on screen first, for a large page converted visible-first).
         case noteFirstRender = "note.firstRender"
         /// Writing pages to the drawing cache.
         case cacheWrite = "cache.write"
@@ -103,14 +104,6 @@ enum Perf {
         let interval = begin(phase)
         defer { end(interval, detail()) }
         return try body()
-    }
-
-    /// `measure` for async work.
-    static func measure<T>(_ phase: Phase, _ detail: @autoclosure () -> String = "",
-                           _ body: () async throws -> T) async rethrows -> T {
-        let interval = begin(phase)
-        defer { end(interval, detail()) }
-        return try await body()
     }
 
     /// A point event (no duration), e.g. a change notification.

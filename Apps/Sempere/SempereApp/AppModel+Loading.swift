@@ -44,6 +44,16 @@ extension AppModel {
         DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("SummaryCache")
     }
 
+    /// False in debug runs launched with `SEMPERE_DEBUG_DRAWING_CACHE=0`, to
+    /// time note opens without the drawing cache.
+    nonisolated static var drawingCacheEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["SEMPERE_DEBUG_DRAWING_CACHE"] != "0"
+        #else
+        return true
+        #endif
+    }
+
     /// Why the note list shows nothing, or nil when it shows something.
     var emptyListReason: EmptyListReason? {
         guard phase == .unlocked, visibleNotes.isEmpty else { return nil }
@@ -91,7 +101,23 @@ extension AppModel {
     /// local index. Its summaries are shown at once, as they are (the list's
     /// source of truth on open), and the revision names they were made from
     /// become `indexedNames`, so a pass reads only notes whose names changed.
+    ///
+    /// Callers share one load: a sync pass that starts while `reload` is
+    /// decrypting the index waits for it rather than treating every note as
+    /// changed.
     func openSummaryCache() async throws {
+        if let opening = summaryCacheOpening {
+            try await opening.value
+            return
+        }
+        guard summaryCache == nil, summaryCacheDirectory != nil, let vault, vault.canRead else { return }
+        let task = Task { try await self.loadSummaryCache() }
+        summaryCacheOpening = task
+        defer { if summaryCacheOpening == task { summaryCacheOpening = nil } }
+        try await task.value
+    }
+
+    private func loadSummaryCache() async throws {
         guard summaryCache == nil, let dir = summaryCacheDirectory, let vault, vault.canRead else { return }
         let gen = generation
         let cache = try? await offMain { () throws -> SummaryCache in
@@ -155,6 +181,7 @@ extension AppModel {
             }
             try ensureCurrent(gen)
             try Task.checkCancellation()
+            onSummaryRead?(batch.count)
             // An edit re-read a note while this batch was being read: its summary is newer.
             let current = read.filter { summaryEpochs[$0.id] == epochs[$0.id] }
             for s in current {

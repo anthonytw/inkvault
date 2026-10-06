@@ -134,7 +134,8 @@ private struct EditorView: View {
             }
             if let page = editor.currentPage {
                 PageCanvasView(editor: editor, pageID: page.id, paper: editor.displayedPaper(of: page), pageSize: editor.pageSize,
-                               paletteVisible: paletteVisible, paletteCompact: paletteCompact)
+                               paletteVisible: paletteVisible, paletteCompact: paletteCompact,
+                               generation: editor.canvasGeneration)
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
                 ContentUnavailableView {
