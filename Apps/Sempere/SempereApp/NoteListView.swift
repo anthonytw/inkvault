@@ -19,7 +19,7 @@ struct NoteListView: View {
 
     var body: some View {
         @Bindable var model = model
-        List(model.visibleNotes, id: \.id, selection: $model.selectedNoteID) { note in
+        List(model.visibleNotes, id: \.id, selection: listSelection) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id))
                 // A placeholder's summary is empty: nothing to act on until it arrives
@@ -36,9 +36,18 @@ struct NoteListView: View {
                     }
                 }
         }
+        .environment(\.editMode, Binding<EditMode>(get: { model.isSelectingNotes ? .active : .inactive },
+                                         set: { setSelecting($0.isEditing) }))
         .navigationTitle(title)
         .searchable(text: $model.searchText, prompt: "Search titles")
         .toolbar {
+            if model.isSelectingNotes {
+                ToolbarItem { ExportMenu(ids: model.exportTargetIDs) }
+            }
+            ToolbarItem {
+                Button(model.isSelectingNotes ? "Done" : "Select") { setSelecting(!model.isSelectingNotes) }
+                    .disabled(model.phase != .unlocked)
+            }
             ToolbarItem {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
                     Picker("Sort By", selection: $model.sortOrder) {
@@ -52,20 +61,12 @@ struct NoteListView: View {
             }
         }
         .overlay {
-            if model.phase == .unlocked && model.visibleNotes.isEmpty {
-                if model.searchText.isEmpty {
-                    ContentUnavailableView("No Notes", systemImage: "note.text")
-                } else {
-                    ContentUnavailableView.search(text: model.searchText)
-                }
-            } else if model.isBusy {
-                ProgressView()
+            if let reason = model.emptyListReason {
+                EmptyListView(reason: reason) { run { try await model.reload() } }
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if let sync = model.cloudSync, sync.isDownloading || sync.problem != nil {
-                CloudSyncBar(status: sync) { model.startCloudSync() }
-            }
+            VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
         }
         .refreshable {
             await model.report { try await model.reload() }
@@ -88,6 +89,33 @@ struct NoteListView: View {
             }
             Button("Cancel", role: .cancel) { prompt = nil }
         }
+    }
+
+    /// The list's selection: the open note, or the ticked notes while selecting. A
+    /// command-click or shift-click on a keyboard selects several and starts selecting.
+    private var listSelection: Binding<Set<UUID>> {
+        Binding(
+            get: { model.isSelectingNotes ? model.multiSelection : Set(model.selectedNoteID.map { [$0] } ?? []) },
+            set: { picked in
+                if model.isSelectingNotes || picked.count > 1 {
+                    model.isSelectingNotes = true
+                    model.multiSelection = picked
+                } else {
+                    model.selectedNoteID = picked.first
+                }
+            })
+    }
+
+    private func setSelecting(_ on: Bool) {
+        guard on != model.isSelectingNotes else { return }
+        model.isSelectingNotes = on
+        // Start from the open note; leaving keeps it open and drops the ticks.
+        model.multiSelection = on ? Set(model.selectedNoteID.map { [$0] } ?? []) : []
+    }
+
+    /// The notes a context-menu export acts on: the ticked ones when `note` is among them.
+    private func exportIDs(for note: NoteSummary) -> [UUID] {
+        model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
     }
 
     private var title: String {
@@ -128,6 +156,7 @@ struct NoteListView: View {
     private func actions(for note: NoteSummary) -> some View {
         if note.deleted {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
+            ExportMenu(ids: exportIDs(for: note))
         } else {
             Button("Rename…", systemImage: "pencil") {
                 promptText = note.title; prompt = Prompt(kind: .rename, note: note.id)
@@ -149,6 +178,7 @@ struct NoteListView: View {
                     Button("No Notebook", role: .destructive) { run { try await model.moveNote(note.id, toNotebook: nil) } }
                 }
             }
+            ExportMenu(ids: exportIDs(for: note))
             Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
         }
     }
@@ -214,7 +244,81 @@ private struct NoteRow: View {
     }
 }
 
-/// The note list's iCloud progress: "Downloading from iCloud: 37 of 128
+/// Why the list is empty: notes loading (with "Opening vault: N of M"),
+/// downloading from iCloud, a failure with a retry, no search match, or
+/// genuinely nothing there.
+struct EmptyListView: View {
+    let reason: EmptyListReason
+    let retry: () -> Void
+
+    var body: some View {
+        switch reason {
+        case .loading(let loading):
+            VStack(spacing: 12) {
+                ProgressView()
+                Text(loading?.headline ?? "Opening vault…").font(.headline).monospacedDigit()
+                Text("Notes appear here as they are read.").font(.callout).foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        case .downloading(let sync):
+            VStack(spacing: 12) {
+                ProgressView(value: sync.fractionCompleted).frame(maxWidth: 240)
+                Text(sync.headline).font(.headline).monospacedDigit()
+                Text("Notes appear here as iCloud Drive delivers them.").font(.callout).foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        case .failed(let message):
+            ContentUnavailableView {
+                Label("Notes Could Not Be Listed", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Try Again", action: retry)
+            }
+        case .noMatches(let query):
+            ContentUnavailableView.search(text: query)
+        case .emptySelection:
+            ContentUnavailableView("No Notes Here", systemImage: "note.text",
+                                   description: Text("Nothing in this notebook, tag or list."))
+        case .emptyVault:
+            ContentUnavailableView("No Notes", systemImage: "note.text",
+                                   description: Text("This vault has no notes yet. Create one with the New Note button."))
+        }
+    }
+}
+
+/// Below the note list: reading notes ("Opening vault: 120 of 640 notes",
+/// or "Updating notes" over a list already shown) and iCloud downloads, in
+/// one place. Hidden when there is nothing to report.
+struct VaultStatusBar: View {
+    let loading: NoteLoading?
+    let sync: CloudSyncStatus?
+    let retry: () -> Void
+
+    var body: some View {
+        let showSync = sync.map { $0.isDownloading || $0.problem != nil } ?? false
+        if loading != nil || showSync {
+            VStack(alignment: .leading, spacing: 10) {
+                if let loading {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(loading.headline).font(.footnote.weight(.semibold)).monospacedDigit()
+                        ProgressView(value: loading.fractionCompleted)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if let sync, showSync {
+                    CloudSyncBar(status: sync, retry: retry)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.bar)
+        }
+    }
+}
+
+/// The iCloud part of `VaultStatusBar`: "Downloading from iCloud: 37 of 128
 /// notes" over a bar, files below; or why it stopped, with a retry. Hidden
 /// once everything is local.
 struct CloudSyncBar: View {
@@ -238,10 +342,7 @@ struct CloudSyncBar: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
         .accessibilityElement(children: .combine)
     }
 }

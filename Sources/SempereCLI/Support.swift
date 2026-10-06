@@ -134,6 +134,20 @@ struct AccessOptions: ParsableArguments {
     var passphraseEnv: String?
 }
 
+/// The per-device summary cache (`SummaryCache`, format.md §10) for listings.
+struct CacheOptions: ParsableArguments {
+    @Flag(name: .customLong("no-cache"),
+          help: ArgumentHelp("Read every note instead of using (and updating) the summary cache.",
+                             discussion: "The cache is encrypted and kept in $XDG_CACHE_HOME/sempere (default ~/.cache/sempere)."))
+    var noCache = false
+
+    /// The vault's cache, or nil with --no-cache. A cache that cannot be set
+    /// up (no secret) is skipped; a damaged file is ignored and rewritten.
+    func cache(for vault: Vault) -> SummaryCache? {
+        noCache ? nil : try? SummaryCache(directory: SummaryCache.cliDirectory(), vault: vault)
+    }
+}
+
 // MARK: - Formatting
 
 enum Format {

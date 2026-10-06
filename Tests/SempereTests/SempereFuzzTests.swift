@@ -128,6 +128,89 @@ final class SempereFuzzTests: VaultTestCase {
         })
     }
 
+    /// Revisions with attachments (format.md §8): every attachment op, a
+    /// snapshot holding items of each kind, recordings and their tombstones,
+    /// open fields. Besides the usual merge exercise, anything that decodes
+    /// must encode again, and that encoding must be a fixed point.
+    static func attachmentSeeds() throws -> [Revision] {
+        let page = pageA
+        let hash = String(repeating: "ab", count: 32)
+        let blob = BlobRef(sha256: hash, size: 1234, type: "image/png", extra: ["x": .array([.number(1), .null])])
+        let text = TextContent(family: "SF Pro", size: 12, color: .black, align: .center, dir: .rtl, lang: "ar",
+                               runs: [TextRun("سلام ", b: true), TextRun("e\u{301}\nb", size: 18, lang: "es")], breaks: [2])
+        let rec = Recording(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000c1")!,
+                            blob: BlobRef(sha256: hash, size: 99, type: "audio/mp4"), started: wall, duration: 12.5,
+                            codec: "aac", sampleRate: 48000, channels: 1, bitRate: 64000, title: "T",
+                            transcript: BlobRef(sha256: hash, size: 5, type: BlobRef.transcriptType), extra: ["k": .bool(true)])
+        let items = [
+            Item.text(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d1")!, text,
+                      frame: Rect(x: 1, y: 2, w: 300, h: 40), z: "a", rec: RecordingLink(id: rec.id, at: 3.25)),
+            Item.image(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d2")!, blob: blob,
+                       pixelSize: Size(w: 30, h: 40), orientation: 6, crop: Rect(x: 0, y: 0, w: 30, h: 40),
+                       frame: Rect(x: 5, y: 5, w: 30, h: 40), z: "b"),
+            Item.pdfPage(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d3")!,
+                         blob: BlobRef(sha256: hash, size: 7, type: "application/pdf"), pageIndex: 2,
+                         pageSize: Size(w: 612, h: 792), frame: Rect(x: 0, y: 0, w: 612, h: 792), z: "a"),
+            Item(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d4")!, kind: .math, layer: ItemLayer(rawValue: 250),
+                 frame: Rect(x: 1, y: 1, w: 2, h: 2), rotation: 45, z: "c", extra: ["latex": .string("x^2"), "render": try JSONValue(encoding: blob)]),
+        ]
+        var log = LogBuilder()
+        let d1 = log.delta(devA, 0, NoteOps.newNote(title: "Att", pageId: page))
+        let d2 = log.delta(devA, 5, items.map { .addItem(page: page, item: $0) } + [
+            .addRecording(rec),
+            .setItem(page: page, itemId: items[0].id, change: .frame(Rect(x: 0, y: 0, w: 9, h: 9))),
+            .setItem(page: page, itemId: items[1].id, change: .crop(nil)),
+            .setItem(page: page, itemId: items[1].id, change: .rotation(90)),
+            .setItem(page: page, itemId: items[0].id, change: .text(text)),
+            .setItem(page: page, itemId: items[3].id, change: .other(field: "latex", value: .string("y"))),
+            .setRecording(recordingId: rec.id, change: .title("U")),
+            .setRecording(recordingId: rec.id, change: .transcript(nil)),
+            .removeItem(page: page, itemId: items[2].id), .removeRecording(recordingId: UUID()),
+        ])
+        var state = try NoteReducer.reconstruct([d1])
+        state.pages[0].items = items
+        state.recordings = [rec]
+        state.tombstones = Tombstones(items: [UUID()], recordings: [UUID()])
+        let snap = Revision(noteId: testNote, device: devB, seq: 1, hlc: HLC(millis: baseMillis + 9, counter: 0)!,
+                            wall: wall, app: "fuzz", body: .snapshot(included: Included([devA: .init(upTo: 1)]), state: state))
+        return [d1, d2, snap]
+    }
+
+    func testFuzzAttachmentJSON() throws {
+        let log = try Self.seedLog() + Self.attachmentSeeds()
+        let seeds = try Self.attachmentSeeds().map(Self.json)
+        assertClean(Fuzz.run("attachment-json", seeds: seeds, quick: 1200, text: true) { input in
+            if let problem = Self.exerciseRevision(input, log: log) { return problem }
+            guard let rev = try? InkJSON.decoder().decode(Revision.self, from: input) else { return nil }
+            do {
+                let once = try Self.json(rev)
+                let twice = try Self.json(InkJSON.decoder().decode(Revision.self, from: once))
+                return once == twice ? nil : "re-encoding is not a fixed point"
+            } catch {
+                return "a decoded revision does not round-trip: \(error)"
+            }
+        })
+    }
+
+    func testFuzzTranscript() throws {
+        let t = Transcript(recording: UUID(), engine: "apple-speechtranscriber-26.4", language: "en-US", created: Self.wall,
+                           segments: [.init(start: 0.52, end: 3.1, text: "Today we look at linear maps.", confidence: 0.94,
+                                            words: [.init("Today", start: 0.52, end: 0.8, c: 0.97), .init("we", start: 0.8, end: 0.93)]),
+                                      .init(start: 3.1, end: 4, text: "Kernels.", language: "en-GB")])
+        assertClean(Fuzz.run("transcript", seeds: [try t.encoded()], quick: 1500, text: true) { input in
+            let decoded: Transcript
+            do { decoded = try Transcript.decode(input) } catch is DecodingError { return nil } catch {
+                return "untyped decode error \(type(of: error))"
+            }
+            do {
+                let once = try decoded.encoded()
+                return try Transcript.decode(once).encoded() == once ? nil : "re-encoding is not a fixed point"
+            } catch {
+                return "a decoded transcript does not round-trip: \(error)"
+            }
+        })
+    }
+
     /// Whole op logs as one JSON array, half of them generated: duplicate
     /// ids, removes of unknown ids, parent cycles, orphans, conflicting
     /// (device, seq), huge `included`, many pages and long strokes.

@@ -205,6 +205,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   settles) and starts when the vault opens, before unlocking; stalls go to
   `cloudSync.problem` (the list's bar), not an alert. Set
   `cloudIdleInterval` short in tests that wait for a recovery.
+- Note listings (`AppModel+Loading`): `unlock` only checks the key and starts
+  `startLoadingNotes`, a task the model owns (UI callers pass `awaitNotes:
+  false`; a view's `.task` must never own a listing, SwiftUI cancels it when
+  the view goes). Summaries come in batches (`loadBatchSize`) through
+  `Vault.summaries(of:cache:)`, never one `summary(of:)` per note; listings
+  are serialised by `loadGate`. The per-device `SummaryCache` (format.md §10)
+  is keyed by revision file names, so bump `SummaryCache.schemaVersion` when
+  `NoteSummary` gains or changes a field. `RevisionDetail.withoutStrokePoints`
+  revisions are for listings and search only: never write, snapshot, render
+  or diff them. Tests get no cache unless they pass `summaryCacheDirectory`.
 - Debug device runs against the user's iCloud vault: `SEMPERE_DEBUG_RECENT=1`
   opens the most recent vault through its bookmark (the picker's scope), with
   `SEMPERE_DEBUG_PROBE=1` (log how iCloud presents the files),

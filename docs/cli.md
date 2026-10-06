@@ -324,14 +324,18 @@ encrypted files.
 ### Notes
 
 ```
-sempere notes list [--tag T] [--notebook N] [--deleted]
+sempere notes list [--tag T] [--notebook N] [--deleted] [--no-cache]
 sempere notes show ID|TITLE
 sempere notes history ID|TITLE
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
-hidden unless `--deleted`. `show` prints the metadata, how many pages have recognised text (`Text:`; `recognizedPages`
+hidden unless `--deleted`. Notes are read in parallel without their stroke
+geometry, and the summaries are kept in an encrypted per-device cache
+(`$XDG_CACHE_HOME/sempere/`, default `~/.cache/sempere/`; `format.md` §10), so
+a later `list` reads only notes whose revision files changed. A damaged cache
+is ignored and rewritten; `--no-cache` neither reads nor writes it. `show` prints the metadata, how many pages have recognised text (`Text:`; `recognizedPages`
 in `--json`) and the revision history
 (kind, wall time, file name; `-v` adds the app string). A note is named by its
 full id, an id prefix of 4 or more characters, or its exact title
@@ -421,7 +425,8 @@ ones. Human output is one row per matching page: note title, page number and a
 snippet. `--json` emits a list of hits with `noteId`, `title`, `notebook`,
 `page` (1-based), `pageId`, `snippet`, `matches`, `engine` and `words`, the
 recognised words containing the term with their `[x, y, w, h]` boxes. No match
-prints `No matches.` (an empty list with `--json`) and exits 0.
+prints `No matches.` (an empty list with `--json`) and exits 0. Notes are read
+in parallel and without stroke geometry, as for `notes list`.
 
 ### Export
 
