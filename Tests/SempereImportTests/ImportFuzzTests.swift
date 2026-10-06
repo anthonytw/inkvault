@@ -219,4 +219,39 @@ final class ImportFuzzTests: XCTestCase {
             }
         })
     }
+
+    /// Typed text (both archive shapes), the recordings library, audio files
+    /// and `eventTokens` through resolution and conversion; each part mutated in turn.
+    func testFuzzTextAndRecordings() throws {
+        let session = SyntheticNote.session(attributed: { a in
+            let ranges = [a.dict([("rangeKey", a.string("{0, 4}")), ("fontName", a.string("Times-Bold")), ("fontSize", .real(20)),
+                                  ("color", a.string("#112233FF"))])]
+            return a.dict([("stringKey", a.string("Head\nline 線形\n\nnext")), ("subRangesKey", a.array(ranges))])
+        }, eventTokens: [0, 10, -1, 20])
+        let ns = SyntheticNote.session(attributed: { a in
+            let font = a.object("UIFont", [("NSName", a.string("Menlo")), ("NSSize", .real(9))])
+            return a.object("NSAttributedString", [("NSString", a.string("abc def")),
+                                                    ("NSAttributes", a.array([a.dict([("NSFont", font)])])),
+                                                    ("NSAttributeInfo", a.data(Data([3, 0, 4, 0])))])
+        })
+        let library = AttachmentFixtures.library([("r", "<key>fileName</key><string>a.m4a</string><key>duration</key><real>5</real>")])
+        let m4a = AttachmentFixtures.m4a(seconds: 5), caf = AttachmentFixtures.caf(seconds: 1)
+        assertClean(Fuzz.run("text-recordings", seeds: [session, ns, library, m4a, caf], quick: 300, maxSize: 128 << 10) { input in
+            Self.typed {
+                _ = AudioInfo.read(input)
+                let variants: [(Data, Data, Data)] = [(input, library, m4a), (session, input, m4a), (session, library, input)]
+                for (s, l, audio) in variants {
+                    let zip = AttachmentFixtures.package(session: s, extra: [("Recordings/library.plist", l), ("Recordings/a.m4a", audio)])
+                    let pkg = try NotePackage(data: zip)
+                    guard let note = try? NotabilityNote.parse(package: pkg) else { continue }
+                    let a = NotabilityAttachments.resolve(note, package: pkg)
+                    let state = NotabilityImporter.convert(note, attachments: a)
+                    for item in state.pages[0].items where item.validationError != nil {
+                        throw ImportError.notability("invalid item: \(item.validationError ?? "")")
+                    }
+                    _ = try InkJSON.encoder().encode(NotabilityImporter.ops(for: state))
+                }
+            }
+        })
+    }
 }

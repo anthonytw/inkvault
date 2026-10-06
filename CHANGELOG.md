@@ -15,6 +15,10 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   their frame, rotation and crop, metadata stripped. `sempere import notability` gains
   `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
   and why anything was left out (`warnings`).
+- Notability import of typed text and recordings (tasks D3, D4): typed text becomes text items
+  with bold, italic, underline, strikethrough, colours and sizes as runs (and `lang` for CJK,
+  Arabic and Hebrew runs); `Recordings/` becomes the note's recordings with their audio, and
+  strokes link to the recording (`rec`) where `eventTokens` read as times in it.
 
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as

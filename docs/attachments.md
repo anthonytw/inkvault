@@ -1379,6 +1379,16 @@ synthetic `.note` fixture so CI covers the mapping.
   names in `MediaObject` (a media object that does not match is reported with
   its field names); a `TemplatePDF:` paper uses a PDF under `PDFs/` whose
   name holds the template uuid, else is reported (`dropped.templatePDFs`).
+- *Status of D3 and D4:* in review (stacked on #70), synthetic notes only.
+  Code: `NotabilityText.swift` (typed text in Notability's dictionary shape
+  and as a standard `NSAttributedString`; blocks, runs, `lang` by script),
+  `NotabilityAudio.swift` (library entries, MP4/CAF/WAV/AIFF/MP3 sniffing
+  and durations, `eventTokens`). To confirm on the real backup: the style
+  field names (none were seen; the samples' text was empty), where typed text
+  sits on the page (placed from the top at estimated heights), the library's
+  field names, and `eventTokens` as milliseconds into the one recording
+  (applied only when every token fits the recording and they ascend; else
+  reported with their range, `dropped.recLinks`).
 - **D3 — typed text.** *Done when:* synthetic fixture with styled text maps
   to runs (including a non-Latin run with its `lang`); real notes with text
   import it (if the backup has any).

@@ -5,7 +5,9 @@ import SempereRender
 
 /// A Notability note's attachments read from its package and laid out on the
 /// imported page (docs/import-notability.md "Attachments", docs/attachments.md
-/// §11): PDF page backgrounds (D1) and images (D2).
+/// §11): PDF page backgrounds (D1), images (D2), typed text (D3, in
+/// `NotabilityText.swift`) and recordings with their stroke links (D4, in
+/// `NotabilityAudio.swift`).
 ///
 /// `resolve` reads every byte it needs from the package, so `convert` stays
 /// pure: blob references are content hashes (`BlobRef(content:type:)`), the

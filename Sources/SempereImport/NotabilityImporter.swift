@@ -26,8 +26,8 @@ public enum NotabilityImporter {
         public var tagsFromFolders: Bool
         /// Tags added to every imported note.
         public var extraTags: [String]
-        /// Import attachments: PDF page backgrounds and images, written as
-        /// blobs of the note (docs/import-notability.md "Attachments"). Off
+        /// Import attachments: PDF page backgrounds, images, typed text and
+        /// recordings, their files written as blobs of the note (docs/import-notability.md "Attachments"). Off
         /// imports ink, recognition and metadata only, and reports every
         /// attachment as dropped.
         public var attachments: Bool
