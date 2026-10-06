@@ -19,7 +19,7 @@ struct NoteListView: View {
 
     var body: some View {
         @Bindable var model = model
-        List(model.visibleNotes, id: \.id, selection: $model.selectedNoteID) { note in
+        List(model.visibleNotes, id: \.id, selection: listSelection) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id))
                 // A placeholder's summary is empty: nothing to act on until it arrives
@@ -36,9 +36,18 @@ struct NoteListView: View {
                     }
                 }
         }
+        .environment(\.editMode, Binding<EditMode>(get: { model.isSelectingNotes ? .active : .inactive },
+                                         set: { setSelecting($0.isEditing) }))
         .navigationTitle(title)
         .searchable(text: $model.searchText, prompt: "Search titles")
         .toolbar {
+            if model.isSelectingNotes {
+                ToolbarItem { ExportMenu(ids: model.exportTargetIDs) }
+            }
+            ToolbarItem {
+                Button(model.isSelectingNotes ? "Done" : "Select") { setSelecting(!model.isSelectingNotes) }
+                    .disabled(model.phase != .unlocked)
+            }
             ToolbarItem {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
                     Picker("Sort By", selection: $model.sortOrder) {
@@ -90,6 +99,33 @@ struct NoteListView: View {
         }
     }
 
+    /// The list's selection: the open note, or the ticked notes while selecting. A
+    /// command-click or shift-click on a keyboard selects several and starts selecting.
+    private var listSelection: Binding<Set<UUID>> {
+        Binding(
+            get: { model.isSelectingNotes ? model.multiSelection : Set(model.selectedNoteID.map { [$0] } ?? []) },
+            set: { picked in
+                if model.isSelectingNotes || picked.count > 1 {
+                    model.isSelectingNotes = true
+                    model.multiSelection = picked
+                } else {
+                    model.selectedNoteID = picked.first
+                }
+            })
+    }
+
+    private func setSelecting(_ on: Bool) {
+        guard on != model.isSelectingNotes else { return }
+        model.isSelectingNotes = on
+        // Start from the open note; leaving keeps it open and drops the ticks.
+        model.multiSelection = on ? Set(model.selectedNoteID.map { [$0] } ?? []) : []
+    }
+
+    /// The notes a context-menu export acts on: the ticked ones when `note` is among them.
+    private func exportIDs(for note: NoteSummary) -> [UUID] {
+        model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
+    }
+
     private var title: String {
         switch model.sidebarSelection ?? .allNotes {
         case .allNotes: return "Notes"
@@ -128,6 +164,7 @@ struct NoteListView: View {
     private func actions(for note: NoteSummary) -> some View {
         if note.deleted {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
+            ExportMenu(ids: exportIDs(for: note))
         } else {
             Button("Rename…", systemImage: "pencil") {
                 promptText = note.title; prompt = Prompt(kind: .rename, note: note.id)
@@ -149,6 +186,7 @@ struct NoteListView: View {
                     Button("No Notebook", role: .destructive) { run { try await model.moveNote(note.id, toNotebook: nil) } }
                 }
             }
+            ExportMenu(ids: exportIDs(for: note))
             Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
         }
     }

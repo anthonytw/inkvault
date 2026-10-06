@@ -9,6 +9,11 @@ struct SempereApp: App {
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 
+    init() {
+        // Staged exports are plaintext copies of notes: none survives a launch.
+        ExportJob.purgeStale()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -16,5 +21,6 @@ struct SempereApp: App {
                 .environment(library)
                 .environment(keys)
         }
+        .commands { ExportMenuCommands(model: model) }
     }
 }

@@ -65,7 +65,7 @@ working state.
 | Canvas | Pages vs pageless (reorder, delete pages) | 📋 round 2 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search (Vision on rendered pages) | 📋 round 2 |
-| App | Share/export (PDF, Markdown) from the app | 📋 round 2 |
+| App | Share/export from the app: PDF, PNG pages, Markdown (Obsidian), single-file HTML, one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`) | 🔀 #42 (untested on the iPad) |
 | App | History browser (restore points) | 📋 round 2 |
 | App | Settings panel (E6) | 📋 |
 | App | Spanish localization (L) | 📋 |
@@ -89,7 +89,8 @@ behaviour and testing on a real Mac.
 | Saved folder access in a sandboxed Mac build (bookmarks untested) | 📋 |
 | Menus and keyboard shortcuts | 📋 Phase 2 |
 | Multiple windows (one note per window) | 📋 Phase 2 |
-| Drag-and-drop export, bulk export | 📋 Phase 2 |
+| Export menu (File ▸ Export) | 🔀 #42 (`ExportMenuCommands`; other menus 📋 Phase 2) |
+| Drag-and-drop export | 📋 Phase 2 |
 | Key management window | 📋 Phase 2 |
 | Drawing with mouse/trackpad (PencilKit works; tuning for no pencil) | 📋 Phase 2 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
