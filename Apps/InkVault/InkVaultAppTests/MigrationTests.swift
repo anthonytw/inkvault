@@ -8,6 +8,7 @@ import Testing
 /// fixture `legacy.inkvault` lists a classic X25519 key, so unlocking it
 /// leads only to the migration, whose result is an ordinary post-quantum vault.
 @MainActor
+@Suite(.timeLimit(.minutes(5)))   // a gate mistake fails the suite instead of hanging the CI job
 struct MigrationTests {
     /// A private copy of the legacy fixture and the text of its classic key.
     static func legacyVault() throws -> (vault: URL, keyText: String) {
@@ -121,7 +122,11 @@ struct MigrationTests {
         await gate.close()
         let before = await gate.arrivals
         let run = Task { try await model.migrate(passphrase: Self.passphrase) }
-        await gate.waitForArrivals(before + 2)   // key file written, new key added
+        // Each I/O step waits at the closed gate, so the second can only
+        // arrive once the first is let through.
+        await gate.waitForArrivals(before + 1)   // key file written
+        await gate.releaseOne()
+        await gate.waitForArrivals(before + 2)   // new key added, classic not yet removed
         model.close()
         await gate.open()
         await #expect(throws: CancellationError.self) { try await run.value }
