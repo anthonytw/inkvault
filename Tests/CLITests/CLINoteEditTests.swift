@@ -192,6 +192,52 @@ final class CLINoteEditTests: CLITestCase {
         XCTAssertEqual(tooMany.status, 2)
     }
 
+    /// The app's page gestures from the CLI (format.md §5.4.3): insert after a
+    /// page, move, duplicate, delete; one delta each, nothing for a no-op.
+    func testPagesInsertMoveDuplicateDelete() throws {
+        func ids() throws -> [String] {
+            try XCTUnwrap(try json(["pages", "list", Self.lecture])["pages"] as? [[String: Any]]).compactMap { $0["id"] as? String }
+        }
+        func strokes() throws -> [Int] {
+            try XCTUnwrap(try json(["pages", "list", Self.lecture])["pages"] as? [[String: Any]]).compactMap { $0["strokes"] as? Int }
+        }
+        let start = try ids()
+        XCTAssertEqual(start.count, 2)
+        let inked = try strokes()
+
+        XCTAssertEqual(try json(["pages", "add", Self.lecture, "--after", "1"])["changed"] as? Bool, true)
+        var now = try ids()
+        XCTAssertEqual(now.count, 3)
+        XCTAssertEqual([now[0], now[2]], start, "the blank page went between them")
+
+        let before = try revisions(Self.lecture).count
+        XCTAssertEqual(try json(["pages", "move", Self.lecture, "3", "--to", "1"])["changed"] as? Bool, true)
+        now = try ids()
+        XCTAssertEqual(now[0], start[1])
+        XCTAssertEqual(try json(["pages", "move", Self.lecture, "1", "--to", "1"])["changed"] as? Bool, false)
+
+        XCTAssertEqual(try json(["pages", "duplicate", Self.lecture, "1"])["changed"] as? Bool, true)
+        now = try ids()
+        XCTAssertEqual(now.count, 4)
+        XCTAssertEqual(try strokes()[0], try strokes()[1], "the copy has the page's ink")
+        XCTAssertEqual(try strokes()[1], inked[1])
+
+        XCTAssertEqual(try json(["pages", "delete", Self.lecture, "2"])["changed"] as? Bool, true)
+        XCTAssertEqual(try ids(), [now[0], now[2], now[3]], "the copy is gone")
+        XCTAssertEqual(try revisions(Self.lecture).count, before + 3)
+
+        for bad in [["move", Self.lecture, "9", "--to", "1"], ["move", Self.lecture, "1", "--to", "0"],
+                    ["delete", Self.lecture, "0"], ["duplicate", Self.lecture, "4"], ["add", Self.lecture, "--after", "9"]] {
+            let r = try cli(["pages"] + bad + access)
+            XCTAssertEqual(r.status, 1, "\(bad): \(r.err)")
+        }
+        for _ in 0..<2 { _ = try json(["pages", "delete", Self.lecture, "1"]) }
+        let last = try cli(["pages", "delete", Self.lecture, "1"] + access)
+        XCTAssertEqual(last.status, 1)
+        XCTAssertTrue(last.err.contains("at least one page"), last.err)
+        XCTAssertEqual(try cli(["vault", "verify"] + access).status, 0)
+    }
+
     func testEditsAreRefusedOnALegacyVault() throws {
         let legacy = try copyLegacyVault()
         for args in [["notes", "rename", Self.lecture, "x"], ["notes", "new", "x"], ["notebooks", "list"],

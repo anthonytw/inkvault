@@ -82,10 +82,13 @@ final class PDFWriterTests: XCTestCase {
         var o = RenderOptions(compress: false)
         o.infiniteChunkHeight = 1000
         XCTAssertEqual(pageCount(try PDFWriter.render(note: note, options: o)), 2)
-        // A finite page ignores it.
+        // A finite page ignores it: ink below the page (centre ~905) adds pages of the page's own size.
         var finite = note
         finite.meta.pageSize = PageSize(width: 200, height: 300, breakHeight: 50)
-        XCTAssertEqual(pageCount(try PDFWriter.render(note: finite, options: RenderOptions(compress: false))), 1)
+        let f = try PDFWriter.render(note: finite, options: RenderOptions(compress: false))
+        XCTAssertEqual(pageCount(f), 7)   // 0–300, then 300-pt pages down to the stroke's outline at ~1801
+        XCTAssertTrue(T.contains(f, "/MediaBox [0 0 200 300]"))
+        XCTAssertFalse(T.contains(f, "/MediaBox [0 0 200 50]"))
     }
 
     func testZeroHeightInfinitePageDoesNotExplode() throws {
@@ -113,9 +116,17 @@ final class PDFWriterTests: XCTestCase {
         }
     }
 
-    func testFiniteStrokeOutsidePageButWithinLimitIsCulled() throws {
+    /// format.md §5.4.3: ink below a finite page is exported on one extra
+    /// page of the same size; the blank sheets in between are not.
+    func testFiniteStrokeFarBelowPageGetsOneOverflowPage() throws {
         let far = T.stroke([T.pt(10, 90_000), T.pt(20, 90_100)])
         let d = try PDFWriter.render(note: T.note(pages: [[far]]), options: RenderOptions(compress: false))
+        XCTAssertEqual(pageCount(d), 2)
+    }
+
+    func testFiniteStrokeAboveOrBesidePageIsCulled() throws {
+        let above = T.stroke([T.pt(10, -900), T.pt(20, -800)])
+        let d = try PDFWriter.render(note: T.note(pages: [[above]]), options: RenderOptions(compress: false))
         XCTAssertEqual(pageCount(d), 1)
         XCTAssertFalse(T.contains(d, " c\n"), "culled stroke emits nothing")
     }
