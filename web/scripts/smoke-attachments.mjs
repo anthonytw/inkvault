@@ -85,7 +85,7 @@ await page.click(".recording >> nth=0 >> button:has-text('Transcript')");
 await page.waitForSelector(".transcript .segments li", { timeout: 30000 });
 const segments = await page.$$eval(".transcript .segments li", (els) => els.map((e) => e.textContent));
 await page.click(".recording >> nth=1 >> button:has-text('Play')");
-await page.waitForFunction(() => (document.querySelectorAll(".rec-status")[1]?.textContent ?? "").length > 0, null, { timeout: 30000 });
+await page.waitForFunction(() => /missing/.test(document.querySelectorAll(".rec-status")[1]?.textContent ?? ""), null, { timeout: 30000 });
 const missing = await page.$$eval(".rec-status", (els) => els.map((e) => e.textContent));
 await page.screenshot({ path: join(shots, "attachments-recordings.png"), fullPage: true });
 const foreign = requests.filter((u) => !u.startsWith(base) && !u.startsWith("blob:") && !u.startsWith("data:"));
