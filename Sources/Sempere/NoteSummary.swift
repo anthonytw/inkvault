@@ -93,11 +93,38 @@ extension LoadedNote {
 
     /// Revisions `compact` would delete from this note.
     ///
+    /// Checkpoints (format.md §5.8.1) are never deleted. With
+    /// `protectingCheckpoints`, nothing that a complete checkpoint depends on
+    /// is deleted either, since this plan writes no positioned snapshot: no
+    /// revision ordered at or before the newest complete checkpoint, nor the
+    /// first revision of each other device after a complete checkpoint (its
+    /// witness, §5.8.4 rule 3). `CompactionPlanner.plan` keeps checkpoints
+    /// complete with positioned snapshots instead and passes false.
+    ///
     /// - Parameter assumingSnapshot: plan as if a snapshot of everything
     ///   were written now: it covers every revision, so every older snapshot
     ///   is subsumed and every delta past retention is covered.
     public func compactionPlan(retention: TimeInterval = CompactionPlanner.defaultRetention, now: Date = Date(),
-                               assumingSnapshot: Bool = false) -> [RevisionName] {
+                               assumingSnapshot: Bool = false, protectingCheckpoints: Bool = true) -> [RevisionName] {
+        let plan = unprotectedCompactionPlan(retention: retention, now: now, assumingSnapshot: assumingSnapshot)
+        let checkpoints = Set(revisions.filter { $0.kind == .delta && $0.checkpoint != nil }.map(\.name))
+        guard !checkpoints.isEmpty else { return plan }
+        var out = plan.filter { !checkpoints.contains($0) }
+        guard protectingCheckpoints else { return out }
+        let complete = restorePoints.filter { $0.complete && checkpoints.contains($0.name) }.map(\.name)
+        guard let newest = complete.max() else { return out }
+        out = out.filter { $0 > newest }
+        let names = (revisions.map(\.name) + failures.keys).sorted()
+        for c in complete {
+            var seen = Set<DeviceID>([c.device])
+            for n in names where n > c && seen.insert(n.device).inserted {
+                out.removeAll { $0 == n }
+            }
+        }
+        return out
+    }
+
+    private func unprotectedCompactionPlan(retention: TimeInterval, now: Date, assumingSnapshot: Bool) -> [RevisionName] {
         var wall: [RevisionName: Date] = [:]
         for r in revisions { wall[r.name] = r.wall }
         var snapshots = revisions.compactMap(SnapshotCoverage.init)
