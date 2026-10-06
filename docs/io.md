@@ -578,9 +578,11 @@ check is undone (the file is copied back).
 **Attachment blobs** (`docs/attachments.md` §4). Each note's `att/` follows
 the same write-once table, keyed `<noteId>/att/<name>` in the state. A note
 whose listing has an `att` collection costs one more PROPFIND. Per note,
-blobs are transferred before revisions, so neither side ever holds a
-revision before the blobs it references (format.md §8.1.4 step 4), small
-kinds first (transcripts, images, PDFs, then the rest), smaller files first.
+blobs are transferred before revisions, so a revision does not arrive before
+the blobs it references (format.md §8.1.4 step 4) unless a blob transfer
+fails: that one is reported and retried by the next run while the note's
+revisions still sync, and readers draw a placeholder for it meanwhile
+(§8.5.2). Small kinds go first (transcripts, images, PDFs, then the rest), smaller files first.
 
 - *Streaming, own limit.* An upload is a PUT streamed from the file. A
   download is a series of `Range` GETs of 2 MiB (`blobSegmentBytes`), each
@@ -589,7 +591,8 @@ kinds first (transcripts, images, PDFs, then the rest), smaller files first.
   delivery for its delegate without flow control; with 2 MiB segments the
   resident set stayed near 20 MiB for blobs of 300 MB to 1 GB against a
   local wsgidav). A server that ignores `Range` sends the file in one
-  streamed 200. Blob files have their own limit, `maxBlobBytes` (default
+  streamed 200, which is still written to disk as it arrives but, on Linux,
+  is no longer bounded in memory by the segment size. Blob files have their own limit, `maxBlobBytes` (default
   1 GiB + 64 MiB, `--max-blob-mib`): a larger one is neither uploaded nor
   downloaded, and a body is cut off at the limit whatever the listing said.
   A downloaded blob must have the listed size and start with the age header,
