@@ -28,6 +28,8 @@ class Sempere < Formula
 
   def install
     bin.install "sempere"
+    # Fonts for text in exports (Noto, OFL 1.1); found at ../share/sempere/fonts from the binary.
+    (share/"sempere/fonts").install Dir["fonts/*"]
     doc.install "README.md", "CHANGELOG.md", "LICENSE-EXCEPTION", "docs/cli.md"
   end
 

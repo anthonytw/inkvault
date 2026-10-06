@@ -12,7 +12,8 @@ import SwiftUI
 @main
 struct SempereApp: App {
     @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
-                                        summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory)
+                                        summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
+                                        drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 

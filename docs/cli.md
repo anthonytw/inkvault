@@ -774,12 +774,56 @@ rotation); images are clipped to their frame, under the ink.
   cannot be decoded here (convert it to JPEG in the app))`. Causes: a missing, unreadable or
   damaged attachment; HEIC (the CLI has no HEVC decoder; the app exports it);
   CMYK, 12-bit, lossless or arithmetic-coded JPEG; an image over 100
-  megapixels (§8.4) or over 64 MiB; unknown item kinds and text boxes (not
-  drawn yet). The export still succeeds; with `--json` each note's
-  `placeholders` counts them. `markdown` and `html` exports draw images too.
+  megapixels (§8.4) or over 64 MiB; unknown item kinds. The export still
+  succeeds; with `--json` each note's `placeholders` counts them. `markdown`
+  and `html` exports draw images too.
+
+#### Text in exports
+
+Text boxes (`docs/format.md` §8.2.4) are laid out as §8.5.3 says: on the lines
+the writer stored (`breaks`), else broken by the Unicode line breaking
+algorithm (UAX #14) to the frame width; each line is reordered for right-to-left
+text (UAX #9) and aligned; every line sits at the same height on every renderer.
+
+- **Fonts.** The CLI ships Noto Sans, Noto Serif and Noto Sans Mono (Latin,
+  Greek, Cyrillic; regular, bold, italic, bold italic) under the SIL Open Font
+  License 1.1, as files next to the program (`fonts/` in the release archive,
+  `share/sempere/fonts` with Homebrew; `$SEMPERE_BUNDLED_FONTS` overrides).
+  Other scripts come from **font packs**: any `.ttf`, `.otf`, `.ttc` under
+  `$SEMPERE_FONT_DIR`, `$XDG_DATA_HOME/sempere/fonts` (default
+  `~/.local/share/sempere/fonts`) and the system font directories
+  (`/usr/share/fonts`, `/usr/local/share/fonts`, `~/.fonts`,
+  `~/.local/share/fonts`, and on macOS `/Library/Fonts`,
+  `/System/Library/Fonts`, `~/Library/Fonts`), searched in that order and only
+  when a character needs them. The box's `lang` (or a run's) picks among
+  Chinese, Japanese and Korean faces (`ja` → JP, `ko` → KR, `zh-Hant` → TC,
+  `zh-HK` → HK, other `zh` → SC). On Debian or Ubuntu, `fonts-noto-cjk` and
+  `fonts-noto-core` cover nearly every script.
+- **Shaping.** Arabic and other joining scripts get their initial, medial,
+  final and isolated forms and required ligatures; Hebrew and Arabic marks are
+  attached to their letters. Scripts that need a full shaping engine (Indic
+  conjuncts, Khmer, Myanmar, ...) are drawn unshaped with a warning that they
+  are approximate (the app's exports of the same note are exact).
+- **PDF** embeds, per font used, a subset with exactly the glyphs drawn
+  (`ABCDEF+Name`, Type0 / CIDFontType2 or CIDFontType0C) and a `ToUnicode`
+  map, so text can be searched and copied (`pdftotext` extracts it).
+- **SVG** embeds the same subsets as `@font-face` data URIs. The visible
+  glyphs are addressed through private-use code points, so every viewer draws
+  exactly the shaped glyphs; an invisible `<text>` per line over them holds the
+  real characters for selection, search and copying.
+- **PNG** fills the glyph outlines.
+- **Missing scripts.** A character no available font covers is drawn as the
+  missing-glyph box and reported, naming the script and what to install, e.g.
+  `sempere: warning: 0d1c6a1e: page 2: item 6f1c2d4e: text uses Han (Chinese,
+  Japanese, Korean) characters (e.g. 汉, U+6C49); no installed font covers
+  them, so they are drawn as boxes (install fonts-noto-cjk or put a font in
+  ~/.local/share/sempere/fonts or $SEMPERE_FONT_DIR)`.
+- A text box that cannot be laid out (no shaper: library callers that pass
+  no `RenderOptions.shaper`, such as the app's share export until it has
+  one) is a placeholder, reported like any other.
 
 Until item merging lands (task A1), notes read from a vault have no items, so
-these paths are exercised by the library's tests only.
+image and text items are exercised by the library's tests only.
 
 #### Markdown and HTML exports
 

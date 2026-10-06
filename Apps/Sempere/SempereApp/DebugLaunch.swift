@@ -112,6 +112,7 @@ enum DebugLaunch {
                 await model.showSelectedNote()
                 if let failure = model.editorFailure { DebugProbe.log("\(t()) \(id) shown failure: \(failure.message)") }
                 guard let editor = model.editor else { DebugProbe.log("\(t()) \(id) no editor"); continue }
+                await editor.loaded()   // opened from the drawing cache: its strokes arrive in the background
                 opened += 1
                 let strokes = editor.pages.reduce(0) { $0 + editor.liveStrokes(of: $1.id).count }
                 let summary = model.notes.first { $0.id == note.id }

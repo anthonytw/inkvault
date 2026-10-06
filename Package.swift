@@ -54,10 +54,12 @@ let package = Package(
             name: "SempereWebDAV",
             dependencies: ["Sempere", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // Noto fonts for text in CLI exports (OFL 1.1); the app does not link them.
+        .target(name: "SempereFonts", resources: [.copy("Fonts")]),
         .executableTarget(
             name: "SempereCLI",
             dependencies: [
-                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV",
+                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -68,8 +70,8 @@ let package = Package(
         .testTarget(name: "SempereTests",
                     dependencies: ["Sempere", "FuzzSupport", .product(name: "Crypto", package: "swift-crypto")],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "Age", "FuzzSupport"],
-                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py"],
+        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "SempereFonts", "Age", "FuzzSupport"],
+                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py", "generate_shaping_fixtures.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "SemperePDFTests", dependencies: ["SemperePDF", "FuzzSupport"],
                     exclude: ["generate_fixtures.py"], resources: [.copy("Fixtures")]),

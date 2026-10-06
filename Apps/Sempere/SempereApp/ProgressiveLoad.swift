@@ -30,17 +30,34 @@ enum ProgressiveLoad {
         var localFiles = 0
     }
 
-    /// One pass over the vault at `root`. Requests downloads (idempotent) for
-    /// up to `window` pending notes, `priority` first and notes with a
-    /// download error last, and refreshes
-    /// out-of-date local files of ready notes (not waited for).
+    /// One pass over the vault at `root` (every note, or only `notes`).
+    /// Requests downloads (idempotent) for up to `window` pending notes,
+    /// `priority` first and notes with a download error last (none when
+    /// `requestMissing` is false), and refreshes out-of-date local files of
+    /// ready notes (not waited for).
+    ///
+    /// This asks iCloud for the state of every file it covers, which is
+    /// slow on a device (one round trip per file): the model runs it only
+    /// for notes whose names changed (`IndexDiff`) and, at low priority, in
+    /// the background validation.
     ///
     /// - Throws: when a folder cannot be listed.
-    static func pass(vault root: URL, priority: UUID? = nil, window: Int = defaultWindow,
-                     hooks: CloudVault.Hooks = .live) throws -> Pass {
+    static func pass(vault root: URL, notes: Set<UUID>? = nil, priority: UUID? = nil, window: Int = defaultWindow,
+                     requestMissing: Bool = true, hooks: CloudVault.Hooks = .live) throws -> Pass {
         var pass = Pass()
         var pendingItems: [UUID: [CloudScan.Item]] = [:]
-        for group in try CloudScan.noteGroups(inVault: root) {
+        let groups: [CloudScan.NoteGroup]
+        if let notes {
+            groups = try notes.sorted { $0.uuidString.lowercased() < $1.uuidString.lowercased() }.compactMap { id in
+                let folder = CloudScan.noteFolder(inVault: root, id: id)
+                guard FileManager.default.fileExists(atPath: folder.path) else { return nil }   // gone
+                return CloudScan.NoteGroup(directory: id.uuidString.lowercased(), url: folder,
+                                           items: try CloudScan.noteItems(inVault: root, id: id))
+            }
+        } else {
+            groups = try CloudScan.noteGroups(inVault: root)
+        }
+        for group in groups {
             guard let id = group.id else { continue }
             pass.all.append(id)
             var missing: [CloudScan.Item] = []
@@ -71,7 +88,7 @@ enum ProgressiveLoad {
         // (and every other note) hostage; they are still retried.
         var order = pass.pending.filter { pass.failures[$0] == nil } + pass.pending.filter { pass.failures[$0] != nil }
         if let priority, let i = order.firstIndex(of: priority) { order.insert(order.remove(at: i), at: 0) }
-        for id in order.prefix(max(1, window)) {
+        for id in requestMissing ? Array(order.prefix(max(1, window))) : [] {
             for item in pendingItems[id] ?? [] {
                 do { try hooks.request(item) } catch { pass.failures[id] = "\(error)" }
             }

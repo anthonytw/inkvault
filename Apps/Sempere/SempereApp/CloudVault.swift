@@ -165,9 +165,14 @@ enum CloudVault {
         guard let url else { return try body() }
         var result: Result<T, any Error>?
         var error: NSError?
+        let wait = Perf.begin(.reconcileCoordinate)
+        var granted = false
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges], error: &error) { _ in
+            Perf.end(wait, "read")
+            granted = true
             result = Result { try body() }
         }
+        if !granted { Perf.end(wait, "read refused") }
         return try finish(result, error, url)
     }
 
@@ -177,9 +182,14 @@ enum CloudVault {
         guard let url else { return try body() }
         var result: Result<T, any Error>?
         var error: NSError?
+        let wait = Perf.begin(.reconcileCoordinate)
+        var granted = false
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: [], error: &error) { _ in
+            Perf.end(wait, "write")
+            granted = true
             result = Result { try body() }
         }
+        if !granted { Perf.end(wait, "write refused") }
         return try finish(result, error, url)
     }
 

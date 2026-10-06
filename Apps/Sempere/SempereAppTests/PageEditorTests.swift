@@ -152,6 +152,10 @@ struct PageEditorTests {
         await editor.setLayout(pageless: true)
         #expect(editor.currentPage?.id == shown, "page 1 keeps its id")
         #expect(editor.canvasGeneration != generation, "so the canvas must be told to reload")
+        // The drawing shown before the switch is not handed back for the page,
+        // even once something has built its new ledger (the canvas reload asks first).
+        #expect(editor.liveStrokes(of: shown).count == total)
+        if let ready = editor.readyDrawing(for: shown) { #expect(ready.strokes.count == total) }
         let before = try NoteEditorTests.myDeltas(vault, clock).count
         var drawing = editor.drawing(for: shown)   // what the reloaded canvas shows
         #expect(drawing.strokes.count == total)

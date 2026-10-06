@@ -230,6 +230,27 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `NoteSummary` gains or changes a field. `RevisionDetail.withoutStrokePoints`
   revisions are for listings and search only: never write, snapshot, render
   or diff them. Tests get no cache unless they pass `summaryCacheDirectory`.
+- The list is change-driven (`AppModel+Reconcile`, docs/io.md "Opening a vault
+  fast"): passes list note folders by NAME (`VaultEnumeration`) and read only
+  notes whose names differ from `indexedNames` (`IndexDiff`); never ask iCloud
+  for every file's state in a foreground pass (`ProgressiveLoad.pass(notes:)`
+  for the changed ones; the full scan is `validateVault`, background only).
+  An evicted note with unchanged names is NOT pending and is not downloaded
+  for the list. Apply summaries through `queueListUpdate` (throttled) or
+  `merge` (an edit's own re-read, immediate), never by assigning `notes`
+  wholesale. Tests that need "another device wrote a revision" use
+  `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Drawing cache (`DrawingCache`, format.md §10.1): keyed by note id + revision
+  file names; a note opened from it is `isPreparing` (read-only) until its
+  revisions are read and every shown cached drawing passed
+  `DrawingPreparation.matches`. The canvas gets its drawing through
+  `readyDrawing`/`prepareDrawing` (off-main, visible strokes first), not
+  `drawing(for:)` (synchronous, tests). Bump `DrawingCache.schemaVersion` when
+  `StrokeConversion` or the layout changes. Tests get no cache unless they pass
+  `drawingCacheRoot`.
+- Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log
+  `Library/Logs/SemperePerf.log`), counts and 8-hex id prefixes only.
+  `PerformanceReportTests` prints `PERF-REPORT` lines in the CI `app` log.
 - Debug device runs against the user's iCloud vault: `SEMPERE_DEBUG_RECENT=1`
   opens the most recent vault through its bookmark (the picker's scope), with
   `SEMPERE_DEBUG_PROBE=1` (log how iCloud presents the files),

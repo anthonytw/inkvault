@@ -80,43 +80,54 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
 Progressive loading: only the small unlocking files (`vault.json`, the
 rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are
 not. As soon as the vault opens (still locked) `AppModel.startCloudSync`
-starts passing over the notes, so they download while the user types the
-key. Each pass (`ProgressiveLoad`) lists each note's files and sorts notes
-into *ready* (all files local: the summary is read at once, once unlocked)
-and *pending* (some file not local). On iPadOS 26 (measured on 26.7.1) a
-file iCloud has not downloaded keeps its real name and is *dataless*:
+starts passing over the notes. On iPadOS 26 (measured on 26.7.1) a file
+iCloud has not downloaded keeps its real name and is *dataless*:
 `ubiquitousItemDownloadingStatus` is "not downloaded", it allocates no
-blocks, and no `.icloud` stand-in exists; both forms count as pending. A
-note folder that lists no revision file at all is pending too ("not listed
-yet"), never an empty note: every note has at least one revision, and
-iCloud lists a folder's contents after the folder itself. The app asks for
-the folder (`startDownloadingUbiquitousItem` on it) and waits.
+blocks, and no `.icloud` stand-in exists; both forms count as not local. A
+note folder that lists no revision file at all is "not listed yet", never an
+empty note: every note has at least one revision, and iCloud lists a
+folder's contents after the folder itself. The app asks for the folder
+(`startDownloadingUbiquitousItem` on it) and waits.
 
-Pending notes appear in the list with the summary this device cached for
-them on an earlier launch (`SummaryCache`, `format.md` §10) and a small
-spinner, or, when nothing is cached, as "Downloading from iCloud…" rows with a
-spinner, and are requested from iCloud at most 16 notes at a time, the
-note the user selected first. A bar under the list shows "Downloading from
-iCloud: n of m notes", a progress bar and "n of m files"
-(`CloudSyncStatus`); it disappears when every note is local. The loop
-passes every second while notes are pending or the note set is still
-changing, then every 15 s (doubling while nothing changes, at most every
-60 s) for as long as the vault is open, so revisions other devices write
-arrive without a pull to refresh; it pauses while the app is in the
-background, restarts when the app becomes active and on every reopen, and a
-pass of a loop replaced or paused meanwhile publishes nothing. 90 s without progress shows a
-problem line in the bar (not an alert) and the loop keeps trying; the line
-clears when files arrive.
+Each pass is change-driven (`AppModel.reconcile`; see "Opening a vault fast"
+below): it lists the note folders by name, and only notes whose revision
+names differ from those their shown summary was made from are checked with
+iCloud (`ProgressiveLoad.pass(notes:)`, one state query per file), sorted
+into *ready* (all files local: read at once) and *pending* (some file not
+local), and pending ones requested at most 16 notes at a time, the note the
+user selected first. A note whose files iCloud evicted but whose names are
+unchanged is not pending: its row comes from the index and it is downloaded
+only when opened (`downloadNote`). While locked, a device that already has an
+index of the vault fetches nothing (the index will show which notes changed);
+a device opening the vault for the first time requests every note, so they
+download while the key is typed.
+
+Pending notes appear in the list with their indexed summary and a small
+spinner, or, when nothing is indexed, as "Downloading from iCloud…" rows with
+a spinner. A bar under the list shows "Downloading from iCloud: n of m
+notes", a progress bar and "n of m files" (`CloudSyncStatus`); it disappears
+when no note is pending. While notes are pending the loop re-checks just
+those every second (and lists every folder every 15 s); once settled it lists
+every folder every 15 s, doubling while nothing changes, at most every 60 s,
+for as long as the vault is open, so revisions other devices write arrive
+without a pull to refresh. A file presenter on `notes/`
+(`NotesFolderPresenter`) wakes the loop early for the notes it names. The
+loop pauses while the app is in the background, restarts when the app
+becomes active and on every reopen, and a pass of a loop replaced or paused
+meanwhile publishes nothing. 90 s without progress shows a problem line in
+the bar (not an alert) and the loop keeps trying; the line clears when files
+arrive.
 
 Listing (any vault, `AppModel+Loading`): unlocking only checks the key; the
 note list is then read by a task the model owns (`startLoadingNotes`), so the
 unlock sheet closes at once and no view going away can cancel the listing.
 Summaries are read without stroke geometry, on up to four threads, in
-batches of 24 that are merged into the list as they finish; the bar under the
-list shows "Opening vault: n of m notes" (or "Updating notes" when the list
-already shows every note) next to the iCloud progress. On a reopen the cached
+batches of 24 that are queued for the list as they finish (applied at most
+four times a second, `queueListUpdate`); the bar under the list shows
+"Opening vault: n of m notes" (or "Updating notes" when the list already
+shows every note) next to the iCloud progress. On a reopen the indexed
 summaries are shown before anything is read, and only notes whose revision
-file names changed are decrypted. Listings never overlap (`loadGate`), and
+file names changed are read at all. Listings never overlap (`loadGate`), and
 the cache file is written once per listing, not per batch. The list is usable
 while it loads, so edits never decide from a summary not read in this session
 (`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
@@ -147,6 +158,103 @@ a notebook waits until no note is pending.
 Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
+
+## Opening a vault fast (app)
+
+The note list is shown from a persistent local **index**: the encrypted
+per-device summary cache (`SummaryCache`, `format.md` §10) in Application
+Support, never in iCloud. It holds each note's summary (title, tags,
+notebook, deleted flag, counts, newest time, and whatever `NoteSummary` gains,
+such as recognised text for search) and the sorted revision file names it was
+made from. On a reopen it is decrypted and shown as it is, before any note
+folder is looked at (`openSummaryCache`, `Perf` phase `index.load`).
+
+Keeping it current (`AppModel.reconcile`, `VaultIndex.swift`):
+
+1. **Enumerate by name** (`VaultEnumeration`, phase `reconcile.enumerate`):
+   one directory listing per note folder, iCloud placeholders mapped to
+   their real names, no file read, no iCloud state asked.
+2. **Diff** (`IndexDiff`): revision files are write-once and named by
+   `(hlc, device, seq)` (`format.md` §5), so a note whose names equal those
+   of its shown summary is unchanged: nothing is downloaded, coordinated or
+   decrypted for it. Changed and new notes are read; notes whose folder is
+   gone leave the list (only notes listed before the pass, so one created
+   meanwhile stays).
+3. **Download and read only what changed** (phases `reconcile.download`,
+   `reconcile.coordinate`, `reconcile.read`); `indexedNames` records the names
+   each summary was made from.
+
+Passes run when the vault opens, when the app becomes active, at the loop's
+idle pace and, for the notes named, when the file presenter reports a change.
+Every pass waits for the index to be loaded first, so it never mistakes an
+unloaded index for a vault where everything changed. A pull to refresh also
+re-reads notes the index file does not hold (a summary with a problem).
+
+A **full validation** (`validateVault`, phase `reconcile.validate`) asks
+iCloud for the state of every file (slow on a device: one round trip per
+file), refreshes out-of-date local copies, reports download errors in the
+bar and drops index entries of notes that are gone. It runs at background
+priority, outside the listing lock, once the list has settled and then every
+30 minutes, and never blocks the list.
+
+**List updates** are batched and throttled: queued summaries are applied at
+most every 250 ms (`listUpdateInterval`) as differences (`NoteListDiff`: a
+summary whose title order is unchanged is replaced in place, others are
+removed and merged in; no re-sort), and `visibleNotes`, `tags` and
+`notebookTree` are computed once per change of the list or the filters
+(`DerivedLists`), not on every render. An edit's own re-read is applied at
+once and supersedes anything queued for that note. The list stays a lazy
+SwiftUI `List`.
+
+## Opening a note fast (app)
+
+- **Fast decoding.** A revision's point arrays are parsed by a hand-written
+  exact reader (`FastRevisionDecoder`) instead of generic `Codable`
+  decoding; the JSON is unchanged and anything unusual goes through the
+  ordinary decoder.
+- **Drawing cache** (`DrawingCache`, `format.md` §10.1): per note version
+  (note id + sorted revision file names) a layout (the note without stroke
+  geometry) and each page's PencilKit `dataRepresentation`, sealed under a
+  key derived from the vault secret, in `Library/Caches/Sempere/Drawings`.
+  Opening a note lists its folder's names; when that version's layout is
+  cached the editor opens from it at once (`NoteEditor.isPreparing`: shown,
+  not editable) and the shown page's drawing comes from the cache, while the
+  revisions are read in the background. Once read, every cached drawing
+  shown is checked against the strokes (`DrawingPreparation.matches`: count,
+  texture seed from the stroke id, ink, points, ends, transform); a match
+  becomes the page's ledger without any conversion, a mismatch is replaced
+  by the real page (`canvasGeneration`) before anything can be drawn.
+- **On a miss** the page is converted off the main actor, the strokes on
+  screen first (`DrawingPreparation.convert(visible:)`, shown as soon as
+  they are ready, drawing disabled until the whole page is in), and stored
+  in the cache afterwards. Closing a note that was edited stores its new
+  version (layout, unchanged pages as shown, changed pages converted in the
+  background) and drops the old one.
+- The cache is limited to 200 MB (`UserDefaults` key
+  `Sempere.drawingCacheMegabytes`), least recently used files first. Opening
+  it deletes every other vault's folder (and this vault's under an older
+  secret); closing the vault deletes its folder.
+
+## Performance timing (app)
+
+Every phase above is an `os_signpost` interval (subsystem
+`io.github.anthonytw.sempere`, category Points of Interest), in every build:
+`vault.open`, `index.load`, `reconcile` (`.enumerate`, `.coordinate`,
+`.download`, `.read`, `.validate`), `list.update`, `note.open`,
+`note.download`, `note.read`, `note.reconstruct`, `note.cache`,
+`note.convert`, `note.firstRender`, `cache.write`, and `change.notified`
+events. Debug builds also log each finished interval to the console
+(`SemperePerf <phase> <ms> ms <detail>`) and to `Library/Logs/SemperePerf.log`
+in the app container (the previous run's as `.1`):
+
+```
+xcrun devicectl device copy from --device <id> --domain-type appDataContainer \
+    --domain-identifier io.github.anthonytw.sempere --source Library/Logs/SemperePerf.log --destination .
+```
+
+Details hold counts and 8-hex-digit note id prefixes only. `SEMPERE_PERF_LOG=0`
+turns the debug log off; `SEMPERE_DEBUG_DRAWING_CACHE=0` runs without the
+drawing cache, for comparisons.
 
 ## Saved folder access (sandboxed Mac)
 
@@ -201,12 +309,13 @@ CLI into `SempereRender`) writes the Markdown and HTML trees.
 | --- | --- | --- |
 | PDF | `<stem>.pdf` | one per note, or one merged `Sempere-Notes.pdf` |
 | PNG pages | `<stem>-p001.png`, ... | a folder per note |
-| Markdown (Obsidian) | a folder: `.md`, the PDF, optional page PNGs, `README.md` | `Sempere Export/`, mirroring the notebook tree |
-| HTML | one self-contained `.html` | `Sempere Export/` with one file per note and `index.html` |
+| Text (Markdown) | `<stem>.md` leading with the recognised text; with the PDF (optional, off) or page PNGs, a folder with them and `README.md` | `Sempere Export/`, mirroring the notebook tree |
 
 `<stem>` is `ExportName.stem` (sanitised title and the first 8 characters of the
 note id). Options: paper background (on), PNG resolution (72, 144, 216, 300
-dpi), merged PDF, Markdown page images. A one-off share writes no export
+dpi), merged PDF, and for text the PDF (off) and page images. The text export
+is disabled when no selected note has recognised handwriting. HTML is the
+CLI's only (`sempere export --format html`). A one-off share writes no export
 manifest.
 
 - **Selection.** "Select" in the note list ticks several notes; a keyboard

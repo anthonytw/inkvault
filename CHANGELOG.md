@@ -71,6 +71,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   cannot be drawn (missing attachment, HEIC in the CLI, over 100 MP) become placeholders with a
   warning. Images and PDF page backgrounds share one export report and placeholder path, and
   Markdown and HTML exports draw both.
+- Text in exports (task C2): text boxes in any script, laid out per `format.md` §8.5.3 (stored line
+  breaks, else UAX #14; right-to-left per UAX #9; grapheme clusters per UAX #29), shaped (Arabic
+  joining and ligatures, mark attachment), drawn with the bundled Noto fonts (OFL 1.1, shipped in
+  `fonts/` next to the CLI) or font packs (`$SEMPERE_FONT_DIR`, `~/.local/share/sempere/fonts`,
+  system fonts). PDF and SVG embed font subsets only, with searchable text; characters no font
+  covers are reported with the script and what to install.
 
 ### Changed
 
@@ -87,6 +93,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `--no-cache`; `search` uses the same fast path. The app closes the unlock sheet as soon as the
   key is accepted, shows "Opening vault: n of m" while the list fills in, shows cached summaries
   at once on a reopen, and always says why the list is empty.
+
+- **Instant reopen and fast note opening in the app** (#56). The note list opens from the
+  encrypted local index and only notes whose revision files changed are downloaded and read
+  (an iCloud vault no longer re-checks every file on every launch); a file presenter wakes the
+  sync for the notes it names, a full validation runs at low priority, and list updates are
+  throttled differences. Notes opened before open from an encrypted drawing cache (200 MB,
+  least recently used first, deleted with the vault on this device); others are converted off
+  the main thread, the strokes on screen first. Revisions decode their stroke points about twice
+  as fast (same JSON). Every phase has an os_signpost interval; debug builds log timings to
+  `Library/Logs/SemperePerf.log`.
+- The app's Markdown export is now "Text (Markdown)": it leads with the recognised text, the
+  PDF is optional (off), and it is disabled for notes without recognised text. HTML export is
+  CLI-only.
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
   additional permission). Contributions are licensed under the same terms and certified with a

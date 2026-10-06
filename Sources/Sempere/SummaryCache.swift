@@ -110,6 +110,34 @@ public final class SummaryCache: @unchecked Sendable {
         return entries.values.map(\.summary)
     }
 
+    /// The sorted revision file names of every stored entry: what a reader
+    /// compares a fresh listing with to tell which notes changed (a note whose
+    /// names are the same has the same summary; nothing needs reading).
+    public var storedRevisionNames: [UUID: [String]] {
+        lock.lock(); defer { lock.unlock() }
+        return entries.mapValues(\.revisions)
+    }
+
+    /// The stored summary of `id`, whether or not it is still current.
+    public func storedSummary(of id: UUID) -> NoteSummary? {
+        lock.lock(); defer { lock.unlock() }
+        return entries[id]?.summary
+    }
+
+    /// The sorted revision file names the stored summary of `id` was made from.
+    public func storedRevisionNames(of id: UUID) -> [String]? {
+        lock.lock(); defer { lock.unlock() }
+        return entries[id]?.revisions
+    }
+
+    /// The stored summary of `id` if it was made from exactly `names`
+    /// (sorted revision file names, as in `storedRevisionNames`).
+    public func summary(for id: UUID, names: [String]) -> NoteSummary? {
+        lock.lock(); defer { lock.unlock() }
+        guard let e = entries[id], e.revisions == names else { return nil }
+        return e.summary
+    }
+
     /// Stores `summary`, made from `revisions`. Summaries with a `problem`
     /// are not stored (and drop an older entry).
     public func store(_ summary: NoteSummary, revisions: [RevisionName]) {

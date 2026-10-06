@@ -59,7 +59,11 @@ final class SummaryBenchmarkTests: VaultTestCase {
         print("bench: gunzip \(secs(t)) → \(jsons.reduce(0) { $0 + $1.count } >> 20) MiB JSON")
         t = Date()
         let revs = try jsons.map { try InkJSON.decoder().decode(Revision.self, from: $0) }
-        print("bench: JSON decode (full) \(secs(t))")
+        print("bench: JSON decode (full, Codable) \(secs(t))")
+        t = Date()
+        let fastRevs = try jsons.map { try FastRevisionDecoder.decode($0) }
+        print("bench: JSON decode (full, fast points) \(secs(t))")
+        XCTAssertEqual(fastRevs, revs)
         t = Date()
         var byNote: [UUID: [Revision]] = [:]
         for r in revs { byNote[r.noteId, default: []].append(r) }

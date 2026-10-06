@@ -103,6 +103,11 @@ extension Transform {
 /// PencilKit → format → PencilKit is stable. PencilKit sizes below 2 on the pen family
 /// (drawn invisibly by PencilKit) come back as width 0, which loads as size
 /// 2, also invisible.
+///
+/// Any change to these maps (or to how strokes become `PKStroke`s) must bump
+/// `DrawingCache.schemaVersion`: cached drawings are checked against the
+/// stored strokes only by count, seed, ink type, point count, end points and
+/// transform, not by width or colour.
 enum NibSize {
     /// Pen family: drawn width `2s − 4`.
     static let penOffset = 2.0
