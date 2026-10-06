@@ -91,12 +91,23 @@ public struct RenderOptions: Sendable {
     /// page's `pageSize.breakHeight`, else the page width x 11 / 8.5 (letter
     /// aspect), independent of the page's current extent. Clamped to 72 ... `RenderLimits.maxExtent`.
     public var infiniteChunkHeight: Double?
+    /// The note's attachments. Without it every blob-backed item is a
+    /// placeholder (format.md §8.5.2).
+    public var blobs: (any BlobSource)?
+    /// Draws PDF pages for SVG and PNG (and for PDF pages that cannot be
+    /// copied as forms). Without it those are placeholders.
+    public var pdfRasterizer: (any PDFPageRasterizer)?
+    /// Pixels per point for rasterized PDF pages in SVG and PDF output (PNG
+    /// uses its own resolution).
+    public var rasterScale: Double
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
     public init(paper: Bool = true, compress: Bool = true, tolerance: Double = 0.05,
-                infiniteChunkHeight: Double? = nil) {
+                infiniteChunkHeight: Double? = nil, blobs: (any BlobSource)? = nil,
+                pdfRasterizer: (any PDFPageRasterizer)? = nil, rasterScale: Double = 2) {
         self.paper = paper; self.compress = compress; self.tolerance = tolerance
         self.infiniteChunkHeight = infiniteChunkHeight
+        self.blobs = blobs; self.pdfRasterizer = pdfRasterizer; self.rasterScale = rasterScale
     }
 }
 
@@ -128,6 +139,12 @@ public enum RenderLimits {
     /// `RenderError.tooComplex`. A dense page of handwriting needs well under
     /// a tenth of this.
     public static let maxOutlinePoints = 40_000_000
+    /// Most pixels of rasterized PDF pages per export, and per page drawn
+    /// (larger ones are drawn at a lower resolution); beyond the export's
+    /// budget pages are placeholders.
+    public static let maxBackgroundPixels = 16_000_000
+    /// Most pixels of rasterized PDF pages one export draws in all.
+    public static let maxBackgroundPixelsPerExport = 256_000_000
 }
 
 /// Errors thrown by the renderers.
@@ -147,6 +164,8 @@ public enum RenderError: Error, Equatable {
     /// A page's strokes would produce more than `RenderLimits.maxOutlinePoints`
     /// outline points.
     case tooComplex
+    /// An image's size and pixel buffer disagree.
+    case invalidImage
 }
 
 extension RenderError: LocalizedError {
@@ -160,6 +179,7 @@ extension RenderError: LocalizedError {
         case .imageTooLarge(let pixels, let limit):
             return "image of \(fmt(pixels)) pixels exceeds the limit of \(limit); lower --dpi"
         case .tooComplex: return "the page has more ink geometry than the renderer accepts"
+        case .invalidImage: return "an image's pixel data does not match its size"
         }
     }
 }

@@ -14,7 +14,26 @@ public enum SVGWriter {
     /// - Throws: `RenderError` for invalid page sizes, non-finite stroke data
     ///   or an infinite page beyond `RenderLimits.maxExtent`.
     public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions()) throws -> String {
-        let prepared = try PreparedPage(page: page, meta: meta, options: options)
+        var report = RenderReport()
+        return try render(page: page, meta: meta, options: options, report: &report)
+    }
+
+    /// Renders one page and reports placeholders. Items are drawn between the
+    /// paper and the strokes in `<g id="items">`: a PDF page as a PNG from
+    /// `options.pdfRasterizer` (a data URI, clipped to the frame), anything
+    /// else as a placeholder.
+    public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions(),
+                              pageNumber: Int = 1, report: inout RenderReport) throws -> String {
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        return try render(page: page, meta: meta, options: options, pageNumber: pageNumber, backgrounds: backgrounds,
+                          report: &report)
+    }
+
+    static func render(page: Page, meta: NoteMeta, options: RenderOptions, pageNumber: Int,
+                       backgrounds: PDFBackgrounds, report: inout RenderReport) throws -> String {
+        let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, scale: options.rasterScale,
+                                        report: &report)
         let width = meta.pageSize.width
         let height = prepared.extent
         let paperCommands = prepared.fullPagePaper()
@@ -26,7 +45,27 @@ public enum SVGWriter {
         if !meta.title.isEmpty { s += "<title>\(escape(meta.title))</title>\n" }
         s += "<g id=\"paper\">\n"
         for c in paperCommands { s += element(c) + "\n" }
-        s += "</g>\n<g id=\"strokes\">\n"
+        s += "</g>\n"
+        if !prepared.items.isEmpty {
+            s += "<g id=\"items\">\n"
+            for (i, it) in prepared.items.enumerated() {
+                if it.fillsBackground, options.paper { s += element(it.backgroundFill(prepared.drawnPaper)) + "\n" }
+                switch draws[it.item.id] {
+                case .raster(let r)?:
+                    let png = try PNGEncoder.encode(width: r.image.width, height: r.image.height, rgba: r.image.pixels)
+                    let m = r.placement.after(Affine(a: r.width, d: r.height))   // unit square (y down) → page
+                    let clip = it.corners.map { "\(fmt($0.x)),\(fmt($0.y))" }.joined(separator: " ")
+                    s += "<clipPath id=\"item\(i)\"><polygon points=\"\(clip)\"/></clipPath>\n"
+                    s += "<g clip-path=\"url(#item\(i))\"><image width=\"1\" height=\"1\" preserveAspectRatio=\"none\" "
+                    s += "transform=\"matrix(\([m.a, m.b, m.c, m.d, m.tx, m.ty].map(fmt6).joined(separator: " ")))\" "
+                    s += "xmlns:xlink=\"http://www.w3.org/1999/xlink\" xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/></g>\n"
+                default:
+                    for c in it.placeholder { s += element(c) + "\n" }
+                }
+            }
+            s += "</g>\n"
+        }
+        s += "<g id=\"strokes\">\n"
         for c in strokeCommands { s += element(c) + "\n" }
         s += "</g>\n</svg>\n"
         return s
@@ -34,7 +73,18 @@ public enum SVGWriter {
 
     /// One SVG string per page of the note, in order. Throws like `render(page:meta:options:)`.
     public static func render(note: NoteState, options: RenderOptions = RenderOptions()) throws -> [String] {
-        try note.pages.map { try render(page: $0, meta: note.meta, options: options) }
+        var report = RenderReport()
+        return try render(note: note, options: options, report: &report)
+    }
+
+    /// One SVG string per page of the note, reporting placeholders.
+    public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
+                              report: inout RenderReport) throws -> [String] {
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        return try note.pages.enumerated().map { i, page in
+            try render(page: page, meta: note.meta, options: options, pageNumber: i + 1, backgrounds: backgrounds,
+                       report: &report)
+        }
     }
 
     static func escape(_ s: String) -> String {

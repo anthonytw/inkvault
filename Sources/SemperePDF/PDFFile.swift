@@ -36,6 +36,12 @@ public struct PDFPageInfo: Hashable, Sendable {
     public var effectiveWidth: Double { rotation % 180 == 0 ? visibleBox.width : visibleBox.height }
     /// See `effectiveWidth`.
     public var effectiveHeight: Double { rotation % 180 == 0 ? visibleBox.height : visibleBox.width }
+
+    /// Creates page geometry (for callers without a parsed PDF).
+    public init(index: Int, mediaBox: PDFRect, cropBox: PDFRect, visibleBox: PDFRect, rotation: Int) {
+        self.index = index; self.mediaBox = mediaBox; self.cropBox = cropBox
+        self.visibleBox = visibleBox; self.rotation = rotation
+    }
 }
 
 /// A read-only, minimal PDF reader for untrusted files (`docs/attachments.md`
