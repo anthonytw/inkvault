@@ -17,6 +17,11 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   and recordings, list the blobs a note references, and make text boxes searchable.
   `sempere notes show` lists items and recordings (`items`, `recordings` in `--json`; `notes list
   --json` counts them).
+- iPhone app, as a reader (`docs/iphone.md`): the app target now also runs on iPhone. The vault,
+  its notebooks and tags, the note list and the note are a stack; a note opens for reading (pan,
+  zoom, page bar) and the pencil button switches on light finger annotation. Search, export,
+  version history and Face ID unlock work as on the iPad. The iPad and the Mac are unchanged.
+  iPhone 6.9" App Store screenshots: `scripts/screenshots.sh iphone`.
 - **Paged and pageless notes** (`docs/format.md` §5.4.3, #52): a note has fixed-size pages
   or one infinite page, and switches between them without deleting or moving ink
   (`sempere notes layout ID paged|pageless`; in the app, the Page Layout menu). In the app,

@@ -173,7 +173,7 @@ jobs:
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
 
   app:
-    name: iPad app (simulator + Mac Catalyst)
+    name: iPad and iPhone app (simulators + Mac Catalyst)
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: macos-26
@@ -195,6 +195,10 @@ jobs:
           restore-keys: ${{ steps.cachekey.outputs.key }}-
       - name: Test on an iPad simulator
         run: scripts/app.sh test
+      # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
+      # so this adds a boot and a few seconds of tests.
+      - name: Test the iPhone layouts on an iPhone simulator
+        run: scripts/app.sh test-phone
       # Same target and sources as the simulator build; checked on main only.
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'
@@ -275,6 +279,9 @@ jobs:
           xcrun simctl list runtimes
       - name: iPad (iPad Pro 13-inch simulator, 2064x2752)
         run: scripts/screenshots.sh ipad
+      - name: iPhone (iPhone Pro Max simulator, 6.9")
+        if: always()
+        run: scripts/screenshots.sh iphone
       # Best effort: a Mac UI test needs automation permission on the runner.
       - name: Mac (Catalyst, 2880x1800)
         if: always()
@@ -284,13 +291,14 @@ jobs:
         if: always()
         run: |
           for f in build/screenshots/*-summary.txt; do [ -f "$f" ] || continue; echo "== $f"; cut -c1-1500 "$f" | tail -40; done
-          ls -l build/screenshots/ipad build/screenshots/mac 2>&1 | head -30
+          ls -l build/screenshots/ipad build/screenshots/iphone build/screenshots/mac 2>&1 | head -30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: appstore-screenshots
           path: |
             build/screenshots/ipad/*.png
+            build/screenshots/iphone/*.png
             build/screenshots/mac/*.png
             build/screenshots/mac-raw/*.png
             build/screenshots/*.log

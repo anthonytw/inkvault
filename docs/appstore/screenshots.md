@@ -6,8 +6,9 @@ maintainer does that with the PNGs.
 
 ```bash
 scripts/screenshots.sh ipad    # iPad Pro 13-inch simulator -> build/screenshots/ipad/*.png
+scripts/screenshots.sh iphone  # newest iPhone Pro Max simulator -> build/screenshots/iphone/*.png
 scripts/screenshots.sh mac     # Mac Catalyst (best effort)   -> build/screenshots/mac/*.png
-scripts/screenshots.sh         # both
+scripts/screenshots.sh         # all three
 ```
 
 It needs Xcode with an iOS 26+ runtime and an "iPad Pro 13-inch" simulator (`SEMPERE_SIM_ID` picks
@@ -20,9 +21,10 @@ another; `SEMPERE_SHOTS_OUT` changes the output folder). In CI, run the **CI** w
 | Set | Size | How |
 | --- | --- | --- |
 | iPad 13" | 2064 × 2752, portrait | `XCUIScreen` screenshot on the iPad Pro 13-inch simulator (2x of 1032 × 1376 pt). App Store Connect takes the 13" size for every iPad. The script fails if a PNG has another size. |
+| iPhone 6.9" | 1320 × 2868 (or 1290 × 2796), portrait | `XCUIScreen` screenshot on the newest "iPhone … Pro Max" simulator (iOS 26+). App Store Connect scales the 6.9" set to the other iPhone sizes. The script fails if a PNG has another size. The status bar shows full cellular bars. |
 | Mac | 2880 × 1800 | The Catalyst window (pinned to 1280 × 800 pt) is scaled to fit and centred on a plain 2880 × 1800 canvas with `sips`. A window on a plain background is how Mac shots are usually shown; it avoids depending on the runner's display size. |
 
-The app is iPad-only on iOS (`TARGETED_DEVICE_FAMILY = 2`), so there is no iPhone set. The simulator is
+The app runs on iPhone and iPad (`TARGETED_DEVICE_FAMILY = "1,2"`). The simulator is
 set to light mode and `simctl status_bar override` gives 9:41, full battery and full Wi-Fi (no clutter).
 The status bar's date is the day of the run (`simctl` refused an ISO date with an offset): check it
 before uploading.
@@ -51,6 +53,14 @@ has a title bar and the Mac layout differs from the iPad's (three columns side b
 On the Mac the full-width shots show all three columns instead. Captions are not drawn into the images;
 add them in App Store Connect or a design tool. Each shot is a fresh launch whose state comes from launch
 variables (below), so the test taps nothing and a layout change cannot break a shot's navigation.
+
+### iPhone shots
+
+The iPhone is a stack, so each shot is one screen (`ScreenshotTests.phoneShots`): `01-write` and
+`02-sketch` the note view (reading mode, the "Annotate" pencil in the bar), `03-notes` the note list,
+`04-tags` the list for the `lecture` tag, `05-library` the vault's notebooks and tags, `06-unlock` the
+unlock sheet. There is no paper-picker shot on the phone. Look at the PNGs before uploading: they have
+not been seen on a real run yet.
 
 ## The demo vault
 
