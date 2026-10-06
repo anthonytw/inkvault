@@ -75,6 +75,7 @@ extension NoteLogError: CustomStringConvertible {
         case .conflictingRevisions(let device, let seq):
             return "device \(device) has two different revisions with sequence number \(seq)"
         case .notADelta(let n): return "\(n) is not a delta"
+        case .attachmentsNotMerged(let n): return "\(n) holds attachments, which this version cannot snapshot yet"
         }
     }
 }

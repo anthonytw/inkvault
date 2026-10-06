@@ -85,6 +85,8 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
             case .addTag, .removeTag: if !metaFields.contains("tags") { metaFields.append("tags") }
             case .deleteNote: deleted = true
             case .restoreNote: deleted = false
+            // A1: restore does not diff items and recordings yet.
+            case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: break
             }
         }
     }
