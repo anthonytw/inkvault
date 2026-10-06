@@ -27,9 +27,11 @@ set to light mode and `simctl status_bar override` gives 9:41, full battery and 
 The canvas is always light anyway.
 
 **Mac is best effort.** A Mac UI test needs automation (Accessibility) permission for the test runner
-and a window server; the CI job runs it with `continue-on-error`. It has not been run on hardware by the
-author of the script (the iPad path was written in a Linux sandbox and verified only by the CI run
-named in the pull request), so look at the Mac PNGs before uploading them.
+and a window server, so the CI step runs with `continue-on-error`. The Mac test runner is sandboxed and
+cannot write into the checkout, so the script reads the shots from the result bundle's attachments
+(`xcresulttool export attachments`). On a GitHub `macos-26` runner this produced all six shots; they have not
+been checked on a physical Mac, so look at the Mac PNGs before uploading them. The Catalyst window
+has a title bar and the Mac layout differs from the iPad's (three columns side by side).
 
 ## The shots
 
