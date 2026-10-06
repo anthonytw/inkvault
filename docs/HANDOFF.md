@@ -289,7 +289,9 @@ Phase 1 task detail (historical, for reference):
      the key of a newly created vault.
    - 3e Export: PDF via `SempereRender` through the share sheet; whole-vault zip
      dump; `verify` screen.
-   - 3f Recognition + search: iPadOS 27 PencilKit recognition → `setPageRecognition`
+   - 3f **done** (branch `claude/handwriting-search-4793yc`): recognition is Vision
+     on rendered pages (not PencilKit 27), see `CLAUDE.md` § Gotchas "Handwriting
+     search". Original plan: iPadOS 27 PencilKit recognition → `setPageRecognition`
      per page after edits; search field over recognition text with word-box
      highlights.
 

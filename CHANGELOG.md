@@ -9,6 +9,11 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- iPad app: handwriting search. Pages are read on the device with Vision after the strokes
+  change (and when a note opens), the text is saved as page recognition (`format.md` §5.5, new
+  optional `basis` field), and the note list searches recognised text, titles, notebooks and
+  tags and opens the matching page. Recognition from a Notability import is kept until the
+  page's strokes change.
 - Age library: streaming encryption and decryption in constant memory (`AgeEncryptor`,
   `AgeDecryptor`, file-to-file `AgeFile.encrypt` / `decrypt`), header-only rewrap that keeps the
   file key and payload (`AgeFile.rewrapHeader`) and streaming full re-encryption

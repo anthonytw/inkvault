@@ -1,0 +1,131 @@
+import Crypto
+import Foundation
+
+/// Ties a page's recognised text to the strokes it was read from
+/// (format.md §5.5 `basis`), so a writer can tell current recognition from
+/// stale without reading the ink again.
+public enum RecognitionBasis {
+    /// The digest of a set of stroke ids: SHA-256 over the lowercase ids,
+    /// sorted as strings and joined with `\n`, as the first 16 bytes in
+    /// lowercase hex (32 characters). Strokes are write-once, so the same ids
+    /// mean the same ink; the empty set has a digest too.
+    public static func digest<S: Sequence>(of ids: S) -> String where S.Element == UUID {
+        let joined = ids.map { $0.uuidString.lowercased() }.sorted().joined(separator: "\n")
+        return SHA256.hash(data: Data(joined.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The digest of a page's live strokes.
+    public static func digest(of page: Page) -> String { digest(of: page.strokes.map(\.id)) }
+}
+
+/// When a page's recognition must be (re)computed.
+public enum RecognitionPolicy {
+    /// True when `recognition` no longer describes `strokeIDs`.
+    ///
+    /// - Recognition with a `basis` is current while the basis matches the
+    ///   strokes, whoever wrote it.
+    /// - Recognition without one (a Notability import) cannot be checked, so it
+    ///   is kept unless `touched`: the caller changed this page's strokes.
+    /// - A page with strokes and no recognition needs it; a page with
+    ///   no strokes needs a clear only when its recognition has text that the
+    ///   strokes no longer back.
+    public static func needsRecognition(_ recognition: Recognition?, strokeIDs: [UUID], touched: Bool = false) -> Bool {
+        guard let recognition else { return !strokeIDs.isEmpty }
+        if let basis = recognition.basis {
+            return basis != RecognitionBasis.digest(of: strokeIDs)
+        }
+        guard touched else { return false }
+        return !strokeIDs.isEmpty || !recognition.text.isEmpty
+    }
+
+    /// `needsRecognition(_:strokeIDs:touched:)` for a stored page.
+    public static func needsRecognition(_ page: Page, touched: Bool = false) -> Bool {
+        needsRecognition(page.recognition, strokeIDs: page.strokes.map(\.id), touched: touched)
+    }
+}
+
+/// One line of text a recogniser found, with its words placed on the page.
+public struct RecognizedLine: Hashable, Sendable {
+    public var text: String
+    public var words: [Recognition.Word]
+
+    public init(text: String, words: [Recognition.Word]) { self.text = text; self.words = words }
+}
+
+/// Turns a recogniser's lines and normalised boxes into format §5.5 values.
+public enum RecognitionLayout {
+    /// A box from Vision-style coordinates (`[x, y, w, h]` in 0…1, origin at
+    /// the bottom left) to page points, for an image that shows `region`
+    /// (page coordinates, origin top left). Results are clamped to `region`.
+    public static func pageBox(normalized n: Recognition.Box, region: Recognition.Box) -> Recognition.Box {
+        func unit(_ v: Double) -> Double { v.isFinite ? min(max(v, 0), 1) : 0 }
+        let x0 = unit(n.x), x1 = unit(n.x + n.w)
+        let y0 = unit(n.y), y1 = unit(n.y + n.h)
+        return Recognition.Box(x: region.x + x0 * region.w, y: region.y + (1 - y1) * region.h,
+                               w: (x1 - x0) * region.w, h: (y1 - y0) * region.h)
+    }
+
+    /// Words of `text` (split at whitespace) placed side by side across `box`,
+    /// each given a width in proportion to its length: the fallback when a
+    /// recogniser cannot box single words.
+    public static func distribute(text: String, in box: Recognition.Box) -> [Recognition.Word] {
+        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        let total = words.reduce(0) { $0 + $1.count } + max(words.count - 1, 0)   // one space between words
+        guard total > 0 else { return [] }
+        var x = box.x
+        return words.map { w in
+            let width = box.w * Double(w.count) / Double(total)
+            defer { x += box.w * Double(w.count + 1) / Double(total) }
+            return Recognition.Word(text: w, box: .init(x: x, y: box.y, w: width, h: box.h))
+        }
+    }
+
+    /// The reading order of `lines`: top to bottom, and left to right for
+    /// lines on the same row (their vertical centres closer than half the
+    /// smaller height).
+    public static func readingOrder(_ lines: [RecognizedLine]) -> [[RecognizedLine]] {
+        struct Placed { var line: RecognizedLine; var box: Recognition.Box }
+        let placed: [Placed] = lines.compactMap { line in
+            guard let box = bounds(of: line.words) else { return nil }
+            return Placed(line: line, box: box)
+        }.sorted { ($0.box.y, $0.box.x) < ($1.box.y, $1.box.x) }
+        var rows: [[Placed]] = []
+        var rowBox: Recognition.Box?
+        for p in placed {
+            if let r = rowBox, abs((p.box.y + p.box.h / 2) - (r.y + r.h / 2)) < min(p.box.h, r.h) / 2 {
+                rows[rows.count - 1].append(p)
+                rowBox = union(r, p.box)
+            } else {
+                rows.append([p])
+                rowBox = p.box
+            }
+        }
+        return rows.map { $0.sorted { $0.box.x < $1.box.x }.map(\.line) }
+    }
+
+    /// The recognition for `lines`: text in reading order (lines at one row
+    /// are joined with a space, rows with `\n`), words in the same order.
+    /// Lines without text or words are dropped.
+    public static func assemble(engine: String, lines: [RecognizedLine], basis: String?) -> Recognition {
+        let clean = lines.compactMap { line -> RecognizedLine? in
+            let text = line.text.split(whereSeparator: \.isNewline).joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            let words = line.words.filter { !$0.text.isEmpty && $0.box.x.isFinite && $0.box.y.isFinite
+                && $0.box.w.isFinite && $0.box.h.isFinite }
+            return text.isEmpty || words.isEmpty ? nil : RecognizedLine(text: text, words: words)
+        }
+        let rows = readingOrder(clean)
+        return Recognition(engine: engine,
+                           text: rows.map { $0.map(\.text).joined(separator: " ") }.joined(separator: "\n"),
+                           words: rows.flatMap { $0.flatMap(\.words) }, basis: basis)
+    }
+
+    private static func bounds(of words: [Recognition.Word]) -> Recognition.Box? {
+        words.map(\.box).reduce(nil) { acc, b in acc.map { union($0, b) } ?? b }
+    }
+
+    private static func union(_ a: Recognition.Box, _ b: Recognition.Box) -> Recognition.Box {
+        let x = min(a.x, b.x), y = min(a.y, b.y)
+        return Recognition.Box(x: x, y: y, w: max(a.x + a.w, b.x + b.w) - x, h: max(a.y + a.h, b.y + b.h) - y)
+    }
+}
