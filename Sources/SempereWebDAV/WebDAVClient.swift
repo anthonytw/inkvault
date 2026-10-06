@@ -39,7 +39,7 @@ public enum PutCondition: Sendable, Equatable {
 }
 
 /// The minimal WebDAV verbs the sync needs: PROPFIND (Depth 1), GET, PUT,
-/// MKCOL and DELETE, over Basic auth on HTTPS (or plain HTTP to localhost).
+/// MKCOL, MOVE and DELETE, over Basic auth on HTTPS (or plain HTTP to localhost).
 /// Paths are component lists below `baseURL`, so no caller builds a URL string.
 public struct WebDAVClient: Sendable {
     public let baseURL: URL
@@ -151,6 +151,150 @@ public struct WebDAVClient: Sendable {
         }
     }
 
+    /// Uploads a file, streamed from disk (never held in memory). Returns
+    /// false when the precondition failed.
+    @discardableResult
+    public func put(_ path: [String], fromFile file: URL, condition: PutCondition) throws -> Bool {
+        let size: Int
+        do {
+            size = try (FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue ?? 0
+        } catch {
+            throw WebDAVError.io("read \(file.path): \(error.localizedDescription)")
+        }
+        var h = ["Content-Type": "application/octet-stream", "Content-Length": String(size)]
+        switch condition {
+        case .create: h["If-None-Match"] = "*"
+        case .replace(let etag): h["If-Match"] = etag
+        case .unconditional: break
+        }
+        let r = try send("PUT", path, collection: false, headers: h, bodyFile: file)
+        switch r.status {
+        case 200, 201, 204: return true
+        case 412: return false
+        default: throw try failure("PUT", path, r)
+        }
+    }
+
+    /// What `download` received.
+    public struct Download: Sendable, Equatable {
+        /// True when the bytes already in the file were kept and only the
+        /// rest was fetched; false when the file now holds a fresh copy.
+        public var resumed: Bool
+        /// The response ETag, if any.
+        public var etag: String?
+    }
+
+    /// The default size of one `Range` request in `download` (2 MiB). On
+    /// Linux, URLSession queues every 16 KiB delivery for its delegate with
+    /// no flow control, so a server faster than the disk piles up to one
+    /// response in memory; measured against a local server, 2 MiB segments
+    /// kept resident memory flat (about 20 MiB) for blobs of 300 MB to 1 GB
+    /// at about 5 % more time than 8 MiB ones, which grew to 85 MiB.
+    public static let defaultSegmentBytes = 2 << 20
+
+    /// Downloads one file into `file` in `Range` requests of at most
+    /// `segmentBytes`, each streamed to the file, so memory stays bounded by
+    /// one segment however fast the server sends. A server that ignores
+    /// `Range` sends the whole file in one streamed response instead.
+    ///
+    /// With `resumeFrom` > 0 and an `ifRange` validator, the bytes already in
+    /// `file` up to that offset are kept and only the rest is requested
+    /// (`If-Range`: if the remote file changed, it comes whole and replaces
+    /// them). Without a validator the download starts over.
+    ///
+    /// - Parameter maxBytes: the largest file accepted.
+    /// - Throws: `WebDAVError.responseTooLarge` past `maxBytes` (reading stops
+    ///   there), `.http` for any other status (416 included), and
+    ///   `.malformedResponse` for a partial response that does not continue
+    ///   at the right byte. What was written to `file` before a failure stays
+    ///   there.
+    @discardableResult
+    public func download(_ path: [String], to file: URL, resumeFrom: Int = 0, ifRange: String? = nil,
+                         maxBytes: Int, segmentBytes: Int = defaultSegmentBytes) throws -> Download {
+        let shown = "/" + path.joined(separator: "/")
+        var offset = ifRange == nil ? 0 : max(resumeFrom, 0)
+        try Self.truncate(file, to: offset)
+        let segment = max(segmentBytes, 1)
+        var resumed = offset > 0
+        var etag: String?
+        while true {
+            var h = ["Accept-Encoding": "identity", "Range": "bytes=\(offset)-\(offset + segment - 1)"]
+            if let validator = ifRange ?? etag { h["If-Range"] = validator }
+            let r = try send("GET", path, collection: false, headers: h, maxResponseBytes: maxBytes, responseFile: file)
+            etag = etag ?? r.headers["etag"]
+            switch r.status {
+            case 200:
+                // The whole file (no range support, or it changed): it replaced what was there.
+                return Download(resumed: false, etag: r.headers["etag"] ?? etag)
+            case 206:
+                guard let range = Self.contentRange(r.headers["content-range"]), range.start == offset,
+                      range.end >= range.start, range.end < range.total else {
+                    throw WebDAVError.malformedResponse("a partial response for \(shown) does not continue at byte \(offset)")
+                }
+                guard range.total <= maxBytes else { throw WebDAVError.responseTooLarge(path: shown, limit: maxBytes) }
+                guard LocalFS.regularFileSize(file) == range.end + 1 else {
+                    throw WebDAVError.malformedResponse("a partial response for \(shown) does not match its Content-Range")
+                }
+                offset = range.end + 1
+                if offset == range.total { return Download(resumed: resumed, etag: etag) }
+            default:
+                throw try failure("GET", path, r)
+            }
+        }
+    }
+
+    /// Cuts `file` to `length` bytes (creating it, mode 0600, if missing).
+    private static func truncate(_ file: URL, to length: Int) throws {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: file.path) {
+            guard fm.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw WebDAVError.io("cannot create \(file.path)")
+            }
+        }
+        do {
+            let h = try FileHandle(forWritingTo: file)
+            defer { try? h.close() }
+            if Int(try h.seekToEnd()) > length { try h.truncate(atOffset: UInt64(length)) }
+        } catch {
+            throw WebDAVError.io("truncate \(file.path): \(error.localizedDescription)")
+        }
+    }
+
+    /// `Content-Range: bytes a-b/n` as (a, b, n); nil for anything else
+    /// (an unknown total `*` included).
+    static func contentRange(_ value: String?) -> (start: Int, end: Int, total: Int)? {
+        guard let value else { return nil }
+        let v = value.trimmingCharacters(in: .whitespaces)
+        guard v.lowercased().hasPrefix("bytes ") else { return nil }
+        let rest = v.dropFirst(6).trimmingCharacters(in: .whitespaces)
+        let parts = rest.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let ends = parts[0].split(separator: "-", omittingEmptySubsequences: false)
+        func number(_ s: Substring) -> Int? {
+            guard !s.isEmpty, s.count <= 18, s.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            return Int(s)
+        }
+        guard ends.count == 2, let a = number(ends[0]), let b = number(ends[1]), let n = number(parts[1]) else { return nil }
+        return (a, b, n)
+    }
+
+    /// Renames a file on the server (`MOVE`). With `overwrite` false
+    /// (`Overwrite: F`) an existing destination is never replaced and the
+    /// result is false.
+    @discardableResult
+    public func move(_ path: [String], to destination: [String], overwrite: Bool) throws -> Bool {
+        guard let target = url(for: destination, collection: false) else {
+            throw WebDAVError.malformedResponse("cannot form a URL for \(destination.joined(separator: "/"))")
+        }
+        let r = try send("MOVE", path, collection: false,
+                         headers: ["Destination": target.absoluteString, "Overwrite": overwrite ? "T" : "F"])
+        switch r.status {
+        case 200, 201, 204: return true
+        case 412: return false
+        default: throw try failure("MOVE", path, r)
+        }
+    }
+
     /// What `mkcol` found.
     public enum MkcolResult: Sendable { case created, exists, missingParent }
 
@@ -214,7 +358,8 @@ public struct WebDAVClient: Sendable {
     }()
 
     private func send(_ method: String, _ path: [String], collection: Bool, headers: [String: String] = [:],
-                      body: Data? = nil, maxResponseBytes: Int = defaultMaxResponseBytes) throws -> WebDAVResponse {
+                      body: Data? = nil, maxResponseBytes: Int = defaultMaxResponseBytes,
+                      bodyFile: URL? = nil, responseFile: URL? = nil) throws -> WebDAVResponse {
         guard let url = url(for: path, collection: collection) else {
             throw WebDAVError.malformedResponse("cannot form a URL for \(path.joined(separator: "/"))")
         }
@@ -222,8 +367,9 @@ public struct WebDAVClient: Sendable {
         if let authorization { h["Authorization"] = authorization }
         h["User-Agent"] = "sempere-webdav/0.1"
         let r = try transport.send(WebDAVRequest(method: method, url: url, headers: h, body: body,
-                                                 maxResponseBytes: maxResponseBytes))
-        try Self.checkSize(r, url: url, limit: maxResponseBytes)
+                                                 maxResponseBytes: maxResponseBytes, bodyFile: bodyFile,
+                                                 responseFile: responseFile))
+        try Self.checkSize(r, url: url, limit: responseFile == nil ? maxResponseBytes : Self.defaultMaxResponseBytes)
         return r
     }
 
