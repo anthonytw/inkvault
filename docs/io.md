@@ -267,6 +267,21 @@ the journal) also fsync their directory. Filesystems that cannot fsync a
 directory (`EINVAL`, `ENOTSUP`) are accepted (`verify` reports a
 leftover as `unknownFile`; nothing deletes it automatically).
 
+**Blobs** (`notes/<id>/att/`, `format.md` §8.1.4) are streamed: the age
+file is written chunk by chunk to `.sempere-tmp-<uuid>` in the note's `att/`
+(mode 0600) and `fsync`ed, then put in place with `link(2)` onto the final
+name, which fails rather than replace an existing file, then the temporary
+name is unlinked and the directory `fsync`ed. On file systems without hard
+links (FAT, some network shares) it falls back to the existence check and
+`rename(2)` above. The only blob that is ever replaced is one whose first
+chunk does not decrypt to a valid header for its name (format.md §8.1.4
+step 2), or, during a recipient change, a blob rewritten in place or a
+damaged file under its new name (§8.1.5). Writers write the blob before the
+revision that references it, so a crash leaves an unreferenced blob, never
+a dangling reference. `withBlobFile` and `blobs extract --out` decrypt to a
+private file that appears (or is handed out) only once the whole content
+verified.
+
 Revisions are write-once: `write` refuses an existing name and a reused
 `(device, seq)` before renaming. The existence check and the rename are not
 one atomic step, but two writers can only race on one name if they share a
@@ -345,6 +360,21 @@ rewrapped still verify (if the journal cannot be read, `open` records why in
 `addRecipient` / `removeRecipient` / `replaceRecipient` call) finishes step 3 and 4. Files that
 are already current are skipped, so a run can be repeated any number of
 times.
+
+**Blobs in a recipient change** (`Sources/Sempere/BlobRewrap.swift`). After
+a note's revisions, each blob in its `att/` is checked from its first chunk
+only (stanza counts, and the name against the hash in its header): complete
+blobs are skipped. Others are rewritten by the method the journal records
+(`rekeyBlobs`, chosen by `RewrapPolicy`): header-only (`AgeFile.rewrapHeader`)
+or full re-encryption (`AgeFile.reencrypt`), streaming, with the whole
+plaintext checked on the way (framing, zero padding, hash), to a temporary
+file. A blob named under the current secret (an addition) replaces itself; one
+named under `previousVaultSecret` (a removal) goes to its new name and then the
+old name is deleted, and a run that finds a complete copy already under the new
+name (a crash between the two) only deletes the old one. A blob whose name
+verifies under neither secret, or whose content fails a check, is left as it is
+and reported, which keeps the journal. While the journal exists, lookups try
+the current name, then the previous one.
 
 Why a stanza count and not "the header lists all recipients": X25519 and
 mlkem768x25519 stanzas carry only an ephemeral share or encapsulation, not

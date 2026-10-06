@@ -135,9 +135,9 @@ sempere keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [--
 sempere vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...]
                          [--store-key FILE [--passphrase-env VAR] [--work-factor 15...18]]
 sempere vault info
-sempere vault recipients add age1pq1... [--label TEXT] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
-sempere vault recipients remove age1...
-sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
+sempere vault recipients add age1pq1... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
+sempere vault recipients remove age1... [--rewrap header|reencrypt]
+sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE ...]
 sempere vault rewrap-resume
 sempere vault verify
 ```
@@ -153,6 +153,17 @@ sempere vault verify
   (`remove` also rotates the vault secret) and print a report. If any file
   cannot be rewrapped the exit code is 3 and the message says to run
   `rewrap-resume`. Removing a key does not revoke what it already decrypted.
+- Attachment blobs (`notes/<id>/att/`, `format.md` §8.1.5) are rewrapped
+  too. By default an `add` rewrites each blob's age header only (same file
+  key, payload copied), and a `remove` or `replace` (or an `add` that changes
+  the key types, such as a post-quantum key added to a legacy vault)
+  re-encrypts each blob under a new file key; a removal also renames every
+  blob under the new vault secret. `--rewrap header|reencrypt` overrides the
+  method for this change. `header` on a removal is faster but leaves every
+  old copy of a blob (backups, file-version history) able to open the current
+  file with the removed key. The method is recorded in the journal, so
+  `rewrap-resume` (from any device) finishes with the same one. `--json`
+  reports it as `blobs`.
 - Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
   and the new key of `replace` refuse a classic `age1...` key with "create a
   new key" (exit 2), before asking for any passphrase. Legacy vaults that
@@ -183,6 +194,69 @@ sempere vault verify
   `status  path` per file plus counts. Exit 0 only if the vault is healthy,
   else 3. `-q` lists only problem files. `--json` emits `healthy`,
   `manifestProblems`, `rewrapPending`, `journalProblem`, `counts` and `files`.
+  Attachment blobs are decrypted and hashed in full: `ok`, `unreferenced`
+  (healthy: no revision of its note uses it; `blobs gc` removes it later),
+  `invalid` (bad framing, padding, hash or name), `staleRecipients`, and a
+  `missing` line for each reference with no blob.
+
+### Attachments
+
+```
+sempere blobs list [NOTE ...]
+sempere blobs verify [NOTE ...]
+sempere blobs extract NOTE SHA256 [--out FILE]
+sempere blobs add NOTE FILE --type MEDIA/TYPE
+sempere blobs copy SHA256 --from NOTE --to NOTE
+sempere blobs unused [NOTE ...] [--retention DAYS]
+sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS]
+sempere blobs repair [NOTE ...]
+```
+
+Blobs hold the bytes of images, PDFs, recordings and transcripts, one
+encrypted file per content per note: `notes/<id>/att/<keyed hash>.<kind>.age`
+(`format.md` §8.1). Revisions reference them by SHA-256; a note never uses
+another note's blobs. NOTE is an id or a title; without one, every note.
+
+- `list` shows each blob (kind, size on disk, referenced or not) and every
+  reference with no blob (`MISSING`), unreadable revisions and unknown files.
+  It reads the revisions but decrypts no blob.
+- `verify` decrypts and checks every blob of the notes (as `vault verify`
+  does, restricted to blobs). Exit 3 unless every blob is `ok` or
+  `unreferenced`.
+- `extract` writes the verified content of the blob a revision of NOTE
+  references (SHA256, or a unique prefix of at least 8 digits). With `--out`
+  the file appears only once the whole content has verified and is never
+  overwritten; on standard output content streams as it is decrypted, so on
+  an error (exit 1) discard what was printed.
+- `add` stores a file as a blob of NOTE (streaming, any size up to 1 GiB) and
+  prints the reference to put in a revision (`{"sha256", "size", "type"}`;
+  `-q` prints only the hash). It adds no item; until a revision references
+  the blob it is unreferenced. The first blob adds `features: ["attachments"]`
+  to `vault.json`.
+- `copy` copies a blob that NOTE `--from` references into NOTE `--to` (a byte
+  copy, verified as it is read), before a revision there uses it.
+- `unused` lists blobs no revision of their note references, with the date
+  each may be collected. Read only.
+- `gc` deletes those that have been unreferenced for `--retention` days
+  (default 30), per `format.md` §8.1.6: per note, only when every revision of
+  the note was read and verified, no recipient change is pending, no revision
+  (deleted notes and old restore points included) references the blob, and
+  this device first found it so at least the window ago. The first sighting
+  is recorded in `$XDG_STATE_HOME/sempere/blobs/<vaultId>.json` (default
+  `~/.local/state/...`), never in the vault; a blob that becomes referenced
+  again loses its record. A blob is decrypted and verified in full before it
+  is deleted; one that cannot be is reported and kept. `--dry-run` deletes
+  and records nothing. Exit 3 when a note could not be collected (unreadable
+  revision, pending rewrap) or a blob could not be verified.
+  Collection never happens as a side effect of `compact`, `sync` or opening.
+- `repair` fixes blobs a recipient change by an older build left behind
+  (still named under an old vault secret, encrypted to old recipients, or
+  under the wrong kind): each is verified, re-encrypted to the current
+  recipients and renamed. Only authentic blobs are touched (the name verifies
+  under the current secret, or a verified revision of the note references the
+  content); anything else is listed and left alone (exit 3).
+
+`recover` also reads a single blob file without the vault (see "Recover").
 
 ### Backup and restore
 
@@ -571,6 +645,14 @@ touches files it did not write. A note that fails to export keeps its old files.
 ```
 sempere recover FILE.age [--note-id UUID] [--identity FILE ...] [--vault PATH] [--no-verify]
 ```
+
+Given an attachment blob (`notes/<id>/att/<name>.<kind>.age`) it prints the
+blob's content, byte for byte what
+`age -d -i KEY FILE | tail -c +46 | head -c LEN` prints (`format.md` §8.1.7).
+Framing, zero padding and the content hash are always checked; the file name
+too when a vault is known (a name that does not verify: exit 1, nothing
+printed); otherwise `UNVERIFIED NAME: ...` goes to stderr. Content streams as
+it is decrypted: if the command fails midway, discard the output.
 
 Decrypts one revision file and prints its JSON to stdout, byte for byte what
 `age -d -i KEY FILE | tail -c +38 | gunzip` prints. It needs only an identity

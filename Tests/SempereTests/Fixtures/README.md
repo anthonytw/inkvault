@@ -24,6 +24,13 @@ Vault id `5a3b1e00-1000-4000-8000-000000000001`, created
 | `11111111-1111-4111-8111-111111111111` | A1, B1, B2 deltas; A2 snapshot; A3 delta after it | title "Fixture lecture", tags `["fixture"]`, ruled paper, 2 pages with 2 strokes each |
 | `22222222-2222-4222-8222-222222222222` | A1 delta, B1 `deleteNote` | title "Fixture deleted", `deleted: true`, 1 page with 1 stroke |
 
+`sample.sempere` (not `legacy.sempere`) also holds one attachment blob
+(`format.md` §8.1) in the lecture's `att/`: the 50 bytes
+`Sempere fixture attachment: synthetic, test-only.\n`, type `text/plain`
+(kind `bin`, sha256 `ae0a2902…6436`). No revision references it yet (the
+note with items comes with the attachments merge, task A1), so `verify`
+lists it as `unreferenced`, and `vault.json` has `features: ["attachments"]`.
+
 Stroke ids are `f1c70000-0000-4000-8000-0000000001NN`; page ids end in `…001`,
 `…002` (lecture) and `…003` (deleted note). All clocks are fixed offsets from
 2026-10-04T16:20:00Z.
@@ -34,6 +41,7 @@ Recovery without the app:
 age -d -i sample.key sample.sempere/notes/<noteId>/<file>.age | tail -c +38 | gunzip | jq .   # age >= 1.3
 age -d -i legacy.key legacy.sempere/notes/<noteId>/<file>.age | tail -c +38 | gunzip | jq .
 age -d sample.sempere/keys/*.key.age     # passphrase: sempere-test
+age -d -i sample.key sample.sempere/notes/11111111-1111-4111-8111-111111111111/att/*.bin.age | tail -c +46 | head -c 50
 ```
 
 ## Regenerating

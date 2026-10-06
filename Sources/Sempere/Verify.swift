@@ -28,6 +28,16 @@ public struct VerifyReport: Hashable, Sendable {
         /// The vault cannot read (locked, or no identities), so the file was
         /// not decrypted.
         case notChecked
+        /// An attachment blob some revision of its note references is not
+        /// in the note's `att/` (format.md §8.1.4, §8.5.2).
+        case missing
+        /// An attachment blob that fails to decrypt or verify: framing,
+        /// padding, content hash, or a name that does not verify (format.md
+        /// §8.1.4).
+        case invalid
+        /// A valid attachment blob that no revision of its note references:
+        /// healthy; collection may remove it later (format.md §8.1.6).
+        case unreferenced
     }
 
     /// One file or directory.
@@ -58,10 +68,11 @@ public struct VerifyReport: Hashable, Sendable {
     }
 
     /// True when the manifest and any pending journal are fine and every
-    /// entry is `ok`, `unknownFile` or (vault that cannot read) `notChecked`.
+    /// entry is `ok`, `unknownFile`, `unreferenced` or (vault that cannot
+    /// read) `notChecked`.
     public var isHealthy: Bool {
         manifestOK && journalProblem == nil
-            && files.allSatisfy { [.ok, .unknownFile, .notChecked].contains($0.status) }
+            && files.allSatisfy { [.ok, .unknownFile, .notChecked, .unreferenced].contains($0.status) }
     }
 }
 
@@ -78,9 +89,15 @@ extension VerifyReport.Status {
 
 extension Vault {
     /// Walks the whole vault: re-reads and checks `vault.json`, then reads
-    /// and verifies every revision file. Never throws; one bad file is one
-    /// line of the report.
-    public func verify() -> VerifyReport {
+    /// and verifies every revision file and every attachment blob (each
+    /// decrypted and hashed in full, streaming). Never throws; one bad file
+    /// is one line of the report.
+    public func verify() -> VerifyReport { verify(notes: nil) }
+
+    /// `verify()` restricted to the given notes (the manifest, journal and
+    /// `keys/` are still checked; other notes are skipped, not listed).
+    public func verify(notes only: Set<UUID>?) -> VerifyReport {
+        let wanted = only.map { Set($0.map { $0.uuidString.lowercased() }) }
         var report = VerifyReport()
         report.rewrapPending = pendingRewrap
         report.journalProblem = pendingRewrap ? journalProblem : nil
@@ -114,16 +131,22 @@ extension Vault {
         }
         let notReadable = legacy ? "legacy vault: migrate first"
             : secret == nil ? "vault locked" : identities.isEmpty ? "no identities" : nil
-        for note in list(notesURL, as: Self.notesName) {
+        for note in list(notesURL, as: Self.notesName) where wanted?.contains(note) ?? true {
             let dir = notesURL.appendingPathComponent(note)
             let base = "\(Self.notesName)/\(note)"
             guard Self.isNoteDirectoryName(note), FileIO.isDirectory(dir) else {
                 report.files.append(.init(path: base, status: .unknownFile, detail: nil))
                 continue
             }
+            var refs: [FoundBlobReference] = []
+            var hasAttachments = false
             for entry in list(dir, as: base) {
                 let path = "\(base)/\(entry)"
                 let file = dir.appendingPathComponent(entry)
+                if entry == Self.attachmentsName, FileIO.isDirectory(file) {
+                    hasAttachments = true
+                    continue
+                }
                 guard let name = RevisionName(entry), name.filename == entry, !FileIO.isDirectory(file) else {
                     report.files.append(.init(path: path, status: .unknownFile, detail: nil))
                     continue
@@ -134,7 +157,9 @@ extension Vault {
                 }
                 do {
                     let data = try FileIO.read(file, maxBytes: BoundedRead.maxRevisionBytes)
-                    _ = try decodeRevisionFile(data, note: note, name: name, secret: secret)
+                    let json = try revisionJSON(data, note: note, name: name, secret: secret)
+                    _ = try Self.decodeRevisionJSON(json, note: note, name: name, detail: .full)
+                    refs += (try? BlobReferenceScan.references(in: json)) ?? []
                     let stanzas = (try? Self.stanzaCounts(data)) ?? [:]
                     if stanzas != expected {
                         report.files.append(.init(path: path, status: .staleRecipients,
@@ -149,8 +174,76 @@ extension Vault {
                     report.files.append(.init(path: path, status: .undecryptable, detail: "\(error)"))
                 }
             }
+            verifyBlobs(note: note, base: base, present: hasAttachments, references: refs,
+                        notReadable: notReadable, expected: expected, into: &report)
         }
         return report
+    }
+
+    /// The blob part of `verify` for one note: every file in `att/`, then
+    /// every reference with no file (format.md §8.1.4).
+    private func verifyBlobs(note: String, base: String, present: Bool, references: [FoundBlobReference],
+                             notReadable: String?, expected: [String: Int], into report: inout VerifyReport) {
+        let att = notesURL.appendingPathComponent(note).appendingPathComponent(Self.attachmentsName)
+        let attPath = "\(base)/\(Self.attachmentsName)"
+        var entries: [String] = []
+        if present {
+            do { entries = try FileIO.entries(att) } catch {
+                report.files.append(.init(path: attPath, status: .unlistable, detail: "\(error)"))
+            }
+        }
+        let kinds = Dictionary(grouping: references.filter { SHA256Hex.bytes($0.sha256) != nil }, by: \.sha256)
+            .mapValues { Set($0.map(\.kind)) }
+        var resolved = Set<String>()   // "<sha256>/<kind>" of files that verified
+        for entry in entries {
+            let path = "\(attPath)/\(entry)"
+            let url = att.appendingPathComponent(entry)
+            guard let parsed = BlobName.parse(entry), !FileIO.isDirectory(url) else {
+                report.files.append(.init(path: path, status: .unknownFile, detail: nil))
+                continue
+            }
+            if let notReadable {
+                report.files.append(.init(path: path, status: .notChecked, detail: notReadable))
+                continue
+            }
+            do {
+                let (header, _) = try Self.readBlobFile(url, identities: identities, secrets: blobSecrets, expected: nil,
+                                                        maxContent: BlobRef.maxSize)
+                let stanzas = Self.stanzaCounts(blob: url)
+                let used = kinds[header.sha256]?.contains(parsed.kind) == true
+                if used { resolved.insert("\(header.sha256)/\(parsed.kind.rawValue)") }
+                if stanzas != expected {
+                    report.files.append(.init(path: path, status: .staleRecipients,
+                                              detail: "stanzas: \(Self.describe(stanzas)); recipients need: "
+                                                  + Self.describe(expected)))
+                } else if !used {
+                    report.files.append(.init(path: path, status: .unreferenced, detail: "content \(header.sha256)"))
+                } else {
+                    report.files.append(.init(path: path, status: .ok, detail: nil))
+                }
+            } catch {
+                report.files.append(.init(path: path, status: .invalid, detail: "\(error)"))
+            }
+        }
+        guard notReadable == nil, let secret else { return }
+        var reported = Set<String>()
+        for r in references {
+            guard let ref = r.ref, let digest = ref.digest else { continue }
+            let key = "\(ref.sha256)/\(ref.kind.rawValue)"
+            guard !resolved.contains(key), reported.insert(key).inserted else { continue }
+            let name = BlobName.fileName(name: BlobName.name(digest: digest, secret: secret), kind: ref.kind)
+            report.files.append(.init(path: "\(attPath)/\(name)", status: .missing,
+                                      detail: "referenced \(ref.type) blob \(ref.sha256) (\(ref.size) bytes) "
+                                          + (entries.contains(name) ? "does not verify" : "is not there")))
+        }
+    }
+
+    /// Stanza counts of a blob file's age header (empty when unreadable).
+    static func stanzaCounts(blob url: URL) -> [String: Int] {
+        guard let header = try? AgeFile.readHeader(contentsOf: url) else { return [:] }
+        var counts: [String: Int] = [:]
+        for s in header.stanzas { counts[s.type, default: 0] += 1 }
+        return counts
     }
 
     func manifestProblems() -> [String] {
@@ -159,7 +252,12 @@ extension Vault {
         let m: VaultManifest
         do { m = try Self.readManifest(data) } catch { return ["vault.json: \(error)"] }
         var problems: [String] = []
-        if m != manifest { problems.append("vault.json changed on disk since the vault was opened") }
+        // `features` may legitimately grow after open (a blob writer adds
+        // `attachments`, format.md §2); anything else is a change.
+        var opened = manifest
+        opened.features = m.features
+        if m != opened { problems.append("vault.json changed on disk since the vault was opened") }
+
         // The secret must be armored age encrypted to exactly the recipients.
         do {
             let binary = try Armor.decode(Data(m.vaultSecret.utf8))
