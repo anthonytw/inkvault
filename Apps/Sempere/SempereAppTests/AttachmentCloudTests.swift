@@ -112,7 +112,7 @@ struct AttachmentCloudTests {
         try cloud.evictBlobs(of: Self.lecture)
         try Data().write(to: cloud.attURL(Self.lecture).appendingPathComponent("not-a-blob.age"))
         let listed = try CloudScan.blobItems(inVault: url, id: Self.lecture)
-        #expect(listed.allSatisfy(\.item.placeholder))
+        #expect(listed.allSatisfy { $0.item.placeholder })
         let kinds = Set(listed.map(\.kind))
         #expect(kinds.contains(.image) && kinds.contains(.audio))
         #expect(!listed.contains { $0.item.url.lastPathComponent == "not-a-blob.age" })
