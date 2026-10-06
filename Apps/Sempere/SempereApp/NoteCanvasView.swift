@@ -78,6 +78,9 @@ struct NoteCanvasView: View {
                     Button("Rename…", systemImage: "pencil") { startRename(note) }
                 }
                 ToolbarItem(placement: .secondaryAction) {
+                    ExportMenu(ids: [note.id])
+                }
+                ToolbarItem(placement: .secondaryAction) {
                     Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)
                 }
                 ToolbarItem(placement: .primaryAction) {

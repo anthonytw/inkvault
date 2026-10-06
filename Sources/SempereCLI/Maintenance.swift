@@ -59,7 +59,13 @@ struct CompactCommand: ParsableCommand {
                 let names: [RevisionName]
                 if dryRun {
                     // A real run would fail on an unreadable revision when it snapshots; so does the dry run.
-                    if needs { _ = try vault.reconstruct(loaded) }
+                    if needs {
+                        _ = try vault.reconstruct(loaded)
+                        // ...and on attachments, which the snapshot refuses until A1.
+                        if let r = loaded.revisions.first(where: \.holdsAttachments) {
+                            throw NoteLogError.attachmentsNotMerged(r.name)
+                        }
+                    }
                     names = loaded.compactionPlan(retention: seconds, assumingSnapshot: needs)
                 } else {
                     if needs {

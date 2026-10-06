@@ -1,18 +1,33 @@
-import ArgumentParser
 import Foundation
-import SempereRender
 import Sempere
 
 /// Which per-page images a Markdown export embeds besides the PDF.
-enum ExportImages: String, ExpressibleByArgument, CaseIterable {
+public enum ExportImages: String, CaseIterable, Sendable {
     case none, png
 }
 
+/// The two folder-tree export formats.
+public enum TreeFormat: String, CaseIterable, Sendable {
+    case markdown, html
+}
+
+/// Why a tree export stopped (a note that fails to render is reported in
+/// `TreeExporter.run`'s `errors`, not thrown).
+public enum TreeExportError: Error, Equatable, CustomStringConvertible, Sendable {
+    case cannotWrite(path: String, reason: String)
+
+    public var description: String {
+        switch self {
+        case .cannotWrite(let path, let reason): return "cannot write \(path): \(reason)"
+        }
+    }
+}
+
 /// What a tree export (Markdown or HTML) wrote, per note.
-struct TreeResult {
-    var noteId: String
-    var files: [String]
-    var changed: [String]
+public struct TreeResult: Sendable {
+    public var noteId: String
+    public var files: [String]
+    public var changed: [String]
 }
 
 /// `.sempere-export-<format>.json` in the output root: which files an export
@@ -61,15 +76,28 @@ struct ExportManifest: Codable {
 /// Writes notes as a folder tree: Markdown (`.md` + PDF [+ PNG pages] + a
 /// `README.md` per folder) or HTML (one file per note + `index.html`).
 /// Re-running rewrites only files whose content changed.
-struct TreeExporter {
-    var root: URL
-    var format: ExportFormat
-    var images: ExportImages
-    var options: RenderOptions
-    var png: PNGOptions
-    var source: String
-    var clean: Bool
-    var notebookFilter: String?
+///
+/// `run` is synchronous and blocking: call it off the main actor. It checks
+/// `Task.checkCancellation()` before each note, so cancelling the task that
+/// runs it stops the export between notes (files already written stay).
+public struct TreeExporter: Sendable {
+    public var root: URL
+    public var format: TreeFormat
+    public var images: ExportImages
+    public var options: RenderOptions
+    public var png: PNGOptions
+    public var source: String
+    public var clean: Bool
+    public var notebookFilter: String?
+    /// How a note's failure is worded in `run`'s `errors`.
+    public var errorText: @Sendable (Error) -> String
+
+    public init(root: URL, format: TreeFormat, images: ExportImages = .none, options: RenderOptions = RenderOptions(),
+                png: PNGOptions = PNGOptions(), source: String, clean: Bool = false, notebookFilter: String? = nil,
+                errorText: @escaping @Sendable (Error) -> String = { "\($0)" }) {
+        self.root = root; self.format = format; self.images = images; self.options = options; self.png = png
+        self.source = source; self.clean = clean; self.notebookFilter = notebookFilter; self.errorText = errorText
+    }
 
     private var manifestURL: URL { root.appendingPathComponent(".sempere-export-\(format.rawValue).json") }
 
@@ -88,7 +116,7 @@ struct TreeExporter {
     /// Folder components for each notebook: segments sanitised, and names
     /// that differ only by case share one spelling (the smallest), so a
     /// case-insensitive file system cannot merge two folders by accident.
-    static func folders(for notebooks: [String?]) -> [String?: [String]] {
+    public static func folders(for notebooks: [String?]) -> [String?: [String]] {
         func sanitized(_ nb: String?) -> [String] {
             NotebookPath.components(nb).map { ExportName.folderComponent($0) }
         }
@@ -118,8 +146,10 @@ struct TreeExporter {
     }
 
     /// Exports `notes`; `protected` are note ids that failed earlier in this run and must survive `--clean`.
-    func run(_ notes: [(NoteSummary, NoteState)], protected: Set<String>, vaultSource: String,
-             onFile: (String, Bool) -> Void) throws -> (results: [TreeResult], failures: Int, errors: [String]) {
+    /// `onNote(done, total)` is called before each note starts (with notes finished so far) and once at the end;
+    /// `onFile(path, changed)` after each file.
+    public func run(_ notes: [(NoteSummary, NoteState)], protected: Set<String>, vaultSource: String,
+                    onNote: (Int, Int) -> Void = { _, _ in }, onFile: (String, Bool) -> Void = { _, _ in }) throws -> (results: [TreeResult], failures: Int, errors: [String]) {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let (enc, dec) = Self.coder()
@@ -139,12 +169,14 @@ struct TreeExporter {
             if let old = try? BoundedRead.contents(of: url, maxBytes: data.count), old == data { return false }
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             do { try data.write(to: url, options: .atomic) } catch {
-                throw CLIError.failure("cannot write \(url.path): \(error.localizedDescription)")
+                throw TreeExportError.cannotWrite(path: url.path, reason: error.localizedDescription)
             }
             return true
         }
 
-        for (s, state) in notes {
+        for (n, (s, state)) in notes.enumerated() {
+            try Task.checkCancellation()
+            onNote(n, notes.count)
             let id = s.id.uuidString.lowercased()
             let folder = folderMap[NotebookPath.canonical(state.meta.notebook)] ?? []
             var stem = ExportName.stem(title: state.meta.title, noteId: s.id)
@@ -201,14 +233,17 @@ struct TreeExporter {
                                            tags: state.meta.tags, pages: state.pages.count, modified: s.modified,
                                            searchText: searchText)
                 results.append(result)
-            } catch let e as CLIError {
+            } catch let e as TreeExportError {
                 throw e
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 failures += 1
                 failedIDs.insert(id)
-                errors.append("\(id): \(CLIError.from(error).message)")
+                errors.append("\(id): \(errorText(error))")
             }
         }
+        onNote(notes.count, notes.count)
 
         // --clean: forget notes in scope that this run did not export.
         let exported = Set(results.map(\.noteId))

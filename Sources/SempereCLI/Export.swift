@@ -7,7 +7,18 @@ extension PageBreaks: ExpressibleByArgument {}
 
 enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
     case pdf, svg, png, json, markdown, html
+
+    /// The folder-tree format (`SempereRender.TreeExporter`), nil for the per-file formats.
+    var tree: TreeFormat? {
+        switch self {
+        case .markdown: return .markdown
+        case .html: return .html
+        default: return nil
+        }
+    }
 }
+
+extension ExportImages: ExpressibleByArgument {}
 
 struct ExportCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -142,13 +153,20 @@ struct ExportCommand: ParsableCommand {
 
         let singleFile = note != nil && (out.hasSuffix(".\(format.rawValue)") && format != .svg
                                          && format != .markdown && format != .html)
-        if format == .markdown || format == .html {
-            let tree = TreeExporter(root: URL(fileURLWithPath: out), format: format, images: images, options: options,
-                                    png: PNGOptions(dpi: dpi), source: "sempere", clean: clean, notebookFilter: notebook)
+        if let treeFormat = format.tree {
+            let tree = TreeExporter(root: URL(fileURLWithPath: out), format: treeFormat, images: images, options: options,
+                                    png: PNGOptions(dpi: dpi), source: "sempere", clean: clean, notebookFilter: notebook,
+                                    errorText: { CLIError.from($0).message })
             var counts = (written: 0, unchanged: 0)
-            let r = try tree.run(states, protected: failedIDs, vaultSource: "sempere:\(vault.vaultId.uuidString.lowercased())") { file, changed in
-                if changed { counts.written += 1 } else { counts.unchanged += 1 }
-                if changed && !output.json { output.info("Wrote \(file)") }
+            let r: (results: [TreeResult], failures: Int, errors: [String])
+            do {
+                r = try tree.run(states, protected: failedIDs, vaultSource: "sempere:\(vault.vaultId.uuidString.lowercased())",
+                                 onFile: { file, changed in
+                    if changed { counts.written += 1 } else { counts.unchanged += 1 }
+                    if changed && !output.json { output.info("Wrote \(file)") }
+                })
+            } catch let e as TreeExportError {
+                throw CLIError.failure("\(e)")
             }
             for e in r.errors { printError(e) }
             failures += r.failures

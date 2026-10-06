@@ -97,8 +97,12 @@ extension AppModel {
         guard let old = NotebookPath.canonical(old) else { return }
         let target = NotebookPath.canonical(new)
         guard target != old else { return }
-        // Notes not downloaded yet have no known notebook and would be left behind.
-        guard pendingNoteIDs.isEmpty else { throw ModelError.notesStillDownloading }
+        // Notes not downloaded, or not read yet in this session (still listing,
+        // or shown from an earlier launch's cache), have no known notebook:
+        // they would be left behind, or moved by a notebook they left.
+        guard pendingNoteIDs.isEmpty, listLoaded, notes.allSatisfy({ verifiedNoteIDs.contains($0.id) }) else {
+            throw ModelError.notesStillDownloading
+        }
         let edits: [(id: UUID, ops: [Op])] = notes.compactMap { note in
             guard NotebookPath.name(note.notebook, isWithin: old) else { return nil }
             let renamed = NotebookPath.renamed(note.notebook, from: old, to: target)
@@ -114,6 +118,7 @@ extension AppModel {
     func moveNote(_ id: UUID, toNotebook notebook: String?) async throws {
         let target = NotebookPath.canonical(notebook)
         try await downloadNote(id)
+        try await verifySummary(id)
         guard try summary(id).notebook != target else { return }
         try await commit([(id: id, ops: [.setMeta(.notebook(target))])])
     }
@@ -123,6 +128,7 @@ extension AppModel {
     func renameNote(_ id: UUID, to title: String) async throws {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         try await downloadNote(id)
+        try await verifySummary(id)
         guard try summary(id).title != title else { return }
         try await commit([(id: id, ops: [.setMeta(.title(title))])])
     }
@@ -135,6 +141,7 @@ extension AppModel {
         let typed = NoteOps.normalizedTag(tag)
         guard !typed.isEmpty else { return }
         try await downloadNote(id)
+        try await verifySummary(id)
         guard !(try summary(id).tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(typed) }) else { return }
         let spelling = tags.first { NoteOps.tagKey($0) == NoteOps.tagKey(typed) } ?? typed
         try await commit(id) { state in
@@ -147,6 +154,7 @@ extension AppModel {
     /// instance of it on disk, format.md §5.4.1).
     func removeTag(_ tag: String, from id: UUID) async throws {
         try await downloadNote(id)
+        try await verifySummary(id)
         guard try summary(id).tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(tag) }) else { return }
         try await commit(id) { state in state.flatMap { NoteOps.removeTag(tag, from: $0) }.map { [$0] } ?? [] }
         if case .tag(let selected)? = sidebarSelection, !self.tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(selected) }) {
@@ -157,6 +165,7 @@ extension AppModel {
     /// Moves a note to Recently Deleted; open on the canvas, it reopens read-only.
     func deleteNote(_ id: UUID) async throws {
         try await downloadNote(id)
+        try await verifySummary(id)
         guard !(try summary(id).deleted) else { return }
         try await commit([(id: id, ops: [.deleteNote])])
         try await reopenEditor(ifShowing: id)
@@ -165,6 +174,7 @@ extension AppModel {
     /// Restores a note; open on the canvas, it reopens editable.
     func restoreNote(_ id: UUID) async throws {
         try await downloadNote(id)
+        try await verifySummary(id)
         guard try summary(id).deleted else { return }
         try await commit([(id: id, ops: [.restoreNote])])
         try await reopenEditor(ifShowing: id)
@@ -243,13 +253,15 @@ extension AppModel {
         guard let vault else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
+        let cache = summaryCache
         let fresh = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try ids.map { try vault.summary(of: $0) } }
+            try CloudVault.coordinatedRead(coordinate) { try vault.summaries(of: ids, cache: cache, saveCache: false) }
         }
         try ensureCurrent(gen)
-        var list = notes.filter { old in !fresh.contains { $0.id == old.id } }
-        list += fresh
-        notes = list.sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
+        for id in ids { summaryEpochs[id, default: 0] += 1 }
+        merge(fresh)
+        verifiedNoteIDs.formUnion(fresh.map(\.id))
+        saveSummaryCache()
     }
 }
 
