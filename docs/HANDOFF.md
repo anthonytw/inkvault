@@ -309,6 +309,18 @@ Phase 1 task detail (historical, for reference):
   in `History.swift`; ranges are compared, never enumerated, since `upTo` is
   read from a file). An unreadable snapshot makes every point incomplete. This
   is conservative: some points that could be rebuilt are reported incomplete.
+- App (`HistoryView.swift`, `AppModel+History.swift`): the note toolbar's
+  "Version History…" opens a sheet with one row per restore point (time,
+  device, kind, app; newest first, newest marked current). A row opens a
+  read-only preview (a writer-less `NoteEditor` on the state as of the
+  point, shown with `PageCanvasView`). "Restore This Version" calls
+  `AppModel.restoreVersion`: the open canvas is flushed first, then
+  `NoteWriter.restore` reads the note strictly inside one coordinated read
+  (iCloud `requireLocal` before and after), computes `restoreOps` from that
+  read and writes one delta with the app's `DeviceClock`; the open canvas is
+  reopened from the result. Incomplete points are greyed out, and a notice
+  says compacted revisions are not restore points (shown when the note has a
+  snapshot or an incomplete point). Not tried on the iPad yet.
 - Re-added strokes render above the strokes that stayed (new `origin`); exact
   historical z-order is not restored.
 
