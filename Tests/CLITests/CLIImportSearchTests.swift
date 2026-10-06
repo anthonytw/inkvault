@@ -193,7 +193,7 @@ final class CLIImportSearchTests: CLITestCase {
         XCTAssertEqual(try cli(["vault", "verify"] + vaultArgs(vault)).status, 0)
         let blobs = try cli(["blobs", "list", id, "--json"] + vaultArgs(vault))
         XCTAssertEqual(blobs.status, 0, blobs.err)
-        XCTAssertTrue(blobs.out.contains("application/pdf") && blobs.out.contains("image/jpeg"), blobs.out)
+        XCTAssertTrue(blobs.out.contains("\"kind\" : \"pdf\"") && blobs.out.contains("\"kind\" : \"image\""), blobs.out)
 
         let pdf = FileManager.default.temporaryDirectory.appendingPathComponent("att-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: pdf) }
@@ -220,6 +220,7 @@ final class CLIImportSearchTests: CLITestCase {
         XCTAssertEqual((note["attachments"] as? [String: Any])?["blobs"] as? Int, 0)
         let id = try XCTUnwrap(note["id"] as? String)
         let blobs = try cli(["blobs", "list", id, "--json"] + vaultArgs(vault))
-        XCTAssertFalse(blobs.out.contains("application/pdf"), blobs.out)
+        XCTAssertEqual(blobs.status, 0, blobs.err)
+        XCTAssertFalse(blobs.out.contains("\"kind\" : \"pdf\""), blobs.out)
     }
 }
