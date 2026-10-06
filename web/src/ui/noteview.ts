@@ -152,14 +152,15 @@ export class NoteView {
     return [...this.problems.values()];
   }
 
-  private report(slot: Slot, it: PreparedItem | { item: { id?: unknown }; kind: string }, reason: string): void {
-    const id = String(it.item.id);
-    this.problems.set(`${slot.index}/${id}`, { page: slot.index + 1, item: id, kind: it.kind, reason });
+  /** Records an item that is a placeholder or not drawn, and why (`it` undefined: a page-level note). */
+  private report(slot: Slot, it: PreparedItem | undefined, reason: string): void {
+    const id = it ? String(it.item.id) : `-${this.problems.size}`;
+    this.problems.set(`${slot.index}/${id}`, { page: slot.index + 1, item: it ? id : "", kind: it?.kind ?? "", reason });
     const list = [...this.problems.values()];
     this.problemsEl.hidden = false;
     this.problemsEl.replaceChildren(
-      h("summary", { text: `${list.length} item${list.length === 1 ? "" : "s"} shown as placeholders (crossed boxes)` }),
-      h("ul", {}, ...list.map((p) => h("li", { text: `Page ${p.page}: ${p.kind} ${p.item.slice(0, 8)}: ${p.reason}` }))));
+      h("summary", { text: `${list.length} attachment${list.length === 1 ? "" : "s"} cannot be shown (crossed boxes on the page)` }),
+      h("ul", {}, ...list.map((p) => h("li", { text: `Page ${p.page}: ${p.item ? `${p.kind} ${p.item.slice(0, 8)}: ` : ""}${p.reason}` }))));
   }
 
   private layout(): void {
@@ -202,7 +203,7 @@ export class NoteView {
         const e = elementSpec(c);
         paper.append(s(e.tag, e.attrs));
       }
-      for (const w of prepared.warnings) this.report(slot, { item: { id: "-" }, kind: "item" }, w);
+      for (const w of prepared.warnings) this.report(slot, undefined, w);
       for (const r of resolveItems(prepared, canvasMeasure)) {
         if (r.fill) items.append(s(r.fill.tag, r.fill.attrs));
         const d = r.draw;
@@ -310,7 +311,10 @@ export class NoteView {
         transform = after(placement(crop, d.it.frame, d.it.rotation), translate(crop.x, crop.y));
         p.scale = scale;
       }
-      if (this.destroyed) return;
+      if (this.destroyed) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       if (p.url) URL.revokeObjectURL(p.url);
       this.urls.delete(p.url ?? "");
       p.url = url;
@@ -319,6 +323,11 @@ export class NoteView {
     } catch (e) {
       if (this.destroyed) return;
       p.state = "done";
+      // A sharper rendering that failed keeps the one already shown, and is not tried again.
+      if (p.url) {
+        p.scale = Infinity;
+        return;
+      }
       p.scale = undefined;
       p.g.replaceChildren(...placeholderNodes(d.it).map(svgTree));
       this.report(slot, d.it, why(e));
