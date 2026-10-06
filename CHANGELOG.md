@@ -22,6 +22,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
   `snapshot` and `compact` refuse a note that has them rather than drop them.
+- PDF page backgrounds in exports (attachments task C3). A new `SemperePDF` library reads PDFs
+  from untrusted attachments (cross-reference tables and streams, object streams, incremental
+  updates, rebuilding a broken file by scanning; bounded and fuzzed). PDF exports copy the original
+  page in as a Form XObject (exact, PDF 1.7); SVG and PNG exports draw it with Poppler's
+  `pdftoppm` when installed, run as a separate, time- and resource-limited process
+  (`--pdf-renderer auto|poppler|none`, `--pdf-timeout`). Anything that cannot be drawn becomes a
+  placeholder with a warning, never a failed export. Applies to notes once item ops are merged (A1).
+- Vault library: reading attachment blobs, verified (`BlobSource`, `Vault.readBlob`,
+  `Vault.withBlobFile`; `docs/format.md` §8.1).
 
 ### Changed
 

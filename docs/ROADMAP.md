@@ -33,7 +33,8 @@ working state.
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
-| Render | Images, Unicode text, PDF backgrounds, recordings in exports (C1–C4) | 📋 |
+| Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | 🔀 #61 |
+| Render | Images, Unicode text, recordings in exports (C1, C2, C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
 | Sync | WebDAV | ✅ |
@@ -52,7 +53,7 @@ working state.
 | Markdown (Obsidian) and single-file HTML export | 🔀 #27 | 🔀 #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
 | Attachments: `blobs`, `import pdf`, `attach`, `notes show`, search over text and transcripts (F) | 📋 | 📋 |
-| PDF backgrounds in SVG/PNG export | 📋 via Poppler if installed | 📋 via PDFKit |
+| PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | 🔀 #61 | 🔀 #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
