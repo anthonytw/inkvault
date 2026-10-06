@@ -30,6 +30,19 @@ public struct RGBAImage: Sendable, Equatable {
     }
 }
 
+/// Page geometry for `PDFPageRasterizer` implementations (format.md §8.5.1).
+public enum PDFPageGeometry {
+    /// The matrix `[a, b, c, d, tx, ty]` (PDF `cm` order) from PDF user space
+    /// to effective-page coordinates (points, origin top-left, y down) for a
+    /// page whose visible box (CropBox ∩ MediaBox) is `x0 y0 x1 y1` and whose
+    /// `/Rotate` is `rotation` (any multiple of 90, negative allowed).
+    public static func userToEffective(x0: Double, y0: Double, x1: Double, y1: Double, rotation: Int) -> [Double] {
+        let r = ((rotation % 360) + 360) % 360
+        let m = ItemGeometry.pdfToEffective(visible: PDFRect(x0, y0, x1, y1), rotation: r % 90 == 0 ? r : 0)
+        return [m.a, m.b, m.c, m.d, m.tx, m.ty]
+    }
+}
+
 /// What an export drew as placeholders and what it wants the user to know
 /// (`docs/attachments.md` §10). Exports never fail because of an item.
 public struct RenderReport: Sendable, Equatable {

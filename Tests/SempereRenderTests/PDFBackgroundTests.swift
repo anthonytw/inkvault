@@ -307,3 +307,35 @@ final class PDFBackgroundFuzzTests: XCTestCase {
         for f in report.failures { XCTFail("\(f)") }
     }
 }
+
+/// The app's share engine passes each note's attachments and the rasterizer through.
+final class ShareExportBackgroundTests: XCTestCase {
+    func testShareExportUsesPerNoteBlobs() throws {
+        var blobs = MemoryBlobs()
+        let ref = blobs.add(try PDFFixture.data("classic.pdf"))
+        let item = Item.pdfPage(blob: ref, pageIndex: 0, pageSize: Size(w: 400, h: 300),
+                                frame: Rect(x: 0, y: 0, w: 400, h: 300), z: "a0")
+        let state = PDFFixture.note(size: (400, 300), items: [item])
+        let summary = NoteSummary(id: UUID(), title: "PDF", tags: [], notebook: nil, deleted: false, pages: 1,
+                                  strokes: 0, modified: nil, problem: nil)
+        let source = blobs
+        for format in [ShareFormat.pdf, .png] {
+            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            let with = try ShareExport.run([(summary, state)], options: ShareOptions(format: format, dpi: 36), into: scratch,
+                                           vaultSource: "test", blobs: { _ in source },
+                                           pdfRasterizer: QuadrantRasterizer())
+            XCTAssertEqual(with.placeholders, 0, "\(format)")
+            let without = try ShareExport.run([(summary, state)], options: ShareOptions(format: format, dpi: 36),
+                                              into: scratch.appendingPathComponent("b"), vaultSource: "test")
+            XCTAssertEqual(without.placeholders, 1, "\(format)")
+        }
+    }
+
+    func testPublicGeometryMatchesTheTable() {
+        // /Rotate -270 is 90: the visible box's top-left corner goes to the effective page's top-right.
+        let m = PDFPageGeometry.userToEffective(x0: 0, y0: 0, x1: 200, y1: 100, rotation: -270)
+        XCTAssertEqual(m, [0, 1, 1, 0, 0, 0])
+        XCTAssertEqual(m[0] * 0 + m[2] * 100 + m[4], 100)   // (0, 100) → u = 100 = bh
+    }
+}
