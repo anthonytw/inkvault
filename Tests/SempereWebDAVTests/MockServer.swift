@@ -33,6 +33,9 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
     /// For a GET of a path ending in the key: send this many body bytes,
     /// then fail as a dropped connection would (used once, then removed).
     var cutGET: [String: Int] = [:]
+    /// Like `cutGET`, for only the `n`th GET (1-based) of paths ending in `suffix`.
+    var cutNthGET: (suffix: String, n: Int, bytes: Int)?
+    private var nthGETs = 0
     /// For a PUT of a path whose final component starts with the key's
     /// prefix: store this many bytes, then fail (used once, then removed).
     var cutPUT: [String: Int] = [:]
@@ -105,24 +108,31 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
             return WebDAVResponse(status: 404)
         case "GET":
             guard let s = files[key] else { return WebDAVResponse(status: 404) }
-            var start = 0
+            var start = 0, end = s.size - 1
             var status = 200
-            if honoursRange, let range = r.headers["Range"], range.hasPrefix("bytes="), range.hasSuffix("-"),
-               let from = Int(range.dropFirst(6).dropLast()),
+            if honoursRange, let range = r.headers["Range"], range.hasPrefix("bytes="),
                r.headers["If-Range"].map({ $0 == s.etag }) ?? true {
-                guard from < s.size else { return WebDAVResponse(status: 416) }
-                start = from
-                status = 206
+                let ends = range.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+                if ends.count == 2, let from = Int(ends[0]) {
+                    guard from < s.size else { return WebDAVResponse(status: 416) }
+                    start = from
+                    if let to = Int(ends[1]) { end = min(to, s.size - 1) }
+                    status = 206
+                }
             }
             var headers = ["ETag": s.etag]
-            if status == 206 { headers["Content-Range"] = "bytes \(start)-\(s.size - 1)/\(s.size)" }
-            let cut = cutGET.first { key.hasSuffix($0.key) }
-            if let cut { cutGET[cut.key] = nil }
+            if status == 206 { headers["Content-Range"] = "bytes \(start)-\(end)/\(s.size)" }
+            var cut = cutGET.first { key.hasSuffix($0.key) }
+            if let c = cut { cutGET[c.key] = nil }
+            if let nth = cutNthGET, key.hasSuffix(nth.suffix) {
+                nthGETs += 1
+                if nthGETs == nth.n { cut = (nth.suffix, nth.bytes) }
+            }
             if let out = r.responseFile {
                 let h = try openResponse(out, status: status)
                 defer { try? h.close() }
                 var sent = 0
-                try forEachPiece(of: s, from: start) { piece in
+                try forEachPiece(of: s, from: start, count: end + 1 - start) { piece in
                     var piece = piece
                     if let cut, sent + piece.count > cut.value { piece = piece.prefix(cut.value - sent) }
                     if let limit = r.maxResponseBytes, sent + piece.count > limit {
@@ -136,7 +146,7 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
                 return WebDAVResponse(status: status, headers: headers)
             }
             var body = Data()
-            try forEachPiece(of: s, from: start) { body.append($0) }
+            try forEachPiece(of: s, from: start, count: end + 1 - start) { body.append($0) }
             return WebDAVResponse(status: status, headers: headers, body: body)
         case "PUT":
             guard collections.contains(parent(key)) else { return WebDAVResponse(status: 409) }
@@ -201,13 +211,17 @@ final class MockDAV: WebDAVTransport, @unchecked Sendable {
         return h
     }
 
-    private func forEachPiece(of s: Stored, from start: Int, _ body: (Data) throws -> Void) throws {
-        if let data = s.data { return try body(data.dropFirst(start)) }
+    private func forEachPiece(of s: Stored, from start: Int, count: Int, _ body: (Data) throws -> Void) throws {
+        if let data = s.data { return try body(Data(data.dropFirst(start).prefix(count))) }
         guard let disk = s.disk else { return }
         let h = try FileHandle(forReadingFrom: disk)
         defer { try? h.close() }
         try h.seek(toOffset: UInt64(start))
-        while let piece = try h.read(upToCount: 1 << 20), !piece.isEmpty { try body(piece) }
+        var left = count
+        while left > 0, let piece = try h.read(upToCount: min(1 << 20, left)), !piece.isEmpty {
+            left -= piece.count
+            try body(piece)
+        }
     }
 
     private func forEachPiece(of r: WebDAVRequest, _ body: (Data) throws -> Void) throws {

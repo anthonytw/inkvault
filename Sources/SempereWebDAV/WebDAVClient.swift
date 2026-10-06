@@ -177,60 +177,105 @@ public struct WebDAVClient: Sendable {
 
     /// What `download` received.
     public struct Download: Sendable, Equatable {
-        /// True when the server sent only the rest of the file (206) and it
-        /// was appended; false when the file now holds the whole body.
+        /// True when the bytes already in the file were kept and only the
+        /// rest was fetched; false when the file now holds a fresh copy.
         public var resumed: Bool
         /// The response ETag, if any.
         public var etag: String?
     }
 
-    /// Downloads one file into `file`, streamed (never held in memory).
+    /// The default size of one `Range` request in `download` (2 MiB). On
+    /// Linux, URLSession queues every 16 KiB delivery for its delegate with
+    /// no flow control, so a server faster than the disk piles up to one
+    /// response in memory; measured against a local server, 2 MiB segments
+    /// kept resident memory flat (about 20 MiB) for blobs of 300 MB to 1 GB
+    /// at about 5 % more time than 8 MiB ones, which grew to 85 MiB.
+    public static let defaultSegmentBytes = 2 << 20
+
+    /// Downloads one file into `file` in `Range` requests of at most
+    /// `segmentBytes`, each streamed to the file, so memory stays bounded by
+    /// one segment however fast the server sends. A server that ignores
+    /// `Range` sends the whole file in one streamed response instead.
     ///
-    /// With `resumeFrom` > 0 and an `ifRange` ETag, asks for the bytes from
-    /// that offset on (`Range`, `If-Range`): a 206 whose `Content-Range`
-    /// starts there is appended to `file`; a 200 (the server ignored the
-    /// range, or the file changed) replaces its contents.
+    /// With `resumeFrom` > 0 and an `ifRange` validator, the bytes already in
+    /// `file` up to that offset are kept and only the rest is requested
+    /// (`If-Range`: if the remote file changed, it comes whole and replaces
+    /// them). Without a validator the download starts over.
     ///
-    /// - Parameter maxBytes: the largest file accepted, counting the bytes
-    ///   already in `file` when resuming.
-    /// - Throws: `WebDAVError.responseTooLarge` past `maxBytes` (reading
-    ///   stops there), `.http` for any other status (416 included), and
-    ///   `.malformedResponse` for a 206 that does not continue at the offset.
-    ///   What was written to `file` before a failure stays there.
+    /// - Parameter maxBytes: the largest file accepted.
+    /// - Throws: `WebDAVError.responseTooLarge` past `maxBytes` (reading stops
+    ///   there), `.http` for any other status (416 included), and
+    ///   `.malformedResponse` for a partial response that does not continue
+    ///   at the right byte. What was written to `file` before a failure stays
+    ///   there.
     @discardableResult
-    public func download(_ path: [String], to file: URL, resumeFrom offset: Int = 0, ifRange: String? = nil,
-                         maxBytes: Int) throws -> Download {
-        var h = ["Accept-Encoding": "identity"]
-        let resuming = offset > 0 && ifRange != nil
-        if resuming, let ifRange {
-            h["Range"] = "bytes=\(offset)-"
-            h["If-Range"] = ifRange
-        }
-        let limit = resuming ? max(maxBytes - offset, 0) : maxBytes
-        let r = try send("GET", path, collection: false, headers: h, maxResponseBytes: limit, responseFile: file)
-        switch r.status {
-        case 200:
-            return Download(resumed: false, etag: r.headers["etag"])
-        case 206 where resuming:
-            guard Self.contentRangeStart(r.headers["content-range"]) == offset else {
-                throw WebDAVError.malformedResponse("a partial response for /\(path.joined(separator: "/")) does not continue at byte \(offset)")
+    public func download(_ path: [String], to file: URL, resumeFrom: Int = 0, ifRange: String? = nil,
+                         maxBytes: Int, segmentBytes: Int = defaultSegmentBytes) throws -> Download {
+        let shown = "/" + path.joined(separator: "/")
+        var offset = ifRange == nil ? 0 : max(resumeFrom, 0)
+        try Self.truncate(file, to: offset)
+        let segment = max(segmentBytes, 1)
+        var resumed = offset > 0
+        var etag: String?
+        while true {
+            var h = ["Accept-Encoding": "identity", "Range": "bytes=\(offset)-\(offset + segment - 1)"]
+            if let validator = ifRange ?? etag { h["If-Range"] = validator }
+            let r = try send("GET", path, collection: false, headers: h, maxResponseBytes: maxBytes, responseFile: file)
+            etag = etag ?? r.headers["etag"]
+            switch r.status {
+            case 200:
+                // The whole file (no range support, or it changed): it replaced what was there.
+                return Download(resumed: false, etag: r.headers["etag"] ?? etag)
+            case 206:
+                guard let range = Self.contentRange(r.headers["content-range"]), range.start == offset,
+                      range.end >= range.start, range.end < range.total else {
+                    throw WebDAVError.malformedResponse("a partial response for \(shown) does not continue at byte \(offset)")
+                }
+                guard range.total <= maxBytes else { throw WebDAVError.responseTooLarge(path: shown, limit: maxBytes) }
+                guard LocalFS.regularFileSize(file) == range.end + 1 else {
+                    throw WebDAVError.malformedResponse("a partial response for \(shown) does not match its Content-Range")
+                }
+                offset = range.end + 1
+                if offset == range.total { return Download(resumed: resumed, etag: etag) }
+            default:
+                throw try failure("GET", path, r)
             }
-            return Download(resumed: true, etag: r.headers["etag"])
-        default:
-            throw try failure("GET", path, r)
         }
     }
 
-    /// The first byte of a `Content-Range: bytes a-b/n` header.
-    static func contentRangeStart(_ value: String?) -> Int? {
+    /// Cuts `file` to `length` bytes (creating it, mode 0600, if missing).
+    private static func truncate(_ file: URL, to length: Int) throws {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: file.path) {
+            guard fm.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw WebDAVError.io("cannot create \(file.path)")
+            }
+        }
+        do {
+            let h = try FileHandle(forWritingTo: file)
+            defer { try? h.close() }
+            if Int(try h.seekToEnd()) > length { try h.truncate(atOffset: UInt64(length)) }
+        } catch {
+            throw WebDAVError.io("truncate \(file.path): \(error.localizedDescription)")
+        }
+    }
+
+    /// `Content-Range: bytes a-b/n` as (a, b, n); nil for anything else
+    /// (an unknown total `*` included).
+    static func contentRange(_ value: String?) -> (start: Int, end: Int, total: Int)? {
         guard let value else { return nil }
         let v = value.trimmingCharacters(in: .whitespaces)
         guard v.lowercased().hasPrefix("bytes ") else { return nil }
         let rest = v.dropFirst(6).trimmingCharacters(in: .whitespaces)
-        guard let dash = rest.firstIndex(of: "-") else { return nil }
-        let digits = rest[..<dash]
-        guard !digits.isEmpty, digits.count <= 18, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
-        return Int(digits)
+        let parts = rest.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let ends = parts[0].split(separator: "-", omittingEmptySubsequences: false)
+        func number(_ s: Substring) -> Int? {
+            guard !s.isEmpty, s.count <= 18, s.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            return Int(s)
+        }
+        guard ends.count == 2, let a = number(ends[0]), let b = number(ends[1]), let n = number(parts[1]) else { return nil }
+        return (a, b, n)
     }
 
     /// Renames a file on the server (`MOVE`). With `overwrite` false

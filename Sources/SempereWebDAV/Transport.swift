@@ -171,11 +171,23 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
             if discarding { return true }
             if let limit, chunk.count > limit - received { tooLarge = true; return false }
             received += chunk.count
-            guard let handle else { data.append(chunk); return true }
-            do { try handle.write(contentsOf: chunk) } catch {
+            guard handle != nil else { data.append(chunk); return true }
+            // Small deliveries are gathered and written 1 MiB at a time.
+            pendingWrite.append(chunk)
+            return pendingWrite.count < Self.writeSize || flush()
+        }
+
+        static let writeSize = 1 << 20
+        private var pendingWrite = Data()
+
+        /// Writes what was gathered; false (with the failure recorded) on error. Lock held.
+        private func flush() -> Bool {
+            guard let handle, !pendingWrite.isEmpty else { return true }
+            do { try handle.write(contentsOf: pendingWrite) } catch {
                 fileError = .io("write \(file?.path ?? "?"): \(error.localizedDescription)")
                 return false
             }
+            pendingWrite.removeAll(keepingCapacity: true)
             return true
         }
 
@@ -185,6 +197,8 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
             lock.lock()
             error = e
             if let handle {
+                // A transfer cut midway keeps what arrived (a later request resumes from it).
+                _ = flush()
                 do { try handle.synchronize(); try handle.close() } catch {
                     if fileError == nil { fileError = .io("write \(file?.path ?? "?"): \(error.localizedDescription)") }
                 }

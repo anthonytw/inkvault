@@ -18,13 +18,18 @@ public struct WebDAVSyncOptions: Sendable {
     /// encryption overhead.
     public var maxBlobBytes = WebDAVSyncOptions.defaultMaxBlobBytes
 
+    /// Blob downloads are made of `Range` requests of this size, so memory
+    /// stays bounded by one of them however fast the server is.
+    public var blobSegmentBytes = WebDAVClient.defaultSegmentBytes
+
     /// 1 GiB + 64 MiB.
     public static let defaultMaxBlobBytes = (1 << 30) + (64 << 20)
 
     public init(dryRun: Bool = false, deviceLabel: String = "device", now: Date = Date(), maxFileBytes: Int = 256 << 20,
-                maxBlobBytes: Int = WebDAVSyncOptions.defaultMaxBlobBytes) {
+                maxBlobBytes: Int = WebDAVSyncOptions.defaultMaxBlobBytes,
+                blobSegmentBytes: Int = WebDAVClient.defaultSegmentBytes) {
         self.dryRun = dryRun; self.deviceLabel = deviceLabel; self.now = now; self.maxFileBytes = maxFileBytes
-        self.maxBlobBytes = maxBlobBytes
+        self.maxBlobBytes = maxBlobBytes; self.blobSegmentBytes = blobSegmentBytes
     }
 }
 

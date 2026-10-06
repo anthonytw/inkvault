@@ -339,11 +339,12 @@ extension WebDAVSync {
         if offset == 0 || entry?.size != offset {
             do {
                 do {
-                    try client.download(remote, to: part, resumeFrom: offset, ifRange: etag, maxBytes: limit)
+                    try client.download(remote, to: part, resumeFrom: offset, ifRange: etag, maxBytes: limit,
+                                        segmentBytes: options.blobSegmentBytes)
                 } catch WebDAVError.http(_, _, 416) where offset > 0 {
                     // The partial file does not fit the remote one: start over.
                     try? FileManager.default.removeItem(at: part)
-                    try client.download(remote, to: part, maxBytes: limit)
+                    try client.download(remote, to: part, maxBytes: limit, segmentBytes: options.blobSegmentBytes)
                 }
             } catch let e as WebDAVError {
                 // A dropped connection keeps the partial file for the next run.
