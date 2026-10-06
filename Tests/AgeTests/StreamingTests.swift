@@ -25,19 +25,16 @@ final class StreamingTests: XCTestCase {
 
     static func bytes(_ n: Int, seed: UInt64 = 1) -> Data {
         var g = FuzzRNG(seed: seed)
-        var out = Data(count: n)
-        out.withUnsafeMutableBytes { buf in
-            var i = 0
-            while i < n {
-                var r = g.next()
-                for _ in 0..<8 where i < n {
-                    buf[i] = UInt8(truncatingIfNeeded: r)
-                    r >>= 8
-                    i += 1
-                }
+        var out = [UInt8]()
+        out.reserveCapacity(n)
+        while out.count < n {
+            var r = g.next()
+            for _ in 0..<min(8, n - out.count) {
+                out.append(UInt8(truncatingIfNeeded: r))
+                r >>= 8
             }
         }
-        return out
+        return Data(out)
     }
 
     /// Streams `plain` through an encryptor in pieces of `piece` bytes.
@@ -512,7 +509,8 @@ final class StreamingTests: XCTestCase {
         var expected = SHA256()
         let pieces = (0..<(total + pieceSize - 1) / pieceSize).lazy.map { (i: Int) -> Data in
             // Vary every piece so a repeated or dropped chunk changes the hash.
-            withUnsafeBytes(of: UInt64(i).bigEndian) { base.replaceSubrange(0..<8, with: $0) }
+            let tag = Data((0..<8).map { UInt8(truncatingIfNeeded: UInt64(i) >> (56 - 8 * $0)) })
+            base.replaceSubrange(0..<8, with: tag)
             let piece = base.prefix(min(pieceSize, total - i * pieceSize))
             expected.update(data: piece)
             return Data(piece)
