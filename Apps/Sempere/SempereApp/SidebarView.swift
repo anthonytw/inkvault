@@ -14,6 +14,11 @@ struct SidebarView: View {
         @Bindable var model = model
         List(selection: $model.sidebarSelection) {
             Label("All Notes", systemImage: "note.text").tag(SidebarItem.allNotes)
+            if let results = model.recognitionResults {
+                Label("Recently Recognized", systemImage: "text.viewfinder")
+                    .badge(results.notes.count)
+                    .tag(SidebarItem.recentlyRecognized)
+            }
             let tree = model.notebookTree
             if !tree.isEmpty {
                 Section("Notebooks") {
