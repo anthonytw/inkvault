@@ -63,6 +63,8 @@ public struct NotabilityAttachments: Sendable {
 
     /// Most items placed on the page (format.md §8.4 allows 10 000 per page).
     public static let maxItems = 10_000
+    /// Media objects examined at most (each is a bounded walk; the samples hold a few).
+    public static let maxMediaObjects = 1_000
 
     /// Top of Notability page `n` (1-based), document units.
     public func top(ofPage n: Int, pageHeight: Double) -> Double {
@@ -274,11 +276,16 @@ public struct NotabilityAttachments: Sendable {
         let byPath = Set(files)
         var byName: [String: String] = [:]
         for f in files { let n = f.split(separator: "/").last.map(String.init) ?? f; if byName[n] == nil { byName[n] = f } }
-        for s in m.strings where !s.isEmpty && s.utf8.count <= 1024 {
-            let t = s.hasPrefix("/") ? String(s.drop { $0 == "/" }) : s
-            if byPath.contains(t) { return t }
-            if let f = files.first(where: { t.hasSuffix("/" + $0) }) { return f }
-            if let name = t.split(separator: "/").last.map(String.init), name.contains("."), let f = byName[name] { return f }
+        // Work grows with the strings' length, not with strings × files.
+        for s in m.strings.prefix(256) where !s.isEmpty && s.utf8.count <= 1024 {
+            let parts = s.split(separator: "/", omittingEmptySubsequences: true)
+            guard parts.count <= 16 else { continue }
+            // The whole path, then every suffix starting at a `/`: a path ending in a package file.
+            for start in parts.indices {
+                let suffix = parts[start...].joined(separator: "/")
+                if byPath.contains(suffix) { return suffix }
+            }
+            if let name = parts.last.map(String.init), name.contains("."), let f = byName[name] { return f }
         }
         return nil
     }
@@ -294,7 +301,13 @@ public struct NotabilityAttachments: Sendable {
                 dropped.media += 1
                 warnings.append("\(label): \(why)")
             }
-            guard placements.count < Self.maxItems else { drop("over \(Self.maxItems) items on the page"); continue }
+            guard placements.count < Self.maxItems, i < Self.maxMediaObjects else {
+                let rest = note.mediaObjects.count - i
+                dropped.media += rest
+                warnings.append("\(rest) media object(s) from number \(i + 1) on not read: over \(Self.maxMediaObjects) "
+                                + "media objects or \(Self.maxItems) items on the page")
+                break
+            }
             guard let path = Self.file(for: m, in: files) else {
                 drop("no file of the package named in it (fields: \(m.fieldNames.joined(separator: ", ")))")
                 continue

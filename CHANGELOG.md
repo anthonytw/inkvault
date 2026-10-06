@@ -9,6 +9,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
+  the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
+  original PDF, laid out from the PDF's own page boxes), and images become image items with
+  their frame, rotation and crop, metadata stripped. `sempere import notability` gains
+  `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
+  and why anything was left out (`warnings`).
+
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
   last-writer-wins registers (unknown fields included), in the library and the web viewer.

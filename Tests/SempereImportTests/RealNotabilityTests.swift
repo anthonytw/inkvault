@@ -296,7 +296,28 @@ final class RealNotabilityTests: XCTestCase {
             dropped.pdfPages += n.dropped.pdfPages
             dropped.media += n.dropped.media; dropped.recordings += n.dropped.recordings
             dropped.dashedStrokes += n.dropped.dashedStrokes; dropped.unknownStyleStrokes += n.dropped.unknownStyleStrokes
+            dropped.pdfHighlights += n.dropped.pdfHighlights; dropped.templatePDFs += n.dropped.templatePDFs
         }
+        // Attachments (D1, D2): totals, and every warning with its numbers and
+        // names folded so that equal causes group (no note content in them).
+        var attached = NotabilityImporter.ImportedAttachments()
+        var causes: [String: Int] = [:]
+        for n in report.notes where n.status == .ok {
+            let a = n.attachments
+            attached.pdfs += a.pdfs; attached.pdfPages += a.pdfPages; attached.templatePages += a.templatePages
+            attached.images += a.images; attached.blobs += a.blobs; attached.blobBytes += a.blobBytes
+            for w in n.warnings {
+                let folded = w.replacingOccurrences(of: "[0-9A-Fa-f-]{36}(\\.pdf)?", with: "<uuid>", options: .regularExpression)
+                    .replacingOccurrences(of: "[0-9]+(\\.[0-9]+)?", with: "N", options: .regularExpression)
+                causes[folded, default: 0] += 1
+            }
+        }
+        print("BULK: attachments \(attached)")
+        for (cause, count) in causes.sorted(by: { $0.value > $1.value }) { print("BULK: warning ×\(count): \(cause)") }
+        // D1's acceptance: every PDF page of a .note imports.
+        let pdfMissing = report.notes.filter { $0.status == .ok && $0.format == .note && $0.dropped.pdfPages > 0 }
+        for n in pdfMissing { print("BULK: PDF pages not imported: \(n.dropped.pdfPages) in \(n.source)") }
+        XCTAssertEqual(pdfMissing.count, 0, "notes whose PDF pages did not import")
         print("""
         BULK: notes \(report.notes.count) ok \(report.imported) skipped \(report.skipped) failed \(report.failed)
         BULK: notes without strokes \(report.notes.filter { $0.status == .ok && $0.strokes == 0 }.count) \

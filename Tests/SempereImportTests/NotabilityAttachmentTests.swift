@@ -382,3 +382,32 @@ final class NotabilityAttachmentTests: XCTestCase {
         XCTAssertEqual(h.data, heic)
     }
 }
+
+/// `Tests/CLITests/Fixtures/synthetic-attachments.note`, the CLI tests' note
+/// with a two-page PDF and a photo, is generated from these fixtures.
+/// `SEMPERE_UPDATE_FIXTURES=1 swift test --filter CLIAttachmentFixtureTests` rewrites it.
+final class CLIAttachmentFixtureTests: XCTestCase {
+    static var url: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("CLITests/Fixtures/synthetic-attachments.note")
+    }
+
+    static func package() -> Data {
+        let path = "Images/5B0A-photo.jpg"
+        let session = SyntheticNote.session(pdfPages: 2, media: { a in
+            [AttachmentFixtures.imageObject(&a, file: path, origin: (40, 300), size: (300, 400), scale: 0.5)]
+        })
+        return AttachmentFixtures.package(session: session,
+                                          pdf: AttachmentFixtures.pdf(pages: [(612, 792), (612, 792)]),
+                                          extra: [(path, AttachmentFixtures.jpeg(width: 400, height: 300, orientation: 6))],
+                                          thumbnails: [("thumb.png", 48, 62)])
+    }
+
+    func testFixtureIsCurrent() throws {
+        let data = Self.package()
+        if ProcessInfo.processInfo.environment["SEMPERE_UPDATE_FIXTURES"] == "1" {
+            try data.write(to: Self.url)
+        }
+        XCTAssertEqual(try Data(contentsOf: Self.url), data, "run with SEMPERE_UPDATE_FIXTURES=1 to regenerate")
+    }
+}

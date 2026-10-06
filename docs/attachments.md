@@ -1367,6 +1367,18 @@ synthetic `.note` fixture so CI covers the mapping.
   thumbnails), `dropped.pdfPages` is 0, template PDFs handled or reported.
 - **D2 — images.** *Done when:* the 4 image notes import their images where
   the thumbnails show them; non-JPEG/PNG reported.
+- *Status of D1 and D2:* in review (#70), built on synthetic notes only (no
+  access to the reference backup). Code: `NotabilityAttachments.swift`
+  (reading the package, layout), `NotabilityMedia.swift` (layout entries,
+  media objects read without a schema), `SempereRender/ImageImport.swift`
+  (sniffing, EXIF orientation, HEIF size, metadata stripping). Decisions
+  that the real backup must confirm, each visible in the import report's
+  `warnings`: PDF page numbers are 1-based (as the eval scripts read them;
+  0-based when a note holds a 0); notes mixing PDF page sizes stack each page
+  at the sum of the heights above it; the image fields are the candidate
+  names in `MediaObject` (a media object that does not match is reported with
+  its field names); a `TemplatePDF:` paper uses a PDF under `PDFs/` whose
+  name holds the template uuid, else is reported (`dropped.templatePDFs`).
 - **D3 — typed text.** *Done when:* synthetic fixture with styled text maps
   to runs (including a non-Latin run with its `lang`); real notes with text
   import it (if the backup has any).
