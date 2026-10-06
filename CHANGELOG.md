@@ -13,8 +13,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `AgeDecryptor`, file-to-file `AgeFile.encrypt` / `decrypt`), header-only rewrap that keeps the
   file key and payload (`AgeFile.rewrapHeader`) and streaming full re-encryption
   (`AgeFile.reencrypt`), for attachments.
+- Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
+  unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
+  holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
+  `snapshot` and `compact` refuse a note that has them rather than drop them.
 
 ### Changed
+
+- **Faster vault opening** (#54). Note summaries skip stroke geometry, are read in parallel,
+  and are kept in an encrypted per-device cache (`docs/format.md` §10), so a 600-note vault
+  lists in about 1.8 s instead of 21 s, and in 0.08 s when nothing changed. `notes list` gains
+  `--no-cache`; `search` uses the same fast path. The app closes the unlock sheet as soon as the
+  key is accepted, shows "Opening vault: n of m" while the list fills in, shows cached summaries
+  at once on a reopen, and always says why the list is empty.
 
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
   additional permission). Contributions are licensed under the same terms and certified with a

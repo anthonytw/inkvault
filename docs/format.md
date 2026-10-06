@@ -48,8 +48,9 @@ Unknown files and directories must be ignored, never deleted.
   opened only to migrate it (§3.3.2).
 - `vaultSecret`: 32 random bytes, age-encrypted and armored, to exactly the
   listed recipients. It keys the inner authentication tag (§4) and the blob
-  names (§8.1.2), and nothing else. It is rotated whenever a recipient is
-  removed.
+  names (§8.1.2), and nothing else in the vault; outside it, a reader may
+  derive a per-device summary cache key from it (§10). It is rotated
+  whenever a recipient is removed.
 - `features` (optional, *new: attachments*): array of strings naming format
   extensions the vault uses. A writer adds `"attachments"` before it writes
   the first blob or attachment op (§8). A writer that finds a feature it does
@@ -874,7 +875,9 @@ blobs instead of re-encrypting them (§8.1.5). The name does not depend on the
 note, so a blob file copied byte for byte into another note's `att/` is valid
 there.
 
-`kind` is derived from the reference's `type`:
+`kind` is derived from the reference's `type`, compared on its type and
+subtype only: ASCII case-insensitively, with any parameters (`; codecs=…`)
+ignored:
 
 | `type` | `kind` |
 | --- | --- |
@@ -921,13 +924,13 @@ padme(n) = n                                  if n < 2
 Readers accept any amount of padding but reject non-zero padding bytes.
 
 Test vector: vault secret bytes `00 01 02 … 1f`, content the 16 ASCII bytes
-`hello, sempere\n`, type `text/plain` (kind `bin`):
+`hello, sempere!\n`, type `text/plain` (kind `bin`):
 
 ```
-sha256    b023506dad39637be6e6e2ec3a0c31f8c0af3fe9bc060be0223b789cb75e5c00
-blobName  634be1aa11f40878a731812e96fb37920e7b9a3272f392a133a1bbc831c3d1b2
-path      notes/<noteId>/att/634be1aa…d1b2.bin.age
-header    494e4b4201 b023…5c00 0000000000000010   (45 bytes)
+sha256    8ff2ca4079cee96a407a038a996ef5d0dd317f201fddc04174f0d89b763add65
+blobName  13ddeae851cf51d7e9a970d82ca2c99f1dbaa3efaf792248da32b8374d6869af
+path      notes/<noteId>/att/13ddeae8…69af.bin.age
+header    494e4b4201 8ff2…dd65 0000000000000010   (45 bytes)
 padme     61 → 64 (3 zero bytes); 1000 → 1024; 482158 → 483328; 28311597 → 28835840
 ```
 
@@ -1102,6 +1105,16 @@ plus the fields of its kind (§8.2.4–§8.2.7).
 
 Numbers are rounded to at most 3 decimals by writers.
 
+The fields of a defined kind (§8.2.4–§8.2.6) are required unless that section
+says what their absence means (`rotation`, `crop`, `orientation`, `family`,
+`lang`, …). An item of a defined kind that lacks one, holds one of the wrong
+type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
+side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
+`size` outside its range) is invalid like a bad common field: the revision is
+rejected. A field of another kind on an item (an image with `pageIndex`) is
+an unknown field there and kept (§7); so are all fields beyond the common ones
+on an item of an unknown kind.
+
 #### 8.2.2 Registers, ops and merge
 
 Every field an item has is either a *register*, changed with `setItem` and
@@ -1116,10 +1129,13 @@ and never changed.
 | `pdfPage` | `crop` | `blob`, `pageIndex`, `pageSize` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
-- `setItem` with `field` naming an immutable field is invalid (the revision
-  is rejected). `value: null` resets an optional register (`rotation`,
+- `setItem` with `field` naming an immutable field of any kind, or the
+  snapshot-only `origin` or `clocks`, is invalid (the revision is rejected),
+  as is a value of the wrong type or out of range for a register in the table.
+  `value: null` (or no `value`) resets an optional register (`rotation`,
   `crop`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
-  the reader does not know is a register (§7).
+  the reader does not know is a register (§7), and `null` is a value of it
+  like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
 - Items merge as sets like strokes (§5.3), with permanent tombstones (§5.4).
   An item belongs to one page; moving it to another page is `removeItem`
@@ -1302,7 +1318,10 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
 - Registers: `title` (string; absent means `""`) and `transcript` (a blob
   reference or `null`), changed with `setRecording` and merged LWW per
   (recording, field) like item registers (§8.2.2), with `clocks` in
-  snapshots. Every other field is immutable. Unknown fields as in §7.
+  snapshots. Every other field is immutable: a `setRecording` naming one, or
+  `origin` or `clocks`, or giving `title` a non-string or `transcript` a value
+  that is not a blob reference, is invalid (the revision is rejected); `null`
+  resets `title` to absent. Unknown fields as in §7.
 - Recordings merge as sets like items, with permanent tombstones (§5.4).
 
 #### 8.3.2 Transcript
@@ -1337,6 +1356,11 @@ A transcript is a blob whose content is UTF-8 JSON (not compressed):
   `t` (the word as it appears in `text`), `start`, `end` (as for segments,
   within the segment's range) and optional `c` (confidence 0…1). A segment
   has all its words or none.
+
+A transcript whose `format` is not `sempere-transcript/1`, or whose segments
+or words break these rules (order, overlap, `start ≤ end`, words inside their
+segment, confidences in 0…1), is invalid: readers treat it like a blob that
+fails verification (reported, shown as missing, §8.1.4).
 
 Segments are what search and the transcript view use; word timings let a
 player highlight each word as it is read back and seek from a tapped word,
@@ -1499,6 +1523,7 @@ where the table says how they degrade.
 | `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |
 | files read at all | regular files only (no FIFOs or devices; symlinks followed in a vault, not in an imported package) | `BoundedRead` |
 | JSON nesting | 512 levels (Foundation's decoder) | |
+| unknown fields kept verbatim (§7, §8) | 24 levels deep from the document root; 16 384 values per file | `JSONValue.maxDepth`, `.maxValues` |
 | `seq`, `included` `upTo` / `extra` | 1 … 2^53 − 1 | `RevisionName.maxSeq` |
 | age header | 2 MiB, 1024 stanzas | Age `HeaderCodec` |
 | scrypt work factor (identity files) | 2^20 by default (1 GiB), at most 2^22 | `IdentityFile` |
@@ -1517,6 +1542,7 @@ where the table says how they degrade.
 | paper ruling | 40 000 commands per band, 1 M per page (plain background beyond) | `RenderLimits.maxPaperCommands…` |
 | PNG image | 40 M pixels by default | `PNGOptions.maxPixels` |
 | notebook levels shown | 64 | `NotebookNode.maxDepth` |
+| summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
 on Linux, `PropertyListSerialization` crashes on a binary plist holding a
@@ -1525,3 +1551,44 @@ crashes on an element name that is not UTF-8 or on a processing
 instruction without data. The library parses dates and binary plists
 itself and checks PROPFIND bodies before `XMLParser` sees them.
 `Tests/FuzzSupport` fuzzes every parser above on each test run.
+
+## 10. Per-device summary cache (outside the vault)
+
+Not part of a vault and never stored in one: a reader may keep, per device,
+the summaries of a vault's notes (title, tags, notebook, deleted flag, page,
+stroke and recognised-page counts, newest `wall`) so that listing the vault
+again does not decrypt every note. The reference implementation keeps it in
+the app's Application Support folder and, for the CLI, in
+`$XDG_CACHE_HOME/sempere/` (default `~/.cache/sempere/`). Other readers need
+not read or write it; it is documented because it is derived from the vault
+secret and holds note metadata.
+
+**Key and name.** With `vaultSecret` (§2) as HKDF-SHA256 input key material
+(RFC 5869, empty salt):
+
+```
+key  = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 summary-cache key",  L = 32)
+name = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 summary-cache name", L = 16)
+file = lowercase hex(name) ‖ ".summaries"
+```
+
+The file name says nothing about the vault without its secret; a vault whose
+secret rotates (§3.3) gets a new, empty cache, and the old file is never read
+again.
+
+**File.** `SMPS` ‖ `0x01` ‖ ChaCha20-Poly1305 sealed box (12-byte random
+nonce ‖ ciphertext ‖ 16-byte tag) under `key`, with associated data
+`SMPS` ‖ `0x01` ‖ the file name (UTF-8). The plaintext is `gzip(JSON)` of
+`{"schema": N, "notes": …}`: per note id, the sorted file names of the
+revisions the summary was made from and the summary. Its JSON shape is the
+implementation's own and changes with `schema`.
+
+**Validity.** Revision files are write-once and named by `(hlc, device,
+seq)` (§5), so an entry is used only when the note's current revision file
+names are exactly the entry's; anything else (a new, compacted or removed
+revision) means the note is read again. Summaries of notes with unreadable
+revisions are not stored. A file that is missing, too large, fails to
+authenticate or decompress, does not parse, or has another `schema` is
+ignored and replaced on the next write. Because entries trust file names, a
+revision damaged in place after it was cached is reported only when the note
+is opened, not in the listing.
