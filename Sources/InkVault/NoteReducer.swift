@@ -160,6 +160,7 @@ public enum NoteReducer {
                 case .addStroke(let page, _): return !knownPages.contains(page)
                 case .setPageOrder(let page, _): return !knownPages.contains(page)
                 case .setPageRecognition(let page, _): return !knownPages.contains(page)
+                case .setPagePaper(let page, _): return !knownPages.contains(page)
                 default: return false
                 }
             }
@@ -176,6 +177,7 @@ public enum NoteReducer {
         var created = earliestWall
         var order: [UUID: Register<String>] = [:]
         var recognition: [UUID: Register<Recognition?>] = [:]
+        var pagePaper: [UUID: Register<Paper?>] = [:]
         var pages: [UUID: Evidence<Page>] = [:]
         var strokes: [UUID: Evidence<Stroke>] = [:]
         var snapPageIds: [RevisionName: Set<UUID>] = [:]
@@ -186,6 +188,9 @@ public enum NoteReducer {
         }
         func offerRecognition(_ id: UUID, _ value: Recognition?, _ k: OpKey) {
             recognition[id, default: Register(value: nil, key: .unset)].offer(value, k)
+        }
+        func offerPaper(_ id: UUID, _ value: Paper?, _ k: OpKey) {
+            pagePaper[id, default: Register(value: nil, key: .unset)].offer(value, k)
         }
         func offerPage(_ e: Evidence<Page>) {
             if let cur = pages[e.item.id], !e.beats(cur) { return }
@@ -225,6 +230,10 @@ public enum NoteReducer {
                     offerRecognition(p.id, p.recognition,
                                      .base(p.recognitionClock.flatMap(Stamp.init) ?? stamp, s.name))
                 }
+                // Likewise a page with neither paper nor its clock follows the note (§5.4.2).
+                if p.paper != nil || p.paperClock != nil {
+                    offerPaper(p.id, p.paper, .base(p.paperClock.flatMap(Stamp.init) ?? stamp, s.name))
+                }
                 for (j, st) in p.strokes.enumerated() {
                     strokeIds.insert(st.id)
                     let so = st.origin.flatMap(Origin.init) ?? Origin(s.name, op: j)
@@ -249,6 +258,8 @@ public enum NoteReducer {
                     offerOrder(id, value, k)
                 case .setPageRecognition(let id, let value):
                     offerRecognition(id, value, k)
+                case .setPagePaper(let id, let value):
+                    offerPaper(id, value, k)
                 case .setMeta(let change): offer(.meta(change), k)
                 case .addTag(let tag): tags.add(tag, Origin(d.name, op: i))
                 case .deleteNote: offer(.deleted(true), k)
@@ -282,11 +293,13 @@ public enum NoteReducer {
             guard let e = pages[id], let reg = order[id] else { continue }
             let list = (byPage[id] ?? []).sorted { ($0.origin, $0.item.id.uuidString) < ($1.origin, $1.item.id.uuidString) }
             let rec = recognition[id]
+            let pp = pagePaper[id]
             outPages.append(Page(id: id, order: reg.value,
                                  strokes: list.map { var s = $0.item; s.origin = emitted($0.origin); return s },
                                  orderClock: reg.key.stamp.description, origin: emitted(e.origin),
                                  recognition: rec?.value, recognitionClock: rec?.key.stamp.description,
-                                 parent: e.item.parent))
+                                 parent: e.item.parent,
+                                 paper: pp?.value, paperClock: pp?.key.stamp.description))
         }
         // Byte-wise (code point) order, not Swift's normalising String `<`.
         outPages.sort { l, r in

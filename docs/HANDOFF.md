@@ -41,7 +41,7 @@ Open PRs (all reviewed-or-in-review by cloud sessions; the driver merges):
 | #25 | fix/untrusted-input-hardening | Parser hardening + seeded fuzz harness; adds `format.md` §9 "Untrusted input" (renumbered from §8 after #22 took §8) | review session S1 |
 | #26 | chore/release-engineering | Release workflow, Homebrew, CHANGELOG, CONTRIBUTING (App Store exception, no CLA), SECURITY, App Store docs | review session S3 |
 | #27 | feat/export-markdown-html | Obsidian Markdown + single-file HTML export | review session S3 |
-| #28 | feat/paper-templates | Parametric paper + visual paper picker | review session S2 |
+| #28 | feat/paper-templates | Parametric paper (`format.md` §5.4.2: nine kinds, page-level paper via `setPagePaper`, unknown kinds kept by name and rendered blank) + visual paper picker (apply to page / all pages / default for new notes); app part not yet tried on the iPad | review session S2 |
 | #30 | feat/recovery-kit-backup | `keys paper` recovery PDF with QR, backup/verify/restore | review session S3 |
 | #33 | feat/pq-recipients | MLKEM768-X25519 hybrid recipients; vaults post-quantum ONLY | review session S1 |
 

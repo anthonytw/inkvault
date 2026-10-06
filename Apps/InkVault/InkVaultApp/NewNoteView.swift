@@ -6,7 +6,9 @@ struct NewNoteView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
-    @State private var paper = PaperKind.ruled
+    @State private var paper = PaperPreference.load()
+    @State private var choosingPaper = false
+    @Environment(\.displayScale) private var displayScale
     @State private var notebook: String
     @State private var failure: String?
 
@@ -18,8 +20,23 @@ struct NewNoteView: View {
         NavigationStack {
             Form {
                 TextField("Title", text: $title)
-                Picker("Paper", selection: $paper) {
-                    ForEach(PaperKind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                Button { choosingPaper = true } label: {
+                    HStack(spacing: 12) {
+                        Image(uiImage: PaperImage.image(for: paper, size: CGSize(width: 44, height: 57), scale: displayScale))
+                            .resizable()
+                            .aspectRatio(612.0 / 792.0, contentMode: .fit)
+                            .frame(height: 57)
+                            .overlay(Rectangle().stroke(SwiftUI.Color.secondary.opacity(0.5), lineWidth: 1))
+                        VStack(alignment: .leading) {
+                            Text("Paper").foregroundStyle(.primary)
+                            Text(paper.kind.title).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }
+                }
+                .sheet(isPresented: $choosingPaper) {
+                    PaperPickerView(paper: paper, purpose: .newNote) { chosen, _ in paper = chosen }
                 }
                 TextField("Notebook (optional; School/Math for levels)", text: $notebook)
                 if let failure { Text(failure).foregroundStyle(.red) }
@@ -31,7 +48,7 @@ struct NewNoteView: View {
                     Button("Create") {
                         Task {
                             do {
-                                try await model.createNote(title: title, paper: Paper(kind: paper), notebook: notebook)
+                                try await model.createNote(title: title, paper: paper, notebook: notebook)
                                 dismiss()
                             } catch { failure = "\(error)" }
                         }
