@@ -216,7 +216,7 @@ queued for up to 30 minutes.
 - **Build caches:** each job restores `.build` (or `.build/xcode` for the app)
   from the newest cache saved by a `main` run; PRs never save. The key is the
   toolchain version plus `Package.resolved`, so changing either starts a
-  fresh cache. If a build ever fails in a way a clean build would not (stale
+  fresh cache (the `-v2-` in the key was bumped after the rename: caches saved under the old `inkvault` checkout path fail with "precompiled file ... was compiled with module cache path"; bump it again if that error returns and `gh cache delete --all` is not available). If a build ever fails in a way a clean build would not (stale
   products), run `gh cache delete --all` and re-run.
 - Tell every cloud session in its prompt: draft PR first, `gh pr ready` once
   the work is done and the local `swift test` passes.
