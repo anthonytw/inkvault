@@ -77,6 +77,7 @@ public enum PNGWriter {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
         let prepared = try PreparedPage(page: page, meta: meta, options: options, images: store)
         report = prepared.report
+        var glyphs = GlyphRasterizer()
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
@@ -89,6 +90,20 @@ public enum PNGWriter {
             for item in prepared.items(for: chunk) {
                 for c in item.commands(paper: prepared.fillPaper) {
                     paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                }
+                if case let .text(shaped, rotation) = item.content {
+                    let device = Affine.scale(sx, sy).after(.translation(0, -chunk.yOffset)).after(rotation)
+                    for c in shaped.decorationCommands(rotation) {
+                        paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                    }
+                    for line in shaped.lines {
+                        for run in line.runs {
+                            let (fill, stroke) = glyphs.polygons(run, transform: device)
+                            raster.fill(fill, paint: quantized(Paint(run.color)))
+                            if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
+                        }
+                    }
+                    continue
                 }
                 guard case let .image(ref, image, transform, clip) = item.content else { continue }
                 // Stored image pixels → device pixels.

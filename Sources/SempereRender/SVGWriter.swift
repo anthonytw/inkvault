@@ -67,6 +67,7 @@ public enum SVGWriter {
             var defs = ""
             var ids: [String: String] = [:]
             var body = ""
+            var fontSet = SVGFontSet()
             for (n, item) in prepared.items.enumerated() {
                 var commands = item.commands(paper: prepared.fillPaper)
                 if case let .image(ref, image, m, clip) = item.content {
@@ -96,10 +97,14 @@ public enum SVGWriter {
                         body += "<g clip-path=\"url(#clip-\(n))\"><use xlink:href=\"#\(id)\" "
                         body += "transform=\"matrix(\(coef(m.a)) \(coef(m.b)) \(coef(m.c)) \(coef(m.d)) \(fmt(m.e)) \(fmt(m.f)))\"/></g>\n"
                     }
+                } else if case let .text(shaped, rotation) = item.content {
+                    for c in commands { body += element(c) + "\n" }
+                    body += fontSet.elements(shaped, transform: rotation)
                 } else {
                     for c in commands { body += element(c) + "\n" }
                 }
             }
+            if !fontSet.subsets.isEmpty { defs += "<style>\n" + (try fontSet.style()) + "</style>\n" }
             if !defs.isEmpty { items += "<defs>\n" + defs + "</defs>\n" }
             items += "<g id=\"items\">\n" + body + "</g>\n"
         }

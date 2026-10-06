@@ -103,16 +103,21 @@ public struct RenderOptions: Sendable {
     public var keepImageMetadata: Bool
     /// Images with more pixels are placeholders (format.md §8.4).
     public var maxImagePixels: Int
+    /// Lays out and shapes text items (`DefaultTextShaper` in the CLI,
+    /// CoreText in the app). Without one, text items are not drawn and the
+    /// export reports them.
+    public var shaper: (any TextShaper)?
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
     public init(paper: Bool = true, compress: Bool = true, tolerance: Double = 0.05,
                 infiniteChunkHeight: Double? = nil, blobs: (any BlobSource)? = nil,
                 imageDecoder: (any ImageDecoding)? = nil, keepImageMetadata: Bool = false,
-                maxImagePixels: Int = ImageLimits.maxPixels) {
+                maxImagePixels: Int = ImageLimits.maxPixels, shaper: (any TextShaper)? = nil) {
         self.paper = paper; self.compress = compress; self.tolerance = tolerance
         self.infiniteChunkHeight = infiniteChunkHeight
         self.blobs = blobs; self.imageDecoder = imageDecoder; self.keepImageMetadata = keepImageMetadata
         self.maxImagePixels = maxImagePixels
+        self.shaper = shaper
     }
 }
 

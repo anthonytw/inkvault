@@ -282,6 +282,8 @@ struct PreparedItem {
         /// An image: `transform` maps stored pixel coordinates to the page,
         /// `clip` is the rotated frame.
         case image(ref: BlobRef, image: LoadedImage, transform: Affine, clip: [Point])
+        /// Laid-out text (page coordinates before `rotation`, applied about the frame's centre).
+        case text(ShapedText, rotation: Affine)
         /// A placeholder (format.md §8.5.2): outline and diagonals.
         case placeholder
         /// Nothing to draw (text until text export exists).
@@ -319,7 +321,8 @@ struct PreparedItem {
 
     /// Prepares the page's items in drawing order (format.md §8.2.3),
     /// recording an issue for each one drawn as a placeholder or not drawn.
-    static func prepare(_ items: [Item], images: ImageStore?, report: inout ExportReport) -> [PreparedItem] {
+    static func prepare(_ items: [Item], images: ImageStore?, shaper: (any TextShaper)? = nil,
+                        report: inout ExportReport) -> [PreparedItem] {
         let maxE = RenderLimits.maxExtent
         var out: [PreparedItem] = []
         for item in items.prefix(RenderLimits.maxItemsPerPage).sorted(by: Item.drawsBefore) {
@@ -376,8 +379,26 @@ struct PreparedItem {
                     out.append(placed(.image(ref: ref, image: img, transform: m, clip: corners)))
                 }
             case .text:
-                report.add(ExportIssue(kind: .warning, item: item.id, message: "text box not drawn (text export is not implemented yet)"))
-                out.append(placed(.none))
+                guard let content = item.text else { out.append(placeholder("text item without text")); continue }
+                guard let shaper else {
+                    report.add(ExportIssue(kind: .warning, item: item.id, message: "text box not drawn (no text shaper)"))
+                    out.append(placed(.none))
+                    continue
+                }
+                do {
+                    let shaped = try shaper.shape(content, frame: f)
+                    for (script, example) in shaped.missingScripts.sorted(by: { $0.key < $1.key }) {
+                        report.add(ExportIssue(kind: .warning, item: item.id, message: TextIssues.missing(script, example)))
+                    }
+                    for script in shaped.approximateScripts.sorted() where shaped.missingScripts[script] == nil {
+                        report.add(ExportIssue(kind: .warning, item: item.id,
+                                               message: "\(TextIssues.name(script)) text is drawn without full shaping (approximate); the app's export is exact"))
+                    }
+                    out.append(placed(.text(shaped, rotation: Placement.rotation(rotation, about: f))))
+                } catch {
+                    report.add(ExportIssue(kind: .warning, item: item.id, message: "text box not drawn (\(error))"))
+                    out.append(placed(.none))
+                }
             case .pdfPage:
                 out.append(placeholder("PDF page backgrounds are not drawn yet; drawn as a placeholder"))
             default:
@@ -396,5 +417,30 @@ struct PreparedItem {
         let x0 = max(a.x, b.x), y0 = max(a.y, b.y), x1 = min(a.x + a.w, b.x + b.w), y1 = min(a.y + a.h, b.y + b.h)
         guard x1 > x0, y1 > y0 else { return nil }
         return Rect(x: x0, y: y0, w: x1 - x0, h: y1 - y0)
+    }
+}
+
+/// Wording of the text report (docs/attachments.md §6).
+enum TextIssues {
+    /// A Unicode script name for people (`Old_Italic` → `Old Italic`).
+    static func name(_ script: String) -> String {
+        switch script {
+        case "Han": return "Han (Chinese, Japanese, Korean)"
+        case "Common": return "symbol"
+        default: return script.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
+    /// The package that brings fonts for `script` on Debian and Ubuntu.
+    static func package(_ script: String) -> String {
+        ["Han", "Hiragana", "Katakana", "Hangul", "Bopomofo"].contains(script) ? "fonts-noto-cjk"
+            : script == "Common" ? "fonts-noto-color-emoji or fonts-noto-core" : "fonts-noto-core"
+    }
+
+    static func missing(_ script: String, _ example: UInt32) -> String {
+        let ch = Unicode.Scalar(example).map { String($0) } ?? "?"
+        return "text uses \(name(script)) characters (e.g. \(ch), U+\(String(format: "%04X", example))); no installed font "
+            + "covers them, so they are drawn as boxes (install \(package(script)) or put a font in "
+            + "~/.local/share/sempere/fonts or $SEMPERE_FONT_DIR)"
     }
 }

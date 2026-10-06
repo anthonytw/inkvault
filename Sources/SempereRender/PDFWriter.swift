@@ -49,9 +49,12 @@ public enum PDFWriter {
     /// reference resolves only inside its own note (format.md §8.1.1).
     public static func render(notes: [NoteState], options: RenderOptions = RenderOptions(),
                               blobs: [(any BlobSource)?]?, report: inout ExportReport) throws -> Data {
-        struct OutPage { var width: Double; var height: Double; var content: Data; var alphas: [Int]; var images: [Int] }
+        struct OutPage {
+            var width: Double; var height: Double; var content: Data; var alphas: [Int]; var images: [Int]; var fonts: [Int] = []
+        }
         var pages: [OutPage] = []
         var xobjects = ImageXObjects()
+        var fonts = PDFFontSet()
 
         for (n, note) in notes.enumerated() {
             var noteOptions = options
@@ -69,6 +72,10 @@ public enum PDFWriter {
                     for item in prepared.items(for: chunk) {
                         let shift = Affine.translation(0, -chunk.yOffset)
                         for c in item.commands(paper: prepared.fillPaper) { cs.emit(c.translated(dy: -chunk.yOffset)) }
+                        if case let .text(shaped, rotation) = item.content {
+                            cs.text(shaped, transform: shift.after(rotation), fonts: &fonts)
+                            continue
+                        }
                         guard case let .image(ref, image, transform, clip) = item.content else { continue }
                         switch xobjects.add(ref, image, store: store, keepMetadata: options.keepImageMetadata) {
                         case .success(let index):
@@ -82,7 +89,7 @@ public enum PDFWriter {
                     }
                     for c in layers.strokes { cs.emit(c) }
                     pages.append(OutPage(width: chunk.width, height: chunk.height, content: Data(cs.text.utf8),
-                                         alphas: cs.alphas.sorted(), images: cs.images.sorted()))
+                                         alphas: cs.alphas.sorted(), images: cs.images.sorted(), fonts: cs.usedFonts.sorted()))
                 }
                 for var issue in pageReport.issues {
                     issue.page = pi + 1
@@ -113,7 +120,7 @@ public enum PDFWriter {
         let pageBase = gsBase + allAlphas.count
         let imageBase = pageBase + 2 * pages.count
         let imageObj = xobjects.objectNumbers(base: imageBase)
-
+        let fontBase = imageBase + xobjects.objectCount
         var objects: [Data] = []   // objects[i] is object i+1's body
         let kids = pages.indices.map { "\(pageBase + 2 * $0) 0 R" }.joined(separator: " ")
         objects.append(Data("<< /Type /Catalog /Pages 2 0 R >>".utf8))
@@ -137,6 +144,9 @@ public enum PDFWriter {
             if !p.images.isEmpty {
                 res += "/XObject << " + p.images.map { "/Im\($0) \(imageObj[$0]) 0 R" }.joined(separator: " ") + " >> "
             }
+            if !p.fonts.isEmpty {
+                res += "/Font << " + p.fonts.map { "/T\($0) \(fontBase + 5 * $0) 0 R" }.joined(separator: " ") + " >> "
+            }
             res += ">>"
             objects.append(Data(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \(fmt(p.width)) \(fmt(p.height))] "
                 + "/Resources \(res) /Contents \(contentID) 0 R >>").utf8))
@@ -149,6 +159,7 @@ public enum PDFWriter {
             objects.append(streamObject(dict: "/Length \(stream.count)\(dict)", stream))
         }
         objects += xobjects.objects(base: imageBase)
+        objects += try fonts.objects(base: fontBase, compress: options.compress)
 
         var out = Data("%PDF-1.4\n".utf8)
         out.append(contentsOf: [0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A])   // binary-marker comment
@@ -200,6 +211,8 @@ struct ContentStream {
     var alphas = Set<Int>()
     /// Image XObjects drawn (`/Im<n>`).
     var images = Set<Int>()
+    /// Fonts drawn (`/T<n>`, indices into the document's `PDFFontSet`).
+    var usedFonts = Set<Int>()
     let height: Double
 
     init(height: Double) { self.height = height }
@@ -322,6 +335,9 @@ struct ImageXObjects {
         return Entry(dict: dict, stream: try Zlib.compress(Data(colour)), smask: smask, width: rgba.width,
                      height: rgba.height)
     }
+
+    /// Objects the entries take (an image with a soft mask takes two).
+    var objectCount: Int { entries.reduce(0) { $0 + ($1.smask == nil ? 1 : 2) } }
 
     /// Object number of each entry when the first is `base` (an entry with a
     /// soft mask takes two numbers: image, then mask).

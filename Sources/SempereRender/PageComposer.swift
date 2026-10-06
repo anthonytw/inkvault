@@ -87,7 +87,7 @@ struct PreparedPage {
         }
         strokes = list
         var report = ExportReport()
-        items = PreparedItem.prepare(page.items, images: images, report: &report)
+        items = PreparedItem.prepare(page.items, images: images, shaper: options.shaper, report: &report)
         self.report = report
         // Items count toward an infinite page's extent like strokes (format.md §8.2.3).
         for item in items { low = max(low, item.maxY) }

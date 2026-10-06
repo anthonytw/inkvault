@@ -22,6 +22,17 @@ struct FontSubset {
         return n
     }
 
+    /// A second id for `.notdef` (a cmap entry that maps to glyph 0 means
+    /// "missing" to viewers, so SVG addresses the missing-glyph box through
+    /// a copy), added once.
+    mutating func notdefCopy() -> Int {
+        if let n = notdefCopyID { return n }
+        glyphs.append(0)
+        notdefCopyID = glyphs.count - 1
+        return glyphs.count - 1
+    }
+    private var notdefCopyID: Int?
+
     /// `ABCDEF+PostScriptName`: a tag from a hash of the glyph set, as PDF
     /// requires for subsets (ISO 32000 §9.6.4).
     var subsetName: String {
