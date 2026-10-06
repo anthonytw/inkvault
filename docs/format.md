@@ -655,18 +655,29 @@ A page may carry `"recognition"`, the text recognised in its handwriting:
 
 ```json
 "recognition": {
-  "engine": "pencilkit-27.0",
+  "engine": "vision-26.7",
   "text": "Lecture 3\nlinear maps",
-  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ]
+  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ],
+  "basis": "9f2c4e1d7a0b3c58e6d1f4a2b7c90e13"
 }
 ```
 
 - `engine`: free-form name and version of whatever produced the text, e.g.
+  `vision-<iPadOS version>` (the app's on-device recogniser),
   `pencilkit-<iPadOS version>` or `notability-<version>` for an import.
 - `text`: the page's recognised text in reading order, lines separated by `\n`.
 - `words[].t`: one word of `text`; `words[].box`: its bounding box
   `[x, y, w, h]` in page coordinates (points, origin top-left, y down).
   Writers round to at most 3 decimals. `words` may be empty.
+- `basis` (optional): which strokes the text was read from, so a writer can
+  tell current recognition from stale without reading the ink. The first 16
+  bytes, as 32 lowercase hex digits, of the SHA-256 of the page's live stroke
+  ids (§5.2): each id as lowercase text, sorted as strings (byte order),
+  joined by `\n` with no trailing newline. Strokes are write-once, so equal
+  ids mean equal ink. An empty page's basis is the digest of the empty
+  string, `e3b0c44298fc1c149afbf4c8996fb924`. Readers ignore a value they do
+  not understand and treat it as an opaque string they only compare for
+  equality.
 
 Recognition is derived data: it is set as a whole, never merged, and a writer
 may replace it at any time (for example after strokes change). It is an LWW
@@ -681,6 +692,18 @@ a `setPageRecognition` the snapshot does not cover. `addPage` ignores any
 
 Readers that index text for search use `text`; `words` lets a viewer
 highlight hits on the page.
+
+**When recognition is stale.** A page's recognition is *current* when it has
+a `basis` equal to the digest of the page's live stroke ids; one with a
+different basis is stale (strokes were added or erased since) and a writer
+that recognises text replaces it, with a `basis` of its own. Recognition
+without a `basis` (an import, or a writer that does not record one) cannot be
+checked: a writer keeps it until it itself changes the page's strokes, and
+then replaces it. A page with strokes and no recognition has none yet; a page
+with no strokes keeps recognition without a `basis` and clears (sets to
+`null`) one whose `basis` names strokes that are gone. Recognition with
+empty `text` is valid and current: it says the page was read and had
+nothing legible.
 
 In a snapshot, every page and stroke carries `"origin"`,
 `"<hlc>-<device>-<seq>-<op>"`: the revision that added it and the op's

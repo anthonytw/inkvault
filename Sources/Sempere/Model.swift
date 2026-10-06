@@ -201,9 +201,12 @@ public struct Recognition: Hashable, Sendable, Codable {
     public var text: String
     /// Words of `text` with their boxes; may be empty.
     public var words: [Word]
+    /// Which strokes this was recognised from: `RecognitionBasis.digest` of the
+    /// page's live stroke ids. Nil for recognition that does not say (an import).
+    public var basis: String?
 
-    public init(engine: String, text: String, words: [Word] = []) {
-        self.engine = engine; self.text = text; self.words = words
+    public init(engine: String, text: String, words: [Word] = [], basis: String? = nil) {
+        self.engine = engine; self.text = text; self.words = words; self.basis = basis
     }
 }
 

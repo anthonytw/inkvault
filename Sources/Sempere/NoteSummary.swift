@@ -23,6 +23,10 @@ public struct NoteSummary: Hashable, Sendable {
     public var problem: String?
     /// Number of pages with recognised handwriting text.
     public var recognizedPages: Int = 0
+    /// The recognised text of each page that has some, for search (`NoteSearch`).
+    public var pageTexts: [PageText] = []
+    /// Number of pages whose recognition is missing or stale (`RecognitionPolicy`).
+    public var pagesNeedingRecognition: Int = 0
 
     public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
                 strokes: Int, modified: Date?, problem: String?) {
@@ -135,6 +139,8 @@ extension Vault {
             s.pages = state.pages.count
             s.strokes = state.pages.reduce(0) { $0 + $1.strokes.count }
             s.recognizedPages = state.pages.filter { !($0.recognition?.text.isEmpty ?? true) }.count
+            s.pageTexts = PageText.texts(of: state.pages)
+            s.pagesNeedingRecognition = state.pages.filter { RecognitionPolicy.needsRecognition($0) }.count
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }
