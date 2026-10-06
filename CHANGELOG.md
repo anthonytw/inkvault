@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
+  (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
+  parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);
+  `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
+  code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
+  first (`CLAUDE.md` "CLI first").
 - Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
   note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
   or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works
@@ -44,6 +50,9 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   placeholder with a warning, never a failed export. Applies to notes once item ops are merged (A1).
 
 ### Changed
+
+- `sempere notes list --notebook PATH` now lists the notes in that notebook and below it, comparing
+  canonical paths by segment as the app's sidebar does (it compared raw names before).
 
 - **Faster vault opening** (#54). Note summaries skip stroke geometry, are read in parallel,
   and are kept in an encrypted per-device cache (`docs/format.md` §10), so a 600-note vault

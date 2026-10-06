@@ -41,12 +41,19 @@ working state.
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3) | 📋 |
 
-## CLI (`sempere`, renamed `sempere`; one codebase for both platforms)
+## CLI (`sempere`; one codebase for both platforms)
+
+The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
+"CLI first"): anything that reads or changes vault data has a command with
+`--json`.
 
 | Feature | Linux | macOS |
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | import notability, search (recognised text) | ✅ | ✅ |
+| Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | 🔀 this PR | 🔀 this PR |
+| Pages: delete, move/reorder, duplicate; paged/pageless (`notes layout` in #52) | 📋 after #52 | 📋 after #52 |
+| `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |

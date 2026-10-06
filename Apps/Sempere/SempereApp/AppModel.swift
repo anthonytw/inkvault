@@ -269,11 +269,7 @@ final class AppModel {
     /// Tags in use by live notes, sorted. Tags match case-insensitively
     /// ("Math" and "math" are one); the spelling shown is the first seen.
     var tags: [String] {
-        var byKey: [String: String] = [:]
-        for tag in notes.filter({ !$0.deleted }).flatMap(\.tags) where byKey[NoteOps.tagKey(tag)] == nil {
-            byKey[NoteOps.tagKey(tag)] = tag
-        }
-        return byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        NoteOps.vaultTags(notes)
     }
 
     /// The note list for the current sidebar selection, title search and sort order.

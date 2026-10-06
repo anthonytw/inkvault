@@ -251,6 +251,34 @@ struct BrowserTests {
         await #expect(throws: AppModel.ModelError.noteNotFound) { try await model.deleteNote(UUID()) }
     }
 
+    /// A note none of whose revisions can be read (another key, damage) is
+    /// still listed, and can still be renamed, moved, deleted and restored:
+    /// those ops do not depend on the note's state.
+    @Test func unreadableNoteCanStillBeEditedAndDeleted() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let id = UUID()
+        let dir = url.appendingPathComponent("notes/\(id.uuidString.lowercased())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("not age".utf8).write(to: dir.appendingPathComponent("17000000000000000-deadbeef-1.delta.age"))
+        let model = AppModel(deviceStateURL: try Self.tempDir().appendingPathComponent("device.json"))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(model.notes.first { $0.id == id }?.problem != nil)
+
+        try await model.renameNote(id, to: "Broken")
+        try await model.moveNote(id, toNotebook: "Lost")
+        try await model.deleteNote(id)
+        var note = try #require(model.notes.first { $0.id == id })
+        #expect(note.title == "Broken")
+        #expect(note.notebook == "Lost")
+        #expect(note.deleted)
+        try await model.restoreNote(id)
+        note = try #require(model.notes.first { $0.id == id })
+        #expect(!note.deleted)
+        let vault = try #require(model.vault)
+        #expect(try vault.revisionNames(of: id).count == 5)   // the unreadable one, then one delta per edit
+    }
+
     @Test func editsLeaveExistingRevisionsUntouchedAndAddDeltas() async throws {
         let model = try await Self.unlockedFixtureModel()
         let vault = try #require(model.vault)

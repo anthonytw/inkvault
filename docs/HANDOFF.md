@@ -69,6 +69,10 @@ the owning session (`claude -p "…" --cloud <session_id>`).
 - **Licensing:** GPLv3 + App Store exception (§7 additional permission), no
   CLA. All deps are Apache-2.0 (swift-crypto incl. vendored BoringSSL,
   argument-parser, asn1) + zlib: GPL-compatible.
+- **CLI first (2026-10-06):** "The CLI should be the first place to get
+  features. Everything should be automatable (aside from the UI)." Every
+  feature prompt includes a `sempere` command with `--json` output and CLI
+  tests, sharing the core code the app uses (see `CLAUDE.md` "CLI first").
 - **Export compliance:** the maintainer answered App Store Connect's questions on build 2.
 The result was "does not use non-exempt encryption", the mass-market exemption.
 Info.plist mirrors that with `ITSAppUsesNonExemptEncryption = NO`, so uploads need no
