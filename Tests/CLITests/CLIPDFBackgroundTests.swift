@@ -23,8 +23,7 @@ final class CLIPDFBackgroundTests: CLITestCase {
         try vault.apply(NoteOps.newNote(title: "Annotated", paper: .blank,
                                         pageSize: PageSize(width: 400, height: 300), pageId: pageId)
                         + [.addItem(page: pageId, item: item)], to: note, deviceState: state, app: "test")
-        // The note must hold the PDF page (attachments A1), or these tests export nothing.
-        XCTAssertEqual(try vault.reconstruct(noteId: note).pages.first?.items.count, 1)
+        XCTAssertEqual(try vault.reconstruct(noteId: note).pages.first?.items.map(\.id), [item.id])
         return (path, note.uuidString.lowercased())
     }
 

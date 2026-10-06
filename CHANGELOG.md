@@ -9,10 +9,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
-- **Attachment merge** (task A1, `docs/format.md` §8.2.2, §8.3.1): placed items and recordings
-  merge as sets with permanent tombstones and last-writer-wins registers per field; snapshots,
-  compaction, history and `notes restore` keep them. `notes show` counts items, text boxes and
-  recordings (`items`, `textItems`, `recordings` in `--json`), and search covers text boxes.
+- Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
+  merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
+  last-writer-wins registers (unknown fields included), in the library and the web viewer.
+  Snapshots, `compact`, history and `notes restore` now keep them (restore re-creates removed
+  items and recordings with `parent`; a moved item goes back to its page). Summaries count items
+  and recordings, list the blobs a note references, and make text boxes searchable.
+  `sempere notes show` lists items and recordings (`items`, `recordings` in `--json`; `notes list
+  --json` counts them).
 - **Paged and pageless notes** (`docs/format.md` §5.4.3, #52): a note has fixed-size pages
   or one infinite page, and switches between them without deleting or moving ink
   (`sempere notes layout ID paged|pageless`; in the app, the Page Layout menu). In the app,
@@ -59,8 +63,7 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   unknown feature refuses to write.
 - Attachment model types (`docs/format.md` §8; task A0): placed items (text, image, PDF page, and
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
-  holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
-  `snapshot` and `compact` refuse a note that has them rather than drop them.
+  holding them now decode instead of being reported unreadable (merged since A1, above).
 - PDF page backgrounds in exports (attachments task C3). A new `SemperePDF` library reads PDFs
   from untrusted attachments (cross-reference tables and streams, object streams, incremental
   updates, rebuilding a broken file by scanning; bounded and fuzzed). PDF exports copy the original

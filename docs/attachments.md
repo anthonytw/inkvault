@@ -1223,6 +1223,16 @@ orphans for `addItem`/`setItem` (unknown page or item) and `setRecording`
 with equal immutable fields; registers via `setItem`/`setRecording`),
 `RestoreSummary` counts. `NoteSummary`: item and recording counts, typed text
 for search, blob references of the note (for the index and collection).
+*Status:* in review (#66). Code: `NoteReducer.swift` (evidence and
+registers per (id, field)), `AttachmentRegisters.swift` (which fields are
+registers, applying a change, `blobReferences`, `NoteState.recording(for:)`),
+`History.swift` (`itemOps`, `recordingOps`), `NoteSummary` (`items`,
+`textItems`, `recordings`, `blobs`; text boxes join `pageTexts`), the web
+viewer's `reducer.ts` / `registers.ts`, CLI `notes show`. Tests:
+`AttachmentMergeTests`, `MergeTests.testReconstructWithAttachmentsIsOrderIndependent`,
+`CLIAttachmentsTests`, `web/test/attachment-merge.test.ts`. Not done: the
+fixture vault's note with items (it would move the app tests' note counts
+and the web goldens; left for a follow-up).
 *Done when:* the shuffled-order property test covers items and recordings;
 scenario tests: concurrent `setItem(frame)` (higher stamp wins, both orders),
 move vs crop on different fields (both apply), `removeItem` vs concurrent

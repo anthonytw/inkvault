@@ -37,7 +37,7 @@ The code mirrors the Swift reader and is tested against it (see "Tests").
 | `SMPR` framing, HMAC-SHA256 tag under the vault secret (WebCrypto), previous secret during a rewrap | `vault.ts` | `BodyFraming`, `NoteStore.unframe` |
 | bounded gunzip (`DecompressionStream`), strict UTF-8, JSON | `web/src/vault/gzip.ts` | `Gzip.decompress` |
 | revision decoding with Swift's `Codable` rules; name and content must agree (§5) | `web/src/format/model.ts`, `ids.ts`, `rfc3339.ts`, `attachments.ts` | `Model.swift`, `Revision.swift`, `Attachments.swift` |
-| merge: snapshots, uncovered deltas, LWW registers, tombstones, orphans, tag OR-set with legacy baseline | `web/src/format/reducer.ts`, `tags.ts` | `NoteReducer` |
+| merge: snapshots, uncovered deltas, LWW registers, tombstones, orphans, tag OR-set with legacy baseline, items and recordings | `web/src/format/reducer.ts`, `tags.ts`, `registers.ts` | `NoteReducer`, `AttachmentRegisters` |
 | B-spline sampling, ribbons, monoline, paper ruling, page extent | `web/src/render/` | `SempereRender` |
 
 Typage 0.3.1 implements the age v1.3 hybrid recipient (`mlkem768x25519`,
@@ -48,8 +48,8 @@ Unreadable revisions (wrong tag, undecryptable, undecodable) are reported in
 the note view and the list ("N unreadable revisions", a "Problems" filter);
 the note is shown merged from the rest, marked as such (§4: report, never
 silently drop). Notes holding attachments (§8) say that text boxes, images,
-PDFs and recordings are not shown yet: like the Swift reducer (task A1), the
-viewer validates them but does not merge or draw them.
+PDFs and recordings are not shown yet: the viewer merges them like the Swift
+reducer (task A1; text boxes are searchable) but does not draw them.
 
 ## Threat model
 
@@ -205,8 +205,9 @@ are missing: download the vault first.
 ## Limits
 
 - **Read-only.** No editing, no restore, no history browser, no export.
-- **Attachments** (§8) are not merged or drawn yet (as in the Swift library,
-  task A1); notes holding them say so.
+- **Attachments** (§8) are merged (task A1) but not drawn yet; notes holding
+  them say so. The SVG cross-check compares pages with items without the Swift
+  export's `items` group.
 - **Ink** is drawn like `SempereRender`: flat colour per stroke (mean opacity
   times a tool factor), no pencil grain, watercolour bleed or nib angle; the
   same approximations as the CLI's PDF and SVG exports.
