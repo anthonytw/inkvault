@@ -39,6 +39,7 @@ struct DragAndDropTests {
         #expect(DropTarget(.recentlyRecognized) == nil)
         #expect(DropTarget.topLevel.path == nil)
         #expect(DropTarget.notebook("A").path == "A")
+        #expect(DropTarget.notebook(" A // B ").path == "A/B", "always canonical")
     }
 
     // MARK: rules

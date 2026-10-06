@@ -80,7 +80,7 @@ enum DropTarget: Hashable, Sendable {
 
     /// The notebook path notes dropped here get; nil: none.
     var path: String? {
-        if case .notebook(let p) = self { return p }
+        if case .notebook(let p) = self { return NotebookPath.canonical(p) }
         return nil
     }
 }
