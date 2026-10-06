@@ -86,7 +86,7 @@ extension NotabilityNote {
         static let rotationKeys: Set<String> = ["rotation", "rotationangle", "angle", "contentrotation",
                                                 "rotationdegrees", "rotationradians"]
         static let cropKeys: Set<String> = ["croprect", "crop", "cropframe", "imagecroprect", "contentsrect",
-                                            "croppingrect", "cropbounds"]
+                                            "croppingrect", "cropbounds", "figurecroprectkey"]
         static let transformKeys: Set<String> = ["transform", "affinetransform", "contenttransform"]
 
         /// Reads one media object.
@@ -156,7 +156,9 @@ extension NotabilityNote {
                 return best.map { ($0.0, $0.1) }
             }
             let transform = first(MediaObject.transformKeys) { MediaObject.numbers($0, count: 6) }
-            if let (r, key) = first(MediaObject.frameKeys, MediaObject.rect) {
+            // An empty rect is a placeholder (Notability 13+ keeps a `{{0, 0}, {0, 0}}`
+            // `rect` on the figure's background object): fall through to origin + size.
+            if let (r, key) = first(MediaObject.frameKeys, { MediaObject.rect($0).flatMap { $0.w >= 1 && $0.h >= 1 ? $0 : nil } }) {
                 frame = r; geometrySource = key
             } else if let (o, ok) = first(MediaObject.originKeys, { MediaObject.numbers($0, count: 2) }),
                       let (s, sk) = first(MediaObject.sizeKeys, { MediaObject.numbers($0, count: 2) }) {
