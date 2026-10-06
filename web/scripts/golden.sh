@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Regenerates web/test/golden from the Swift CLI: for every note of every
+# fixture vault, `sempere export --format json` and `--format svg`. The web
+# tests compare the TypeScript reducer and renderer with these files; CI runs
+# this script and fails on any difference (docs/web-viewer.md "Tests").
+#
+# Usage: web/scripts/golden.sh [OUT_DIR] (default web/test/golden)
+#        SEMPERE=path/to/sempere to use a built CLI (default: swift build).
+set -euo pipefail
+web="$(cd "$(dirname "$0")/.." && pwd)"
+repo="$(cd "$web/.." && pwd)"
+out="${1:-$web/test/golden}"
+if [ -z "${SEMPERE:-}" ]; then
+  (cd "$repo" && swift build --product sempere >&2)
+  SEMPERE="$repo/.build/debug/sempere"
+fi
+key="$repo/Tests/SempereTests/Fixtures/sample.key"
+
+export_vault() {   # name vault-dir
+  local name="$1" vault="$2" dest="$out/$1" tmp
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  for dir in "$vault"/notes/*/; do
+    id="$(basename "$dir")"
+    "$SEMPERE" export "$id" --vault "$vault" --identity "$key" --format json --out "$dest/$id.json" -q >/dev/null
+    tmp="$(mktemp -d)"
+    "$SEMPERE" export "$id" --vault "$vault" --identity "$key" --format svg --out "$tmp" -q >/dev/null
+    mkdir -p "$dest/$id"
+    # <name>-p001.svg -> p001.svg (the name depends on the title)
+    for f in "$tmp"/*.svg; do mv "$f" "$dest/$id/${f##*-}"; done
+    rm -rf "$tmp"
+  done
+}
+
+export_vault sample "$repo/Tests/SempereTests/Fixtures/sample.sempere"
+if [ -d "$web/test/fixtures/render.sempere" ]; then
+  export_vault render "$web/test/fixtures/render.sempere"
+fi
+echo "golden files in $out" >&2
