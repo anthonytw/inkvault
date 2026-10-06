@@ -1,4 +1,5 @@
 import Foundation
+import Sempere
 
 /// Why a font could not be used. Text falls back to another font (or the
 /// missing-glyph box) and the export reports it.
@@ -171,13 +172,19 @@ public struct OpenTypeFont: Sendable {
     }
 
     /// Reads a font file from disk (at most 64 MiB) and parses face `face`.
+    ///
+    /// Regular files only (`BoundedRead`): a FIFO or device named `*.ttf` in
+    /// a font directory is refused instead of blocking the export (format.md §9).
     public init(contentsOf url: URL, face: Int = 0) throws {
-        let h = try FileHandle(forReadingFrom: url)
-        defer { try? h.close() }
-        let d = try h.read(upToCount: (64 << 20) + 1) ?? Data()
-        guard d.count <= 64 << 20 else { throw FontError.unsupported("font file over 64 MiB") }
+        let d: Data
+        do { d = try BoundedRead.contents(of: url, maxBytes: Self.maxFileBytes) } catch VaultError.fileTooLarge {
+            throw FontError.unsupported("font file over 64 MiB")
+        }
         try self.init(data: [UInt8](d), face: face)
     }
+
+    /// The largest font file read.
+    public static let maxFileBytes = 64 << 20
 
     /// Glyph for a code point (0, `.notdef`, when the font lacks it).
     public func glyph(for scalar: UInt32, variation: UInt32? = nil) -> Int {
@@ -335,11 +342,10 @@ public struct OpenTypeFont: Sendable {
         func mid(_ a: Point, _ b: Point) -> Point { Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
         let n = pts.count
         // Start on an on-curve point, or the midpoint of the first two off-curve points.
-        var startIndex = pts.firstIndex { $0.1 }
-        let start: Point
-        if let s = startIndex { start = pts[s].0 } else { start = mid(pts[0].0, pts[n - 1].0); startIndex = 0 }
+        let onCurve = pts.firstIndex { $0.1 }
+        let start = onCurve.map { pts[$0].0 } ?? mid(pts[0].0, pts[n - 1].0)
         out.append(.move(start))
-        let s0 = startIndex!
+        let s0 = onCurve ?? 0
         var control: Point?
         for k in 1...n {
             let (pt, on) = pts[(s0 + k) % n]

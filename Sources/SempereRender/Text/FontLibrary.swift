@@ -109,7 +109,7 @@ public final class FontLibrary: @unchecked Sendable {
             if (e.weight >= 600) == bold { score += 2_000 }
             if e.italic == italic { score += 1_000 }
             if name.contains("noto") { score += 500 }
-            if best == nil || score > best!.score { best = (score, e) }
+            if score > (best?.score ?? Int.min) { best = (score, e) }
         }
         guard let e = best?.entry else { return nil }
         return load(e.url, face: e.face)
@@ -153,8 +153,8 @@ public final class FontLibrary: @unchecked Sendable {
                 let real = url.resolvingSymlinksInPath().path
                 guard seen.insert(real).inserted else { continue }
                 files += 1
-                guard let h = try? FileHandle(forReadingFrom: url), let data = try? h.read(upToCount: 64 << 20) else { continue }
-                try? h.close()
+                // Regular files only, never more than a font may be (a FIFO would block forever).
+                guard let data = try? BoundedRead.contents(of: url, maxBytes: OpenTypeFont.maxFileBytes) else { continue }
                 let bytes = [UInt8](data)
                 let faces = (try? OpenTypeFont.faceCount(bytes)) ?? 0
                 for face in 0..<min(faces, 64) {
