@@ -188,6 +188,27 @@ struct CloudSyncTests {
         #expect(try Self.revisionCount(url, Self.lecture) == before)
     }
 
+    /// A new note in an iCloud vault has no files yet: creating it must not
+    /// run the "every file is local" check, which refuses an empty folder
+    /// (TestFlight build 4: "has not listed this note's files yet (0 missing)").
+    @Test func creatingANoteInAnICloudVaultWritesIt() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(model.isCloudVault)
+        let id = try await model.createNote(title: "New in iCloud", paper: .blank, notebook: nil)
+        #expect(try Self.revisionCount(url, id) == 1)
+        #expect(model.notes.contains { $0.id == id && $0.title == "New in iCloud" })
+        let filed = try await model.createNote(title: "Filed", paper: .blank, notebook: "School/Math")
+        #expect(model.notes.first { $0.id == filed }?.notebook == "School/Math")
+        // Later edits of the new note still run the check, and pass: its file is local.
+        try await model.renameNote(id, to: "Renamed")
+        #expect(model.notes.first { $0.id == id }?.title == "Renamed")
+        model.close()
+    }
+
     @Test func aNotebookRenameWritesNothingIntoANoteEvictedSinceTheLastPass() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let cloud = FakeCloud(vault: url)
