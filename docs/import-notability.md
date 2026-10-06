@@ -29,9 +29,10 @@ export, which the import ignores). Google Drive splits a large backup into
 several zips (`Notability-<date>-1-001.zip`, `-002`, …): **pass all of them
 in one run**, so copies of a note in different parts are resolved together
 (below). Each imported note becomes one delta: `addPage`, one `addStroke`
-per stroke, `setMeta` for title, tags, notebook, paper and page size, and
-`setPageRecognition`. Every input file gets one report row, whatever happens
-to it: nothing is silently ignored.
+per stroke, `setMeta` for title, notebook, paper and page size, one `addTag`
+per tag (`format.md` §5.4.1), and `setPageRecognition`. An overwrite also
+removes the old tags (`removeTag`). Every input file gets one report row,
+whatever happens to it: nothing is silently ignored.
 
 - **Notebook**: the directories under `Notability/` (`Research/Daily log`);
   for a directory input without one, the path relative to it; otherwise
@@ -43,8 +44,9 @@ to it: nothing is silently ignored.
   `options.notebook`); then `extraTags` (`--tag`, repeatable). The set is
   normalised as `format.md` §5.4 says (`NoteOps.normalizedTags`: whitespace
   collapsed, matched case-insensitively, first spelling kept) and written
-  whole, so an overwrite of a note that moved folders drops the old folder's
-  tags. The notebook is unchanged by this. One function builds the set
+  as one `addTag` per tag; an overwrite first removes every tag instance it
+  sees (`removeTag`), so it drops the old folder's tags when a note moved,
+  while a tag another device added concurrently survives (§5.4.1). The notebook is unchanged by this. One function builds the set
   (`NotabilityImporter.tags(for:folder:options:)`).
 - **Idempotent**: the note id is `UUID.derived(from: "inkvault-notability:"
   + uuidKey)` (SHA-256, RFC 9562 version 8). A note already in the vault is
@@ -52,7 +54,9 @@ to it: nothing is silently ignored.
   fresh page and stroke ids salted with the overwriting delta's
   `<device>-<seq>`, so no overwrite from any device re-mints a removed
   (tombstoned) id (`format.md` §5.2). Tags and notebook are always written,
-  so an overwrite can clear them.
+  so an overwrite can clear them. The overwrite's clock first observes the
+  note's revisions, so its writes win LWW (and are not superseded by a
+  legacy tags write) even when another device's clock was ahead.
   Several sources of one note in a run are resolved as "Duplicates and
   versions" below says.
 - **Created date**: the delta's `wall` is Notability's creation date, so the

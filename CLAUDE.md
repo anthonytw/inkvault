@@ -215,6 +215,11 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   minimises or docks the system palette by dragging it to an edge or tapping its
   collapse handle. Changing the compact option swaps the picker object.
 - Tags match case-insensitively (`NoteOps.tagKey`); titles are never keys.
+  Tags merge per tag (`format.md` §5.4.1): write `addTag` / `removeTag` via
+  `NoteOps.addTag` / `removeTag` / `setTags` (a remove lists the instances it
+  observed, so it needs the note's state), never `setMeta(.tags)` (legacy,
+  read only). A snapshot without `tagSet` is a legacy one: keep the committed
+  fixture vault that way.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are

@@ -478,4 +478,39 @@ final class CLICommandTests: CLITestCase {
         let tagged = try cli(["notes", "list", "--tag", "MATH", "--json", "--vault", copy, "--identity", Self.fixtureKey])
         XCTAssertEqual((tagged.json as? [Any])?.count, 2)
     }
+
+    /// Two devices tag one note concurrently (format.md §5.4.1): the filter
+    /// finds it by both tags, in any case, and not by a removed one; the
+    /// legacy fixture tag still filters until a per-tag remove drops it.
+    func testTagFilterSeesConcurrentPerTagEdits() throws {
+        let copy = try copyFixtureVault()
+        let vault = try Vault.open(at: URL(fileURLWithPath: copy), identities: [try fixtureIdentity()])
+        let ipad = tmp.appendingPathComponent("ipad-device.json"), mac = tmp.appendingPathComponent("mac-device.json")
+        let id = UUID()
+        try vault.apply(NoteOps.newNote(title: "Tagged", tags: ["old"]), to: id, deviceState: ipad, app: "test")
+        let base = try vault.reconstruct(noteId: id)
+        // Both devices start from `base` and do not see each other's edit.
+        try vault.apply([try XCTUnwrap(NoteOps.addTag("Exam", to: base))], to: id, deviceState: ipad, app: "test")
+        try vault.apply([try XCTUnwrap(NoteOps.addTag("math", to: base)),
+                         try XCTUnwrap(NoteOps.removeTag("old", from: base))], to: id, deviceState: mac, app: "test")
+        func listed(_ tag: String) throws -> [String] {
+            let r = try cli(["notes", "list", "--tag", tag, "--json", "--vault", copy, "--identity", Self.fixtureKey])
+            XCTAssertEqual(r.status, 0, r.err)
+            return ((r.json as? [[String: Any]]) ?? []).compactMap { $0["title"] as? String }
+        }
+        XCTAssertEqual(try listed("exam"), ["Tagged"])
+        XCTAssertEqual(try listed("MATH"), ["Tagged"])
+        XCTAssertEqual(try listed("old"), [])
+        let show = try cli(["notes", "list", "--json", "--vault", copy, "--identity", Self.fixtureKey])
+        let note = (show.json as? [[String: Any]])?.first { $0["title"] as? String == "Tagged" }
+        XCTAssertEqual(note?["tags"] as? [String], ["Exam", "math"])
+
+        // The fixture lecture's tag is a legacy write.
+        XCTAssertEqual(try listed("Fixture"), ["Fixture lecture"])
+        let lectureId = try XCTUnwrap(UUID(uuidString: Self.lecture))
+        let lecture = try vault.reconstruct(noteId: lectureId)
+        try vault.apply([try XCTUnwrap(NoteOps.removeTag("fixture", from: lecture))], to: lectureId,
+                        deviceState: mac, app: "test")
+        XCTAssertEqual(try listed("fixture"), [])
+    }
 }

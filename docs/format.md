@@ -224,7 +224,9 @@ Adds `"ops": [Op, ...]`, applied in order. Ops:
 | `removePage` | `pageId` | remove page and its strokes; wins over adds |
 | `setPageOrder` | `pageId`, `order` | LWW on the page's order key |
 | `setPageRecognition` | `pageId`, `recognition` | LWW on the page's recognised text (§5.5); `null` clears it |
-| `setMeta` | `field`, `value` | LWW per field (§5.4) |
+| `setMeta` | `field`, `value` | LWW per field (§5.4); writers never set `tags` (§5.4.1) |
+| `addTag` | `tag` | add one instance of a tag (§5.4.1) |
+| `removeTag` | `tag`, `observed` | remove the listed instances of a tag (§5.4.1) |
 | `deleteNote` | | LWW with `restoreNote` on `deleted` |
 | `restoreNote` | | |
 | `addItem` | `page`, `item` | *new: attachments.* Add a placed item (§8.2) to the page (no-op if page removed) |
@@ -284,15 +286,12 @@ Compaction never deletes blobs; they have their own per-note collection rule
 ### 5.4 State and metadata
 
 Tags are matched case-insensitively ("Math" and "math" are one tag) with
-inner whitespace runs collapsed (multi-word tags are fine). Writers must not
-put two tags that differ only in case on one note (the first spelling wins),
-and apps list a tag with its first-seen spelling; readers must accept any
-stored `tags` array unchanged. Matching never changes merging: `tags` is one
-LWW register holding the whole array (below), so concurrent "Math" and
-"math" resolve like any other concurrent write, a removal (a later write
-without any spelling of the tag) is never undone by an older write in
-another spelling, and vaults written before this rule (two spellings on one
-note) stay valid. Titles are labels, never keys: any number of
+inner whitespace runs collapsed (multi-word tags are fine): the **tag key**
+of a tag is its whitespace-separated words joined by one space, then
+lowercased (Unicode default case mapping). A note's tags are a set keyed by
+tag key that merges per tag, not as one register (§5.4.1), so tags added on
+two devices concurrently are both kept. Apps list a tag with one spelling
+per key (§5.4.1). Titles are labels, never keys: any number of
 notes may share a title, in one notebook or several.
 
 ```json
@@ -338,8 +337,8 @@ notes may share a title, in one notebook or several.
   is `width × 11 / 8.5` (letter aspect). Ignored for finite pages.
 - In a snapshot, `pages` are sorted by `(order, id)`.
 
-`State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`,
-`notebook`, `favorite`, `paper`, `pageSize`, `deleted`) to the stamp of the
+`State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`
+(legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`) to the stamp of the
 op that last set it, encoded `"<hlc>-<device>"`, e.g.
 `{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
 cover wins a register only if its own `(hlc, device)` is greater than that
@@ -356,6 +355,111 @@ removed page is a no-op rather than an orphan (§5.3). `items` and
 `recordings` (*new: attachments*) list every removed item and recording id
 and are never pruned either, for the same reason (`setItem`,
 `setRecording`). All fields are omitted when empty.
+
+#### 5.4.1 Tags: per-tag merge (observed-remove set, add wins)
+
+A note's tags are an observed-remove set of **tag instances**. Each
+`addTag` op adds one instance, identified by the op's origin
+`"<hlc>-<device>-<seq>-<op>"` (§5.5) and belonging to the key of its `tag`.
+A `removeTag` op removes exactly the instances it lists:
+
+```json
+{ "op": "addTag", "tag": "Math" }
+{ "op": "removeTag", "tag": "math",
+  "observed": ["17596320000000003-a1b2c3d4-12-4", "17596310000000000-99ee00ff-0-1"] }
+```
+
+- `addTag.tag`: the tag as written: whitespace runs collapsed to one space,
+  trimmed, not empty. A writer adds a tag only when the note has no live
+  instance of its key. Readers normalise `tag` the same way (in deltas and
+  in snapshots) and ignore an instance whose tag is then empty.
+- `removeTag.tag`: any spelling of the key; `observed`: every live instance of
+  that key the writer sees (a writer removes a tag by listing all of them).
+  Instances of other keys are never affected, even if listed.
+- A tag (key) is on the note while it has at least one live instance. An
+  instance is live if some snapshot holds it or an uncovered delta adds it,
+  unless any revision's `removeTag` (covered or not) or any snapshot's
+  `removed` names it under its key, or a legacy write supersedes it (below).
+  Removed instances are permanent, like page tombstones: a removed
+  instance's add arriving late stays removed.
+
+**Concurrent add and remove: add wins.** A remove only removes the instances
+its writer had seen, so a tag added on another device that the remover had
+not yet received survives, as does a re-add after a remove. This deliberately
+differs from strokes (§5.2, remove wins): a stroke id is added once and never
+again, so its remove covers its only add, whereas the same tag is added
+again routinely, and silently losing a tag the user just added on the other
+device is worse than a removal that has to be repeated. Per-key LWW on the
+HLC was rejected for the same reason: with clock skew between devices (up to
+the 24 hours §5 allows a clock to adopt), a remove could delete an add it
+never saw.
+
+**Spelling and order.** A key's spelling is the `tag` of its earliest live
+instance by origin order `(hlc, device, seq, op)` (first-seen spelling,
+deterministic on every device). Changing the spelling of a tag is a
+`removeTag` of the key followed by an `addTag` with the new spelling, in one
+delta. Tags are listed in the order of their keys' earliest live instances
+(the order they were added).
+
+**Legacy `setMeta` of `tags`.** Revisions written before this rule set the
+whole array with `setMeta`, `field: "tags"`. Readers must still accept it;
+writers must not emit it. All such writes still resolve as one LWW register
+(§5.2, §5.4: the greatest stamp wins); let `L` be the winning array and `S`
+its stamp. Then:
+
+1. `L` is a baseline: for each key in `L` there is one instance with origin
+   `"<hlc>-<device>-0-<i>"`, where `<hlc>-<device>` is `S` and `i` is the
+   index in `L` of the key's first spelling, which is the instance's `tag`.
+   Sequence number 0 never names a real revision, so baseline instances
+   cannot collide with added ones. `removeTag` lists them like any instance.
+2. `L` replaced the whole set at `S`: every other instance whose
+   `(hlc, device)` is less than `S` is not live, whatever its key (the keys
+   `L` lists live on as its baseline instances, with `L`'s spelling).
+   Comparison is by `(hlc, device)` only, so per-tag ops in the same revision
+   as a legacy write are never superseded by it.
+
+So per-tag ops stamped after a legacy write apply on top of it, and a legacy
+write (from a device not yet updated) still removes older tags it does not
+list. A note that holds two spellings of one key in `L` has one tag with the
+first spelling. Because the winning stamp only grows as revisions arrive, an
+instance superseded under one legacy write is superseded under every later
+winner too: it is never live again, so dropping it from a snapshot changes
+nothing. (Rule 2 must not spare older instances of keys in `L`: a snapshot
+written under an older winner would then keep that winner's baseline, or an
+older instance, alive beside the newer baseline, and a remove written from
+a view without that snapshot would not list it.)
+
+**Snapshots.** A snapshot written under this rule carries the set in
+`State`:
+
+```json
+"tagSet": {
+  "instances": [ { "tag": "Math", "origin": "17596320000000003-a1b2c3d4-12-4" } ],
+  "removed":   [ { "key": "fall", "origin": "17596310000000000-99ee00ff-0-1" } ],
+  "legacy":    { "tags": ["math", "fall"], "clock": "17596310000000000-99ee00ff" }
+}
+```
+
+- `instances`: every live instance, sorted by `origin`. Baseline instances
+  (`seq` 0) are listed too, but readers ignore listed baselines and derive
+  them from the winning legacy write (rule 1) alone.
+- `removed`: every instance (key and origin) named by a `removeTag` or by an
+  input snapshot's `removed`, sorted by `(origin, key)`; never pruned.
+- `legacy`: the winning legacy register `L` and its stamp `S`; absent when
+  no legacy write was ever seen.
+
+`tagSet` is always present in such a snapshot (`instances` and `removed` may
+be empty arrays). Its `meta.tags` then holds the resulting tags in display
+order, for readers without this rule and for stock-CLI recovery; readers
+with this rule ignore it and `clocks.tags` (writers omit the latter). A
+snapshot without `tagSet` was written before this rule: its `meta.tags`, with
+`clocks.tags` (or the snapshot's own stamp), is one legacy write.
+
+Merging is still a union of commutative parts (instances, removals, the LWW
+legacy register), so reconstruction stays order-independent (§5.3) and
+correct through any compaction. Readers that do not know `addTag` and
+`removeTag` reject revisions holding them (§7): such a reader must be
+updated, not silently miss tags.
 
 ### 5.5 Page
 
@@ -486,8 +590,11 @@ one delta whose ops turn the current state into the state as of R:
   old id (§5.2);
 - `setPageOrder`, `setPageRecognition`, `setItem`, `setRecording`,
   `setMeta` for every page order, recognition, item or recording register
-  and metadata register that differs, and `deleteNote` or `restoreNote` if
-  `deleted` differs.
+  and metadata register that differs (except `tags`), and `deleteNote` or
+  `restoreNote` if `deleted` differs;
+- `removeTag` for every tag key present now but not as of R, `addTag` for
+  every key present as of R but not now, and both for a key whose spelling
+  differs (§5.4.1).
 
 A page, stroke, item or recording counts as present when its id is, or when
 one with `parent` naming it is (for a stroke, also with the same `ink`,

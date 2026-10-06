@@ -335,14 +335,18 @@ public struct NoteState: Hashable, Sendable, Codable {
     /// Stroke ids removed before their add was covered, and every removed
     /// page id (page tombstones are permanent).
     public var tombstones: Tombstones?
+    /// The per-tag merge state (format.md §5.4.1). Nil in a snapshot written
+    /// before that rule, whose `meta.tags` is then one legacy write; when set,
+    /// `meta.tags` is derived from it.
+    public var tagSet: TagSet?
 
     public init(deleted: Bool = false, meta: NoteMeta, pages: [Page] = [],
-                clocks: [String: String]? = nil, tombstones: Tombstones? = nil) {
+                clocks: [String: String]? = nil, tombstones: Tombstones? = nil, tagSet: TagSet? = nil) {
         self.deleted = deleted; self.meta = meta; self.pages = pages
-        self.clocks = clocks; self.tombstones = tombstones
+        self.clocks = clocks; self.tombstones = tombstones; self.tagSet = tagSet
     }
 
-    enum CodingKeys: String, CodingKey { case deleted, meta, pages, clocks, tombstones }
+    enum CodingKeys: String, CodingKey { case deleted, meta, pages, clocks, tombstones, tagSet }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -351,6 +355,7 @@ public struct NoteState: Hashable, Sendable, Codable {
         pages = try c.decode([Page].self, forKey: .pages)
         clocks = try c.decodeIfPresent([String: String].self, forKey: .clocks)
         tombstones = try c.decodeIfPresent(Tombstones.self, forKey: .tombstones)
+        tagSet = try c.decodeIfPresent(TagSet.self, forKey: .tagSet)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -360,6 +365,127 @@ public struct NoteState: Hashable, Sendable, Codable {
         try c.encode(pages, forKey: .pages)
         if let clocks, !clocks.isEmpty { try c.encode(clocks, forKey: .clocks) }
         if let tombstones, !tombstones.isEmpty { try c.encode(tombstones, forKey: .tombstones) }
+        // Always written when known, even empty: its absence marks a pre-§5.4.1 snapshot.
+        if let tagSet { try c.encode(tagSet, forKey: .tagSet) }
+    }
+}
+
+/// A note's tags as an observed-remove set of instances (format.md §5.4.1).
+/// Each `addTag` adds one instance, named by the op's origin; `removeTag`
+/// removes the instances it lists. A tag key is present while it has a live
+/// instance.
+public struct TagSet: Hashable, Sendable, Codable {
+    /// One live tag instance: its spelling and the op that added it.
+    public struct Instance: Hashable, Sendable, Codable {
+        /// The tag as written by its `addTag` (or the legacy array).
+        public var tag: String
+        /// The adding op; `seq` 0 for a legacy baseline instance.
+        public var origin: Origin
+
+        /// The tag key (`NoteOps.tagKey`).
+        public var key: String { NoteOps.tagKey(tag) }
+
+        public init(tag: String, origin: Origin) { self.tag = tag; self.origin = origin }
+
+        enum CodingKeys: String, CodingKey { case tag, origin }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            tag = try c.decode(String.self, forKey: .tag)
+            origin = try c.decode(TagInstanceOrigin.self, forKey: .origin).origin
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(tag, forKey: .tag)
+            try c.encode(origin.description, forKey: .origin)
+        }
+    }
+
+    /// A removed instance: its tag key and origin.
+    public struct Removal: Hashable, Sendable, Codable {
+        public var key: String
+        public var origin: Origin
+
+        public init(key: String, origin: Origin) { self.key = key; self.origin = origin }
+
+        enum CodingKeys: String, CodingKey { case key, origin }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            key = try c.decode(String.self, forKey: .key)
+            origin = try c.decode(TagInstanceOrigin.self, forKey: .origin).origin
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(key, forKey: .key)
+            try c.encode(origin.description, forKey: .origin)
+        }
+    }
+
+    /// The winning legacy `setMeta(tags)` write and its stamp.
+    public struct Legacy: Hashable, Sendable, Codable {
+        public var tags: [String]
+        /// `"<hlc>-<device>"`.
+        public var clock: String
+
+        public init(tags: [String], clock: String) { self.tags = tags; self.clock = clock }
+    }
+
+    /// Every live instance, sorted by origin.
+    public var instances: [Instance]
+    /// Every removed instance; never pruned.
+    public var removed: [Removal]
+    /// The winning legacy write, if any was seen.
+    public var legacy: Legacy?
+
+    public init(instances: [Instance] = [], removed: [Removal] = [], legacy: Legacy? = nil) {
+        self.instances = instances; self.removed = removed; self.legacy = legacy
+    }
+
+    /// The live instances of the key of `tag` (any spelling): what a
+    /// `removeTag` of it lists as `observed`.
+    public func instances(of tag: String) -> [Origin] {
+        let key = NoteOps.tagKey(tag)
+        return instances.filter { $0.key == key }.map(\.origin)
+    }
+
+    enum CodingKeys: String, CodingKey { case instances, removed, legacy }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        instances = try c.decodeIfPresent([Instance].self, forKey: .instances) ?? []
+        removed = try c.decodeIfPresent([Removal].self, forKey: .removed) ?? []
+        legacy = try c.decodeIfPresent(Legacy.self, forKey: .legacy)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(instances, forKey: .instances)
+        try c.encode(removed, forKey: .removed)
+        if let legacy { try c.encode(legacy, forKey: .legacy) }
+    }
+}
+
+/// A tag instance id on the wire: an origin whose `seq` may be 0 (a legacy
+/// baseline instance, format.md §5.4.1).
+struct TagInstanceOrigin: Codable {
+    var origin: Origin
+
+    init(_ origin: Origin) { self.origin = origin }
+
+    init(from decoder: Decoder) throws {
+        let s = try decoder.singleValueContainer().decode(String.self)
+        guard let o = Origin.tagInstance(s) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad tag instance \(s)"))
+        }
+        origin = o
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(origin.description)
     }
 }
 
@@ -395,6 +521,8 @@ public struct Tombstones: Hashable, Sendable, Codable {
 
 public enum MetaChange: Hashable, Sendable {
     case title(String)
+    /// Legacy whole-array tags write (format.md §5.4.1): read, never written;
+    /// writers use `Op.addTag` / `Op.removeTag`.
     case tags([String])
     case notebook(String?)
     case favorite(Bool)
@@ -436,12 +564,18 @@ public enum Op: Hashable, Sendable {
     /// LWW on the page's recognised text; nil clears it (format.md §5.5).
     case setPageRecognition(pageId: UUID, recognition: Recognition?)
     case setMeta(MetaChange)
+    /// Adds one instance of a tag, named by this op's origin (format.md §5.4.1).
+    case addTag(String)
+    /// Removes the listed instances of the key of `tag` (format.md §5.4.1).
+    case removeTag(String, observed: [Origin])
     case deleteNote
     case restoreNote
 }
 
 extension Op: Codable {
-    enum CodingKeys: String, CodingKey { case op, page, stroke, strokeId, pageId, order, recognition, field, value }
+    enum CodingKeys: String, CodingKey {
+        case op, page, stroke, strokeId, pageId, order, recognition, field, value, tag, observed
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -475,6 +609,10 @@ extension Op: Codable {
             default:
                 throw DecodingError.dataCorruptedError(forKey: .field, in: c, debugDescription: "unknown meta field \(field)")
             }
+        case "addTag": self = .addTag(try c.decode(String.self, forKey: .tag))
+        case "removeTag":
+            self = .removeTag(try c.decode(String.self, forKey: .tag),
+                              observed: try c.decode([TagInstanceOrigin].self, forKey: .observed).map(\.origin))
         case "deleteNote": self = .deleteNote
         case "restoreNote": self = .restoreNote
         default:
@@ -518,6 +656,13 @@ extension Op: Codable {
             case .paper(let v): try c.encode(v, forKey: .value)
             case .pageSize(let v): try c.encode(v, forKey: .value)
             }
+        case .addTag(let tag):
+            try c.encode("addTag", forKey: .op)
+            try c.encode(tag, forKey: .tag)
+        case .removeTag(let tag, let observed):
+            try c.encode("removeTag", forKey: .op)
+            try c.encode(tag, forKey: .tag)
+            try c.encode(observed.map(\.description), forKey: .observed)
         case .deleteNote: try c.encode("deleteNote", forKey: .op)
         case .restoreNote: try c.encode("restoreNote", forKey: .op)
         }

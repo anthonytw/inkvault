@@ -277,8 +277,9 @@ public enum NotabilityImporter {
     }
 
     /// The ops of one import delta for `state` (as `convert` builds it):
-    /// `addPage`, one `addStroke` per stroke, `setMeta` for title, tags,
-    /// notebook (even when empty), paper and page size, and `setPageRecognition`.
+    /// `addPage`, one `addStroke` per stroke, `setMeta` for title, notebook
+    /// (even when empty), paper and page size, one `addTag` per tag, and
+    /// `setPageRecognition`. An overwrite removes the old tags separately.
     public static func ops(for state: NoteState) -> [Op] {
         var ops: [Op] = []
         for page in state.pages {
@@ -287,11 +288,11 @@ public enum NotabilityImporter {
         }
         let m = state.meta
         ops.append(.setMeta(.title(m.title)))
-        // Always set, so an overwrite can clear them.
-        ops.append(.setMeta(.tags(m.tags)))
+        // Always set, so an overwrite can clear it.
         ops.append(.setMeta(.notebook(m.notebook)))
         ops.append(.setMeta(.paper(m.paper)))
         ops.append(.setMeta(.pageSize(m.pageSize)))
+        ops += NoteOps.normalizedTags(m.tags).map(Op.addTag)
         for page in state.pages where page.recognition != nil {
             ops.append(.setPageRecognition(pageId: page.id, recognition: page.recognition))
         }
@@ -708,13 +709,21 @@ public enum NotabilityImporter {
             var seq = 1
             var salt: String?
             if exists {
-                let old = try vault.reconstruct(noteId: id)
+                let loaded = try vault.loadNote(id)
+                let old = try vault.reconstruct(loaded)
+                // Observe the note first (as `Vault.apply` does), so the
+                // overwrite's ops win LWW and are not superseded by a legacy
+                // tags write stamped ahead of this clock (format.md §5.4.1).
+                let wall = now()
+                for r in loaded.revisions { clock.observe(r.hlc, wall: wall) }
                 seq = try vault.nextSeq(noteId: id, device: device)
                 // Unique per (device, seq), so no two overwrites, from any
                 // device, mint the same (possibly tombstoned) ids.
                 salt = "\(device)-\(seq)"
                 ops += old.pages.map { .removePage(pageId: $0.id) }
                 if old.deleted { ops.append(.restoreNote) }
+                // Every old tag goes; `ops(for:)` adds the new ones (format.md §5.4.1).
+                ops += old.meta.tags.compactMap { NoteOps.removeTag($0, from: old) }
             }
             var state = convert(note, notebook: notebook, idSalt: salt,
                                 scaleToLetterWidth: options.scaleToLetterWidth, key: key)

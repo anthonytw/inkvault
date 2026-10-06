@@ -127,25 +127,28 @@ extension AppModel {
         try await commit([(id: id, ops: [.setMeta(.title(title))])])
     }
 
-    /// Adds a tag. Matching ignores case: a tag the note has already (in any
-    /// case) is not added again, and the spelling of a tag already used in the
-    /// vault wins over the typed one.
+    /// Adds a tag (one `addTag`, format.md §5.4.1). Matching ignores case: a
+    /// tag the note has already (in any case) is not added again, and the
+    /// spelling of a tag already used in the vault wins over the typed one.
+    /// Tags added concurrently on another device all survive the merge.
     func addTag(_ tag: String, to id: UUID) async throws {
         let typed = NoteOps.normalizedTag(tag)
         guard !typed.isEmpty else { return }
         try await downloadNote(id)
-        let current = try summary(id).tags
-        guard !current.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(typed) }) else { return }
+        guard !(try summary(id).tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(typed) }) else { return }
         let spelling = tags.first { NoteOps.tagKey($0) == NoteOps.tagKey(typed) } ?? typed
-        try await commit([(id: id, ops: [.setMeta(.tags(NoteOps.normalizedTags(current + [spelling])))])])
+        try await commit(id) { state in
+            guard let state else { return [.addTag(spelling)] }
+            return NoteOps.addTag(spelling, to: state).map { [$0] } ?? []
+        }
     }
 
+    /// Removes a tag in any spelling (one `removeTag` observing every
+    /// instance of it on disk, format.md §5.4.1).
     func removeTag(_ tag: String, from id: UUID) async throws {
         try await downloadNote(id)
-        let current = try summary(id).tags
-        let tags = current.filter { NoteOps.tagKey($0) != NoteOps.tagKey(tag) }
-        guard tags != current else { return }
-        try await commit([(id: id, ops: [.setMeta(.tags(tags))])])
+        guard try summary(id).tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(tag) }) else { return }
+        try await commit(id) { state in state.flatMap { NoteOps.removeTag(tag, from: $0) }.map { [$0] } ?? [] }
         if case .tag(let selected)? = sidebarSelection, !self.tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(selected) }) {
             sidebarSelection = .allNotes
         }
@@ -185,6 +188,30 @@ extension AppModel {
     /// inside its coordinated read that the note is still all local
     /// (`CloudVault.requireLocal`) and refuses to write otherwise.
     private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
+        let batch = edits
+        try await commit(ids: batch.map(\.id)) { vault, clock, cloud, verifier in
+            for edit in batch {
+                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud,
+                                            verify: verifier(edit.id))
+            }
+        }
+    }
+
+    /// One delta for note `id` whose ops `build` computes from the note as it
+    /// is on disk when written (`NoteWriter.append(to:building:)`); nothing
+    /// is written when it returns none.
+    private func commit(_ id: UUID, building build: @escaping @Sendable (NoteState?) -> [Op]) async throws {
+        try await commit(ids: [id]) { vault, clock, cloud, verifier in
+            try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud,
+                                        verify: verifier(id), building: build)
+        }
+    }
+
+    /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
+    /// and the check each note's append runs inside its coordinated read.
+    private func commit(ids: [UUID],
+                        write: (Vault, DeviceClock, Bool, @Sendable (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
+        async throws {
         await editGate.acquire()
         defer { editGate.release() }
         guard let vault else { throw ModelError.noVaultOpen }
@@ -192,27 +219,23 @@ extension AppModel {
         let clock = try deviceClockForWriting()
         isEditing = true
         defer { isEditing = false }
-        let batch = edits
         let cloud = isCloudVault
         let hooks = cloudHooks
+        let url = vault.url
+        // iCloud: every revision file must still be local when the delta's
+        // seq is picked (a file can be evicted, or a new one listed, after
+        // `downloadNote`; a notebook rename does not download at all).
+        let verifier: @Sendable (UUID) -> (@Sendable () throws -> Void)? = { id in
+            guard cloud else { return nil }
+            return { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
+        }
         do {
-            for edit in batch {
-                // iCloud: every revision file must still be local when the delta's
-                // seq is picked (a file can be evicted, or a new one listed, after
-                // `downloadNote`; a notebook rename does not download at all).
-                var verify: (@Sendable () throws -> Void)?
-                if cloud {
-                    let id = edit.id, url = vault.url
-                    verify = { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
-                }
-                try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud,
-                                            verify: verify)
-            }
+            try await write(vault, clock, cloud, verifier)
         } catch {
-            try? await refresh(batch.map(\.id))   // some deltas may have landed
+            try? await refresh(ids)   // some deltas may have landed
             throw error
         }
-        try await refresh(batch.map(\.id))
+        try await refresh(ids)
     }
 
     /// Re-reads the summaries of `ids` and merges them into `notes`.
