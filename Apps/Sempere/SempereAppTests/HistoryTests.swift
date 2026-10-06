@@ -104,9 +104,9 @@ struct HistoryTests {
 
         let data = try await model.loadHistory(for: Self.lecture)
         let points = data.points
-        let atOriginal = try #require(points.last { p in
-            (try? Self.strokeIDs(data.state(at: p.name))) == original
-        })
+        var found: RestorePoint?
+        for p in points where Self.strokeIDs(try data.state(at: p.name)) == original { found = p }
+        let atOriginal = try #require(found)
         let target = try data.state(at: atOriginal.name)
         let revisions = try vault.revisionNames(of: Self.lecture).count
 
@@ -152,7 +152,8 @@ struct HistoryTests {
         let newest = try #require(data.points.last)
         let count = try vault.revisionNames(of: Self.lecture).count
         let editor = try #require(model.editor)
-        #expect(try await model.restoreVersion(of: Self.lecture, to: newest.name) == nil)
+        let outcome = try await model.restoreVersion(of: Self.lecture, to: newest.name)
+        #expect(outcome == nil)
         #expect(try vault.revisionNames(of: Self.lecture).count == count)
         #expect(model.editor === editor)   // nothing changed, so the canvas stays
     }
@@ -176,10 +177,12 @@ struct HistoryTests {
         #expect(editor.deltasWritten == 1)          // saved first, then restored
         #expect(summary.strokesRemoved == 1)
         let ids = Self.strokeIDs(try vault.reconstruct(noteId: Self.lecture))
-        #expect(ids == Self.strokeIDs(try data.state(at: start.name)))
+        let startIDs = Self.strokeIDs(try data.state(at: start.name))
+        #expect(ids == startIDs)
         // And the stale editor does not write the ink back afterwards.
         await editor.flush()
-        #expect(Self.strokeIDs(try vault.reconstruct(noteId: Self.lecture)) == ids)
+        let finalIDs = Self.strokeIDs(try vault.reconstruct(noteId: Self.lecture))
+        #expect(finalIDs == ids)
     }
 
     @Test func restoringBeforeADeleteUndeletesTheNoteAndReopensItEditable() async throws {
@@ -189,13 +192,16 @@ struct HistoryTests {
         try await model.openEditor(for: Self.lecture)
         let live = try #require(try await model.loadHistory(for: Self.lecture).points.last)
         try await model.deleteNote(Self.lecture)
-        #expect(try #require(model.editor).isReadOnly)
+        let readOnly = try #require(model.editor)
+        #expect(readOnly.isReadOnly)
 
         let summary = try #require(try await model.restoreVersion(of: Self.lecture, to: live.name))
         #expect(summary.deleted == false)
-        #expect(try vault.reconstruct(noteId: Self.lecture).deleted == false)
+        let restored = try vault.reconstruct(noteId: Self.lecture)
+        #expect(restored.deleted == false)
         #expect(model.notes.first { $0.id == Self.lecture }?.deleted == false)
-        #expect(try #require(model.editor).isReadOnly == false)
+        let reopened = try #require(model.editor)
+        #expect(reopened.isReadOnly == false)
     }
 
     // MARK: - Compaction and iCloud
@@ -231,8 +237,9 @@ struct HistoryTests {
             } else {
                 #expect(entry.unavailableReason != nil)
                 #expect(throws: HistoryError.incompleteHistory(entry.id)) { try data.state(at: entry.id) }
+                let note = Self.lecture
                 await #expect(throws: HistoryError.incompleteHistory(entry.id)) {
-                    try await model.restoreVersion(of: Self.lecture, to: entry.id)
+                    try await model.restoreVersion(of: note, to: entry.id)
                 }
             }
         }
@@ -261,11 +268,13 @@ struct HistoryTests {
         try cloud.evictDataless(Self.lecture)
         let hooks = cloud.hooks
         let clock = try DeviceClock(url: TS.deviceStateURL())
+        let note = Self.lecture
         await #expect(throws: CloudVault.CloudError.self) {
-            try await NoteWriter.restore(Self.lecture, to: target.name, vault: vault, clock: clock,
-                                         verify: { try CloudVault.requireLocal(note: Self.lecture, vault: url, hooks: hooks) })
+            try await NoteWriter.restore(note, to: target.name, vault: vault, clock: clock,
+                                         verify: { try CloudVault.requireLocal(note: note, vault: url, hooks: hooks) })
         }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())").path)
-            .filter { $0.hasSuffix(".age") }.count == count)
+        let folder = url.appendingPathComponent("notes/\(note.uuidString.lowercased())")
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".age") }
+        #expect(files.count == count)
     }
 }
