@@ -3,9 +3,6 @@
 <plist version="1.0">
 <dict>
 	<!-- Merged with the generated Info.plist (INFOPLIST_KEY_* build settings). -->
-	<!-- Standard, published algorithms only (docs/appstore/export-compliance.md). -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<true/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
