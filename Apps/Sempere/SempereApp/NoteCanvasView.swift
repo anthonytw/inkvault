@@ -162,6 +162,15 @@ struct EditorView: View {
                 }
             }
         }
+        #if DEBUG
+        .task {
+            // App Store screenshots: show the paper picker over the note (DemoLaunch).
+            if DebugLaunch.environment["SEMPERE_DEMO_PAPER_PICKER"] != nil {
+                try? await Task.sleep(for: .seconds(2))
+                ui.choosingPaper = true
+            }
+        }
+        #endif
         .sheet(isPresented: $ui.choosingPaper) {
             if let page = editor.currentPage {
                 PaperPickerView(paper: editor.displayedPaper(of: page),

@@ -789,7 +789,7 @@ enum JPEG {
                         px[o] = v; px[o + 1] = v; px[o + 2] = v
                     }
                 }
-                return RGBAImage(width: ow, height: oh, pixels: px)!
+                return try RGBAImage(width: ow, height: oh, pixels: px)
             }
             // Full-resolution rows of each component.
             var full: [[UInt8]] = []
@@ -815,7 +815,7 @@ enum JPEG {
                     px[o] = r; px[o + 1] = g; px[o + 2] = bb
                 }
             }
-            return RGBAImage(width: ow, height: oh, pixels: px)!
+            return try RGBAImage(width: ow, height: oh, pixels: px)
         }
     }
 

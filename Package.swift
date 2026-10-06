@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "Sempere", targets: ["Sempere"]),
         .library(name: "SempereRender", targets: ["SempereRender"]),
         .library(name: "SempereImport", targets: ["SempereImport"]),
+        .library(name: "SemperePDF", targets: ["SemperePDF"]),
         .library(name: "SempereWebDAV", targets: ["SempereWebDAV"]),
         .executable(name: "sempere", targets: ["SempereCLI"]),
     ],
@@ -35,9 +36,14 @@ let package = Package(
             name: "Sempere",
             dependencies: ["Age", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // Minimal PDF reader for untrusted files (docs/attachments.md §10): Foundation + zlib only.
+        .target(
+            name: "SemperePDF",
+            dependencies: ["CZlib"]
+        ),
         .target(
             name: "SempereRender",
-            dependencies: ["Sempere", "CZlib"]
+            dependencies: ["Sempere", "SemperePDF", "CZlib"]
         ),
         .target(
             name: "SempereImport",
@@ -53,7 +59,7 @@ let package = Package(
         .executableTarget(
             name: "SempereCLI",
             dependencies: [
-                "Age", "Sempere", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts",
+                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -67,6 +73,8 @@ let package = Package(
         .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "SempereFonts", "Age", "FuzzSupport"],
                     exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py", "generate_shaping_fixtures.py"],
                     resources: [.copy("Fixtures")]),
+        .testTarget(name: "SemperePDFTests", dependencies: ["SemperePDF", "FuzzSupport"],
+                    exclude: ["generate_fixtures.py"], resources: [.copy("Fixtures")]),
         .testTarget(name: "SempereImportTests",
                     dependencies: ["SempereImport", "Sempere", "SempereRender", "Age", "CZlib", "FuzzSupport"]),
         .testTarget(name: "SempereWebDAVTests", dependencies: ["SempereWebDAV", "Sempere", "Age", "FuzzSupport"]),

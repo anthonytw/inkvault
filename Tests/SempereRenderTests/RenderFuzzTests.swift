@@ -176,7 +176,7 @@ final class ImageFuzzTests: XCTestCase {
                                  pages: [Page(order: "a", items: items)])
             let options = RenderOptions(blobs: MemoryBlobSource([input]), maxImagePixels: Self.maxPixels)
             do {
-                var r = ExportReport()
+                var r = RenderReport()
                 _ = try PNGWriter.render(note: note, options: options, png: PNGOptions(scale: 0.5, maxPixels: 1_000_000), report: &r)
                 _ = try SVGWriter.export(note: note, options: options, report: &r)
                 _ = try PDFWriter.render(note: note, options: options, report: &r)

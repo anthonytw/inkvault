@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI parity with the app's note browser and canvas: `sempere notes new`, `rename`, `tag`
+  (`--add`/`--remove`), `move`, `paper` (whole note or `--page N`, every parametric kind and
+  parameter), `delete`, `undelete`; `sempere notebooks list` / `rename` (the whole subtree);
+  `sempere tags list`; `sempere pages list` / `add`. Each edit is one delta through the same core
+  code as the app (`NoteOps`, `Vault.apply`), with `--json`. Policy: the CLI gets every feature
+  first (`CLAUDE.md` "CLI first").
 - Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
   note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
   or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works
@@ -35,12 +41,20 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
   `snapshot` and `compact` refuse a note that has them rather than drop them.
+- PDF page backgrounds in exports (attachments task C3). A new `SemperePDF` library reads PDFs
+  from untrusted attachments (cross-reference tables and streams, object streams, incremental
+  updates, rebuilding a broken file by scanning; bounded and fuzzed). PDF exports copy the original
+  page in as a Form XObject (exact, PDF 1.7); SVG and PNG exports draw it with Poppler's
+  `pdftoppm` when installed, run as a separate, time- and resource-limited process
+  (`--pdf-renderer auto|poppler|none`, `--pdf-timeout`). Anything that cannot be drawn becomes a
+  placeholder with a warning, never a failed export. Applies to notes once item ops are merged (A1).
 - Images in exports (task C1): PDF embeds JPEGs as stored (no re-encoding) and other images
   losslessly; SVG uses data URIs or, with `export --assets DIR`, linked files; PNG export decodes
   and resamples them (pure-Swift baseline/progressive JPEG and PNG decoders). Location and camera
   metadata is removed from every exported image unless `--keep-image-metadata`. Images that
   cannot be drawn (missing attachment, HEIC in the CLI, over 100 MP) become placeholders with a
-  warning. Images come from the note's blobs through B2's `BlobSource`.
+  warning. Images and PDF page backgrounds share one export report and placeholder path, and
+  Markdown and HTML exports draw both.
 - Text in exports (task C2): text boxes in any script, laid out per `format.md` §8.5.3 (stored line
   breaks, else UAX #14; right-to-left per UAX #9; grapheme clusters per UAX #29), shaped (Arabic
   joining and ligatures, mark attachment), drawn with the bundled Noto fonts (OFL 1.1, shipped in
@@ -49,6 +63,9 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   covers are reported with the script and what to install.
 
 ### Changed
+
+- `sempere notes list --notebook PATH` now lists the notes in that notebook and below it, comparing
+  canonical paths by segment as the app's sidebar does (it compared raw names before).
 
 - **Faster vault opening** (#54). Note summaries skip stroke geometry, are read in parallel,
   and are kept in an encrypted per-device cache (`docs/format.md` §10), so a 600-note vault

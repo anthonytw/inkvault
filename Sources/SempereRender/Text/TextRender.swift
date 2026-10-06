@@ -125,7 +125,7 @@ extension ContentStream {
             for run in line.runs where !run.glyphs.isEmpty {
                 let f = fonts.index(run.face)
                 usedFonts.insert(f)
-                text += "q\n\(coef(m.a)) \(coef(m.b)) \(coef(m.c)) \(coef(m.d)) \(fmt(m.e)) \(fmt(m.f)) cm\n"
+                text += "q\n\(coef(m.a)) \(coef(m.b)) \(coef(m.c)) \(coef(m.d)) \(fmt(m.tx)) \(fmt(m.ty)) cm\n"
                 let paint = Paint(run.color)
                 let alpha = Int((paint.alpha * 1000).rounded())
                 if alpha < 1000 { alphas.insert(alpha); text += "/GS\(alpha) gs\n" }
@@ -185,7 +185,7 @@ struct SVGFontSet {
     mutating func elements(_ shaped: ShapedText, transform m: Affine) -> String {
         var out = ""
         let rotated = m != .identity
-        if rotated { out += "<g transform=\"matrix(\(coef(m.a)) \(coef(m.b)) \(coef(m.c)) \(coef(m.d)) \(fmt(m.e)) \(fmt(m.f)))\">\n" }
+        if rotated { out += "<g transform=\"matrix(\(coef(m.a)) \(coef(m.b)) \(coef(m.c)) \(coef(m.d)) \(fmt(m.tx)) \(fmt(m.ty)))\">\n" }
         for c in shaped.decorationCommands(.identity) { out += SVGWriter.element(c) + "\n" }
         for line in shaped.lines {
             for run in line.runs where !run.glyphs.isEmpty {
@@ -237,7 +237,7 @@ struct GlyphRasterizer {
             guard let segs = cache[key], !segs.isEmpty else { continue }
             // Font units (y up) → layout: scale, flip, slant, place at the glyph origin.
             let slant = run.syntheticItalic ? italicSlant : 0
-            let full = m.after(Affine(a: s, b: 0, c: slant * s, d: -s, e: g.x, f: g.y))
+            let full = m.after(Affine(a: s, b: 0, c: slant * s, d: -s, tx: g.x, ty: g.y))
             let scale = sqrt(abs(full.determinant))
             var contour: [Point] = []
             var current = Point(x: 0, y: 0)

@@ -330,7 +330,7 @@ public struct OpenTypeFont: Sendable {
             else if flags & 0x40 != 0 { c.a = try f2(p); c.d = try f2(p + 2); p += 4 }
             else if flags & 0x80 != 0 { c.a = try f2(p); c.b = try f2(p + 2); c.c = try f2(p + 4); c.d = try f2(p + 6); p += 8 }
             // Point-matching (ARGS_ARE_XY_VALUES clear) is rare; offsets are then ignored.
-            if flags & 2 != 0 { c.e = dx; c.f = dy }
+            if flags & 2 != 0 { c.tx = dx; c.ty = dy }
             try trueTypeOutline(component, transform: m.after(c), depth: depth + 1, budget: &budget, into: &out)
             guard flags & 0x20 != 0 else { break }
         }

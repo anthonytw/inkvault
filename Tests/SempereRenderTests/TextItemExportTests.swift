@@ -55,9 +55,9 @@ final class TextItemExportTests: XCTestCase {
     }
 
     func testPDFTextIsSearchableAndFontsAreSubsets() throws {
-        var report = ExportReport()
+        var report = RenderReport()
         let pdf = try PDFWriter.render(note: Self.multilingual, options: Self.options, report: &report)
-        XCTAssertEqual(report, ExportReport())
+        XCTAssertEqual(report, RenderReport())
         XCTAssertTrue(T.contains(pdf, "/Type0"))
         XCTAssertTrue(T.contains(pdf, "/CIDFontType0C"), "the CJK pack is CFF")
         XCTAssertTrue(T.contains(pdf, "/FontFile2"))
@@ -85,8 +85,10 @@ final class TextItemExportTests: XCTestCase {
         var cs = ContentStream(height: 300)
         let prepared = try PreparedPage(page: Self.multilingual.pages[0], meta: Self.multilingual.meta, options: Self.options)
         var drawn: [String: Set<Int>] = [:]
+        var report = RenderReport()
         for item in prepared.items {
-            guard case let .text(shaped, rotation) = item.content else { continue }
+            guard case .success(let (shaped, rotation)) = TextItems.shape(item, shaper: Self.options.shaper, report: &report)
+            else { continue }
             cs.text(shaped, transform: rotation, fonts: &fonts)
             for run in shaped.lines.flatMap(\.runs) { drawn[run.face.key, default: [0]].formUnion(run.glyphs.map(\.glyph)) }
         }
@@ -105,7 +107,7 @@ final class TextItemExportTests: XCTestCase {
     }
 
     func testSVGEmbedsSubsetsAndSelectableText() throws {
-        var report = ExportReport()
+        var report = RenderReport()
         let svg = try SVGWriter.export(note: Self.multilingual, options: Self.options, report: &report).pages[0]
         XCTAssertEqual(svg.components(separatedBy: "@font-face").count - 1, 4)
         // The invisible overlay carries the real characters.
@@ -136,22 +138,31 @@ final class TextItemExportTests: XCTestCase {
     }
 
     func testReportNamesMissingScriptsAndApproximateShaping() throws {
-        var report = ExportReport()
+        var report = RenderReport()
         _ = try PDFWriter.render(note: Self.note([Self.box("नमस्ते", 20), Self.box("ok", 60)]), options: Self.options,
                                  report: &report)
-        XCTAssertEqual(report.issues.count, 1)
-        XCTAssertTrue(report.issues[0].message.contains("Devanagari"), report.issues[0].message)
-        XCTAssertTrue(report.issues[0].message.contains("fonts-noto-core"))
-        XCTAssertEqual(report.issues[0].page, 1)
-        // Without a shaper, text is reported, not drawn.
-        report = ExportReport()
-        _ = try PDFWriter.render(note: Self.note([Self.box("ok", 20)]), report: &report)
-        XCTAssertEqual(report.issues.map(\.kind), [.warning])
+        XCTAssertEqual(report.warnings.count, 1)
+        XCTAssertTrue(report.warnings[0].contains("Devanagari"), report.warnings[0])
+        XCTAssertTrue(report.warnings[0].contains("fonts-noto-core"))
+        XCTAssertTrue(report.warnings[0].hasPrefix("page 1: item "), report.warnings[0])
+        XCTAssertTrue(report.placeholders.isEmpty)
+        // Without a shaper (the app's share export today), text is a reported
+        // placeholder (format.md §8.5.2), never silently left out.
+        report = RenderReport()
+        let unshaped = try PDFWriter.render(note: Self.note([Self.box("ok", 20)]), options: RenderOptions(compress: false),
+                                            report: &report)
+        XCTAssertEqual(report.placeholders.map(\.reason), [.unsupportedKind("text")])
+        XCTAssertTrue(report.warnings.isEmpty)
+        XCTAssertTrue(T.contains(unshaped, "0.604 0.627 0.651 RG"), "the placeholder is drawn")
+        report = RenderReport()
+        _ = try SVGWriter.render(note: Self.note([Self.box("ok", 20)]), report: &report)
+        _ = try PNGWriter.render(note: Self.note([Self.box("ok", 20)]), png: PNGOptions(scale: 0.5), report: &report)
+        XCTAssertEqual(report.placeholders.map(\.reason), [.unsupportedKind("text"), .unsupportedKind("text")])
         // Han without a pack: the suggestion is fonts-noto-cjk.
         let bare = DefaultTextShaper(library: FontLibrary(bundled: SempereFonts.directory, packs: []))
-        report = ExportReport()
+        report = RenderReport()
         _ = try PDFWriter.render(note: Self.note([Self.box("汉字", 20)]), options: RenderOptions(shaper: bare), report: &report)
-        XCTAssertTrue(report.issues.first?.message.contains("fonts-noto-cjk") ?? false, "\(report.issues)")
+        XCTAssertTrue(report.warnings.first?.contains("fonts-noto-cjk") ?? false, "\(report.warnings)")
     }
 
     /// A textual golden: a rotated box draws with one `cm`, glyphs shown by

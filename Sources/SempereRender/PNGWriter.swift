@@ -36,29 +36,24 @@ public enum PNGWriter {
     ///   (checked before any pixel memory is allocated).
     public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
-        var report = ExportReport()
+        var report = RenderReport()
         return try render(note: note, options: options, png: png, report: &report)
     }
 
-    /// One PNG per output page of `note`, reporting placeholders and warnings.
+    /// Like `render(note:options:png:)`, reporting placeholders. PDF pages
+    /// are drawn from `options.pdfRasterizer` at the output resolution.
     public static func render(note: NoteState, options: RenderOptions = RenderOptions(),
-                              png: PNGOptions = PNGOptions(), report: inout ExportReport) throws -> [Data] {
+                              png: PNGOptions = PNGOptions(), report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
-        let store = ImageStore(options: options)
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        let store = ImageStore(options: options, blobs: options.blobs)
         var images: [Data] = []
         for (i, page) in note.pages.enumerated() {
-            var pageReport = ExportReport()
-            images += try render(page: page, meta: note.meta, options: options, png: png, store: store,
-                                 report: &pageReport)
-            for var issue in pageReport.issues {
-                issue.page = i + 1
-                report.add(issue)
-            }
+            images += try render(page: page, meta: note.meta, options: options, png: png, pageNumber: i + 1,
+                                 backgrounds: backgrounds, images: store, report: &report)
         }
         if images.isEmpty {
-            var ignored = ExportReport()
-            images = try render(page: Page(order: "a"), meta: note.meta, options: options, png: png, store: store,
-                                report: &ignored)
+            images = try render(page: Page(order: "a"), meta: note.meta, options: options, png: png)
             images = Array(images.prefix(1))
         }
         return images
@@ -67,35 +62,40 @@ public enum PNGWriter {
     /// One PNG per output page of a single note page (several for an infinite page).
     public static func render(page: Page, meta: NoteMeta, options: RenderOptions = RenderOptions(),
                               png: PNGOptions = PNGOptions()) throws -> [Data] {
-        var report = ExportReport()
-        return try render(page: page, meta: meta, options: options, png: png, store: ImageStore(options: options),
-                          report: &report)
+        var report = RenderReport()
+        let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
+        return try render(page: page, meta: meta, options: options, png: png, pageNumber: 1, backgrounds: backgrounds,
+                          images: ImageStore(options: options, blobs: options.blobs), report: &report)
     }
 
-    static func render(page: Page, meta: NoteMeta, options: RenderOptions, png: PNGOptions, store: ImageStore,
-                       report: inout ExportReport) throws -> [Data] {
+    static func render(page: Page, meta: NoteMeta, options: RenderOptions, png: PNGOptions, pageNumber: Int,
+                       backgrounds: PDFBackgrounds, images: ImageStore, report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
-        let prepared = try PreparedPage(page: page, meta: meta, options: options, images: store)
-        report = prepared.report
-        var glyphs = GlyphRasterizer()
+        let prepared = try PreparedPage(page: page, meta: meta, options: options, pageNumber: pageNumber)
         let chunks = prepared.chunks
         // Validate every image's size before rasterizing any of them.
         let sizes = try chunks.map { try pixelSize(of: $0, png: png) }
+        let draws = RasterItems.resolve(prepared.items, backgrounds: backgrounds, images: images, shaper: options.shaper,
+                                        scale: png.scale,
+                                        maxPixels: options.maxBackgroundPixels, report: &report)
+        for w in prepared.warnings { report.warn(w) }
+        var glyphs = GlyphRasterizer()
         var out: [Data] = []
         for (chunk, size) in zip(chunks, sizes) {
             let layers = prepared.layers(for: chunk)
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
             for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
-            for item in prepared.items(for: chunk) {
-                for c in item.commands(paper: prepared.fillPaper) {
-                    paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+            for it in prepared.items(for: chunk) {
+                if it.fillsBackground, options.paper {
+                    paint(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
                 }
-                if case let .text(shaped, rotation) = item.content {
-                    let device = Affine.scale(sx, sy).after(.translation(0, -chunk.yOffset)).after(rotation)
+                switch draws[it.item.id] {
+                case .text(let shaped, let rotation)?:
                     for c in shaped.decorationCommands(rotation) {
                         paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
                     }
+                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(rotation)
                     for line in shaped.lines {
                         for run in line.runs {
                             let (fill, stroke) = glyphs.polygons(run, transform: device)
@@ -103,32 +103,47 @@ public enum PNGWriter {
                             if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
                         }
                     }
-                    continue
-                }
-                guard case let .image(ref, image, transform, clip) = item.content else { continue }
-                // Stored image pixels → device pixels.
-                let device = Affine.scale(sx, sy).after(.translation(0, -chunk.yOffset)).after(transform)
-                let det = abs(device.determinant)
-                let reduction = det > 0 ? 1 / det.squareRoot() : 1
-                switch store.forRaster(ref, image, reduction: reduction) {
-                case .success(let working):
-                    guard let inverse = device.inverse else { continue }
-                    let toWorking = Affine.scale(Double(working.width) / Double(image.width),
-                                                 Double(working.height) / Double(image.height))
-                    let toDevice = Affine.scale(sx, sy).after(.translation(0, -chunk.yOffset))
-                    raster.fill([clip.map(toDevice.apply)],
-                                shader: ImageShader(image: working, inverse: toWorking.after(inverse)))
-                case .failure(let why):
-                    report.add(ExportIssue(kind: .placeholder, item: item.item.id, message: why.message))
-                    for c in item.asPlaceholder.commands(paper: nil) {
-                        paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
+                case .image(let p)?:
+                    let toDevice = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset))
+                    if !draw(p, item: it, toDevice: toDevice, images: images, into: &raster, report: &report) {
+                        for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
                     }
+                case .raster(let r)?:
+                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(r.placement)
+                    raster.draw(r, toDevice: device)
+                default:
+                    for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
                 }
             }
             for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
             out.append(try PNGEncoder.encode(width: size.width, height: size.height, rgba: raster.pixels))
         }
         return out
+    }
+
+    /// Draws an image item through `toDevice` (page → device pixels), clipped
+    /// to its frame. A JPEG drawn much smaller than stored is decoded
+    /// at 1/2, 1/4 or 1/8 scale, then box-reduced (`ImageStore.forRaster`).
+    /// Returns false (after reporting why) when the image cannot be drawn.
+    private static func draw(_ p: PlacedImage, item it: PreparedItem, toDevice: Affine, images: ImageStore,
+                             into raster: inout Raster, report: inout RenderReport) -> Bool {
+        let device = toDevice.after(p.transform)   // stored image pixels → device pixels
+        guard let inverse = device.inverse else { return false }
+        let det = abs(device.determinant)
+        let reduction = det > 0 ? 1 / det.squareRoot() : 1
+        switch images.forRaster(p.ref, p.image, reduction: reduction) {
+        case .success(let working):
+            let toWorking = Affine.scale(Double(working.width) / Double(p.image.width),
+                                         Double(working.height) / Double(p.image.height))
+            raster.fill([it.corners.map(toDevice.apply)], shader: ImageShader(image: working, inverse: toWorking.after(inverse)))
+            return true
+        case .failure(let why):
+            // Once per item, however many chunks it spans.
+            if !report.placeholders.contains(where: { $0.item == it.item.id && $0.page == it.pageNumber }) {
+                report.placeholder(it, why)
+            }
+            return false
+        }
     }
 
     /// Pixel dimensions of a chunk at `png.scale` (rounded, at least 1), or
