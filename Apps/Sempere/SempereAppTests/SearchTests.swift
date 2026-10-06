@@ -164,6 +164,29 @@ struct SearchTests {
         #expect(state.pages.allSatisfy { $0.recognition == nil })
     }
 
+    /// A note window's editor reads handwriting like the library pane's, follows
+    /// the on/off switch, and its note is left out of "Recognize N Notes Now".
+    @Test func noteWindowsRecognizeAndAreLeftToTheirEditor() async throws {
+        let fake = FakeRecognizer()
+        let (model, vault, _) = try await Self.model(recognizer: fake, texts: nil)
+        #expect(model.notesNeedingRecognition.map(\.id) == [Self.lecture])
+        await model.claimNote(Self.lecture)
+        let window = try await model.openWindowNote(Self.lecture)
+        #expect(window.recognizer != nil)
+        #expect(model.notesNeedingRecognition.isEmpty, "the window's editor reads it")
+        await window.recognizePending()
+        #expect(window.recognitionsWritten == 2)
+        #expect(try vault.reconstruct(noteId: Self.lecture).pages.allSatisfy { $0.recognition?.engine == "fake-1" })
+        // The summary is refreshed for search.
+        #expect(await TS.waitUntil { model.notes.first { $0.id == Self.lecture }?.pagesNeedingRecognition == 0 })
+
+        let saved = RecognitionPreference.enabled
+        defer { RecognitionPreference.enabled = saved }
+        model.setHandwritingRecognition(false)
+        #expect(window.recognizer == nil)
+        await model.releaseNote(Self.lecture)
+    }
+
     @Test func switchingRecognitionOffStopsReadingAndIsRemembered() async throws {
         let saved = RecognitionPreference.enabled
         defer { RecognitionPreference.enabled = saved }

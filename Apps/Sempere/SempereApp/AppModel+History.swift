@@ -88,6 +88,7 @@ extension AppModel {
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
         let gen = generation
         if let editor, editor.noteID == id { await editor.flush() }
+        await windowEditors[id]?.flush()   // a note window's pending ink
         try ensureCurrent(gen)
         try await downloadNote(id)
         let cloud = isCloudVault
@@ -130,6 +131,10 @@ extension AppModel {
         if let editor, editor.noteID == id {
             await editor.flush()
             if let failure = editor.saveError { throw ModelError.unsavedChanges(failure) }
+        }
+        if let windowed = windowEditors[id] {   // the same for the note's own window
+            await windowed.flush()
+            if let failure = windowed.saveError { throw ModelError.unsavedChanges(failure) }
         }
         var result: (name: RevisionName, summary: RestoreSummary)?
         try await commit(ids: [id]) { vault, clock, cloud, verifier in
