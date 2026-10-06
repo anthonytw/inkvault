@@ -148,6 +148,48 @@ Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
 
+## Share and export (app)
+
+The app exports notes through the system share sheet and Save to Files. It
+renders with the CLI's renderers: `SempereRender.ShareExport` lays the files
+out (the same bytes `sempere export` writes) and `TreeExporter` (moved from the
+CLI into `SempereRender`) writes the Markdown and HTML trees.
+
+| Format | One note | Several notes |
+| --- | --- | --- |
+| PDF | `<stem>.pdf` | one per note, or one merged `Sempere-Notes.pdf` |
+| PNG pages | `<stem>-p001.png`, ... | a folder per note |
+| Markdown (Obsidian) | a folder: `.md`, the PDF, optional page PNGs, `README.md` | `Sempere Export/`, mirroring the notebook tree |
+| HTML | one self-contained `.html` | `Sempere Export/` with one file per note and `index.html` |
+
+`<stem>` is `ExportName.stem` (sanitised title and the first 8 characters of the
+note id). Options: paper background (on), PNG resolution (72, 144, 216, 300
+dpi), merged PDF, Markdown page images. A one-off share writes no export
+manifest.
+
+- **Selection.** "Select" in the note list ticks several notes; a keyboard
+  command-click does too. The export commands act on the ticked notes, else the
+  open note. `ExportCommand` is the one place that names the actions: the list
+  toolbar and context menu, the note toolbar and the Catalyst menu bar
+  (`ExportMenuCommands`, File menu) all build from it.
+- **Off the main actor, with cancel.** `AppModel.exportNotes` reads each note
+  (iCloud notes are downloaded first, reads are coordinated and re-check
+  `CloudVault.requireLocal`, so a note missing a revision is reported as a
+  failure, never exported stale; same rules as opening a note) and renders in a detached task, checking cancellation between
+  notes. `ExportJob` drives it for the export sheet: progress over both phases,
+  Cancel, failures listed per note while the others are exported (also in a
+  merged PDF, which leaves out a note that cannot be rendered). One export at a
+  time: an Export command while the sheet is up is ignored. Closing the
+  vault cancels it (generation token). Nothing is written to the vault.
+- **Scratch files.** Output is staged under `tmp/SempereExports/<uuid>` (file
+  protection "complete" on iOS), deleted when the sheet closes and at every
+  launch. A run owns its folder: a run that is cancelled, fails or outlives
+  its sheet deletes it when it ends (the note being rendered at that moment
+  finishes, and no file is written once the run is cancelled). Share and Save to Files copy from there.
+- **Plaintext.** Exports strip nothing and encrypt nothing, exactly like the
+  CLI's; the sheet says so. Memory use is that of the CLI: the selected notes'
+  states are held at once while rendering.
+
 ## Vaults as single items (app)
 
 The app exports the UTType `io.github.anthonytw.sempere.vault` (extension

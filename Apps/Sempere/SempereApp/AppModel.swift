@@ -95,6 +95,13 @@ final class AppModel {
 
     var sidebarSelection: SidebarItem? = .allNotes
     var selectedNoteID: UUID?
+    /// True while the note list ticks several notes (to export them); the
+    /// open note (`selectedNoteID`) is untouched meanwhile.
+    var isSelectingNotes = false
+    /// The ticked notes while `isSelectingNotes`.
+    var multiSelection: Set<UUID> = []
+    /// The export sheet's request (`AppModel+Export`).
+    var exportRequest: ExportRequest?
     /// Filters the note list by title (recognised-text search is task 3f).
     var searchText = ""
     var sortOrder = NoteSort.modified
@@ -545,6 +552,9 @@ final class AppModel {
         vaultURL = nil
         notes = []
         selectedNoteID = nil
+        isSelectingNotes = false
+        multiSelection = []
+        exportRequest = nil
         editorFailure = nil
         searchText = ""
         sidebarSelection = .allNotes
