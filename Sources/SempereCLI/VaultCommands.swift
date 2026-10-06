@@ -182,13 +182,16 @@ private struct RewrapOutput: Encodable {
     var rewrapped: Int
     var alreadyCurrent: Int
     var failures: [String: String]
+    /// `header` or `reencrypt` (attachment blobs); nil when nothing ran.
+    var blobs: String? = nil
 }
 
 private func reportRewrap(_ report: Vault.RewrapReport, output: OutputOptions) throws {
     if output.json {
         try output.emitJSON(RewrapOutput(complete: report.isComplete, rewrapped: report.rewrapped.count,
                                          alreadyCurrent: report.alreadyCurrent.count,
-                                         failures: report.failures.mapValues { "\($0)" }))
+                                         failures: report.failures.mapValues { "\($0)" },
+                                         blobs: report.blobMethod?.rawValue))
     } else {
         output.info("Rewrapped \(report.rewrapped.count) file(s); \(report.alreadyCurrent.count) already current.")
         if output.verbose { for f in report.rewrapped { print("  rewrapped \(f)") } }
@@ -213,6 +216,7 @@ struct RecipientsAdd: ParsableCommand {
     var label: String = ""
 
     @OptionGroup var store: StoreKeyOptions
+    @OptionGroup var rewrap: RewrapOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -221,7 +225,7 @@ struct RecipientsAdd: ParsableCommand {
         try requirePostQuantum([key])
         var vault = try access.openVault(.required, migration: true)
         let stored = try store.prepare(for: key)
-        let report = try vault.addRecipient(key, label: label)
+        let report = try vault.addRecipient(key, label: label, policy: rewrap.policy)
         try store.write(stored, into: vault, output: output)
         try reportRewrap(report, output: output)
     }
@@ -237,13 +241,14 @@ struct RecipientsRemove: ParsableCommand {
     @Argument(help: ArgumentHelp("The recipient to remove, or a file holding it.", valueName: "age1..."))
     var recipient: String
 
+    @OptionGroup var rewrap: RewrapOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func run() throws {
         let key = try parseRecipient(recipient)
         var vault = try access.openVault(.required, migration: true)
-        try reportRewrap(try vault.removeRecipient(key), output: output)
+        try reportRewrap(try vault.removeRecipient(key, policy: rewrap.policy), output: output)
     }
 }
 
@@ -273,6 +278,7 @@ struct RecipientsReplace: ParsableCommand {
     var label: String?
 
     @OptionGroup var store: StoreKeyOptions
+    @OptionGroup var rewrap: RewrapOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -281,11 +287,33 @@ struct RecipientsReplace: ParsableCommand {
         try requirePostQuantum([newKey])
         var vault = try access.openVault(.required, migration: true)
         let stored = try store.prepare(for: newKey)
-        let report = try vault.replaceRecipient(oldKey, with: newKey, label: label)
+        let report = try vault.replaceRecipient(oldKey, with: newKey, label: label, policy: rewrap.policy)
         try store.write(stored, into: vault, output: output)
         try reportRewrap(report, output: output)
     }
 }
+
+/// `--rewrap header|reencrypt`: how attachment blobs are rewrapped
+/// (format.md §8.1.5). Without it the default policy applies: header-only
+/// when a key is added, full re-encryption when one is removed or replaced
+/// (or the key types change).
+struct RewrapOptions: ParsableArguments {
+    @Option(name: .long,
+            help: ArgumentHelp("How attachment blobs are rewrapped: header (keep each file key, rewrite the header) "
+                + "or reencrypt (new file key).",
+                discussion: "Default: header when adding a key, reencrypt when removing or replacing one. "
+                    + "`header` on a removal leaves old copies of the blobs (backups, version history) able to "
+                    + "open the current files with the removed key.",
+                valueName: "header|reencrypt"))
+    var rewrap: RewrapMethod?
+
+    var policy: RewrapPolicy {
+        guard let rewrap else { return RewrapPolicy() }
+        return RewrapPolicy(onAdd: rewrap, onRemoveOrTypeChange: rewrap)
+    }
+}
+
+extension RewrapMethod: ExpressibleByArgument {}
 
 /// Refuses a classic X25519 key as a new vault recipient before anything
 /// else happens (no passphrase prompt, no vault opened): vaults take only

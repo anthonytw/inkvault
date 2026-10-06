@@ -304,6 +304,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the mouse; PencilKit's own gesture is off while it is active.
 - Dragging a note out writes a plaintext PDF under `$TMPDIR/SempereExport/`
   (`NotePDFExport`); keep it per model and purge it when the vault closes.
+- Attachment blobs (`Sources/Sempere/Blob*.swift`, `format.md` §8.1): write with
+  `Vault.writeBlob` / `copyBlob` before the delta that references them; read only
+  through a reference of the same note (`readBlob`, `streamBlob`, `withBlobFile`,
+  `blobSource`), which check framing, padding, hash and keyed name; content a
+  streaming read handed out is unusable if it then throws. Delete blobs only via
+  `collectBlobs` (rules 1–4, per note, device-local `BlobCollectorState`); recipient
+  changes rewrap them by `RewrapPolicy`. References are found structurally (any
+  object with `sha256`) with `JSONSerialization`, whose `NSNumber` says `is Bool`
+  for 0 and 1: test `objCType == "c"` for booleans instead.
 - Handwriting search (`PageRecognizer.swift`, `NoteEditor` extension, `AppModel+Search.swift`;
   pure logic in `Sources/Sempere/RecognitionSupport.swift` and `NoteSearch.swift`, tested on
   Linux). Recognition carries `basis` = `RecognitionBasis.digest` of the page's live stroke ids

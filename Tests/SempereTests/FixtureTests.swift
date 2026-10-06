@@ -19,6 +19,11 @@ enum SampleFixture {
     static let lecture = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
     static let deleted = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
     static let app = "sempere-fixture/1"
+    /// One attachment blob in the lecture's `att/` (post-quantum sample
+    /// only), unreferenced until the attachments merge (task A1) gives the
+    /// fixture a note with items.
+    static let attachment = Data("Sempere fixture attachment: synthetic, test-only.\n".utf8)
+    static let attachmentType = "text/plain"
 
     static func id(_ n: Int) -> UUID { UUID(uuidString: String(format: "f1c70000-0000-4000-8000-%012ld", n))! }
     static func at(_ offset: Int64) -> Date { Date(timeIntervalSince1970: Double(baseMillis + offset) / 1000) }
@@ -69,6 +74,7 @@ enum SampleFixture {
             .addStroke(page: q1, stroke: stroke(6)),
         ]))
         try vault.write(delta(deleted, devB, 1, 7000, [.deleteNote]))
+        if identity.isPostQuantum { try vault.writeBlob(note: lecture, attachment, type: attachmentType) }
         try vault.writeIdentityFile(identity, passphrase: passphrase, workFactor: 15, created: at(0))
     }
 }
@@ -113,6 +119,12 @@ final class FixtureTests: XCTestCase {
         let report = vault.verify()
         XCTAssertTrue(report.isHealthy, "\(report)")
         XCTAssertEqual(report.counts[.ok], 8)   // 7 revisions + 1 identity file
+        XCTAssertEqual(report.counts[.unreferenced], 1)   // the attachment blob
+        XCTAssertEqual(vault.manifest.features, ["attachments"])
+        let blob = BlobRef(content: SampleFixture.attachment, type: SampleFixture.attachmentType)
+        XCTAssertEqual(try vault.readBlob(note: SampleFixture.lecture, blob), SampleFixture.attachment)
+        XCTAssertEqual(try vault.blobInventory(note: SampleFixture.lecture).unreferenced.map(\.fileName),
+                       [try vault.blobFileName(for: blob)])
 
         // Same content as a fresh generation (only ciphertext is random).
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("fixture-\(UUID().uuidString)")
