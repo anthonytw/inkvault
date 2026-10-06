@@ -87,4 +87,60 @@ final class UntrustedRenderTests: XCTestCase {
         let r = StrokeOutline.ribbon(StrokeSampler.samples(for: marker), fallbackWidth: 30)
         XCTAssertEqual(r.flatMap(\.points).map(\.y).max() ?? 0, 25, accuracy: 0.01)
     }
+
+    // MARK: Images (attachments C1)
+
+    /// Offset of the first `FF code` pair.
+    static func marker(_ d: [UInt8], _ code: UInt8) -> Int? {
+        (0..<(d.count - 1)).first { d[$0] == 0xFF && d[$0 + 1] == code }
+    }
+
+    /// Thousands of scans over a large frame: each scan walks every block,
+    /// so the decoder stops after `JPEG.maxScans` instead of doing work
+    /// quadratic in the file size.
+    func testManyJPEGScansAreCapped() throws {
+        let data = [UInt8](try Data(contentsOf: T.fixtureURL("images/progressive-420.jpg")))
+        // The first scan: its SOS segment and entropy data up to the next marker.
+        guard let sos = Self.marker(data, 0xDA) else { return XCTFail("no SOS") }
+        var end = sos + 2 + (Int(data[sos + 2]) << 8 | Int(data[sos + 3]))
+        while end + 1 < data.count, !(data[end] == 0xFF && data[end + 1] != 0 && !(0xD0...0xD7).contains(data[end + 1])) {
+            end += 1
+        }
+        let scan = data[sos..<end]
+        let hostile = Data(data[..<end] + Array([ArraySlice<UInt8>](repeating: scan, count: 5000).joined()) + data[end...])
+        let t0 = Date()
+        let image = try JPEG.decode(hostile)
+        XCTAssertEqual(image.width, 61)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 5)
+    }
+
+    /// A truncated JPEG whose header claims a large image stops decoding when
+    /// its data runs out instead of decoding every block from zero bits.
+    func testExhaustedScanStopsEarly() throws {
+        let data = try Data(contentsOf: T.fixtureURL("images/baseline-420.jpg"))
+        var d = [UInt8](data.prefix(data.count / 2))
+        // Claim 4000 × 3000 (within the per-byte allowance for this size? no: refused outright).
+        let sof = try XCTUnwrap(Self.marker(d, 0xC0))
+        d.replaceSubrange((sof + 5)..<(sof + 9), with: [0x0B, 0xB8, 0x0F, 0xA0])
+        XCTAssertThrowsError(try JPEG.decode(Data(d))) { XCTAssertEqual($0 as? ImageError, .tooLarge(width: 4000, height: 3000)) }
+        // Within the allowance: 1000 × 1000 from a few kilobytes decodes, quickly.
+        d.replaceSubrange((sof + 5)..<(sof + 9), with: [0x03, 0xE8, 0x03, 0xE8])
+        let t0 = Date()
+        let image = try JPEG.decode(Data(d))
+        XCTAssertEqual(image.width, 1000)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 5)
+    }
+
+    /// A frame inside the extent limit that its rotation carries past it is
+    /// skipped with a warning; the infinite page still renders.
+    func testRotatedItemPastTheExtentIsSkipped() throws {
+        let item = Item(kind: ItemKind(rawValue: "x"), frame: Rect(x: 0, y: 150_000, w: 190_000, h: 10),
+                        rotation: 90, z: "a")
+        let note = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0),
+                                            pageSize: PageSize(width: 300, height: 300, infinite: true)),
+                             pages: [Page(order: "a", items: [item])])
+        var report = ExportReport()
+        XCTAssertNoThrow(try PDFWriter.render(note: note, report: &report))
+        XCTAssertEqual(report.issues.map(\.kind), [.warning])
+    }
 }

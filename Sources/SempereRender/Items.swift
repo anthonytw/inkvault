@@ -213,10 +213,14 @@ final class ImageStore {
         return image
     }
 
-    /// The image decoded at full size (PDF and SVG need every pixel), cached.
+    /// The image decoded at full size (PDF and SVG need every pixel). Only
+    /// the most recent decode is kept (a page usually shows an image on
+    /// consecutive chunks), so memory holds one bitmap, not one per image;
+    /// failures are remembered for every image.
     func decodeFull(_ ref: BlobRef, _ image: LoadedImage) -> Result<RGBAImage, PlaceholderReason> {
         if let r = decoded[ref.sha256] { return r }
         let r = Result { try decode(image, scale: 1) }.mapError { PlaceholderReason(message: Self.describe($0)) }
+        decoded = decoded.filter { if case .failure = $0.value { return true } else { return false } }
         decoded[ref.sha256] = r
         return r
     }
@@ -241,6 +245,7 @@ final class ImageStore {
             let base = dct == 1 ? try decodeFull(ref, image).get() : try decode(image, scale: dct)
             return base.boxReduced(by: box)
         }.mapError { $0 as? PlaceholderReason ?? PlaceholderReason(message: Self.describe($0)) }
+        reduced = reduced.filter { if case .failure = $0.value { return true } else { return false } }   // one bitmap at a time
         reduced[key] = r
         return r
     }
@@ -326,6 +331,11 @@ struct PreparedItem {
                 continue
             }
             let corners = Placement.corners(frame: f, rotation: rotation)
+            // Turned, a frame inside the limit may reach past it: skip it rather than fail the page.
+            guard corners.allSatisfy({ abs($0.x) <= maxE && abs($0.y) <= maxE }) else {
+                report.add(ExportIssue(kind: .warning, item: item.id, message: "item outside the drawable area; not drawn"))
+                continue
+            }
             let ys = corners.map(\.y)
             func placed(_ c: Content) -> PreparedItem {
                 PreparedItem(item: item, content: c, corners: corners, minY: ys.min() ?? f.y, maxY: ys.max() ?? f.y)

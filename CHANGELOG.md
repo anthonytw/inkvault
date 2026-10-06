@@ -22,6 +22,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   unknown kinds kept verbatim), recordings, transcripts, blob references and their six ops. Revisions
   holding them now decode instead of being reported unreadable; they are not merged yet (A1), so
   `snapshot` and `compact` refuse a note that has them rather than drop them.
+- Images in exports (task C1): PDF embeds JPEGs as stored (no re-encoding) and other images
+  losslessly; SVG uses data URIs or, with `export --assets DIR`, linked files; PNG export decodes
+  and resamples them (pure-Swift baseline/progressive JPEG and PNG decoders). Location and camera
+  metadata is removed from every exported image unless `--keep-image-metadata`. Images that
+  cannot be drawn (missing attachment, HEIC in the CLI, over 100 MP) become placeholders with a
+  warning. Blob reading and verification (`Vault.readBlob`, `BlobSource`).
 
 ### Changed
 

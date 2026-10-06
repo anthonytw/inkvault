@@ -110,7 +110,7 @@ final class ImageCodecTests: XCTestCase {
         // The top rows are intact.
         XCTAssertEqual(Array(cut.pixels.prefix(61 * 4 * 8)), Array(full.pixels.prefix(61 * 4 * 8)))
         // A header alone is refused, never decoded to a blank image.
-        let header = data.prefix(upTo: T.find([UInt8](data), "\u{FF}\u{DA}") ?? 0)
+        let header = data.prefix(upTo: UntrustedRenderTests.marker([UInt8](data), 0xDA) ?? 0)
         XCTAssertThrowsError(try JPEG.decode(header))
     }
 

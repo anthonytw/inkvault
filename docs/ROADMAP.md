@@ -28,12 +28,13 @@ working state.
 | Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | 🔀 #54 |
 | Vault | Tags merge per tag (add wins) | 🔀 #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | 🔀 #25 |
-| Vault | Attachment model types and ops (A0) | 🔀 #47 |
+| Vault | Attachment model types and ops (A0) | ✅ |
 | Vault | Attachment merge (A1); per-note blob store, rewrap policy, GC (B2) | 📋 |
 | Vault | Read-only access to newer format versions | 💭 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Parametric paper templates (line width, spacing) | 🔀 #28 |
-| Render | Images, Unicode text, PDF backgrounds, recordings in exports (C1–C4) | 📋 |
+| Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | 🔀 #62 |
+| Render | Unicode text, PDF backgrounds, recordings in exports (C2–C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
 | Sync | WebDAV | ✅ |

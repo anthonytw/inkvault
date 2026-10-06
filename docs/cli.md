@@ -434,6 +434,7 @@ in parallel and without stroke geometry, as for `notes list`.
 sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION]
                 [--notebook NAME] [--images none|png] [--clean]
+                [--assets DIR] [--keep-image-metadata]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -466,6 +467,39 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
 written is printed.
+
+#### Images in exports
+
+Image items (`docs/format.md` §8.2.5) are drawn from the note's attachments
+(`notes/<id>/att/`), each blob decrypted and checked against its reference
+(§8.1.4) before use. Placement follows §8.5.1 (EXIF orientation, crop, frame,
+rotation); images are clipped to their frame, under the ink.
+
+- `pdf`: a JPEG is embedded as stored (`DCTDecode`, never re-encoded); PNG
+  (and anything else decoded) as lossless 8-bit RGB or grey with a soft mask
+  for transparency. One copy per image however many pages use it.
+- `svg`: each image as a `data:` URI. `--assets DIR` (svg only) writes each
+  image once into `DIR` instead (named by a hash of its bytes, `.jpg`/`.png`)
+  and links it with a path relative to the SVG files.
+- `png`: images are decoded and resampled into the page (a JPEG decoded at
+  1/2, 1/4 or 1/8 size when that is all the output needs).
+- **Metadata:** location and camera data (JPEG APPn segments other than JFIF,
+  ICC and Adobe; COM; PNG text, `eXIf` and other ancillary chunks; anything
+  after the image's end) is removed from every image an export carries,
+  whatever is stored, unless `--keep-image-metadata`.
+- **Placeholders:** an item that cannot be drawn is a crossed-out grey box
+  (§8.5.2) and a line on stderr, e.g.
+  `warning: note "Trip", page 2: item 6f1c2d4e: HEIC images cannot be decoded
+  here (convert it to JPEG in the app)`. Causes: a missing, unreadable or
+  damaged attachment; HEIC (the CLI has no HEVC decoder; the app exports it);
+  CMYK, 12-bit, lossless or arithmetic-coded JPEG; an image over 100
+  megapixels (§8.4) or over 64 MiB; PDF page backgrounds (not drawn yet);
+  unknown item kinds. Text boxes are not drawn yet and are reported as
+  warnings. The export still succeeds; with `--json` the lines are in each
+  note's `warnings`.
+
+Until item merging lands (task A1), notes read from a vault have no items, so
+these paths are exercised by the library's tests only.
 
 #### Markdown and HTML exports
 

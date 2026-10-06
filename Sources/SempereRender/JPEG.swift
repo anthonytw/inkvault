@@ -28,6 +28,9 @@ enum JPEG {
         var isRGB: Bool
     }
 
+    /// Scans decoded per image; later ones are ignored (as if the file ended).
+    static let maxScans = 100
+
     /// Natural (row-major) index of the k-th coefficient in zigzag order.
     static let zigzag: [Int] = [
         0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
@@ -477,6 +480,9 @@ enum JPEG {
                     guard p.count >= 2 else { throw ImageError.malformed("DRI") }
                     restartInterval = Int(d[p.lowerBound]) << 8 | Int(d[p.lowerBound + 1])
                 case 0xDA:
+                    // Each scan walks every block again: cap them so work stays
+                    // linear in the pixels (real progressive files use ~10–30).
+                    guard scans < JPEG.maxScans else { break segments }
                     pos = try scan(p)
                 case 0xE0 where p.count >= 5 && Array(d[p.lowerBound..<p.lowerBound + 5]) == [0x4A, 0x46, 0x49, 0x46, 0]:
                     jfif = true
@@ -579,10 +585,14 @@ enum JPEG {
             var sinceRestart = 0
 
 
+            // Past the end of the data every block decodes from zero bits: stop
+            // (the rest stays as it is, like libjpeg's truncated-file warning).
+            let exhausted = 1024
             if ns == 1 {
                 let c = comps[0]
                 let comp = f.components[c.index]
-                for by in 0..<comp.blocksH {
+                rows: for by in 0..<comp.blocksH {
+                    if r.padded > exhausted { break rows }
                     for bx in 0..<comp.blocksW {
                         try decodeBlock(&r, f, c, bx: bx, by: by, pred: &pred[c.index], ss: ss, se: se, ah: ah, al: al,
                                         block: &block)
@@ -590,7 +600,8 @@ enum JPEG {
                     }
                 }
             } else {
-                for my in 0..<f.mcusY {
+                rows: for my in 0..<f.mcusY {
+                    if r.padded > exhausted { break rows }
                     for mx in 0..<f.mcusX {
                         for c in comps {
                             let comp = f.components[c.index]
