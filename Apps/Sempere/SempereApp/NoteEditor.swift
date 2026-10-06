@@ -26,6 +26,8 @@ final class NoteEditor {
     /// are still being read (`open(..., cache:)`): pages have no strokes yet
     /// and nothing can be edited.
     private(set) var isPreparing = false
+    /// True when the editor opened from the drawing cache (`open(..., cache:)`).
+    private(set) var openedFromCache = false
     /// Bumped when the canvas must reload the shown page's drawing although
     /// the page stayed the same (the read note differed from the cache).
     private(set) var canvasGeneration = 0
@@ -96,6 +98,7 @@ final class NoteEditor {
         self.readOnlyReason = nil
         self.debounce = debounce
         self.isPreparing = true
+        self.openedFromCache = true
     }
 
     /// What reading a note yields, off the main actor.
@@ -124,7 +127,8 @@ final class NoteEditor {
                      debounce: Duration = NoteEditor.defaultDebounce,
                      coordinated: Bool = false,
                      verify: (@Sendable () throws -> Void)? = nil,
-                     cache: DrawingCache? = nil, listedNames: [String]? = nil) async throws -> NoteEditor {
+                     cache: DrawingCache? = nil, listedNames: [String]? = nil,
+                     beforeFinishing: (@Sendable () async -> Void)? = nil) async throws -> NoteEditor {
         if let cache, let listedNames, !listedNames.isEmpty {
             let key = DrawingCache.Key(note: noteID, revisions: listedNames)
             let layout = await Task.detached(priority: .userInitiated) {
@@ -139,6 +143,7 @@ final class NoteEditor {
                         let loaded = try await read(vault: vault, noteID: noteID, device: clock.device,
                                                     coordinated: coordinated, verify: verify)
                         await clock.observe(loaded.readings)
+                        await beforeFinishing?()
                         await editor?.finishLoading(loaded, vault: vault, clock: clock, coordinated: coordinated)
                     } catch {
                         editor?.failLoading(error)
@@ -299,12 +304,13 @@ final class NoteEditor {
             // Opened from the cache and still being read: this page from the cache if it is there.
             if let cache = drawingCache, let key = cacheKey {
                 let noteID = self.noteID
-                let cached = await Task.detached(priority: .userInitiated) { () -> PreparedDrawing? in
+                let cached = await Task.detached(priority: .userInitiated) { () -> DrawingBox? in
                     let interval = Perf.begin(.noteCache)
                     let data = cache.drawing(key, page: pageID)
                     let drawing = data.flatMap { try? PKDrawing(data: $0) }
-                    Perf.end(interval, "\(drawing == nil ? "miss" : "hit") page \(Perf.short(noteID))")
-                    return drawing.map { PreparedDrawing(drawing: $0) }
+                    Perf.end(interval, "\(drawing == nil ? "miss" : "hit") page \(Perf.short(noteID)) bytes=\(data?.count ?? 0)")
+                    // Fingerprinted once the strokes are read (`finishLoading`), not now.
+                    return drawing.map(DrawingBox.init)
                 }.value
                 if isPreparing, let cached {
                     canvasDrawings[pageID] = cached.drawing
@@ -336,8 +342,12 @@ final class NoteEditor {
                 })
             }
             if let cache, let key {
-                Perf.measure(.cacheWrite, "page \(Perf.short(noteID))") {
-                    cache.store(drawing: prepared.drawing.dataRepresentation(), for: key, page: pageID)
+                // Stored after the page is shown, not before.
+                let box = DrawingBox(prepared.drawing)
+                Task.detached(priority: .utility) {
+                    Perf.measure(.cacheWrite, "page \(Perf.short(noteID))") {
+                        cache.store(drawing: box.drawing.dataRepresentation(), for: key, page: pageID)
+                    }
                 }
             }
             return prepared

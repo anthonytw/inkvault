@@ -169,6 +169,9 @@ final class AppModel {
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow
+    /// Test seam: awaited before an editor opened from the drawing cache
+    /// takes the note it read in the background.
+    @ObservationIgnored var editorLoadHook: (@Sendable () async -> Void)?
     /// Test seam: told how many notes each listing batch read.
     @ObservationIgnored var onSummaryRead: (@Sendable (Int) -> Void)?
     /// Notes read per published batch, and threads reading them (`AppModel+Loading`).
@@ -546,7 +549,7 @@ final class AppModel {
         do {
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
                                                coordinated: isCloudVault, verify: verify, cache: cache,
-                                               listedNames: listed)
+                                               listedNames: listed, beforeFinishing: editorLoadHook)
         } catch CloudVault.CloudError.noteNotLocal {
             // A file went missing (or a new one was listed) since `downloadNote`: once more.
             try ensureCurrent(gen)
