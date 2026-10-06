@@ -18,6 +18,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   delta with undo. In iCloud Drive a note's attachments download on demand: images and PDF
   pages when a page shows them, never with the note. The shared `NoteOps` item builders and
   `ItemRaster` (one item drawn as the exports draw it) are in the library for the CLI too.
+- Attachments from the command line (task F, `docs/cli.md` "Adding attachments"): `sempere attach
+  image|pdf|text|recording|transcript` add an image, PDF pages (as new background pages or as a
+  figure), a text box, an MPEG-4 recording or a transcript to a note, each as one delta with
+  `--json` output; `sempere import pdf` makes a note from a PDF, one page per PDF page with the
+  page as its background; `sempere search` also searches the text of text boxes and, with
+  `--transcripts`, transcripts; Markdown and HTML exports include typed text. The logic is shared
+  with the app: `NoteOps` placement builders, `AudioProbe` (MPEG-4 header reader), `ImageIngest`
+  and `PDFIngest`.
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
   last-writer-wins registers (unknown fields included), in the library and the web viewer.
