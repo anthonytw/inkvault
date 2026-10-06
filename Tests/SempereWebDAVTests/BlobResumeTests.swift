@@ -255,7 +255,7 @@ final class BlobResumeTests: BlobSyncTestCase {
         while written < total {
             piece.replaceSubrange(0..<8, with: withUnsafeBytes(of: i.bigEndian) { Data($0) })
             let p = piece.prefix(total - written)
-            try h.write(contentsOf: p)
+            try autoreleasing { try h.write(contentsOf: p) }
             written += p.count
             i += 1
         }
