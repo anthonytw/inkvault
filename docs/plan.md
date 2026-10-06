@@ -27,7 +27,8 @@ UI over it (done: `PageRecognizer.swift`, `NoteEditor` recognition,
 ## Phase 2 — Mac companion
 
 Same target via Catalyst: menus, keyboard shortcuts, multi-window, drag and
-drop export, bulk export, key management.
+drop export, key management, pointer input (`docs/mac.md`; bulk export from
+the app comes with the share/export work).
 
 ## Phase 3 — nice to have
 

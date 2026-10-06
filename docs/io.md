@@ -148,6 +148,48 @@ Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
 
+## Saved folder access (sandboxed Mac)
+
+The app opens a vault folder through the system picker and remembers it as a
+bookmark (`VaultBookmark`, recent vaults in `VaultLibrary`). Whether a
+remembered folder is still usable after a relaunch is the platform's decision:
+
+* **iPadOS:** a bookmark made from a picker URL carries its security scope;
+  `startAccessingSecurityScopedResource()` on the resolved URL grants access.
+  Verified on devices.
+* **Mac Catalyst, not sandboxed:** the app can read what the user can; scope
+  calls return false and nothing depends on them.
+* **Mac Catalyst, sandboxed (Mac App Store, `Sempere.entitlements`):**
+  `.withSecurityScope` is AppKit-only and is not in the Catalyst SDK, so
+  bookmarks are made with plain options, as on iOS (`VaultBookmark.make`).
+  Apple documents security-scoped bookmarks for sandboxed apps with the
+  `com.apple.security.files.bookmarks.app-scope` entitlement (set) and
+  `files.user-selected.read-write` (set); whether a plain bookmark of a
+  picker URL brings the sandbox extension back after a relaunch under
+  Catalyst **has not been verified**: it needs a signed sandboxed build on a
+  Mac, which the cloud sessions and CI do not have.
+
+What the code does so that either answer is safe:
+
+* `AppModel.openVault` lists the folder before reading anything
+  (`FolderAccess.check`). When the system refuses (`EPERM`/`EACCES`, Cocoa
+  257/513, also as an underlying error) it throws `FolderAccess.Problem.noAccess`
+  naming the vault folder, instead of a file error from inside `Vault.open`.
+* `RootView.reopen` already turns any failure of a recent vault into a message
+  and the folder picker, so a lost permission ends with the user choosing the
+  folder again, and `remember` saves a fresh bookmark from that scope.
+  At launch (`pickOnFailure: false`) only the message shows.
+* A stale bookmark is re-saved while its scope is held (`VaultBookmark.resolve`).
+* DEBUG builds log `SempereDebug folderAccess scoped=<0|1> listable=<0|1>` for
+  every open (no names), to read the answer off a real sandboxed build: after
+  choosing a folder and relaunching, `scoped=0 listable=0` means the plain
+  bookmark does not survive, and the fix is a Catalyst-only
+  `NSURL` bookmark call through an Objective-C shim, which this repository
+  does not have.
+* The vault's own files under `notes/` are written only through the open
+  scope; nothing outside the picked folder is touched. The temporary PDFs of
+  drag and drop (`docs/mac.md`) are in the app's container.
+
 ## Share and export (app)
 
 The app exports notes through the system share sheet and Save to Files. It

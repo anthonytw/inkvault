@@ -9,6 +9,10 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Mac app, phase 2 (`docs/mac.md`): menu bar and shortcuts from one command list, a window per
+  note with state restoration, drag a note to the Finder as PDF, a key window (recipients, add
+  or remove a device key, recovery kit), mouse and trackpad input (the object eraser now works
+  with a pointer), an access check for saved vault folders, and sandbox entitlements for Mac builds.
 - iPad app: handwriting search. Pages are read on the device with Vision after the strokes
   change (and when a note opens), the text is saved as page recognition (`format.md` §5.5, new
   optional `basis` field), and the note list searches recognised text, titles, notebooks and
