@@ -73,7 +73,7 @@ command does nothing there.
   window brings the library window up (after a second, if none appeared) to
   open and unlock the vault; the note then opens by itself. A window whose note
   belongs to another vault than the open one says so and offers to close.
-* **Key window** (`Window` id `keys`): see below.
+* **Key window** (`WindowGroup` id `keys`; SwiftUI's single-instance `Window` scene is not available in the iOS SDK that the simulator CI builds, so repeating the command may open a second, identical window): see below.
 * The library window saves its selection (sidebar item, note, vault id) with
   `@SceneStorage` and applies it once the same vault is unlocked again
   (`AppModel.restore`; a notebook, tag or note that is gone falls back to All

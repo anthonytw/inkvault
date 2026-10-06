@@ -25,7 +25,7 @@ struct SempereApp: App {
                     .environment(keys)
             }
         }
-        Window("Vault Keys", id: "keys") {
+        WindowGroup("Vault Keys", id: "keys") {
             KeysWindowView()
                 .environment(model)
         }

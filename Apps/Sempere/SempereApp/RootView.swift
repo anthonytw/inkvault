@@ -31,9 +31,28 @@ struct RootView: View {
                 set: { storedColumns = ColumnLayout.stored($0) })
     }
 
+    /// The window: its content, then what the Mac menus and scene restoration need.
+    /// Two properties, so the compiler checks two shorter modifier chains.
     var body: some View {
+        content
+            .environment(ui)
+            .windowSheets(ui)
+            .focusedSceneValue(\.commandRouter, router)
+            .sheet(isPresented: $ui.creatingNote) {
+                NewNoteView(notebook: currentNotebook)
+            }
+            .onAppear { model.libraryWindowCount += 1 }
+            .onDisappear { model.libraryWindowCount -= 1 }
+            .onChange(of: model.phase == .unlocked && !model.isBusy) { _, ready in
+                if ready { restoreSelection() }
+            }
+            .onChange(of: model.selectedNoteID) { saveSelection() }
+            .onChange(of: model.sidebarSelection) { saveSelection() }
+    }
+
+    private var content: some View {
         @Bindable var model = model
-        Group {
+        return Group {
             if model.phase == .noVault {
                 WelcomeView(openFolder: { pickingVault = true },
                             newVault: { creatingVault = true },
@@ -59,19 +78,6 @@ struct RootView: View {
                 }
             }
         }
-        .environment(ui)
-        .windowSheets(ui)
-        .focusedSceneValue(\.commandRouter, router)
-        .sheet(isPresented: $ui.creatingNote) {
-            NewNoteView(notebook: currentNotebook)
-        }
-        .onAppear { model.libraryWindowCount += 1 }
-        .onDisappear { model.libraryWindowCount -= 1 }
-        .onChange(of: model.phase == .unlocked && !model.isBusy) { _, ready in
-            if ready { restoreSelection() }
-        }
-        .onChange(of: model.selectedNoteID) { saveSelection() }
-        .onChange(of: model.sidebarSelection) { saveSelection() }
         .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
         .onChange(of: scenePhase) { _, phase in
             // iCloud may have delivered files while the app was away; no
