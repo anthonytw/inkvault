@@ -11,7 +11,8 @@ import SwiftUI
 /// project's build settings), and the Mac menu bar is attached for Catalyst only.
 @main
 struct SempereApp: App {
-    @State private var model = AppModel(summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory)
+    @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
+                                        summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 

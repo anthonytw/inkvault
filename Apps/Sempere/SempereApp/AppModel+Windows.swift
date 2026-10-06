@@ -50,6 +50,7 @@ extension AppModel {
             verify = { try CloudVault.requireLocal(note: noteID, vault: url, hooks: hooks) }
         }
         let opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
+                                               recognizer: recognizer, recognitionDelay: recognitionDelay,
                                                coordinated: isCloudVault, verify: verify)
         try ensureCurrent(gen)
         if let open = windowEditors[noteID] {   // a concurrent call won
@@ -61,6 +62,10 @@ extension AppModel {
         guard windowClaims.contains(noteID), !Task.isCancelled, !isChangingKeys, epoch == keyEpoch else {
             Task { await opened.close() }
             throw CancellationError()
+        }
+        opened.onRecognized = { [weak self] id in
+            guard let self else { return }
+            Task { try? await self.refresh([id]) }   // search sees the new text
         }
         windowEditors[noteID] = opened
         return opened

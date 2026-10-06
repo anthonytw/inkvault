@@ -95,7 +95,9 @@ writes nothing (`NoteEditor.isShutDown`), and a note window always shows the
 model's editor for its note (`windowEditors`), never a copy of its own. Only one
 library window shows the canvas (`AppModel.canvasWindow`, "Show Here" in the
 others): two canvases on one editor would each report a drawing without the
-other's new strokes, which the ledger takes as erasures. Restored note windows
+other's new strokes, which the ledger takes as erasures. A window's editor reads
+handwriting like the pane's (the model's `recognizer` reaches it), and notes
+open in a window are left out of "Recognize N Notes Now". Restored note windows
 ask for at most one library window (`shouldOpenLibraryWindow`). Note > Move to
 Recently Deleted (⌘⌫) is off while a search, rename or tag field may have focus.
 

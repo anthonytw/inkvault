@@ -19,8 +19,10 @@ Xcode project under `Apps/`. SwiftUI shell; PencilKit canvas with the system
 tool picker; paper layer; notebook/tag sidebar; autosave to the note log;
 vault location picker (on device, iCloud Drive, Files-app folder); key
 generate/import (AirDrop, QR, paste)/export; PDF share sheet; Face ID unlock;
-on-device handwriting recognition (PencilKit, iPadOS 27) writes page
-recognition (`format.md` §5.5); search UI over it.
+on-device handwriting recognition (Vision `VNRecognizeTextRequest` on
+rendered pages, iPadOS 26) writes page recognition (`format.md` §5.5); search
+UI over it (done: `PageRecognizer.swift`, `NoteEditor` recognition,
+`AppModel+Search.swift`, `Sources/Sempere/NoteSearch.swift`).
 
 ## Phase 2 — Mac companion
 

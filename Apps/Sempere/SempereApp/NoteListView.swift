@@ -22,6 +22,81 @@ struct NoteListView: View {
     var body: some View {
         @Bindable var model = model
         @Bindable var ui = ui
+        Group {
+            if model.isSearchActive {
+                SearchResultsList()
+            } else {
+                notesList
+            }
+        }
+        .environment(\.editMode, Binding<EditMode>(get: { model.isSelectingNotes ? .active : .inactive },
+                                         set: { setSelecting($0.isEditing) }))
+        .navigationTitle(title)
+        .searchable(text: $model.searchText, isPresented: $ui.searchPresented, prompt: "Search notes and handwriting")
+        .searchScopes($model.searchScope) {
+            ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .toolbar {
+            if model.isSelectingNotes {
+                ToolbarItem { ExportMenu(ids: model.exportTargetIDs) }
+            }
+            ToolbarItem {
+                Button(model.isSelectingNotes ? "Done" : "Select") { setSelecting(!model.isSelectingNotes) }
+                    .disabled(model.phase != .unlocked)
+            }
+            ToolbarItem {
+                Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                    Picker("Sort By", selection: $model.sortOrder) {
+                        ForEach(NoteSort.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                }
+            }
+            ToolbarItem {
+                Menu("Handwriting", systemImage: "text.viewfinder") {
+                    Toggle("Recognize Handwriting", isOn: Binding(get: { model.recognizer != nil },
+                                                                  set: { model.setHandwritingRecognition($0) }))
+                    let waiting = model.notesNeedingRecognition.count
+                    Button("Recognize \(waiting) Note\(waiting == 1 ? "" : "s") Now", systemImage: "wand.and.stars") {
+                        model.startRecognizingNotes()
+                    }
+                    .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil)
+                    Text("Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it.")
+                }
+            }
+            ToolbarItem {
+                Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
+                    .disabled(model.phase != .unlocked)
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                if let progress = model.recognitionProgress {
+                    RecognitionBar(progress: progress) { model.cancelRecognizingNotes() }
+                }
+                VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
+            }
+        }
+        .refreshable {
+            await model.report { try await model.reload() }
+        }
+        .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
+            TextField(promptField, text: $promptText)
+            Button("OK") {
+                if let p = prompt {
+                    let text = promptText
+                    switch p.kind {
+                    case .tag: run { try await model.addTag(text, to: p.note) }
+                    case .notebook: run { try await model.moveNote(p.note, toNotebook: text) }
+                    case .rename: run { try await model.renameNote(p.note, to: text) }
+                    }
+                }
+                prompt = nil
+            }
+            Button("Cancel", role: .cancel) { prompt = nil }
+        }
+    }
+
+    private var notesList: some View {
         List(model.visibleNotes, id: \.id, selection: listSelection) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id))
@@ -41,55 +116,10 @@ struct NoteListView: View {
                     }
                 }
         }
-        .environment(\.editMode, Binding<EditMode>(get: { model.isSelectingNotes ? .active : .inactive },
-                                         set: { setSelecting($0.isEditing) }))
-        .navigationTitle(title)
-        .searchable(text: $model.searchText, isPresented: $ui.searchPresented, prompt: "Search titles")
-        .toolbar {
-            if model.isSelectingNotes {
-                ToolbarItem { ExportMenu(ids: model.exportTargetIDs) }
-            }
-            ToolbarItem {
-                Button(model.isSelectingNotes ? "Done" : "Select") { setSelecting(!model.isSelectingNotes) }
-                    .disabled(model.phase != .unlocked)
-            }
-            ToolbarItem {
-                Menu("Sort", systemImage: "arrow.up.arrow.down") {
-                    Picker("Sort By", selection: $model.sortOrder) {
-                        ForEach(NoteSort.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                }
-            }
-            ToolbarItem {
-                Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
-                    .disabled(model.phase != .unlocked)
-            }
-        }
         .overlay {
             if let reason = model.emptyListReason {
                 EmptyListView(reason: reason) { run { try await model.reload() } }
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
-        }
-        .refreshable {
-            await model.report { try await model.reload() }
-        }
-        .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
-            TextField(promptField, text: $promptText)
-            Button("OK") {
-                if let p = prompt {
-                    let text = promptText
-                    switch p.kind {
-                    case .tag: run { try await model.addTag(text, to: p.note) }
-                    case .notebook: run { try await model.moveNote(p.note, toNotebook: text) }
-                    case .rename: run { try await model.renameNote(p.note, to: text) }
-                    }
-                }
-                prompt = nil
-            }
-            Button("Cancel", role: .cancel) { prompt = nil }
         }
     }
 
@@ -383,5 +413,101 @@ struct CloudSyncBar: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Notes matching the search, each with the page and the words that matched;
+/// a tap opens the note on that page.
+private struct SearchResultsList: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        List {
+            ForEach(model.searchResults) { hit in
+                if let note = model.note(for: hit) {
+                    Button { model.openSearchHit(hit) } label: { SearchRow(hit: hit, note: note) }
+                        .buttonStyle(.plain)
+                        .listRowBackground(model.selectedNoteID == note.id ? SwiftUI.Color.accentColor.opacity(0.15) : nil)
+                }
+            }
+        }
+        .overlay {
+            if model.isSearching && model.searchResults.isEmpty {
+                ProgressView()
+            } else if !model.isSearching && model.searchResults.isEmpty {
+                ContentUnavailableView.search(text: model.searchText)
+            }
+        }
+    }
+}
+
+private struct SearchRow: View {
+    let hit: NoteSearchHit
+    let note: NoteSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(NoteTitle.display(note.title)).font(.headline)
+                if let page = hit.page, note.pages > 1 {
+                    Text("Page \(page.number)").font(.caption.weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                }
+                if hit.matchedPages > 1 {
+                    Text("+\(hit.matchedPages - 1) more").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let snippet = hit.snippet {
+                Text(Self.highlighted(snippet)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+            }
+            HStack(spacing: 6) {
+                if let notebook = NotebookPath.canonical(note.notebook) {
+                    Label(NotebookPath.components(notebook).joined(separator: " › "), systemImage: "book.closed")
+                }
+                if hit.fields.contains(.tag) {
+                    Label(NoteOps.normalizedTags(note.tags).joined(separator: ", "), systemImage: "tag")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    static func highlighted(_ snippet: NoteSearchHit.Snippet) -> AttributedString {
+        var text = AttributedString(snippet.text)
+        for range in snippet.matches {
+            if let r = Range(range, in: text) {
+                text[r].font = .callout.bold()
+                text[r].foregroundColor = .primary
+            }
+        }
+        return text
+    }
+}
+
+/// "Recognizing handwriting: 12 of 80 notes" with a cancel button.
+struct RecognitionBar: View {
+    let progress: RecognitionProgress
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Reading handwriting: \(progress.done) of \(progress.total) notes")
+                    .font(.footnote.weight(.semibold)).monospacedDigit()
+                Spacer()
+                Button("Stop", action: cancel).font(.footnote)
+            }
+            ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+            if progress.failed > 0 {
+                Text("\(progress.failed) could not be read").font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
     }
 }
