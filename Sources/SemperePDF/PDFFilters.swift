@@ -117,7 +117,10 @@ public enum PDFFilters {
             throw PDFError.corruptStream("predictor parameters")
         }
         let bitsPerPixel = colors * bpc
-        let rowBytes = (bitsPerPixel * columns + 7) / 8   // ≤ 32·16·2^24/8: no overflow
+        // ≤ 32·16·2^24/8 = 1 GiB: no overflow, but far too much to allocate (twice) and loop over on
+        // the say-so of a few bytes of DecodeParms. A row longer than the data is one partial row,
+        // and bytes past the data are never output, so the data's length bounds the row.
+        let rowBytes = min((bitsPerPixel * columns + 7) / 8, max(data.count, 1))
         let bpp = max(1, (bitsPerPixel + 7) / 8)
         if predictor == 2 {
             guard bpc == 8 else { throw PDFError.unsupportedFilter("TIFF predictor with \(bpc) bits") }

@@ -196,3 +196,40 @@ final class UntrustedPDFTests: XCTestCase {
         assertPDFError(try PDFFilters.predict([2, 1, 2, 3], parms: bad))
     }
 }
+
+/// Review regressions (#61): sizes a few bytes of the file claim must not
+/// drive allocation or work.
+final class UntrustedPDFClaimTests: XCTestCase {
+    /// `/DecodeParms` claiming the largest row (2^24 columns × 32 colours ×
+    /// 16 bits = 1 GiB) over a four-byte stream: the predictor used to
+    /// allocate two such rows and loop over all of one. The row is now
+    /// bounded by the data, and the output is what the honest row length
+    /// gives.
+    func testPredictorRowIsBoundedByTheData() throws {
+        func parms(columns: Int, colors: Int, bpc: Int) -> PDFDict {
+            var d = PDFDict()
+            d["Predictor"] = .int(12)
+            d["Columns"] = .int(columns)
+            d["Colors"] = .int(colors)
+            d["BitsPerComponent"] = .int(bpc)
+            return d
+        }
+        let data: [UInt8] = [2, 1, 2, 3]   // one row, PNG "Up" filter, over an all-zero previous row
+        let t0 = Date()
+        let huge = try PDFFilters.predict(data, parms: parms(columns: 1 << 24, colors: 32, bpc: 16))
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 2, "work must follow the data, not /Columns")
+        XCTAssertEqual(huge, [1, 2, 3])
+        XCTAssertEqual(huge, try PDFFilters.predict(data, parms: parms(columns: 3, colors: 1, bpc: 8)))
+        // Several honest rows are unchanged by the bound.
+        let two: [UInt8] = [0, 5, 6, 2, 1, 1]
+        XCTAssertEqual(try PDFFilters.predict(two, parms: parms(columns: 2, colors: 1, bpc: 8)), [5, 6, 6, 7])
+    }
+
+    /// Object-stream members are found by number when the xref's index is
+    /// wrong, through a table built once (first entry wins, as before),
+    /// not a scan of every entry per lookup.
+    func testObjectStreamLookupByNumber() {
+        let os = PDFFile.ObjectStream(data: [], first: 0, entries: [(7, 0), (9, 4), (7, 8)])
+        XCTAssertEqual(os.byNumber, [7: 0, 9: 4])
+    }
+}

@@ -68,6 +68,15 @@ public final class PDFFile {
         var data: [UInt8]
         var first: Int
         var entries: [(num: Int, offset: Int)]
+        /// Object number → offset of its first entry: a lookup whose
+        /// `index` is wrong costs one hash, not a scan of `entries` (a
+        /// hostile stream may list millions, and every resolve may miss).
+        var byNumber: [Int: Int] = [:]
+
+        init(data: [UInt8], first: Int, entries: [(num: Int, offset: Int)]) {
+            self.data = data; self.first = first; self.entries = entries
+            for e in entries where byNumber[e.num] == nil { byNumber[e.num] = e.offset }
+        }
     }
 
     struct PageNode {
@@ -504,7 +513,7 @@ public final class PDFFile {
         let os = try objectStream(stm)
         var entry: (num: Int, offset: Int)?
         if index < os.entries.count, os.entries[index].num == num { entry = os.entries[index] }
-        if entry == nil { entry = os.entries.first { $0.num == num } }
+        if entry == nil, let offset = os.byNumber[num] { entry = (num, offset) }
         guard let e = entry else { return .null }
         let (p, overflow) = os.first.addingReportingOverflow(e.offset)
         guard !overflow, p < os.data.count else { throw PDFError.syntax("object \(num) beyond its object stream", offset: 0) }
