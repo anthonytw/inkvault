@@ -3,6 +3,11 @@
 <plist version="1.0">
 <dict>
 	<!-- Merged with the generated Info.plist (INFOPLIST_KEY_* build settings). -->
+	<!-- Mirrors the maintainer's App Store Connect answer (build 2): standard, mass-market
+	     encryption that qualifies for the exemption, so no per-build question
+	     (docs/appstore/export-compliance.md). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
