@@ -59,10 +59,9 @@ and no platform for others (WebDAV and any HTTPS use the system's URLSession/TLS
   that report for mass-market items other than components, chipsets and toolkits (it still
   applies to non-mass-market (b)(1) items). Keep the classification record (this page, the
   algorithm table) with your files.
-- **France** requires a declaration for some encryption products unless an exemption applies;
-  Apple needs documentation only if the app is distributed there with non-exempt encryption.
-  TODO(user): either confirm the exemption covers this app or leave France out of availability
-  (App Store Connect → Pricing and Availability).
+- **France** requires a declaration to ANSSI for this app (no exemption applies). Until it
+  is approved, France is left out of availability. The steps and pre-filled form contents
+  are in `france-declaration.md`.
 - The CLI release binaries (GitHub Releases) contain the same cryptography; the same
   open-source and mass-market reasoning applies.
 
