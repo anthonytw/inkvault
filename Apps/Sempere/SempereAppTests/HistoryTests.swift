@@ -53,7 +53,9 @@ struct HistoryTests {
         let data = try await model.loadHistory(for: Self.lecture)
         let points = data.points
         let entries = data.entries
-        #expect(entries.map(\.id) == points.map(\.name).reversed())
+        let entryIDs = entries.map { $0.id }
+        let pointNames = points.map { $0.name }
+        #expect(entryIDs == Array(pointNames.reversed()))
         #expect(entries.first?.isLatest == true)
         let othersNotLatest = entries.dropFirst().allSatisfy { !$0.isLatest }
         #expect(othersNotLatest)
@@ -66,7 +68,8 @@ struct HistoryTests {
         let labels = others.map(\.deviceLabel)
         let labelsOK = labels.allSatisfy { $0.hasPrefix("Device ") }
         #expect(labelsOK)
-        #expect(entries.allSatisfy(\.isAvailable))
+        let allAvailable = entries.allSatisfy { $0.isAvailable }
+        #expect(allAvailable)
         let noReasons = entries.allSatisfy { $0.unavailableReason == nil }
         #expect(noReasons)
         #expect(data.compactionNotice == nil)
@@ -143,7 +146,8 @@ struct HistoryTests {
         #expect(second !== first)
         #expect(!second.isReadOnly)
         let page = try #require(second.currentPage)
-        #expect(Set(second.liveStrokes(of: page.id).map(\.id)) == original)
+        let reopenedIDs = Set(second.liveStrokes(of: page.id).map { $0.id })
+        #expect(reopenedIDs == original)
         #expect(second.drawing(for: page.id).strokes.count == original.count)
 
         // The history kept everything: the newest version is listed first and
@@ -156,7 +160,8 @@ struct HistoryTests {
         #expect(again.strokesRestored == 2)
         let revived = try vault.reconstruct(noteId: Self.lecture)
         #expect(Self.strokeIDs(revived).count == original.count + 2)
-        #expect(Set(revived.pages.flatMap(\.strokes).compactMap(\.parent)).isSuperset(of: [a, b]))
+        let parents = Set(revived.pages.flatMap { $0.strokes }.compactMap { $0.parent })
+        #expect(parents.isSuperset(of: [a, b]))
     }
 
     @Test func restoringAPointTheNoteAlreadyMatchesWritesNothing() async throws {
@@ -247,7 +252,8 @@ struct HistoryTests {
 
         let data = try await model.loadHistory(for: Self.lecture)
         #expect(data.points.count < before.points.count + 1)
-        #expect(Set(data.points.map(\.name)).isDisjoint(with: Set(deleted)))
+        let listed = Set(data.points.map { $0.name })
+        #expect(listed.isDisjoint(with: Set(deleted)))
         let notice = try #require(data.compactionNotice)
         #expect(notice.contains("compaction"))
         // Every row is either shown and restorable, or greyed out with a reason and refused.
