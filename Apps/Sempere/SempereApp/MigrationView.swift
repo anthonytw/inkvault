@@ -1,0 +1,138 @@
+import Age
+import Sempere
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+/// The only screen of a legacy vault (format.md §3.3.2): it still lists a
+/// classic X25519 key, so its notes stay locked until it is moved to a
+/// post-quantum key (`AppModel+Migration`).
+struct MigrationView: View {
+    @Environment(AppModel.self) private var model
+    @State private var saved = false
+    @State private var copied = false
+    @State private var wrap = false
+    @State private var passphrase = ""
+    @State private var confirmation = ""
+    @State private var existingKey = ""
+    @State private var keyProblem: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let migration = model.migration {
+                    content(migration)
+                }
+            }
+            .navigationTitle("Upgrade “\(model.vaultName ?? "Vault")”")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close Vault") { model.close() }
+                        .disabled(model.migration?.isRunning ?? false)
+                }
+            }
+        }
+        .interactiveDismissDisabled()
+    }
+
+    @ViewBuilder
+    private func content(_ migration: VaultMigration) -> some View {
+        Section {
+            if migration.finishingOnly {
+                Text("A change of this vault's keys was interrupted. Finish it to open your notes.")
+            } else {
+                Text("This vault is encrypted to a classic key, which a future quantum computer could break. "
+                    + "Its notes stay locked until it is re-encrypted to a post-quantum key. This rewrites every "
+                    + "file of the vault; copies made earlier (backups, file version history) are not changed.")
+            }
+        }
+        if let key = migration.key, !migration.finishingOnly {
+            if migration.keyIsNew {
+                Section {
+                    Text("Your new post-quantum secret key. Save it now: after the upgrade only this key (or a "
+                        + "passphrase-protected copy) opens the vault. Losing it means losing the vault.")
+                    Text(key.string)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                    Button(copied ? "Copied" : "Copy Key", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.setItems([[UTType.plainText.identifier: key.string]],
+                                                      options: [.localOnly: true,
+                                                                .expirationDate: Date().addingTimeInterval(120)])
+                        copied = true
+                    }
+                    ShareLink(item: key.string, subject: Text("Sempere secret key"))
+                    Toggle("I saved this key", isOn: $saved)
+                } header: {
+                    Text("New Key")
+                }
+            } else {
+                Section("Key") {
+                    Text("The vault will be encrypted to your post-quantum key "
+                        + "\(String(key.recipient.string.prefix(16)))…\(String(key.recipient.string.suffix(8))).")
+                }
+            }
+            Section {
+                Toggle("Also store the key under a passphrase", isOn: $wrap)
+                if wrap {
+                    SecureField("Passphrase", text: $passphrase)
+                    SecureField("Repeat passphrase", text: $confirmation)
+                }
+            }
+            if migration.keyIsNew {
+                Section {
+                    TextField("AGE-SECRET-KEY-PQ-1…", text: $existingKey, axis: .vertical)
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Button("Use This Key Instead") {
+                        do {
+                            try model.useMigrationKey(identityText: existingKey)
+                            keyProblem = nil
+                            existingKey = ""
+                        } catch {
+                            keyProblem = "\(error)"
+                        }
+                    }
+                    .disabled(existingKey.isEmpty)
+                    if let keyProblem { Text(keyProblem).foregroundStyle(.red) }
+                } header: {
+                    Text("Or use a post-quantum key you already have")
+                }
+            }
+        }
+        Section {
+            switch migration.step {
+            case .ready:
+                EmptyView()
+            case .running(let text):
+                HStack {
+                    ProgressView()
+                    Text(text)
+                }
+            case .failed(let reason):
+                Text(reason).foregroundStyle(.red)
+            }
+            Button(buttonTitle(migration)) { start() }
+                .disabled(!canStart(migration))
+        }
+    }
+
+    private func buttonTitle(_ migration: VaultMigration) -> String {
+        if case .failed = migration.step { return "Try Again" }
+        return migration.finishingOnly ? "Finish" : "Upgrade Vault"
+    }
+
+    private func canStart(_ migration: VaultMigration) -> Bool {
+        if migration.isRunning { return false }
+        if migration.finishingOnly { return true }
+        guard migration.key != nil else { return false }
+        if migration.keyIsNew && !saved { return false }
+        return !wrap || (!passphrase.isEmpty && passphrase == confirmation)
+    }
+
+    private func start() {
+        let pass = wrap ? passphrase : nil
+        // A failure is shown on this screen (`step`); starting again resumes.
+        Task { try? await model.migrate(passphrase: pass) }
+    }
+}

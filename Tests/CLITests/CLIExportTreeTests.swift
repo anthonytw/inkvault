@@ -2,7 +2,7 @@ import Foundation
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
-import InkVault
+import Sempere
 import XCTest
 
 final class CLIExportTreeTests: CLITestCase {
@@ -27,7 +27,7 @@ final class CLIExportTreeTests: CLITestCase {
         let (v, _, key) = try makeVault()
         vault = v
         keyPath = key
-        vaultPath = path("mine.inkvault")
+        vaultPath = path("mine.sempere")
         func page(_ text: String?) -> (UUID, [Op]) {
             let p = UUID()
             var ops: [Op] = [.addPage(Page(id: p, order: "a0")),
@@ -216,7 +216,7 @@ final class CLIExportTreeTests: CLITestCase {
                 XCTAssertFalse(rel.split(separator: "/").contains { $0 == ".." || $0 == "." }, rel)
                 XCTAssertTrue(rel.split(separator: "/").allSatisfy { $0.utf8.count <= 200 }, rel)
                 let name = rel.split(separator: "/").last.map(String.init) ?? ""
-                XCTAssertTrue(!name.hasPrefix(".") || name == ".inkvault-export-\(format).json", rel)
+                XCTAssertTrue(!name.hasPrefix(".") || name == ".sempere-export-\(format).json", rel)
             }
             // The index files are files, and every notebook named like one is a folder with a different name.
             var isDir: ObjCBool = false
@@ -229,13 +229,13 @@ final class CLIExportTreeTests: CLITestCase {
         }
     }
 
-    /// `--clean` and the folder indexes trust `.inkvault-export-*.json`, a file in a
+    /// `--clean` and the folder indexes trust `.sempere-export-*.json`, a file in a
     /// folder that may be shared: a doctored one cannot write or delete outside it.
     func testDoctoredExportManifestCannotEscapeTheOutputFolder() throws {
         let parent = path("parent")
         let out = parent + "/out"
         XCTAssertEqual(try export(["--all", "--format", "markdown"], out: out).status, 0)
-        let manifestPath = out + "/.inkvault-export-markdown.json"
+        let manifestPath = out + "/.sempere-export-markdown.json"
         func doctor(files extra: [String], note: Bool) throws {
             var m = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: manifestPath))) as? [String: Any])
             var files = m["files"] as? [String: Any] ?? [:]
@@ -273,7 +273,7 @@ final class CLIExportTreeTests: CLITestCase {
         let out = path("md")
         let args = ["--all", "--format", "markdown"]
         XCTAssertEqual(try export(args, out: out).status, 0)
-        let manifestPath = out + "/.inkvault-export-markdown.json"
+        let manifestPath = out + "/.sempere-export-markdown.json"
         var m = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: manifestPath)))
                               as? [String: Any])
         var notes = m["notes"] as? [String: Any] ?? [:]

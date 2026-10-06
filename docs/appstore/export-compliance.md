@@ -50,7 +50,7 @@ and no platform for others (WebDAV and any HTTPS use the system's URLSession/TLS
   algorithms instead of, or in addition to, using or accessing the encryption within Apple's
   operating system**; qualifies for the mass-market treatment above; no proprietary
   algorithms. Add `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = YES;` to both app build
-  configurations in `project.pbxproj` (or the key to `InkVaultInfo.plist`) when the first
+  configurations in `project.pbxproj` (or the key to `SempereInfo.plist`) when the first
   TestFlight build is prepared; the project has the key in neither place today.
 - Apple may ask for self-classification documentation and return an
   `ITSEncryptionExportComplianceCode`; add that key too when you receive one.

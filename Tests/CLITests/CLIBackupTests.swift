@@ -1,6 +1,6 @@
 import Age
 import Foundation
-import InkVault
+import Sempere
 import XCTest
 
 /// `keys paper`, `backup`, `backup verify`, `restore`.
@@ -58,7 +58,7 @@ final class CLIBackupTests: CLITestCase {
     func testPaperKitFromTheVaultsStoredKeyFile() throws {
         let out = path("locked.pdf")
         let r = try cli(["keys", "paper", "--passphrase", "--vault", Self.fixtureVault, "--out", out],
-                        env: ["INKVAULT_PASSPHRASE": Self.passphrase])
+                        env: ["SEMPERE_PASSPHRASE": Self.passphrase])
         XCTAssertEqual(r.status, 0, r.err)
         let raw = String(decoding: try Data(contentsOf: URL(fileURLWithPath: out)), as: UTF8.self)
         XCTAssertFalse(raw.contains("AGE-SECRET-KEY"), "a passphrase kit never holds the plain key")
@@ -75,7 +75,7 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(r.status, 0)
 
         let wrong = try cli(["keys", "paper", "--passphrase", "--vault", Self.fixtureVault, "--out", path("w.pdf")],
-                            env: ["INKVAULT_PASSPHRASE": "wrong"])
+                            env: ["SEMPERE_PASSPHRASE": "wrong"])
         XCTAssertEqual(wrong.status, 4, wrong.err)
     }
 
@@ -143,11 +143,11 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(full.status, 0, full.out + full.err)
         XCTAssertEqual((full.json as? [String: Any])?["decrypted"] as? Bool, true)
         // A scripted passphrase unlocks the key file the backup holds.
-        let viaPass = try cli(["backup", "verify", dir], env: ["INKVAULT_PASSPHRASE": Self.passphrase])
+        let viaPass = try cli(["backup", "verify", dir], env: ["SEMPERE_PASSPHRASE": Self.passphrase])
         XCTAssertEqual(viaPass.status, 0, viaPass.out + viaPass.err)
         XCTAssertTrue(viaPass.out.contains("decrypted and verified"), viaPass.out)
 
-        let target = path("restored.inkvault")
+        let target = path("restored.sempere")
         let restore = try cli(["restore", dir, "--to", target, "--identity", Self.fixtureKey])
         XCTAssertEqual(restore.status, 0, restore.out + restore.err)
         let verify = try cli(["vault", "verify", "--vault", target, "--identity", Self.fixtureKey])
@@ -190,7 +190,7 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(try cli(["backup", "verify", dir, "--identity", wrongKey]).status, 4)
 
         // The restore refuses the damaged file and says so.
-        let restore = try cli(["restore", dir, "--to", path("r.inkvault")])
+        let restore = try cli(["restore", dir, "--to", path("r.sempere")])
         XCTAssertEqual(restore.status, 1)
         XCTAssertTrue(restore.err.contains(files[0]), restore.err)
     }
@@ -210,7 +210,7 @@ final class CLIBackupTests: CLITestCase {
         try Data("x".utf8).write(to: URL(fileURLWithPath: busy).appendingPathComponent("thesis.tex"))
         let refused = try cli(["backup", vault, "--to", busy])
         XCTAssertEqual(refused.status, 1)
-        XCTAssertTrue(refused.err.contains("not an inkvault backup"), refused.err)
+        XCTAssertTrue(refused.err.contains("not an sempere backup"), refused.err)
     }
 
     func testArchive() throws {

@@ -1,11 +1,11 @@
 # Security policy
 
-InkVault is encryption software; please report vulnerabilities privately.
+Sempere is encryption software; please report vulnerabilities privately.
 
 ## Reporting
 
 Use GitHub's private vulnerability reporting: open
-<https://github.com/anthonytw/inkvault/security/advisories/new> (Security tab →
+<https://github.com/anthonytw/sempere/security/advisories/new> (Security tab →
 "Report a vulnerability"). Do not open a public issue or pull request for a security problem.
 Include the affected component (`Sources/Age`, vault format, CLI, app), the version or
 commit, and steps or a test vault that reproduce it. Never include real keys or notes.
@@ -36,4 +36,4 @@ fixes never silently change it.
 ## Verifying releases
 
 Release tarballs carry GitHub build provenance attestations:
-`gh attestation verify FILE --repo anthonytw/inkvault`, plus `SHA256SUMS`.
+`gh attestation verify FILE --repo anthonytw/sempere`, plus `SHA256SUMS`.

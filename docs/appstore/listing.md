@@ -5,15 +5,15 @@ no spaces needed), description 4000, what's new 4000. TODO(user): every line is 
 
 ## Name
 
-**Sempere** is the App Store listing name (decided by the maintainer). InkVault remains the name of
-the project, the vault format, the repository and the `inkvault` command-line tool. TODO(user):
+**Sempere** is the App Store listing name (decided by the maintainer). Sempere remains the name of
+the project, the vault format, the repository and the `sempere` command-line tool. TODO(user):
 check that "Sempere" is available in App Store Connect (names are unique per store; nothing here
 could check it) and search the store and trademarks (USPTO TESS, EUIPO).
 
 If the bare name is taken, a name + descriptor listing ("Sempere: Private Notes", up to 30
-characters) also works. The bundle id (`io.github.anthonytw.inkvault`) cannot change after the
+characters) also works. The bundle id (`io.github.anthonytw.sempere`) cannot change after the
 first upload and is independent of the display name. The Xcode project, scheme and
-`CFBundleDisplayName` still say `InkVault`: the app rename (display name, product name, icon
+`CFBundleDisplayName` still say `Sempere`: the app rename (display name, product name, icon
 text) is a separate change, to be made before the first upload.
 
 ## Subtitle (30)
@@ -58,7 +58,7 @@ Notebooks, tags, paper styles and search. No AI, no ads, no subscription, no ana
 
 OPEN SOURCE
 Sempere is free software (GPL-3.0-or-later with an App Store exception). Read the code at
-github.com/anthonytw/inkvault.
+github.com/anthonytw/sempere.
 
 Privacy: Sempere collects no data.
 ```
@@ -107,4 +107,4 @@ software; see export compliance answers.
 ```
 
 TODO(user): if a reviewer needs a test vault and key, attach a throwaway vault (the repository's
-fixture vault `Tests/InkVaultTests/Fixtures/sample.inkvault` and `sample.key` are throwaway).
+fixture vault `Tests/SempereTests/Fixtures/sample.sempere` and `sample.key` are throwaway).

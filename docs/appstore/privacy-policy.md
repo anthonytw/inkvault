@@ -12,7 +12,7 @@ servers, no accounts, no analytics and no advertising.**
 
 ## What Sempere is
 
-Sempere is a handwriting notes app (an app for the open InkVault vault format). Your notes are stored in a "vault", a folder of files that
+Sempere is a handwriting notes app (an app for the open Sempere vault format). Your notes are stored in a "vault", a folder of files that
 are encrypted on your device with an encryption key that you create and control. The developer
 (Anthony Wertz, "we") cannot read your notes and does not receive them.
 
@@ -54,7 +54,7 @@ Sempere collects no data from anyone, including children.
 
 ## Open source
 
-The source code is public under the GPL-3.0-or-later (with an App Store exception) at <https://github.com/anthonytw/inkvault>,
+The source code is public under the GPL-3.0-or-later (with an App Store exception) at <https://github.com/anthonytw/sempere>,
 so these statements can be checked.
 
 ## Changes
@@ -64,15 +64,15 @@ collects data would be described in the app's release notes first.
 
 ## Contact
 
-TODO(user): contact e-mail or the GitHub issues URL (<https://github.com/anthonytw/inkvault/issues>).
+TODO(user): contact e-mail or the GitHub issues URL (<https://github.com/anthonytw/sempere/issues>).
 Security reports: see `SECURITY.md`.
 
 ---
 
 **Hosting with GitHub Pages (TODO(user)).** Settings → Pages → deploy from a branch → `main`,
 folder `/docs`. With the default Jekyll theme this page is served at
-`https://anthonytw.github.io/inkvault/appstore/privacy-policy` (the `permalink` front matter
-above is `/privacy/`, so it should appear at `https://anthonytw.github.io/inkvault/privacy/`;
+`https://anthonytw.github.io/sempere/appstore/privacy-policy` (the `permalink` front matter
+above is `/privacy/`, so it should appear at `https://anthonytw.github.io/sempere/privacy/`;
 check which one is live and use it as the Privacy Policy URL in App Store Connect). Delete this
 section from the hosted copy, or move it to the README, before publishing. Note that Pages from
 `/docs` would also publish the rest of `docs/` as web pages; if that is unwanted, use a

@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to InkVault are documented here. The format follows
+All notable changes to Sempere are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the CLI's version
-(`Sources/InkVaultCLI/Version.swift`) follows [Semantic Versioning](https://semver.org/).
+(`Sources/SempereCLI/Version.swift`) follows [Semantic Versioning](https://semver.org/).
 The section for a version is the body of its GitHub Release (`docs/releasing.md`).
 
 ## [Unreleased]
@@ -15,9 +15,9 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ## [0.5.0] - TODO(user): date of the first release
 
-First public release of the `inkvault` CLI. Everything below was merged before
+First public release of the `sempere` CLI. Everything below was merged before
 the first tag; the pull request numbers refer to
-[anthonytw/inkvault](https://github.com/anthonytw/inkvault/pulls).
+[anthonytw/sempere](https://github.com/anthonytw/sempere/pulls).
 
 ### Added
 
@@ -28,7 +28,7 @@ the first tag; the pull request numbers refer to
   per-vault HMAC tag, keys, note store, fixture vault (#6).
 - **Rendering** to vector PDF and SVG from PencilKit-style B-splines (#1), and
   pure-Swift PNG export (`export --format png [--dpi N]`) (#13).
-- **CLI** `inkvault`: `keys`, `vault init/info/recipients/verify`, `notes`, `export`,
+- **CLI** `sempere`: `keys`, `vault init/info/recipients/verify`, `notes`, `export`,
   `recover`, `compact`, `snapshot` (#7); `import notability` and `search` (#12);
   `sync webdav` with the built-in WebDAV client (#16). See `docs/cli.md`.
 - **Notability importer** for `.note` packages and backup zips, including
@@ -53,5 +53,5 @@ the first tag; the pull request numbers refer to
 - Two PNG and marker rendering bugs found by the import fidelity evaluation (#19).
 - App: debug launch expands `~/` to the app's data container (#20).
 
-[Unreleased]: https://github.com/anthonytw/inkvault/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/anthonytw/inkvault/releases/tag/v0.5.0
+[Unreleased]: https://github.com/anthonytw/sempere/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/anthonytw/sempere/releases/tag/v0.5.0

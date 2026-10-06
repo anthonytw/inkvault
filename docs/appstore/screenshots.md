@@ -2,7 +2,7 @@
 
 TODO(user): capture on the Mac with simulators and a real iPad. Use a throwaway demo vault
 (not personal notes; never use the git-ignored `data/` backup). Debug launch variables in
-`CLAUDE.md` (`INKVAULT_DEBUG_*`, `INKVAULT_DEBUG_SNAPSHOT`) open a vault and note
+`CLAUDE.md` (`SEMPERE_DEBUG_*`, `SEMPERE_DEBUG_SNAPSHOT`) open a vault and note
 non-interactively for scripted shots; `simctl io booted screenshot` takes the picture.
 
 ## Sizes App Store Connect requires (verify current list in App Store Connect)

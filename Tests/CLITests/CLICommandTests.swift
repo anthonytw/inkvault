@@ -1,6 +1,6 @@
 import Age
 import Foundation
-import InkVault
+import Sempere
 import XCTest
 
 final class CLICommandTests: CLITestCase {
@@ -32,7 +32,7 @@ final class CLICommandTests: CLITestCase {
     func testKeysExportMovesKeyToAnotherDevice() throws {
         let out = path("exported.key")
         let r = try cli(["keys", "export", "--vault", Self.fixtureVault, "--out", out],
-                        env: ["INKVAULT_PASSPHRASE": Self.passphrase])
+                        env: ["SEMPERE_PASSPHRASE": Self.passphrase])
         XCTAssertEqual(r.status, 0, r.err)
         let exported = try String(contentsOfFile: out, encoding: .utf8)
         XCTAssertEqual(try IdentityFile.parse(exported).string, try fixtureIdentity().string)
@@ -42,7 +42,7 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual((list.json as? [[String: Any]])?.count, 1)
         // Wrong passphrase: exit 4, no key file written.
         let bad = try cli(["keys", "export", "--vault", Self.fixtureVault, "--out", path("nope.key")],
-                          env: ["INKVAULT_PASSPHRASE": "wrong"])
+                          env: ["SEMPERE_PASSPHRASE": "wrong"])
         XCTAssertEqual(bad.status, 4)
         XCTAssertFalse(FileManager.default.fileExists(atPath: path("nope.key")))
     }
@@ -55,7 +55,7 @@ final class CLICommandTests: CLITestCase {
             let r = try cli(["keys", "generate", "--out", key, "-q"])
             return r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         }()
-        let vault = path("fresh.inkvault")
+        let vault = path("fresh.sempere")
         let r = try cli(["vault", "init", vault, "--recipient", pub, "--label", "laptop", "--store-key", key,
                          "--passphrase-env", "MY_PASS", "--work-factor", "15"], env: ["MY_PASS": "s3cret"])
         XCTAssertEqual(r.status, 0, r.err)
@@ -73,14 +73,14 @@ final class CLICommandTests: CLITestCase {
         XCTAssertTrue(text.out.contains(String(pub.prefix(16))) && text.out.contains("laptop"), text.out)
         XCTAssertTrue(text.out.contains("Post-quantum:   yes"), text.out)
         XCTAssertEqual((obj["recipients"] as? [[String: Any]])?.first?["type"] as? String, "mlkem768x25519")
-        let verify = try cli(["vault", "verify", "--vault", vault], env: ["INKVAULT_PASSPHRASE": "s3cret"])
+        let verify = try cli(["vault", "verify", "--vault", vault], env: ["SEMPERE_PASSPHRASE": "s3cret"])
         XCTAssertEqual(verify.status, 0, verify.err)
-        XCTAssertEqual(try cli(["vault", "verify", "--vault", vault], env: ["INKVAULT_PASSPHRASE": "bad"]).status, 4)
+        XCTAssertEqual(try cli(["vault", "verify", "--vault", vault], env: ["SEMPERE_PASSPHRASE": "bad"]).status, 4)
         // Refuses to init twice and rejects bad names / recipients.
         XCTAssertEqual(try cli(["vault", "init", vault, "--recipient", pub]).status, 1)
         XCTAssertEqual(try cli(["vault", "init", path("x"), "--recipient", pub]).status, 1)
-        XCTAssertEqual(try cli(["vault", "init", path("y.inkvault"), "--recipient", "nope"]).status, 2)
-        XCTAssertEqual(try cli(["vault", "init", path("y.inkvault")]).status, 2)
+        XCTAssertEqual(try cli(["vault", "init", path("y.sempere"), "--recipient", "nope"]).status, 2)
+        XCTAssertEqual(try cli(["vault", "init", path("y.sempere")]).status, 2)
     }
 
     func testVerifyHealthyFixtureAndCorruption() throws {
@@ -112,13 +112,13 @@ final class CLICommandTests: CLITestCase {
 
     func testPassphraseFromEnvironmentOnFixture() throws {
         let r = try cli(["notes", "list", "--vault", Self.fixtureVault, "--json"],
-                        env: ["INKVAULT_PASSPHRASE": Self.passphrase])
+                        env: ["SEMPERE_PASSPHRASE": Self.passphrase])
         XCTAssertEqual(r.status, 0, r.err)
         XCTAssertEqual((r.json as? [[String: Any]])?.first?["title"] as? String, "Fixture lecture")
         // A named variable works too, and a wrong passphrase is exit 4.
         XCTAssertEqual(try cli(["notes", "list", "--vault", Self.fixtureVault, "--passphrase-env", "P"],
                                env: ["P": Self.passphrase]).status, 0)
-        let bad = try cli(["notes", "list", "--vault", Self.fixtureVault], env: ["INKVAULT_PASSPHRASE": "nope"])
+        let bad = try cli(["notes", "list", "--vault", Self.fixtureVault], env: ["SEMPERE_PASSPHRASE": "nope"])
         XCTAssertEqual(bad.status, 4)
         XCTAssertEqual(bad.err.split(separator: "\n").count, 1, bad.err)
         // No key and no way to ask (stdin is /dev/null): exit 4.
@@ -135,10 +135,10 @@ final class CLICommandTests: CLITestCase {
         let notVault = try cli(["vault", "init", path("notes"), "--recipient",
                                 try NativeIdentity.generate(.postQuantum).recipient.string])
         XCTAssertEqual(notVault.status, 1)
-        XCTAssertTrue(notVault.err.contains("must end in .inkvault"), notVault.err)
+        XCTAssertTrue(notVault.err.contains("must end in .sempere"), notVault.err)
         // Environment variables stand in for the options.
-        let env = try cli(["notes", "list", "--json"], env: ["INKVAULT_VAULT": Self.fixtureVault,
-                                                             "INKVAULT_IDENTITY": Self.fixtureKey])
+        let env = try cli(["notes", "list", "--json"], env: ["SEMPERE_VAULT": Self.fixtureVault,
+                                                             "SEMPERE_IDENTITY": Self.fixtureKey])
         XCTAssertEqual(env.status, 0, env.err)
     }
 
@@ -172,7 +172,7 @@ final class CLICommandTests: CLITestCase {
 
     func testListShowExport() throws {
         let (_, _, keyPath) = try makeVault()
-        let v = path("mine.inkvault")
+        let v = path("mine.sempere")
         let list = try cli(["notes", "list", "--vault", v, "--identity", keyPath, "--json"])
         XCTAssertEqual(list.status, 0, list.err)
         let notes = try XCTUnwrap(list.json as? [[String: Any]])
@@ -283,12 +283,12 @@ final class CLICommandTests: CLITestCase {
 
     func testCompactSnapshotsFirstAndSnapshotCommand() throws {
         let (_, _, keyPath) = try makeVault()
-        let v = path("mine.inkvault")
+        let v = path("mine.sempere")
         let args = ["--vault", v, "--identity", keyPath]
         let note = "aaaaaaaa-1111-4111-8111-000000000001"
         let dir = v + "/notes/" + note
         func count() throws -> Int { try FileManager.default.contentsOfDirectory(atPath: dir).count }
-        let state = tmp.appendingPathComponent("state/inkvault/device.json")
+        let state = tmp.appendingPathComponent("state/sempere/device.json")
         func device() throws -> String? {
             (try JSONSerialization.jsonObject(with: Data(contentsOf: state)) as? [String: Any])?["device"] as? String
         }
@@ -320,7 +320,7 @@ final class CLICommandTests: CLITestCase {
 
     func testCompactDryRunMatchesRealRunWithTwoSnapshots() throws {
         let (vault, _, keyPath) = try makeVault()
-        let v = path("mine.inkvault")
+        let v = path("mine.sempere")
         let args = ["--vault", v, "--identity", keyPath]
         let note = UUID(uuidString: "aaaaaaaa-1111-4111-8111-000000000001")!
         XCTAssertEqual(try cli(["snapshot", note.uuidString.lowercased()] + args).status, 0)   // S1
@@ -345,8 +345,8 @@ final class CLICommandTests: CLITestCase {
 
     func testCompactAllContinuesPastABrokenNote() throws {
         _ = try makeVault()
-        let v = path("mine.inkvault")
-        let keyPath = path("mine.inkvault.key")
+        let v = path("mine.sempere")
+        let keyPath = path("mine.sempere.key")
         let broken = v + "/notes/aaaaaaaa-1111-4111-8111-000000000001"
         let file = broken + "/" + (try FileManager.default.contentsOfDirectory(atPath: broken).sorted()[0])
         var bytes = try Data(contentsOf: URL(fileURLWithPath: file))
@@ -366,7 +366,7 @@ final class CLICommandTests: CLITestCase {
 
     func testSvgLayoutAllVersusSingle() throws {
         let (_, _, keyPath) = try makeVault()
-        let v = path("mine.inkvault")
+        let v = path("mine.sempere")
         let all = path("svgall")
         XCTAssertEqual(try cli(["export", "--all", "--format", "svg", "--out", all, "--vault", v, "--identity", keyPath]).status, 0)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: all + "/Physics-Week-3-aaaaaaaa").sorted(),
@@ -394,7 +394,7 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual(bad.status, 4)
         XCTAssertTrue(bad.out.isEmpty)
         // Stored key plus passphrase works too, with no identity file.
-        let viaPass = try cli(["recover", firstRevision], env: ["INKVAULT_PASSPHRASE": Self.passphrase])
+        let viaPass = try cli(["recover", firstRevision], env: ["SEMPERE_PASSPHRASE": Self.passphrase])
         XCTAssertEqual(viaPass.status, 0, viaPass.err)
         XCTAssertEqual(viaPass.out, r.out)
     }
@@ -426,8 +426,8 @@ final class CLICommandTests: CLITestCase {
     func testRecoverMatchesStockAgePipeline() throws {
         // The fixture key is post-quantum: stock recovery needs age 1.3 or later.
         guard let age = CLIPostQuantumTests.agePQ() else {
-            if ProcessInfo.processInfo.environment["INKVAULT_REQUIRE_AGE_PQ"] != nil {
-                XCTFail("INKVAULT_REQUIRE_AGE_PQ set but no age >= 1.3 on PATH")
+            if ProcessInfo.processInfo.environment["SEMPERE_REQUIRE_AGE_PQ"] != nil {
+                XCTFail("SEMPERE_REQUIRE_AGE_PQ set but no age >= 1.3 on PATH")
             }
             throw XCTSkip("no age >= 1.3 on PATH")
         }

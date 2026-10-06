@@ -1,4 +1,4 @@
-# InkVault command index (`just` lists recipes). Works standalone and as a
+# Sempere command index (`just` lists recipes). Works standalone and as a
 # module of the dev/ workspace justfile.
 
 set working-directory := '.'
@@ -21,8 +21,8 @@ portability:
 
 # Release build of the CLI
 cli:
-    swift build -c release --product inkvault
-    @echo ".build/release/inkvault"
+    swift build -c release --product sempere
+    @echo ".build/release/sempere"
 
 # Test the iPad app on the newest iPad simulator (needs Xcode)
 app-test:

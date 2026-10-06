@@ -10,7 +10,7 @@ Result on the product page: **Data Not Collected**.
 
 Why this is accurate: Apple defines "collect" as transmitting data off the device in a way that
 lets you and/or your third-party partners access it for longer than needed to service the
-request in real time. Sempere (the App Store name of the InkVault app) has no server, sends nothing to the developer, and includes no
+request in real time. Sempere (the App Store name of the Sempere app) has no server, sends nothing to the developer, and includes no
 third-party SDKs. Notes are encrypted on the device with the user's key and written only to
 storage the user picks (Files, iCloud Drive, a user-configured WebDAV server). Those providers
 hold ciphertext on the user's behalf; the developer has no access, so this is not data
@@ -30,7 +30,7 @@ Other App Store Connect fields:
 Since May 2024 apps must declare use of "required reason" APIs. TODO(user): add a
 `PrivacyInfo.xcprivacy` to the app target (not added here: it is an app resource that must be
 checked in Xcode, and the project's file list is folder-synchronized, so dropping the file in
-`Apps/InkVault/InkVaultApp/` is enough). Expected content, from what the source uses (re-check
+`Apps/Sempere/SempereApp/` is enough). Expected content, from what the source uses (re-check
 with Xcode's *Product → Archive → Generate Privacy Report* and a grep of `Sources/` and `Apps/`):
 
 - `NSPrivacyTracking` = false; `NSPrivacyTrackingDomains` empty; `NSPrivacyCollectedDataTypes`

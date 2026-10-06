@@ -1,6 +1,6 @@
 # Post-quantum recipients
 
-Why and how InkVault uses the age MLKEM768-X25519 recipient type. The
+Why and how Sempere uses the age MLKEM768-X25519 recipient type. The
 normative text is `format.md` §3.1 (key types), §3.2 (key file names),
 §3.3.1–§3.3.2 (rewrap, migration).
 
@@ -32,7 +32,7 @@ It is hybrid: an attacker must break both ML-KEM-768 (FIPS 203) and X25519.
 Everything in it is a published standard or IETF draft with independent
 implementations, which keeps the app in the US "mass market, standard
 encryption" export category. The same spec also defines `mlkem768p256tag`
-(ML-KEM + P-256, for hardware tokens); InkVault does not need it.
+(ML-KEM + P-256, for hardware tokens); Sempere does not need it.
 
 Alternatives considered: a custom ML-KEM stanza (incompatible with `age`,
 breaks the stock-CLI recovery path); an age plugin (needs a plugin binary
@@ -69,7 +69,7 @@ toolchain resolves to 4.3.x, newer ones to the latest 4.x.
   recipients) decrypt here, and files we encrypt decrypt with `age -d`;
   mixed X25519 + PQ files decrypt with `age` under either key;
   the stock-CLI recovery pipeline works on a migrated vault. CI installs that
-  release on Linux and macOS and sets `INKVAULT_REQUIRE_AGE_PQ`, so the
+  release on Linux and macOS and sets `SEMPERE_REQUIRE_AGE_PQ`, so the
   interop tests fail rather than skip there.
 - Malformed stanzas (argument count, enc length, non-canonical base64, body
   length, low-order X25519 share, random bit flips) never crash and fail as
@@ -89,7 +89,7 @@ mixed files fine. A vault created today can never be mixed.
 ## Policy: post-quantum only
 
 Project decision (docs/HANDOFF.md, "Decided"): vaults take only
-MLKEM768-X25519 recipients. `inkvault keys generate` and the app's "generate
+MLKEM768-X25519 recipients. `sempere keys generate` and the app's "generate
 a key" make only post-quantum keys (no classic option); `Vault.create`,
 `addRecipient` and the target of `replaceRecipient` throw
 `VaultError.classicRecipient` ("create a new key") for an `age1...` key, and
@@ -103,12 +103,12 @@ not work." The library enforces it in one place (`Vault.isLegacy`,
 `requireMigrated()`, `VaultError.legacyVault`): reading or writing note
 content (summaries, read, reconstruct, history, restore, write/apply,
 snapshot, compact, import, verify of note files) throws "migrate first:
-inkvault vault recipients replace OLD NEW". Allowed: opening and unlocking,
+sempere vault recipients replace OLD NEW". Allowed: opening and unlocking,
 the manifest and `keys/` files, `addRecipient` (post-quantum only),
 `removeRecipient`, `replaceRecipient`, `resumeRewrap`. The CLI refuses every
 other command with exit 5 before asking for a passphrase; the app shows only
 a migration screen. Nothing on disk changed: `age -d -i key FILE.age | tail
--c +38 | gunzip | jq .` and `inkvault recover` still read a legacy vault's
+-c +38 | gunzip | jq .` and `sempere recover` still read a legacy vault's
 files. The Age module itself keeps full X25519 support, as the age spec
 requires.
 
@@ -123,11 +123,11 @@ release).
 Single device (one rewrap, no mixed files):
 
 ```bash
-inkvault keys generate --out ~/.config/inkvault/pq.key
-inkvault vault recipients replace age1old... ~/.config/inkvault/pq.key \
-    --vault notes.inkvault --identity ~/.config/inkvault/key.txt \
-    --store-key ~/.config/inkvault/pq.key   # only if you unlock with a passphrase
-inkvault vault info --vault notes.inkvault        # Post-quantum: yes
+sempere keys generate --out ~/.config/sempere/pq.key
+sempere vault recipients replace age1old... ~/.config/sempere/pq.key \
+    --vault notes.sempere --identity ~/.config/sempere/key.txt \
+    --store-key ~/.config/sempere/pq.key   # only if you unlock with a passphrase
+sempere vault info --vault notes.sempere        # Post-quantum: yes
 ```
 
 Several devices: `recipients add` each device's new `age1pq1...` key, switch

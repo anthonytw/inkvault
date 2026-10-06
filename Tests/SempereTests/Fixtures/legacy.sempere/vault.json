@@ -1,0 +1,13 @@
+{
+  "created" : "2026-10-04T16:20:00.000Z",
+  "format" : "sempere/1",
+  "recipients" : [
+    {
+      "added" : "2026-10-04T16:20:00.000Z",
+      "key" : "age1f406y9syjcsa2gj2lgz0s2g7suxrytycqr79zccg3d4spcujegqsgl00rd",
+      "label" : "Sempere test fixture (throwaway, test-only key)"
+    }
+  ],
+  "vaultId" : "5a3b1e00-1000-4000-8000-000000000001",
+  "vaultSecret" : "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBqN1psYXVmUmZJdEcxSVBl\nKzZLOUNlWDBGSUVYUytlY2lHKzByd0xhQWw0CmZ3eW5taFdLRGJuZjFRYXE3M1N5\nTkxxRnhWN2d1UUY0T2FDK3VKMEtNMGsKLS0tIEJ5bElYN1pObDNmc1Jxcmh2L2tQ\nMWRidmVFakh4clh5NlVSNi80RUxxUXMKkhi4fivwAHCJJFe0/RYvQ4U4ugr7P83o\nQ6wo7K0stMEagoepbS0nV3dLwaf2gt6HgwkH2mRWIjazYe2jUcjGKw==\n-----END AGE ENCRYPTED FILE-----\n"
+}

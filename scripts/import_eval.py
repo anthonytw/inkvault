@@ -441,7 +441,7 @@ def pdf_pages_note(d: Path, img_dir: Path) -> dict | None:
         _, page, o, t, a, b = worst
         res["worstPage"] = page
         files = []
-        for k, (cap, arr) in enumerate([(f"ours (InkRender), page {page}", o), (f"Notability PDF, page {page}", t),
+        for k, (cap, arr) in enumerate([(f"ours (SempereRender), page {page}", o), (f"Notability PDF, page {page}", t),
                                          ("overlay of ink masks", overlay(a, b))]):
             f = img_dir / f"{d.name}-pdf-{k}.png"
             Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(f)
@@ -767,7 +767,7 @@ def process_note(job) -> dict:
                          "darknessCorrelation": m.get("darknessCorrelation")}
     if oimg:
         row["_sets"].append(("Import vs Notability thumbnail (page 1)", save_set(img_dir, f"{id8}-oracle", [
-            ("ours (InkRender, page 1)", oimg["ours"]), ("Notability thumbnail", oimg["thumb"]),
+            ("ours (SempereRender, page 1)", oimg["ours"]), ("Notability thumbnail", oimg["thumb"]),
             ("overlay of ink masks", overlay(oimg["a"], oimg["b"]))])))
     pdf = pdf_pages_note(d, img_dir)
     if pdf is not None:
@@ -801,7 +801,7 @@ def process_note(job) -> dict:
         flags += canvas_flags(c)
         if cimg:
             row["_sets"].append(("Canvas vs export (worst band)", save_set(img_dir, f"{id8}-canvas", [
-                (f"canvas, band {cimg['band']}", cimg["canvas"]), ("export (InkRender)", cimg["export"]),
+                (f"canvas, band {cimg['band']}", cimg["canvas"]), ("export (SempereRender)", cimg["export"]),
                 ("overlay of ink masks", overlay(cimg["a"], cimg["b"]))])))
     elif canvas_dir.is_dir():  # the canvas stage ran but skipped this note
         flags.append("canvas-missing")

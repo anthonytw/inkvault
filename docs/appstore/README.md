@@ -1,7 +1,7 @@
 # App Store preparation
 
 Drafts for the iPad/Mac (Catalyst) release. The App Store listing is named **Sempere**; the code,
-project and CLI keep the name InkVault until the app rename. Everything marked **TODO(user)** needs your
+project and CLI keep the name Sempere until the app rename. Everything marked **TODO(user)** needs your
 decision or confirmation; nothing here has been submitted. Not legal advice.
 
 | File | What |
@@ -17,7 +17,7 @@ decision or confirmation; nothing here has been submitted. Not legal advice.
 - [x] contributor policy decided: GPL-3.0-or-later with the App Store exception, no CLA
       (`LICENSE-EXCEPTION`, `CONTRIBUTING.md`, `docs/legal/app-store-exception.md`)
 - [ ] TODO(user): the name Sempere is available in App Store Connect (`listing.md`); bundle id is
-      `io.github.anthonytw.inkvault` in the project today, and cannot change after the first upload
+      `io.github.anthonytw.sempere` in the project today, and cannot change after the first upload
 - [ ] TODO(user): signing team set in Xcode; the iCloud entitlement is *not* needed (vaults
       live in folders picked through Files)
 - [x] export compliance decided: mass-market standard encryption at full strength

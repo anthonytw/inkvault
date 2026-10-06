@@ -1,5 +1,5 @@
 import Foundation
-import InkVault
+import Sempere
 import XCTest
 
 final class CLIImportSearchTests: CLITestCase {
@@ -92,7 +92,7 @@ final class CLIImportSearchTests: CLITestCase {
         XCTAssertEqual((try cli(["search", "cd", "--json"] + vaultArgs(vault)).json as? [Any])?.count, 0)
         // A real import does create it.
         XCTAssertEqual(try cli(["import", "notability", Self.packageNote] + vaultArgs(vault)).status, 0)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path("state/inkvault/device.json")))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path("state/sempere/device.json")))
     }
 
     func testDryRunReportsAlreadyImported() throws {
@@ -116,14 +116,14 @@ final class CLIImportSearchTests: CLITestCase {
         // Folder tags are on by default; --tag adds fixed ones.
         let tagged = try cli(["notes", "list", "--tag", "research", "--json"] + vaultArgs(vault))
         XCTAssertEqual((tagged.json as? [[String: Any]])?.count, 1, tagged.out)
-        let third = try copyFixtureVault(as: "third.inkvault")
+        let third = try copyFixtureVault(as: "third.sempere")
         let t = try cli(["import", "notability", tmp.appendingPathComponent("Notability").path, "--no-folder-tags",
                          "--tag", "from-notability"] + vaultArgs(third))
         XCTAssertEqual(t.status, 0, t.err)
         XCTAssertEqual((try cli(["notes", "list", "--tag", "Research", "--json"] + vaultArgs(third)).json as? [[String: Any]])?.count, 0)
         XCTAssertEqual((try cli(["notes", "list", "--tag", "from-notability", "--json"] + vaultArgs(third)).json as? [[String: Any]])?.count, 1)
 
-        let other = try copyFixtureVault(as: "other.inkvault")
+        let other = try copyFixtureVault(as: "other.sempere")
         let n = try cli(["import", "notability", Self.zipNote, "--notebook", "Mine", "--no-scale"] + vaultArgs(other))
         XCTAssertEqual(n.status, 0, n.err)
         let list = try cli(["notes", "list", "--notebook", "Mine", "--json"] + vaultArgs(other))

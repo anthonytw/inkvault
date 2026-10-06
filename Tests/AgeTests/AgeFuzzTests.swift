@@ -7,7 +7,7 @@ import XCTest
 /// Seeded mutation fuzzing of every age parser (header, armor, STREAM, Bech32,
 /// scrypt stanza). Inputs come from a hostile sync server or shared folder:
 /// anything may throw `AgeError`, nothing may trap, hang or allocate without
-/// bound. See Tests/FuzzSupport for the knobs (INKVAULT_FUZZ_LONG, ...).
+/// bound. See Tests/FuzzSupport for the knobs (SEMPERE_FUZZ_LONG, ...).
 final class AgeFuzzTests: XCTestCase {
     static let identities = [X25519Identity(), X25519Identity()]
 

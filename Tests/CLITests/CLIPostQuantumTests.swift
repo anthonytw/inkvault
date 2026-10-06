@@ -1,6 +1,6 @@
 import Age
 import Foundation
-import InkVault
+import Sempere
 import XCTest
 
 /// Post-quantum keys through the CLI: key generation, the refusal of
@@ -63,7 +63,7 @@ final class CLIPostQuantumTests: CLITestCase {
         let after = try cli(["vault", "info", "--vault", vault.path, "--json"])
         let recips = try XCTUnwrap((after.json as? [String: Any])?["recipients"] as? [[String: Any]])
         XCTAssertEqual(recips.map { $0["type"] as? String }, ["mlkem768x25519"])
-        XCTAssertEqual(recips.first?["label"] as? String, "InkVault test fixture (throwaway, test-only key)")
+        XCTAssertEqual(recips.first?["label"] as? String, "Sempere test fixture (throwaway, test-only key)")
         XCTAssertEqual(try cli(["vault", "verify", "--vault", vault.path, "--identity", path("pq.key")]).status, 0)
         XCTAssertEqual(try cli(["notes", "list", "--vault", vault.path, "--identity", path("pq.key")]).status, 0)
         // The old key is locked out (exit 4: no key decrypts).
@@ -87,7 +87,7 @@ final class CLIPostQuantumTests: CLITestCase {
         for key in [oldKey, path("pq.key")] {
             let r = try cli(["vault", "verify", "--vault", vault.path, "--identity", key])
             XCTAssertEqual(r.status, 5, r.err)
-            XCTAssertTrue(r.err.contains("migrate first: inkvault vault recipients replace \(old) NEW"), r.err)
+            XCTAssertTrue(r.err.contains("migrate first: sempere vault recipients replace \(old) NEW"), r.err)
         }
         XCTAssertEqual(try cli(["vault", "recipients", "remove", old, "--vault", vault.path,
                                 "--identity", path("pq.key")]).status, 0)
@@ -104,8 +104,8 @@ final class CLIPostQuantumTests: CLITestCase {
         XCTAssertEqual(try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", vault.path,
                                 "--identity", oldKey]).status, 0)
         guard let age = Self.agePQ() else {
-            if ProcessInfo.processInfo.environment["INKVAULT_REQUIRE_AGE_PQ"] != nil {
-                XCTFail("INKVAULT_REQUIRE_AGE_PQ set but no age >= 1.3 on PATH")
+            if ProcessInfo.processInfo.environment["SEMPERE_REQUIRE_AGE_PQ"] != nil {
+                XCTFail("SEMPERE_REQUIRE_AGE_PQ set but no age >= 1.3 on PATH")
             }
             throw XCTSkip("no age >= 1.3 on PATH")
         }
@@ -129,10 +129,10 @@ final class CLIPostQuantumTests: CLITestCase {
     /// it with "create a new key" (exit 2) and leave nothing behind.
     func testClassicRecipientsRefused() throws {
         let classic = X25519Identity().recipient.string
-        let initR = try cli(["vault", "init", path("v.inkvault"), "--recipient", classic])
+        let initR = try cli(["vault", "init", path("v.sempere"), "--recipient", classic])
         XCTAssertEqual(initR.status, 2)
         XCTAssertTrue(initR.err.contains("create a new key"), initR.err)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: path("v.inkvault")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path("v.sempere")))
         let (made, _, key) = try makeVault()
         let vault = made.url
         let add = try cli(["vault", "recipients", "add", classic, "--vault", vault.path, "--identity", key])
@@ -155,12 +155,12 @@ final class CLIPostQuantumTests: CLITestCase {
         let old = try legacyIdentity().recipient.string
         for args in [["vault", "recipients", "add", classic, "--vault", vault],
                      ["vault", "recipients", "replace", old, classic, "--vault", vault],
-                     ["vault", "init", path("n.inkvault"), "--recipient", classic, "--store-key", path("classic.key")]] {
+                     ["vault", "init", path("n.sempere"), "--recipient", classic, "--store-key", path("classic.key")]] {
             let r = try cli(args)
             XCTAssertEqual(r.status, 2, "\(args): \(r.err)")
             XCTAssertTrue(r.err.contains("create a new key"), r.err)
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: path("n.inkvault")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path("n.sempere")))
         XCTAssertEqual(try stanzaTypes(vault), [["X25519"]])
     }
 
@@ -183,10 +183,10 @@ final class CLIPostQuantumTests: CLITestCase {
     /// new key.
     func testReplaceKeepsPassphraseUnlock() throws {
         let old = try legacyIdentity().recipient.string
-        let pass = ["INKVAULT_PASSPHRASE": Self.passphrase]
+        let pass = ["SEMPERE_PASSPHRASE": Self.passphrase]
         _ = try generate("pq.key")
 
-        let plain = try copyLegacyVault(as: "plain.inkvault")
+        let plain = try copyLegacyVault(as: "plain.sempere")
         XCTAssertEqual(try cli(["notes", "list", "--vault", plain], env: pass).status, 5, "legacy: migrate first")
         XCTAssertEqual(try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", plain],
                                env: pass).status, 0)
@@ -194,7 +194,7 @@ final class CLIPostQuantumTests: CLITestCase {
         XCTAssertEqual(after.status, 4, after.err)
         XCTAssertTrue(after.err.contains("stores no passphrase-wrapped key"), after.err)
 
-        let stored = try copyLegacyVault(as: "stored.inkvault")
+        let stored = try copyLegacyVault(as: "stored.sempere")
         let r = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", stored,
                          "--store-key", path("pq.key"), "--work-factor", "15"], env: pass)
         XCTAssertEqual(r.status, 0, r.err)
@@ -206,7 +206,7 @@ final class CLIPostQuantumTests: CLITestCase {
         XCTAssertEqual(((info.json as? [String: Any])?["keyFiles"] as? [String])?.count, 1, info.out)
 
         // --store-key must be the new recipient's key, checked before any change.
-        let other = try copyLegacyVault(as: "other.inkvault")
+        let other = try copyLegacyVault(as: "other.sempere")
         let wrong = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", other,
                              "--store-key", Self.legacyKey], env: pass)
         XCTAssertEqual(wrong.status, 2, wrong.err)
@@ -214,7 +214,7 @@ final class CLIPostQuantumTests: CLITestCase {
     }
 
     /// Legacy vaults are migrate-only (format.md §3.3.2): every command that
-    /// touches one exits 5 with "migrate first: inkvault vault recipients
+    /// touches one exits 5 with "migrate first: sempere vault recipients
     /// replace OLD NEW", before any passphrase is asked for (none is set
     /// here, so a prompt would end in exit 4), except the migration commands,
     /// `vault info` and `recover` (the stock-age equivalent).
@@ -242,18 +242,18 @@ final class CLIPostQuantumTests: CLITestCase {
             ["keys", "paper", "--vault", vault, "--out", path("kit.pdf")],
             ["backup", vault, "--to", path("pruned"), "--prune"],
             ["backup", "verify", vault],
-            ["restore", vault, "--to", path("restored.inkvault")],
+            ["restore", vault, "--to", path("restored.sempere")],
         ]
         for args in refused {
             for extra in [[String](), ["--identity", key]] {
                 let r = try cli(args + extra)
                 XCTAssertEqual(r.status, 5, "\(args + extra): \(r.err)")
-                XCTAssertTrue(r.err.contains("migrate first: inkvault vault recipients replace \(old) NEW"),
+                XCTAssertTrue(r.err.contains("migrate first: sempere vault recipients replace \(old) NEW"),
                               "\(args + extra): \(r.err)")
             }
         }
         XCTAssertEqual(try stanzaTypes(vault), [["X25519"]], "nothing was written")
-        for made in ["md", "html", "kit.pdf", "pruned", "restored.inkvault"] {
+        for made in ["md", "html", "kit.pdf", "pruned", "restored.sempere"] {
             XCTAssertFalse(FileManager.default.fileExists(atPath: path(made)), made)
         }
 
@@ -263,7 +263,7 @@ final class CLIPostQuantumTests: CLITestCase {
         XCTAssertEqual(try cli(["backup", vault, "--archive", path("v.tar")]).status, 0)
         // ...and the backup is a legacy vault too: verify and restore refuse it.
         XCTAssertEqual(try cli(["backup", "verify", path("bk"), "--identity", key]).status, 5)
-        XCTAssertEqual(try cli(["restore", path("bk"), "--to", path("r2.inkvault")]).status, 5)
+        XCTAssertEqual(try cli(["restore", path("bk"), "--to", path("r2.sempere")]).status, 5)
 
         // Allowed: info, recover (stock-age equivalent), and the migration itself.
         let info = try cli(["vault", "info", "--vault", vault])

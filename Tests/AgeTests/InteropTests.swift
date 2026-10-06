@@ -124,23 +124,23 @@ final class InteropTests: XCTestCase {
     // MARK: - MLKEM768-X25519 (needs age >= 1.3)
 
     /// `age` and `age-keygen` from PATH when they are v1.3 or later (the
-    /// first with `-pq`). Skips otherwise, unless INKVAULT_REQUIRE_AGE_PQ is
+    /// first with `-pq`). Skips otherwise, unless SEMPERE_REQUIRE_AGE_PQ is
     /// set (CI), which turns a missing or old `age` into a failure.
     func pqTools() throws -> (age: URL, keygen: URL) {
-        let required = ProcessInfo.processInfo.environment["INKVAULT_REQUIRE_AGE_PQ"] != nil
+        let required = ProcessInfo.processInfo.environment["SEMPERE_REQUIRE_AGE_PQ"] != nil
         guard postQuantumAvailable else {
-            if required { XCTFail("INKVAULT_REQUIRE_AGE_PQ set but this OS lacks X-Wing") }
+            if required { XCTFail("SEMPERE_REQUIRE_AGE_PQ set but this OS lacks X-Wing") }
             throw XCTSkip("no X-Wing on this OS")
         }
         guard let age = Self.which("age"), let keygen = Self.which("age-keygen") else {
-            if required { XCTFail("INKVAULT_REQUIRE_AGE_PQ set but age is not on PATH") }
+            if required { XCTFail("SEMPERE_REQUIRE_AGE_PQ set but age is not on PATH") }
             throw XCTSkip("age / age-keygen not on PATH")
         }
         let version = String(decoding: try run(age, ["--version"]), as: UTF8.self)
         let parts = version.trimmingCharacters(in: .whitespacesAndNewlines)
             .drop { $0 == "v" }.split(separator: ".").prefix(2).compactMap { Int($0) }
         guard parts.count == 2, parts[0] > 1 || (parts[0] == 1 && parts[1] >= 3) else {
-            if required { XCTFail("INKVAULT_REQUIRE_AGE_PQ set but age is \(version)") }
+            if required { XCTFail("SEMPERE_REQUIRE_AGE_PQ set but age is \(version)") }
             throw XCTSkip("age \(version) predates post-quantum recipients (needs 1.3)")
         }
         return (age, keygen)

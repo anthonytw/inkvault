@@ -19,7 +19,7 @@ final class CLIHistoryTests: CLITestCase {
         XCTAssertEqual(points.map { $0["kind"] as? String }, ["delta", "delta", "delta", "snapshot", "delta"])
         XCTAssertEqual(points.map { $0["device"] as? String },
                        ["a1b2c3d4", "99ee00ff", "99ee00ff", "a1b2c3d4", "a1b2c3d4"])
-        XCTAssertEqual(points.first?["app"] as? String, "inkvault-fixture/1")
+        XCTAssertEqual(points.first?["app"] as? String, "sempere-fixture/1")
         XCTAssertEqual(points.first?["wall"] as? String, "2026-10-04T16:20:01Z")
         XCTAssertTrue(points.allSatisfy { $0["complete"] as? Bool == true })
 
@@ -59,7 +59,7 @@ final class CLIHistoryTests: CLITestCase {
         XCTAssertTrue(file.hasSuffix(".delta.age"))
         // The device id comes from the state file, which now holds the clock.
         let state = try JSONSerialization.jsonObject(with: Data(contentsOf: tmp.appendingPathComponent(
-            "state/inkvault/device.json"))) as? [String: Any]
+            "state/sempere/device.json"))) as? [String: Any]
         XCTAssertTrue(file.contains("-\(state?["device"] as? String ?? "?")-1.delta.age"), file)
 
         let list = try cli(["notes", "list", "--json"] + access)
