@@ -716,8 +716,9 @@ intentions but always holds every live page exactly once.
 page of a paged note, `width × height`. Ink below a finite page (a stroke
 whose centre `c`, as for a split, is at or below `height`: only a concurrent
 edit, above, or another writer leaves one) adds output pages of the same
-size after it, cut like a pageless page from `height` down, so no ink is
-lost; strokes merely crossing the bottom edge are clipped by it. A
+size after it, cut like a pageless page from `height` down and keeping
+only those that hold ink, so no ink is lost; strokes merely crossing the
+bottom edge are clipped by it. A
 pageless page is cut into output pages of `width × H`: from the top `t`
 of the current output page, the cut is at `t + H`, unless that line
 crosses ink; then it moves up to the top of the ink it crosses, if that is

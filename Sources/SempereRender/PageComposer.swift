@@ -2,12 +2,27 @@ import Foundation
 import Sempere
 
 /// One output page: a vertical slice of a note page. `yOffset ..< yEnd` is the
-/// slice in page coordinates; `height` is `yEnd - yOffset`.
+/// output page in page coordinates (paper is drawn over all of it); `height`
+/// is `yEnd - yOffset`. Ink is drawn only down to `contentEnd` (≤ `yEnd`),
+/// where the next output page starts (format.md §5.4.3, "Exporting").
 struct PageChunk {
     var yOffset: Double
     var yEnd: Double
     var width: Double
+    /// Bottom of the ink on this output page.
+    var contentEnd: Double
+    /// The top is a gap no stroke spans: strokes ending there belong to the page above.
+    var startsAtGap = false
+    /// The bottom is a gap no stroke spans: strokes starting there belong to the page below.
+    var endsAtGap = false
     var height: Double { yEnd - yOffset }
+
+    init(yOffset: Double, yEnd: Double, width: Double, contentEnd: Double? = nil,
+         startsAtGap: Bool = false, endsAtGap: Bool = false) {
+        self.yOffset = yOffset; self.yEnd = yEnd; self.width = width
+        self.contentEnd = contentEnd ?? yEnd
+        self.startsAtGap = startsAtGap; self.endsAtGap = endsAtGap
+    }
 }
 
 /// A note page validated once, with every stroke sampled and outlined once in
@@ -19,6 +34,8 @@ struct PreparedPage {
         var commands: [DrawCommand]
         var minY: Double
         var maxY: Double
+        /// Midpoint of the transformed control points' y range (format.md §5.4.3).
+        var centreY: Double
     }
 
     let meta: NoteMeta
@@ -33,6 +50,8 @@ struct PreparedPage {
     /// every band would take more than `RenderLimits.maxPaperCommandsPerPage`
     /// commands.
     let drawnPaper: Paper
+    /// Output pages (`PageChunk`), cut per format.md §5.4.3.
+    let chunks: [PageChunk]
 
     /// Validates `meta`/`page` and builds stroke geometry.
     ///
@@ -78,20 +97,33 @@ struct PreparedPage {
             let commands = StrokeOutline.commands(for: stroke, tolerance: options.tolerance)
             outlinePoints += commands.reduce(0) { $0 + $1.pointCount }
             guard outlinePoints <= maxOutlinePoints else { throw RenderError.tooComplex }
-            list.append(PreparedStroke(commands: commands, minY: lo - pad, maxY: hi + pad))
+            list.append(PreparedStroke(commands: commands, minY: lo - pad, maxY: hi + pad, centreY: lo / 2 + hi / 2))
             low = max(low, hi + pad)
         }
         strokes = list
+        let chunkHeight = Self.chunkHeight(options: options, size: size)
         if size.infinite {
             guard low <= maxE else { throw RenderError.extentTooLarge(low) }
-            let chunk = Self.chunkHeight(options: options, size: size)
-            extent = max(size.height, low.rounded(.up), chunk)
+            extent = max(size.height, low.rounded(.up), chunkHeight)
         } else {
-            extent = size.height
+            // Ink below the page (a stroke centred at or below its height) adds pages after it.
+            let below = list.filter { $0.centreY >= size.height }.map(\.maxY).max()
+            if let below { guard below <= maxE else { throw RenderError.extentTooLarge(below) } }
+            extent = max(size.height, below?.rounded(.up) ?? 0)
         }
+        let seekGaps = options.breaks == .gaps && paper.kind != .cornell
+        let blocks = Self.blocks(list)
+        var cut = Self.chunks(width: size.width, firstHeight: size.infinite ? nil : size.height,
+                              sheetHeight: size.infinite ? chunkHeight : size.height, extent: extent,
+                              blocks: seekGaps ? blocks : nil)
+        if !size.infinite {
+            // Below a finite page only the output pages that hold ink are kept.
+            cut = [cut[0]] + cut.dropFirst().filter { Self.holdsInk($0, blocks) }
+        }
+        chunks = cut
         // Bands over the per-band cap draw no ruling anyway; the rest must fit the page budget.
         var ruling = 0.0
-        for c in Self.chunks(meta: meta, extent: extent, chunkHeight: Self.chunkHeight(options: options, size: size)) {
+        for c in chunks {
             let n = PaperRenderer.rulingCount(paper: paper, width: c.width, yOffset: c.yOffset, yEnd: c.yEnd,
                                               sheetHeight: PaperRenderer.sheetHeight(for: size)) ?? 0
             if n <= RenderLimits.maxPaperCommands { ruling += n }
@@ -109,14 +141,68 @@ struct PreparedPage {
     /// Chunk height for infinite pages: the option (clamped), else letter aspect from the width.
     var chunkHeight: Double { Self.chunkHeight(options: options, size: meta.pageSize) }
 
-    /// Output pages for this note page.
-    var chunks: [PageChunk] { Self.chunks(meta: meta, extent: extent, chunkHeight: chunkHeight) }
+    /// Output pages (format.md §5.4.3, "Exporting"). A finite page is one
+    /// page of `firstHeight`; ink below it, and an infinite page from the
+    /// top, are cut into pages of `sheetHeight`: each cut is at `t + H`,
+    /// or, when that crosses ink (`blocks`, nil for fixed cuts), at the top
+    /// of the ink it crosses if that is at least `t + 3H/4`.
+    static func chunks(width w: Double, firstHeight: Double?, sheetHeight h: Double, extent: Double,
+                       blocks: [ClosedRange<Double>]?) -> [PageChunk] {
+        var out: [PageChunk] = []
+        var t = 0.0
+        var startsAtGap = false
+        if let first = firstHeight {
+            out.append(PageChunk(yOffset: 0, yEnd: first, width: w))
+            t = first
+            guard extent > first else { return out }
+        }
+        // Each cut advances by at least 3h/4 (h >= 72, extent <= maxExtent): bounded.
+        while true {
+            let e = t + h
+            if e >= extent {
+                out.append(PageChunk(yOffset: t, yEnd: e, width: w, startsAtGap: startsAtGap))
+                return out
+            }
+            let cut = blocks.flatMap { gapCut(nominal: e, earliest: t + h * 0.75, blocks: $0) }
+            out.append(PageChunk(yOffset: t, yEnd: e, width: w, contentEnd: cut ?? e,
+                                 startsAtGap: startsAtGap, endsAtGap: cut != nil))
+            t = cut ?? e
+            startsAtGap = cut != nil
+        }
+    }
 
-    static func chunks(meta: NoteMeta, extent: Double, chunkHeight h: Double) -> [PageChunk] {
-        let w = meta.pageSize.width
-        guard meta.pageSize.infinite else { return [PageChunk(yOffset: 0, yEnd: extent, width: w)] }
-        let count = max(Int((extent / h).rounded(.up)), 1)   // extent <= maxExtent, h >= 72
-        return (0..<count).map { PageChunk(yOffset: Double($0) * h, yEnd: Double($0 + 1) * h, width: w) }
+    /// Whether any ink block reaches into `chunk`'s content band.
+    static func holdsInk(_ c: PageChunk, _ blocks: [ClosedRange<Double>]) -> Bool {
+        blocks.contains { $0.upperBound > c.yOffset && $0.lowerBound < c.contentEnd }
+    }
+
+    /// The vertical extents of the strokes, merged into disjoint ranges
+    /// sorted by lower bound (touching ranges merge).
+    static func blocks(_ strokes: [PreparedStroke]) -> [ClosedRange<Double>] {
+        var out: [ClosedRange<Double>] = []
+        for s in strokes.sorted(by: { $0.minY < $1.minY }) where s.minY <= s.maxY {
+            if let last = out.last, s.minY <= last.upperBound {
+                out[out.count - 1] = last.lowerBound...max(last.upperBound, s.maxY)
+            } else {
+                out.append(s.minY...s.maxY)
+            }
+        }
+        return out
+    }
+
+    /// Where to cut near `nominal`: `nominal` itself when no ink spans it, else
+    /// the top of the ink block that does when that is at or below `earliest`;
+    /// nil when neither (the cut stays at `nominal`, through the ink).
+    static func gapCut(nominal: Double, earliest: Double, blocks: [ClosedRange<Double>]) -> Double? {
+        // Last block starting before `nominal` (binary search).
+        var lo = 0, hi = blocks.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if blocks[mid].lowerBound < nominal { lo = mid + 1 } else { hi = mid }
+        }
+        guard lo > 0, blocks[lo - 1].upperBound > nominal else { return nominal }
+        let top = blocks[lo - 1].lowerBound
+        return top >= earliest ? top : nil
     }
 
     /// Paper (if enabled) and strokes for `chunk`, in chunk-local coordinates.
@@ -131,9 +217,11 @@ struct PreparedPage {
                                                    sheetHeight: PaperRenderer.sheetHeight(for: meta.pageSize))
         }
         var out: [DrawCommand] = []
-        for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.yEnd) {
+        for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.contentEnd) {
+            if chunk.startsAtGap && s.maxY <= chunk.yOffset { continue }
+            if chunk.endsAtGap && s.minY >= chunk.contentEnd { continue }
             for c in s.commands {
-                if let clipped = Self.clip(c, to: chunk.yOffset, chunk.yEnd) {
+                if let clipped = Self.clip(c, to: chunk.yOffset, chunk.contentEnd) {
                     out.append(clipped.translated(dy: -chunk.yOffset))
                 }
             }
