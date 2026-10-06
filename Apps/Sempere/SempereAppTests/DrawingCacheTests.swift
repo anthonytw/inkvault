@@ -137,9 +137,11 @@ struct DrawingCacheTests {
         let real = try #require(await editor.prepareDrawing(for: page.id))
         #expect(real.strokes.count == 2)
         #expect(DrawingPreparation.matches(real, editor.liveStrokes(of: page.id)))
-        // Corrected in the cache too.
-        let stored = try #require(cache.drawing(key, page: page.id))
-        #expect(DrawingPreparation.fromCache(stored, strokes: editor.liveStrokes(of: page.id)) != nil)
+        // Corrected in the cache too (written in the background, after the page is shown).
+        let strokes = editor.liveStrokes(of: page.id)
+        #expect(await TS.waitUntil {
+            cache.drawing(key, page: page.id).flatMap { DrawingPreparation.fromCache($0, strokes: strokes) } != nil
+        })
         model.close()
     }
 
