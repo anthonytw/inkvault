@@ -9,6 +9,7 @@
 // scripts/golden.sh to export the Swift CLI's view of it.
 
 import { Encrypter, armor, identityToRecipient } from "age-encryption";
+import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -258,6 +259,163 @@ mkdirSync(join(out, "notes"), { recursive: true });
     { op: "setMeta", field: "pageSize", value: { width: 595, height: 842, infinite: false } },
     { op: "addPage", page: { id: id(0x600), order: "a0", strokes: [] } },
     { op: "deleteNote" },
+  ]));
+}
+
+// --- Blobs (format.md §8.1): framed, Padmé-padded, encrypted, under the keyed name.
+const media = join(web, "test", "fixtures", "media");
+
+interface Ref {
+  sha256: string;
+  size: number;
+  type: string;
+}
+
+function padme(n: number): number {
+  if (n < 2) return n;
+  const e = Math.floor(Math.log2(n)), z = e - (Math.floor(Math.log2(e)) + 1);
+  return Math.ceil(n / 2 ** z) * 2 ** z;
+}
+
+function blobKind(type: string): string {
+  return type.startsWith("image/") ? "image" : type === "application/pdf" ? "pdf" : type.startsWith("audio/") ? "audio"
+    : type === "application/vnd.sempere.transcript+json" ? "transcript" : "bin";
+}
+
+function blobName(sha: Buffer): string {
+  return createHmac("sha256", secret).update(Buffer.concat([enc.encode("sempere/1"), Uint8Array.of(0), enc.encode("blob"), Uint8Array.of(0), sha])).digest("hex");
+}
+
+/** Writes `content` as a blob of `noteId` (unless `skip`) and returns its reference. */
+async function blob(noteId: string, content: Uint8Array, type: string, opts: { skip?: boolean; asName?: string } = {}): Promise<Ref> {
+  const sha = createHash("sha256").update(content).digest();
+  const plain = new Uint8Array(padme(45 + content.length));
+  plain.set(enc.encode("INKB"), 0);
+  plain[4] = 1;
+  plain.set(sha, 5);
+  new DataView(plain.buffer).setBigUint64(37, BigInt(content.length));
+  plain.set(content, 45);
+  if (!opts.skip) {
+    const dir = join(out, "notes", noteId, "att");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${opts.asName ?? blobName(sha)}.${blobKind(type)}.age`), await encrypt(plain));
+  }
+  return { sha256: sha.toString("hex"), size: content.length, type };
+}
+
+/** A small PDF written by hand: vector shapes and Helvetica text, page boxes and /Rotate per page. */
+function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; content: string }[]): Uint8Array {
+  const objs: string[] = [];
+  const add = (body: string) => objs.push(body) - 1 + 1;
+  const catalog = add("");
+  const tree = add("");
+  const font = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const kids: number[] = [];
+  for (const p of pages) {
+    const stream = add(`<< /Length ${p.content.length} >>\nstream\n${p.content}\nendstream`);
+    let page = `<< /Type /Page /Parent ${tree} 0 R /MediaBox [${p.media.join(" ")}] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${stream} 0 R`;
+    if (p.crop) page += ` /CropBox [${p.crop.join(" ")}]`;
+    if (p.rotate) page += ` /Rotate ${p.rotate}`;
+    kids.push(add(page + " >>"));
+  }
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R >>`;
+  objs[tree - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${kids.length} >>`;
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objs.forEach((body, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) pdf += `${String(o).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return enc.encode(pdf);
+}
+
+// --- Note 5: attachments. Images (orientation, crop, rotation), PDF pages
+// (background and figure, CropBox and /Rotate), text boxes (stored breaks,
+// invalid breaks, runs, alignment, direction, rotation), placeholders
+// (unknown and reserved kinds, missing, tampered and HEIC blobs), and
+// recordings with a transcript.
+{
+  const note = "77777777-7777-4777-8777-777777777777";
+  const p1 = id(0x700), p2 = id(0x701);
+  const photo = await blob(note, readFileSync(join(media, "photo.jpg")), "image/jpeg");
+  const dot = await blob(note, readFileSync(join(media, "dot.png")), "image/png");
+  const pdf = await blob(note, makePDF([
+    { media: [0, 0, 612, 792], content: "0.85 0.9 1 rg 36 36 540 720 re f 0.2 0.3 0.6 RG 4 w 72 600 m 540 680 l S BT /F1 36 Tf 0.1 0.1 0.1 rg 72 700 Td (Synthetic PDF page 1) Tj ET" },
+    { media: [0, 0, 400, 300], crop: [20, 20, 380, 280], rotate: 90, content: "1 0.9 0.8 rg 0 0 400 300 re f 0.7 0.1 0.1 rg 40 40 120 80 re f BT /F1 24 Tf 0 0 0 rg 60 200 Td (Rotated page 2) Tj ET" },
+  ]), "application/pdf");
+  const missing = await blob(note, enc.encode("never written"), "image/png", { skip: true });
+  // A valid blob file stored under another content's name: the name binding fails.
+  const forged = await blob(note, readFileSync(join(media, "dot.png")).subarray(0, 100), "image/png", { skip: true });
+  await blob(note, readFileSync(join(media, "dot.png")), "image/png", { asName: blobName(Buffer.from(forged.sha256, "hex")) });
+  const heic = await blob(note, Uint8Array.from([0, 0, 0, 24, ...enc.encode("ftypheic"), 0, 0, 0, 0, ...enc.encode("mif1heic")]), "image/heic");
+  const tone = await blob(note, readFileSync(join(media, "tone.m4a")), "audio/mp4");
+  const rec1 = id(0x980), rec2 = id(0x981);
+  const transcript = await blob(note, enc.encode(JSON.stringify({
+    format: "sempere-transcript/1", recording: rec1, engine: "synthetic-1", language: "en-US", created: wall(31),
+    segments: [
+      { start: 0, end: 0.5, text: "A synthetic tone.", confidence: 0.9, words: [{ t: "A", start: 0, end: 0.1 }, { t: "synthetic", start: 0.1, end: 0.3, c: 0.4 }, { t: "tone.", start: 0.3, end: 0.5 }] },
+      { start: 0.5, end: 1, text: "Still the tone." },
+    ],
+  })), "application/vnd.sempere.transcript+json");
+  const storedRuns = [
+    { t: "Stored breaks keep ", b: true }, { t: "these lines", i: true, color: "#B00020FF" }, { t: " exactly as the app laid them out. " },
+    { t: "Big", size: 24, u: true }, { t: " and struck", s: true }, { t: "\n\nAfter a blank line\twith a tab." },
+  ];
+  const storedText = storedRuns.map((r) => r.t).join("");
+  const text = (runs: Json[], extra: Json = {}) => ({ font: "sans", size: 14, color: "#1A1A1AFF", runs, ...extra });
+  const item = (n: number, kind: string, layer: number, frame: number[], z: string, extra: Json = {}) =>
+    ({ id: id(n), kind, layer, frame, z, ...extra });
+  await write(note, delta(note, devA, 1, 30, [
+    { op: "setMeta", field: "title", value: "Attachments" },
+    { op: "setMeta", field: "paper", value: { kind: "ruled", spacing: 24, background: "#FFFDF5FF", lineColor: "#D0D8E8FF" } },
+    { op: "setMeta", field: "pageSize", value: letter },
+    { op: "addPage", page: { id: p1, order: "a0", strokes: [] } },
+    { op: "addPage", page: { id: p2, order: "a1", strokes: [] } },
+    // Page 1: a PDF page as the background, images, text, placeholders, ink on top.
+    { op: "addItem", page: p1, item: item(0x710, "pdfPage", 0, [0, 0, 612, 792], "a0", { blob: pdf, pageIndex: 0, pageSize: [612, 792] }) },
+    { op: "addItem", page: p1, item: item(0x711, "image", 100, [72, 72, 144, 96], "a0", { blob: photo, pixelSize: [48, 32] }) },
+    { op: "addItem", page: p1, item: item(0x712, "image", 100, [260, 72, 64, 96], "a1", { blob: photo, pixelSize: [32, 48], orientation: 6, crop: [4, 8, 24, 36], rotation: 15 }) },
+    { op: "addItem", page: p1, item: item(0x713, "image", 100, [360, 80, 100, 60], "a2", { blob: dot, pixelSize: [20, 12], rotation: 90 }) },
+    { op: "addItem", page: p1, item: item(0x714, "text", 100, [72, 200, 220, 120], "a3", { text: text(storedRuns,
+      { breaks: ["these", "exactly", "them", "Big"].map((w) => [...storedText.slice(0, storedText.indexOf(w))].length) }) }) },
+    { op: "addItem", page: p1, item: item(0x715, "text", 100, [320, 200, 220, 80], "a4", { rotation: 30, text: text([
+      { t: "Centred, rotated" }, { t: "\nsecond paragraph" }], { align: "center", font: "serif", breaks: [3, 99] }) }) },
+    { op: "addItem", page: p1, item: item(0x716, "text", 100, [72, 360, 300, 60], "a5", { text: text([
+      { t: "Right to left paragraph   " }, { t: "\nend aligned" }], { dir: "rtl", font: "mono", size: 12 }) }) },
+    { op: "addItem", page: p1, item: item(0x717, "text", 100, [400, 360, 140, 30], "a6", { text: text([{ t: "Right" }], { align: "right", color: "#0D47A180" }) }) },
+    { op: "addItem", page: p1, item: item(0x718, "sticker", 100, [72, 460, 60, 60], "a7", { emoji: "star" }) },
+    { op: "addItem", page: p1, item: item(0x719, "math", 100, [150, 460, 60, 60], "a8", { latex: "e^{i\\pi}" }) },
+    { op: "addItem", page: p1, item: item(0x71a, "image", 100, [230, 460, 60, 60], "a9", { blob: missing, pixelSize: [10, 10] }) },
+    { op: "addItem", page: p1, item: item(0x71b, "image", 100, [310, 460, 60, 60], "aA", { blob: forged, pixelSize: [20, 12] }) },
+    { op: "addItem", page: p1, item: item(0x71c, "image", 100, [390, 460, 60, 60], "aB", { blob: heic, pixelSize: [10, 10] }) },
+    { op: "addStroke", page: p1, stroke: stroke(0x720, "pen", "#000000FF", 2, wave(72, 560, 400), { rec: { id: rec1, at: 0.25 } }) },
+    // Page 2: the rotated second PDF page as a cropped, rotated figure; a background-layer PDF page.
+    { op: "addItem", page: p2, item: item(0x730, "pdfPage", 0, [36, 36, 270, 360], "a0", { blob: pdf, pageIndex: 1, pageSize: [260, 360], rotation: 5 }) },
+    { op: "addItem", page: p2, item: item(0x731, "pdfPage", 100, [340, 400, 200, 150], "a1", { blob: pdf, pageIndex: 0, pageSize: [612, 792], crop: [36, 400, 400, 300], rotation: -20 }) },
+    { op: "addItem", page: p2, item: item(0x732, "pdfPage", 100, [72, 600, 100, 100], "a2", { blob: pdf, pageIndex: 7, pageSize: [612, 792] }) },
+    { op: "addRecording", recording: { id: rec1, blob: tone, started: wall(30), duration: 1, codec: "aac", sampleRate: 22050, channels: 1, bitRate: 24000, title: "Synthetic tone", transcript } },
+    { op: "addRecording", recording: { id: rec2, blob: missing, started: wall(32), duration: 3.5 } },
+  ]));
+}
+
+// --- Note 6: an infinite page whose extent comes from an item below the ink.
+{
+  const note = "88888888-8888-4888-8888-888888888888";
+  const pid = id(0x800 + 0x80);
+  const dot = await blob(note, readFileSync(join(media, "dot.png")), "image/png");
+  await write(note, delta(note, devB, 1, 40, [
+    { op: "setMeta", field: "title", value: "Long attachments" },
+    { op: "setMeta", field: "paper", value: { kind: "grid", spacing: 24, background: "#FFFFFFFF", lineColor: "#D0D8E8FF" } },
+    { op: "setMeta", field: "pageSize", value: { width: 600, height: 800, infinite: true } },
+    { op: "addPage", page: { id: pid, order: "a0", strokes: [] } },
+    { op: "addStroke", page: pid, stroke: stroke(0x881, "pen", "#000000FF", 2, wave(60, 100, 300)) },
+    { op: "addItem", page: pid, item: { id: id(0x882), kind: "image", layer: 0, frame: [100, 2400, 200, 120], z: "a0", blob: dot, pixelSize: [20, 12], rotation: 45 } },
+    { op: "addItem", page: pid, item: { id: id(0x883), kind: "text", layer: 100, frame: [100, 1500, 400, 50], z: "a1",
+      text: { font: "sans", size: 18, color: "#000000FF", runs: [{ t: "Far below the ink" }] } } },
   ]));
 }
 
