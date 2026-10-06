@@ -136,9 +136,10 @@ small).
   `rewrapHeader` (header-only rewrite, same file key, nonce and payload,
   every chunk authenticated on the way) and `reencrypt` (new file key and
   nonce). File outputs are created with mode 0600, never overwrite, are
-  removed on any failure (so a damaged input never leaves partial
-  plaintext) and are fsynced; atomic placement stays with the caller
-  (`docs/io.md`). Streaming reads binary age files only (blobs are binary,
+  removed on any thrown failure (so a damaged input never leaves partial
+  plaintext; a process killed midway can, so callers decrypt to a temporary
+  name and rename it into place) and are fsynced; atomic placement stays with
+  the caller (`docs/io.md`). Streaming reads binary age files only (blobs are binary,
   `format.md` §8.1.3). Blobs over 16 MiB must be streamed (`format.md`
   §8.1.4).
 - **Random access.** PDF parsing needs it. Readers decrypt the blob into a

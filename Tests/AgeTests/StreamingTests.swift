@@ -254,7 +254,8 @@ final class StreamingTests: XCTestCase {
                        "armor is not streamed")
         var badMAC = ct
         badMAC[start - 2] ^= 1  // inside the base64 MAC: a different valid MAC or a parse error
-        XCTAssertNotNil(error(badMAC, [id]))
+        let macError = error(badMAC, [id])
+        XCTAssertTrue(macError == .headerMAC || macError == .headerParse, "\(String(describing: macError))")
         // Exactly the nonce and nothing else: a payload failure, not a header one.
         let d = try AgeDecryptor(ct.prefix(start + 16), identities: [id])
         XCTAssertThrowsError(try d.next()) { XCTAssertEqual($0 as? AgeError, .payload) }
@@ -274,6 +275,35 @@ final class StreamingTests: XCTestCase {
             return out.prefix(n)
         }) { XCTAssertEqual($0 as? AgeError, .headerParse) }
         XCTAssertLessThanOrEqual(served, HeaderCodec.maxHeaderBytes + 2 * 4096)
+    }
+
+    /// A MAC line (`---`) whose LF never comes, delivered one byte at a
+    /// time: the search for the LF was restarted at the `---` on every read,
+    /// quadratic in the line's length (128 KiB took 5 s, the 2 MiB cap about
+    /// 20 minutes). It must be linear.
+    func testUnterminatedMACLineWithTinyReadsIsLinear() throws {
+        let input = Data("age-encryption.org/v1\n---".utf8) + Data(repeating: UInt8(ascii: "A"), count: 512 * 1024)
+        var offset = 0
+        let start = Date()
+        XCTAssertThrowsError(try AgeDecryptor(identities: [X25519Identity()]) { _ in
+            guard offset < input.count else { return Data() }
+            defer { offset += 1 }
+            return input.subdata(in: offset..<offset + 1)
+        }) { XCTAssertEqual($0 as? AgeError, .headerParse) }
+        XCTAssertEqual(offset, input.count)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
+    /// `macLineEnd` across calls: found once the LF arrives, never searched
+    /// again from the start of the line.
+    func testMACLineEndAcrossCalls() {
+        var scan = AgeDecryptor.MacScan()
+        let head = Data("age-encryption.org/v1\n-> X25519 AAAA\nAAAA\n--- abc".utf8)
+        XCTAssertNil(AgeDecryptor.macLineEnd(head, scan: &scan))
+        XCTAssertNotNil(scan.macStart)
+        XCTAssertEqual(scan.lfFrom, head.count)
+        let full = head + Data("def\nNONCE".utf8)
+        XCTAssertEqual(AgeDecryptor.macLineEnd(full, scan: &scan), head.count + 4)
     }
 
     /// A source that keeps producing payload is read chunk by chunk, so a

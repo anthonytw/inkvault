@@ -308,9 +308,9 @@ public final class AgeDecryptor {
     static func readHeader(_ source: inout ByteSource) throws -> (Header, Int) {
         let blockSize = 4096
         var buffer = Data()
-        var scanFrom = 0
+        var scan = MacScan()
         while true {
-            if let end = macLineEnd(buffer, scanFrom: &scanFrom) {
+            if let end = macLineEnd(buffer, scan: &scan) {
                 let (header, start) = try HeaderCodec.parse(buffer.prefix(end))
                 guard start == end else { throw AgeError.headerParse }
                 source.unread(Data(buffer[end...]))
@@ -331,22 +331,42 @@ public final class AgeDecryptor {
         }
     }
 
+    /// Where `macLineEnd` stopped: the next offset to look at for the MAC
+    /// line, then (once found) for its LF. Each byte is looked at a bounded
+    /// number of times however small the reads.
+    struct MacScan {
+        var from = 0
+        var macStart: Int?
+        var lfFrom = 0
+    }
+
     /// The offset just past the LF that ends the first line starting with
-    /// `---` after the first line, or nil if not read yet. `scanFrom` keeps
-    /// the search linear over repeated calls.
-    private static func macLineEnd(_ buffer: Data, scanFrom: inout Int) -> Int? {
+    /// `---` after the first line, or nil if not read yet. `scan` keeps the
+    /// search linear over repeated calls: a MAC line whose LF has not come
+    /// yet is not searched again from its start (with 1-byte reads that made
+    /// a 2 MiB unterminated line take minutes).
+    static func macLineEnd(_ buffer: Data, scan: inout MacScan) -> Int? {
         let bytes = buffer
-        var i = scanFrom
-        while i + 4 <= bytes.count {
-            if bytes[i] == 0x0A && bytes[i + 1] == 0x2D && bytes[i + 2] == 0x2D && bytes[i + 3] == 0x2D {
-                scanFrom = i
-                guard let lf = bytes[(i + 1)...].firstIndex(of: 0x0A) else { return nil }
-                return lf + 1
+        if scan.macStart == nil {
+            var i = scan.from
+            while i + 4 <= bytes.count {
+                if bytes[i] == 0x0A && bytes[i + 1] == 0x2D && bytes[i + 2] == 0x2D && bytes[i + 3] == 0x2D {
+                    scan.macStart = i
+                    scan.lfFrom = i + 1
+                    break
+                }
+                i += 1
             }
-            i += 1
+            guard scan.macStart != nil else {
+                scan.from = max(0, bytes.count - 3)
+                return nil
+            }
         }
-        scanFrom = max(0, bytes.count - 3)
-        return nil
+        guard let lf = bytes[scan.lfFrom...].firstIndex(of: 0x0A) else {
+            scan.lfFrom = bytes.count
+            return nil
+        }
+        return lf + 1
     }
 }
 
@@ -394,8 +414,10 @@ extension AgeFile {
 
     /// Decrypts the binary age file at `input` into a new file at `output`
     /// (mode 0600, must not exist), streaming. The output is removed unless
-    /// the whole file authenticated, so a partial plaintext is never left
-    /// behind.
+    /// the whole file authenticated, so a damaged input never leaves a partial
+    /// plaintext behind. Chunks are written as they authenticate, so a process
+    /// killed midway does leave one at `output`: write to a temporary name and
+    /// rename it into place once this returns (docs/io.md).
     ///
     /// - Throws: as `AgeDecryptor`, `AgeError.io` for the files.
     public static func decrypt(contentsOf input: URL, to output: URL, identities: [any AgeIdentity]) throws {
@@ -490,7 +512,11 @@ extension AgeFile {
 /// header).
 struct ByteSource {
     let read: (Int) throws -> Data
+    /// Bytes to hand out before reading again, from `offset` on (an offset,
+    /// not re-slicing: a reader that returns far more than asked would
+    /// otherwise have its leftover copied on every call).
     private var pending = Data()
+    private var offset = 0
     private var atEnd = false
 
     init(read: @escaping (Int) throws -> Data) {
@@ -499,15 +525,21 @@ struct ByteSource {
 
     /// Puts bytes back in front of the source.
     mutating func unread(_ data: Data) {
-        pending = data + pending
+        pending = data + pending[(pending.startIndex + offset)...]
+        offset = 0
     }
 
     /// Up to `max` bytes; empty only at the end of input.
     mutating func readSome(_ max: Int) throws -> Data {
-        if !pending.isEmpty {
-            let n = min(max, pending.count)
-            let out = Data(pending.prefix(n))
-            pending = Data(pending.dropFirst(n))
+        if offset < pending.count {
+            let n = min(max, pending.count - offset)
+            let from = pending.startIndex + offset
+            let out = Data(pending[from..<(from + n)])
+            offset += n
+            if offset == pending.count {
+                pending = Data()
+                offset = 0
+            }
             return out
         }
         if atEnd { return Data() }
@@ -518,8 +550,9 @@ struct ByteSource {
         }
         // A reader that returns more than asked keeps the rest for later.
         if data.count > max {
-            pending = Data(data.dropFirst(max))
-            return Data(data.prefix(max))
+            pending = Data(data)
+            offset = max
+            return Data(pending.prefix(max))
         }
         return Data(data)
     }
