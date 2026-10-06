@@ -220,6 +220,28 @@ final class ImageFuzzTests: XCTestCase {
         XCTAssertGreaterThan(report.cases, 0)
         for f in report.failures { XCTFail("\(f)") }
     }
+    /// Image preparation for storing (`ImageImport`): sniffing, EXIF
+    /// orientation, HEIF sizes and stripping. Only `Failure` may be thrown.
+    func testFuzzImageImport() throws {
+        let seeds = try Array(Self.fixtures(".jpg").prefix(6)) + Array(Self.fixtures(".png").prefix(4))
+        let report = Fuzz.run("image-import", seeds: seeds, quick: 300, maxSize: 64 << 10,
+                              generate: Self.generateJPEG) { input in
+            _ = JPEG.exifOrientation(input)
+            _ = HEIF.imageSize(input)
+            do {
+                let p = try ImageImport.prepare(input)
+                if p.width <= 0 || p.height <= 0 { return "non-positive size \(p.width) × \(p.height)" }
+                if let o = p.orientation, !(2...8).contains(o) { return "orientation \(o)" }
+            } catch is ImageImport.Failure {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            var heif = Data([0, 0, 0, 16]) + Data("ftypheic".utf8) + Data(count: 4)
+            heif += input
+            _ = HEIF.imageSize(heif)
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
 }
 
 /// Seeded mutation fuzzing of the font reader (fonts come from user font
@@ -294,4 +316,5 @@ final class TextFuzzTests: XCTestCase {
         XCTAssertGreaterThan(report.cases, 0)
         for f in report.failures { XCTFail("\(f)") }
     }
+
 }

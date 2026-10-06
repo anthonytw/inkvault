@@ -84,8 +84,8 @@ goes first; after it, the rest run in parallel along the dependencies in
 | C2 | Export text: full Unicode (Noto + optional font packs, OpenType reader, UAX #9/#14/#29, small shaper, stored `breaks`, font **subsets** in PDF/SVG, missing-script report). **In review (#64)**: `Sources/SempereRender/Text/`, `Sources/SempereFonts` | `Sources/SempereRender` | A0 | layout tests incl. RTL; CJK via font pack in `pdftotext`; subset-only fonts; goldens |
 | C3 | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning. **In review (#61)**: `Sources/SemperePDF`, `SempereRender` (`Items.swift`, `PDFBackgrounds.swift`), CLI `PopplerRasterizer.swift`; reads blobs through B2's `BlobSource` | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
 | C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
-| D1 | Notability PDF backgrounds | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
-| D2 | Notability images | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
+| D1 | Notability PDF backgrounds. **In review (#70)**: `NotabilityAttachments.swift`, `NotabilityMedia.swift`; CLI `--no-attachments` | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
+| D2 | Notability images. **In review (#70)**: media objects read without a schema (field names unconfirmed, reported); `SempereRender.ImageImport`; CLI `--keep-image-metadata` | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
 | D3 | Notability typed text | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
 | D4 | Notability recordings + ink sync | `Sources/SempereImport` | A0, B2 | recordings import; strokes carry `rec` |
 | E0 | App plumbing: `NoteWriter.addBlob`/`copyBlob`, blob cache, lazy per-kind iCloud download, item layer + selection | `Apps/` | A1, B2 | one delta per gesture; app tests |

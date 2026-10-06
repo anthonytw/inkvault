@@ -227,4 +227,26 @@ final class UntrustedImportTests: XCTestCase {
         // Matching strokes are still found.
         XCTAssertEqual(index.missing(prints(100, y: 0)), 0)
     }
+
+    /// A stroke at y = 900 000 made a two-stroke note 1 100 pages long once
+    /// long notes were cut into pages (fuzz case 482: 540 pages, 8.7 s to
+    /// render): blank sheets past `maxBlankSheets` are left out.
+    func testStrayFarPointDoesNotMakeThousandsOfPages() throws {
+        let far = SyntheticNote.CurveSpec(points: [(10, 900_000), (20, 900_000), (30, 900_010), (40, 900_010)], fw: [1, 1],
+                                          width: 2, rgba: [0, 0, 0, 255], style: 3)
+        let note = try NotabilityNote.parse(data: SyntheticNote.package(curves: [curve(width: 2), far]))
+        let state = NotabilityImporter.convert(note)
+        let blank = state.pages.filter { $0.strokes.isEmpty && $0.items.isEmpty && $0.recognition == nil }
+        XCTAssertEqual(blank.count, NotabilityImporter.maxBlankSheets)
+        XCTAssertLessThanOrEqual(state.pages.count, NotabilityImporter.maxBlankSheets + 3)
+        XCTAssertEqual(state.pages.flatMap(\.strokes).count, 2)
+        XCTAssertFalse(state.meta.pageSize.infinite)
+        for page in state.pages {
+            for s in page.strokes {
+                let ty = s.transform?.ty ?? 0
+                XCTAssertTrue(s.points.allSatisfy { $0.y + ty <= state.meta.pageSize.height }, "\(ty)")
+            }
+        }
+        XCTAssertNoThrow(try InkJSON.encoder().encode(NotabilityImporter.ops(for: state)))
+    }
 }

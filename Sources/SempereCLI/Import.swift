@@ -29,11 +29,18 @@ struct ImportNoteJSON: Encodable {
     var duplicateOf: String?
     var extraVersion: Bool
     var selection: String?
+    var attachments: Attachments
+    var warnings: [String]
 
     struct Dropped: Encodable {
         var typedTextCharacters: Int, pdfs: Int, pdfPages: Int, media: Int, recordings: Int
+        var pdfHighlights: Int, templatePDFs: Int
         var dashedStrokes: Int, unknownStyleStrokes: Int
         var defaultedAttributeStrokes: Int, unsupportedShapes: Int, unsupportedStrokes: Int, clampedStrokes: Int
+    }
+
+    struct Attachments: Encodable {
+        var pdfs: Int, pdfPages: Int, templatePages: Int, images: Int, blobs: Int, blobBytes: Int64
     }
 
     init(_ r: NotabilityImporter.NoteResult) {
@@ -42,9 +49,14 @@ struct ImportNoteJSON: Encodable {
         seconds = r.seconds
         format = r.format.rawValue; shapes = r.shapes; duplicateOf = r.duplicateOf
         extraVersion = r.extraVersion; selection = r.selection
+        let a = r.attachments
+        attachments = Attachments(pdfs: a.pdfs, pdfPages: a.pdfPages, templatePages: a.templatePages, images: a.images,
+                                  blobs: a.blobs, blobBytes: a.blobBytes)
+        warnings = r.warnings
         let d = r.dropped
         dropped = Dropped(typedTextCharacters: d.typedTextCharacters, pdfs: d.pdfs, pdfPages: d.pdfPages, media: d.media,
-                          recordings: d.recordings, dashedStrokes: d.dashedStrokes,
+                          recordings: d.recordings, pdfHighlights: d.pdfHighlights, templatePDFs: d.templatePDFs,
+                          dashedStrokes: d.dashedStrokes,
                           unknownStyleStrokes: d.unknownStyleStrokes,
                           defaultedAttributeStrokes: d.defaultedAttributeStrokes,
                           unsupportedShapes: d.unsupportedShapes, unsupportedStrokes: d.unsupportedStrokes,
@@ -66,7 +78,10 @@ struct ImportNotability: ParsableCommand {
             recursively for both, or a zip of them (Notability's backup; pass every part of a split
             backup). Copies of one note are resolved across all paths: the newest .note with ink is imported,
             copies with no other ink are skipped, and a copy holding ink the chosen one lacks is
-            imported as a separate note. Notes already in the vault are skipped unless --overwrite. The device id and clock come from
+            imported as a separate note. Notes already in the vault are skipped unless --overwrite.
+            PDF pages become page backgrounds and images image items, stored encrypted in the note's
+            att/ folder (image metadata stripped unless --keep-image-metadata); --no-attachments imports
+            ink only. The device id and clock come from
             $XDG_STATE_HOME/sempere/device.json; --dry-run leaves both and the vault untouched.
             Exit 1 if any note failed.
             """
@@ -93,6 +108,12 @@ struct ImportNotability: ParsableCommand {
     @Option(name: .customLong("tag"), help: ArgumentHelp("Add this tag to every imported note (repeatable).", valueName: "tag"))
     var tags: [String] = []
 
+    @Flag(name: .long, help: "Import ink only: no PDF page backgrounds or images (they are reported as dropped).")
+    var noAttachments = false
+
+    @Flag(name: .long, help: "Store images with their camera and location metadata (stripped by default).")
+    var keepImageMetadata = false
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -102,7 +123,8 @@ struct ImportNotability: ParsableCommand {
 
     func run() throws {
         let options = NotabilityImporter.Options(overwrite: overwrite, notebook: notebook, scaleToLetterWidth: !noScale,
-                                                 tagsFromFolders: !noFolderTags, extraTags: tags)
+                                                 tagsFromFolders: !noFolderTags, extraTags: tags,
+                                                 attachments: !noAttachments, keepImageMetadata: keepImageMetadata)
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let report: NotabilityImporter.ImportReport
         if dryRun {
@@ -142,16 +164,24 @@ struct ImportNotability: ParsableCommand {
     }
 
     private func emit(_ report: NotabilityImporter.ImportReport) throws {
+        let written = report.notes.filter { $0.status == .ok }
         if output.json {
             struct Summary: Encodable {
                 var dryRun: Bool, notes: Int, imported: Int, skipped: Int, failed: Int, strokes: Int
                 var ntb: Int, extraVersions: Int
+                var pdfPages: Int, images: Int, blobs: Int, blobBytes: Int64, droppedPDFPages: Int, droppedMedia: Int
             }
             struct Out: Encodable { var summary: Summary; var notes: [ImportNoteJSON] }
             try output.emitJSON(Out(summary: Summary(dryRun: dryRun, notes: report.notes.count, imported: report.imported,
                                                      skipped: report.skipped, failed: report.failed, strokes: report.strokes,
                                                      ntb: report.notes.filter { $0.format == .ntb }.count,
-                                                     extraVersions: report.notes.filter(\.extraVersion).count),
+                                                     extraVersions: report.notes.filter(\.extraVersion).count,
+                                                     pdfPages: written.reduce(0) { $0 + $1.attachments.pdfPages },
+                                                     images: written.reduce(0) { $0 + $1.attachments.images },
+                                                     blobs: written.reduce(0) { $0 + $1.attachments.blobs },
+                                                     blobBytes: written.reduce(0) { $0 + $1.attachments.blobBytes },
+                                                     droppedPDFPages: written.reduce(0) { $0 + $1.dropped.pdfPages },
+                                                     droppedMedia: written.reduce(0) { $0 + $1.dropped.media }),
                                     notes: report.notes.map(ImportNoteJSON.init)))
             return
         }
@@ -177,12 +207,17 @@ struct ImportNotability: ParsableCommand {
                 print("separate version \(n.source): \(why)")
             }
             if n.status == .ok, n.strokes == 0, n.dropped.pdfPages > 0, !output.quiet {
-                print("no ink in \(n.source): its \(n.dropped.pdfPages) page(s) are PDF pages, which are not imported yet")
+                print("no ink in \(n.source), and \(n.dropped.pdfPages) of its PDF page(s) were not imported"
+                      + (noAttachments ? " (--no-attachments)" : ""))
+            }
+            if output.verbose, n.status == .ok {
+                for w in n.warnings { print("attachments \(n.source): \(w)") }
             }
             if output.verbose, !n.dropped.isEmpty {
                 let d = n.dropped
                 let parts = [(d.typedTextCharacters, "typed text characters"), (d.pdfs, "pdfs"),
                              (d.pdfPages, "pdf pages (imported as blank paper)"), (d.media, "media objects"),
+                             (d.pdfHighlights, "pdf highlights"), (d.templatePDFs, "template PDF paper"),
                              (d.recordings, "recordings"), (d.dashedStrokes, "dashed strokes imported solid"),
                              (d.unknownStyleStrokes, "strokes of unknown style imported as pen"),
                              (d.defaultedAttributeStrokes, "strokes with a missing style, colour or width (defaulted)"),

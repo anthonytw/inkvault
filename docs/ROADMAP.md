@@ -42,7 +42,8 @@ working state.
 | Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | 🔀 #64 |
 | Render | Recordings in exports (C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
-| Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
+| Import | Notability PDF backgrounds and images (D1, D2) | 🔀 #70 |
+| Import | Notability typed text, recordings (D3, D4) | 📋 |
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3): streamed, resumable, GC-safe deletes | 🔀 #67 |
 
@@ -58,6 +59,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | 🔀 #74 | 🔀 #74 |
+| import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | 🔀 #70 | 🔀 #70 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
 | `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
