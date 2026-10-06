@@ -561,7 +561,8 @@ extension NotabilityNote {
     }
 
     static func parseRecordingCount(_ data: Data?) throws -> Int {
-        guard let data, case .dict(let root) = try PlistValue.parse(data) else { return 0 }
+        // Notability writes this file as an XML plist.
+        guard let data, case .dict(let root) = try PlistValue.parse(data, allowXML: true) else { return 0 }
         switch root["recordings"] {
         case .dict(let d)?: return d.count
         case .array(let a)?: return a.count
