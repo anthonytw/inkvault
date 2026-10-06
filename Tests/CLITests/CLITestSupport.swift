@@ -71,14 +71,29 @@ class CLITestCase: XCTestCase {
         return dest.path
     }
 
-    func fixtureIdentity() throws -> X25519Identity {
+    /// The legacy (X25519) fixture: same notes, opened only to migrate.
+    static var legacyVault: String { fixtures.appendingPathComponent("legacy.inkvault").path }
+    static var legacyKey: String { fixtures.appendingPathComponent("legacy.key").path }
+
+    /// A writable copy of the legacy fixture vault.
+    func copyLegacyVault(as name: String = "legacy.inkvault") throws -> String {
+        let dest = tmp.appendingPathComponent(name)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: Self.legacyVault), to: dest)
+        return dest.path
+    }
+
+    func legacyIdentity() throws -> NativeIdentity {
+        try IdentityFile.parse(String(contentsOfFile: Self.legacyKey, encoding: .utf8))
+    }
+
+    func fixtureIdentity() throws -> NativeIdentity {
         try IdentityFile.parse(String(contentsOfFile: Self.fixtureKey, encoding: .utf8))
     }
 
     /// Creates a vault through the library and writes a two-page note plus a
     /// one-page note. Returns the vault, the identity and the key file path.
-    func makeVault(named name: String = "mine.inkvault") throws -> (vault: Vault, identity: X25519Identity, keyPath: String) {
-        let id = X25519Identity()
+    func makeVault(named name: String = "mine.inkvault") throws -> (vault: Vault, identity: NativeIdentity, keyPath: String) {
+        let id = try NativeIdentity.generate(.postQuantum)
         let keyPath = path("\(name).key")
         try IdentityFile.render(id, created: Date()).write(toFile: keyPath, atomically: true, encoding: .utf8)
         let vault = try Vault.create(at: tmp.appendingPathComponent(name), recipients: [id.recipient],

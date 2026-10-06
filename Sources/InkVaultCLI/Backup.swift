@@ -65,7 +65,10 @@ struct BackupRun: ParsableCommand {
     func run() throws {
         var opts = access
         if let vaultPath { opts.vault = vaultPath }
-        let vault = try opts.openVault(prune ? .required : .ifPossible)
+        // Copying a legacy vault's ciphertext is allowed (a backup before
+        // migrating is wise); --prune reads snapshots, which a legacy vault
+        // refuses (format.md §3.3.2).
+        let vault = try opts.openVault(prune ? .required : .ifPossible, migration: !prune)
         if let archive {
             let report = try Backup.writeArchive(source: vault, to: URL(fileURLWithPath: archive))
             if output.json { try output.emitJSON(report) } else {
@@ -116,8 +119,10 @@ struct BackupVerify: ParsableCommand {
 
     func run() throws {
         let url = URL(fileURLWithPath: dir)
-        var identities: [any AgeIdentity] = try access.explicitIdentities()
         let hasManifest = FileManager.default.fileExists(atPath: url.appendingPathComponent("vault.json").path)
+        // A legacy backup is migrate-only too: refused before any key is read.
+        if hasManifest { try Vault.open(at: url).requireMigrated() }
+        var identities: [any AgeIdentity] = try access.explicitIdentities()
         if identities.isEmpty, hasManifest {
             // A scripted passphrase may unlock the key file stored in the backup.
             let scripted = access.passphraseEnv != nil || Env.vars["INKVAULT_PASSPHRASE"] != nil
@@ -199,6 +204,9 @@ struct RestoreCommand: ParsableCommand {
     func run() throws {
         guard to.hasSuffix(".inkvault") else { throw CLIError.usage("--to must end in .inkvault: \(to)") }
         let source = URL(fileURLWithPath: dir)
+        // Restoring would hand back a legacy vault: refused before anything is
+        // copied (migrate the backup folder itself, which is a vault, first).
+        try Vault.open(at: source).requireMigrated()
         let identities = try access.explicitIdentities()
         if !identities.isEmpty { _ = try Vault.open(at: source, identities: identities) }   // exit 4 early
         let report = try Backup.restore(from: source, to: URL(fileURLWithPath: to), identities: identities)

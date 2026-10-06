@@ -344,7 +344,7 @@ final class TagMergeTests: VaultTestCase {
     /// helpers add and remove by key, and the committed (legacy) fixture's
     /// tag can be removed.
     func testVaultWritersUsePerTagOps() throws {
-        let vault = try makeVault(X25519Identity())
+        let vault = try makeVault(pqIdentity())
         let device = tmp.appendingPathComponent("device.json")
         let note = UUID()
         let created = try vault.apply(NoteOps.newNote(title: "T", tags: ["Math", " math ", "Fall   Term"]), to: note,

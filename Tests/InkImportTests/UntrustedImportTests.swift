@@ -105,7 +105,7 @@ final class UntrustedImportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
         let file = tmp.appendingPathComponent("x.ntb")
         try SyntheticBundle.package(SyntheticBundle.noteBundle(strokes: [], createdMs: .max)).write(to: file)
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         let vault = try Vault.create(at: tmp.appendingPathComponent("V.inkvault"), recipients: [identity.recipient],
                                      identities: [identity])
         var clock = HybridClock()

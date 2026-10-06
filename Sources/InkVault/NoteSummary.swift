@@ -143,7 +143,8 @@ extension Vault {
 
     /// Summaries of every note, sorted by title then id.
     public func summaries() throws -> [NoteSummary] {
-        try noteIDs().map { try summary(of: $0) }
+        try requireMigrated()
+        return try noteIDs().map { try summary(of: $0) }
             .sorted { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
     }
 

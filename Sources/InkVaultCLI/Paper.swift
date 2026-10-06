@@ -23,10 +23,11 @@ struct KeysPaper: ParsableCommand {
             offline. The PDF is written with mode 0600 and never overwrites a file; delete it once
             printed.
 
-            --passphrase prints the passphrase-wrapped key file (age scrypt, armored) instead of the
-            plain key: the vault's keys/<recipient>.key.age when it stores one for this key (its
-            passphrase is checked), else a new one locked with a passphrase you choose. Such a sheet
-            is useless without the passphrase.
+            --passphrase prints a passphrase-wrapped copy of the key (age scrypt, armored) instead of
+            the plain key: wrapped with the passphrase of the vault's stored key file for this key (it
+            is checked), else with one you choose. Only the secret key line is wrapped, so it fits a
+            QR code. Such a sheet is useless without the passphrase. Kits are for post-quantum keys
+            only: a classic key, or a legacy vault, is refused.
 
             Without --identity the key comes from the vault's stored key file (needs --vault and its
             passphrase).
@@ -36,7 +37,7 @@ struct KeysPaper: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp("Where to write the PDF. Refuses to overwrite.", valueName: "file.pdf"))
     var out: String
 
-    @Flag(name: .long, help: "Print the passphrase-wrapped key file instead of the plain key.")
+    @Flag(name: .long, help: "Print a passphrase-wrapped copy of the key instead of the plain key.")
     var passphrase = false
 
     @Option(name: .customLong("work-factor"),
@@ -48,6 +49,11 @@ struct KeysPaper: ParsableCommand {
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
+
+    /// Kits are printed only for post-quantum keys (format.md §3.1).
+    static let classicKey = CLIError.usage(
+        "that is a classic X25519 key (AGE-SECRET-KEY-1...), which is not quantum-safe: create a new key "
+            + "(inkvault keys generate), migrate the vault to it, and print a kit for that key")
 
     func validate() throws {
         guard ["letter", "a4"].contains(paper.lowercased()) else { throw ValidationError("--paper is letter or a4") }
@@ -61,6 +67,8 @@ struct KeysPaper: ParsableCommand {
         guard explicit.count <= 1 else { throw CLIError.usage("give one --identity for a recovery kit") }
         let hasVault = access.vault != nil || !(Env.vars["INKVAULT_VAULT"] ?? "").isEmpty
         let locked = hasVault ? try Vault.open(at: try access.vaultURL()) : nil
+        try locked?.requireMigrated()   // a legacy vault: migrate first (exit 5)
+        if let classic = explicit.first, !classic.isPostQuantum { throw Self.classicKey }
 
         var identity = explicit.first
         let secret: RecoveryKit.Secret
@@ -79,19 +87,22 @@ struct KeysPaper: ParsableCommand {
                 envName: access.passphraseEnv,
                 prompt: source != nil ? "Passphrase of the vault's key file: " : "New passphrase for the kit: ",
                 confirm: source == nil, asError: source == nil ? CLIError.usage : CLIError.cannotDecrypt)
-            let wrapped: Data
             if let source, let locked {
                 let opened = try locked.readIdentityFile(recipient: source, passphrase: pass)
                 if identity == nil { identity = opened }
-                wrapped = try locked.identityFileData(recipient: source)
-            } else if let identity {
+            } else if identity != nil {
                 guard !pass.isEmpty else { throw CLIError.usage("the passphrase is empty") }
-                let text = IdentityFile.render(identity, created: Date())
-                wrapped = try AgeFile.encrypt(Data(text.utf8), to: [ScryptRecipient(passphrase: pass,
-                                                                                  workFactor: workFactor)])
             } else {
                 throw CLIError.usage("no key: pass --identity FILE")
             }
+            guard let key = identity else { throw CLIError.usage("no key: pass --identity FILE") }
+            // Only the secret key line is wrapped, never the vault's key file as
+            // it is: that file also holds the public key, which for a
+            // post-quantum key is 1959 characters and fits no QR code (the
+            // public key is derived from the secret key, `age-keygen -y`).
+            let text = "# InkVault recovery kit\n\(key.string)\n"
+            let wrapped = try AgeFile.encrypt(Data(text.utf8), to: [ScryptRecipient(passphrase: pass,
+                                                                                 workFactor: workFactor)])
             let armored = Armor.isArmored(wrapped) ? wrapped : Armor.encode(wrapped)
             // The sheet must open with this passphrase to this key, or it is worthless.
             let check = try AgeFile.decrypt(armored, with: [ScryptIdentity(passphrase: pass)])
@@ -108,11 +119,12 @@ struct KeysPaper: ParsableCommand {
             secret = .identity(identity.string)
         }
         guard let identity else { throw CLIError.cannotDecrypt("no key") }
+        guard identity.isPostQuantum else { throw Self.classicKey }
 
         var info: RecoveryKit.VaultInfo?
         if let locked {
             guard locked.recipients.contains(where: { $0.key == identity.recipient.string }) else {
-                throw CLIError.cannotDecrypt("this key is not a recipient of the vault (\(identity.recipient.string))")
+                throw CLIError.cannotDecrypt("this key is not a recipient of the vault (\(abbreviateKey(identity.recipient.string)))")
             }
             var name = locked.url.lastPathComponent
             if name.hasSuffix(".inkvault") { name.removeLast(".inkvault".count) }

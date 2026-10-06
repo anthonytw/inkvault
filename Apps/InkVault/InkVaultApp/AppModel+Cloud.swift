@@ -127,7 +127,9 @@ extension AppModel {
         status.problem = cloudSync?.problem
         if let failure = pass.failures.first?.value { status.problem = "iCloud Drive: \(failure)" }
         cloudSync = status
-        guard vault.canRead else {
+        // Locked, or migrate-only (a legacy vault's notes are never read): the
+        // downloads are requested and the progress shown, nothing is read.
+        guard vault.canRead, phase == .unlocked else {
             pendingNoteIDs = Set(pass.pending)
             return pass.pending.count
         }

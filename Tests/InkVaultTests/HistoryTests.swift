@@ -414,7 +414,7 @@ final class HistoryTests: XCTestCase {
 /// The same through a vault on disk.
 final class VaultHistoryTests: VaultTestCase {
     func testRestoreWritesOneDeltaAndNeverTouchesHistory() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = sampleLog()
         for r in log { try vault.write(r) }
@@ -457,7 +457,7 @@ final class VaultHistoryTests: VaultTestCase {
     }
 
     func testRestoreRefusesWhenARevisionIsUnreadable() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = sampleLog()
         for r in log { try vault.write(r) }

@@ -72,6 +72,13 @@ actor Gate {
         waiters = []
     }
 
+    /// Lets the oldest call waiting at the closed gate through; the gate
+    /// stays closed for the calls after it.
+    func releaseOne() {
+        guard !waiters.isEmpty else { return }
+        waiters.removeFirst().resume()
+    }
+
     func pass() async {
         arrivals += 1
         if isOpen { return }

@@ -31,7 +31,7 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(r.status, 0, r.err)
         let json = try XCTUnwrap(r.json as? [String: Any])
         XCTAssertEqual(json["variant"] as? String, "plain")
-        XCTAssertEqual(json["qrVersion"] as? Int, 6)
+        XCTAssertEqual(json["qrVersion"] as? Int, 7)   // the 77-character post-quantum key at level Q
         XCTAssertEqual(json["qrErrorCorrection"] as? String, "Q")
         XCTAssertEqual(json["vaultId"] as? String, "5a3b1e00-1000-4000-8000-000000000001")
         XCTAssertEqual(try mode(out) & 0o777, 0o600)
@@ -47,7 +47,7 @@ final class CLIBackupTests: CLITestCase {
 
     func testPaperKitRefusesAKeyThatDoesNotOpenTheVault() throws {
         let other = path("other.key")
-        try IdentityFile.render(X25519Identity(), created: Date()).write(toFile: other, atomically: true, encoding: .utf8)
+        try IdentityFile.render(try NativeIdentity.generate(.postQuantum), created: Date()).write(toFile: other, atomically: true, encoding: .utf8)
         let r = try cli(["keys", "paper", "--identity", other, "--vault", Self.fixtureVault, "--out", path("k.pdf")])
         XCTAssertEqual(r.status, 4, r.err)
         XCTAssertFalse(FileManager.default.fileExists(atPath: path("k.pdf")))
@@ -62,7 +62,8 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(r.status, 0, r.err)
         let raw = String(decoding: try Data(contentsOf: URL(fileURLWithPath: out)), as: UTF8.self)
         XCTAssertFalse(raw.contains("AGE-SECRET-KEY"), "a passphrase kit never holds the plain key")
-        // The printed file is the vault's key file, and opens with the passphrase.
+        // The printed file wraps the secret key line alone (no 1959-character
+        // public key, which would not fit a QR code) and opens with the passphrase.
         let text = try pdfText(out)
         let begin = try XCTUnwrap(text.firstIndex(of: "-----BEGIN AGE ENCRYPTED FILE-----"))
         let end = try XCTUnwrap(text.firstIndex(of: "-----END AGE ENCRYPTED FILE-----"))
@@ -70,10 +71,38 @@ final class CLIBackupTests: CLITestCase {
         let plain = try AgeFile.decrypt(Data(armored.utf8), with: [ScryptIdentity(passphrase: Self.passphrase)])
         XCTAssertEqual(try IdentityFile.parse(String(decoding: plain, as: UTF8.self)).recipient,
                        try fixtureIdentity().recipient)
+        XCTAssertFalse(String(decoding: plain, as: UTF8.self).contains("age1pq1"))
+        XCTAssertEqual(r.status, 0)
 
         let wrong = try cli(["keys", "paper", "--passphrase", "--vault", Self.fixtureVault, "--out", path("w.pdf")],
                             env: ["INKVAULT_PASSPHRASE": "wrong"])
         XCTAssertEqual(wrong.status, 4, wrong.err)
+    }
+
+    /// A post-quantum kit never prints the 1959-character recipient (only a
+    /// fingerprint); a classic key gets no kit ("create a new key"), and a
+    /// legacy vault none either (migrate first).
+    func testPaperKitIsPostQuantumOnly() throws {
+        let out = path("pq.pdf")
+        let r = try cli(["keys", "paper", "--identity", Self.fixtureKey, "--vault", Self.fixtureVault, "--out", out])
+        XCTAssertEqual(r.status, 0, r.err)
+        let recipient = try fixtureIdentity().recipient.string
+        XCTAssertEqual(recipient.count, 1959)
+        let text = try pdfText(out).joined(separator: "\n")
+        let raw = String(decoding: try Data(contentsOf: URL(fileURLWithPath: out)), as: UTF8.self)
+        XCTAssertFalse(raw.contains(String(recipient.dropFirst(10).prefix(40))), "the recipient is not printed")
+        XCTAssertTrue(text.contains("(1959 characters), SHA-256 \(PaperKey.fingerprint(recipient))"), text)
+
+        let classic = path("classic.key")
+        try IdentityFile.render(X25519Identity(), created: Date()).write(toFile: classic, atomically: true, encoding: .utf8)
+        let refused = try cli(["keys", "paper", "--identity", classic, "--out", path("c.pdf")])
+        XCTAssertEqual(refused.status, 2, refused.err)
+        XCTAssertTrue(refused.err.contains("create a new key"), refused.err)
+        let legacy = try cli(["keys", "paper", "--identity", Self.legacyKey, "--vault", Self.legacyVault,
+                              "--out", path("l.pdf")])
+        XCTAssertEqual(legacy.status, 5, legacy.err)
+        XCTAssertTrue(legacy.err.contains("migrate first"), legacy.err)
+        for f in ["c.pdf", "l.pdf"] { XCTAssertFalse(FileManager.default.fileExists(atPath: path(f))) }
     }
 
     func testPaperKitWithANewPassphrase() throws {
@@ -157,7 +186,7 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(human.status, 3)
         XCTAssertTrue(human.out.contains("modified  notes/\(Self.lecture)/\(files[0])"), human.out)
         let wrongKey = path("w.key")
-        try IdentityFile.render(X25519Identity(), created: Date()).write(toFile: wrongKey, atomically: true, encoding: .utf8)
+        try IdentityFile.render(try NativeIdentity.generate(.postQuantum), created: Date()).write(toFile: wrongKey, atomically: true, encoding: .utf8)
         XCTAssertEqual(try cli(["backup", "verify", dir, "--identity", wrongKey]).status, 4)
 
         // The restore refuses the damaged file and says so.

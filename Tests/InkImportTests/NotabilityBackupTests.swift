@@ -18,7 +18,7 @@ final class NotabilityBackupTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: tmp) }
 
     func makeVault() throws -> Vault {
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         return try Vault.create(at: tmp.appendingPathComponent("V-\(UUID().uuidString).inkvault"),
                                 recipients: [identity.recipient], identities: [identity])
     }

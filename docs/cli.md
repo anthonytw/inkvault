@@ -37,6 +37,21 @@ printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 | 2 | Usage error (unknown option, missing vault, bad recipient string). |
 | 3 | `vault verify` or `backup verify` found problems, a restored vault is not healthy, or a recipient change is incomplete. |
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
+| 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: inkvault vault recipients replace OLD NEW`. |
+
+**Legacy vaults** (format.md §3.3.2) are migrate-only. On a vault that lists a
+classic X25519 recipient, alone or next to post-quantum ones, only these run:
+`vault info`, `vault recipients add` (post-quantum key) / `remove` /
+`replace`, `vault rewrap-resume`, and `recover` (the stock-`age` equivalent,
+which reads one file and needs no migration). Every other command that opens
+a vault (`notes …`, `export`, `search`, `compact`, `snapshot`, `import`,
+`vault verify`, `keys export`, `keys paper --vault`, `sync webdav`,
+`backup --prune`, `backup verify`, `restore`) exits 5 before asking for a key
+or passphrase. `backup V --to DIR` (without `--prune`) and `backup V --archive`
+are allowed too: they copy the encrypted files without decrypting anything,
+and a copy before migrating is a good idea. `restore` is refused because it
+would hand back a legacy vault; migrate the backup folder (itself a vault)
+first. `keys generate` and `keys show` do not touch a vault.
 
 Errors go to stderr, one line each, prefixed `inkvault:`.
 
@@ -63,10 +78,14 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
 
 - `generate` writes an `age-keygen`-style identity (mode 0600, refuses to
   overwrite) and prints the public key. Without `--out` the identity goes to
-  stdout and the public key to stderr.
-- `show` prints the public key (`age1...`) of an identity file.
+  stdout and the public key to stderr. Keys are always post-quantum
+  MLKEM768-X25519 (`AGE-SECRET-KEY-PQ-1...`, recipient `age1pq1...`, as
+  `age-keygen -pq` makes); vaults take no other kind. Decrypting their files
+  with the stock CLI needs `age` 1.3 or later; on Apple platforms the key
+  type needs macOS 26.
+- `show` prints the public key (`age1...` or `age1pq1...`) of an identity file.
 - `export` decrypts the vault's passphrase-wrapped key file
-  (`keys/<recipient>.key.age`) to a plain identity file, to move a key to
+  (`keys/<key-name>.key.age`, format.md §3.2) to a plain identity file, to move a key to
   another device. `--recipient` is needed only if the vault stores several.
 - `paper` writes a two-page printable PDF recovery kit (mode 0600, refuses to
   overwrite). Page 1: the key as a QR code (byte mode, error correction Q,
@@ -84,19 +103,22 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
   the sheet. With `--vault` the key must be one of the vault's recipients
   (else exit 4). Without `--identity` the key comes from the vault's stored key
   file (passphrase as for any command).
-  `--passphrase` prints the passphrase-wrapped key file instead (armored age,
-  scrypt; QR error correction M): the vault's `keys/<recipient>.key.age` when
-  it stores one for this key (its passphrase is checked), otherwise a new one
-  locked with a passphrase you choose (`--passphrase-env VAR` /
-  `$INKVAULT_PASSPHRASE` / the terminal, confirmed; `--work-factor`, default
-  18). Either way the command decrypts what it prints before writing the PDF.
+  `--passphrase` prints a passphrase-wrapped copy of the key instead (armored
+  age, scrypt, `--work-factor` default 18; QR error correction M). It wraps only
+  the secret key line, so a post-quantum key's 1959-character public key never
+  ends up in the QR code (it would not fit). The passphrase is the one of the
+  vault's stored key file for this key (checked by opening it), otherwise one
+  you choose (`--passphrase-env VAR` / `$INKVAULT_PASSPHRASE` / the terminal,
+  confirmed). Either way the command decrypts what it prints before writing the PDF.
   That sheet is safe to store less carefully, but useless without the
   passphrase. `--json` emits `path`, `variant` (`plain` or `passphrase`),
   `publicKey`, `vaultId`, `qrVersion`, `qrErrorCorrection` and `lines`.
   Delete the PDF once it is printed.
 
   **Post-quantum keys** (`AGE-SECRET-KEY-PQ-1…`, 77 characters, from
-  `age-keygen -pq`): the same sheet. The first line is the `AGE-SECRET-KEY-PQ-1`
+  `age-keygen -pq`): the same sheet. Kits are printed only for post-quantum
+  keys: a classic `AGE-SECRET-KEY-1…` key is refused ("create a new key", exit
+  2), and so is a legacy vault given with `--vault` (exit 5). The first line is the `AGE-SECRET-KEY-PQ-1`
   prefix, then 58 characters in lines of 20, and the QR code is version 7 at
   level Q (45×45 modules, against version 6 for an X25519 key). The public key is 1959 characters and cannot be
   read or typed from paper, so the sheet prints its first characters, its length and
@@ -113,8 +135,9 @@ inkvault keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [-
 inkvault vault init PATH --recipient age1... [--recipient ...] [--label TEXT ...]
                          [--store-key FILE [--passphrase-env VAR] [--work-factor 15...18]]
 inkvault vault info
-inkvault vault recipients add age1... [--label TEXT]
+inkvault vault recipients add age1pq1... [--label TEXT] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
 inkvault vault recipients remove age1...
+inkvault vault recipients replace age1old... age1pq1new... [--label TEXT] [--store-key FILE ...]
 inkvault vault rewrap-resume
 inkvault vault verify
 ```
@@ -130,6 +153,31 @@ inkvault vault verify
   (`remove` also rotates the vault secret) and print a report. If any file
   cannot be rewrapped the exit code is 3 and the message says to run
   `rewrap-resume`. Removing a key does not revoke what it already decrypted.
+- Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
+  and the new key of `replace` refuse a classic `age1...` key with "create a
+  new key" (exit 2), before asking for any passphrase. Legacy vaults that
+  still list X25519 keys open as before and are migrated with `replace` or
+  `add` + `remove` (format.md §3.3.2). A classic identity given to a
+  post-quantum vault fails with the same advice (exit 4).
+- `recipients add` / `replace --store-key FILE` also store the new
+  recipient's identity (FILE, which must be that key) passphrase-wrapped in
+  `keys/`, with the passphrase from `--store-passphrase-env VAR`, else
+  `$INKVAULT_PASSPHRASE`, else the terminal (confirmed). Use it when the
+  vault is unlocked by passphrase: only key files of current recipients are
+  offered for passphrase unlocking, so after a `replace` the old key file
+  (left in `keys/`) no longer is.
+- `recipients replace` swaps one recipient for another with a single rewrap
+  and a secret rotation: the post-quantum migration (format.md §3.3.2). An
+  interrupted replace is finished by `rewrap-resume` with **both** keys
+  (`--identity OLD --identity NEW`), so keep the old key until `info` shows
+  no pending rewrap.
+- Recipient arguments may be the key itself or a file holding it: a
+  recipients file (first non-comment line) or an identity file, of which only
+  the `# public key:` line is read. Post-quantum recipients are 1959
+  characters, so files are handier.
+- `info` abbreviates post-quantum keys, shows each recipient's type
+  (`x25519` / `mlkem768x25519`, `type` in `--json`) and a `Post-quantum:`
+  line: `yes` only when no X25519 recipient is left.
 - `rewrap-resume` finishes an interrupted change.
 - `verify` decrypts, tag-checks and decodes every file and prints
   `status  path` per file plus counts. Exit 0 only if the vault is healthy,
@@ -623,6 +671,9 @@ You have `key.txt` and one file, `17600...-ab12cd34-3.snapshot.age`, and no
 ```bash
 age -d -i key.txt 17600...-ab12cd34-3.snapshot.age | tail -c +38 | gunzip | jq .
 ```
+
+A post-quantum key (`AGE-SECRET-KEY-PQ-1...`) needs `age` 1.3 or later (the
+official release binaries; distribution packages may be older).
 
 The first 37 bytes of the decrypted body are the `INKV` header and HMAC tag
 (`docs/format.md` §4); `tail -c +38` skips them. Newest snapshot first: it

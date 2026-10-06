@@ -105,9 +105,10 @@ enum VaultBookmark {
 /// What the "new vault" form produces.
 struct NewVaultRequest: Sendable {
     enum KeySource: Sendable {
-        /// Generate an X25519 key on this device.
+        /// Generate a post-quantum MLKEM768-X25519 key on this device
+        /// (docs/post-quantum.md).
         case generate
-        /// Encrypt to an existing `age1…` recipient; this device gets no key.
+        /// Encrypt to an existing post-quantum `age1pq1…` recipient; this device gets no key.
         case recipient(String)
     }
 
@@ -120,7 +121,7 @@ struct NewVaultRequest: Sendable {
 /// The outcome of creating a vault.
 struct CreatedVault: Sendable {
     var url: URL
-    /// The new secret key (`AGE-SECRET-KEY-1…`) when one was generated; the
+    /// The new secret key (`AGE-SECRET-KEY-PQ-1…`) when one was generated; the
     /// user must save it, nothing else holds it unless a passphrase wrapped it.
     var secretKey: String?
     /// The recents entry saved for it, whose bookmark carries the access the
@@ -135,13 +136,18 @@ final class VaultLibrary {
     enum LibraryError: Error, Equatable, CustomStringConvertible {
         case invalidName
         case invalidRecipient
+        /// A classic X25519 `age1…` key: vaults take only post-quantum keys.
+        case classicRecipient
         case passphraseNeedsGeneratedKey
         case cannotResolve(name: String)
 
         var description: String {
             switch self {
             case .invalidName: return "Give the vault a name without slashes, leading dots or control characters."
-            case .invalidRecipient: return "That text is not an age1… recipient."
+            case .invalidRecipient: return "That text is not an age1pq1… recipient."
+            case .classicRecipient:
+                return "That is a classic age1… key, which is not quantum-safe. Create a new key instead "
+                    + "(here, or with age-keygen -pq) and use its age1pq1… recipient."
             case .passphraseNeedsGeneratedKey: return "A passphrase can only wrap a key generated on this device."
             case .cannotResolve(let name):
                 return "“\(name)” can't be found any more. It may have been moved or deleted, or access to it expired. Choose its folder again."
@@ -274,7 +280,7 @@ final class VaultLibrary {
         let url = parent.appendingPathComponent(folder, isDirectory: true)
         switch request.keySource {
         case .generate:
-            let identity = X25519Identity()
+            let identity = try NativeIdentity.generate(.postQuantum)
             let vault = try Vault.create(at: url, recipients: [identity.recipient], labels: ["This device"],
                                          identities: [identity])
             if let passphrase = request.passphrase, !passphrase.isEmpty {
@@ -283,10 +289,11 @@ final class VaultLibrary {
             return CreatedVault(url: url, secretKey: identity.string)
         case .recipient(let text):
             guard request.passphrase?.isEmpty ?? true else { throw LibraryError.passphraseNeedsGeneratedKey }
-            let recipient: X25519Recipient
-            do { recipient = try X25519Recipient(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) } catch {
+            let recipient: NativeRecipient
+            do { recipient = try NativeRecipient(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) } catch {
                 throw LibraryError.invalidRecipient
             }
+            guard recipient.isPostQuantum else { throw LibraryError.classicRecipient }
             _ = try Vault.create(at: url, recipients: [recipient])
             return CreatedVault(url: url, secretKey: nil)
         }

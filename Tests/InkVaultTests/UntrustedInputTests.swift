@@ -62,7 +62,7 @@ final class UntrustedInputTests: VaultTestCase {
                                             state: try NoteReducer.reconstruct([d])))
         XCTAssertEqual(Vault.nextSeq(from: [d, snap], device: devA), RevisionName.maxSeq + 1)
 
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         var next = log.delta(devA, 5, [.deleteNote])
         next.seq = RevisionName.maxSeq + 1
@@ -138,7 +138,7 @@ final class UntrustedInputTests: VaultTestCase {
             XCTAssertNil(RFC3339.string(from: bad))
             XCTAssertThrowsError(try InkJSON.encoder().encode([bad])) { XCTAssertTrue($0 is EncodingError, "\($0)") }
         }
-        let vault = try makeVault(X25519Identity())
+        let vault = try makeVault(pqIdentity())
         var log = LogBuilder()
         var rev = log.delta(devA, 0, [.deleteNote])
         rev.wall = Date(timeIntervalSinceReferenceDate: .nan)
@@ -280,7 +280,7 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(t0), 5)
 
         // Through the vault: an oversized vault.json and a revision that is a FIFO.
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let rev = sampleLog()[0]
         try vault.write(rev)

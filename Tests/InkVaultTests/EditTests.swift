@@ -7,7 +7,7 @@ final class EditTests: VaultTestCase {
     var stateURL: URL { tmp.appendingPathComponent("device.json") }
 
     func testNewNoteThenMetaEditsReconstruct() throws {
-        let vault = try makeVault(X25519Identity())
+        let vault = try makeVault(pqIdentity())
         let id = UUID()
         try vault.apply(NoteOps.newNote(title: "Physics", notebook: " Uni ", tags: ["a", " a ", ""]), to: id,
                         deviceState: stateURL, app: "test")
@@ -31,7 +31,7 @@ final class EditTests: VaultTestCase {
     }
 
     func testClockSurvivesRestartAndBeatsEarlierRevisions() throws {
-        let vault = try makeVault(X25519Identity())
+        let vault = try makeVault(pqIdentity())
         let id = UUID()
         // A revision from another device stamped in the future (within drift).
         let future = Date().addingTimeInterval(3600)
@@ -46,7 +46,7 @@ final class EditTests: VaultTestCase {
     }
 
     func testRefusesLockedAndWriteOnlyVaults() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let locked = try Vault.open(at: vault.url)
         XCTAssertThrowsError(try locked.apply([.deleteNote], to: UUID(), deviceState: stateURL, app: "t"))
@@ -66,7 +66,7 @@ final class EditTests: VaultTestCase {
     /// Titles are never keys: notes with the same title (in one notebook or
     /// several) are separate notes, and a rename to a taken title is fine.
     func testSameTitleNotesAreIndependent() throws {
-        let vault = try makeVault(X25519Identity())
+        let vault = try makeVault(pqIdentity())
         let a = UUID(), b = UUID(), c = UUID()
         try vault.apply(NoteOps.newNote(title: "Lecture", notebook: "School"), to: a, deviceState: stateURL, app: "t")
         try vault.apply(NoteOps.newNote(title: "Lecture", notebook: "School"), to: b, deviceState: stateURL, app: "t")

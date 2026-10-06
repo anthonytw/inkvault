@@ -81,7 +81,7 @@ struct NewVaultView: View {
                     Text("Use an existing recipient").tag(Source.recipient)
                 }
                 if source == .recipient {
-                    TextField("age1…", text: $recipient, axis: .vertical)
+                    TextField("age1pq1…", text: $recipient, axis: .vertical)
                         .font(.body.monospaced())
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)

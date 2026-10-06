@@ -38,7 +38,8 @@ Do not use features newer than Swift 6.0 in `Sources/`.
 - No network code in `Sources/` except the `InkWebDAV` target (`URLSession`, via
   `FoundationNetworking` on Linux). `scripts/check-portability.sh` enforces it.
 - Keep the stock-CLI recovery path working:
-  `age -d -i key FILE.age | tail -c +38 | gunzip | jq .`, and for blobs
+  `age -d -i key FILE.age | tail -c +38 | gunzip | jq .` (with `age` 1.3+ for
+  post-quantum keys), and for blobs
   `age -d -i key notes/ID/att/NAME.KIND.age | tail -c +46 | head -c LEN`
   (`format.md` §8.1.7).
 
@@ -220,6 +221,29 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   observed, so it needs the note's state), never `setMeta(.tags)` (legacy,
   read only). A snapshot without `tagSet` is a legacy one: keep the committed
   fixture vault that way.
+- Vaults are post-quantum only: new keys and recipients are MLKEM768-X25519
+  (`age1pq1…`); public `Vault` API throws `classicRecipient` for X25519.
+  Legacy vaults (any X25519 recipient, mixed included) are migrate-only:
+  every note-content API calls `requireMigrated()` and throws `legacyVault`;
+  only open/unlock, keys/, add (PQ)/remove/replace/resumeRewrap work. The CLI
+  passes `migration: true` to `openVault` only for those commands (exit 5
+  otherwise); the app shows `MigrationView` only. `Fixtures/sample.*` is
+  post-quantum, `Fixtures/legacy.*` the X25519 migration input. Tests that
+  need a legacy vault use the internal X25519 `Vault.create` overload or
+  `Vault.createUnchecked`, and `allowingLegacyContent()` (`@testable`) to
+  write notes into it. Keys are `NativeIdentity` /
+  `NativeRecipient` (Sources/Age/NativeKeys.swift). X-Wing comes from swift-crypto 4 (CryptoKit on Apple 26+,
+  BoringSSL on Linux); never implement ML-KEM here. `postQuantumAvailable` is
+  false on Apple OSes before 26 or SDKs before Xcode 26, so gate PQ tests
+  with it. PQ recipients are 1959 characters: abbreviate in UI, and PQ key
+  files are `keys/age1pq-<sha256 hex>.key.age` (`IdentityFile.fileName`);
+  `identityFiles()` lists only current recipients' key files (a migrated
+  vault keeps its old X25519 key file, which must not be offered).
+  Vault writes use `Vault.encrypt` (mixed PQ + X25519 allowed during a
+  migration); plain `AgeFile.encrypt` refuses that mix, as `age` does.
+  Interop tests need `age` ≥ 1.3 on PATH (the official release; Ubuntu ships
+  1.1); CI sets `INKVAULT_REQUIRE_AGE_PQ` so they fail instead of skipping.
+  See `docs/post-quantum.md`.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are

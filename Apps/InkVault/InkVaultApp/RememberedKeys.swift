@@ -19,7 +19,7 @@ final class RememberedKeys {
     struct Offer: Identifiable, Equatable {
         let vaultID: UUID
         let vaultName: String
-        /// The identity, `AGE-SECRET-KEY-1…`.
+        /// The identity, `AGE-SECRET-KEY-PQ-1…` (or a legacy `AGE-SECRET-KEY-1…`).
         let identity: String
         var id: UUID { vaultID }
     }
@@ -151,7 +151,8 @@ final class RememberedKeys {
     /// Whether an unlock failed because of the key rather than the vault's files.
     static func isWrongKey(_ error: any Error) -> Bool {
         switch error {
-        case AppModel.ModelError.notAnIdentity, VaultError.vaultSecretUndecryptable: return true
+        case AppModel.ModelError.notAnIdentity, VaultError.vaultSecretUndecryptable, VaultError.classicIdentity:
+            return true
         default: return false
         }
     }
@@ -182,7 +183,7 @@ final class RememberedKeys {
     }
 
     /// Offers to remember `identity` unless a working key is already remembered.
-    func offerToRemember(_ identity: X25519Identity, _ model: AppModel) {
+    func offerToRemember(_ identity: NativeIdentity, _ model: AppModel) {
         guard model.phase == .unlocked, let id = model.vault?.vaultId else { return }
         if storageVaultID == id, storage != nil, brokenVaultID != id { return }
         offer = Offer(vaultID: id, vaultName: model.vaultName ?? "Vault", identity: identity.string)

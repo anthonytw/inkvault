@@ -13,7 +13,9 @@ let package = Package(
         .executable(name: "inkvault", targets: ["InkVaultCLI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+        // 4.0 adds X-Wing (ML-KEM-768 + X25519) and HPKE with it, for the
+        // post-quantum age recipient (Sources/Age/MLKEM768X25519.swift).
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
     ],
     targets: [

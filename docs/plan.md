@@ -36,7 +36,8 @@ is still open); compaction UI;
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper; now designed with text boxes and audio,
 see "Attachments" below); stroke
-dedupe after concurrent slicing; post-quantum recipient type; read-only
+dedupe after concurrent slicing; ~~post-quantum recipient type~~ (done:
+MLKEM768-X25519, `docs/post-quantum.md`); read-only
 access to vaults of a newer format version (`format.md` §7; today `Vault.open`
 refuses any `format` other than `inkvault/1`).
 
