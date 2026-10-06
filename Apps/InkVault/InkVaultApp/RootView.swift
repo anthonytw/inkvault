@@ -31,6 +31,9 @@ struct RootView: View {
                             newVault: { creatingVault = true },
                             openRecent: { entry in Task { await reopen(entry) } },
                             openURL: { url in Task { await open(url) } })
+            } else if model.phase == .migrating {
+                // A legacy vault: nothing but its migration (format.md §3.3.2).
+                MigrationView()
             } else {
                 NavigationSplitView(columnVisibility: columns) {
                     SidebarView()

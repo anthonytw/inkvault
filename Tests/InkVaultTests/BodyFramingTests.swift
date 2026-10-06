@@ -117,7 +117,7 @@ final class BodyFramingTests: VaultTestCase {
     // MARK: - Through the vault
 
     func testFileMovedToAnotherNoteOrNameIsTagMismatch() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let rev = sampleLog()[0]
         try vault.write(rev)

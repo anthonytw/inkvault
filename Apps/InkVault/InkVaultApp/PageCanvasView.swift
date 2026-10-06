@@ -304,7 +304,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
                                              footerHeight: footer == .none ? 0 : Double(PageExtent.footerScreenHeight / z))
         let paperHeight = pageSize.infinite ? height : pageSize.height
         let size = CGSize(width: CGFloat(pageSize.width), height: CGFloat(paperHeight))
-        paperView.configure(paper: paper, size: size)
+        paperView.configure(paper: paper, size: size, sheetHeight: PaperRenderer.sheetHeight(for: pageSize))
         paperView.setZoom(z)
         canvas.contentSize = CGSize(width: size.width * z, height: CGFloat(height) * z)
         if footer != .none {

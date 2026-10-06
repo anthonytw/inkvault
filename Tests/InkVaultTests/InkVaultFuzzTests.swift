@@ -176,7 +176,7 @@ final class InkVaultFuzzTests: VaultTestCase {
     struct Invariant: Error { var text: String; init(_ t: String) { text = t } }
 
     func testFuzzManifestJournalAndDeviceState() throws {
-        let id = X25519Identity(), other = X25519Identity()
+        let id = pqIdentity(), other = pqIdentity()
         let vault = try Vault.create(at: vaultURL(), recipients: [id.recipient, other.recipient], labels: ["a", "b"],
                                      identities: [id])
         let manifest = try Data(contentsOf: vault.url.appendingPathComponent("vault.json"))
@@ -226,7 +226,7 @@ final class InkVaultFuzzTests: VaultTestCase {
     /// through every vault entry point (load, reconstruct, summary, history,
     /// verify, nextSeq, snapshot, compaction plan).
     func testFuzzVaultFiles() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = try Self.seedLog()
         for r in log { try vault.write(r) }

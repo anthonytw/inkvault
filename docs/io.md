@@ -216,8 +216,8 @@ The only in-place rewrite. The procedure is the recommended one of
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
    removal).
 3. For every revision file: decrypt with our identities, then
-   - **skip** it if its header has exactly one X25519 stanza per current recipient
-     (and no other stanzas)
+   - **skip** it if its header has exactly one stanza of the matching type
+     (`X25519` / `mlkem768x25519`) per current recipient (and no other stanzas)
      and its tag verifies under the current secret (already done);
    - otherwise re-encrypt the same plaintext to the new set (on removal,
      first re-tag the unchanged gzip bytes with the new secret, after
@@ -236,15 +236,24 @@ notices it (`pendingRewrap`), keeps the outgoing secret so files not yet
 rewrapped still verify (if the journal cannot be read, `open` records why in
 `journalProblem`; `verify()` reports it and such files fail as
 `tagMismatchJournalUnreadable` instead of a plain tag mismatch), and `resumeRewrap()` (or simply repeating the same
-`addRecipient` / `removeRecipient` call) finishes step 3 and 4. Files that
+`addRecipient` / `removeRecipient` / `replaceRecipient` call) finishes step 3 and 4. Files that
 are already current are skipped, so a run can be repeated any number of
 times.
 
-Why a stanza count and not "the header lists all recipients": X25519
-stanzas carry only an ephemeral share, not the recipient, so a header cannot
-be matched against public keys. Within one change the count differs (n−1 vs
-n on add, n+1 vs n on remove), and on removal the tag under the new secret
-also tells old from new. The journal blocks any other recipient change until
+Why a stanza count and not "the header lists all recipients": X25519 and
+mlkem768x25519 stanzas carry only an ephemeral share or encapsulation, not
+the recipient, so a header cannot be matched against public keys. Within one
+change the counts differ (n−1 vs n on add, n+1 vs n on remove; X25519 vs
+mlkem768x25519 on an X25519 → post-quantum replace), and on removal or
+replacement the tag under the new secret also tells old from new (a
+replacement within one type changes no count, so the rotated secret is what
+marks a file done).
+
+`replaceRecipient` (the post-quantum migration, `format.md` §3.3.2) is a
+removal and an addition in one pass. Its pending files are encrypted only to
+the outgoing key, so unlike add and remove it cannot be finished by a device
+that holds only a key of the new set: resuming needs the old identity too.
+The CLI says so, and the old key must be kept until no rewrap is pending. The journal blocks any other recipient change until
 it is resolved, so counts from two changes never mix.
 
 A file that verifies under neither secret (tampered or planted) is never

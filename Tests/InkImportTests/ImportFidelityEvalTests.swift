@@ -42,7 +42,7 @@ final class ImportFidelityEvalTests: XCTestCase {
         try? fm.removeItem(at: dir)
         try fm.createDirectory(at: dir.appendingPathComponent("oracle"), withIntermediateDirectories: true)
 
-        let identity = X25519Identity()
+        let identity = try NativeIdentity.generate(.postQuantum)
         try (identity.string + "\n").write(to: dir.appendingPathComponent("identity.key"), atomically: true,
                                            encoding: .utf8)
         let vault = try Vault.create(at: dir.appendingPathComponent("vault.inkvault"),

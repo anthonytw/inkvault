@@ -46,7 +46,7 @@ final class FailurePathTests: VaultTestCase {
     }
 
     func testUnreadableFileKeepsJournalUntilRetrySucceeds() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a])
         let revs = try populate(vault)
         let oldSecret = try XCTUnwrap(vault.secret)
@@ -76,7 +76,7 @@ final class FailurePathTests: VaultTestCase {
     }
 
     func testUnlistableNotesDirectoryIsNeverHealthy() throws {
-        let a = X25519Identity()
+        let a = pqIdentity()
         let vault = try makeVault(a)
         _ = try populate(vault)
         let notes = vault.url.appendingPathComponent("notes")
@@ -89,11 +89,11 @@ final class FailurePathTests: VaultTestCase {
         XCTAssertFalse(report.isHealthy)
         XCTAssertEqual(report.counts[.unlistable], 1)
         var v = vault
-        XCTAssertThrowsError(try v.addRecipient(X25519Identity().recipient, label: "x"))
+        XCTAssertThrowsError(try v.addRecipient(pqIdentity().recipient, label: "x"))
     }
 
     func testUnreadableJournalIsRecordedAndSurfaced() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a])
         let revs = try populate(vault)
         XCTAssertThrowsError(try vault.removeRecipient(b.recipient, stopAfter: 2))
@@ -122,7 +122,7 @@ final class FailurePathTests: VaultTestCase {
     }
 
     func testNextSeqRefusesUnreadableSnapshot() throws {
-        let a = X25519Identity()
+        let a = pqIdentity()
         let vault = try makeVault(a)
         let log = sampleLog()
         for r in log { try vault.write(r) }
@@ -142,7 +142,7 @@ final class FailurePathTests: VaultTestCase {
     }
 
     func testWriteOnlyVaultCannotRead() throws {
-        let a = X25519Identity()
+        let a = pqIdentity()
         let vault = try Vault.create(at: vaultURL(), recipients: [a.recipient])
         XCTAssertFalse(vault.isLocked)
         XCTAssertFalse(vault.canRead)
@@ -157,7 +157,7 @@ final class FailurePathTests: VaultTestCase {
         XCTAssertEqual(report.counts[.notChecked], log.count)
         XCTAssertTrue(report.files.filter { $0.status == .notChecked }.allSatisfy { $0.detail == "no identities" })
         var v = vault
-        XCTAssertThrowsError(try v.addRecipient(X25519Identity().recipient, label: "x")) {
+        XCTAssertThrowsError(try v.addRecipient(pqIdentity().recipient, label: "x")) {
             XCTAssertEqual($0 as? VaultError, .noIdentities)
         }
         // Another device with the identity reads everything.
@@ -167,7 +167,7 @@ final class FailurePathTests: VaultTestCase {
     }
 
     func testMalformedVaultSecretArmorIsReported() throws {
-        let a = X25519Identity()
+        let a = pqIdentity()
         let vault = try makeVault(a)
         var m = vault.manifest
         m.vaultSecret = "-----BEGIN AGE ENCRYPTED FILE-----\nnot base64!\n-----END AGE ENCRYPTED FILE-----\n"

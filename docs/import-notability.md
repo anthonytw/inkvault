@@ -591,6 +591,15 @@ Without `lineStyle2`, the integer `lineStyle` / `paperLineStyle` is used:
 with `lineStyle2`. The two boolean fields of the newer form are unknown.
 Paper colours are not stored per note; the defaults are used.
 
+The imported `paper` (format.md §5.4.2) takes `kind` and `spacing` from this
+table and every other parameter from the kind's defaults (white page, default
+line colour and width, dot radius 0.9 pt). The reverse-engineered data has no
+line colour, line width, margin or page colour, and no Cornell, staff or
+isometric styles (`lineStyle2` values for them are not known and import as
+blank paper), so nothing richer is mapped; the importer's output is unchanged
+by the parametric paper. A note imported before can be restyled in the app
+(paper picker, "Apply to all pages").
+
 ## HandwritingIndex/index.plist
 
 `version` and `minCompatibleVersion` (7), and `pages`: a dictionary keyed by

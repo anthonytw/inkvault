@@ -37,8 +37,14 @@ final class RecoveryInteropTests: VaultTestCase {
 
     func testStockAgeRecoveryPipeline() throws {
         guard let age = Self.which("age") else { throw XCTSkip("age not on PATH") }
+        // A legacy X25519 vault: the library refuses its notes until it is
+        // migrated, but the stock-CLI recovery path keeps working on it.
         let id = X25519Identity()
-        let vault = try makeVault(id)
+        let legacy = try Vault.create(at: vaultURL(), recipients: [id.recipient], identities: [id])
+        XCTAssertThrowsError(try legacy.summaries()) {
+            XCTAssertEqual($0 as? VaultError, .legacyVault(recipients: [id.recipient.string]))
+        }
+        let vault = legacy.allowingLegacyContent()   // test seam: write the notes to recover
         var clock = HybridClock()
         let log = sampleLog()
         for r in log { try vault.write(r) }

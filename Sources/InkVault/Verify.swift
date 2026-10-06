@@ -99,13 +99,21 @@ extension Vault {
             report.files.append(.init(path: entry, status: .unknownFile, detail: nil))
         }
         for entry in list(keysURL, as: Self.keysName) {
-            let ok = IdentityFile.recipient(fromFileName: entry) != nil
+            let ok = IdentityFile.isKeyFileName(entry)
                 && !FileIO.isDirectory(keysURL.appendingPathComponent(entry))
             report.files.append(.init(path: "\(Self.keysName)/\(entry)", status: ok ? .ok : .unknownFile,
                                       detail: nil))
         }
-        let recipientCount = manifest.recipients.count
-        let notReadable = secret == nil ? "vault locked" : identities.isEmpty ? "no identities" : nil
+        let expected = Self.expectedStanzas((try? ageRecipients()) ?? [])
+        // A legacy vault is not checked file by file: its notes are not to be
+        // read before the migration (format.md §3.3.2).
+        let legacy = (try? requireMigrated()) == nil
+        if legacy {
+            report.manifestProblems.append("legacy vault: classic X25519 recipient(s) "
+                + classicRecipients.joined(separator: ", ") + "; migrate first (format.md §3.3.2)")
+        }
+        let notReadable = legacy ? "legacy vault: migrate first"
+            : secret == nil ? "vault locked" : identities.isEmpty ? "no identities" : nil
         for note in list(notesURL, as: Self.notesName) {
             let dir = notesURL.appendingPathComponent(note)
             let base = "\(Self.notesName)/\(note)"
@@ -127,10 +135,11 @@ extension Vault {
                 do {
                     let data = try FileIO.read(file, maxBytes: BoundedRead.maxRevisionBytes)
                     _ = try decodeRevisionFile(data, note: note, name: name, secret: secret)
-                    let stanzas = (try? Self.x25519StanzaCount(data)) ?? -1
-                    if stanzas != recipientCount {
+                    let stanzas = (try? Self.stanzaCounts(data)) ?? [:]
+                    if stanzas != expected {
                         report.files.append(.init(path: path, status: .staleRecipients,
-                                                  detail: "\(stanzas) X25519 stanzas, \(recipientCount) recipients"))
+                                                  detail: "stanzas: \(Self.describe(stanzas)); recipients need: "
+                                                      + Self.describe(expected)))
                     } else {
                         report.files.append(.init(path: path, status: .ok, detail: nil))
                     }
@@ -154,9 +163,11 @@ extension Vault {
         // The secret must be armored age encrypted to exactly the recipients.
         do {
             let binary = try Armor.decode(Data(m.vaultSecret.utf8))
-            let stanzas = try Self.x25519StanzaCount(binary)
-            if stanzas != m.recipients.count {
-                problems.append("vaultSecret has \(stanzas) X25519 stanzas for \(m.recipients.count) recipients")
+            let stanzas = try Self.stanzaCounts(binary)
+            let expected = Self.expectedStanzas(try m.recipients.map { try NativeRecipient(string: $0.key) })
+            if stanzas != expected {
+                problems.append("vaultSecret has stanzas \(Self.describe(stanzas)) for recipients needing "
+                    + Self.describe(expected))
             }
         } catch {
             problems.append("vaultSecret is not an armored age file: \(error)")

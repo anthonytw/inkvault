@@ -5,7 +5,7 @@ import XCTest
 
 final class RecipientTests: VaultTestCase {
     func testAddRecipientLetsSecondIdentityRead() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try makeVault(a)
         let revs = try populate(vault)
         let secret = vault.secret
@@ -32,7 +32,7 @@ final class RecipientTests: VaultTestCase {
     }
 
     func testRemoveRecipientLocksItOutAndRotatesSecret() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], labels: ["A", "B"],
                                      identities: [a])
         let revs = try populate(vault)
@@ -64,7 +64,7 @@ final class RecipientTests: VaultTestCase {
     }
 
     func testInterruptedAddIsFinishedBySecondRun() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try makeVault(a)
         let revs = try populate(vault)
         XCTAssertThrowsError(try vault.addRecipient(b.recipient, label: "B", added: Date(), stopAfter: 3)) {
@@ -89,7 +89,7 @@ final class RecipientTests: VaultTestCase {
     }
 
     func testInterruptedRemoveIsFinishedByResume() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a])
         let revs = try populate(vault)
         let oldSecret = try XCTUnwrap(vault.secret)
@@ -119,7 +119,7 @@ final class RecipientTests: VaultTestCase {
 
     /// A rewrap never blesses a file it cannot verify (e.g. a planted one).
     func testRewrapLeavesUnverifiableFilesAlone() throws {
-        let a = X25519Identity(), b = X25519Identity()
+        let a = pqIdentity(), b = pqIdentity()
         var vault = try makeVault(a)
         let revs = try populate(vault)
         let planted = RevisionName(hlc: HLC(millis: baseMillis + 999, counter: 0)!, device: devC, seq: 1, kind: .delta)
@@ -137,7 +137,7 @@ final class RecipientTests: VaultTestCase {
         // The change is not complete: the journal stays and blocks a new change.
         XCTAssertFalse(report.isComplete)
         XCTAssertTrue(vault.pendingRewrap)
-        let c = X25519Identity()
+        let c = pqIdentity()
         XCTAssertThrowsError(try vault.addRecipient(c.recipient, label: "C")) {
             XCTAssertEqual($0 as? VaultError,
                            .rewrapIncomplete(["\(testNote.uuidString.lowercased())/\(planted.filename)"]))

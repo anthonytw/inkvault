@@ -3,7 +3,7 @@ import Foundation
 
 /// Entry point: maps every failure to one stderr line and the documented
 /// exit code (docs/cli.md): 0 ok, 1 failure, 2 usage, 3 unhealthy or
-/// incomplete, 4 cannot decrypt.
+/// incomplete, 4 cannot decrypt, 5 legacy vault.
 func runCLI(_ arguments: [String]) -> Int32 {
     do {
         var command = try InkVaultCLI.parseAsRoot(arguments)

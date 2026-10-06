@@ -6,7 +6,7 @@ import XCTest
 /// Library pieces the `inkvault` CLI is built on: recovery, summaries,
 /// compaction plan, device state, export names.
 final class CLISupportTests: XCTestCase {
-    func fixtureVault() throws -> (Vault, X25519Identity) {
+    func fixtureVault() throws -> (Vault, NativeIdentity) {
         let id = try IdentityFile.parse(String(contentsOf: FixtureTests.bundled("sample.key"), encoding: .utf8))
         return (try Vault.open(at: FixtureTests.bundled("sample.inkvault"), identities: [id]), id)
     }

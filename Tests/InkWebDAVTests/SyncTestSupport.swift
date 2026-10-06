@@ -4,9 +4,12 @@ import XCTest
 @testable import InkVault
 @testable import InkWebDAV
 
+/// A fresh post-quantum identity (vaults take no other kind).
+func pqIdentity() -> NativeIdentity { try! NativeIdentity.generate(.postQuantum) }
+
 class SyncTestCase: XCTestCase {
     var tmp: URL!
-    let identity = X25519Identity()
+    let identity = pqIdentity()
     let devA = DeviceID("aaaaaaaa")!
     let devB = DeviceID("bbbbbbbb")!
     let noteID = UUID(uuidString: "7e57c0de-0000-4000-8000-000000000001")!

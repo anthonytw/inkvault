@@ -5,14 +5,16 @@ public enum NoteOps {
     /// The ops that create a note: one empty page, all metadata fields, and
     /// one `addTag` per tag (format.md §5.4.1).
     ///
-    /// Tags are trimmed and de-duplicated, and an empty notebook is nil.
+    /// Tags are trimmed and de-duplicated, an empty notebook is nil, and the
+    /// paper is clamped to its valid ranges (format.md §5.4.2: writers keep
+    /// every parameter in range).
     public static func newNote(title: String, paper: Paper = .ruled, pageSize: PageSize = .letter,
                                notebook: String? = nil, tags: [String] = [],
                                pageId: UUID = UUID()) -> [Op] {
         [.addPage(Page(id: pageId, order: PageOrder.between(nil, nil))),
          .setMeta(.title(title)),
          .setMeta(.notebook(normalizedNotebook(notebook))),
-         .setMeta(.paper(paper)),
+         .setMeta(.paper(paper.validated())),
          .setMeta(.pageSize(pageSize))]
             + normalizedTags(tags).map(Op.addTag)
     }
@@ -87,6 +89,7 @@ extension Vault {
     @discardableResult
     public func apply(_ ops: [Op], to noteId: UUID, deviceState: URL, app: String,
                       wall: Date = Date()) throws -> Revision {
+        try requireMigrated()
         guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
         let loaded = try loadNote(noteId)
         var state = try DeviceState.loadOrCreate(at: deviceState)
@@ -102,5 +105,33 @@ extension Vault {
                                 body: .delta(ops: ops))
         try write(revision)
         return revision
+    }
+}
+
+/// Which pages a paper change applies to.
+public enum PaperScope: Hashable, Sendable {
+    /// Only this page: it gets its own paper.
+    case page(UUID)
+    /// The whole note: every page follows the note's paper.
+    case allPages
+}
+
+extension NoteOps {
+    /// The ops that set `paper` (clamped to its valid ranges, format.md
+    /// §5.4.2) for `scope`. For `.allPages` that is the note's paper plus a
+    /// `setPagePaper(nil)` for each page that has its own, so none keeps an
+    /// older choice. Empty when nothing would change.
+    public static func setPaper(_ paper: Paper, scope: PaperScope, note: NoteMeta, pages: [Page]) -> [Op] {
+        let paper = paper.validated()
+        switch scope {
+        case .page(let id):
+            guard let page = pages.first(where: { $0.id == id }), page.paper ?? note.paper != paper else { return [] }
+            return [.setPagePaper(pageId: id, paper: paper)]
+        case .allPages:
+            var ops: [Op] = []
+            if note.paper != paper { ops.append(.setMeta(.paper(paper))) }
+            ops += pages.filter { $0.paper != nil }.map { .setPagePaper(pageId: $0.id, paper: nil) }
+            return ops
+        }
     }
 }

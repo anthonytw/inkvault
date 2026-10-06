@@ -4,13 +4,13 @@ import XCTest
 @testable import InkVault
 
 final class BackupTests: VaultTestCase {
-    var id: X25519Identity!
+    var id: NativeIdentity!
     var vault: Vault!
     var dest: URL { tmp.appendingPathComponent("backup") }
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        id = X25519Identity()
+        id = pqIdentity()
         vault = try makeVault(id)
         _ = try populate(vault)
     }
@@ -59,7 +59,7 @@ final class BackupTests: VaultTestCase {
     }
 
     func testRefusesForeignOrOverlappingDestinations() throws {
-        let other = try makeVault(X25519Identity(), name: "Other")
+        let other = try makeVault(pqIdentity(), name: "Other")
         _ = try Backup.run(source: vault, to: dest)
         XCTAssertThrowsError(try Backup.run(source: other, to: dest)) {
             guard case BackupError.otherVault = $0 else { return XCTFail("\($0)") }
@@ -108,7 +108,7 @@ final class BackupTests: VaultTestCase {
         _ = try Backup.run(source: vault, to: dest, options: BackupOptions(now: wallAt(baseMillis)))
         let before = try contents(dest)
         var v = vault!
-        _ = try v.addRecipient(X25519Identity().recipient, label: "second")
+        _ = try v.addRecipient(pqIdentity().recipient, label: "second")
         let report = try Backup.run(source: v, to: dest, options: BackupOptions(now: wallAt(baseMillis + 60_000)))
         XCTAssertEqual(Set(report.replaced), Set(before.keys), "a rewrap changes every file")
         XCTAssertEqual(report.copied, [])
@@ -310,12 +310,12 @@ final class BackupTests: VaultTestCase {
     // MARK: - Review regressions
 
     /// Replacing one key by another keeps every revision file the same size
-    /// (one X25519 stanza either way) but rewrites it: a size-only shortcut
+    /// (one stanza either way) but rewrites it: a size-only shortcut
     /// would leave the backup encrypted to the key that was removed.
     func testSameSizeRewrapIsNotSkippedBySizeShortcut() throws {
         _ = try Backup.run(source: vault, to: dest, options: BackupOptions(now: wallAt(baseMillis)))
         let before = try contents(dest)
-        let b = X25519Identity()
+        let b = pqIdentity()
         var v = try Vault.open(at: vault.url, identities: [id])
         _ = try v.addRecipient(b.recipient, label: "new")
         _ = try v.removeRecipient(id.recipient)

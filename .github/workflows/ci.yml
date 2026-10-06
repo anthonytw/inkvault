@@ -56,10 +56,16 @@ jobs:
     container: swift:6.4-noble
     steps:
       - uses: actions/checkout@v4
-      - name: Install zlib headers, age CLI, zbar and poppler (QR decode tests)
+      - name: Install zlib headers, zbar and poppler (QR decode tests)
         run: |
           apt-get update -q
-          apt-get install -y -q zlib1g-dev age zbar-tools poppler-utils
+          apt-get install -y -q zlib1g-dev curl zbar-tools poppler-utils
+      - name: Install age v1.3.2 (post-quantum interop; Ubuntu's package is 1.1)
+        run: |
+          curl -fsSL -o /tmp/age.tgz https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-linux-amd64.tar.gz
+          echo "cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10  /tmp/age.tgz" | sha256sum -c -
+          tar xzf /tmp/age.tgz -C /usr/local/bin --strip-components=1 age/age age/age-keygen
+          age --version
       # Build cache: main saves it, PRs only restore (docs/HANDOFF.md "CI").
       - id: cachekey
         name: Cache key (toolchain + resolved packages)
@@ -72,6 +78,8 @@ jobs:
       - name: Build
         run: swift build --build-tests
       - name: Test
+        env:
+          INKVAULT_REQUIRE_AGE_PQ: "1"
         run: swift test --skip-build --parallel
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'
@@ -115,8 +123,12 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
           swift --version
-      - name: Install age CLI
-        run: brew install age
+      - name: Install age v1.3.2 (post-quantum interop)
+        run: |
+          curl -fsSL -o /tmp/age.tgz https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-darwin-arm64.tar.gz
+          echo "e2020b073c44f692685a24d6abc378817eb81ffaaf49fd0531ef8565f767f2f5  /tmp/age.tgz" | shasum -a 256 -c -
+          sudo tar xzf /tmp/age.tgz -C /usr/local/bin --strip-components=1 age/age age/age-keygen
+          age --version
       # Build cache: main saves it, PRs only restore (docs/HANDOFF.md "CI").
       - id: cachekey
         name: Cache key (toolchain + resolved packages)
@@ -129,6 +141,8 @@ jobs:
       - name: Build
         run: swift build --build-tests
       - name: Test
+        env:
+          INKVAULT_REQUIRE_AGE_PQ: "1"
         run: swift test --skip-build --parallel
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'

@@ -22,12 +22,14 @@ struct PreparedPage {
     }
 
     let meta: NoteMeta
+    /// The page's own paper, else the note's.
+    let paper: Paper
     let options: RenderOptions
     let strokes: [PreparedStroke]
     /// Total page height: `pageSize.height`, or for infinite pages the largest
     /// of that, the lowest stroke edge (rounded up) and one chunk height.
     let extent: Double
-    /// The paper as drawn: `meta.paper`, or its plain background when ruling
+    /// The paper as drawn: `paper`, or its plain background when ruling
     /// every band would take more than `RenderLimits.maxPaperCommandsPerPage`
     /// commands.
     let drawnPaper: Paper
@@ -48,6 +50,7 @@ struct PreparedPage {
               size.height.isFinite, size.height >= 0, size.height <= maxE,
               size.infinite || size.height > 0 else { throw RenderError.invalidPageSize }
         self.meta = meta
+        self.paper = page.paper ?? meta.paper
         self.options = options
 
         var list: [PreparedStroke] = []
@@ -89,12 +92,12 @@ struct PreparedPage {
         // Bands over the per-band cap draw no ruling anyway; the rest must fit the page budget.
         var ruling = 0.0
         for c in Self.chunks(meta: meta, extent: extent, chunkHeight: Self.chunkHeight(options: options, size: size)) {
-            let n = PaperRenderer.rulingCount(paper: meta.paper, width: c.width, yOffset: c.yOffset, yEnd: c.yEnd) ?? 0
+            let n = PaperRenderer.rulingCount(paper: paper, width: c.width, yOffset: c.yOffset, yEnd: c.yEnd,
+                                              sheetHeight: PaperRenderer.sheetHeight(for: size)) ?? 0
             if n <= RenderLimits.maxPaperCommands { ruling += n }
         }
-        drawnPaper = ruling <= RenderLimits.maxPaperCommandsPerPage ? meta.paper
-            : Paper(kind: .blank, spacing: meta.paper.spacing, background: meta.paper.background,
-                    lineColor: meta.paper.lineColor)
+        drawnPaper = ruling <= RenderLimits.maxPaperCommandsPerPage ? paper
+            : Paper(kind: .blank, spacing: paper.spacing, background: paper.background, lineColor: paper.lineColor)
     }
 
     /// The option, else the page's `breakHeight`, else letter aspect from the width.
@@ -121,10 +124,11 @@ struct PreparedPage {
     /// subpaths that can touch the chunk are kept (long open polylines are cut
     /// to the runs that do).
     func layers(for chunk: PageChunk) -> (paper: [DrawCommand], strokes: [DrawCommand]) {
-        var paper: [DrawCommand] = []
+        var paperCommands: [DrawCommand] = []
         if options.paper {
-            paper = PaperRenderer.commands(paper: drawnPaper, width: chunk.width, height: chunk.height,
-                                           yOffset: chunk.yOffset, yEnd: chunk.yEnd)
+            paperCommands = PaperRenderer.commands(paper: drawnPaper, width: chunk.width, height: chunk.height,
+                                                   yOffset: chunk.yOffset, yEnd: chunk.yEnd,
+                                                   sheetHeight: PaperRenderer.sheetHeight(for: meta.pageSize))
         }
         var out: [DrawCommand] = []
         for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.yEnd) {
@@ -134,7 +138,7 @@ struct PreparedPage {
                 }
             }
         }
-        return (paper, out)
+        return (paperCommands, out)
     }
 
     /// Paper for the whole page in one coordinate space (the SVG layout). The
@@ -143,14 +147,15 @@ struct PreparedPage {
     func fullPagePaper() -> [DrawCommand] {
         guard options.paper else { return [] }
         let w = meta.pageSize.width
-        var out = [DrawCommand(.rect(x: 0, y: 0, width: w, height: extent), fill: Paint(meta.paper.background))]
+        var out = [DrawCommand(.rect(x: 0, y: 0, width: w, height: extent), fill: Paint(paper.background))]
         let h = meta.pageSize.infinite ? chunkHeight : extent
         let count = max(Int((extent / h).rounded(.up)), 1)
         for i in 0..<count {
             let top = Double(i) * h
             let bottom = i == count - 1 ? extent : Double(i + 1) * h
             out += PaperRenderer.commands(paper: drawnPaper, width: w, height: bottom - top, yOffset: top,
-                                          yEnd: bottom, originY: 0, includeBackground: false)
+                                          yEnd: bottom, originY: 0, includeBackground: false,
+                                          sheetHeight: PaperRenderer.sheetHeight(for: meta.pageSize))
         }
         return out
     }

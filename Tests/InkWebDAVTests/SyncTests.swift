@@ -390,8 +390,8 @@ final class SyncTests: SyncTestCase {
         try FileManager.default.createDirectory(at: dir("B"), withIntermediateDirectories: true)
         let report = try WebDAVSync(directory: dir("B"), vault: nil, client: try client(server),
                                     stateURL: tmp.appendingPathComponent("state-B.json"),
-                                    options: WebDAVSyncOptions(maxFileBytes: 1000)).run()
-        XCTAssertEqual(limits.value, [1000], "the transport is told the limit")
+                                    options: WebDAVSyncOptions(maxFileBytes: 3000)).run()
+        XCTAssertEqual(limits.value, [3000], "the transport is told the limit")
         XCTAssertEqual(report.errors.map(\.path), ["notes/\(id)/\(d.name.filename)"], "\(report)")
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: dir("B").appendingPathComponent("notes/\(id)/\(d.name.filename)").path))

@@ -11,6 +11,19 @@ extension VaultError: CustomStringConvertible {
         case .unsupportedFormat(let f): return "this vault uses format '\(f)', which this version cannot read"
         case .noRecipients: return "a vault needs at least one recipient"
         case .invalidRecipient(let r): return "'\(r)' is not an age recipient (age1...)"
+        case .classicRecipient(let r):
+            return "\(r.prefix(16))… is a classic X25519 key, which is not quantum-safe; vaults take only "
+                + "post-quantum age1pq1... keys: create a new key (inkvault keys generate, or age-keygen -pq)"
+        case .legacyVault(let classic):
+            let old = classic.first ?? "OLD"
+            let more = classic.count > 1 ? " (and the same for each other classic key: \(classic.dropFirst().joined(separator: ", ")))" : ""
+            return "this vault uses a classic X25519 key, which is not quantum-safe, so its notes cannot be opened; "
+                + "migrate first: inkvault vault recipients replace \(old) NEW\(more), where NEW is a post-quantum "
+                + "key (inkvault keys generate)"
+        case .classicIdentity:
+            return "that is a classic X25519 key (AGE-SECRET-KEY-1...), and this vault takes only post-quantum keys: "
+                + "use its AGE-SECRET-KEY-PQ-1... key, or create a new key (inkvault keys generate, or "
+                + "age-keygen -pq) and have it added to the vault"
         case .duplicateRecipient(let r): return "recipient \(r) is listed twice"
         case .unknownRecipient(let r): return "recipient \(r) is not part of this vault"
         case .lastRecipient: return "cannot remove the only recipient: the vault would become unreadable"

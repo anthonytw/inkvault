@@ -53,6 +53,7 @@ extension Vault {
     /// - Throws: `VaultError.locked` or `.noIdentities` when the vault cannot
     ///   read at all; otherwise `RevisionReadError`, one case per failing stage.
     public func readRevision(noteId: UUID, name: RevisionName) throws -> Revision {
+        try requireMigrated()
         let secret = try requireReadable()
         let note = noteId.uuidString.lowercased()
         let data: Data
@@ -116,6 +117,7 @@ extension Vault {
     ///   this note already has the same `(device, seq)`, `.seqOutOfRange` for
     ///   a `seq` readers would reject.
     public func write(_ revision: Revision) throws {
+        try requireMigrated()
         let secret = try requireSecret()
         guard (1...RevisionName.maxSeq).contains(revision.seq) else { throw VaultError.seqOutOfRange(revision.seq) }
         let dir = noteURL(revision.noteId)
@@ -128,7 +130,7 @@ extension Vault {
         let json = try InkJSON.encoder().encode(revision)
         let body = try BodyFraming.frame(json: json, noteId: revision.noteId.uuidString.lowercased(),
                                          filename: name.filename, secret: secret)
-        let encrypted = try AgeFile.encrypt(body, to: ageRecipients())
+        let encrypted = try Self.encrypt(body, to: ageRecipients())
         try FileIO.createDirectory(dir)
         try FileIO.writeAtomically(encrypted, to: file, replacing: false)
     }
@@ -172,6 +174,7 @@ extension Vault {
     /// Reads every revision of a note, collecting failures instead of
     /// throwing on them.
     public func loadNote(_ noteId: UUID) throws -> LoadedNote {
+        try requireMigrated()
         _ = try requireReadable()
         var revs: [Revision] = []
         var failures: [RevisionName: RevisionReadError] = [:]
@@ -244,6 +247,7 @@ extension Vault {
     @discardableResult
     public func compact(noteId: UUID, loaded: LoadedNote, retention: TimeInterval = CompactionPlanner.defaultRetention,
                         now: Date = Date()) throws -> [RevisionName] {
+        try requireMigrated()
         let doomed = loaded.compactionPlan(retention: retention, now: now)
         let dir = noteURL(noteId)
         for n in doomed { try FileIO.remove(dir.appendingPathComponent(n.filename)) }
@@ -253,6 +257,7 @@ extension Vault {
     /// Every revision of a note with its wall time, oldest first by
     /// `(hlc, device, seq)`. Unreadable revisions are listed with their error.
     public func history(noteId: UUID) throws -> [HistoryEntry] {
+        try requireMigrated()
         _ = try requireReadable()
         return try revisionNames(of: noteId).map { n in
             do {

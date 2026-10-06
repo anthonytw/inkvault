@@ -68,7 +68,11 @@ final class CLICommandTests: CLITestCase {
         XCTAssertEqual((obj["recipients"] as? [[String: Any]])?.first?["label"] as? String, "laptop")
         XCTAssertEqual((obj["keyFiles"] as? [String])?.first, pub)
         let text = try cli(["vault", "info", "--vault", vault])
-        XCTAssertTrue(text.out.contains(pub) && text.out.contains("laptop"), text.out)
+        // Keys are post-quantum by default; `info` abbreviates the long key.
+        XCTAssertTrue(pub.hasPrefix("age1pq1"), pub)
+        XCTAssertTrue(text.out.contains(String(pub.prefix(16))) && text.out.contains("laptop"), text.out)
+        XCTAssertTrue(text.out.contains("Post-quantum:   yes"), text.out)
+        XCTAssertEqual((obj["recipients"] as? [[String: Any]])?.first?["type"] as? String, "mlkem768x25519")
         let verify = try cli(["vault", "verify", "--vault", vault], env: ["INKVAULT_PASSPHRASE": "s3cret"])
         XCTAssertEqual(verify.status, 0, verify.err)
         XCTAssertEqual(try cli(["vault", "verify", "--vault", vault], env: ["INKVAULT_PASSPHRASE": "bad"]).status, 4)
@@ -128,7 +132,8 @@ final class CLICommandTests: CLITestCase {
             XCTAssertTrue(unset.err.contains("NOT_SET_ANYWHERE"), unset.err)
         }
         // Library errors read as sentences, not enum dumps.
-        let notVault = try cli(["vault", "init", path("notes"), "--recipient", try fixtureIdentity().recipient.string])
+        let notVault = try cli(["vault", "init", path("notes"), "--recipient",
+                                try NativeIdentity.generate(.postQuantum).recipient.string])
         XCTAssertEqual(notVault.status, 1)
         XCTAssertTrue(notVault.err.contains("must end in .inkvault"), notVault.err)
         // Environment variables stand in for the options.
@@ -419,10 +424,12 @@ final class CLICommandTests: CLITestCase {
     }
 
     func testRecoverMatchesStockAgePipeline() throws {
-        let ageBinary = ["/opt/homebrew/bin/age", "/usr/local/bin/age", "/usr/bin/age"]
-            + (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { "\($0)/age" }
-        guard let age = ageBinary.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw XCTSkip("age is not on PATH")
+        // The fixture key is post-quantum: stock recovery needs age 1.3 or later.
+        guard let age = CLIPostQuantumTests.agePQ() else {
+            if ProcessInfo.processInfo.environment["INKVAULT_REQUIRE_AGE_PQ"] != nil {
+                XCTFail("INKVAULT_REQUIRE_AGE_PQ set but no age >= 1.3 on PATH")
+            }
+            throw XCTSkip("no age >= 1.3 on PATH")
         }
         let sh = Process()
         sh.executableURL = URL(fileURLWithPath: "/bin/sh")

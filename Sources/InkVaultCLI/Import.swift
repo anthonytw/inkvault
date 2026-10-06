@@ -110,6 +110,7 @@ struct ImportNotability: ParsableCommand {
                 .appendingPathComponent("inkvault-dry-run-\(UUID().uuidString)", isDirectory: true)
             defer { try? FileManager.default.removeItem(at: scratch) }
             let source = try access.vaultURL()
+            try Vault.open(at: source).requireMigrated()   // refused before copying anything
             let copy = scratch.appendingPathComponent(source.lastPathComponent, isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)

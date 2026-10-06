@@ -5,7 +5,7 @@ import XCTest
 
 final class VaultStoreTests: VaultTestCase {
     func testCreateWritesManifestAndLayout() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let created = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-04T16:20:00Z"))
         let vid = UUID(uuidString: "0D1C6A1E-9A44-4A6C-8A6B-0E2A0E9B1F3C")!
         let vault = try Vault.create(at: vaultURL(), recipients: [id.recipient], labels: ["Anthony's iPad"],
@@ -40,7 +40,7 @@ final class VaultStoreTests: VaultTestCase {
         XCTAssertThrowsError(try Vault.open(at: tmp, identities: [id])) {
             guard case .notAVault = $0 as? VaultError else { return XCTFail("\($0)") }
         }
-        XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [X25519Identity()])) {
+        XCTAssertThrowsError(try Vault.open(at: vault.url, identities: [pqIdentity()])) {
             guard case .vaultSecretUndecryptable = $0 as? VaultError else { return XCTFail("\($0)") }
         }
     }
@@ -68,7 +68,7 @@ final class VaultStoreTests: VaultTestCase {
     }
 
     func testWriteReadSnapshotReconstructAndIgnoreStrays() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = sampleLog()
         for r in log { try vault.write(r) }
@@ -123,7 +123,7 @@ final class VaultStoreTests: VaultTestCase {
     }
 
     func testWriteRefusesOverwriteAndSeqReuse() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let rev = sampleLog()[0]
         try vault.write(rev)
@@ -144,7 +144,7 @@ final class VaultStoreTests: VaultTestCase {
     }
 
     func testLockedVaultListsNamesOnly() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = sampleLog()
         for r in log { try vault.write(r) }
@@ -164,7 +164,7 @@ final class VaultStoreTests: VaultTestCase {
     }
 
     func testReconstructReportsBadFiles() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = sampleLog()
         for r in log { try vault.write(r) }
@@ -188,7 +188,7 @@ final class VaultStoreTests: VaultTestCase {
     }
 
     func testVerifyHealthyThenCorruptAndStray() throws {
-        let id = X25519Identity()
+        let id = pqIdentity()
         let vault = try makeVault(id)
         let log = sampleLog()
         for r in log { try vault.write(r) }
