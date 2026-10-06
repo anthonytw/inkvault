@@ -1,0 +1,172 @@
+import Age
+import Foundation
+import Sempere
+import SempereRender
+
+/// A key the open vault is encrypted to, as the key window lists it.
+struct DeviceKey: Identifiable, Equatable, Sendable {
+    /// The `age1pq1…` recipient.
+    var recipient: String
+    var label: String
+    var added: Date
+    var isPostQuantum: Bool
+    /// The key this window unlocked the vault with: it cannot be removed here.
+    var isInUse: Bool
+
+    var id: String { recipient }
+
+    /// `age1pq1abcdefg…` (1959 characters in full) with its SHA-256 fingerprint,
+    /// as printed on the recovery kit.
+    var summary: String {
+        recipient.count > 40 ? "\(recipient.prefix(14))…  SHA-256 \(PaperKey.fingerprint(recipient))" : recipient
+    }
+}
+
+/// Key management of the open vault (the Mac key window): list the recipients,
+/// add or remove a device key, print the recovery kit. Adding and removing go
+/// through `Vault.addRecipient` / `removeRecipient` (docs/post-quantum.md,
+/// format.md §3.3), which re-encrypt every note file.
+///
+/// Open editors hold a copy of the vault with the old secret (`removeRecipient`
+/// rotates it), so all of them are saved and closed first, the vault is
+/// replaced, and `keyEpoch` tells the views to open their notes again. Edits
+/// from the note list wait on the edit gate meanwhile.
+extension AppModel {
+    enum KeyError: Error, Equatable, CustomStringConvertible {
+        case notUnlocked
+        case notPostQuantum
+        case alreadyListed
+        case notListed
+        case lastKey
+        case inUse
+        /// Some files could not be re-encrypted (yet); the change stays pending.
+        case incomplete(Int)
+        case noIdentity
+
+        var description: String {
+            switch self {
+            case .notUnlocked: return "Unlock the vault first."
+            case .notPostQuantum: return "That is not a post-quantum key. It must start with age1pq1…; create a new key on the other device."
+            case .alreadyListed: return "The vault is already encrypted to that key."
+            case .notListed: return "That key is not one of the vault's keys."
+            case .lastKey: return "The vault needs at least one key. Add another before removing this one."
+            case .inUse: return "That is the key this vault was unlocked with. Unlock with another key to remove it."
+            case .incomplete(let n):
+                return "\(n) file\(n == 1 ? "" : "s") could not be re-encrypted. The change is saved and finishes the next time you try again."
+            case .noIdentity: return "This window does not hold a key of the vault, so it cannot print a recovery kit."
+            }
+        }
+    }
+
+    /// The recipients of the open vault, in the manifest's order.
+    var deviceKeys: [DeviceKey] {
+        guard let vault else { return [] }
+        let held = heldRecipients
+        return vault.recipients.map { r in
+            DeviceKey(recipient: r.key, label: r.label, added: r.added,
+                      isPostQuantum: (try? NativeRecipient(string: r.key))?.isPostQuantum == true,
+                      isInUse: held.contains(r.key))
+        }
+    }
+
+    /// Recipients of the identities the vault was unlocked with.
+    var heldRecipients: Set<String> {
+        Set(unlockIdentities.compactMap { ($0 as? NativeIdentity)?.recipient.string })
+    }
+
+    /// Encrypts the vault to another device's public key.
+    func addDeviceKey(recipient text: String, label: String) async throws {
+        let recipient = try Self.parseRecipient(text)
+        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        guard !vault.recipients.contains(where: { $0.key == recipient.string }) else { throw KeyError.alreadyListed }
+        let name = Self.cleanLabel(label)
+        try await changeRecipients { try $0.addRecipient(recipient, label: name) }
+    }
+
+    /// Generates a post-quantum key for another device, encrypts the vault to
+    /// it, and returns its secret text. Nothing else holds it: the caller
+    /// shows it once.
+    func generateDeviceKey(label: String) async throws -> String {
+        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        let identity = try NativeIdentity.generate(.postQuantum)
+        guard !vault.recipients.contains(where: { $0.key == identity.recipient.string }) else { throw KeyError.alreadyListed }
+        let name = Self.cleanLabel(label)
+        let recipient = identity.recipient
+        try await changeRecipients { try $0.addRecipient(recipient, label: name) }
+        return identity.string
+    }
+
+    /// Stops encrypting the vault to `recipient` and re-encrypts every note
+    /// with a new vault secret. That device can read nothing it has not
+    /// already copied.
+    func removeDeviceKey(_ recipient: String) async throws {
+        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        guard vault.recipients.contains(where: { $0.key == recipient }) else { throw KeyError.notListed }
+        guard vault.recipients.count > 1 else { throw KeyError.lastKey }
+        guard !heldRecipients.contains(recipient) else { throw KeyError.inUse }
+        let parsed = try NativeRecipient(string: recipient)
+        try await changeRecipients { try $0.removeRecipient(parsed) }
+    }
+
+    /// The recovery kit (docs/cli.md "Keys"): the key this vault was unlocked
+    /// with as a QR code and checked text. The PDF holds the secret key.
+    func recoveryKitPDF(a4: Bool = false) throws -> Data {
+        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        let listed = Set(vault.recipients.map(\.key))
+        guard let identity = unlockIdentities.compactMap({ $0 as? NativeIdentity })
+            .first(where: { $0.isPostQuantum && listed.contains($0.recipient.string) }) else { throw KeyError.noIdentity }
+        var info = RecoveryKit.VaultInfo(name: vaultName ?? "vault", id: vault.vaultId.uuidString.lowercased(),
+                                         created: vault.manifest.created, recipientCount: vault.recipients.count)
+        info.name = vaultName ?? info.name
+        var kit = RecoveryKit(secret: .identity(identity.string), recipient: identity.recipient.string,
+                              vault: info, printed: Date())
+        if a4 {
+            kit.pageWidth = 595.28
+            kit.pageHeight = 841.89
+        }
+        return try kit.pdf()
+    }
+
+    // MARK: - Helpers
+
+    static func parseRecipient(_ text: String) throws -> NativeRecipient {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let recipient = try? NativeRecipient(string: trimmed) else { throw KeyError.notPostQuantum }
+        guard recipient.isPostQuantum else { throw KeyError.notPostQuantum }
+        return recipient
+    }
+
+    /// A label: trimmed, one line, at most 80 characters, "Device" when empty.
+    static func cleanLabel(_ label: String) -> String {
+        let oneLine = label.split(whereSeparator: \.isNewline).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return oneLine.isEmpty ? "Device" : String(oneLine.prefix(80))
+    }
+
+    /// Runs one recipient change on a copy of the vault with every editor
+    /// closed, under the edit gate, coordinated in iCloud Drive (after every
+    /// note is local: a file the rewrap cannot see would stay encrypted to
+    /// the old set). The vault is adopted even when files remain, as the
+    /// change then stays pending.
+    private func changeRecipients(_ change: @escaping @Sendable (inout Vault) throws -> Vault.RewrapReport) async throws {
+        guard phase == .unlocked, let start = vault else { throw KeyError.notUnlocked }
+        await editGate.acquire()
+        defer { editGate.release() }
+        let gen = generation
+        try await openEditor(for: nil)   // saved, and closed: it holds the old secret
+        await closeWindowEditors()
+        try ensureCurrent(gen)
+        let coordinate = coordinationURL
+        if isCloudVault { try await downloadEverything(start.url, gen: gen) { _ in } }
+        let (next, report) = try await offMain { () throws -> (Vault, Vault.RewrapReport) in
+            try CloudVault.coordinatedWrite(coordinate) { () throws -> (Vault, Vault.RewrapReport) in
+                var copy = start
+                let report = try change(&copy)
+                return (copy, report)
+            }
+        }
+        try ensureCurrent(gen)
+        adoptRewrapped(next)
+        guard report.isComplete else { throw KeyError.incomplete(report.failures.count) }
+    }
+}

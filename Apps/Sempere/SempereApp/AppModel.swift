@@ -125,6 +125,15 @@ final class AppModel {
     private(set) var editor: NoteEditor?
 
     private(set) var vault: Vault?
+    /// Editors of note windows (Mac), by note id: one per note, each with its
+    /// own canvas (`AppModel+Windows`).
+    var windowEditors: [UUID: NoteEditor] = [:]
+    /// Notes shown by a window of their own; the library window's detail pane
+    /// does not open an editor for them.
+    var windowClaims: Set<UUID> = []
+    /// Bumped when the vault's keys changed under the open editors
+    /// (`AppModel+Keys`): views reopen their notes.
+    var keyEpoch = 0
     /// The migration of a legacy vault while `phase == .migrating`.
     var migration: VaultMigration?
     /// The identities the vault was unlocked with, for reopening it after a
@@ -137,12 +146,12 @@ final class AppModel {
     private(set) var generation = 0
     /// The save of the editor `close()` dropped; awaited before any note is
     /// opened again, so a reopened note is read after its last delta landed.
-    private var closingEditor: Task<Void, Never>?
+    var closingEditor: Task<Void, Never>?
     /// This installation's device id and clock, created on first write
     /// access. Every write (canvas autosave and browser edits) ticks this one
     /// clock, so the state file has a single writer.
     private var deviceClock: DeviceClock?
-    private let editorDebounce: Duration
+    let editorDebounce: Duration
     /// Test seam: awaited after each piece of off-main vault work.
     private let afterIO: (@Sendable () async -> Void)?
 
@@ -306,6 +315,14 @@ final class AppModel {
         vault = next
     }
 
+    /// The vault after a recipient change made through the library
+    /// (`AppModel+Keys`); every editor was closed before it.
+    func adoptRewrapped(_ next: Vault) {
+        guard phase == .unlocked else { return }
+        vault = next
+        keyEpoch += 1
+    }
+
     /// Makes `opened` the open vault and shows the notes (after a migration).
     func finishUnlock(_ opened: Vault, identities: [any AgeIdentity]) async throws {
         vault = opened
@@ -426,7 +443,8 @@ final class AppModel {
     /// Opens the selected note on the canvas for the detail pane, keeping a
     /// failure next to the note (`editorFailure`) instead of a blank canvas.
     func showSelectedNote() async {
-        let id = phase == .unlocked ? selectedNoteID : nil
+        var id = phase == .unlocked ? selectedNoteID : nil
+        if let claimed = id, windowClaims.contains(claimed) { id = nil }   // a window of its own has it
         editorFailure = nil
         do {
             try await openEditor(for: id)
@@ -440,6 +458,7 @@ final class AppModel {
     /// changes whether it may be edited, e.g. delete or restore). Pending
     /// canvas changes are saved first.
     func reopenEditor(ifShowing id: UUID) async throws {
+        if windowEditors[id] != nil { await reopenWindowNote(id) }
         guard editor?.noteID == id else { return }
         try await openEditor(for: nil)
         try await openEditor(for: id)
@@ -463,14 +482,19 @@ final class AppModel {
         isCloudVault = false
         isBusy = false
         let editor = self.editor
+        let windowed = Array(windowEditors.values)
+        windowEditors = [:]
+        windowClaims = []
         let scoped = scopedURL
         self.editor = nil
-        if editor != nil || scoped != nil {
+        NotePDFExport.purge(olderThan: 0)   // plaintext PDFs dragged out of this vault
+        if editor != nil || scoped != nil || !windowed.isEmpty {
             let earlier = closingEditor
             let gate = editGate
             closingEditor = Task {
                 await earlier?.value
                 await editor?.close()
+                for open in windowed { await open.close() }
                 // A browser edit already writing (`commit`) finishes first.
                 await gate.acquire()
                 gate.release()
