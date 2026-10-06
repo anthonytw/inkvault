@@ -102,7 +102,7 @@ public enum AudioProbe {
             }
             guard length >= header else { throw AudioProbeError.malformed("box \(type) smaller than its header") }
             if type == "moov" {
-                guard length <= UInt64(maxMoovBytes), pos + length <= size else {
+                guard length <= UInt64(maxMoovBytes), length <= size - pos else {
                     throw AudioProbeError.malformed("moov box too large or cut off")
                 }
                 let body = [UInt8](try read(pos + header, Int(length - header)))
@@ -110,7 +110,8 @@ public enum AudioProbe {
                 return try parseMoov(body, fileSize: size)
             }
             // Past the end (a recording cut off inside mdat): nothing more to find.
-            guard pos + length <= size else { break }
+            // `size - pos` (pos < size here), never `pos + length`: a 64-bit size may be near 2^64.
+            guard length <= size - pos else { break }
             pos += length
         }
         if first { throw AudioProbeError.notMP4 }

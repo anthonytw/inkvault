@@ -424,6 +424,24 @@ final class CLIAttachTests: CLITestCase {
         return url.path
     }
 
+    /// A transcript whose segment starts at 1e300 seconds is valid (start ≥ 0 and
+    /// ordered): `search --transcripts` used to trap converting it to minutes
+    /// for the table.
+    func testSearchSurvivesAHugeTranscriptTime() throws {
+        let args = try setUpVault()
+        let out = try ok(["attach", "recording", physics, audio("tone-aac.m4a"), "--started", "2026-10-04T16:20:00Z", "--json"] + args)
+        let rid = try XCTUnwrap((out["recording"] as? [String: Any])?["id"] as? String)
+        let t = Transcript(recording: UUID(uuidString: rid)!, engine: "test-engine/1", language: "en",
+                           created: Date(timeIntervalSince1970: 1_760_000_000),
+                           segments: [.init(start: 1e300, end: 1e300, text: "synthetic far future")])
+        let url = tmp.appendingPathComponent("huge.json")
+        try t.encoded().write(to: url)
+        _ = try ok(["attach", "transcript", physics, String(rid.prefix(8)), url.path, "--json"] + args)
+        let table = try cli(["search", "future", "--transcripts"] + args)
+        XCTAssertEqual(table.status, 0, table.err)
+        XCTAssertTrue(table.out.contains("far future"), table.out)
+    }
+
     func testTranscriptAndSearch() throws {
         let args = try setUpVault()
         let out = try ok(["attach", "recording", physics, audio("tone-aac.m4a"), "--title", "Lecture 3", "--started", "2026-10-04T16:20:00Z", "--json"] + args)

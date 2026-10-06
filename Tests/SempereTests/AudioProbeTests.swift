@@ -55,6 +55,19 @@ final class AudioProbeTests: XCTestCase {
         XCTAssertThrowsError(try AudioProbe.probe(good.prefix(28)))
     }
 
+    /// A box after the first with a 64-bit size near 2^64: `pos + size`
+    /// overflowed (a trap, not an error). Now the file simply ends there.
+    func testHugeSixtyFourBitBoxSizeDoesNotOverflow() throws {
+        let good = try Self.fixture("tone-aac-faststart.m4a")
+        for size: UInt64 in [.max, .max - 7, 1 << 63] {
+            let be = (0..<8).map { UInt8(truncatingIfNeeded: size >> (56 - 8 * $0)) }
+            let hostile = Array(good.prefix(28)) + [0, 0, 0, 1] + Array("free".utf8) + be + [UInt8](repeating: 0, count: 16)
+            XCTAssertThrowsError(try AudioProbe.probe(Data(hostile)), "size \(size)") {
+                XCTAssertTrue($0 is AudioProbeError, "\($0)")
+            }
+        }
+    }
+
     func testATruncatedSampleBoxStillHasItsHeader() throws {
         // moov comes first: a recording cut off inside mdat is still described.
         let good = try Self.fixture("tone-aac-faststart.m4a")

@@ -32,8 +32,11 @@ struct SearchHit: Encodable {
     /// Where the hit is, for the table: `p3`, `p3 text` or `rec 12:03`.
     var place: String {
         if let page { return "p\(page)" + (source == "text" ? " text" : "") }
-        let t = Int(start ?? 0)
-        return "rec \(String(format: "%d:%02d", t / 60, t % 60))" + (recordingTitle.map { " \($0)" } ?? "")
+        // A transcript's times are only checked to be ordered and ≥ 0 (format.md §8.3.2):
+        // anything past a million hours is shown as unknown, never converted (Int(1e300) traps).
+        let time = start.flatMap { $0.isFinite && $0 >= 0 && $0 < 3.6e9 ? Int($0) : nil }
+            .map { String(format: "%d:%02d", $0 / 60, $0 % 60) } ?? "?:??"
+        return "rec \(time)" + (recordingTitle.map { " \($0)" } ?? "")
     }
 }
 
