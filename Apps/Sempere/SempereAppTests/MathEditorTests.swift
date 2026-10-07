@@ -25,9 +25,12 @@ struct MathEditorTests {
         let (_, big) = try MathTypesetter.typeset(equation(size: 40))
         #expect(abs(big.w / size.w - 2) < 0.2)
         // Nothing but marks: the PDF has no white page fill.
-        let pdf = try #require(CGPDFDocument(try #require(CGDataProvider(data: data as CFData))))
+        let provider = try #require(CGDataProvider(data: data as CFData))
+        let pdf = try #require(CGPDFDocument(provider))
         #expect(pdf.numberOfPages == 1)
-        #expect(abs(Double(try #require(pdf.page(at: 1)).getBoxRect(.mediaBox).width) - size.w) < 0.01)
+        let first = try #require(pdf.page(at: 1))
+        let mediaWidth = Double(first.getBoxRect(.mediaBox).width)
+        #expect(abs(mediaWidth - size.w) < 0.01)
     }
 
     @Test func problemsAreFoundBeforeTypesetting() {
