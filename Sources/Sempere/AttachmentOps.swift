@@ -22,6 +22,8 @@ public enum AttachmentOpsError: Error, Hashable, Sendable {
     case invalidTranscript(String)
     /// No recording in the note has that id.
     case noSuchRecording(String)
+    /// The LaTeX source or the math item's content cannot be stored or typeset (format.md §8.2.7).
+    case invalidMath(String)
 }
 
 extension AttachmentOpsError: CustomStringConvertible {
@@ -39,6 +41,7 @@ extension AttachmentOpsError: CustomStringConvertible {
                 + "figure, or switch the note to paged first"
         case .invalidTranscript(let why): return "invalid transcript: \(why)"
         case .noSuchRecording(let r): return "no recording \(r) in this note"
+        case .invalidMath(let why): return "invalid equation: \(why)"
         }
     }
 }

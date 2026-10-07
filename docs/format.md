@@ -1715,7 +1715,7 @@ bands of an infinite page) is its choice (`docs/attachments.md`).
     "latex": "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
     "display": true, "size": 20, "color": "#1A1A1AFF",
     "render": { "sha256": "…", "size": 5120, "type": "application/pdf" },
-    "engine": "swiftmath-1.7.3" } }
+    "renderSize": [163.25, 41.5], "engine": "swiftmath-1.7.3" } }
 ```
 
 `math` is the item's only register of its own, and it is replaced whole
@@ -1740,6 +1740,10 @@ device's source with another's rendering. Its fields:
   draws only marks in `color` (alpha included) on a transparent page: no
   page fill, no other colour. Absent: no typesetter has rendered this value
   yet (a writer without one, such as the reference CLI, writes none).
+- `renderSize`: `[w, h]`, the size in points of `render`'s effective page,
+  both positive; present exactly when `render` is (else the item is
+  invalid). Informational like `pageSize` (§8.2.6): renderers that parse the
+  PDF use its own boxes; writers use it to keep the frame's scale.
 - `engine`: optional, informational: the typesetter and its version that
   made `render` (e.g. `swiftmath-1.7.3`, `tectonic-0.15`).
 - Unknown fields of `math` are kept (§7) and belong to the value: a writer
@@ -1750,7 +1754,8 @@ A writer that changes `latex`, `display`, `size` or `color` writes a new
 from something else is a writer bug that readers cannot detect. When it
 stores a new `render` it also sets `frame` in the same delta: the same
 top-left corner, the render's page size times the scale the frame had to the
-previous render (1 when there was none). Writers keep the frame's aspect
+previous render (`frame.w / renderSize.w` of the old value; 1 when there
+was none). Writers keep the frame's aspect
 ratio equal to the render's; renderers scale the axes independently.
 
 **Drawing.** A renderer draws the first of these it can:
@@ -1778,8 +1783,8 @@ character that is not white space); a group closed by the wrong kind or
 never closed (`{…}`, `\left…\right`, `\begin{…}…\end{…}`); or a nesting
 deeper than 64, where each open group counts one level and so does each
 control sequence, `^` or `_` in a run of them (the arguments a typesetter
-would parse recursively; `\sqrt\sqrt\frac` is three levels, a letter or
-digit ends the run). Writers never store a `render` for such a source.
+would parse recursively; `\sqrt\sqrt\frac` is three levels, any other
+token ends the run; a group opened after a run sits below it). Writers never store a `render` for such a source.
 
 **Text, search and export.** `latex` is part of the page's searchable text,
 beside `recognition`, text boxes and `pageText` (§5.5); it is never copied

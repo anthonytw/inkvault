@@ -104,6 +104,8 @@ public enum PDFWriter {
                         case .success(let (shaped, rotation)): d = .text(shaped, rotation)
                         case .failure(let reason): d = .placeholder(reason)
                         }
+                    case .math: d = drawMath(it, backgrounds: backgrounds, copiers: &copiers, doc: doc, options: options,
+                                             report: &report)
                     default: d = draw(it, backgrounds: backgrounds, copiers: &copiers, doc: doc, options: options)
                     }
                     if case .placeholder(let reason) = d {
@@ -253,6 +255,31 @@ public enum PDFWriter {
         // The XObject paints the unit square, y up, row 0 at the top: (s, t) → (s·w, (1 − t)·h).
         let w = Double(placed.image.width), h = Double(placed.image.height)
         return .image(num, placed.transform.after(Affine(a: w, d: -h, ty: h)))
+    }
+
+    /// A math item (format.md §8.2.7): its render copied as a form, else
+    /// its source as text (with a warning), else a placeholder. A render
+    /// that could only be rasterized is not used: the raster is opaque.
+    static func drawMath(_ it: PreparedItem, backgrounds: PDFBackgrounds, copiers: inout [String: PDFFormCopier],
+                         doc: PDFObjects, options: RenderOptions, report: inout RenderReport) -> ItemDraw {
+        var reason = PlaceholderReason.blobUnavailable("no typeset rendering stored")
+        if let view = MathItems.pdfView(it) {
+            let d = draw(view, backgrounds: backgrounds, copiers: &copiers, doc: doc,
+                         options: options.withoutRasterizer)
+            switch d {
+            case .form: return d
+            case .placeholder(let r): reason = r
+            default: break
+            }
+        }
+        guard let source = MathItems.sourceView(it) else { return .placeholder(.unsupportedKind("math")) }
+        switch TextItems.shape(source, shaper: options.shaper, report: &report) {
+        case .success(let (shaped, rotation)):
+            report.warn(MathItems.sourceWarning(it, it.item.math?.render == nil ? MathItems.missingRender(it) : reason.description))
+            return .text(shaped, rotation)
+        case .failure:
+            return .placeholder(reason)
+        }
     }
 
     static func draw(_ it: PreparedItem, backgrounds: PDFBackgrounds, copiers: inout [String: PDFFormCopier],

@@ -168,7 +168,8 @@ public enum MarkdownExport {
             let images = i < pageImages.count ? pageImages[i] : []
             let text = page.recognition.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
             let typed = typedText(page)
-            if images.isEmpty && text.isEmpty && typed.isEmpty { continue }
+            let equations = self.equations(page)
+            if images.isEmpty && text.isEmpty && typed.isEmpty && equations.isEmpty { continue }
             md += "\n## Page \(i + 1)\n\n"
             for img in images { md += "![Page \(i + 1)](\(linkPath(img)))\n" }
             if !text.isEmpty {
@@ -181,8 +182,25 @@ public enum MarkdownExport {
                 md += "Typed text:\n\n"
                 md += typed.map(fenced).joined(separator: "\n")
             }
+            if !equations.isEmpty {
+                if !images.isEmpty || !text.isEmpty || !typed.isEmpty { md += "\n" }
+                md += "Equations:\n\n"
+                md += equations.joined(separator: "\n\n") + "\n"
+            }
         }
         return md
+    }
+
+    /// The page's equations (format.md §8.2.7) in drawing order as Markdown
+    /// math: `$$source$$` (display style) or `$source$` (text style), the
+    /// source trimmed and as stored; empty ones left out.
+    public static func equations(_ page: Page) -> [String] {
+        page.items.filter { $0.kind == .math }.sorted(by: Item.drawsBefore).compactMap { item in
+            guard let math = item.math else { return nil }
+            let latex = math.latex.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !latex.isEmpty else { return nil }
+            return math.display ? "$$\(latex)$$" : "$\(latex)$"
+        }
     }
 
     /// The text of the page's text boxes (format.md §8.2.4) in drawing order, trimmed, empty ones left out.

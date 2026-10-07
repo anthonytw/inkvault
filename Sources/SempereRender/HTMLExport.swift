@@ -114,6 +114,12 @@ public enum HTMLExport {
                 h += typed.map { "<pre>\(esc($0))</pre>\n" }.joined()
                 h += "</details>\n"
             }
+            let equations = MarkdownExport.equations(page)
+            if !equations.isEmpty {
+                h += "<details><summary>Equations (LaTeX)</summary>\n"
+                h += equations.map { "<pre class=\"math\">\(esc($0))</pre>\n" }.joined()
+                h += "</details>\n"
+            }
             h += "</section>\n"
         }
         return h + "</main>\n" + footer

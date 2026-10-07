@@ -471,14 +471,14 @@ public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable, CustomStr
     public static let text = ItemKind(rawValue: "text")
     public static let image = ItemKind(rawValue: "image")
     public static let pdfPage = ItemKind(rawValue: "pdfPage")
-    /// Reserved (format.md §8.2.7): not written until the format defines it.
+    /// An equation (format.md §8.2.7).
     public static let math = ItemKind(rawValue: "math")
-    /// Reserved (format.md §8.2.7): not written until the format defines it.
+    /// Reserved (format.md §8.2.8): not written until the format defines it.
     public static let video = ItemKind(rawValue: "video")
 
     /// The kinds the format defines; everything else (the reserved ones
     /// included) is read as unknown.
-    public static let defined: [ItemKind] = [.text, .image, .pdfPage]
+    public static let defined: [ItemKind] = [.text, .image, .pdfPage, .math]
 
     /// True for a kind this reader can draw.
     public var isDefined: Bool { Self.defined.contains(self) }
@@ -569,6 +569,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
     public var pageIndex: Int?
     /// `pdfPage`: the effective page `[W', H']`, informational.
     public var pageSize: Size?
+    /// `math`: the equation (register).
+    public var math: MathContent?
 
     /// Fields this reader does not know, re-emitted unchanged.
     public var extra: [String: JSONValue]
@@ -577,11 +579,11 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
                 z: String, parent: UUID? = nil, rec: RecordingLink? = nil, origin: String? = nil,
                 clocks: [String: String]? = nil, text: TextContent? = nil, blob: BlobRef? = nil,
                 pixelSize: Size? = nil, orientation: Int? = nil, crop: Rect? = nil, pageIndex: Int? = nil,
-                pageSize: Size? = nil, extra: [String: JSONValue] = [:]) {
+                pageSize: Size? = nil, math: MathContent? = nil, extra: [String: JSONValue] = [:]) {
         self.id = id; self.kind = kind; self.layer = layer; self.frame = frame; self.rotation = rotation; self.z = z
         self.parent = parent; self.rec = rec; self.origin = origin; self.clocks = clocks
         self.text = text; self.blob = blob; self.pixelSize = pixelSize; self.orientation = orientation
-        self.crop = crop; self.pageIndex = pageIndex; self.pageSize = pageSize; self.extra = extra
+        self.crop = crop; self.pageIndex = pageIndex; self.pageSize = pageSize; self.math = math; self.extra = extra
     }
 
     /// A text box.
@@ -625,6 +627,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         case .text: return ["text"]
         case .image: return ["blob", "pixelSize", "orientation", "crop"]
         case .pdfPage: return ["blob", "pageIndex", "pageSize", "crop"]
+        case .math: return ["math"]
         default: return []
         }
     }
@@ -643,7 +646,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         let mine = Self.kindFields(kind)
         let set: [(String, Bool)] = [("text", text != nil), ("blob", blob != nil), ("pixelSize", pixelSize != nil),
                                      ("orientation", orientation != nil), ("crop", crop != nil),
-                                     ("pageIndex", pageIndex != nil), ("pageSize", pageSize != nil)]
+                                     ("pageIndex", pageIndex != nil), ("pageSize", pageSize != nil),
+                                     ("math", math != nil)]
         for (field, isSet) in set where isSet && !mine.contains(field) {
             return "\(kind) item has no field \(field)"
         }
@@ -658,6 +662,9 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
             guard blob != nil, let pageIndex, let pageSize else { return "pdfPage item without blob, pageIndex or pageSize" }
             if pageIndex < 0 { return "pageIndex must not be negative" }
             if !pageSize.isPositive { return "pageSize must be positive" }
+        case .math:
+            guard let math else { return "math item without math" }
+            if let why = math.validationError { return why }
         default: break
         }
         return nil
@@ -686,6 +693,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         crop = try field("crop", Rect.self)
         pageIndex = try field("pageIndex", Int.self)
         pageSize = try field("pageSize", Size.self)
+        math = try field("math", MathContent.self)
         extra = try c.extra(excluding: Self.commonFields.union(mine))
         if let why = validationError {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: why))
@@ -714,6 +722,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         try c.encodeIfPresent(crop, "crop")
         try c.encodeIfPresent(pageIndex, "pageIndex")
         try c.encodeIfPresent(pageSize, "pageSize")
+        try c.encodeIfPresent(math, "math")
         try c.encodeExtra(extra, excluding: Self.commonFields.union(Self.kindFields(kind)))
     }
 }
@@ -729,6 +738,8 @@ public enum ItemChange: Hashable, Sendable {
     case text(TextContent)
     /// Nil resets it to absent (the whole source).
     case crop(Rect?)
+    /// A math item's equation (format.md §8.2.7).
+    case math(MathContent)
     /// A field this reader does not know. Never a known or immutable field
     /// (use `init(field:value:)`, which routes those).
     case other(field: String, value: JSONValue)
@@ -741,12 +752,13 @@ public enum ItemChange: Hashable, Sendable {
         case .z: return "z"
         case .text: return "text"
         case .crop: return "crop"
+        case .math: return "math"
         case .other(let field, _): return field
         }
     }
 
     /// The registers with a typed case.
-    static let typedFields: Set<String> = ["frame", "rotation", "z", "text", "crop"]
+    static let typedFields: Set<String> = ["frame", "rotation", "z", "text", "crop", "math"]
 
     /// Parses a `setItem` (format.md §8.2.2). Throws `ItemChangeError` for
     /// an immutable field, for `null` where a register is required (`frame`,
@@ -775,6 +787,9 @@ public enum ItemChange: Hashable, Sendable {
             let r = try typed(Rect.self)
             guard r.hasPositiveSize else { throw ItemChangeError.invalidValue(field) }
             self = .crop(r)
+        case "math":
+            guard !value.isNull else { throw ItemChangeError.nullNotAllowed(field) }
+            self = .math(try typed(MathContent.self))
         default:
             self = .other(field: field, value: value)
         }
@@ -785,6 +800,7 @@ public enum ItemChange: Hashable, Sendable {
         switch self {
         case .frame(let r): return r.hasPositiveSize ? nil : .invalidValue("frame")
         case .crop(let r): return r.map { $0.hasPositiveSize ? nil : .invalidValue("crop") } ?? nil
+        case .math(let m): return m.validationError == nil ? nil : .invalidValue("math")
         case .other(let field, _):
             if Item.immutableFields.contains(field) { return .immutableField(field) }
             if Self.typedFields.contains(field) { return .invalidValue(field) }

@@ -307,6 +307,8 @@ enum RasterItems {
                 case .success(let (shaped, rotation)): d = .text(shaped, rotation: rotation)
                 case .failure(let reason): d = .placeholder(reason)
                 }
+            } else if it.item.kind == .math {
+                d = resolveMath(it, backgrounds: backgrounds, shaper: shaper, scale: scale, maxPixels: maxPixels, report: &report)
             } else if it.item.kind == .image {
                 switch images.place(it) {
                 case .success(let p): d = .image(p)

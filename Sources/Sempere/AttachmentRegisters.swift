@@ -19,6 +19,7 @@ extension Item {
         let mine = Self.kindFields(kind)
         if mine.contains("text"), let text { r["text"] = .text(text) }
         if mine.contains("crop") { r["crop"] = .crop(crop) }
+        if mine.contains("math"), let math { r["math"] = .math(math) }
         for (k, v) in extra where !Self.immutableFields.contains(k) { r[k] = .other(field: k, value: v) }
         return r
     }
@@ -38,6 +39,8 @@ extension Item {
             if mine.contains("text") { text = v } else { extra["text"] = (try? JSONValue(encoding: v)) ?? .null }
         case .crop(let v):
             if mine.contains("crop") { crop = v } else { extra["crop"] = v.flatMap { try? JSONValue(encoding: $0) } ?? .null }
+        case .math(let v):
+            if mine.contains("math") { math = v } else { extra["math"] = (try? JSONValue(encoding: v)) ?? .null }
         case .other(let field, let value):
             if mine.contains(field) || Self.commonFields.contains(field) {
                 guard let typed = try? ItemChange(field: field, value: value) else { return }
@@ -122,6 +125,7 @@ extension ItemChange: RegisterChange {
         case .z(let v): return .string(v)
         case .text(let v): return try? JSONValue(encoding: v)
         case .crop(let v): return v.map { try? JSONValue(encoding: $0) } ?? .null
+        case .math(let v): return try? JSONValue(encoding: v)
         case .other(_, let v): return v
         }
     }
@@ -142,12 +146,13 @@ extension RecordingChange: RegisterChange {
 }
 
 extension NoteState {
-    /// The blobs this state references: every live item's `blob` and every
+    /// The blobs this state references: every live item's `blob` (and a math
+    /// item's `render`) and every
     /// recording's `blob` and `transcript`, one per content hash (the first
     /// in that order), sorted by `sha256`.
     public var blobReferences: [BlobRef] {
         var seen: [String: BlobRef] = [:]
-        let refs = pages.flatMap { $0.items.compactMap(\.blob) }
+        let refs = pages.flatMap { $0.items.flatMap(\.blobReferences) }
             + recordings.flatMap { [$0.blob] + ($0.transcript.map { [$0] } ?? []) }
         for r in refs where seen[r.sha256] == nil { seen[r.sha256] = r }
         return seen.values.sorted { $0.sha256 < $1.sha256 }

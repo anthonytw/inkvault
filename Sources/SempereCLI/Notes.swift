@@ -198,6 +198,9 @@ enum AttachmentListing {
             let t = (i.text?.string ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
             what = "\"" + (t.count > 40 ? t.prefix(39) + "…" : t) + "\""
         case .pdfPage: what = (i.blob.map(blob) ?? "") + " page \((i.pageIndex ?? 0) + 1)"
+        case .math:
+            let t = (i.math?.latex ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
+            what = "$" + (t.count > 40 ? t.prefix(39) + "…" : t) + "$" + (i.math?.render == nil ? " (not typeset)" : "")
         default: what = i.blob.map(blob) ?? (i.kind.isDefined ? "" : "(unknown kind)")
         }
         if let r = i.rotation, r != 0 { what += " rotated \(number(r))°" }
