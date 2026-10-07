@@ -168,6 +168,12 @@ final class ItemOpsTests: XCTestCase {
         let tiny = ItemFrames.resized(frame, rotation: nil, corner: .bottomRight, dx: -500, dy: -500, keepAspect: true)
         XCTAssertEqual(tiny.h, 8, accuracy: 1e-9)
         XCTAssertEqual(tiny.w, 16, accuracy: 1e-9)
+        // Keeping proportions, a corner dragged inward along one axis only shrinks the item.
+        let narrower = ItemFrames.resized(frame, rotation: nil, corner: .bottomRight, dx: -20, dy: 0, keepAspect: true)
+        XCTAssertEqual(narrower, Rect(x: 0, y: 0, w: 60, h: 30))
+        let lower = ItemFrames.resized(frame, rotation: nil, corner: .bottomRight, dx: 4, dy: 20, keepAspect: true)
+        XCTAssertEqual(lower.h, 60, accuracy: 1e-9, "the axis that changed more wins")
+        XCTAssertEqual(lower.w, 120, accuracy: 1e-9)
         let flat = ItemFrames.resized(frame, rotation: nil, corner: .bottomRight, dx: -500, dy: 0, keepAspect: false)
         XCTAssertEqual(flat.w, 8)
         XCTAssertEqual(ItemFrames.moved(frame, dx: 3, dy: -4), Rect(x: 3, y: -4, w: 80, h: 40))

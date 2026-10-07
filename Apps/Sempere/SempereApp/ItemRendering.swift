@@ -77,7 +77,8 @@ enum ItemRendering {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {
                     for held in blobs where files[held.sha256] != nil { await cache.release(note: note, ref: held) }
-                    return .placeholder(.unavailable("\(error)"))
+                    // Not here yet (iCloud), or the cache went away: still loading, tried again later.
+                    return .placeholder(isTransient(error) ? .loading : .unavailable("\(error)"))
                 }
             }
         }
@@ -101,6 +102,13 @@ enum ItemRendering {
         case .failed(let why):
             return .placeholder(.unavailable(why))
         }
+    }
+
+    /// Whether fetching a blob failed for now only: iCloud has not delivered
+    /// it (or stalled), the cache was cleared, or the draw was cancelled. The
+    /// item layer tries such an item again instead of keeping a placeholder.
+    nonisolated static func isTransient(_ error: any Error) -> Bool {
+        error is CloudVault.CloudError || error is CancellationError || (error as? BlobCache.CacheError) == .cleared
     }
 
     /// What the off-main part hands back.

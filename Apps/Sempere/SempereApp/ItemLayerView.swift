@@ -135,8 +135,27 @@ final class ItemLayerView: UIView {
             let picture = await ItemRendering.render(key, note: note, cache: cache)
             guard let self, !Task.isCancelled, self.noteID == note else { return }
             self.tasks[key] = nil
+            if case .placeholder(.loading) = picture {
+                // Not available for now (iCloud, a cleared cache): keep the loading
+                // placeholder and draw it again later, never keep this as its picture.
+                self.retry(key, note: note)
+                return
+            }
             self.pictures[key] = picture
             self.layout()
+        }
+    }
+
+    /// Pause before an item whose blob was not available is drawn again.
+    var retryDelay: Duration = .seconds(3)
+
+    private func retry(_ key: ItemRenderKey, note: UUID) {
+        let delay = retryDelay
+        tasks[key] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled, self.noteID == note else { return }
+            self.tasks[key] = nil
+            self.layout()   // draws it again: it has no picture and no task
         }
     }
 

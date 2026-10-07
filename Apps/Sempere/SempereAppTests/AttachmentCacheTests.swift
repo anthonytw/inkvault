@@ -134,6 +134,20 @@ struct BlobCacheTests {
                 ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).isEmpty)
     }
 
+    /// A cleared cache fetches nothing more: a view that still holds it must
+    /// not decrypt with the old vault into a folder nothing deletes.
+    @Test func aClearedCacheFetchesNothingMore() async throws {
+        let store = FakeBlobStore()
+        let a = store.put(Data("a".utf8))
+        let root = Self.root()
+        let cache = BlobCache(root: root, fetch: store.fetch)
+        await cache.clear()
+        let note = self.note
+        await #expect(throws: BlobCache.CacheError.cleared) { _ = try await cache.acquire(note: note, ref: a) }
+        #expect(store.fetchLog.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: root.path), "no folder recreated")
+    }
+
     @Test func purgeStaleRemovesOldCachesOnly() throws {
         let folder = Self.root()
         let old = folder.appendingPathComponent("old"), fresh = folder.appendingPathComponent("fresh")

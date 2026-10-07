@@ -57,6 +57,47 @@ struct ItemLayerTests {
         #expect(ItemSelectionModel.frame(for: .move(text.id), item: text, dx: 5, dy: -5) == Rect(x: 15, y: 5, w: 200, h: 40))
     }
 
+    /// A background item (a full-page PDF page) under the finger does not
+    /// take a drag until it is selected: the page scrolls, nothing is written.
+    @Test func dragsOverABackgroundScrollUntilItIsSelected() {
+        let pdf = Item.pdfPage(blob: BlobRef(content: Data("p".utf8), type: "application/pdf"), pageIndex: 0,
+                               pageSize: Size(w: 612, h: 792), frame: Rect(x: 0, y: 0, w: 612, h: 792), z: "a")
+        let text = AttachmentEditorTests.textItem()   // 10, 10, 200 × 40
+        var model = ItemSelectionModel()
+        #expect(model.drag(at: .init(x: 300, y: 400), items: [pdf, text], zoom: 1) == nil, "scrolls")
+        #expect(model.drag(at: .init(x: 50, y: 30), items: [pdf, text], zoom: 1) == .move(text.id))
+        #expect(ItemSelectionModel.hit(.init(x: 300, y: 400), items: [pdf, text], zoom: 1)?.id == pdf.id, "a tap selects it")
+        model.selected = pdf.id
+        #expect(model.drag(at: .init(x: 300, y: 400), items: [pdf, text], zoom: 1) == .move(pdf.id))
+    }
+
+    /// An attachment that is not available yet (iCloud) shows as loading and
+    /// is drawn again later, never kept as a warning placeholder.
+    @Test func anAttachmentNotYetDownloadedIsDrawnOnceItArrives() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let ref = try vault.writeBlob(note: Self.lecture, AttachmentEditorTests.png(), type: "image/png")
+        final class Attempts: @unchecked Sendable {
+            let lock = NSLock()
+            var count = 0
+            func next() -> Int { lock.withLock { count += 1; return count } }
+        }
+        let attempts = Attempts()
+        let cache = BlobCache(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)) { note, ref, dest in
+            if attempts.next() == 1 { throw CloudVault.CloudError.blobNotLocal(name: "x") }
+            try await AppModel.fetchBlob(ref, of: note, from: vault, to: dest, cloud: false, hooks: .live,
+                                         stallTimeout: .seconds(5), pollInterval: .milliseconds(10))
+        }
+        let image = AttachmentEditorTests.imageItem(ref)
+        let layer = ItemLayerView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        layer.retryDelay = .milliseconds(50)
+        layer.show([image], note: Self.lecture, paper: .blank, source: ItemLayerSource(cache: cache))
+        #expect(await TS.waitUntil { if case .image? = layer.picture(of: image.id) { true } else { false } })
+        #expect(attempts.count == 2)
+        #expect(ItemRendering.isTransient(CloudVault.CloudError.blobNotLocal(name: "x")))
+        #expect(ItemRendering.isTransient(BlobCache.CacheError.cleared))
+        #expect(!ItemRendering.isTransient(BlobError.missing("x")))
+    }
+
     @Test func textRunsKeepTheirStyles() {
         let content = TextContent(font: .serif, size: 12, color: .black, align: .center,
                                   runs: [TextRun("Bold", b: true), TextRun(" under", u: true, color: .white, size: 20)])

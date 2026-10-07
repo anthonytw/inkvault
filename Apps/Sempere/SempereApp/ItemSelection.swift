@@ -25,7 +25,8 @@ struct ItemSelectionModel {
 
     /// What a drag from `p` does: a corner of the selected item resizes it,
     /// the inside of an item (the selected one first) moves it; nil leaves
-    /// the drag to scrolling.
+    /// the drag to scrolling. A background item (a full-page PDF page) moves
+    /// only once it is selected, so dragging over it scrolls.
     func drag(at p: ItemFrames.Point, items: [Item], zoom: Double) -> Drag? {
         let z = max(zoom, 0.01)
         if let id = selected, let item = items.first(where: { $0.id == id }) {
@@ -37,7 +38,7 @@ struct ItemSelectionModel {
             }
             if ItemFrames.contains(item.frame, rotation: item.rotation, p, slop: Self.slop / z) { return .move(id) }
         }
-        return Self.hit(p, items: items, zoom: zoom).map { .move($0.id) }
+        return ItemFrames.item(at: p, in: items, slop: Self.slop / z, includeBackground: false).map { .move($0.id) }
     }
 
     /// The frame a drag by `dx`, `dy` (page points) gives `item`.

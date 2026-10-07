@@ -52,6 +52,9 @@ actor BlobCache {
     private var tick: UInt64 = 0
     /// Bumped by `clear`: a fetch that finishes afterwards is thrown away.
     private var epoch = 0
+    /// Set by `clear`: the vault this cache decrypts for is gone, so nothing
+    /// is fetched again (a view may still hold the cache for a moment).
+    private var closed = false
     /// Fetches started (for tests).
     private(set) var fetchCount = 0
 
@@ -84,6 +87,7 @@ actor BlobCache {
     /// The file holding `ref`'s verified content, fetched if needed. The file
     /// stays until `release` is called as many times as `acquire` returned.
     func acquire(note: UUID, ref: BlobRef) async throws -> URL {
+        guard !closed else { throw CacheError.cleared }
         guard ref.isValid else { throw CacheError.invalidReference }
         let key = Key(note: note, sha256: ref.sha256)
         if var entry = entries[key], FileManager.default.fileExists(atPath: entry.url.path) {
@@ -128,7 +132,7 @@ actor BlobCache {
             throw error
         }
         if inFlight[key] == task { inFlight[key] = nil }
-        guard started == epoch else {
+        guard started == epoch, !closed else {
             try? FileManager.default.removeItem(at: url)
             throw CacheError.cleared
         }
@@ -166,8 +170,10 @@ actor BlobCache {
     var count: Int { entries.count }
 
     /// Deletes every file (the vault closed, locked or changed keys). Fetches
-    /// in flight are thrown away when they finish.
+    /// in flight are thrown away when they finish, and the cache fetches
+    /// nothing more (`acquire` throws `cleared`): the model makes a new one.
     func clear() {
+        closed = true
         epoch += 1
         entries = [:]
         for task in inFlight.values { task.cancel() }

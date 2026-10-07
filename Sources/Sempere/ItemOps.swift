@@ -264,7 +264,10 @@ public enum ItemFrames {
         var w = frame.w + s.x * local.x
         var h = frame.h + s.y * local.y
         if keepAspect, frame.w > 0, frame.h > 0 {
-            let k = max(w / frame.w, h / frame.h)
+            // The axis that changed more (relative to its size) sets the scale, so
+            // a corner dragged inward along one axis only shrinks the item too.
+            let rw = w / frame.w, rh = h / frame.h
+            let k = abs(rw - 1) >= abs(rh - 1) ? rw : rh
             w = frame.w * k
             h = frame.h * k
         }
