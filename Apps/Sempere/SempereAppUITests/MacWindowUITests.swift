@@ -25,8 +25,10 @@ final class MacWindowUITests: XCTestCase {
     }
 
     private func dump(_ app: XCUIApplication, _ tag: String) {
-        let labels = app.descendants(matching: .any).allElementsBoundByIndex.prefix(80).map { "\($0.identifier)|\($0.label)" }
-        print("MACUIDEBUG \(tag): windows=\(app.windows.count) \(labels)")
+        // One snapshot of the tree (querying elements one by one takes seconds each).
+        for (i, window) in app.windows.allElementsBoundByIndex.enumerated() {
+            print("MACUIDEBUG \(tag) window \(i):\n\(window.debugDescription.prefix(8000))")
+        }
     }
 
     /// File > Open Note in New Window (⌥⌘N) opens a window showing that note,
@@ -36,14 +38,50 @@ final class MacWindowUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
-        let libraries = app.descendants(matching: .any).matching(identifier: "libraryWindow").count
         app.typeKey("n", modifierFlags: [.command, .option])
-        let noteWindow = app.descendants(matching: .any)["noteWindow"]
-        let opened = noteWindow.waitForExistence(timeout: 20)
-        if !opened { dump(app, "open-in-window") }
-        XCTAssertTrue(opened, "a note window opened")
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "libraryWindow").count, libraries,
-                       "no second library window")
+        assertOneNoteWindow(app, "shortcut")
+    }
+
+    /// The same from the note list's context menu.
+    @MainActor
+    func testTheContextMenuOpensANoteWindow() throws {
+        let app = launch()
+        defer { app.terminate() }
+        let row = app.staticTexts["Cellular Respiration"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 45))
+        row.rightClick()
+        let item = app.menuItems["Open in New Window"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "the context menu offers a new window")
+        item.click()
+        assertOneNoteWindow(app, "context menu")
+    }
+
+    /// The File menu has no system New Window or Open… beside the app's commands.
+    @MainActor
+    func testTheFileMenuHasNoSystemDuplicates() throws {
+        let app = launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
+        let file = app.menuBars.menuBarItems["File"]
+        file.click()
+        let titles = file.menuItems.allElementsBoundByIndex.map(\.title)
+        let identifiers = file.menuItems.allElementsBoundByIndex.map(\.identifier)
+        print("MACUIDEBUG file menu: \(titles) \(identifiers)")
+        XCTAssertTrue(titles.contains("New Note…"))
+        XCTAssertTrue(titles.contains("Open Vault…"))
+        XCTAssertFalse(identifiers.contains("new_window"), "no system New Window")
+        XCTAssertFalse(identifiers.contains("open:"), "no system Open…")
+        XCTAssertEqual(titles.filter { $0 == "Open Recent" }.count, 1, "one Open Recent")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+    }
+
+    @MainActor
+    private func assertOneNoteWindow(_ app: XCUIApplication, _ how: String) {
+        let opened = app.descendants(matching: .any)["noteWindow"].waitForExistence(timeout: 20)
+        if !opened { dump(app, how) }
+        XCTAssertTrue(opened, "\(how): a note window opened")
+        let libraries = app.descendants(matching: .any).matching(identifier: "libraryWindow").count
+        XCTAssertEqual(libraries, 1, "\(how): one library window (windows: \(app.windows.count))")
     }
 
     /// The new-note sheet's notebook field lists matching notebooks while typing.
@@ -54,7 +92,10 @@ final class MacWindowUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
         app.typeKey("n", modifierFlags: .command)
         let field = app.textFields["notebookField"]
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the notebook field")
+        let found = field.waitForExistence(timeout: 20)
+        if !found { dump(app, "new-note-sheet") }
+        XCTAssertTrue(found, "the notebook field")
+        guard found else { return }
         field.click()
         field.typeText("Phys")
         let suggestion = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Physics")).firstMatch

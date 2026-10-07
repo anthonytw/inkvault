@@ -44,7 +44,10 @@ struct MacCatalystPDFTests {
         let (model, id, state) = try await Self.pdfNote()
         let page = try #require(state.pages.first)
         let item = try #require(page.items.first)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 612, height: 792))
+        // A window of the host app's scene, as the canvas has (a window without one is never drawn on a Mac).
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 612, height: 792)
         let root = UIViewController()
         window.rootViewController = root
         let layer = ItemLayerView(frame: CGRect(x: 0, y: 0, width: 612, height: 792))
@@ -62,6 +65,10 @@ struct MacCatalystPDFTests {
             let p = try #require(ImageInsertTests.pixel(image, x: 20, y: 20))
             #expect(p.r > 200 && p.g < 80, "tile drawing (flipped \(flipped)): red at the top-left, got \(p)")
         }
+        // Core Animation asks the tile layer for its tiles.
+        let asked = await TS.waitUntil(timeout: .seconds(20)) { tile.content.drawCount > 0 }
+        #expect(asked, "Core Animation drew tiles (scale \(tile.contentsScale), bounds \(tile.bounds), "
+                + "transform \(tile.affineTransform()), scene \(scene != nil))")
         // What the window shows once Core Animation has drawn the tiles.
         var shown: (r: Int, g: Int, b: Int)?
         let drawn = await TS.waitUntil(timeout: .seconds(20)) {
@@ -70,7 +77,7 @@ struct MacCatalystPDFTests {
             shown = image.cgImage.flatMap { ImageInsertTests.pixel($0, x: Int(20 * image.scale), y: Int(20 * image.scale)) }
             return shown.map { $0.r > 200 && $0.g < 80 } ?? false
         }
-        #expect(drawn, "the window shows the page: \(String(describing: shown))")
+        #expect(drawn, "the window shows the page: \(String(describing: shown)), tiles drawn \(tile.content.drawCount)")
         window.isHidden = true
     }
 
@@ -191,5 +198,32 @@ struct MacMenuRecheckTests {
         let taken = MenuCommand.allCases.compactMap(\.shortcut)
         #expect(!taken.contains(MenuCommand.Shortcut("g")))
         #expect(!taken.contains(MenuCommand.Shortcut("g", [.command, .shift])))
+    }
+}
+
+/// The Mac menu bar keeps the app's commands and drops UIKit's duplicates
+/// (`MacMenus`): New Window, Open… (⌘O) and Find… (⌘F) collided with them.
+@MainActor
+struct MacMenuBarTests {
+    @Test func systemCommandsArePrunedAndTheAppsKept() {
+        #expect(!MacMenus.isAppElement(UICommand(title: "Open…", action: Selector(("open:")))))
+        #expect(!MacMenus.isAppElement(UIKeyCommand(title: "Find…", action: Selector(("find:")), input: "f",
+                                                    modifierFlags: .command)))
+        #expect(MacMenus.isAppElement(UIKeyCommand(title: "Open Vault…", action: Selector(("_performMainMenuShortcutKeyCommand:")),
+                                                   input: "o", modifierFlags: .command)))
+        #expect(MacMenus.isAppElement(UIAction(title: "Export") { _ in }))
+        #expect(MacMenus.isAppElement(UIMenu(title: "Open Recent", children: [])))
+    }
+
+    /// On a Mac, the menu bar as built has no shortcut twice.
+    @Test func theBuiltMenuBarHasEveryShortcutOnce() async throws {
+        guard Platform.isMac else { return }
+        UIMenuSystem.main.setNeedsRebuild()
+        let built = await TS.waitUntil(timeout: .seconds(10)) { !SempereAppDelegate.lastShortcuts.isEmpty }
+        #expect(built, "the app delegate built the menu bar")
+        let all = SempereAppDelegate.lastShortcuts
+        let repeated = Dictionary(grouping: all, by: { $0 }).filter { $0.value.count > 1 }.keys.sorted()
+        print("SempereMenus test: \(MacMenus.built), \(all.count) shortcuts")
+        #expect(repeated.isEmpty, "shortcuts used twice: \(repeated)")
     }
 }

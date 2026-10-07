@@ -76,8 +76,13 @@ final class PDFTileContent: @unchecked Sendable {
         lock.withLock { document.flatMap { d in item.map { (d, $0) } } }
     }
 
+    /// Tiles drawn so far (tests: Core Animation asked for the page).
+    private var draws = 0
+    var drawCount: Int { lock.withLock { draws } }
+
     /// Draws into a tile's context (user space: the layer's bounds, the item's frame size).
     func draw(in ctx: CGContext) {
+        lock.withLock { draws += 1 }
         guard let pair = current else { return }
         let (box, item) = pair
         // Core Animation's contexts on iOS are y down; flip one that is not.
