@@ -172,24 +172,39 @@ extension Vault {
         return ref
     }
 
-    /// Writes the file at `file` as a blob of `note`, streaming (two passes:
-    /// one to hash it, one to encrypt it; a file that changes in between is
-    /// refused with `BlobError.sourceChanged`). As `writeBlob(note:_:type:)`
-    /// otherwise.
-    @discardableResult
-    public func writeBlob(note: UUID, contentsOf file: URL, type: String) throws -> BlobRef {
+    /// The reference `writeBlob(note:contentsOf:type:edits:)` would return
+    /// for `file` with `edits` applied: one streaming pass, nothing written.
+    ///
+    /// - Throws: `BlobError.tooLarge` over 1 GiB, `VaultError.io`.
+    public static func blobRef(contentsOf file: URL, type: String, edits: [ByteEdit] = []) throws -> BlobRef {
+        let (digest, size) = try digestFile(file, edits: edits)
+        return BlobRef(sha256: BlobHeader(digest: digest, length: 0).sha256, size: size, type: type)
+    }
+
+    static func digestFile(_ file: URL, edits: [ByteEdit]) throws -> (Data, Int64) {
         var hasher = SHA256()
         var size: Int64 = 0
-        try Self.readSourceFile(file) { piece in
+        try readSourceFile(file, edits: edits) { piece in
             size += Int64(piece.count)
             guard size <= BlobRef.maxSize else { throw BlobError.tooLarge(size) }
             hasher.update(data: piece)
         }
-        let digest = Data(hasher.finalize())
+        return (Data(hasher.finalize()), size)
+    }
+
+    /// Writes the file at `file` as a blob of `note`, streaming (two passes:
+    /// one to hash it, one to encrypt it; a file that changes in between is
+    /// refused with `BlobError.sourceChanged`), in memory proportional to a
+    /// piece whatever the file's size. `edits` change bytes on the way (a
+    /// video's metadata removed in place, `VideoMetadata`); the file itself is
+    /// never changed. As `writeBlob(note:_:type:)` otherwise.
+    @discardableResult
+    public func writeBlob(note: UUID, contentsOf file: URL, type: String, edits: [ByteEdit] = []) throws -> BlobRef {
+        let (digest, size) = try Self.digestFile(file, edits: edits)
         let ref = BlobRef(sha256: BlobHeader(digest: digest, length: 0).sha256, size: size, type: type)
         try writeBlobStream(note: note, ref: ref, digest: digest) { emit in
             var seen: Int64 = 0
-            try Self.readSourceFile(file) { piece in
+            try Self.readSourceFile(file, edits: edits) { piece in
                 seen += Int64(piece.count)
                 guard seen <= size else { throw BlobError.sourceChanged }
                 try emit(piece)
@@ -302,16 +317,20 @@ extension Vault {
                                secrets: blobSecrets) != nil
     }
 
-    /// Feeds a source file to `body` in 1 MiB pieces (regular files only).
-    static func readSourceFile(_ url: URL, _ body: (Data) throws -> Void) throws {
+    /// Feeds a source file to `body` in 1 MiB pieces (regular files only),
+    /// with `edits` applied.
+    static func readSourceFile(_ url: URL, edits: [ByteEdit] = [], _ body: (Data) throws -> Void) throws {
         let handle = try BoundedRead.openRegularFile(url)
         defer { try? handle.close() }
+        var offset: UInt64 = 0
         while true {
-            let piece: Data
+            var piece: Data
             do { piece = try autoreleasing { try handle.read(upToCount: blobPieceSize) ?? Data() } } catch {
                 throw VaultError.io("read \(url.path): \(error)")
             }
             if piece.isEmpty { return }
+            ByteEdit.apply(edits, to: &piece, at: offset)
+            offset += UInt64(piece.count)
             try body(piece)
         }
     }

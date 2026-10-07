@@ -1722,7 +1722,8 @@ bands of an infinite page) is its choice (`docs/attachments.md`).
 - `blob` (immutable): the clip, kind `video` (§8.1.2), at most 1 GiB (§8.4).
   Writers store `video/mp4` (an ISO base media file, `.mp4`/`.m4v`) or
   `video/quicktime` (a QuickTime movie, `.mov`): a file that starts with an
-  `ftyp` box (QuickTime: `ftyp`, `wide`, `free`, `skip` or `mdat`), holds one
+  `ftyp` box (an older QuickTime movie may start with `moov`, `wide`, `free`,
+  `skip` or `mdat` instead), holds one
   `moov` box with at least one video track (`hdlr` `vide`) whose first sample
   entry is H.264/AVC (`avc1`, `avc3`) or HEVC/H.265 (`hvc1`, `hev1`), and
   optionally sound tracks (AAC, `mp4a`, recommended) and others (timed
