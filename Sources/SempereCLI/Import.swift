@@ -34,13 +34,14 @@ struct ImportNoteJSON: Encodable {
 
     struct Dropped: Encodable {
         var typedTextCharacters: Int, pdfs: Int, pdfPages: Int, media: Int, recordings: Int
-        var pdfHighlights: Int, templatePDFs: Int
+        var pdfHighlights: Int, templatePDFs: Int, recLinks: Int
         var dashedStrokes: Int, unknownStyleStrokes: Int
         var defaultedAttributeStrokes: Int, unsupportedShapes: Int, unsupportedStrokes: Int, clampedStrokes: Int
     }
 
     struct Attachments: Encodable {
-        var pdfs: Int, pdfPages: Int, templatePages: Int, images: Int, blobs: Int, blobBytes: Int64
+        var pdfs: Int, pdfPages: Int, templatePages: Int, images: Int, textItems: Int, textCharacters: Int
+        var recordings: Int, recLinkedStrokes: Int, blobs: Int, blobBytes: Int64
     }
 
     init(_ r: NotabilityImporter.NoteResult) {
@@ -51,11 +52,13 @@ struct ImportNoteJSON: Encodable {
         extraVersion = r.extraVersion; selection = r.selection
         let a = r.attachments
         attachments = Attachments(pdfs: a.pdfs, pdfPages: a.pdfPages, templatePages: a.templatePages, images: a.images,
-                                  blobs: a.blobs, blobBytes: a.blobBytes)
+                                  textItems: a.textItems, textCharacters: a.textCharacters, recordings: a.recordings,
+                                  recLinkedStrokes: a.recLinkedStrokes, blobs: a.blobs, blobBytes: a.blobBytes)
         warnings = r.warnings
         let d = r.dropped
         dropped = Dropped(typedTextCharacters: d.typedTextCharacters, pdfs: d.pdfs, pdfPages: d.pdfPages, media: d.media,
                           recordings: d.recordings, pdfHighlights: d.pdfHighlights, templatePDFs: d.templatePDFs,
+                          recLinks: d.recLinks,
                           dashedStrokes: d.dashedStrokes,
                           unknownStyleStrokes: d.unknownStyleStrokes,
                           defaultedAttributeStrokes: d.defaultedAttributeStrokes,
@@ -79,9 +82,9 @@ struct ImportNotability: ParsableCommand {
             backup). Copies of one note are resolved across all paths: the newest .note with ink is imported,
             copies with no other ink are skipped, and a copy holding ink the chosen one lacks is
             imported as a separate note. Notes already in the vault are skipped unless --overwrite.
-            PDF pages become page backgrounds and images image items, stored encrypted in the note's
-            att/ folder (image metadata stripped unless --keep-image-metadata); --no-attachments imports
-            ink only. The device id and clock come from
+            PDF pages become page backgrounds, images image items, typed text text items and
+            recordings the note's recordings; files are stored encrypted in the note's att/ folder (image
+            metadata stripped unless --keep-image-metadata). --no-attachments imports ink only. The device id and clock come from
             $XDG_STATE_HOME/sempere/device.json; --dry-run leaves both and the vault untouched.
             Exit 1 if any note failed.
             """
@@ -108,7 +111,7 @@ struct ImportNotability: ParsableCommand {
     @Option(name: .customLong("tag"), help: ArgumentHelp("Add this tag to every imported note (repeatable).", valueName: "tag"))
     var tags: [String] = []
 
-    @Flag(name: .long, help: "Import ink only: no PDF page backgrounds or images (they are reported as dropped).")
+    @Flag(name: .long, help: "Import ink only: no PDF backgrounds, images, typed text or recordings (reported as dropped).")
     var noAttachments = false
 
     @Flag(name: .long, help: "Store images with their camera and location metadata (stripped by default).")
@@ -169,7 +172,8 @@ struct ImportNotability: ParsableCommand {
             struct Summary: Encodable {
                 var dryRun: Bool, notes: Int, imported: Int, skipped: Int, failed: Int, strokes: Int
                 var ntb: Int, extraVersions: Int
-                var pdfPages: Int, images: Int, blobs: Int, blobBytes: Int64, droppedPDFPages: Int, droppedMedia: Int
+                var pdfPages: Int, images: Int, textItems: Int, recordings: Int, recLinkedStrokes: Int
+                var blobs: Int, blobBytes: Int64, droppedPDFPages: Int, droppedMedia: Int
             }
             struct Out: Encodable { var summary: Summary; var notes: [ImportNoteJSON] }
             try output.emitJSON(Out(summary: Summary(dryRun: dryRun, notes: report.notes.count, imported: report.imported,
@@ -178,6 +182,9 @@ struct ImportNotability: ParsableCommand {
                                                      extraVersions: report.notes.filter(\.extraVersion).count,
                                                      pdfPages: written.reduce(0) { $0 + $1.attachments.pdfPages },
                                                      images: written.reduce(0) { $0 + $1.attachments.images },
+                                                     textItems: written.reduce(0) { $0 + $1.attachments.textItems },
+                                                     recordings: written.reduce(0) { $0 + $1.attachments.recordings },
+                                                     recLinkedStrokes: written.reduce(0) { $0 + $1.attachments.recLinkedStrokes },
                                                      blobs: written.reduce(0) { $0 + $1.attachments.blobs },
                                                      blobBytes: written.reduce(0) { $0 + $1.attachments.blobBytes },
                                                      droppedPDFPages: written.reduce(0) { $0 + $1.dropped.pdfPages },
@@ -218,6 +225,7 @@ struct ImportNotability: ParsableCommand {
                 let parts = [(d.typedTextCharacters, "typed text characters"), (d.pdfs, "pdfs"),
                              (d.pdfPages, "pdf pages (imported as blank paper)"), (d.media, "media objects"),
                              (d.pdfHighlights, "pdf highlights"), (d.templatePDFs, "template PDF paper"),
+                             (d.recLinks, "stroke links to recordings"),
                              (d.recordings, "recordings"), (d.dashedStrokes, "dashed strokes imported solid"),
                              (d.unknownStyleStrokes, "strokes of unknown style imported as pen"),
                              (d.defaultedAttributeStrokes, "strokes with a missing style, colour or width (defaulted)"),
