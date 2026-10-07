@@ -524,11 +524,69 @@ public struct NoteMeta: Hashable, Sendable, Codable {
     public var created: Date
     public var paper: Paper
     public var pageSize: PageSize
+    /// The language of the note's handwriting, a BCP 47 tag (`en-US`, `es`);
+    /// nil when unknown. Recognisers read the note in it (format.md §5.4).
+    public var lang: String?
+    /// Marker strokes are drawn below the note's content items (text boxes,
+    /// images) instead of above them, as a highlighter behind typed text
+    /// (format.md §5.4, §8.2.3). False when absent.
+    public var markersBehindText: Bool
 
     public init(title: String = "", tags: [String] = [], notebook: String? = nil, favorite: Bool = false,
-                created: Date, paper: Paper = .blank, pageSize: PageSize = .letter) {
+                created: Date, paper: Paper = .blank, pageSize: PageSize = .letter, lang: String? = nil,
+                markersBehindText: Bool = false) {
         self.title = title; self.tags = tags; self.notebook = notebook; self.favorite = favorite
         self.created = created; self.paper = paper; self.pageSize = pageSize
+        self.lang = lang; self.markersBehindText = markersBehindText
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, tags, notebook, favorite, created, paper, pageSize, lang, markersBehindText
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        tags = try c.decode([String].self, forKey: .tags)
+        notebook = try c.decodeIfPresent(String.self, forKey: .notebook)
+        favorite = try c.decode(Bool.self, forKey: .favorite)
+        created = try c.decode(Date.self, forKey: .created)
+        paper = try c.decode(Paper.self, forKey: .paper)
+        pageSize = try c.decode(PageSize.self, forKey: .pageSize)
+        // Optional fields (format.md §5.4): a value of the wrong type reads as absent.
+        lang = (try? c.decodeIfPresent(String.self, forKey: .lang)).flatMap { $0 }.flatMap(NoteMeta.validLanguage)
+        markersBehindText = (try? c.decodeIfPresent(Bool.self, forKey: .markersBehindText)).flatMap { $0 } ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(title, forKey: .title)
+        try c.encode(tags, forKey: .tags)
+        try c.encode(notebook, forKey: .notebook)
+        try c.encode(favorite, forKey: .favorite)
+        try c.encode(created, forKey: .created)
+        try c.encode(paper, forKey: .paper)
+        try c.encode(pageSize, forKey: .pageSize)
+        if let lang { try c.encode(lang, forKey: .lang) }
+        if markersBehindText { try c.encode(true, forKey: .markersBehindText) }
+    }
+
+    /// `tag` if it is a plausible BCP 47 language tag (format.md §5.4): 1 to
+    /// 8 subtags of 1 to 8 ASCII letters or digits separated by `-`, the first
+    /// letters only, at most 64 characters; `_` is read as `-` (`en_US`).
+    /// Nil otherwise: a reader ignores a value it cannot use.
+    public static func validLanguage(_ tag: String) -> String? {
+        let t = tag.replacingOccurrences(of: "_", with: "-")
+        guard !t.isEmpty, t.utf8.count <= 64 else { return nil }
+        let parts = t.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count <= 8, let first = parts.first, !first.isEmpty,
+              first.utf8.allSatisfy({ ($0 | 0x20) >= 0x61 && ($0 | 0x20) <= 0x7A }) else { return nil }
+        for p in parts {
+            guard (1...8).contains(p.utf8.count),
+                  p.utf8.allSatisfy({ (($0 | 0x20) >= 0x61 && ($0 | 0x20) <= 0x7A) || ($0 >= 0x30 && $0 <= 0x39) })
+            else { return nil }
+        }
+        return t
     }
 }
 
@@ -536,7 +594,12 @@ public struct NoteMeta: Hashable, Sendable, Codable {
 public struct NoteState: Hashable, Sendable, Codable {
     /// The LWW registers, named as they appear in `clocks` (format.md §5.4).
     public enum ClockKey: String, Hashable, Sendable, CaseIterable {
-        case title, tags, notebook, favorite, paper, pageSize, deleted
+        case title, tags, notebook, favorite, paper, pageSize, deleted, lang, markersBehindText
+
+        /// Registers added after the first snapshots were written: a snapshot
+        /// holding neither a value nor a clock for one never had it set and
+        /// does not compete with a delta it does not cover (format.md §5.4).
+        public var isOptional: Bool { self == .lang || self == .markersBehindText }
     }
 
     public var deleted: Bool
@@ -759,6 +822,10 @@ public enum MetaChange: Hashable, Sendable {
     case favorite(Bool)
     case paper(Paper)
     case pageSize(PageSize)
+    /// The handwriting language, a BCP 47 tag; nil clears it (format.md §5.4).
+    case lang(String?)
+    /// Draw marker strokes below content items (format.md §5.4, §8.2.3).
+    case markersBehindText(Bool)
 
     public var field: String {
         switch self {
@@ -768,6 +835,8 @@ public enum MetaChange: Hashable, Sendable {
         case .favorite: return "favorite"
         case .paper: return "paper"
         case .pageSize: return "pageSize"
+        case .lang: return "lang"
+        case .markersBehindText: return "markersBehindText"
         }
     }
 
@@ -780,6 +849,8 @@ public enum MetaChange: Hashable, Sendable {
         case .favorite(let v): meta.favorite = v
         case .paper(let v): meta.paper = v
         case .pageSize(let v): meta.pageSize = v
+        case .lang(let v): meta.lang = v
+        case .markersBehindText(let v): meta.markersBehindText = v
         }
     }
 }
@@ -866,6 +937,14 @@ extension Op: Codable {
             case "favorite": self = .setMeta(.favorite(try c.decode(Bool.self, forKey: .value)))
             case "paper": self = .setMeta(.paper(try c.decode(Paper.self, forKey: .value)))
             case "pageSize": self = .setMeta(.pageSize(try c.decode(PageSize.self, forKey: .value)))
+            case "lang":
+                // A tag that is not BCP 47 is invalid like any bad value (§5.4).
+                let v = try c.decodeIfPresent(String.self, forKey: .value)
+                if let v, NoteMeta.validLanguage(v) != v {
+                    throw DecodingError.dataCorruptedError(forKey: .value, in: c, debugDescription: "lang is not a BCP 47 tag")
+                }
+                self = .setMeta(.lang(v))
+            case "markersBehindText": self = .setMeta(.markersBehindText(try c.decode(Bool.self, forKey: .value)))
             default:
                 throw DecodingError.dataCorruptedError(forKey: .field, in: c, debugDescription: "unknown meta field \(field)")
             }
@@ -949,6 +1028,8 @@ extension Op: Codable {
             case .favorite(let v): try c.encode(v, forKey: .value)
             case .paper(let v): try c.encode(v, forKey: .value)
             case .pageSize(let v): try c.encode(v, forKey: .value)
+            case .lang(let v): try c.encode(v, forKey: .value)   // null when nil
+            case .markersBehindText(let v): try c.encode(v, forKey: .value)
             }
         case .addTag(let tag):
             try c.encode("addTag", forKey: .op)

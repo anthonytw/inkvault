@@ -86,7 +86,10 @@ public enum PNGWriter {
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
             for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
-            for it in prepared.items(for: chunk) {
+            let chunkItems = prepared.items(for: chunk)
+            let under = PreparedPage.underIndex(chunkItems)
+            for (n, it) in chunkItems.enumerated() {
+                if n == under { for c in layers.under { paint(c, into: &raster, sx: sx, sy: sy) } }
                 if it.fillsBackground, options.paper {
                     paint(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
                 }
@@ -115,6 +118,7 @@ public enum PNGWriter {
                     for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
                 }
             }
+            if under == chunkItems.count { for c in layers.under { paint(c, into: &raster, sx: sx, sy: sy) } }
             for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
             out.append(try PNGEncoder.encode(width: size.width, height: size.height, rgba: raster.pixels))
         }

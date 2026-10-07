@@ -61,8 +61,10 @@ class Register<V> {
   }
 }
 
-const clockKeys = ["title", "tags", "notebook", "favorite", "paper", "pageSize", "deleted"] as const;
+const clockKeys = ["title", "tags", "notebook", "favorite", "paper", "pageSize", "deleted", "lang", "markersBehindText"] as const;
 type ClockKey = (typeof clockKeys)[number];
+/** Registers added after the first snapshots: unset without a value or a clock (§5.4). */
+const optionalKeys: ReadonlySet<ClockKey> = new Set(["lang", "markersBehindText"]);
 
 type RegisterValue = { key: "meta"; change: MetaChange } | { key: "deleted"; value: boolean };
 
@@ -75,6 +77,8 @@ function registerValue(k: ClockKey, s: NoteState): RegisterValue {
     case "favorite": return { key: "meta", change: { field: "favorite", value: m.favorite } };
     case "paper": return { key: "meta", change: { field: "paper", value: m.paper } };
     case "pageSize": return { key: "meta", change: { field: "pageSize", value: m.pageSize } };
+    case "lang": return { key: "meta", change: { field: "lang", value: m.lang } };
+    case "markersBehindText": return { key: "meta", change: { field: "markersBehindText", value: m.markersBehindText === true } };
     case "deleted": return { key: "deleted", value: s.deleted };
   }
 }
@@ -99,6 +103,14 @@ function applyRegister(v: RegisterValue, s: NoteState): void {
     case "favorite": s.meta.favorite = c.value; break;
     case "paper": s.meta.paper = c.value; break;
     case "pageSize": s.meta.pageSize = c.value; break;
+    case "lang":
+      if (c.value === undefined) delete s.meta.lang;
+      else s.meta.lang = c.value;
+      break;
+    case "markersBehindText":
+      if (c.value) s.meta.markersBehindText = true;
+      else delete s.meta.markersBehindText;
+      break;
   }
 }
 
@@ -431,7 +443,11 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
         }
         continue;
       }
-      offer(registerValue(k, s.state), baseKey(clock(s.state.clocks?.[k], stamp), s.name));
+      const recorded = s.state.clocks?.[k];
+      // An optional register the snapshot neither holds nor stamps was never set there.
+      if (optionalKeys.has(k) && (recorded === undefined || parseStamp(recorded) === undefined)
+        && deepEqual(registerValue(k, s.state), registerValue(k, defaults))) continue;
+      offer(registerValue(k, s.state), baseKey(clock(recorded, stamp), s.name));
     }
     if (s.state.tagSet) tags.addSet(s.state.tagSet);
     const m = s.state.meta;
@@ -632,6 +648,7 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
   for (const [k, reg] of registers) {
     if (k === "tags") continue;
     applyRegister(reg.value, state);
+    if (optionalKeys.has(k) && reg.key === unsetKey) continue;
     clocks[k] = stampString(reg.key.stamp);
   }
   state.clocks = clocks;

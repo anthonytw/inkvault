@@ -24,6 +24,8 @@ export interface PreparedStroke {
   minY: number;
   maxY: number;
   centreY: number;
+  /** Drawn below the content items: a marker on a note with `markersBehindText` (§8.2.3). */
+  behindItems?: boolean;
 }
 
 export function chunkHeight(options: RenderOptions, meta: NoteMeta): number {
@@ -79,7 +81,8 @@ export class PreparedPage {
       const commands = strokeCommands(stroke, options.tolerance);
       outline += commands.reduce((m, c) => m + pointCount(c), 0);
       if (outline > maxOutlinePoints) throw new RenderError("the page has more ink geometry than the renderer accepts");
-      this.strokes.push({ commands, minY: lo - pad, maxY: hi + pad, centreY: lo / 2 + hi / 2 });
+      const behindItems = meta.markersBehindText === true && stroke.ink.tool === "marker";
+      this.strokes.push({ commands, minY: lo - pad, maxY: hi + pad, centreY: lo / 2 + hi / 2, ...(behindItems ? { behindItems } : {}) });
       low = Math.max(low, hi + pad);
     }
     // Items count toward an infinite page's extent like strokes (§8.2.3); one
@@ -136,6 +139,17 @@ export class PreparedPage {
 
   allStrokeCommands(): DrawCommand[] {
     return this.strokes.flatMap((s) => s.commands);
+  }
+
+  /** The strokes drawn below (`behind`) or above the content items (§8.2.3; Swift `strokeCommands(behind:)`). */
+  strokeCommands(behind: boolean): DrawCommand[] {
+    return this.strokes.filter((s) => (s.behindItems === true) === behind).flatMap((s) => s.commands);
+  }
+
+  /** Index in `items` before which the strokes behind the items go: the first content-layer item (≥ 100). */
+  underIndex(): number {
+    const i = this.items.findIndex((it) => !it.fillsBackground);
+    return i < 0 ? this.items.length : i;
   }
 }
 
@@ -221,7 +235,8 @@ export function pageSVG(page: Page, meta: NoteMeta, options: RenderOptions = def
   return {
     width: meta.pageSize.width, height: prepared.extent,
     paper: prepared.fullPagePaper().map(elementSpec),
-    strokes: prepared.allStrokeCommands().map(elementSpec),
+    // Without items, the strokes behind them simply come first (§8.2.3).
+    strokes: [...prepared.strokeCommands(true), ...prepared.strokeCommands(false)].map(elementSpec),
   };
 }
 

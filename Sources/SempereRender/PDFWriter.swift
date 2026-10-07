@@ -113,7 +113,10 @@ public enum PDFWriter {
                     cs.begin()
                     for c in layers.paper { cs.emit(c) }
                     var xobjects: [Int] = []
-                    for it in prepared.items(for: chunk) {
+                    let chunkItems = prepared.items(for: chunk)
+                    let under = PreparedPage.underIndex(chunkItems)
+                    for (n, it) in chunkItems.enumerated() {
+                        if n == under { for c in layers.under { cs.emit(c) } }
                         if it.fillsBackground, options.paper {
                             cs.emit(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset))
                         }
@@ -128,6 +131,7 @@ public enum PDFWriter {
                             for c in it.placeholder { cs.emit(c.translated(dy: -chunk.yOffset)) }
                         }
                     }
+                    if under == chunkItems.count { for c in layers.under { cs.emit(c) } }
                     for c in layers.strokes { cs.emit(c) }
                     try addPage(chunk, cs, xobjects: xobjects)
                 }

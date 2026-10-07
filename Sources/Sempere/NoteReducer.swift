@@ -265,7 +265,10 @@ public enum NoteReducer {
                     }
                     continue
                 }
-                offer(RegisterValue(k, in: s.state), .base(s.state.clocks?[k.rawValue].flatMap(Stamp.init) ?? stamp, s.name))
+                let clock = s.state.clocks?[k.rawValue].flatMap(Stamp.init)
+                // An optional register the snapshot neither holds nor stamps was never set there.
+                if k.isOptional, clock == nil, RegisterValue(k, in: s.state) == RegisterValue(k, in: defaults) { continue }
+                offer(RegisterValue(k, in: s.state), .base(clock ?? stamp, s.name))
             }
             if let set = s.state.tagSet { tags.add(set) }
             let m = s.state.meta
@@ -454,6 +457,8 @@ public enum NoteReducer {
         var clocks: [String: String] = [:]
         for (k, reg) in registers where k != .tags {
             reg.value.apply(to: &state)
+            // An optional register never set has no clock, as older snapshots have none (§5.4).
+            if k.isOptional, reg.key == .unset { continue }
             clocks[k.rawValue] = reg.key.stamp.description
         }
         state.clocks = clocks
@@ -541,7 +546,7 @@ extension TagSet {
 private func emitted(_ origin: Origin) -> String? { origin.seq >= 1 ? origin.description : nil }
 
 /// The value of one LWW register (`NoteState.ClockKey`).
-enum RegisterValue {
+enum RegisterValue: Equatable {
     case meta(MetaChange)
     case deleted(Bool)
 
@@ -555,6 +560,8 @@ enum RegisterValue {
         case .favorite: self = .meta(.favorite(m.favorite))
         case .paper: self = .meta(.paper(m.paper))
         case .pageSize: self = .meta(.pageSize(m.pageSize))
+        case .lang: self = .meta(.lang(m.lang))
+        case .markersBehindText: self = .meta(.markersBehindText(m.markersBehindText))
         case .deleted: self = .deleted(state.deleted)
         }
     }
@@ -570,6 +577,8 @@ enum RegisterValue {
             case .favorite: return .favorite
             case .paper: return .paper
             case .pageSize: return .pageSize
+            case .lang: return .lang
+            case .markersBehindText: return .markersBehindText
             }
         }
     }

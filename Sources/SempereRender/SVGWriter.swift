@@ -41,11 +41,13 @@ public enum SVGWriter {
         let width = meta.pageSize.width
         let height = prepared.extent
         let paperCommands = prepared.fullPagePaper()
-        let strokeCommands = prepared.allStrokeCommands()
+        let strokeCommands = prepared.strokeCommands(behind: false)
+        let underCommands = prepared.strokeCommands(behind: true)
 
         var s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        let items = try itemsGroup(prepared, draws: draws, options: options, images: images, assets: &assets,
-                                   report: &report)
+        var items = try itemsGroup(prepared, draws: draws, options: options, images: images, assets: &assets,
+                                   report: &report, under: underCommands)
+        if prepared.items.isEmpty, !underCommands.isEmpty { items = underGroup(underCommands) }
         s += "<svg xmlns=\"http://www.w3.org/2000/svg\" "
         if items.contains("<use xlink:href") { s += "xmlns:xlink=\"http://www.w3.org/1999/xlink\" " }
         s += "width=\"\(fmt(width))pt\" height=\"\(fmt(height))pt\" "
@@ -61,18 +63,26 @@ public enum SVGWriter {
         return s
     }
 
+    /// Strokes drawn below the content items (format.md §8.2.3).
+    static func underGroup(_ commands: [DrawCommand]) -> String {
+        "<g id=\"strokes-behind\">\n" + commands.map { element($0) + "\n" }.joined() + "</g>\n"
+    }
+
     /// `<g id="items">`, between paper and strokes: a PDF page as a PNG from
     /// `options.pdfRasterizer`, an image as an `<image>` (once per page in
     /// `<defs>`, drawn with one `matrix` inside a clip to its rotated frame),
     /// anything else as a placeholder. Empty when the page has no items.
     static func itemsGroup(_ prepared: PreparedPage, draws: [UUID: RasterItems.Draw], options: RenderOptions,
-                           images: ImageStore, assets: inout SVGAssets, report: inout RenderReport) throws -> String {
+                           images: ImageStore, assets: inout SVGAssets, report: inout RenderReport,
+                           under: [DrawCommand] = []) throws -> String {
         guard !prepared.items.isEmpty else { return "" }
+        let underAt = PreparedPage.underIndex(prepared.items)
         var defs = ""
         var body = ""
         var ids: [String: String] = [:]   // image content hash → `<image>` id on this page
         var fonts = SVGFontSet()
         for (i, it) in prepared.items.enumerated() {
+            if i == underAt, !under.isEmpty { body += underGroup(under) }
             if it.fillsBackground, options.paper { body += element(it.backgroundFill(prepared.drawnPaper)) + "\n" }
             if case .image(let placed)? = draws[it.item.id] {
                 let id: Result<(String, PlacedImage), PlaceholderReason> = Result.success(placed).flatMap { p in
@@ -118,6 +128,7 @@ public enum SVGWriter {
         if !fonts.subsets.isEmpty { defs += "<style>\n" + (try fonts.style()) + "</style>\n" }
         var g = "<g id=\"items\">\n"
         if !defs.isEmpty { g += "<defs>\n" + defs + "</defs>\n" }
+        if underAt == prepared.items.count, !under.isEmpty { body += underGroup(under) }
         return g + body + "</g>\n"
     }
 
