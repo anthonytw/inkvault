@@ -367,6 +367,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   changes rewrap them by `RewrapPolicy`. References are found structurally (any
   object with `sha256`) with `JSONSerialization`, whose `NSNumber` says `is Bool`
   for 0 and 1: test `objCType == "c"` for booleans instead.
+- Placed items on the canvas (task E0, `docs/attachments.md` §14): build item ops
+  with the `NoteOps` item builders (`Sources/Sempere/ItemOps.swift`), apply them in
+  the app through `NoteEditor+Items` (`applyItemEdit`: one delta per gesture) and
+  `ItemActions` (undo; a deleted item comes back under a new id with `parent`, item
+  tombstones are permanent). New attachments: `NoteEditor.addAttachment(file:|data:…)`
+  (blob first, then the delta). The item layer (`ItemLayerView`, between `PaperView`
+  and PencilKit's ink) draws through `ItemRaster` from the model's `BlobCache` (cleared
+  whenever `AppModel.vault` changes); never read blobs for display any other way.
+  Copied items live in `ItemClipboard`, never the system pasteboard. Selection mode
+  turns PencilKit's drawing gesture off like the object eraser does.
 - Handwriting search (`PageRecognizer.swift`, `NoteEditor` extension, `AppModel+Search.swift`;
   pure logic in `Sources/Sempere/RecognitionSupport.swift` and `NoteSearch.swift`, tested on
   Linux). Recognition carries `basis` = `RecognitionBasis.digest` of the page's live stroke ids
@@ -392,7 +402,7 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - Search highlights (`NoteEditor+SearchHighlight.swift`, `SearchMatchCursor`): boxes come from the
   page's recognition; recognition whose basis no longer matches the strokes, or of a page edited in
   this session (`dirtyPages`), is left out. The layer is a plain `UIView` of `CALayer`s inside the
-  canvas, above the paper and below the ink; it follows `zoomChanged()`. "Recognize All" results
+  canvas, above the paper and the items, below the ink; it follows `zoomChanged()`. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader

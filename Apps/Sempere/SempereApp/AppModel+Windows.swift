@@ -63,6 +63,7 @@ extension AppModel {
             Task { await opened.close() }
             throw CancellationError()
         }
+        opened.prepareBlobWrite = blobWritePreparer(note: noteID)
         opened.onRecognized = { [weak self] id in
             guard let self else { return }
             Task { try? await self.refresh([id]) }   // search sees the new text

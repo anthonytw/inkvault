@@ -86,39 +86,51 @@ public enum PNGWriter {
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
             for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
-            for it in prepared.items(for: chunk) {
-                if it.fillsBackground, options.paper {
-                    paint(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
-                }
-                switch draws[it.item.id] {
-                case .text(let shaped, let rotation)?:
-                    for c in shaped.decorationCommands(rotation) {
-                        paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy)
-                    }
-                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(rotation)
-                    for line in shaped.lines {
-                        for run in line.runs {
-                            let (fill, stroke) = glyphs.polygons(run, transform: device)
-                            raster.fill(fill, paint: quantized(Paint(run.color)))
-                            if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
-                        }
-                    }
-                case .image(let p)?:
-                    let toDevice = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset))
-                    if !draw(p, item: it, toDevice: toDevice, images: images, into: &raster, report: &report) {
-                        for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
-                    }
-                case .raster(let r)?:
-                    let device = Affine(a: sx, d: sy).after(.translate(0, -chunk.yOffset)).after(r.placement)
-                    raster.draw(r, toDevice: device)
-                default:
-                    for c in it.placeholder { paint(c.translated(dy: -chunk.yOffset), into: &raster, sx: sx, sy: sy) }
-                }
-            }
+            drawItems(prepared.items(for: chunk), draws: draws, paper: options.paper ? prepared.drawnPaper : nil,
+                      yOffset: chunk.yOffset, sx: sx, sy: sy, images: images, glyphs: &glyphs, into: &raster,
+                      report: &report)
             for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }
             out.append(try PNGEncoder.encode(width: size.width, height: size.height, rgba: raster.pixels))
         }
         return out
+    }
+
+    /// Draws `items` (in drawing order) as resolved by `RasterItems.resolve`
+    /// into `raster`: page coordinates shifted up by `yOffset`, then scaled
+    /// by `sx`, `sy`. Background items are first filled with `paper` (nil:
+    /// no fill). Anything that cannot be drawn is a placeholder.
+    static func drawItems(_ items: [PreparedItem], draws: [UUID: RasterItems.Draw], paper: Paper?, yOffset: Double,
+                          sx: Double, sy: Double, images: ImageStore, glyphs: inout GlyphRasterizer,
+                          into raster: inout Raster, report: inout RenderReport) {
+        for it in items {
+            if it.fillsBackground, let paper {
+                paint(it.backgroundFill(paper).translated(dy: -yOffset), into: &raster, sx: sx, sy: sy)
+            }
+            switch draws[it.item.id] {
+            case .text(let shaped, let rotation)?:
+                for c in shaped.decorationCommands(rotation) {
+                    paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy)
+                }
+                let device = Affine(a: sx, d: sy).after(.translate(0, -yOffset)).after(rotation)
+                for line in shaped.lines {
+                    for run in line.runs {
+                        let (fill, stroke) = glyphs.polygons(run, transform: device)
+                        raster.fill(fill, paint: quantized(Paint(run.color)))
+                        if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
+                    }
+                }
+            case .image(let p)?:
+                let toDevice = Affine(a: sx, d: sy).after(.translate(0, -yOffset))
+                if !draw(p, item: it, toDevice: toDevice, images: images, into: &raster, report: &report) {
+                    for c in it.placeholder { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
+                }
+            case .raster(let r)?:
+                let device = Affine(a: sx, d: sy).after(.translate(0, -yOffset)).after(r.placement)
+                raster.draw(r, toDevice: device)
+            default:
+                for c in it.placeholder { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
+            }
+        }
     }
 
     /// Draws an image item through `toDevice` (page → device pixels), clipped

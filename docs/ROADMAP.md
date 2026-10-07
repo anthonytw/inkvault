@@ -64,6 +64,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | 🔀 #72 | 🔀 #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
+| Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
 | `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | 🔀 #72 | 🔀 #72 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
@@ -104,7 +105,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | 🔀 #74 (not yet tried on the iPad) |
 | App | Settings panel (E6) | 📋 (a minimal Settings sheet with the version-history setting exists, #74) |
 | App | Spanish localization (L) | 📋 |
-| Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E0–E5, E7) | 📋 |
+| Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | 🔀 #68 |
+| Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E1–E5, E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |

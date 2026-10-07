@@ -1418,6 +1418,24 @@ synthetic `.note` fixture so CI covers the mapping.
   when:* app tests with an in-memory vault cover add/move/delete/copy-to-note
   through `NoteWriter`; one delta per gesture; iCloud logic tests in
   `CloudScan` style (an unlisted `att/` never makes a note pending).
+  *Status:* in review (#68). Shared core: `NoteOps` item builders
+  (`placeOnTop`, `addItems`, `setFrame`, `setRotation`, `bringToFront`,
+  `removeItems`, `restoreItems`, `copyItems`, `blobs(of:)`) and `ItemFrames`
+  (hit test, bounds, move, resize of rotated frames) in
+  `Sources/Sempere/ItemOps.swift`, for the CLI too; `ItemRaster`
+  (`Sources/SempereRender`): one item drawn alone through the PNG export's
+  composition. App: `NoteWriter.addBlob`/`copyBlob`; `NoteEditor+Items`
+  (`addAttachment(file:|data:type:on:item:)` is the entry point for E1, E3,
+  E4; every gesture one delta); `ItemActions` (undo/redo on the canvas's undo
+  manager; undo of a delete re-adds under new ids with `parent`);
+  `ItemClipboard` (in-app only, never the system pasteboard); `BlobCache`;
+  `CloudBlobs.swift` (`BlobFetchPolicy`, `requireBlob`, `downloadBlob`);
+  `ItemLayerView` (between `PaperView` and the ink; images and PDF pages via
+  `ItemRaster`, text natively until E2's CoreText shaper); `ItemSelection`
+  (selection mode from the toolbar: tap selects, drag moves, corners resize,
+  menu: Copy, Duplicate, Bring to Front, Delete, Paste). Rotation has the
+  API (`setItemRotation`) but no gesture yet; no Mac keyboard shortcuts for
+  items yet (they would be `MenuCommand` cases).
 - **E1 — images:** Photos picker, camera, paste/drop, the privacy setting
   (HEIC → JPEG and metadata stripping, on by default), orientation, crop UI.
   *Done when:* with the setting on, a HEIC with GPS becomes a JPEG blob

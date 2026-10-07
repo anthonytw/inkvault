@@ -1,4 +1,5 @@
 import Foundation
+import Sempere
 
 // The pure half of reading a vault from iCloud Drive: placeholder names,
 // which vault files to fetch, and progress. No iCloud API here, so it is
@@ -141,6 +142,41 @@ enum CloudScan {
     static func noteItems(inVault root: URL, id: UUID, fileManager: FileManager = .default) throws -> [Item] {
         let noteDir = noteFolder(inVault: root, id: id)
         return try list(noteDir, fileManager, allowMissing: true).filter(\.isRevisionLike).map { $0.item(in: noteDir) }
+    }
+
+    /// One blob file of a note's `att/` (format.md §8.1.2), by its real name.
+    struct BlobItem: Hashable, Sendable {
+        var item: Item
+        /// From the name's `.<kind>.age` suffix.
+        var kind: BlobKind
+    }
+
+    /// The blob files of note `id` (`notes/<id>/att/`), listed fresh, with
+    /// their kind; empty when the note has no `att/` or iCloud has not listed
+    /// it. Names that are not `<64 hex>.<kind>.age` are skipped. A note's
+    /// revisions alone define it: `noteItems`, the vault scan and
+    /// `requireLocal` never look in `att/`, so a missing, unlisted or evicted
+    /// `att/` never makes a note look empty or pending (docs/attachments.md §4).
+    static func blobItems(inVault root: URL, id: UUID, fileManager: FileManager = .default) throws -> [BlobItem] {
+        let dir = attachmentFolder(inVault: root, id: id)
+        return try list(dir, fileManager, allowMissing: true).filter(\.isRevisionLike).compactMap { entry in
+            guard let parsed = BlobName.parse(entry.name) else { return nil }
+            return BlobItem(item: entry.item(in: dir), kind: parsed.kind)
+        }
+    }
+
+    /// The blob file `fileName` of note `id` as iCloud lists it now: a
+    /// placeholder when only `.<name>.icloud` is there.
+    static func blobItem(inVault root: URL, id: UUID, fileName: String, fileManager: FileManager = .default) -> Item {
+        let url = attachmentFolder(inVault: root, id: id).appendingPathComponent(fileName, isDirectory: false)
+        let placeholder = !fileManager.fileExists(atPath: url.path)
+            && fileManager.fileExists(atPath: CloudPlaceholder.placeholderURL(for: url).path)
+        return Item(url: url, placeholder: placeholder)
+    }
+
+    /// `notes/<id>/att/` of the vault at `root`.
+    static func attachmentFolder(inVault root: URL, id: UUID) -> URL {
+        noteFolder(inVault: root, id: id).appendingPathComponent("att", isDirectory: true)
     }
 
     /// `notes/<id>/` of the vault at `root`.
