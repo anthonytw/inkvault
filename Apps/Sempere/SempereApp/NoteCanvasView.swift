@@ -10,7 +10,7 @@ struct NoteCanvasView: View {
     @AppStorage(ColumnLayout.key) private var storedColumns = "all"
     @Environment(WindowUI.self) private var ui
     @State private var showingHistory = false
-    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
 
     var body: some View {
         Group {

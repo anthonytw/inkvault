@@ -9,10 +9,11 @@ protocol RecordingTranscribing: Sendable {
 
 /// The Speech framework, on device only (`SpeechTranscription`):
 /// SpeechTranscriber, else SFSpeechRecognizer with on-device recognition required.
+/// The language chosen in Settings wins over the note's.
 struct SpeechRecordingTranscriber: RecordingTranscribing {
     func transcribe(file: URL, recording: UUID, noteLanguage: String?) async throws -> Transcript {
-        try await SpeechTranscription.transcribe(file: file, recording: recording,
-                                                 options: SpeechTranscription.Options(noteLanguage: noteLanguage))
+        let options = SpeechTranscription.Options(language: TranscriptionPreference.language(), noteLanguage: noteLanguage)
+        return try await SpeechTranscription.transcribe(file: file, recording: recording, options: options)
     }
 }
 

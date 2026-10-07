@@ -151,6 +151,14 @@ final class DrawingCache: @unchecked Sendable {
         }
     }
 
+    /// Deletes every stored file but keeps the cache open ("Clear Caches" in
+    /// Settings); notes rebuild their entries the next time they are opened.
+    func removeAll() {
+        let fm = FileManager.default
+        for f in Self.files(in: directory) { try? fm.removeItem(at: f.url) }
+        lock.withLock { approximateBytes = 0 }
+    }
+
     /// Deletes everything and refuses later writes (the vault closed).
     func close() {
         lock.withLock { closed = true }

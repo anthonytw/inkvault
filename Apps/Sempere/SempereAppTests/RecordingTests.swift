@@ -4,6 +4,7 @@ import PencilKit
 import UIKit
 import Sempere
 import SempereRender
+import SempereSpeech
 import Testing
 @testable import SempereApp
 
@@ -429,6 +430,45 @@ struct RecordingTests {
         #expect(RecordingPreference.format(defaults).sampleRate == 48_000)
         #expect(RecordingPreference.format(defaults).codec == .aac)
         #expect(TranscriptionPreference.isOn(defaults) == false, "transcription is opt-in")
+    }
+
+    /// The Settings panel (`RecordingSettings`, `TranscriptionSettings`) is
+    /// the one place these are chosen: every choice it offers is what is
+    /// recorded, and its transcription switch and language are what is used.
+    @Test func theSettingsPanelsChoicesAreWhatIsUsed() throws {
+        let d = try #require(UserDefaults(suiteName: "rec-\(UUID().uuidString)"))
+        RecordingSettings(codec: .heAAC, bitRate: 64_000, sampleRate: 32_000, channels: .stereo).save(to: d)
+        #expect(RecordingPreference.format(d) == RecordingFormat(codec: .heAAC, bitRate: 64_000, sampleRate: 32_000, channels: 2))
+        RecordingSettings(codec: .aacLC, bitRate: 24_000, sampleRate: 22_050).save(to: d)
+        #expect(RecordingPreference.format(d) == RecordingFormat(codec: .aac, bitRate: 24_000, sampleRate: 22_050, channels: 1))
+        RecordingSettings(codec: .appleLossless, sampleRate: 16_000).save(to: d)
+        #expect(RecordingPreference.format(d) == RecordingFormat(codec: .alac, bitRate: nil, sampleRate: 16_000, channels: 1))
+        for codec in RecordingSettings.Codec.allCases {
+            for rate in RecordingSettings.bitRates(for: codec) {
+                for sampleRate in RecordingSettings.sampleRates {
+                    RecordingSettings(codec: codec, bitRate: rate, sampleRate: sampleRate).save(to: d)
+                    let f = RecordingPreference.format(d)
+                    #expect(f.codec.rawValue == codec.rawValue)
+                    #expect(f.bitRate == rate, "\(codec) \(rate)")
+                    #expect(f.sampleRate == sampleRate || (codec == .heAAC && sampleRate < 32_000))
+                }
+            }
+        }
+        #expect(!TranscriptionPreference.isOn(d))
+        TranscriptionSettings.setEnabled(true, in: d)
+        TranscriptionSettings.setLocaleIdentifier("es-MX", in: d)
+        #expect(TranscriptionPreference.isOn(d))
+        #expect(TranscriptionPreference.language(d) == "es-MX")
+    }
+
+    @Test func settingsShowWhatTheSpeechEnginesSay() {
+        typealias E = SpeechTranscription.EngineStatus
+        let none = E(engine: "a", available: false, language: nil, detail: "language not supported")
+        let missing = E(engine: "b", available: true, language: "en-US", detail: "model not installed (downloaded on first use)")
+        let ready = E(engine: "c", available: true, language: "en-US", detail: "model installed")
+        #expect(TranscriptionPreference.modelStatus([none]) == .unavailable)
+        #expect(TranscriptionPreference.modelStatus([missing, none]) == .notDownloaded)
+        #expect(TranscriptionPreference.modelStatus([missing, ready]) == .installed)
     }
 
     @Test func recorderSettingsFollowTheFormat() {

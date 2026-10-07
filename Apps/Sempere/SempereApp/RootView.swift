@@ -16,7 +16,7 @@ struct RootView: View {
     @State private var pickAfterAlert = false
     @State private var triedAutoOpen = false
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @Environment(\.openWindow) private var openWindow
     @State private var ui = WindowUI()

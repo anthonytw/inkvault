@@ -20,7 +20,7 @@ struct NewNoteView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Title", text: $title)
+                TextField(NewNoteSettings.title(NewNoteSettings.titleFormat()).isEmpty ? "Title" : NewNoteSettings.title(NewNoteSettings.titleFormat()), text: $title)
                 Button { choosingPaper = true } label: {
                     HStack(spacing: 12) {
                         Image(uiImage: PaperImage.image(for: paper, size: CGSize(width: 44, height: 57), scale: displayScale))
@@ -53,7 +53,7 @@ struct NewNoteView: View {
                     Button("Create") {
                         Task {
                             do {
-                                try await model.createNote(title: title, paper: paper, notebook: notebook,
+                                try await model.createNote(title: NewNoteSettings.resolvedTitle(typed: title), paper: paper, notebook: notebook,
                                                            pageSize: layout.pageSize)
                                 NewNoteLayout.save(layout)
                                 dismiss()
