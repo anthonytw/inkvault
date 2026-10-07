@@ -471,7 +471,7 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   (concurrent adoption converges). Intents live in `Apps/Sempere/SempereShared/` (compiled by the app and the
   `SempereWidgets` extension, iOS only, `platformFilter = ios`) and run in the app's process; the profile is a
   Keychain item `AfterFirstUnlockThisDeviceOnly` (`KeychainCaptureProfileStore`, tests use
-  `MemoryCaptureProfileStore`). Plaintext audio lives only in `QuickCapture.root` (`completeUnlessOpen`) until
+  `MemoryCaptureProfileStore`). Plaintext audio lives only in `QuickCapture.root` (`completeUntilFirstUserAuthentication`, `QuickCapture.protection`: Lock Screen notes are sealed from closed files before any unlock, which `completeUnlessOpen` forbids) until
   sealed and transcribed.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
