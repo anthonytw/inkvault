@@ -108,6 +108,23 @@ final class NotabilityGapsTests: XCTestCase {
         }
     }
 
+    /// Notability 16: the record's field 0 starts with the 64 raw bytes of the
+    /// file's SHA-512 (padded to 68), and the file is `assets/<128 hex>.pdf`.
+    func testBundleRecordNamingA64ByteHashInlineUnderAssets() throws {
+        let pdf = AttachmentFixtures.pdf(pages: [Self.letter])
+        let raw = (0..<64).map { UInt8(($0 * 37 + 11) & 0xFF) }
+        let name = "assets/" + raw.map { String(format: "%02x", $0) }.joined() + ".pdf"
+        let record = SyntheticBundle.record(50, type: 2, payload: [0: .structBytes(raw + [0, 0, 0, 0])])
+        let bundle = SyntheticBundle.noteBundle(strokes: [], extraRecords: [record])
+        let pkg = try NotePackage(data: SyntheticBundle.package(bundle, extra: [(name, pdf)]))
+        let note = try NotabilityBundle.parse(package: pkg)
+        XCTAssertEqual(note.bundleFiles, [name])
+        let a = NotabilityAttachments.resolve(note, package: pkg, pdfText: nil)
+        XCTAssertEqual(a.imported.pdfPages, 1, "\(a.warnings)")
+        XCTAssertEqual(a.dropped.bundleRecordsWithoutFile, 0)
+        XCTAssertFalse(a.warnings.contains { $0.contains("no record names") })
+    }
+
     func testBundleImagePlacedByItsRectangleOnItsPage() throws {
         let png = AttachmentFixtures.png(width: 40, height: 20)
         let name = Self.hashName(png, "png")

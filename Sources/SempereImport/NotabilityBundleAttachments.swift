@@ -35,12 +35,15 @@ extension NotabilityAttachments {
     /// matching each record against every file cost (records × files).
     struct BundleFileIndex {
         var names: Set<String>
-        var byStem: [String: String] = [:]   // "<kind>:<lowercased 64-digit hash>" → first file, in name order
+        var byStem: [String: String] = [:]   // "<kind>:<lowercased 64- or 128-digit hash>" → first file, in name order
         init(_ files: [String]) {
             names = Set(files)
             for f in files {
+                // Notability 16 keeps them under `assets/`; older bundles at the top level.
+                let last = f.split(separator: "/").last.map(String.init) ?? f
                 guard let kind = NotabilityAttachments.bundleFileKind(f),
-                      let stem = f.split(separator: ".", maxSplits: 1).first, stem.count == 64 else { continue }
+                      let stem = last.split(separator: ".", maxSplits: 1).first,
+                      BundleFileName.hashByteCounts.map({ $0 * 2 }).contains(stem.count) else { continue }
                 let key = "\(kind):\(stem.lowercased())"
                 if byStem[key] == nil { byStem[key] = f }
             }
@@ -50,7 +53,8 @@ extension NotabilityAttachments {
     static func bundleFile(for a: NotabilityNote.BundleAttachment, in index: BundleFileIndex) -> String? {
         for n in a.fileNames where index.names.contains(n) { return n }
         for n in a.fileNames {
-            if let f = index.byStem["\(a.kind):\(String(n.prefix(64)).lowercased())"] { return f }
+            let hash = String(n.split(separator: ".", maxSplits: 1).first ?? Substring(n)).lowercased()
+            if let f = index.byStem["\(a.kind):\(hash)"] { return f }
         }
         return nil
     }
@@ -210,10 +214,15 @@ extension NotabilityBundle {
         return ""
     }
 
-    /// Top-level files of the bundle named like attachments (`<sha256>.<ext>`), sorted.
+    /// Files of the bundle named like attachments (`<hash>.<ext>`), at the top
+    /// level or (Notability 16) under `assets/`, sorted.
     static func attachmentFiles(_ pkg: NotePackage) -> [String] {
         let prefix = prefix(pkg)
         return pkg.paths.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
-            .filter { !$0.contains("/") && BundleFileName.isAttachment($0) }.sorted()
+            .filter { path in
+                let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+                guard parts.count == 1 || (parts.count == 2 && parts[0] == "assets") else { return false }
+                return BundleFileName.isAttachment(String(parts[parts.count - 1]))
+            }.sorted()
     }
 }

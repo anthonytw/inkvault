@@ -107,4 +107,20 @@ final class UntrustedBundleIndexTests: XCTestCase {
                                              pageCount: 3)
         XCTAssertEqual(pages, [0: "one", 1: "two", 2: "three"])
     }
+
+    /// Notability 16's inline hash read (a field of 64 to 71 bytes) copies up
+    /// to 64 bytes per candidate field: charged like the name walk, since
+    /// records can share one payload.
+    func testInlineHashReadIsCharged() throws {
+        var fields: [Int: FBValue] = [:]
+        for i in 0..<40 { fields[i] = .structBytes((0..<64).map { UInt8(($0 * 7 + i) & 0xFF) } + [0, 0, 0, 0]) }
+        let fb = FlatBuffer(FBWriter.buffer(root: fields))
+        let payload = try fb.root()
+        var tight = NotabilityBundle.Budget(limit: 1024)
+        XCTAssertThrowsError(try NotabilityBundle.attachment(fb, payload, kind: .pdf, index: 0, budget: &tight))
+        var ample = NotabilityBundle.Budget(limit: 1 << 20)
+        let a = try NotabilityBundle.attachment(fb, payload, kind: .pdf, index: 0, budget: &ample)
+        XCTAssertGreaterThanOrEqual(ample.used, 40 * 64)
+        XCTAssertEqual(a.fileNames.count, 40)
+    }
 }
