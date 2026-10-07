@@ -136,4 +136,32 @@ struct PageStackLayoutTests {
         #expect(Self.letter.currentPage(visibleTop: .infinity, height: 100, scale: 1) == 0)
         #expect(Self.letter.pages(visibleTop: 0, height: 100, scale: 0) == 0..<1)
     }
+
+    /// A search match on a page of the stack (`PageStackHost.performReveal`):
+    /// left alone when comfortably on screen, else centred, within the scroll.
+    @Test func aSearchMatchIsBroughtIntoView() throws {
+        let l = Self.letter
+        let view = (width: 612.0, height: 1000.0)
+        let box = (x: 400.0, y: 400.0, w: 50.0, h: 20.0)
+        // Page 3 at the top of the screen: the box is in the middle, nothing moves.
+        let top = l.offset(toShow: 3, scale: 1, viewportHeight: view.height)
+        #expect(l.revealOffset(of: box, onPage: 3, scale: 1, offset: (0, top), viewport: view) == nil)
+        // Page 3 far below: the box is centred, in page 3's coordinates at the scale.
+        let r = try #require(l.revealOffset(of: box, onPage: 3, scale: 2, offset: (0, 0), viewport: view))
+        let centre = (Double(l.pageFrame(3, scale: 2).minY) + (400 + 10) * 2)
+        #expect(abs(r.y - (centre - 500)) < 1e-9)
+        #expect(abs(r.x - ((400 + 25) * 2 - 306)) < 1e-9)   // the page is twice the screen's width
+        // Just inside the 15 % band at the bottom: moved.
+        let nearBottom = (x: 100.0, y: 1000 * 0.9 - (Double(l.pageFrame(3, scale: 1).minY) - top), w: 10.0, h: 10.0)
+        #expect(l.revealOffset(of: nearBottom, onPage: 3, scale: 1, offset: (0, top), viewport: view) != nil)
+        // The first page's top and the last page's bottom stay within the scroll.
+        #expect(l.revealOffset(of: (0, 0, 10, 10), onPage: 0, scale: 1, offset: (0, 5000), viewport: view)?.y == 0)
+        let end = Double(l.contentSize(scale: 1).height) - view.height
+        #expect(l.revealOffset(of: (0, 780, 10, 10), onPage: 199, scale: 1, offset: (0, 0), viewport: view)?.y == end)
+        // Hostile input never traps: a non-finite box is ignored, a huge one is clamped.
+        #expect(l.revealOffset(of: (.nan, 0, 1, 1), onPage: 3, scale: 1, offset: (0, 0), viewport: view) == nil)
+        let far = try #require(l.revealOffset(of: (1e300, 1e300, 1, 1), onPage: Int.max, scale: .infinity,
+                                              offset: (.nan, 0), viewport: (.infinity, 100)))
+        #expect(far.x.isFinite && far.y.isFinite)
+    }
 }

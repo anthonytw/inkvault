@@ -4,25 +4,45 @@ import SwiftUI
 /// Notebooks (a tree of `/`-separated paths) and tags of the open vault.
 /// Selecting a notebook shows the notes in it and in its sub-notebooks.
 struct SidebarView: View {
+    private struct MovingNotebook: Identifiable {
+        let path: String
+        var id: String { path }
+    }
+
     @Environment(AppModel.self) private var model
     @Environment(RememberedKeys.self) private var keys
     @State private var forgettingKey = false
     @State private var showingSettings = false
     @State private var renaming: String?
+    /// The notebook a "Move Notebook To…" sheet is open for.
+    @State private var movingNotebook: MovingNotebook?
     @State private var newName = ""
 
     var body: some View {
         @Bindable var model = model
         List(selection: $model.sidebarSelection) {
             Label("All Notes", systemImage: "note.text").tag(SidebarItem.allNotes)
+                .sidebarDropTarget(.allNotes)
+            if let results = model.recognitionResults {
+                Label("Recently Recognized", systemImage: "text.viewfinder")
+                    .badge(results.notes.count)
+                    .tag(SidebarItem.recentlyRecognized)
+            }
             let tree = model.notebookTree
             if !tree.isEmpty {
                 Section("Notebooks") {
                     OutlineGroup(tree, children: \.childrenOrNil) { node in
                         Label(node.name, systemImage: node.children.isEmpty ? "book.closed" : "books.vertical")
                             .tag(SidebarItem.notebook(node.path))
+                            .sidebarDropTarget(.notebook(node.path))
+                            .onDrag {
+                                // Dropped on another notebook it nests there; on All Notes it goes to the top level.
+                                model.draggedPayload = .notebook(node.path)
+                                return DragPayload.notebook(node.path).provider()
+                            }
                             .contextMenu {
                                 Button("Rename or Move…", systemImage: "pencil") { newName = node.path; renaming = node.path }
+                                Button("Move Notebook To…", systemImage: "folder") { movingNotebook = MovingNotebook(path: node.path) }
                             }
                             .swipeActions {
                                 Button("Rename", systemImage: "pencil") { newName = node.path; renaming = node.path }
@@ -60,6 +80,7 @@ struct SidebarView: View {
                 }
             }
         }
+        .sheet(item: $movingNotebook) { MoveNotebookView(path: $0.path) }
         .task(id: model.vault?.vaultId) { await keys.refresh(model) }
         .sheet(isPresented: $showingSettings) { SettingsView() }
         .confirmationDialog("Forget this vault's key?", isPresented: $forgettingKey, titleVisibility: .visible) {

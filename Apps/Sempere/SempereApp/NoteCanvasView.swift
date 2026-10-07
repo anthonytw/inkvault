@@ -158,6 +158,11 @@ struct EditorView: View {
             if let error = editor.saveError {
                 Banner(text: error, systemImage: "exclamationmark.triangle", tint: .orange)
             }
+            if let cursor = editor.searchCursor {
+                SearchMatchBar(position: cursor.position, count: cursor.count,
+                               previous: { editor.stepSearchMatch(-1) }, next: { editor.stepSearchMatch(1) },
+                               done: { editor.clearSearchHighlight() })
+            }
             if undoBannerFor > 0, undoBannerFor == editor.deletedPages.count {
                 HStack {
                     Label("Page deleted.", systemImage: "trash").font(.callout).foregroundStyle(.secondary)
@@ -409,6 +414,43 @@ struct EditorView: View {
                     }
                 }
             }
+    }
+}
+
+/// Above the canvas while a search is highlighted: "3 of 12", previous and
+/// next (wrapping across the pages), and Done.
+struct SearchMatchBar: View {
+    let position: Int
+    let count: Int
+    let previous: () -> Void
+    let next: () -> Void
+    let done: () -> Void
+
+    /// "3 of 12 matches", "1 match".
+    static func label(position: Int, count: Int) -> String {
+        count == 1 ? "1 match" : "\(position) of \(count) matches"
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Label(Self.label(position: position, count: count), systemImage: "text.magnifyingglass")
+                .font(.callout.weight(.semibold))
+                .monospacedDigit()
+            Spacer()
+            Button("Previous Match", systemImage: "chevron.up", action: previous)
+                .labelStyle(.iconOnly)
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(count < 2)
+            Button("Next Match", systemImage: "chevron.down", action: next)
+                .labelStyle(.iconOnly)
+                .keyboardShortcut("g", modifiers: .command)
+                .disabled(count < 2)
+            Button("Done", action: done)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
     }
 }
 

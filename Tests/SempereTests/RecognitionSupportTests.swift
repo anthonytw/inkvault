@@ -192,3 +192,129 @@ final class RecognitionSupportTests: VaultTestCase {
         XCTAssertEqual(numbers(.all), [1, 2, 3, 4, 6, 7])
     }
 }
+
+final class RecognitionJobTests: XCTestCase {
+    func testOpsGuardAgainstChangedAndMissingPages() {
+        let page = Page(id: UUID(), order: PageOrder.between(nil, nil), strokes: [stroke()])
+        let state = NoteState(meta: NoteMeta(title: "T", created: Date(timeIntervalSince1970: 0)), pages: [page])
+        let digest = RecognitionBasis.digest(of: page)
+        let r = Recognition(engine: "e", text: "t")
+        let ok = RecognitionJob(page: page.id, digest: digest, recognition: r)
+        XCTAssertEqual(RecognitionJob.ops(for: [ok], in: state).count, 1)
+        XCTAssertTrue(RecognitionJob.ops(for: [RecognitionJob(page: page.id, digest: "0", recognition: r)], in: state).isEmpty)
+        XCTAssertTrue(RecognitionJob.ops(for: [RecognitionJob(page: UUID(), digest: digest, recognition: r)], in: state).isEmpty)
+        XCTAssertTrue(RecognitionJob.ops(for: [ok], in: nil).isEmpty)
+        var deleted = state; deleted.deleted = true
+        XCTAssertTrue(RecognitionJob.ops(for: [ok], in: deleted).isEmpty)
+    }
+}
+
+final class SearchMatchesTests: XCTestCase {
+    private func page(_ words: [(String, Double)], strokes: Int = 0) -> Page {
+        var p = Page(id: UUID(), order: PageOrder.between(nil, nil))
+        p.recognition = Recognition(engine: "t", text: words.map(\.0).joined(separator: " "),
+                                    words: words.map { .init(text: $0.0, box: .init(x: $0.1, y: 0, w: 10, h: 5)) })
+        return p
+    }
+
+    func testMatchesAcrossPagesInOrder() {
+        let pages = [page([("Wombat", 0), ("eats", 20), ("roots", 40)]),
+                     page([("nothing", 0)]),
+                     page([("wombats", 5), ("Café", 30), ("WOMBAT", 60)])]
+        let m = SearchMatches.matches("wombat", in: pages)
+        XCTAssertEqual(m.map(\.text), ["Wombat", "wombats", "WOMBAT"])
+        XCTAssertEqual(m.map(\.page), [1, 3, 3])
+        XCTAssertEqual(m.map(\.pageId), [pages[0].id, pages[2].id, pages[2].id])
+        XCTAssertEqual(m.map(\.box.x), [0, 5, 60])
+        XCTAssertEqual(SearchMatches.matches("cafe", in: pages).map(\.text), ["Café"], "accents are ignored")
+    }
+
+    func testSeveralWordsAndTagsAndEmptyQueries() {
+        let pages = [page([("red", 0), ("green", 20), ("blue", 40)])]
+        XCTAssertEqual(SearchMatches.matches("RED blue", in: pages).map(\.text), ["red", "blue"])
+        XCTAssertEqual(SearchMatches.matches("#red", in: pages), [], "a #word only matches tags")
+        XCTAssertEqual(SearchMatches.matches("  ", in: pages), [])
+        XCTAssertEqual(SearchMatches.matches("red", in: []), [])
+        // Text without boxes (an import without words) cannot be located.
+        var bare = page([])
+        bare.recognition = Recognition(engine: "t", text: "red")
+        XCTAssertEqual(SearchMatches.matches("red", in: [bare]), [])
+    }
+
+    /// A hostile vault's boxes (format.md §9): huge, negative-size or (via a
+    /// decoder that allows it) non-finite values are never offered for drawing.
+    func testBoxesThatCannotBeDrawnAreSkipped() throws {
+        let decoded = try JSONDecoder().decode([Recognition.Word].self, from: Data(
+            #"[{"t":"wombat","box":[1e308,0,10,5]},{"t":"wombat","box":[0,0,-1,5]},{"t":"wombat","box":[3,4,10,5]}]"#.utf8))
+        var p = Page(id: UUID(), order: PageOrder.between(nil, nil))
+        p.recognition = Recognition(engine: "t", text: "wombat wombat wombat", words: decoded + [
+            .init(text: "wombat", box: .init(x: .nan, y: 0, w: 1, h: 1)),
+            .init(text: "wombat", box: .init(x: 0, y: .infinity, w: 1, h: 1)),
+        ])
+        let m = SearchMatches.matches("wombat", in: [p])
+        XCTAssertEqual(m.map(\.box), [.init(x: 3, y: 4, w: 10, h: 5)])
+        XCTAssertNotNil(SearchMatchCursor(query: "wombat", pages: [p]))
+        XCTAssertTrue(SearchMatches.isDrawable(.init(x: -1e9, y: 1e9, w: 0, h: 0)))
+        XCTAssertFalse(SearchMatches.isDrawable(.init(x: 0, y: 1e9 + 1, w: 1, h: 1)))
+    }
+
+    func testMatchListIsCapped() {
+        let many = page((0..<(SearchMatches.maxMatches + 50)).map { ("a", Double($0)) })
+        XCTAssertEqual(SearchMatches.matches("a", in: [many]).count, SearchMatches.maxMatches)
+    }
+}
+
+final class SearchMatchCursorTests: XCTestCase {
+    private func page(_ words: [(String, Double)]) -> Page {
+        var p = Page(id: UUID(), order: PageOrder.between(nil, nil))
+        p.recognition = Recognition(engine: "t", text: words.map(\.0).joined(separator: " "),
+                                    words: words.map { .init(text: $0.0, box: .init(x: $0.1, y: $0.1, w: 10, h: 5)) })
+        return p
+    }
+
+    func testStartsOnThePreferredPageAndWrapsAround() throws {
+        let pages = [page([("cat", 0), ("dog", 10)]), page([("cat", 0), ("cat", 30)]), page([("bird", 0)])]
+        var c = try XCTUnwrap(SearchMatchCursor(query: "cat", pages: pages))
+        XCTAssertEqual(c.count, 3)
+        XCTAssertEqual(c.position, 1)
+        XCTAssertEqual(c.current.page, 1)
+        c.step(1); c.step(1)
+        XCTAssertEqual(c.position, 3)
+        XCTAssertEqual(c.current.box.y, 30)
+        c.step(1)
+        XCTAssertEqual(c.position, 1, "next after the last wraps to the first")
+        c.step(-1)
+        XCTAssertEqual(c.position, 3, "previous before the first wraps to the last")
+        c.step(-7)   // far steps stay in range
+        XCTAssertTrue((1...3).contains(c.position))
+
+        let onSecond = try XCTUnwrap(SearchMatchCursor(query: "cat", pages: pages, preferredPage: pages[1].id))
+        XCTAssertEqual(onSecond.position, 2)
+        XCTAssertEqual(onSecond.matches(onPage: pages[1].id).map(\.index), [1, 2])
+        XCTAssertEqual(onSecond.matches(onPage: pages[2].id).count, 0)
+        // A preferred page without a match falls back to the first match.
+        XCTAssertEqual(SearchMatchCursor(query: "cat", pages: pages, preferredPage: pages[2].id)?.position, 1)
+    }
+
+    func testNoBoxesNoCursor() {
+        XCTAssertNil(SearchMatchCursor(query: "zebra", pages: [page([("cat", 0)])]))
+        XCTAssertNil(SearchMatchCursor(query: "#cat", pages: [page([("cat", 0)])]))
+        XCTAssertNil(SearchMatchCursor(query: "cat", pages: []))
+    }
+
+    func testRefreshKeepsTheCurrentMatchOrMovesOn() throws {
+        var pages = [page([("cat", 0), ("cat", 20), ("cat", 40)])]
+        var c = try XCTUnwrap(SearchMatchCursor(query: "cat", pages: pages))
+        c.step(1)   // the one at y = 20
+        // Unchanged pages: same match.
+        XCTAssertEqual(c.refreshed(pages: pages)?.position, 2)
+        // The current word disappears: the next one after it.
+        pages[0].recognition?.words.remove(at: 1)
+        let moved = try XCTUnwrap(c.refreshed(pages: pages))
+        XCTAssertEqual(moved.count, 2)
+        XCTAssertEqual(moved.current.box.y, 40)
+        // Nothing matches any more.
+        pages[0].recognition = nil
+        XCTAssertNil(c.refreshed(pages: pages))
+    }
+}

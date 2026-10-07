@@ -94,10 +94,13 @@ extension AppModel {
     /// the `old` prefix of its notebook replaced by `new` (one `setMeta` per
     /// note). An empty `new` takes the notes directly in `old` out of any
     /// notebook and lifts its sub-notebooks to the top level.
-    func renameNotebook(_ old: String, to new: String) async throws {
-        guard let old = NotebookPath.canonical(old) else { return }
+    ///
+    /// Returns the notebook each changed note had before (to undo the rename).
+    @discardableResult
+    func renameNotebook(_ old: String, to new: String) async throws -> [UUID: String?] {
+        guard let old = NotebookPath.canonical(old) else { return [:] }
         let target = NotebookPath.canonical(new)
-        guard target != old else { return }
+        guard target != old else { return [:] }
         // Notes not downloaded, or not read yet in this session (still listing,
         // or shown from an earlier launch's cache), have no known notebook:
         // they would be left behind, or moved by a notebook they left.
@@ -118,6 +121,7 @@ extension AppModel {
         if case .notebook(let selected)? = sidebarSelection, NotebookPath.name(selected, isWithin: old) {
             sidebarSelection = NotebookPath.renamed(selected, from: old, to: target).map(SidebarItem.notebook) ?? .allNotes
         }
+        return Dictionary(edits.map { ($0.noteId, current[$0.noteId] ?? nil) }, uniquingKeysWith: { a, _ in a })
     }
 
     /// Puts a note into the notebook path `notebook` (nil or blank: none).
@@ -308,5 +312,104 @@ final class EditGate {
     /// Hands the lock to the next waiter, if any.
     func release() {
         if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
+    }
+}
+
+// MARK: - Moving notes and notebooks (drag and drop, Move Notebook To…)
+
+extension AppModel {
+    /// Puts every note of `ids` that is not there already into the notebook
+    /// path `notebook` (nil or blank: none), as ONE commit: a `setMeta`
+    /// delta per note, each decided from the note as it is on disk. Deleted notes
+    /// and ids the vault does not list are left alone. Returns where the moved
+    /// notes were, nil when nothing moved.
+    @discardableResult
+    func moveNotes(_ ids: [UUID], toNotebook notebook: String?) async throws -> NotebookMoveRecord? {
+        let target = NotebookPath.canonical(notebook)
+        var seen = Set<UUID>()
+        let unique = ids.filter { seen.insert($0).inserted }
+        let gen = generation
+        for id in unique where notes.contains(where: { $0.id == id }) {
+            try await downloadNote(id)
+            try ensureCurrent(gen)
+            try await verifySummary(id)
+        }
+        var previous: [UUID: String?] = [:]
+        var moving: [UUID] = []
+        for id in unique {
+            guard let note = notes.first(where: { $0.id == id }), !note.deleted,
+                  NotebookPath.canonical(note.notebook) != target else { continue }
+            moving.append(id)
+            previous[id] = note.notebook
+        }
+        guard !moving.isEmpty else { return nil }
+        let batch = moving
+        try await commit(ids: batch) { vault, clock, cloud, verifier in
+            for id in batch {
+                try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud, verify: verifier(id)) { state in
+                    state.map { NoteOps.move(toNotebook: target, state: $0) } ?? [.setMeta(.notebook(target))]
+                }
+            }
+        }
+        return NotebookMoveRecord(previous: previous, actionName: batch.count == 1 ? "Move Note" : "Move Notes")
+    }
+
+    /// Moves the notebook `path`, with everything below it, into the notebook
+    /// `parent` (nil or blank: the top level): it keeps its last level
+    /// (`NotebookPath.moved`) and the move is the existing prefix rename
+    /// (`renameNotebook`, which downloads the affected notes first, one
+    /// commit). Returns where the notes were, nil when it is there already.
+    ///
+    /// - Throws: `ModelError.invalidNotebookMove` for a move into itself or a descendant.
+    @discardableResult
+    func moveNotebook(_ path: String, into parent: String?) async throws -> NotebookMoveRecord? {
+        guard let from = NotebookPath.canonical(path), let target = NotebookPath.moved(from, into: parent) else {
+            throw ModelError.invalidNotebookMove
+        }
+        guard target != from else { return nil }
+        let previous = try await renameNotebook(from, to: target)
+        return previous.isEmpty ? nil : NotebookMoveRecord(previous: previous, actionName: "Move Notebook")
+    }
+
+    /// Puts the notes of `record` back where they were (undo of a move), one commit.
+    func restoreNotebooks(_ record: NotebookMoveRecord) async throws {
+        let batch = Array(record.previous.keys).filter { id in notes.contains { $0.id == id } }
+        guard !batch.isEmpty else { return }
+        let gen = generation
+        for id in batch {
+            try await downloadNote(id)
+            try ensureCurrent(gen)
+        }
+        let previous = record.previous
+        try await commit(ids: batch) { vault, clock, cloud, verifier in
+            for id in batch {
+                let target = NotebookPath.canonical(previous[id] ?? nil)
+                try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud, verify: verifier(id)) { state in
+                    state.map { NoteOps.move(toNotebook: target, state: $0) } ?? [.setMeta(.notebook(target))]
+                }
+            }
+        }
+    }
+
+    /// A drop (or "Move Notebook To…"): makes the move, reports a failure, and
+    /// registers one undo step that puts the notes back with `undoManager`, the
+    /// undo manager of the window it happened in (the model is shared by every
+    /// window on a Mac, so it keeps none of its own).
+    func move(_ payload: DragPayload, to target: DropTarget, undoManager: UndoManager?) async {
+        guard phase == .unlocked, SidebarDrop.accepts(payload, on: target, notes: notes) else { return }
+        var record: NotebookMoveRecord?
+        await report {
+            switch payload {
+            case .notes(let ids): record = try await self.moveNotes(ids, toNotebook: target.path)
+            case .notebook(let path): record = try await self.moveNotebook(path, into: target.path)
+            }
+        }
+        guard let record else { return }
+        undoManager?.registerUndo(withTarget: self) { model in
+            Task { @MainActor in
+                await model.report { try await model.restoreNotebooks(record) }
+            }
+        }
+        undoManager?.setActionName(record.actionName)
     }
 }

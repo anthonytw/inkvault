@@ -104,6 +104,30 @@ struct PageStackLayout: Equatable, Sendable {
         return Self.clampedOffset(target, contentLength: Double(contentSize(scale: s).height), viewport: viewportHeight)
     }
 
+    /// The content offset (screen points) that brings `box` (page points, on
+    /// page `index`) into view: nil when it is already comfortably visible
+    /// (inside the viewport less 15 % of its height at top and bottom), else
+    /// the offset that centres it, within the scrollable range. `offset` and
+    /// `viewport` are the scroll's current offset and size. A box that is not
+    /// finite gives nil.
+    func revealOffset(of box: (x: Double, y: Double, w: Double, h: Double), onPage index: Int, scale: Double,
+                      offset: (x: Double, y: Double), viewport: (width: Double, height: Double)) -> (x: Double, y: Double)? {
+        guard [box.x, box.y, box.w, box.h].allSatisfy(\.isFinite) else { return nil }
+        let s = Self.validScale(scale)
+        let i = min(max(index, 0), max(count - 1, 0))
+        let page = pageFrame(i, scale: s)
+        let x = Double(page.minX) + box.x * s, y = Double(page.minY) + box.y * s
+        let w = max(box.w, 0) * s, h = max(box.h, 0) * s
+        let vw = viewport.width.isFinite ? max(viewport.width, 0) : 0
+        let vh = viewport.height.isFinite ? max(viewport.height, 0) : 0
+        let ox = offset.x.isFinite ? offset.x : 0, oy = offset.y.isFinite ? offset.y : 0
+        let margin = vh * 0.15
+        if x >= ox, x + w <= ox + vw, y >= oy + margin, y + h <= oy + vh - margin { return nil }
+        let size = contentSize(scale: s)
+        return (Self.clampedOffset(x + w / 2 - vw / 2, contentLength: Double(size.width), viewport: vw),
+                Self.clampedOffset(y + h / 2 - vh / 2, contentLength: Double(size.height), viewport: vh))
+    }
+
     /// The scale at which a page fills `viewWidth` (the smallest zoom), nil before layout.
     func fitScale(viewWidth: Double) -> Double? {
         guard viewWidth.isFinite, viewWidth > 0 else { return nil }

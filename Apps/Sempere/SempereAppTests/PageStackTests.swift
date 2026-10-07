@@ -338,6 +338,38 @@ struct PageStackTests {
 
     /// A new note in the same stack: canvases of the old one are dropped and
     /// the new note opens at its current page.
+    /// A search hit far down the note (main's highlights, #72): the match's page
+    /// gets the highlight on its own canvas and the stack scrolls the word into
+    /// view (the embedded canvases never scroll); a recycled canvas drops it.
+    @Test func aSearchMatchIsHighlightedAndScrolledIntoView() async throws {
+        let editor = try await StackTS.editor(pages: 40)
+        let (window, stack) = StackTS.stack(editor)
+        defer { window.isHidden = true }
+        var pages = editor.pages
+        let box = Recognition.Box(x: 300, y: 760, w: 80, h: 20)   // near the page's foot: a page-top jump hides it
+        pages[30].recognition = Recognition(engine: "t", text: "wombat", words: [.init(text: "wombat", box: box)])
+        editor.searchCursor = try #require(SearchMatchCursor(query: "wombat", pages: pages))
+        editor.showPage(id: pages[30].id)
+        editor.revealToken &+= 1
+        StackTS.refresh(stack, editor)
+        #expect(editor.pageIndex == 30)
+        let slot = try StackTS.slot(stack, editor, page: 30)
+        #expect(slot.host.highlights == [HighlightBox(box: box, isCurrent: true)])
+        let page = stack.layout.pageFrame(30, scale: Double(stack.scale))
+        let s = Double(stack.scale)
+        let word = CGRect(x: Double(page.minX) + box.x * s, y: Double(page.minY) + box.y * s,
+                          width: box.w * s, height: box.h * s)
+        #expect(stack.visibleContentRect.contains(word), "\(word) in \(stack.visibleContentRect)")
+        #expect(slot.host.canvas.contentOffset == .zero, "the page's own canvas does not scroll")
+        // Its page stays the current one.
+        StackTS.refresh(stack, editor)
+        #expect(editor.pageIndex == 30)
+        // Scrolled away, the canvas is recycled without its highlights.
+        StackTS.scroll(stack, toShowTopOf: 0)
+        #expect(stack.slots[pages[30].id] == nil)
+        #expect((stack.spares.map(\.host) + stack.slots.values.map(\.host)).allSatisfy { $0.highlights.isEmpty })
+    }
+
     @Test func anotherNoteStartsFresh() async throws {
         let first = try await StackTS.editor(pages: 12)
         let (window, stack) = StackTS.stack(first)

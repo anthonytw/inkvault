@@ -104,6 +104,10 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
     private var appliedJump: Int?
     /// A jump waits for the first layout (no size yet) or the end of a pinch.
     private(set) var pendingJump = false
+    /// `NoteEditor.revealToken` last acted on (scroll to the current search match).
+    private var appliedReveal: Int?
+    /// A reveal waits for the jump to the match's page, the first layout or the end of a pinch.
+    private(set) var pendingReveal = false
     private var baking = false
     private var paletteCompact = ToolPalette.isCompact()
 
@@ -161,12 +165,25 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
             fitted = true
             appliedJump = configuration.pageJump
             pendingJump = true
+            // A note opened from a search hit may have highlighted it before the stack saw the editor.
+            appliedReveal = editor.revealToken
+            pendingReveal = editor.searchCursor != nil
         } else if appliedJump != configuration.pageJump {
             appliedJump = configuration.pageJump
             pendingJump = true
         }
+        if appliedReveal != editor.revealToken {
+            appliedReveal = editor.revealToken
+            pendingReveal = true
+        }
+        // Stepping to a search match selects its page too: the reveal alone scrolls,
+        // so a match already on screen does not first send the page to the top.
+        if pendingJump, pendingReveal, let match = editor.searchCursor?.current, match.pageId == editor.currentPage?.id {
+            pendingJump = false
+        }
         layoutContent()
         if pendingJump { performJump() }
+        if pendingReveal { performReveal() }
         updateSlots()
         updateGestures()
     }
@@ -200,6 +217,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
             }
         }
         if pendingJump { performJump() }
+        if pendingReveal { performReveal() }
         updateSlots(reconfigure: false)
         #if DEBUG
         if debugLaunchPending, bounds.width > 0, editor != nil {
@@ -380,6 +398,23 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         updateSlots(reconfigure: false)
     }
 
+    /// Scrolls so the current search match (`NoteEditor.searchCursor`) is on
+    /// screen, after the jump to its page; its page stays the current one.
+    /// The embedded canvases never scroll, so their own reveal is not used.
+    private func performReveal() {
+        guard let editor, scale > 0, bounds.height > 0, scroller.zoomScale == 1, !pendingJump else { return }
+        pendingReveal = false
+        guard let match = editor.searchCursor?.current,
+              let index = configuration?.pageIDs.firstIndex(of: match.pageId) else { return }
+        let view = scroller.bounds.size, now = scroller.contentOffset
+        guard let target = layout.revealOffset(of: (match.box.x, match.box.y, match.box.w, match.box.h), onPage: index,
+                                               scale: Double(scale), offset: (Double(now.x), Double(now.y)),
+                                               viewport: (Double(view.width), Double(view.height))) else { return }
+        tracker.jumped(to: index, offset: target.y)
+        scroller.setContentOffset(CGPoint(x: CGFloat(target.x), y: CGFloat(target.y)), animated: false)
+        updateSlots(reconfigure: false)
+    }
+
     /// Tells the editor which page the scroll is on.
     private func trackCurrentPage() {
         guard let editor, scale > 0 else { return }
@@ -424,6 +459,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         layoutContent()
         scroller.contentOffset = clamped(offset)
         if pendingJump { performJump() }
+        if pendingReveal { performReveal() }
         updateSlots()
         trackCurrentPage()
     }
