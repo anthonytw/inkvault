@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import XCTest
 
 /// Mac Catalyst behaviour that only a running app shows (TestFlight build 6
@@ -13,13 +16,14 @@ final class MacWindowUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(note: String = "respiration") -> XCUIApplication {
+    private func launch(note: String = "respiration", extra: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
                                // No windows from an earlier run: the test counts them.
                                "-ApplePersistenceIgnoreState", "YES"]
         app.launchEnvironment = ["SEMPERE_DEMO": "1", "SEMPERE_DEBUG_COLUMNS": "all", "SEMPERE_DEMO_NOTE": note,
                                  "SEMPERE_DEMO_MAC_WINDOW": "1100x760", "TZ": "UTC"]
+            .merging(extra) { _, new in new }
         app.launch()
         return app
     }
@@ -47,7 +51,8 @@ final class MacWindowUITests: XCTestCase {
     func testTheContextMenuOpensANoteWindow() throws {
         let app = launch()
         defer { app.terminate() }
-        let row = app.staticTexts["Cellular Respiration"].firstMatch
+        // The note list's row (the open note's title is also in the canvas toolbar).
+        let row = app.cells.containing(NSPredicate(format: "label == %@", "Cellular Respiration")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 60))
         let item = app.menuItems["Open in New Window"].firstMatch
         // The list may still be settling when the first click lands: try again a couple of times.
@@ -101,6 +106,43 @@ final class MacWindowUITests: XCTestCase {
         XCTAssertEqual(libraries, 1, "\(how): one library window (windows: \(app.windows.count))")
     }
 
+    /// PDF pages reach the screen on a Mac (TestFlight build 6: blank): a PDF
+    /// imported through the app (`SEMPERE_DEMO_PDF`, red squares at the pages'
+    /// top-left) is opened on the canvas, and the window shows red.
+    @MainActor
+    func testPDFPagesAreDrawnOnTheCanvas() throws {
+        let app = launch(extra: ["SEMPERE_DEMO_PDF": "1"])
+        defer { app.terminate() }
+        XCTAssertTrue(app.staticTexts["Demo PDF"].firstMatch.waitForExistence(timeout: 60), "the PDF note opened")
+        var red = 0
+        for _ in 0..<10 {   // tiles are drawn asynchronously
+            Thread.sleep(forTimeInterval: 2)
+            red = Self.redPixels(app.windows.firstMatch.screenshot().image)
+            if red > 2000 { break }
+        }
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        shot.name = "pdf-canvas"
+        shot.lifetime = .keepAlways
+        add(shot)
+        print("MACUIDEBUG pdf red pixels: \(red)")
+        XCTAssertGreaterThan(red, 2000, "the PDF page's red square is on screen")
+    }
+
+    /// Pixels that are clearly red (the PDF's squares; nothing else in the demo is).
+    static func redPixels(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage else { return 0 }
+        let w = cg.width, h = cg.height
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = ctx.data else { return 0 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let p = data.assumingMemoryBound(to: UInt8.self)
+        var count = 0
+        for i in stride(from: 0, to: w * h * 4, by: 4) where p[i] > 200 && p[i + 1] < 70 && p[i + 2] < 70 { count += 1 }
+        return count
+    }
+
     /// The new-note sheet's notebook field lists matching notebooks while typing.
     @MainActor
     func testNewNoteSheetSuggestsNotebooks() throws {
@@ -131,6 +173,11 @@ final class MacWindowUITests: XCTestCase {
         if !listed { dump(app, "new-note-list") }
         XCTAssertTrue(listed, "the chevron lists the notebooks")
         let lastShown = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "School")).allElementsBoundByIndex.last
-        XCTAssertTrue(lastShown?.isHittable ?? false, "the list is inside the sheet's window")
+        let visible = lastShown.map { row in
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: row)],
+                           timeout: 5) == .completed
+        } ?? false
+        if !visible { dump(app, "new-note-scroll") }
+        XCTAssertTrue(visible, "the list is inside the sheet's window")
     }
 }
