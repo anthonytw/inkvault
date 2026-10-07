@@ -214,30 +214,36 @@ struct TextBoxLayoutTests {
         func typed(_ s: String) -> NSAttributedString {
             NSAttributedString(string: s, attributes: TextBoxEditing.typingAttributes(style))
         }
+        // Each gesture is flushed before the next, as the canvas does between gestures.
+        func step(_ body: () -> Void) async throws -> [Op] {
+            AttachmentEditorTests.grouped(undo, body)
+            await editor.flush()
+            return try NoteEditorTests.myDeltas(vault, clock).last ?? []
+        }
         // A new box: one addItem with TextKit's breaks.
         let first = TextBoxEditing.content(from: typed("A new text box with enough words to wrap twice over"), style: style,
                                            original: nil, keyboardLanguage: "en", frame: Rect(x: 40, y: 40, w: 140, h: 16.8))
         var added: Item?
-        AttachmentEditorTests.grouped(undo) { added = actions.addText(first.content, frame: first.frame, on: page) }
+        let addOps = try await step { added = actions.addText(first.content, frame: first.frame, on: page) }
         let item = try #require(added)
+        #expect(addOps.count == 1)
         #expect(item.text?.breaks == first.content.breaks)
         // An edit: one delta with the text (and the frame, taller now).
         let second = TextBoxEditing.content(from: typed("A new text box with enough words to wrap twice over, and then more words"),
                                             style: style, original: item.text, keyboardLanguage: "en", frame: item.frame)
-        AttachmentEditorTests.grouped(undo) { actions.setText(item.id, to: second.content, frame: second.frame, on: page) }
+        #expect(second.frame.h > item.frame.h)
+        let editOps = try await step { actions.setText(item.id, to: second.content, frame: second.frame, on: page) }
+        #expect(editOps.count == 2, "text and frame in one delta: \(editOps)")
         // A narrower box: laid out again in the same delta as the frame.
-        AttachmentEditorTests.grouped(undo) {
+        let resizeOps = try await step {
             actions.setFrame(item.id, to: Rect(x: 40, y: 40, w: 90, h: second.frame.h), on: page, name: "Resize")
         }
+        #expect(resizeOps.count == 2, "frame and the new breaks in one delta: \(resizeOps)")
         let resized = try #require(editor.item(item.id, on: page))
         #expect(resized.frame.w == 90)
         #expect((resized.text?.breaks?.count ?? 0) > (second.content.breaks?.count ?? 0))
         #expect(resized.frame.h > second.frame.h)
-        await editor.flush()
-        let deltas = try NoteEditorTests.myDeltas(vault, clock)
-        #expect(deltas.count == 3)
-        #expect(deltas[1].count == 2, "text and frame in one delta: \(deltas[1])")
-        #expect(deltas[2].count == 2, "frame and the new breaks in one delta: \(deltas[2])")
+        #expect(try NoteEditorTests.myDeltas(vault, clock).count == 3)
         try AttachmentEditorTests().expectSaved(editor, vault, page: page)
         // Undo: the resize, then the edit.
         undo.undo()

@@ -337,11 +337,8 @@ struct TextBoxLayout {
                 }
                 var placed: [PlacedGlyph] = []
                 for k in run.glyphs.indices {
-                    if face.bitmap.contains(run.glyphs[k]), run.scalars.lowerBound < layout.scalars.count {
-                        let c = layout.scalars[run.scalars.lowerBound]
-                        if !c.properties.isWhitespace {
-                            out.bitmapScripts[LayoutText.script(of: c)] = out.bitmapScripts[LayoutText.script(of: c)] ?? c.value
-                        }
+                    if face.bitmap.contains(run.glyphs[k]), let c = run.texts[k].unicodeScalars.first {
+                        out.bitmapScripts[LayoutText.script(of: c)] = out.bitmapScripts[LayoutText.script(of: c)] ?? c.value
                     }
                     placed.append(PlacedGlyph(glyph: face.ids[run.glyphs[k]] ?? 0, x: Double(run.positions[k].x),
                                               y: Double(run.positions[k].y), advance: run.advances[k], text: run.texts[k]))
@@ -367,7 +364,7 @@ struct TextBoxLayout {
     }
 
     /// A font of `glyphs` of `font`, from CoreText's outlines in font units;
-    /// glyphs without an outline (colour, bitmap) are empty and listed.
+    /// glyphs with ink but no outline (colour, bitmap) are empty and listed.
     static func outlineFace(_ font: CTFont, glyphs: [CGGlyph], key: String)
         -> (face: FontFace, ids: [CGGlyph: Int], bitmap: Set<CGGlyph>)? {
         let upem = Int(CTFontGetUnitsPerEm(font))
@@ -384,7 +381,10 @@ struct TextBoxLayout {
             if let path = CTFontCreatePathForGlyph(unit, g, nil) {
                 outline = Self.segments(path)
             } else {
-                bitmap.insert(g)
+                // No outline: a space (nothing to draw), or a colour/bitmap glyph (ink without an outline).
+                var rect = CGRect.zero
+                _ = CTFontGetBoundingRectsForGlyphs(unit, .horizontal, &glyph, &rect, 1)
+                if !rect.isEmpty, !rect.isNull { bitmap.insert(g) }
             }
             ids[g] = built.count + 1
             built.append(OutlineFont.Glyph(outline: outline, advance: Int(advance.width.rounded())))
