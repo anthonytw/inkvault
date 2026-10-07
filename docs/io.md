@@ -262,7 +262,9 @@ SwiftUI `List`.
   - `BlobCache` (`Library/Caches/Sempere/Blobs`, 512 MB, `Sempere.blobCacheMegabytes`):
     the decrypted, verified blob files PDFKit and ImageIO read. File names are
     keyed (`format.md` §10.1); a file left by an earlier launch is hashed again
-    before use (`adopted`), never decrypted again.
+    before use (`adopted`), never decrypted again. Not on a Mac: there files
+    are not encrypted at rest, so a launch deletes what an earlier one left
+    and a reopened PDF is decrypted again (its preview still shows at once).
   - `RenderCache` (`Library/Caches/Sempere/Renders`, 256 MB,
     `Sempere.renderCacheMegabytes`, plus 96 MB of decoded images in memory):
     image items as drawn (`ItemRendering`), and one preview bitmap per PDF page

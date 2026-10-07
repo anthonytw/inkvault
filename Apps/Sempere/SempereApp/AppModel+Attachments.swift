@@ -13,7 +13,9 @@ extension AppModel {
     /// Its folder is the same for every launch while the vault secret is
     /// (`LocalCacheKey`, purpose `blob-cache`), so attachments opened before
     /// are not decrypted (or downloaded) again; folders of other vaults and
-    /// the per-session folders of older builds are deleted.
+    /// the per-session folders of older builds are deleted. Where files are
+    /// not encrypted at rest (a Mac: `blobCacheAcrossLaunches` false), what an
+    /// earlier launch left is deleted instead: plaintext lasts one session.
     func attachmentCache() -> BlobCache? {
         if let blobCache { return blobCache }
         guard let vault, phase == .unlocked,
@@ -21,11 +23,14 @@ extension AppModel {
         else { return nil }
         let cloud = isCloudVault, hooks = cloudHooks, stall = cloudStallTimeout, poll = cloudPollInterval
         let folder = blobCacheFolder
+        let root = folder.appendingPathComponent(key.name, isDirectory: true)
+        // Renamed away before the cache writes there: the background delete below takes it.
+        if !blobCacheAcrossLaunches { BlobCache.retire(root) }
         Task.detached(priority: .utility) {
             BlobCache.purgeStale(in: BlobCache.legacyFolder, olderThan: 0)
             BlobCache.removeOthers(in: folder, keeping: key.name)
         }
-        let cache = BlobCache(root: folder.appendingPathComponent(key.name, isDirectory: true),
+        let cache = BlobCache(root: root,
                               maxBytes: BlobCache.configuredMaxBytes, naming: BlobCache.keyedNaming(key)) {
             note, ref, destination in
             try await Self.fetchBlob(ref, of: note, from: vault, to: destination, cloud: cloud, hooks: hooks,

@@ -293,4 +293,18 @@ struct DragAndDropTests {
         let all = ["A", "A/B", "A/B/C", "D"]
         #expect(NotebookChoices.rows(matching: "", among: all, excludingSubtree: "A/B") == ["A", "D"])
     }
+
+    /// `onDrag` reports no end, so a cancelled drag leaves its payload: a later
+    /// drop that is not one of the app's own drags (a photo, text from another
+    /// app) never moves those notes, and clears it.
+    @Test func aLeftOverDragNeverAnswersAnotherDrop() async throws {
+        let (model, ids) = try await NotebookTreeTests.model()
+        let lab = try #require(ids["Lab"])
+        _ = model.beginDrag(.notes([lab]), provider: NSItemProvider())
+        // The drag was cancelled; something else is dragged over School.
+        #expect(!model.acceptsDrop(on: .notebook("School"), carriesAppTypes: false))
+        #expect(model.takeDrop(on: .notebook("School"), carriesAppTypes: false) == nil)
+        #expect(model.draggedPayload == nil && model.dragProvider == nil)
+        #expect(model.notes.first { $0.id == lab }?.notebook == "Research/Lab")
+    }
 }

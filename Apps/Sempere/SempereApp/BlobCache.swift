@@ -139,6 +139,20 @@ actor BlobCache {
         }
     }
 
+    /// Whether the decrypted files may outlive a launch: only where the system
+    /// encrypts them at rest while the device is locked (iOS and iPadOS data
+    /// protection, `.complete`, format.md §10). Mac Catalyst has no protection
+    /// class, so there a launch starts from an empty folder.
+    nonisolated static var keepsAcrossLaunches: Bool { !ProcessInfo.processInfo.isMacCatalystApp }
+
+    /// Moves the folder `dir` aside at once (a `.closed-` sibling, which
+    /// `removeOthers` deletes in the background), so nothing in it is reused.
+    nonisolated static func retire(_ dir: URL) {
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        try? FileManager.default.moveItem(at: dir, to: dir.deletingLastPathComponent()
+            .appendingPathComponent(".closed-\(UUID().uuidString)", isDirectory: true))
+    }
+
     /// Deletes the folders in `folder` other than `keep` (other vaults, or
     /// this vault under an earlier secret), in the background.
     nonisolated static func removeOthers(in folder: URL, keeping keep: String) {

@@ -2007,4 +2007,7 @@ It keeps three more, under the same derivation:
   `entryName("blob|<note id>|<sha256>|<size>")` plus a type extension, and is
   protected only by the device's file protection. A file found there from an
   earlier session is used only after its size and SHA-256 match the
-  reference again; the folder is deleted when the vault is closed.
+  reference again; the folder is deleted when the vault is closed. Where the
+  system does not encrypt files at rest (Mac Catalyst has no data protection
+  class), files are never kept across launches: a launch deletes what an
+  earlier one left before using the folder.

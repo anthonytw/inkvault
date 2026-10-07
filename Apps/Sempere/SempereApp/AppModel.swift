@@ -290,6 +290,9 @@ final class AppModel {
     /// inside): the app's `BlobCache.folder`, kept across launches; without
     /// one (tests) a folder of this model alone. Tests may set their own.
     @ObservationIgnored var blobCacheFolder: URL
+    /// Whether decrypted attachments are reused by a later launch
+    /// (`BlobCache.keepsAcrossLaunches`: not on a Mac). Tests may set it.
+    @ObservationIgnored var blobCacheAcrossLaunches = BlobCache.keepsAcrossLaunches
     /// Where drawn attachments (pictures, PDF page previews) are cached
     /// between note opens and launches (`RenderCache`); nil (the default, for
     /// tests): kept in memory only. The app passes `RenderCache.defaultRoot`.

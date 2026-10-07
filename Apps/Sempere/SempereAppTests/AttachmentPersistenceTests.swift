@@ -115,6 +115,38 @@ struct AttachmentPersistenceTests {
         third.close()
     }
 
+    /// A Mac has no data protection class: decrypted attachments an earlier
+    /// launch left are deleted, never adopted, and the sealed render cache
+    /// alone carries pictures across launches.
+    @Test func withoutDataProtectionALaunchStartsWithNoDecryptedFiles() async throws {
+        let blobs = Self.root()
+        let (url, keyFile) = try AppModelTests.fixtureVault()
+        let key = try String(contentsOf: keyFile, encoding: .utf8)
+        func launch() async throws -> AppModel {
+            let model = AppModel(deviceStateURL: TS.deviceStateURL(), blobCacheRoot: blobs)
+            model.blobCacheAcrossLaunches = false
+            try await model.openVault(at: url)
+            try await model.unlock(identityText: key)
+            return model
+        }
+        let first = try await launch()
+        let cache = try #require(first.attachmentCache())
+        let ref = try #require(first.vault).writeBlob(note: Self.lecture, Data("pdf bytes".utf8), type: "application/pdf")
+        let file = try await cache.acquire(note: Self.lecture, ref: ref)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        // Killed without closing the vault: the next launch removes the file before using the folder.
+        let second = try await launch()
+        let again = try #require(second.attachmentCache())
+        #expect(again.root == cache.root)
+        #expect(await TS.waitUntil { !FileManager.default.fileExists(atPath: file.path) })
+        #expect(await TS.waitUntil {
+            ((try? FileManager.default.contentsOfDirectory(atPath: blobs.path)) ?? []).allSatisfy { !$0.hasPrefix(".closed-") }
+        })
+        second.close()
+        _ = first
+        #expect(BlobCache.keepsAcrossLaunches == !ProcessInfo.processInfo.isMacCatalystApp)
+    }
+
     // MARK: render cache
 
     static func picture(width: Int, height: Int, opaque: Bool) throws -> RenderCache.Picture {

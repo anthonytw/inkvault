@@ -445,19 +445,23 @@ extension AppModel {
 
     /// Whether a drag over `target` would be accepted: the drag this model
     /// started, by the rules (`SidebarDrop.accepts`); a drag it does not know
-    /// (nothing started here) is left to the drop.
-    func acceptsDrop(on target: DropTarget) -> Bool {
-        draggedPayload.map { SidebarDrop.accepts($0, on: target, notes: notes) } ?? true
+    /// (nothing started here) is left to the drop. A drag that does not carry
+    /// the app's own types (`carriesAppTypes` false: a photo, text from
+    /// another app) is never one: `draggedPayload` may be left over from a
+    /// cancelled drag, since `onDrag` reports no end.
+    func acceptsDrop(on target: DropTarget, carriesAppTypes: Bool = true) -> Bool {
+        guard carriesAppTypes else { return false }
+        return draggedPayload.map { SidebarDrop.accepts($0, on: target, notes: notes) } ?? true
     }
 
     /// The drop on `target` of the drag this model started: its payload when
     /// the drop is accepted, nil otherwise. Ends the drag either way. A drop
     /// inside the app never depends on the item provider's data (see
     /// `beginDrag`); only a drag the model did not start is decoded from it.
-    func takeDrop(on target: DropTarget) -> DragPayload? {
+    func takeDrop(on target: DropTarget, carriesAppTypes: Bool = true) -> DragPayload? {
         let payload = draggedPayload
         endDrag()
-        guard let payload, phase == .unlocked, SidebarDrop.accepts(payload, on: target, notes: notes) else { return nil }
+        guard carriesAppTypes, let payload, phase == .unlocked, SidebarDrop.accepts(payload, on: target, notes: notes) else { return nil }
         return payload
     }
 

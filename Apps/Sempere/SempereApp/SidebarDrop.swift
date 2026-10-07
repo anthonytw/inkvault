@@ -138,14 +138,16 @@ struct SidebarDropDelegate: DropDelegate {
 
     private static let types: [UTType] = [.sempereNotes, .sempereNotebook]
 
-    func validateDrop(info: DropInfo) -> Bool {
-        model.draggedPayload != nil || info.hasItemsConforming(to: Self.types)
+    /// Only the app's own drags (their types; the providers are `.ownProcess`):
+    /// a left-over `draggedPayload` never answers a photo or text dragged in.
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: Self.types) }
+
+    func dropEntered(info: DropInfo) {
+        model.setDropTarget(model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info)) ? target : nil)
     }
 
-    func dropEntered(info: DropInfo) { model.setDropTarget(model.acceptsDrop(on: target) ? target : nil) }
-
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        let allowed = model.acceptsDrop(on: target)
+        let allowed = model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info))
         model.setDropTarget(allowed ? target : nil)
         return DropProposal(operation: allowed ? .move : .forbidden)
     }
@@ -157,8 +159,9 @@ struct SidebarDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         model.setDropTarget(nil)
         let model = model, target = target, undo = UndoBox(undoManager)
-        if model.draggedPayload != nil {
-            guard let payload = model.takeDrop(on: target) else { return false }
+        let ours = validateDrop(info: info)
+        if model.draggedPayload != nil || !ours {
+            guard let payload = model.takeDrop(on: target, carriesAppTypes: ours) else { return false }
             Task { @MainActor in await model.move(payload, to: target, undoManager: undo.manager) }
             return true
         }
