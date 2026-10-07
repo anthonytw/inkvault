@@ -88,16 +88,23 @@ enum AttachmentFixtures {
     /// A GIF signature (a format the vault does not store).
     static let gif = Data("GIF89a\u{1}\0\u{1}\0\0\0\0;".utf8)
 
-    /// An image media object shaped the way Notability is believed to store
-    /// one (the field names are unconfirmed): `documentContentOrigin` and
-    /// `unscaledContentSize` as `NSStringFromCGPoint`/`Size` strings, a
-    /// `contentScale`, and the file under `figure → FigureBackgroundObjectKey →
-    /// kImageObjectSnapshotKey → relativePath`.
+    /// An image media object shaped as real Notability notes store one
+    /// (confirmed on the maintainer's backup, values here synthetic):
+    /// `documentContentOrigin` and `unscaledContentSize` as
+    /// `NSStringFromCGPoint`/`Size` strings, and the file under `figure →
+    /// FigureBackgroundObjectKey → kImageObjectSnapshotKey → relativePath`. The
+    /// background object also carries a placeholder `rect` of `{{0, 0}, {0, 0}}`
+    /// and the figure a pixel `FigureCropRectKey`; `realLayout: false` leaves
+    /// both out (the older synthetic shape).
     static func imageObject(_ a: inout KeyedArchiveBuilder, file: String, origin: (Double, Double),
-                            size: (Double, Double), scale: Double = 1, extra: [(String, BValue)] = []) -> BValue {
+                            size: (Double, Double), scale: Double = 1, realLayout: Bool = true,
+                            cropPixels: (Double, Double)? = nil, extra: [(String, BValue)] = []) -> BValue {
         let snapshot = a.object("ImageSnapshot", [("relativePath", a.string(file))])
-        let background = a.object("ImageObject", [("kImageObjectSnapshotKey", snapshot)])
-        let figure = a.object("Figure", [("FigureBackgroundObjectKey", background)])
+        let background = a.object("ImageObject", [("kImageObjectSnapshotKey", snapshot)]
+                                  + (realLayout ? [("rect", a.string("{{0, 0}, {0, 0}}"))] : []))
+        var figureFields: [(String, BValue)] = [("FigureBackgroundObjectKey", background)]
+        if realLayout, let c = cropPixels { figureFields.append(("FigureCropRectKey", a.string("{{0, 0}, {\(c.0), \(c.1)}}"))) }
+        let figure = a.object("Figure", figureFields)
         return a.object("ImageMediaObject", [
             ("documentContentOrigin", a.string("{\(origin.0), \(origin.1)}")),
             ("unscaledContentSize", a.string("{\(size.0), \(size.1)}")),

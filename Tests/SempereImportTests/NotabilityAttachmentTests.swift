@@ -357,6 +357,26 @@ final class NotabilityAttachmentTests: XCTestCase {
     }
 
     /// A frame stored as a rect (`NSValue`), rotation in radians and a unit crop.
+    /// Real notes keep a placeholder `{{0, 0}, {0, 0}}` `rect` on the figure's
+    /// background object; it must not win over `documentContentOrigin` +
+    /// `unscaledContentSize` (25 images of the reference backup were dropped
+    /// as "not a finite box" before). A full-image `FigureCropRectKey` is no crop.
+    func testPlaceholderRectFallsThroughToOriginAndSize() throws {
+        let png = AttachmentFixtures.png(width: 100, height: 50)
+        let pkg = imagePackage({ a in
+            [AttachmentFixtures.imageObject(&a, file: "Images/Image 1.png", origin: (40, 300), size: (200, 100),
+                                            cropPixels: (100, 50))]
+        }, files: [("Images/Image 1.png", png)])
+        let (note, a) = try resolve(pkg)
+        let state = NotabilityImporter.convert(note, scaleToLetterWidth: false, attachments: a)
+        let item = try XCTUnwrap(state.pages[0].items.first)
+        XCTAssertEqual(item.frame.w, 200)
+        XCTAssertEqual(item.frame.h, 100)
+        XCTAssertEqual(item.frame.y, 300, accuracy: 1e-9)
+        XCTAssertTrue(item.crop == nil || item.crop == Rect(x: 0, y: 0, w: 100, h: 50), "\(String(describing: item.crop))")
+        XCTAssertTrue(a.warnings.contains { $0.contains("documentContentOrigin + unscaledContentSize") }, "\(a.warnings)")
+    }
+
     func testFrameRotationAndCropFromOtherFields() throws {
         let png = AttachmentFixtures.png(width: 100, height: 50)
         let pkg = imagePackage({ a in
