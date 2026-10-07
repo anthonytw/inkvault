@@ -2,8 +2,10 @@ import CoreGraphics
 import Foundation
 import PencilKit
 import Sempere
+import SempereRender
 import Testing
 import UIKit
+import Vision
 @testable import SempereApp
 
 /// A recogniser that returns fixed text, counting the strokes it was shown.
@@ -277,7 +279,7 @@ struct VisionRecognitionTests {
 
     @Test func readsTextAndPlacesWordsInPageCoordinates() throws {
         let region = Recognition.Box(x: 100, y: 300, w: 640, h: 160)
-        let lines = try VisionText.lines(in: Self.printed("Hello world"), region: region)
+        let lines = try VisionText.lines(VNImageRequestHandler(cgImage: Self.printed("Hello world"), options: [:]), region: region)
         let recognition = RecognitionLayout.assemble(engine: "t", lines: lines, basis: nil)
         #expect(recognition.text.lowercased().contains("hello"))
         #expect(recognition.text.lowercased().contains("world"))
@@ -306,8 +308,8 @@ struct VisionRecognitionTests {
         #expect(r.engine.hasPrefix("vision-"))
         #expect(r.basis == nil)
         for w in r.words {
-            #expect(w.box.x >= 100 - VisionPageRecognizer.margin - 1 && w.box.x + w.box.w <= 240 + VisionPageRecognizer.margin + 8)
-            #expect(w.box.y >= 100 - VisionPageRecognizer.margin - 1 && w.box.y + w.box.h <= 220 + VisionPageRecognizer.margin + 8)
+            #expect(w.box.x >= 100 - RecognitionImage.margin - 1 && w.box.x + w.box.w <= 240 + RecognitionImage.margin + 8)
+            #expect(w.box.y >= 100 - RecognitionImage.margin - 1 && w.box.y + w.box.h <= 220 + RecognitionImage.margin + 8)
         }
     }
 
