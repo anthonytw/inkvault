@@ -16,6 +16,14 @@ final class AttachmentIngestTests: XCTestCase {
 
     // MARK: images
 
+    func testFormatSniffing() throws {
+        XCTAssertEqual(ImageIngest.format(of: try Self.image("metadata.jpg")), .jpeg)
+        XCTAssertEqual(ImageIngest.format(of: Data(PNG.signature + [0, 0, 0, 0])), .png)
+        XCTAssertEqual(ImageIngest.format(of: Data([0, 0, 0, 24] + Array("ftypheic".utf8) + [0, 0])), .heic)
+        XCTAssertEqual(ImageIngest.format(of: Data("RIFF....WEBP".utf8)), .other)
+        XCTAssertEqual(ImageIngest.format(of: Data()), .other)
+    }
+
     func testJPEGKeepsTheOrientationFieldAndLosesTheMetadata() throws {
         let original = try Self.image("metadata.jpg")   // 61 × 45, Exif orientation 6, XMP, a comment
         XCTAssertNotNil(original.range(of: Data("synthetic comment".utf8)))

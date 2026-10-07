@@ -1448,6 +1448,18 @@ synthetic `.note` fixture so CI covers the mapping.
   *Done when:* with the setting on, a HEIC with GPS becomes a JPEG blob
   without APP1; with it off, the HEIC is stored as picked and still exports
   without location; orientation 6 photo displays upright.
+  *Status:* in review (#81). `ImagePreparation` (app): JPEG and PNG through
+  the CLI's `ImageIngest`; HEIC (setting on), WebP, GIF, TIFF and CMYK JPEG
+  converted with ImageIO to JPEG q 0.9 (PNG with alpha) and then through
+  `ImageIngest`, so one place decides what is stored; with the setting off a
+  HEIC is stored as picked. Frames from `NoteOps.placeImage` and
+  `NoteOps.viewFrame` (fitted into what is on screen, or centred on a drop).
+  Insert menu in the editor toolbar (Photos, Take Photo where there is a
+  camera and never on a Mac, Paste, PDF Pages), drops on the canvas
+  (`UIDropInteraction`: images and PDFs from other apps), Crop… in the item
+  menu (a sheet over the whole source; `NoteOps.setCrop` keeps the visible
+  part in place; one undo step), the setting in Settings (`PhotoPrivacy`,
+  `Sempere.photoPrivacy`). CLI: `items crop`.
 - **E2 — text boxes:** text tool, editor overlay with system fonts, styles
   (bold, italic, underline, colour, size, alignment, family), `lang` and
   `dir`, `breaks` from TextKit, committed text drawn by CoreText per
@@ -1479,6 +1491,18 @@ synthetic `.note` fixture so CI covers the mapping.
   unlock/decrypt, tiled display, PDFKit `PDFPageRasterizer`. *Done when:* a
   200-page PDF imports, scrolls and zooms without memory warnings on the
   simulator; encrypted PDF flow tested.
+  *Status:* in review (#81). `PDFPreparation` (app): pages from the CLI's
+  `PDFIngest`; an encrypted PDF is unlocked by Core Graphics (empty user
+  password first, else the user is asked) and redrawn page by page, each its
+  effective box as an upright MediaBox, into a PDF without `/Encrypt`; one the
+  format's reader cannot parse is redrawn the same way. New note:
+  `NoteOps.newPDFNote` (the blob written into the new note's `att/` first);
+  insert: `NoteOps.insertPDFPages` after the current page (refused for a
+  pageless note). Display: each `pdfPage` item is a `PDFTileLayer`
+  (`CATiledLayer`, 512 px tiles, detail 1/2× to 8×) drawn by Core Graphics
+  through the effective-page matrix (`PDFItemDrawing`), from the PDF blob held
+  open once per document while its pages are shown. The 200-page test pages
+  through with one open document and reports the footprint growth.
 - **E4 — recording and playback:** record with the configured format
   (segmented), background audio, interruptions, list per note, playback with
   ink highlighting, tap stroke to seek, `rec` on strokes and items. *Done

@@ -42,6 +42,9 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     }
 
     private(set) var session: Session?
+    /// The controller editing now, if any: one box is edited at a time, also
+    /// across the pages of a paged note (each page has its own controller).
+    private static weak var editing: TextBoxEditorController?
     private(set) var textView: UITextView?
 
     /// The style of the last box edited: the next new box starts with it.
@@ -137,6 +140,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
 
     private func present(_ text: NSAttributedString) {
         guard let canvas, let session else { return }
+        if let other = Self.editing, other !== self { other.endEditing() }
+        Self.editing = self
         let tv = UITextView(usingTextLayoutManager: false)
         tv.accessibilityIdentifier = "textBoxEditor"
         tv.backgroundColor = UIColor.white.withAlphaComponent(0.85)
@@ -165,6 +170,7 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         guard let session, let tv = textView else { return }
         self.session = nil
         textView = nil
+        if Self.editing === self { Self.editing = nil }
         tv.delegate = nil
         let text = tv.attributedText ?? NSAttributedString()
         let language = tv.textInputMode?.primaryLanguage

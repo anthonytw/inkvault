@@ -15,6 +15,10 @@ struct ItemLayerSource {
 /// the main actor (`ItemRendering`) at a power-of-two scale of the zoom
 /// (`ItemScale`) and drawn again only when that step, the item or the
 /// paper changes; meanwhile, and for what cannot be drawn, a placeholder.
+/// PDF pages are not pictures: each is a `PDFTileLayer` that Core Graphics
+/// draws in tiles at the zoom's detail, from the PDF blob held open in the
+/// cache while a page of it is shown (docs/attachments.md §13), so a long
+/// PDF never costs a full-page bitmap per page.
 /// Not interactive: selection is `ItemSelectionController`'s.
 final class ItemLayerView: UIView {
     private(set) var noteID: UUID?
@@ -28,6 +32,20 @@ final class ItemLayerView: UIView {
     /// Drawn pictures, by what they depend on (kept across small changes, such as undo of a move).
     private var pictures: [ItemRenderKey: ItemPicture] = [:]
     private var tasks: [ItemRenderKey: Task<Void, Never>] = [:]
+    /// PDF pages on screen, by item id.
+    private var tiles: [UUID: PDFTileLayer] = [:]
+    /// PDF blobs held open for the tiles (by sha256), each acquired once from the cache.
+    private var documents: [String: OpenDocument] = [:]
+    private var documentTasks: [String: Task<Void, Never>] = [:]
+    /// PDF blobs that cannot be drawn, and why (until the note changes).
+    private var documentFailures: [String: String] = [:]
+
+    private struct OpenDocument {
+        var box: PDFDocumentBox
+        var cache: BlobCache
+        var note: UUID
+        var ref: BlobRef
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,6 +73,7 @@ final class ItemLayerView: UIView {
             tasks = [:]
             pictures = [:]
             previews = [:]
+            closeDocuments()
         }
         noteID = note
         let newIDs = Set(sorted.map(\.id))
@@ -64,6 +83,10 @@ final class ItemLayerView: UIView {
         for (id, layer) in sublayers where !newIDs.contains(id) {
             layer.removeFromSuperlayer()
             sublayers[id] = nil
+        }
+        for (id, tile) in tiles where !newIDs.contains(id) {
+            tile.removeFromSuperlayer()
+            tiles[id] = nil
         }
         previews = previews.filter { newIDs.contains($0.key) }
         layout()
@@ -108,7 +131,14 @@ final class ItemLayerView: UIView {
         defer { CATransaction.commit() }
         let step = scaleStep
         var wanted: Set<ItemRenderKey> = []
+        var wantedDocuments: Set<String> = []
         for (index, item) in items.enumerated() {
+            if item.kind == .pdfPage, let ref = item.blob, source.cache != nil {
+                wantedDocuments.insert(ref.sha256)
+                layoutTiled(item, ref: ref, index: index)
+                continue
+            }
+            if let tile = tiles.removeValue(forKey: item.id) { tile.removeFromSuperlayer() }
             let sub: ItemSublayer
             if let existing = sublayers[item.id] {
                 sub = existing
@@ -134,6 +164,7 @@ final class ItemLayerView: UIView {
             task.cancel()
             tasks[key] = nil
         }
+        closeDocuments(except: wantedDocuments)
         // Keep the current pictures and a few others (an undo brings one back).
         if pictures.count > wanted.count + 16 {
             for key in pictures.keys where !wanted.contains(key) { pictures[key] = nil }
@@ -172,7 +203,117 @@ final class ItemLayerView: UIView {
     }
 
     /// Whether every item shown has its final picture (tests).
-    var isSettled: Bool { tasks.isEmpty }
+    var isSettled: Bool { tasks.isEmpty && documentTasks.isEmpty }
+
+    /// Items drawn in tiles (PDF pages whose document is open), for tests.
+    var tiledItemIDs: Set<UUID> { Set(tiles.keys) }
+
+    /// The tile layer of PDF page item `id` (tests).
+    func tileLayer(of id: UUID) -> PDFTileLayer? { tiles[id] }
+
+    /// PDF blobs held open now (tests: one per PDF, whatever the pages shown).
+    var openDocumentCount: Int { documents.count }
+
+    // MARK: PDF pages in tiles
+
+    /// A PDF page: its tile layer once the document is open, a placeholder until then.
+    private func layoutTiled(_ item: Item, ref: BlobRef, index: Int) {
+        let frame = previews[item.id] ?? item.frame
+        if let open = documents[ref.sha256] {
+            if let sub = sublayers.removeValue(forKey: item.id) { sub.removeFromSuperlayer() }
+            let tile: PDFTileLayer
+            if let existing = tiles[item.id] {
+                tile = existing
+            } else {
+                tile = PDFTileLayer()
+                layer.addSublayer(tile)
+                tiles[item.id] = tile
+            }
+            tile.zPosition = CGFloat(index)
+            tile.show(item, document: open.box, frame: frame, zoom: zoom, screenScale: traitCollection.displayScale)
+            return
+        }
+        if let tile = tiles.removeValue(forKey: item.id) { tile.removeFromSuperlayer() }
+        let sub: ItemSublayer
+        if let existing = sublayers[item.id] {
+            sub = existing
+        } else {
+            sub = ItemSublayer()
+            layer.addSublayer(sub)
+            sublayers[item.id] = sub
+        }
+        sub.zPosition = CGFloat(index)
+        let reason: ItemPicture.Reason = documentFailures[ref.sha256].map { .unavailable($0) } ?? .loading
+        var shown: ItemPicture.Reason?
+        if case .placeholder(let r)? = sub.picture { shown = r }
+        if sub.item != item || shown != reason { sub.show(.placeholder(reason), item: item) }
+        sub.place(frame: frame, rotation: item.rotation, zoom: zoom)
+        if documentFailures[ref.sha256] == nil { openDocument(ref) }
+    }
+
+    /// Acquires the PDF blob from the cache and opens it; a blob not there
+    /// yet (iCloud) is tried again after `retryDelay`.
+    private func openDocument(_ ref: BlobRef) {
+        let key = ref.sha256
+        guard let note = noteID, let cache = source.cache, documents[key] == nil, documentTasks[key] == nil else { return }
+        let delay = retryDelay
+        documentTasks[key] = Task { @MainActor [weak self] in
+            do {
+                let url = try await cache.acquire(note: note, ref: ref)
+                let box = await Task.detached(priority: .userInitiated) { PDFDocumentBox(url: url) }.value
+                guard let self, !Task.isCancelled, self.noteID == note else {
+                    await cache.release(note: note, ref: ref)
+                    return
+                }
+                self.documentTasks[key] = nil
+                if let box {
+                    self.documents[key] = OpenDocument(box: box, cache: cache, note: note, ref: ref)
+                } else {
+                    await cache.release(note: note, ref: ref)
+                    self.documentFailures[key] = "not a PDF that can be drawn"
+                }
+                self.layout()
+            } catch {
+                guard let self, !Task.isCancelled, self.noteID == note else { return }
+                if ItemRendering.isTransient(error) {
+                    try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled, self.noteID == note else { return }
+                } else {
+                    self.documentFailures[key] = "\(error)"
+                }
+                self.documentTasks[key] = nil
+                self.layout()
+            }
+        }
+    }
+
+    /// Releases the open PDF blobs not in `keep` (all by default) and stops opening others.
+    private func closeDocuments(except keep: Set<String> = []) {
+        for (key, task) in documentTasks where !keep.contains(key) {
+            task.cancel()
+            documentTasks[key] = nil
+        }
+        for (key, open) in documents where !keep.contains(key) {
+            documents[key] = nil
+            Task { await open.cache.release(note: open.note, ref: open.ref) }
+        }
+        if keep.isEmpty {
+            documentFailures = [:]
+            for tile in tiles.values { tile.removeFromSuperlayer() }
+            tiles = [:]
+        }
+    }
+
+    /// Off screen, the PDF blobs are let go (the cache may drop their files);
+    /// back on screen they are opened again.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            closeDocuments()
+        } else if noteID != nil {
+            layout()
+        }
+    }
 
     /// What item `id` shows now (tests).
     func picture(of id: UUID) -> ItemPicture? { sublayers[id]?.picture }

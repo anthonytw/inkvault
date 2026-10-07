@@ -114,6 +114,8 @@ struct ItemCommands {
     var copy: @MainActor (_ items: [Item], _ note: UUID) -> Void = { _, _ in }
     var canPaste: @MainActor () -> Bool = { false }
     var paste: @MainActor (_ page: UUID, _ actions: ItemActions) async -> [Item] = { _, _ in [] }
+    /// Opens the crop sheet for an image or PDF page; nil: no Crop in the menu.
+    var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
 
 /// Selecting, moving, resizing and deleting items on the canvas while
@@ -140,6 +142,9 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     var commands = ItemCommands()
     /// Opens a text box in its editor ("Edit Text").
     var onEditText: ((Item) -> Void)?
+    /// The scroll view that pans the page: the canvas itself, or the paged
+    /// stack around it (`PageStackHost`), whose scroll a drag on an item stops.
+    weak var scroller: UIScrollView?
     /// Undo and redo of item gestures, on the canvas's undo manager.
     private(set) var actions: ItemActions?
 
@@ -252,7 +257,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             drag = (d, item)
             select(id)
             // A drag on an item moves the item, not the page: stop a scroll that started with it.
-            if let scroll = canvas?.panGestureRecognizer, scroll.state == .began || scroll.state == .changed {
+            if let scroll = (scroller ?? canvas)?.panGestureRecognizer, scroll.state == .began || scroll.state == .changed {
                 scroll.isEnabled = false
                 scroll.isEnabled = true
             }
@@ -313,6 +318,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                     self.select(new.id)
                 })
+                if let crop = commands.crop, item.cropBounds != nil, let actions {
+                    elements.append(UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in
+                        crop(item, pageID, actions)
+                    })
+                }
                 elements.append(UIAction(title: "Bring to Front", image: UIImage(systemName: "square.3.layers.3d.top.filled")) {
                     [weak self] _ in
                     self?.actions?.bringToFront(id, on: pageID)

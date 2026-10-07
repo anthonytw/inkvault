@@ -80,13 +80,19 @@ extension AppModel {
         try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                                                         paper: paper, pageSize: pageSize, notebook: notebook))],
                          creating: [id])
+        selectNewNote(id, notebook: notebook)
+        return id
+    }
+
+    /// Selects a note just created in `notebook`, showing all notes when the
+    /// sidebar's selection would hide it.
+    func selectNewNote(_ id: UUID, notebook: String?) {
         switch sidebarSelection ?? .allNotes {
         case .notebook(let n) where !NotebookPath.name(notebook, isWithin: n): sidebarSelection = .allNotes
         case .tag, .deleted: sidebarSelection = .allNotes
         default: break
         }
         selectedNoteID = id
-        return id
     }
 
     /// Renames or moves the notebook `old` (a `/`-separated path, format.md

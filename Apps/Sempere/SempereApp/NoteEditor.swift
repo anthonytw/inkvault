@@ -18,8 +18,13 @@ final class NoteEditor {
     private(set) var pageSize: PageSize
     /// Paper being previewed by the paper picker (not saved); nil when none.
     private(set) var previewPaper: Paper?
-    /// Index into `pages` of the page on the canvas.
+    /// Index into `pages` of the page on the canvas: in a paged note, the one
+    /// the scroll is on (`scrolledToPage`).
     private(set) var pageIndex = 0
+    /// Bumped when the canvas must bring `pageIndex` into view: a page chosen
+    /// (`selectPage`: the strip, the toolbar, a search hit) or added, duplicated
+    /// or restored. Scrolling to a page (`scrolledToPage`) does not bump it.
+    private(set) var pageJump = 0
     /// Why the note cannot be edited, if it cannot.
     private(set) var readOnlyReason: String?
     /// True while the note is shown from the drawing cache and its revisions
@@ -493,11 +498,23 @@ final class NoteEditor {
         if let i = pages.firstIndex(where: { $0.id == id }) { selectPage(i) }
     }
 
-    /// Shows another page; pending changes are saved first.
+    /// Shows another page; pending changes are saved first. In a paged
+    /// note the canvas scrolls to it, also when it is already the current
+    /// page but scrolled partly out of view.
     func selectPage(_ index: Int) {
-        guard pages.indices.contains(index), index != pageIndex else { return }
+        guard pages.indices.contains(index) else { return }
+        pageJump &+= 1
+        guard index != pageIndex else { return }
         pageIndex = index
         Task { await flush() }
+    }
+
+    /// The paged canvas scrolled so that page `index` is the current one
+    /// (`PageStackLayout.currentPage`). Nothing is saved for it: every page
+    /// on screen is live, and autosave writes after its pause as usual.
+    func scrolledToPage(_ index: Int) {
+        guard pages.indices.contains(index), index != pageIndex else { return }
+        pageIndex = index
     }
 
     /// The paper to draw under `page`: the picker's preview while one is
@@ -670,6 +687,7 @@ final class NoteEditor {
         pages = edit.pages
         if let show, let i = pages.firstIndex(where: { $0.id == show }) {
             pageIndex = i
+            pageJump &+= 1
         } else {
             pageIndex = min(pageIndex, max(pages.count - 1, 0))
         }
@@ -702,6 +720,15 @@ final class NoteEditor {
         pendingPageOps += edit.ops
         saveNow()
         return true
+    }
+
+    /// Takes pages built elsewhere (a PDF's, `NoteEditor+Insert`), shows
+    /// `show`, and saves them at once as one delta.
+    func applyInsertedPages(_ edit: PageEdit, show: UUID?) {
+        guard !isReadOnly, !isShutDown else { return }
+        apply(edit, show: show)
+        for page in edit.pages where !page.items.isEmpty { itemRevisions[page.id, default: 0] &+= 1 }
+        saveNow()
     }
 
     /// Writes what is pending now rather than after the pause.

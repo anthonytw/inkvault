@@ -129,7 +129,7 @@ final class ItemActions {
     }
 
     /// One undo step: `body` runs on the main actor with this object.
-    private func register(_ name: String, _ body: @escaping @MainActor @Sendable (ItemActions) -> Void) {
+    func register(_ name: String, _ body: @escaping @MainActor @Sendable (ItemActions) -> Void) {
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated { body(target) }
         }

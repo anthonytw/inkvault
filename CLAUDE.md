@@ -264,9 +264,25 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   log page and stroke counts only). Read the log with `devicectl device
   process launch --console`. Never put note titles or content in logs.
 - Infinite pages scroll one screen beyond both their ink and their stored
-  height (`PageExtent.scrollHeight`); finite pages end with an Add Page / Next
-  Page button below the page. "Keep Screen On" (`KeepScreenOn`) disables the
+  height (`PageExtent.scrollHeight`). "Keep Screen On" (`KeepScreenOn`) disables the
   idle timer only while a note is open and the scene is active.
+- Paged notes scroll through all pages in one view (`PageStackView` /
+  `PageStackHost`, layout math in `PageStackLayout`, Linux-testable): one
+  embedded `PageCanvasHost` per page within a screen of the visible band
+  (recycled, at most `spareLimit` spares), each at the stack's scale with its
+  own undo manager and the stack's shared `PKToolPicker`. The stack zooms
+  natively during a pinch and bakes the scale into the page canvases when it
+  ends (`bake`); never zoom an inner canvas. The current page follows the
+  scroll (`NoteEditor.scrolledToPage`, no flush); `NoteEditor.pageJump` (bumped
+  by `selectPage` and page adds/restores) scrolls to `pageIndex`. Ink and items
+  stay in page coordinates: only page frames come from the layout. A recycled
+  canvas drops its page before its drawing (`Coordinator.forget`), so clearing
+  it is never an erase. Pageless notes (and history previews) keep the
+  one-page `PageCanvasView`, whose finite pages end with Add Page / Next Page.
+  Whatever a page canvas needs goes through `PageCanvasContent` and
+  `Coordinator.apply` (both paths), never set on the one-page host alone (drops,
+  item commands, highlights). Insertions fit into `visibleRect(ofPage:)` of the
+  page they land on (the stack's `PageStackLayout.visiblePart`).
 - Paged vs pageless is only `pageSize.infinite` (`format.md` §5.4.3). Page
   gestures (add, move, delete, undo, duplicate) and the layout switch are built
   by `NoteOps` (`Sources/Sempere/PageLayout.swift`), which also predicts the
@@ -377,6 +393,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   whenever `AppModel.vault` changes); never read blobs for display any other way.
   Copied items live in `ItemClipboard`, never the system pasteboard. Selection mode
   turns PencilKit's drawing gesture off like the object eraser does.
+- Adding images and PDFs (tasks E1, E3): bytes go through `ImagePreparation` /
+  `PDFPreparation` (app) into the shared `ImageIngest` / `PDFIngest` and the
+  `NoteOps` builders the CLI uses (`placeImage`, `viewFrame`, `newPDFNote`,
+  `insertPDFPages`, `setCrop`); never decide stored bytes, sizes or frames in
+  the app alone. The photo privacy setting (`PhotoPrivacy`, on by default)
+  strips metadata and turns HEIC into JPEG. Stored PDFs never carry `/Encrypt`
+  (encrypted ones are redrawn). Picked PDFs are copied to a work folder
+  (`PDFPreparation.copyPicked`, plaintext: `discard` it). PDF page items are
+  drawn by `PDFTileLayer` (a `CATiledLayer`, `draw(in:)` on Core Animation's
+  threads, so `nonisolated` and lock-protected), not as `ItemRaster` bitmaps.
 - Handwriting search (`PageRecognizer.swift`, `NoteEditor` extension, `AppModel+Search.swift`;
   pure logic in `Sources/Sempere/RecognitionSupport.swift` and `NoteSearch.swift`, tested on
   Linux). Recognition carries `basis` = `RecognitionBasis.digest` of the page's live stroke ids
@@ -402,7 +428,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - Search highlights (`NoteEditor+SearchHighlight.swift`, `SearchMatchCursor`): boxes come from the
   page's recognition; recognition whose basis no longer matches the strokes, or of a page edited in
   this session (`dirtyPages`), is left out. The layer is a plain `UIView` of `CALayer`s inside the
-  canvas, above the paper and the items, below the ink; it follows `zoomChanged()`. "Recognize All" results
+  canvas, above the paper and the items, below the ink; it follows `zoomChanged()`. In a paged note's stack (`PageStackHost`) each page's canvas draws its own highlights
+  (`Coordinator.apply`) and the stack scrolls the match into view (`performReveal`,
+  `PageStackLayout.revealOffset`): embedded canvases never scroll. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
