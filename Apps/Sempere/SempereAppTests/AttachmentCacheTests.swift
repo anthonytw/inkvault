@@ -60,6 +60,30 @@ struct BlobCacheTests {
         #expect(store.fetchLog.count == 2)
     }
 
+    /// Recordings and transcripts: their plaintext stays only while in use.
+    /// A `discard` release deletes the file once its last use ends; images
+    /// and PDFs (plain release) stay cached.
+    @Test func aDiscardReleaseDeletesTheFileOnceUnused() async throws {
+        let store = FakeBlobStore()
+        let audio = store.put(Data(repeating: 1, count: 100), type: "audio/mp4")
+        let image = store.put(Data(repeating: 2, count: 100))
+        let cache = BlobCache(root: Self.root(), fetch: store.fetch)
+        let a = try await cache.acquire(note: note, ref: audio)
+        _ = try await cache.acquire(note: note, ref: audio)   // played and transcribed at once
+        await cache.release(note: note, ref: audio, discard: true)
+        #expect(FileManager.default.fileExists(atPath: a.path), "still in use")
+        await cache.release(note: note, ref: audio, discard: true)
+        #expect(!FileManager.default.fileExists(atPath: a.path))
+        #expect(await !cache.contains(note: note, ref: audio))
+        let i = try await cache.acquire(note: note, ref: image)
+        await cache.release(note: note, ref: image)
+        #expect(FileManager.default.fileExists(atPath: i.path))
+        // Asked for again, the audio is fetched again (verified), not served from a deleted path.
+        let again = try await cache.acquire(note: note, ref: audio)
+        #expect(try Data(contentsOf: again) == Data(repeating: 1, count: 100))
+        #expect(store.fetchLog.filter { $0 == audio.sha256 }.count == 2)
+    }
+
     @Test func concurrentRequestsShareOneFetch() async throws {
         let store = FakeBlobStore()
         let ref = store.put(Data(repeating: 7, count: 1000))

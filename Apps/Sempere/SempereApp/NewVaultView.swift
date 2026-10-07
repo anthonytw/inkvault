@@ -70,6 +70,7 @@ struct NewVaultView: View {
                 if location == .folder, let folder {
                     LabeledContent("Folder", value: folder.lastPathComponent)
                 }
+                ICloudDriveHelpButton()
             } header: {
                 Text("Where")
             } footer: {
