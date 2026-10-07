@@ -1340,7 +1340,7 @@ The format is identified by four markers:
 | marker | where | this version |
 | --- | --- | --- |
 | `format` | `vault.json` (§2) | `"sempere/1"` |
-| `features` | `vault.json` (§2) | `"attachments"` is the only extension defined |
+| `features` | `vault.json` (§2) | `"attachments"` and `"recipients-tag"` are the extensions defined |
 | body version byte | offset 4 of every revision body (§4) | `0x01` |
 | `format`, `features` | a revision's JSON (§5.1), both optional | absent; absent `format` means `"sempere/1"`, absent `features` means `[]` |
 
@@ -1487,8 +1487,10 @@ implements a later major N:
   "sempere/N"` in every revision it writes from then on (a revision that
   uses an extension, `features`, lists it in the revision's `features`
   too);
-- keeps `vaultId`, `recipients`, `vaultSecret`, `recipientsTag` and
-  `secretLink` in `vault.json` (§2, §2.1), the key files (§3), the revision file names (§5) and the envelope fields of
+- keeps `vaultId`, `recipients` and `vaultSecret` in `vault.json` (§2), and
+  `recipientsTag` and `secretLink` as §2.1 defines them (a reader of this
+  version that finds the tag removed reports tampering, §2.1), the key files
+  (§3), the revision file names (§5) and the envelope fields of
   §5.1, with their meaning;
 - keeps the body framing of §4, version byte `0x01` and tag label
   `sempere/1`, unless it must change them: the label names the framing, not

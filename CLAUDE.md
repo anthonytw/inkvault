@@ -498,7 +498,7 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the vault's shared `ReadOnlyLatch`, so every later write through that
   `Vault` (or a copy) throws `VaultError.readOnly`: every write path calls
   `requireWritable()` (add it to any new one). The tag label is
-  `SempereFormat.tagLabel`, never `identifier`. CLI: exit 6; app:
+  `SempereFormat.tagLabel`, never `identifier`. CLI: exit 7; app:
   `AppModel.isVaultReadOnly` / `requireWritableVault()` gate model writes;
   fixture `Fixtures/newer.sempere`. Mirror changes in `web/src/format/newer.ts`.
 - Note `lang` and `markersBehindText` (`format.md` §5.4) are optional meta

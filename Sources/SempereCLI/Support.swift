@@ -416,7 +416,7 @@ enum ReadOnlyNotice {
 
     /// One stderr line, once per run, when the vault is read-only from its
     /// manifest (a later `format` or unknown `features`). Writes then fail
-    /// with exit 6.
+    /// with exit 7.
     static func warnOnce(_ vault: Vault) {
         guard !warned, vault.isReadOnly else { return }
         warned = true

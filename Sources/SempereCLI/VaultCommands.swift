@@ -120,7 +120,8 @@ struct VaultInfo: ParsableCommand {
             notes: noteCount, keyFiles: keyFiles, pendingRewrap: vault.pendingRewrap,
             journalProblem: vault.journalProblem, unlocked: !vault.isLocked,
             format: vault.manifest.format, features: vault.manifest.features, readOnly: vault.isReadOnly,
-            readOnlyReasons: vault.readOnlyReasons.descriptions, recipientsAuth: RecipientsStatusOutput(vault))
+            readOnlyReasons: vault.readOnlyReasons.descriptions,
+            recipientsAuth: RecipientsStatusOutput(vault))
         if output.json { try output.emitJSON(info); return }
         print("Vault:          \(info.path)")
         print("Vault id:       \(info.vaultId)")
@@ -580,14 +581,13 @@ struct VaultVerify: ParsableCommand {
         var journalProblem: String?
         var counts: [String: Int]
         var files: [File]
-        var recipientsAuth: RecipientsStatusOutput
         var readOnly: Bool
         var readOnlyReasons: [String]
+        var recipientsAuth: RecipientsStatusOutput
 
         init(_ r: VerifyReport, _ vault: Vault) {
-            let reasons = vault.readOnlyReasons
-            readOnly = !reasons.isEmpty
-            readOnlyReasons = reasons.descriptions
+            readOnly = vault.isReadOnly
+            readOnlyReasons = vault.readOnlyReasons.descriptions
             recipientsAuth = RecipientsStatusOutput(vault)
             healthy = r.isHealthy
             manifestProblems = r.manifestProblems

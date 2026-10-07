@@ -220,30 +220,29 @@ public struct Vault: Sendable {
     }
 
     /// Throws `VaultError.readOnly` when the vault holds newer content
-    /// (format.md §7.2, §7.3): such a vault may be read but never written.
-    /// Every write calls it.
-    ///
-    /// It also throws `VaultError.untrustedRecipients` when the recipients
-    /// list did not check (format.md §2.1): nothing is encrypted to it.
+    /// (format.md §7.2, §7.3): such a vault may be read but never written,
+    /// not even to tag its recipients list.
+    public func requireNotReadOnly() throws {
+        let reasons = readOnlyReasons
+        if !reasons.isEmpty { throw VaultError.readOnly(reasons) }
+    }
+
+    /// Every write calls it. Throws `VaultError.readOnly` for a vault holding
+    /// newer content (format.md §7.3), checked first so that nothing below
+    /// writes to such a vault, then `VaultError.untrustedRecipients` when the
+    /// recipients list did not check (format.md §2.1): nothing is encrypted
+    /// to it.
     ///
     /// The first write to an untagged vault tags it on disk (format.md §2.1:
     /// the one-time upgrade by the first writer holding the secret).
     public func requireWritable() throws {
-        try requireKnownFeatures()
+        try requireNotReadOnly()
         try requireTrustedRecipients()
         switch recipientsStatus {
         case .untagged: try tagOnDisk()
         case .verified: rememberRecipients()   // a writer keeps a trust record (format.md §2.1)
         case .notChecked, .tampered: break
         }
-    }
-
-    /// Throws `VaultError.readOnly` when the vault holds newer content
-    /// (format.md §7.3): a later `format`, unknown `features`, or newer
-    /// revisions read through this value or a copy.
-    func requireKnownFeatures() throws {
-        let reasons = readOnlyReasons
-        if !reasons.isEmpty { throw VaultError.readOnly(reasons) }
     }
 
     /// Records that `note` holds newer content (format.md §7.3): from now on
@@ -678,7 +677,8 @@ public struct Vault: Sendable {
     mutating func changeRecipients(_ next: [VaultManifest.Recipient], rotate: Bool, policy: RewrapPolicy,
                                    stopAfter: Int?, repairing: Bool = false) throws -> RewrapReport {
         let current = try requireReadable()
-        if repairing { try requireKnownFeatures() } else { try requireWritable() }
+        // A repair skips the check of the current list, never the read-only rule (format.md §7.3).
+        if repairing { try requireNotReadOnly() } else { try requireWritable() }
         // `features` as on disk: a blob writer may have added one since open.
         // A newer vault.json synced in since open makes the vault read-only
         // (format.md §7.3): refuse before the journal is written.
@@ -735,7 +735,7 @@ public struct Vault: Sendable {
     @discardableResult
     public mutating func upgradeRecipientsTag() throws -> Bool {
         guard case .untagged = recipientsStatus, secret != nil else { return false }
-        try requireKnownFeatures()
+        try requireNotReadOnly()
         manifest = try tagOnDisk()
         recipientsStatus = .verified(.firstUse)
         return true
@@ -751,6 +751,7 @@ public struct Vault: Sendable {
     ///   open it again so it is checked.
     @discardableResult
     func tagOnDisk() throws -> VaultManifest {
+        try requireNotReadOnly()   // never into a vault of a newer format version (format.md §7.3)
         let secret = try requireSecret()
         var m = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
         let keys = manifest.recipients.map(\.key)

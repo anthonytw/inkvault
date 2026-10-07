@@ -47,7 +47,7 @@ see "Attachments" below); stroke
 dedupe after concurrent slicing; ~~post-quantum recipient type~~ (done:
 MLKEM768-X25519, `docs/post-quantum.md`); ~~read-only
 access to vaults of a newer format version~~ (done in #94: `format.md` §7,
-`Vault.readOnlyReasons`, CLI exit 6, app banner, web viewer).
+`Vault.readOnlyReasons`, CLI exit 7, app banner, web viewer).
 
 Done from this list:
 

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { encodeState, decodeRevision } from "../src/format/model.ts";
-import { countName, emptyNewer, majorOf, maxNameLength, maxNames, newerSummary, otherName } from "../src/format/newer.ts";
+import { countName, emptyNewer, majorOf, manifestReadOnlyReasons, maxNameLength, maxNames, newerSummary, otherName } from "../src/format/newer.ts";
 import { formatRFC3339 } from "../src/format/rfc3339.ts";
 import { loadNote, summarize } from "../src/vault/library.ts";
 import { UnlockedVault, VaultError, parseManifest, readOnlyReasons } from "../src/vault/vault.ts";
@@ -47,6 +47,9 @@ describe("format identifiers", () => {
       ...(features ? { features } : {}),
     }));
     expect(readOnlyReasons(parseManifest(m("sempere/2", ["tables"])))).toHaveLength(2);
+    // The extensions this version defines (format.md §2, §2.1) are not newer content.
+    expect(readOnlyReasons(parseManifest(m("sempere/2", ["attachments", "recipients-tag"])))).toHaveLength(1);
+    expect(manifestReadOnlyReasons("sempere/1", ["attachments", "recipients-tag"])).toEqual([]);
     expect(() => parseManifest(m("sempere/1"))).toThrow(VaultError);
     for (const bad of ["sempere/0", "other/2"]) {
       expect(() => parseManifest(m(bad))).toThrow(expect.objectContaining({ code: "unsupportedFormat" }));

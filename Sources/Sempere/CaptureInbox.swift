@@ -106,9 +106,9 @@ extension Vault {
     ///   does not check (format.md §2.1).
     public func captureProfile(device: DeviceID, notebook: String = CaptureProfile.defaultNotebook) throws -> CaptureProfile {
         try requireMigrated()
-        // A profile lets captures be written into inbox/ (format.md §7.3).
-        try requireWritable()
-        // Captures are sealed to these keys alone (format.md §11.1): never to a list that does not check.
+        // A profile lets captures be written into inbox/ (format.md §7.3), and they are
+        // sealed to these keys alone (§11.1): never to a list that does not check.
+        try requireNotReadOnly()
         try requireTrustedRecipients()
         let nb = NoteOps.normalizedNotebook(notebook) ?? CaptureProfile.defaultNotebook
         return CaptureProfile(vaultId: vaultId, recipients: recipients.map(\.key), key: try captureKey().bytes,
