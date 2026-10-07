@@ -78,13 +78,19 @@ public enum NotabilityPDFIndex {
             budget -= 1
             switch v {
             case .array(let a):
-                let ints = a.compactMap { x -> Int? in if case .int(let i) = x, i >= 0, i < Int64(Int32.max) { return Int(i) }; return nil }
-                if ints.count == a.count, ints.count == pageCount || ints.count == pageCount + 1,
-                   zip(ints, ints.dropFirst()).allSatisfy({ $0 <= $1 }) {
-                    candidates.append(ints)
+                // Only an array of the right length is scanned, and its scan is charged: a binary
+                // plist can list one large array any number of times.
+                if a.count == pageCount || a.count == pageCount + 1, a.count <= budget {
+                    budget -= a.count
+                    let ints = a.compactMap { x -> Int? in if case .int(let i) = x, i >= 0, i < Int64(Int32.max) { return Int(i) }; return nil }
+                    if ints.count == a.count, zip(ints, ints.dropFirst()).allSatisfy({ $0 <= $1 }) {
+                        candidates.append(ints)
+                    }
                 }
-                for x in a.prefix(budget) { walk(x, depth: depth + 1) }
+                for x in a.prefix(max(budget, 0)) { walk(x, depth: depth + 1) }
             case .dict(let d):
+                guard d.count <= budget else { budget = 0; return }
+                budget -= d.count
                 for k in d.keys.sorted() { if let x = d[k] { walk(x, depth: depth + 1) } }
             default: break
             }
@@ -119,10 +125,13 @@ public enum NotabilityPDFIndex {
             let list = try fb.table(atRef: listField)
             guard let pagesField = try fb.field(list, 0) else { throw ImportError.notability("no page list") }
             var out: [Int: String] = [:]
+            // Page tables can all reference one text: charge each text's bytes (as strokes are).
+            var budget = NotabilityBundle.Budget(limit: NotabilityBundle.decodeBudgetFactor * data.count + 65_536)
             for page in try fb.tables(atVectorRef: pagesField).prefix(100_000) {
                 guard let header = try fb.field(page, 0), let textField = try fb.field(page, 1) else { continue }
                 let index = Int(try fb.u32(header + 8))
                 guard index < 100_000, out[index] == nil else { continue }
+                try budget.spend(try fb.vector(atRef: textField, elementSize: 1).count)
                 out[index] = try fb.string(atRef: textField)
             }
             notes.append("PDF index: ios/PDFIndex.fb read as \(out.count) page(s)")

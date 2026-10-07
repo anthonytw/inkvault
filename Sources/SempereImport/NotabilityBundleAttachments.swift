@@ -28,19 +28,36 @@ extension NotabilityAttachments {
     /// The bundle file a record names: a whole name, else a hash whose file
     /// has the record's kind.
     static func bundleFile(for a: NotabilityNote.BundleAttachment, in files: [String]) -> String? {
-        let byName = Set(files)
-        for n in a.fileNames where byName.contains(n) { return n }
-        for n in a.fileNames {
-            let stem = String(n.prefix(64)).lowercased()
-            if let f = files.first(where: { $0.lowercased().hasPrefix(stem + ".") && bundleFileKind($0) == a.kind }) {
-                return f
+        bundleFile(for: a, in: BundleFileIndex(files))
+    }
+
+    /// The bundle's files by name and by (hash, kind), built once per bundle:
+    /// matching each record against every file cost (records × files).
+    struct BundleFileIndex {
+        var names: Set<String>
+        var byStem: [String: String] = [:]   // "<kind>:<lowercased 64-digit hash>" → first file, in name order
+        init(_ files: [String]) {
+            names = Set(files)
+            for f in files {
+                guard let kind = NotabilityAttachments.bundleFileKind(f),
+                      let stem = f.split(separator: ".", maxSplits: 1).first, stem.count == 64 else { continue }
+                let key = "\(kind):\(stem.lowercased())"
+                if byStem[key] == nil { byStem[key] = f }
             }
+        }
+    }
+
+    static func bundleFile(for a: NotabilityNote.BundleAttachment, in index: BundleFileIndex) -> String? {
+        for n in a.fileNames where index.names.contains(n) { return n }
+        for n in a.fileNames {
+            if let f = index.byStem["\(a.kind):\(String(n.prefix(64)).lowercased())"] { return f }
         }
         return nil
     }
 
     mutating func resolveBundle(_ note: NotabilityNote, _ pkg: NotePackage, keepMetadata: Bool) {
         let files = note.bundleFiles
+        let fileIndex = BundleFileIndex(files)
         let prefix = NotabilityBundle.prefix(pkg)
         imported.bundleFiles = files.count
         imported.bundlePDFRecords = note.bundleAttachments.filter { $0.kind == .pdf }.count
@@ -50,7 +67,7 @@ extension NotabilityAttachments {
         // PDFs, in the order their records name them.
         var pdfNames: [String] = []
         for a in note.bundleAttachments where a.kind == .pdf {
-            guard let f = Self.bundleFile(for: a, in: files) else {
+            guard let f = Self.bundleFile(for: a, in: fileIndex) else {
                 dropped.bundleRecordsWithoutFile += 1
                 warnings.append(".ntb PDF record \(a.index + 1): names no file of the bundle (fields \(a.layout); "
                                 + "\(a.fileNames.isEmpty ? "no hash found" : "\(a.fileNames.count) hash(es) found"))")
@@ -118,7 +135,7 @@ extension NotabilityAttachments {
                 warnings.append("\(label): \(why) (fields \(a.layout))")
             }
             guard placements.count < Self.maxItems else { drop("over \(Self.maxItems) items on the page"); continue }
-            guard let name = Self.bundleFile(for: a, in: files) else {
+            guard let name = Self.bundleFile(for: a, in: fileIndex) else {
                 dropped.bundleRecordsWithoutFile += 1
                 drop("names no file of the bundle")
                 continue

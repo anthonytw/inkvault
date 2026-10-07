@@ -59,15 +59,19 @@ public enum NotabilityBundle {
         let list = try fb.table(atRef: listField)
         guard let pagesField = try fb.field(list, 0) else { return [:] }
         var out: [Int: NotabilityNote.RecognizedPage] = [:]
+        // Page tables can all reference one text and one box list: charge their bytes.
+        var budget = Budget(limit: decodeBudgetFactor * data.count + 65_536)
         for page in try fb.tables(atVectorRef: pagesField) {
             guard let header = try fb.field(page, 0), let textField = try fb.field(page, 1) else { continue }
             let index = Int(try fb.u32(header + 8))
             let number = index + 1
             guard (1...NotabilityNote.maxRecognizedPage).contains(number), out[number] == nil else { continue }
+            try budget.spend(try fb.vector(atRef: textField, elementSize: 1).count)
             let text = try fb.string(atRef: textField)
             var boxes: [Recognition.Box?] = []
             if let boxField = try fb.field(page, 2) {
                 let (start, count) = try fb.vector(atRef: boxField, elementSize: 8)
+                try budget.spend(8 * count)
                 guard count <= text.utf16.count else {
                     throw ImportError.notability(".ntb: more character boxes than characters on page \(number)")
                 }
@@ -166,11 +170,11 @@ public enum NotabilityBundle {
             case .pdf:
                 pdfs += 1
                 try budget.spend(256)
-                attachments.append(try attachment(fb, payload, kind: .pdf, index: attachments.count))
+                attachments.append(try attachment(fb, payload, kind: .pdf, index: attachments.count, budget: &budget))
             case .media:
                 media += 1
                 try budget.spend(256)
-                attachments.append(try attachment(fb, payload, kind: .image, index: attachments.count))
+                attachments.append(try attachment(fb, payload, kind: .image, index: attachments.count, budget: &budget))
             case .erase:
                 break
             case .stroke:
@@ -262,24 +266,28 @@ public enum NotabilityBundle {
     /// geometry the inline float structs: a 16-byte one is a rectangle
     /// `(x, y, w, h)`, 8-byte ones are points or sizes in field order.
     static func attachment(_ fb: FlatBuffer, _ payload: Int, kind: NotabilityNote.BundleAttachment.Kind,
-                           index: Int) throws -> NotabilityNote.BundleAttachment {
+                           index: Int, budget: inout Budget) throws -> NotabilityNote.BundleAttachment {
         var a = NotabilityNote.BundleAttachment(kind: kind, index: index)
         let fields = (try? fb.inlineFields(payload)) ?? []
         a.layout = fields.map { "\($0.index):\($0.size)" }.joined(separator: ",")
+        // Records can share one payload: the walk's reads are charged to the parse's budget,
+        // not only the flat 256 bytes per record.
         var visited = 0
-        func names(in t: Int, depth: Int) {
+        func names(in t: Int, depth: Int) throws {
             guard depth <= 3, visited < 64, let fs = try? fb.inlineFields(t) else { return }
             visited += 1
+            try budget.spend(16 * fs.count)
             for f in fs where f.size == 4 {
                 guard let target = try? fb.ref(f.position) else { continue }
                 if let (start, count) = try? fb.vector(atRef: f.position, elementSize: 1), count > 0, count <= 1024 {
+                    try budget.spend(count)
                     let bytes = Array(fb.bytes[start..<(start + count)])
                     if let name = BundleFileName.name(in: bytes), !a.fileNames.contains(name) { a.fileNames.append(name) }
                 }
-                if depth < 3, (try? fb.table(target)) != nil { names(in: target, depth: depth + 1) }
+                if depth < 3, (try? fb.table(target)) != nil { try names(in: target, depth: depth + 1) }
             }
         }
-        names(in: payload, depth: 0)
+        try names(in: payload, depth: 0)
         for f in fields {
             switch f.size {
             case 12 where f.index == 0:

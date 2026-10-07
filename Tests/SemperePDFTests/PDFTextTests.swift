@@ -97,6 +97,23 @@ final class PDFTextTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 10)
     }
 
+    /// One code mapped to a 4 000-character string, shown 200 000 times in a
+    /// single `Tj`: the string was decoded whole (800 million characters)
+    /// before the page's output cap applied. Decoding now stops at the cap.
+    func testLongMappingRepeatedStopsAtTheCap() throws {
+        let long = String(repeating: "0041", count: 4_000)
+        let cmap = "1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfchar <0001> <\(long)> endbfchar"
+        let font = "<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H /ToUnicode 6 0 R >>"
+        let shown = "<" + String(repeating: "0001", count: 200_000) + ">"
+        let d = Self.pdf("BT /F1 9 Tf \(shown) Tj ET", font: font,
+                         extra: [(6, "<< /Length \(cmap.utf8.count) >>\nstream\n\(cmap)\nendstream")])
+        let start = Date()
+        let t = try text(d)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5)
+        XCTAssertLessThanOrEqual(t.utf8.count, PDFText.maxOutputBytes + 4_000)
+        XCTAssertGreaterThan(t.utf8.count, 60_000)
+    }
+
     func testOutputIsCapped() throws {
         let line = "(" + String(repeating: "abcdefgh", count: 100) + ") Tj "
         let d = Self.pdf("BT /F1 9 Tf " + String(repeating: line, count: 200) + "ET")

@@ -153,12 +153,12 @@ struct Extraction {
                         newLine()
                         lineY = tm.f + ty * tm.d
                     }
-                    if case .string(let s)? = operands.last, let font { emit(font.decode(s)) }
+                    if case .string(let s)? = operands.last, let font { emit(font.decode(s, maxBytes: PDFText.maxOutputBytes - outBytes)) }
                 case "TJ":
                     if case .array(let parts)? = operands.last, let font {
                         for p in parts {
                             switch p {
-                            case .string(let s): emit(font.decode(s))
+                            case .string(let s): emit(font.decode(s, maxBytes: PDFText.maxOutputBytes - outBytes))
                             default:
                                 if let n = p.number, n.isFinite, n < -180 { space() }
                             }
@@ -291,10 +291,14 @@ struct FontDecoder {
         }
     }
 
-    func decode(_ bytes: [UInt8]) -> String {
+    /// The text of `bytes`, cut once it holds more than `maxBytes` UTF-8
+    /// bytes: one code can map to a long string, so a string of repeated codes
+    /// would otherwise build gigabytes before the page's output cap applies.
+    func decode(_ bytes: [UInt8], maxBytes: Int = .max) -> String {
         var out = ""
+        var outBytes = 0
         var i = 0
-        while i < bytes.count {
+        while i < bytes.count, outBytes <= maxBytes {
             // The longest code length that the CMap knows at this position, else the shortest.
             var len = codeLengths.min() ?? 1
             if let cmap, codeLengths.count > 1 {
@@ -306,9 +310,9 @@ struct FontDecoder {
             guard i + len <= bytes.count else { break }
             let c = code(bytes, i, len)
             if let cmap, let t = cmap.lookup(c, length: len) {
-                out += t
+                out += t; outBytes += t.utf8.count
             } else if !isType0, let t = simple[UInt16(truncatingIfNeeded: c)] {
-                out += t
+                out += t; outBytes += t.utf8.count
             }
             i += len
         }
