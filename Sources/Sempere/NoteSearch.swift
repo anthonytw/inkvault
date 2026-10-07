@@ -12,14 +12,19 @@ public struct PageText: Hashable, Sendable, Codable {
     }
 
     /// The pages of a note (in display order) that have searchable text: the
-    /// recognised handwriting, then the text of each text box in drawing
-    /// order (format.md §8.2.4), joined by newlines.
+    /// recognised handwriting, then the text of each text box and the page
+    /// text of each PDF page in drawing order (format.md §8.2.4, §8.2.6),
+    /// joined by newlines.
     public static func texts(of pages: [Page]) -> [PageText] {
         pages.enumerated().compactMap { i, p in
             var parts: [String] = []
             if let text = p.recognition?.text, !text.isEmpty { parts.append(text) }
-            for item in p.items where item.kind == .text {
-                if let text = item.text?.string, !text.isEmpty { parts.append(text) }
+            for item in p.items.sorted(by: Item.drawsBefore) {
+                switch item.kind {
+                case .text: if let text = item.text?.string, !text.isEmpty { parts.append(text) }
+                case .pdfPage: if let text = item.pageText?.text, !text.isEmpty { parts.append(text) }
+                default: break
+                }
             }
             guard !parts.isEmpty else { return nil }
             return PageText(pageId: p.id, number: i + 1, text: parts.joined(separator: "\n"))

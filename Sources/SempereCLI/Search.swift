@@ -11,13 +11,14 @@ struct SearchHit: Encodable {
     var pageId: String?
     var snippet: String
     var matches: Int
-    /// `handwriting` (page recognition), `text` (a text box) or `transcript` (a recording's).
+    /// `handwriting` (page recognition), `text` (a text box), `pdf` (a PDF page's text,
+    /// format.md §8.2.6) or `transcript` (a recording's).
     var source: String
-    /// The recogniser's name (`handwriting` and `transcript` hits; absent for a text box).
+    /// The recogniser's or extractor's name (`handwriting`, `pdf` and `transcript` hits; absent for a text box).
     var engine: String?
     /// The recognised words containing the term (`handwriting` hits only; empty otherwise).
     var words: [Word]
-    /// The text box (`text` hits).
+    /// The text box or PDF page item (`text` and `pdf` hits).
     var itemId: String?
     /// Its frame `[x, y, w, h]`.
     var box: [Double]?
@@ -26,12 +27,20 @@ struct SearchHit: Encodable {
     var recordingTitle: String?
     var start: Double?
     var end: Double?
+    /// The page of the PDF, 1-based (`pdf` hits).
+    var pdfPage: Int?
 
     struct Word: Encodable { var text: String; var box: [Double] }
 
     /// Where the hit is, for the table: `p3`, `p3 text` or `rec 12:03`.
     var place: String {
-        if let page { return "p\(page)" + (source == "text" ? " text" : "") }
+        if let page {
+            switch source {
+            case "text": return "p\(page) text"
+            case "pdf": return "p\(page) pdf" + (pdfPage.map { " p\($0)" } ?? "")
+            default: return "p\(page)"
+            }
+        }
         // A transcript's times are only checked to be ordered and ≥ 0 (format.md §8.3.2):
         // anything past a million hours is shown as unknown, never converted (Int(1e300) traps).
         let time = start.flatMap { $0.isFinite && $0 >= 0 && $0 < 3.6e9 ? Int($0) : nil }
@@ -66,13 +75,14 @@ enum RecognitionSearch {
 struct SearchCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "search",
-        abstract: "Search the recognised handwriting, typed text and (with --transcripts) transcripts of all notes.",
+        abstract: "Search the recognised handwriting, typed text, PDF page text and (with --transcripts) transcripts of all notes.",
         discussion: """
             Case-insensitive substring search over each page's recognised text (from the Notability
-            import or on-device recognition) and over the text of every text box. With --transcripts it
+            import or on-device recognition), over the text of every text box and over the stored text of
+            every PDF page (format.md §8.2.6; hits say "p3 pdf p7": note page 3, PDF page 7). With --transcripts it
             also searches the transcript of each recording (this decrypts each transcript blob, so it is
             slower). Prints note title, where (p3, p3 text, rec 12:03) and a snippet; --json adds ids,
-            the source of each hit and the boxes of the matching words. Deleted notes are skipped.
+            the source of each hit, the item and the boxes of the matching words. Deleted notes are skipped.
             """
     )
 
@@ -123,6 +133,18 @@ struct SearchCommand: ParsableCommand {
                                               matches: found.count, source: "handwriting", engine: rec.engine,
                                               words: words.map { .init(text: $0.text, box: [$0.box.x, $0.box.y, $0.box.w, $0.box.h]) }))
                     }
+                }
+                for item in page.items where item.kind == .pdfPage {
+                    guard let pageText = item.pageText else { continue }
+                    let found = RecognitionSearch.ranges(of: needle, in: pageText.text)
+                    guard let first = found.first else { continue }
+                    var hit = SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
+                                        pageId: pageId, snippet: RecognitionSearch.snippet(pageText.text, around: first),
+                                        matches: found.count, source: "pdf", engine: pageText.engine, words: [],
+                                        itemId: item.id.uuidString.lowercased(),
+                                        box: [item.frame.x, item.frame.y, item.frame.w, item.frame.h])
+                    hit.pdfPage = item.pageIndex.map { $0 + 1 }
+                    hits.append(hit)
                 }
                 for item in page.items where item.kind == .text {
                     guard let text = item.text?.string else { continue }
