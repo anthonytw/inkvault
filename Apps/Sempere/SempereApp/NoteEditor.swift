@@ -77,6 +77,10 @@ final class NoteEditor {
     /// Page additions and paper changes not yet written (written before any stroke ops).
     @ObservationIgnored private var pendingPageOps: [Op] = []
     @ObservationIgnored private var writer: NoteWriter?
+    /// This opening of the note (format.md §5.8.2): written on every delta the
+    /// editor saves, so a history view starts a new session when the note is
+    /// closed and opened again. A new editor is a new session.
+    @ObservationIgnored private(set) var editingSession = EditingSession.newID()
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var chain: Task<Void, Never>?
@@ -222,10 +226,12 @@ final class NoteEditor {
                                     verify: verify)
         await clock.observe(loaded.readings)
         let reason = readOnlyReason(loaded)
+        let session = EditingSession.newID()
         let writer = reason == nil ? NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: loaded.nextSeq,
-                                                coordinated: coordinated) : nil
+                                                coordinated: coordinated, session: session) : nil
         let editor = NoteEditor(noteID: noteID, state: loaded.state, writer: writer, readOnlyReason: reason,
                                 debounce: debounce, recognizer: recognizer, recognitionDelay: recognitionDelay)
+        editor.editingSession = session
         if let cache, loaded.failures == 0 {
             let key = DrawingCache.Key(note: noteID, revisions: loaded.names)
             editor.drawingCache = cache
@@ -296,7 +302,7 @@ final class NoteEditor {
         pageIndex = shown.flatMap { id in pages.firstIndex { $0.id == id } } ?? min(pageIndex, max(pages.count - 1, 0))
         readOnlyReason = Self.readOnlyReason(loaded)
         writer = readOnlyReason == nil ? NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: loaded.nextSeq,
-                                                    coordinated: coordinated) : nil
+                                                    coordinated: coordinated, session: editingSession) : nil
         cacheKey = loaded.failures == 0 ? DrawingCache.Key(note: noteID, revisions: loaded.names) : nil
         canvasDrawings = [:]
         ledgers = [:]

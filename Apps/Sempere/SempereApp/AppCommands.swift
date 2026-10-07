@@ -174,6 +174,8 @@ final class WindowUI {
     var renameNoteID: UUID?
     /// The note whose tags are being edited.
     var tagsNoteID: UUID?
+    /// The note a version is being saved of (the Save Version alert).
+    var saveVersionNoteID: UUID?
     var choosingPaper = false
     var searchPresented = false
 }

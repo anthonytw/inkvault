@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Version history round 2 (`docs/format.md` §5.8): **checkpoints** (named versions:
+  `sempere notes checkpoint NOTE [--name TEXT]`, the app's Save Version in the note toolbar and
+  the Mac Note menu), **editing sessions** (the app records one id per opening of a note;
+  `sempere notes history --sessions` and the app's history list group autosaves into sessions
+  under the checkpoints, collapsed), and **thinning** (`sempere compact --thin-older-than 30d
+  [--dry-run]`; in the app a setting, default 30 days or never, a daily automatic run and Thin
+  Now with a preview): old autosaves go, every checkpoint and the newest autosave of each
+  session stay restorable, the note's state never changes. `compact` never deletes a checkpoint
+  and keeps it restorable, and keeps a note's first revision while device clocks disagree (an
+  older revision with a later `wall`), so the note's creation date cannot move.
 - Web viewer: attachments (`docs/web-viewer.md`, `format.md` §8). Images (orientation, crop,
   rotation, metadata stripped), text boxes laid out with their stored line breaks and the
   format's line metrics, PDF pages drawn by a pinned pdf.js (worker and font data served by the

@@ -35,6 +35,18 @@ actor DeviceClock {
         return hlc
     }
 
+    /// Runs `body` on the clock; with `save`, keeps (and saves) what it did to
+    /// it, otherwise forgets it (a dry run). Thinning builds its snapshots this way.
+    func withClock<T: Sendable>(save: Bool, _ body: @Sendable (inout HybridClock) throws -> T) throws -> T {
+        var clock = state.clock
+        let out = try body(&clock)
+        if save, clock != state.clock {
+            state.clock = clock
+            try state.save(to: url)
+        }
+        return out
+    }
+
     /// Merges readings seen in revisions read from the vault, so the next
     /// local reading sorts after them.
     func observe(_ readings: [HLC], wall: Date = Date()) {
@@ -60,12 +72,15 @@ actor NoteWriter {
     /// The wall-clock time of every revision this writer writes; nil: the time of each write.
     /// Only the demo vault for the App Store screenshots sets it (`DemoVault`).
     let wall: Date?
+    /// The editing session written on every delta (format.md §5.8.2): an
+    /// editor's writer has one per opening of the note; browser edits none.
+    let session: String?
     private var nextSeq: Int
 
     init(vault: Vault, noteID: UUID, clock: DeviceClock, nextSeq: Int, app: String = NoteWriter.appName,
-         coordinated: Bool = false, wall: Date? = nil) {
+         coordinated: Bool = false, wall: Date? = nil, session: String? = nil) {
         self.vault = vault; self.noteID = noteID; self.clock = clock; self.nextSeq = nextSeq; self.app = app
-        self.coordinated = coordinated; self.wall = wall
+        self.coordinated = coordinated; self.wall = wall; self.session = session
     }
 
     /// `sempere-ios/<version>` (format.md §5.1 `app`).
@@ -90,14 +105,14 @@ actor NoteWriter {
     /// and the clock must never come from a partial log.
     @discardableResult
     static func append(_ ops: [Op], to noteID: UUID, vault: Vault, clock: DeviceClock, app: String = NoteWriter.appName,
-                       coordinated: Bool = false, wall: Date? = nil,
+                       coordinated: Bool = false, wall: Date? = nil, checkpoint: Checkpoint? = nil,
                        verify: (@Sendable () throws -> Void)? = nil) async throws -> RevisionName {
         let (readings, seq, _) = try await read(noteID, vault: vault, device: clock.device, coordinated: coordinated,
                                                 verify: verify, build: nil)
         await clock.observe(readings)
         let writer = NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: seq, app: app, coordinated: coordinated,
                                 wall: wall)
-        return try await writer.write(ops)
+        return try await writer.write(ops, checkpoint: checkpoint)
     }
 
     /// Like `append(_:to:...)`, but `build` computes the ops from the note as
@@ -174,23 +189,23 @@ actor NoteWriter {
     /// of this app, or a browser edit, wrote to the note) is re-read from disk
     /// and the write retried once.
     @discardableResult
-    func write(_ ops: [Op]) async throws -> RevisionName {
+    func write(_ ops: [Op], checkpoint: Checkpoint? = nil) async throws -> RevisionName {
         do {
-            return try await attempt(ops)
+            return try await attempt(ops, checkpoint: checkpoint)
         } catch VaultError.seqInUse {
             let vault = self.vault, noteID = self.noteID, device = clock.device
             nextSeq = try CloudVault.coordinatedRead(coordinated ? vault.url : nil) {
                 try vault.nextSeq(noteId: noteID, device: device)
             }
-            return try await attempt(ops)
+            return try await attempt(ops, checkpoint: checkpoint)
         }
     }
 
-    private func attempt(_ ops: [Op]) async throws -> RevisionName {
+    private func attempt(_ ops: [Op], checkpoint: Checkpoint?) async throws -> RevisionName {
         let now = wall ?? Date()
         let hlc = try await clock.tick(wall: now)
         let rev = Revision(noteId: noteID, device: clock.device, seq: nextSeq, hlc: hlc, wall: now, app: app,
-                           body: .delta(ops: ops))
+                           body: .delta(ops: ops), session: session, checkpoint: checkpoint)
         try CloudVault.coordinatedWrite(coordinationURL) { try vault.write(rev) }
         nextSeq += 1
         return rev.name

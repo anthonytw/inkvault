@@ -12,7 +12,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
     // File
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
     // Note
-    case renameNote, editTags, changePaper, deleteNote, restoreNote
+    case renameNote, editTags, changePaper, saveVersion, deleteNote, restoreNote
     case previousPage, nextPage, addPage
     // Edit
     case find, undo, redo
@@ -74,6 +74,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .renameNote: return "Rename Note…"
         case .editTags: return "Edit Tags…"
         case .changePaper: return "Paper…"
+        case .saveVersion: return "Save Version…"
         case .deleteNote: return "Move to Recently Deleted"
         case .restoreNote: return "Restore Note"
         case .previousPage: return "Previous Page"
@@ -116,6 +117,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .renameNote: return Shortcut("r", shift)
         case .editTags: return Shortcut("t", option)
         case .changePaper: return Shortcut("p", option)
+        case .saveVersion: return Shortcut("s", option)
         case .deleteNote: return Shortcut(Shortcut.backspace, cmd)
         case .restoreNote: return nil
         case .previousPage: return Shortcut("[", cmd)
@@ -180,7 +182,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reloadVault: return unlocked && context.hasNoteList
         case .newNote: return unlocked && context.hasNoteList
         case .openNoteInWindow: return unlocked && context.hasNoteList && context.hasNote && !context.noteDeleted
-        case .renameNote, .editTags: return unlocked && context.hasNote && !context.noteDeleted
+        case .renameNote, .editTags, .saveVersion: return unlocked && context.hasNote && !context.noteDeleted
         case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted && !context.editingText
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
         case .changePaper: return context.canEditNote && context.hasPage
@@ -208,6 +210,7 @@ enum MenuLayout {
     ]
     static let note: [[MenuCommand]] = [
         [.renameNote, .editTags, .changePaper],
+        [.saveVersion],
         [.previousPage, .nextPage, .addPage],
         [.deleteNote, .restoreNote],
     ]

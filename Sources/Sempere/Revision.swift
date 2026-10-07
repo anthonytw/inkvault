@@ -269,6 +269,88 @@ extension Included: Codable {
     }
 }
 
+// MARK: - Version history fields (format.md §5.8)
+
+/// A revision's place in the order `(hlc, device, seq)`, without its kind:
+/// what a positioned snapshot's `asOf` names (format.md §5.8.3).
+public struct RevisionKey: Hashable, Comparable, Sendable, CustomStringConvertible {
+    public var hlc: HLC
+    public var device: DeviceID
+    public var seq: Int
+
+    public init(hlc: HLC, device: DeviceID, seq: Int) {
+        self.hlc = hlc; self.device = device; self.seq = seq
+    }
+
+    /// The key of a revision file name.
+    public init(_ name: RevisionName) { self.init(hlc: name.hlc, device: name.device, seq: name.seq) }
+
+    /// Parses `"<hlc>-<device>-<seq>"`; `seq` canonical, 1 … `RevisionName.maxSeq`.
+    public init?(_ string: String) {
+        let p = string.split(separator: "-", omittingEmptySubsequences: false)
+        guard p.count == 3, let h = HLC(String(p[0])), let d = DeviceID(String(p[1])) else { return nil }
+        let s = p[2]
+        guard !s.isEmpty, s.count <= 16, s.utf8.allSatisfy({ (0x30...0x39).contains($0) }), s.first != "0",
+              let seq = Int(s), seq <= RevisionName.maxSeq else { return nil }
+        self.init(hlc: h, device: d, seq: seq)
+    }
+
+    public var description: String { "\(hlc)-\(device)-\(seq)" }
+
+    public static func < (l: RevisionKey, r: RevisionKey) -> Bool {
+        (l.hlc, l.device, l.seq) < (r.hlc, r.device, r.seq)
+    }
+}
+
+/// The marker of a version the user saved (format.md §5.8.1).
+public struct Checkpoint: Hashable, Sendable {
+    /// Longest name writers store, in characters.
+    public static let maxNameLength = 200
+
+    /// The user's label; nil for an unnamed version.
+    public var name: String?
+
+    /// `name` trimmed and cut to `maxNameLength` characters; blank is nil.
+    public init(name: String? = nil) {
+        let t = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.name = t.isEmpty ? nil : String(t.prefix(Self.maxNameLength))
+    }
+
+    /// As read: a `name` that is not a string is ignored; the text is kept as written.
+    init(read name: String?) { self.name = (name?.isEmpty ?? true) ? nil : name }
+}
+
+/// Editing-session ids (format.md §5.8.2).
+public enum EditingSession {
+    /// A fresh id: a lowercase UUID.
+    public static func newID() -> String { UUID().uuidString.lowercased() }
+
+    /// True for 1 to 64 characters from `[0-9a-z-]`.
+    public static func isValid(_ id: String) -> Bool {
+        let u = id.utf8
+        return !u.isEmpty && u.count <= 64 && u.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7A).contains($0) || $0 == 0x2D }
+    }
+}
+
+/// Decodes a `checkpoint` value leniently: any object is a checkpoint.
+private struct CheckpointWire: Codable {
+    var name: String?
+
+    enum CodingKeys: String, CodingKey { case name }
+
+    init(name: String?) { self.name = name }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(name, forKey: .name)
+    }
+}
+
 // MARK: - Revision envelope
 
 /// One file under `notes/<noteId>/` (format.md §5.1–§5.3), decrypted and
@@ -296,10 +378,21 @@ public struct Revision: Hashable, Sendable {
     public var app: String
     /// Delta ops or snapshot content.
     public var body: Body
+    /// The editing session that wrote this delta (format.md §5.8.2); nil
+    /// for snapshots and for deltas written outside one.
+    public var session: String?
+    /// Set when this delta is a version the user saved (format.md §5.8.1).
+    public var checkpoint: Checkpoint?
+    /// For a positioned snapshot, the revision whose state it holds
+    /// (format.md §5.8.3). Whether it is valid is decided against the other
+    /// revisions (`NoteHistory.positions`).
+    public var asOf: RevisionKey?
 
-    public init(noteId: UUID, device: DeviceID, seq: Int, hlc: HLC, wall: Date, app: String, body: Body) {
+    public init(noteId: UUID, device: DeviceID, seq: Int, hlc: HLC, wall: Date, app: String, body: Body,
+                session: String? = nil, checkpoint: Checkpoint? = nil, asOf: RevisionKey? = nil) {
         self.noteId = noteId; self.device = device; self.seq = seq; self.hlc = hlc
         self.wall = wall; self.app = app; self.body = body
+        self.session = session; self.checkpoint = checkpoint; self.asOf = asOf
     }
 
     public var kind: RevisionName.Kind {
@@ -315,7 +408,9 @@ public struct Revision: Hashable, Sendable {
 }
 
 extension Revision: Codable {
-    enum CodingKeys: String, CodingKey { case type, noteId, device, seq, hlc, wall, app, ops, included, state }
+    enum CodingKeys: String, CodingKey {
+        case type, noteId, device, seq, hlc, wall, app, ops, included, state, session, checkpoint, asOf
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -333,9 +428,17 @@ extension Revision: Codable {
         switch type {
         case "delta":
             body = .delta(ops: try c.decode([Op].self, forKey: .ops))
+            // Optional history fields: a malformed value is ignored, never fatal (§5.1).
+            if let s = (try? c.decodeIfPresent(String.self, forKey: .session)) ?? nil, EditingSession.isValid(s) {
+                session = s
+            }
+            if let w = (try? c.decodeIfPresent(CheckpointWire.self, forKey: .checkpoint)) ?? nil {
+                checkpoint = Checkpoint(read: w.name)
+            }
         case "snapshot":
             body = .snapshot(included: try c.decode(Included.self, forKey: .included),
                              state: try c.decode(NoteState.self, forKey: .state))
+            if let a = (try? c.decodeIfPresent(String.self, forKey: .asOf)) ?? nil { asOf = RevisionKey(a) }
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown revision type \(type)")
         }
@@ -353,9 +456,12 @@ extension Revision: Codable {
         switch body {
         case .delta(let ops):
             try c.encode(ops, forKey: .ops)
+            try c.encodeIfPresent(session, forKey: .session)
+            try c.encodeIfPresent(checkpoint.map { CheckpointWire(name: $0.name) }, forKey: .checkpoint)
         case .snapshot(let included, let state):
             try c.encode(included, forKey: .included)
             try c.encode(state, forKey: .state)
+            try c.encodeIfPresent(asOf?.description, forKey: .asOf)
         }
     }
 }
