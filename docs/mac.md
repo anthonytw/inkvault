@@ -162,7 +162,9 @@ There is no Pencil, so on a Mac:
   keeps its own cursor, the lasso and the pixel eraser the system arrow.
 * **Ruler** (⌥⌘R) toggles PencilKit's ruler for straight lines.
 * Two-finger scroll and pinch scroll and zoom the canvas, as PencilKit's
-  scroll view does; click-drag draws.
+  scroll view does; click-drag draws. In a paged note the pages scroll as one
+  (`PageStackView`); the pointer does not drag the pages while they can be
+  drawn on, and the zoom commands apply to all pages.
 
 Not done: smoothing or simulated pressure for mouse strokes (PencilKit
 produces the strokes and gives a mouse constant force, so mouse ink has a

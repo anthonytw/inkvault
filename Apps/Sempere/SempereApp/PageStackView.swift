@@ -185,6 +185,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         super.layoutSubviews()
         if scroller.frame != bounds { scroller.frame = bounds }
         if bounds.width != laidOutWidth {
+            defer { updateSlots() }   // every page at the new scale
             let old = scale
             let offset = scroller.contentOffset
             laidOutWidth = bounds.width
@@ -199,7 +200,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
             }
         }
         if pendingJump { performJump() }
-        updateSlots()
+        updateSlots(reconfigure: false)
         #if DEBUG
         if debugLaunchPending, bounds.width > 0, editor != nil {
             debugLaunchPending = false
@@ -231,6 +232,12 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         scroller.minimumZoomScale = fit / scale
         scroller.maximumZoomScale = maxScale / scale
         placeFooter()
+        // Fewer pages (a delete) or a smaller scale: never left past the end. Not while
+        // the user's finger or a fling moves the scroll (its bounce is the scroll view's).
+        if !scroller.isDragging, !scroller.isDecelerating {
+            let offset = clamped(scroller.contentOffset)
+            if offset != scroller.contentOffset { scroller.contentOffset = offset }
+        }
     }
 
     private func placeFooter() {
@@ -247,9 +254,11 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         content.convert(scroller.bounds, from: scroller)
     }
 
-    /// Gives a canvas to each page near the screen, takes it from the
-    /// others, and configures the canvases shown.
-    func updateSlots() {
+    /// Gives a canvas to each page near the screen and takes it from the
+    /// others. New canvases are configured; with `reconfigure` (the note, the
+    /// flags or the scale changed) every canvas shown is, while a plain
+    /// scroll leaves the others alone.
+    func updateSlots(reconfigure: Bool = true) {
         guard let editor, let configuration, scale > 0 else { return }
         let visible = visibleContentRect
         let wanted = layout.pages(visibleTop: Double(visible.minY), height: Double(visible.height),
@@ -260,9 +269,13 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         let kept = Set(keep.values)
         for id in Array(slots.keys) where !kept.contains(id) { recycle(id) }
         for (index, id) in keep.sorted(by: { $0.key < $1.key }) {
-            let slot = slots[id] ?? makeSlot()
-            slots[id] = slot
-            configure(slot, index: index, pageID: id, editor: editor, configuration: configuration)
+            if let slot = slots[id] {
+                if reconfigure { configure(slot, index: index, pageID: id, editor: editor, configuration: configuration) }
+            } else {
+                let slot = makeSlot()
+                slots[id] = slot
+                configure(slot, index: index, pageID: id, editor: editor, configuration: configuration)
+            }
         }
         ensureFocus()
     }
@@ -359,7 +372,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         let y = CGFloat(layout.offset(toShow: index, scale: Double(scale), viewportHeight: Double(scroller.bounds.height)))
         tracker.jumped(to: index, offset: Double(y))
         scroller.setContentOffset(CGPoint(x: scroller.contentOffset.x, y: y), animated: false)
-        updateSlots()
+        updateSlots(reconfigure: false)
     }
 
     /// Tells the editor which page the scroll is on.
@@ -374,7 +387,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !baking else { return }
-        updateSlots()
+        updateSlots(reconfigure: false)
         trackCurrentPage()
     }
 
@@ -384,7 +397,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         guard !baking else { return }
-        updateSlots()
+        updateSlots(reconfigure: false)
     }
 
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale zoom: CGFloat) {

@@ -33,11 +33,12 @@ be left hidden.
 
 Read-first:
 
-- **Pan and zoom.** The page fits the width (`fitWidth`); pinch zooms up to 4x, one finger pans.
-  Infinite pages scroll one screen past the ink; finite pages end with "Next Page". The last page
-  shows "Add Page" only while annotating (`PhoneReading.footer`): a tap while reading never writes.
-- **Page navigation** in the bottom bar (previous, "n / N", next) for notes with several pages;
-  swiping up from the end of a finite page uses the "Next Page" button.
+- **Pan and zoom.** The page fits the width; pinch zooms up to 4x, one finger pans.
+  Paged notes scroll from one page to the next (`PageStackView`), with a gap and a shadow between
+  pages; the counter follows the scroll. The end of the note shows "Add Page" only while annotating:
+  a tap while reading never writes. Pageless notes scroll one screen past the ink.
+- **Page navigation** in the bottom bar (previous, "n / N", next) for notes with several pages
+  scrolls to the page.
 - **Light annotation.** The pencil button ("Annotate") switches finger drawing on. Until then the
   canvas draws nothing and the palette is hidden (`PhoneReading.drawingSuspended`,
   `PageCanvasHost.drawingSuspended`), so a stray finger only scrolls. Annotating shows the short
