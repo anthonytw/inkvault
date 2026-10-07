@@ -298,6 +298,7 @@ extension AppModel {
         let fresh = entries.map(\.summary)
         for e in entries { indexedNames[e.summary.id] = e.revisions }
         merge(fresh)
+        summariesRead(fresh)
         verifiedNoteIDs.formUnion(fresh.map(\.id))
         saveSummaryCache()
     }

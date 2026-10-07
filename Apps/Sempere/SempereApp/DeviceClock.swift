@@ -9,6 +9,9 @@ actor DeviceClock {
     nonisolated let device: DeviceID
     private var state: DeviceState
     private let url: URL
+    /// Told the note of every revision a `NoteWriter` wrote with this clock
+    /// (the model updates that note's attachment index).
+    private let onWrite: (@Sendable (UUID) -> Void)?
 
     /// `Application Support/Sempere/device.json` in the app's container
     /// (on iPad and in the Catalyst sandbox that is per installation).
@@ -19,9 +22,10 @@ actor DeviceClock {
     }
 
     /// Loads the state file at `url`, creating it with a fresh device id.
-    init(url: URL = DeviceClock.defaultURL) throws {
+    init(url: URL = DeviceClock.defaultURL, onWrite: (@Sendable (UUID) -> Void)? = nil) throws {
         let loaded = try DeviceState.loadOrCreate(at: url)
         self.url = url
+        self.onWrite = onWrite
         self.state = loaded
         self.device = loaded.device
     }
@@ -46,6 +50,9 @@ actor DeviceClock {
         }
         return out
     }
+
+    /// A revision of `note` stamped by this clock was written.
+    func didWrite(_ note: UUID) { onWrite?(note) }
 
     /// Merges readings seen in revisions read from the vault, so the next
     /// local reading sorts after them.
@@ -238,6 +245,7 @@ actor NoteWriter {
                            body: .delta(ops: ops), session: session, checkpoint: checkpoint)
         try CloudVault.coordinatedWrite(coordinationURL) { try vault.write(rev) }
         nextSeq += 1
+        await clock.didWrite(noteID)
         return rev.name
     }
 }

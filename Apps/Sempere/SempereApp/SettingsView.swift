@@ -359,28 +359,32 @@ private struct DeviceKeySettingsSection: View {
 private struct StorageSettingsSection: View {
     @Environment(AppModel.self) private var model
     @State private var sizes = CacheSizes()
-    @State private var unused: UnusedAttachmentReport?
-    @State private var scanning = false
-    @State private var failure: String?
 
     var body: some View {
         Section {
-            if let unused {
+            if model.phase == .unlocked {
+                // Re-derived whenever the index changes.
+                let _ = model.attachmentIndexVersion
+                let report = model.attachmentStorage()
                 NavigationLink {
-                    UnusedAttachmentsView(report: unused)
+                    UnusedAttachmentsView()
                 } label: {
-                    LabeledContent("Unused Attachments", value: StorageText.items(unused.items.count, bytes: unused.totalBytes))
+                    LabeledContent("Unused Attachments", value: StorageText.items(report.unused.count, bytes: report.unusedBytes))
                 }
-            }
-            Button {
-                Task { await scan() }
-            } label: {
-                HStack {
-                    Text(unused == nil ? "Check for Unused Attachments" : "Check Again")
-                    if scanning { Spacer(); ProgressView() }
+                LabeledContent("Held by History", value: StorageText.items(report.held.count, bytes: report.heldBytes))
+                if model.attachmentIndexPending > 0 {
+                    HStack {
+                        Text("Checking \(model.attachmentIndexPending) note\(model.attachmentIndexPending == 1 ? "" : "s")…")
+                        Spacer()
+                        ProgressView()
+                    }
+                } else if model.notesWithoutAttachmentIndex > 0 {
+                    let n = model.notesWithoutAttachmentIndex
+                    Button("Check \(n) More Note\(n == 1 ? "" : "s")") { Task { await model.indexAttachments() } }
                 }
+            } else {
+                Text("Unlock a vault to see its unused attachments.").foregroundStyle(.secondary)
             }
-            .disabled(scanning || model.phase != .unlocked)
             LabeledContent("Drawing Cache", value: StorageText.bytes(sizes.drawings))
             LabeledContent("Attachment Cache", value: StorageText.bytes(sizes.attachments))
             Button("Clear Caches", role: .destructive) {
@@ -393,50 +397,163 @@ private struct StorageSettingsSection: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text(failure ?? footer)
+            Text(Self.footer)
         }
-        .task { sizes = await model.cacheSizes() }
+        .task {
+            sizes = await model.cacheSizes()
+            await model.loadAttachmentIndex()
+        }
     }
 
-    private var footer: String {
-        var s = "Unused attachments are files no version of their note refers to. Checking only lists them; a collection (sempere blobs gc) deletes them, and only 30 days after it first found them unused. Caches speed up opening notes and can be rebuilt from the vault."
-        if let n = unused?.skippedNotes, n > 0 {
-            s += " \(n) note\(n == 1 ? " was" : "s were") not checked (unreadable, or not downloaded)."
-        }
-        return s
-    }
-
-    private func scan() async {
-        scanning = true
-        failure = nil
-        defer { scanning = false }
-        do { unused = try await model.scanUnusedAttachments() } catch is CancellationError {
-        } catch { failure = "Could not check the vault: \(error)" }
-    }
+    static let footer = "Unused attachments are files no version of their note uses; they can be deleted 30 days after this device first found them unused. Held by history: files only older versions show, freed when those versions are thinned. Caches speed up opening notes and can be rebuilt from the vault."
 }
 
-/// The unused attachments a scan found, by note.
+/// Settings → Storage → Unused Attachments: by note, each with a preview,
+/// what it was, since when it is unused and when it may be deleted, a link
+/// to the note's history, and Delete (only once the 30 days have passed);
+/// then the attachments only history still uses.
 struct UnusedAttachmentsView: View {
-    let report: UnusedAttachmentReport
+    @Environment(AppModel.self) private var model
+    @State private var deleting = false
+    @State private var confirmAll = false
+    @State private var message: String?
+    @State private var history: HistoryLink?
+
+    /// A note's history to show, at a restore point if one is given.
+    struct HistoryLink: Identifiable {
+        var note: UUID
+        var revision: String?
+        var id: String { note.uuidString + (revision ?? "") }
+    }
 
     var body: some View {
+        let _ = model.attachmentIndexVersion
+        let report = model.attachmentStorage()
+        let now = model.attachmentNow()
+        let eligible = report.eligible(at: now)
         List {
-            if report.items.isEmpty {
-                Text("Every attachment is in use.")
-            }
-            ForEach(report.items) { item in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(NoteTitle.display(item.title)).lineLimit(1)
-                        Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary)
+            Section {
+                Button(role: .destructive) {
+                    confirmAll = true
+                } label: {
+                    HStack {
+                        Text("Delete All Eligible (\(StorageText.items(eligible.count, bytes: report.eligibleBytes(at: now))))")
+                        if deleting { Spacer(); ProgressView() }
                     }
-                    Spacer()
-                    Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                }
+                .disabled(eligible.isEmpty || deleting)
+            } footer: {
+                Text(message ?? "An attachment can be deleted 30 days after this device first found it unused. Deleting reads its note again first and keeps anything a version still uses.")
+            }
+            if report.unused.isEmpty {
+                Text("No unused attachments.").foregroundStyle(.secondary)
+            }
+            ForEach(UnusedAttachmentGroups.group(report.unused, title: model.noteTitle)) { group in
+                Section {
+                    ForEach(group.items) { item in
+                        UnusedAttachmentRow(item: item, now: now, deleting: deleting) {
+                            Task { await delete([item]) }
+                        } showHistory: {
+                            history = HistoryLink(note: item.note, revision: item.lastUse?.revision)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text(NoteTitle.display(group.title)).lineLimit(1)
+                        Spacer()
+                        Button("History") { history = HistoryLink(note: group.note, revision: nil) }
+                            .font(.caption).textCase(nil)
+                    }
+                }
+            }
+            if !report.held.isEmpty {
+                Section {
+                    ForEach(report.held) { item in
+                        Button {
+                            history = HistoryLink(note: item.note, revision: item.lastUse?.revision)
+                        } label: {
+                            HStack {
+                                AttachmentThumbnail(note: item.note, fileName: item.fileName, kind: item.kind)
+                                VStack(alignment: .leading) {
+                                    Text(NoteTitle.display(model.noteTitle(item.note))).lineLimit(1)
+                                    Text(StorageText.describe(kind: item.kind, lastUse: item.lastUse) + " · in \(item.revisions.count) version\(item.revisions.count == 1 ? "" : "s")")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Held by History (\(StorageText.items(report.held.count, bytes: report.heldBytes)))")
+                } footer: {
+                    Text("Only older versions of these notes show these attachments. They are freed when those versions are thinned (Settings → History).")
+                }
+            }
+            if !report.unchecked.isEmpty {
+                Section {
+                } footer: {
+                    Text("\(report.unchecked.count) note\(report.unchecked.count == 1 ? " was" : "s were") not checked: a version could not be read, or is not downloaded yet.")
                 }
             }
         }
         .navigationTitle("Unused Attachments")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete \(StorageText.items(eligible.count, bytes: report.eligibleBytes(at: now)))?",
+                            isPresented: $confirmAll, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await delete(eligible) } }
+        } message: {
+            Text("These attachments have been unused for at least 30 days. This cannot be undone.")
+        }
+        .sheet(item: $history) { link in
+            HistoryView(noteID: link.note, revealing: link.revision)
+        }
+        .task { await model.loadAttachmentIndex() }
+    }
+
+    private func delete(_ items: [AttachmentStorageReport.Unused]) async {
+        deleting = true
+        defer { deleting = false }
+        do {
+            let r = try await model.deleteUnusedAttachments(items)
+            var text = "Deleted \(StorageText.items(r.deleted, bytes: r.bytes))."
+            if !r.problems.isEmpty { text += " " + r.problems.joined(separator: " ") }
+            message = text
+        } catch is CancellationError {
+        } catch {
+            message = "Could not delete: \(error)"
+        }
+    }
+}
+
+/// One unused attachment: preview, what it was, the window, Delete.
+private struct UnusedAttachmentRow: View {
+    let item: AttachmentStorageReport.Unused
+    let now: Date
+    let deleting: Bool
+    let delete: () -> Void
+    let showHistory: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top) {
+            AttachmentThumbnail(note: item.note, fileName: item.fileName, kind: item.kind)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(StorageText.describe(kind: item.kind, lastUse: item.lastUse))
+                Text(StorageText.window(item, now: now)).font(.caption).foregroundStyle(.secondary)
+                if let used = item.lastUse {
+                    Button("Last used \(used.wall.map(StorageText.day) ?? "in an earlier version")", action: showHistory)
+                        .font(.caption).buttonStyle(.borderless)
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                Button("Delete", role: .destructive, action: delete)
+                    .buttonStyle(.borderless)
+                    .disabled(deleting || !item.isEligible(at: now))
+            }
+        }
     }
 }
 

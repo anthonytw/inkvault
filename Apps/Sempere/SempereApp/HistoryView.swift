@@ -5,6 +5,10 @@ import SwiftUI
 /// read-only preview of the note as of one, and "Restore this version".
 struct HistoryView: View {
     let noteID: UUID
+    /// A restore point to show once the history is read (Settings → Storage
+    /// links to the one where an attachment was last used); ignored when it
+    /// is gone or cannot be previewed.
+    var revealing: String? = nil
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var data: HistoryData?
@@ -80,6 +84,10 @@ struct HistoryView: View {
         failure = nil
         do {
             data = try await model.loadHistory(for: noteID)
+            if let revealing, path.isEmpty,
+               let entry = data?.entries.first(where: { $0.id.filename == revealing }), entry.isAvailable {
+                path = [entry.id]
+            }
         } catch is CancellationError {
         } catch {
             failure = "\(error)"

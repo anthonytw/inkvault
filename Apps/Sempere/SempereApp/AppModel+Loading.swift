@@ -204,6 +204,7 @@ extension AppModel {
             // note again (a transient failure clears; the cache never stores it either).
             for s in current { indexedNames[s.id] = s.problem == nil ? readNames[s.id] ?? listedNames[s.id] : nil }
             queueListUpdate(upserts: current)
+            summariesRead(current)   // their revisions changed: re-index their attachments
             verifiedNoteIDs.formUnion(current.map(\.id))
             onBatch?(read)
             start += batch.count
