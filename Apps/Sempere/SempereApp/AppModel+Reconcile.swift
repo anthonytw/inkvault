@@ -90,11 +90,12 @@ extension AppModel {
                 if let selected = selectedNoteID, arriving.contains(selected) { focus.insert(selected) }
                 pendingElsewhere.formUnion(arriving.subtracting(focus))
             }   // else locked, with an index: nothing to fetch before the key shows what changed
+            let toCheck = focus
             let priority = selectedNoteID
             let window = cloudWindow
-            let pass = focus.isEmpty ? ProgressiveLoad.Pass() : try await offMain(priority: .utility) {
-                try Perf.measure(.reconcileDownload, "notes=\(focus.count)") {
-                    try ProgressiveLoad.pass(vault: url, notes: focus, priority: priority, window: window, hooks: hooks)
+            let pass = toCheck.isEmpty ? ProgressiveLoad.Pass() : try await offMain(priority: .utility) {
+                try Perf.measure(.reconcileDownload, "notes=\(toCheck.count)") {
+                    try ProgressiveLoad.pass(vault: url, notes: toCheck, priority: priority, window: window, hooks: hooks)
                 }
             }
             try ensureCurrent(gen)
