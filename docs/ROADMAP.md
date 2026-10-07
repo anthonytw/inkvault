@@ -110,7 +110,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Visual paper picker (line width, spacing) | ✅ #28 |
 | Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | ✅ #52 |
 | Canvas | Continuous page scrolling: paged notes scroll from one page to the next (gap and shadow between pages), lazy per-page canvases, zoom across pages, current page follows the scroll | ✅ #80 (not yet tried on the iPad) |
-| Canvas | Remote changes merged into an open note | 📋 round 2 |
+| Canvas | Remote changes merged into an open note: new revisions of the open note are downloaded and merged in place (unsaved ink kept, no echo deltas, only changed pages redrawn), "Updated from another device" notice | 🔀 #91 (not yet tried on the iPad) |
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
 | Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | ✅ #72 |
 | Search | "Recognize All Notes" results: a "Recently Recognized" sidebar section like Recently Deleted (notes read in the last 7 days, kept across launches, gone when empty); recent searches as the search field's suggestions, with Clear | ✅ #72, 🔀 #84 |
@@ -149,10 +149,12 @@ behaviour and testing on a real Mac.
 | Everything in the iPad table | same status as the iPad |
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
 | Saved folder access in a sandboxed Mac build | 🔀 access check, entitlements and a DEBUG probe done; the plain bookmark under the sandbox is unverified until a signed build is tried (`docs/io.md`) |
-| Menus and keyboard shortcuts | 🔀 `docs/mac.md` |
-| Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`) |
-| Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md` |
-| Drag a note to the Finder as PDF | 🔀 `docs/mac.md` |
+| Menus and keyboard shortcuts | 🔀 `docs/mac.md`; File/Edit commands restored after build 6 (UIKit shortcut clashes), checked on Catalyst in CI |
+| Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`); acts on the focused window's notes since build 6 |
+| PDF page attachments on the canvas | 🔀 blank in build 6; tile redraw on scale change fixed, checked on Catalyst in CI; iCloud vault needs a hand test |
+| App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
+| Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md`; note windows checked on Catalyst in CI; restoration needs a hand test |
+| Drag a note to the Finder as PDF | 🔀 `docs/mac.md`; file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | 📋 with the share/export work (the CLI has it) |
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
