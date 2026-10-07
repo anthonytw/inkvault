@@ -10,6 +10,17 @@ struct PageStripView: View {
     let editor: NoteEditor
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: editor.pageIndex) { _, index in
+                    // The current page follows the canvas's scroll: keep its thumbnail in view.
+                    guard editor.pages.indices.contains(index) else { return }
+                    withAnimation { proxy.scrollTo(editor.pages[index].id) }
+                }
+        }
+    }
+
+    private var list: some View {
         List {
             ForEach(Array(editor.pages.enumerated()), id: \.element.id) { index, page in
                 Button {
