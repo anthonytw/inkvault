@@ -53,6 +53,11 @@ extension AppModel {
         DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("Trust", isDirectory: true)
     }
 
+    /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`.
+    nonisolated static var defaultRecipientsTrust: any RecipientsTrustStore {
+        FileRecipientsTrustStore(directory: defaultTrustDirectory)
+    }
+
     nonisolated static var defaultSummaryCacheDirectory: URL? {
         DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("SummaryCache")
     }
