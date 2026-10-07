@@ -208,6 +208,37 @@ struct BrowserTests {
         #expect(model.notebooks == ["Uni"])
     }
 
+    /// A new note with no title typed is named after its date and time, in the
+    /// format stored in `UserDefaults` (TestFlight build 6).
+    @Test func aNewNoteWithoutATitleGetsTheDateAndTime() async throws {
+        let model = try await Self.unlockedFixtureModel()
+        var asked: [Date] = []
+        model.defaultTitle = { asked.append($0); return "Note of \($0.timeIntervalSince1970 > 0)" }
+        let id = try await model.createNote(title: "   ", paper: .ruled, notebook: nil)
+        #expect(model.notes.first { $0.id == id }?.title == "Note of true")
+        #expect(asked.count == 1)
+        // A typed title is kept as typed.
+        let typed = try await model.createNote(title: " Lab ", paper: .ruled, notebook: nil)
+        #expect(model.notes.first { $0.id == typed }?.title == "Lab")
+        #expect(asked.count == 1)
+    }
+
+    @Test func theDefaultTitleFormatIsStoredInUserDefaults() throws {
+        let defaults = try #require(UserDefaults(suiteName: "DefaultTitle-\(UUID().uuidString)"))
+        let posix = Locale(identifier: "en_US_POSIX"), utc = try #require(TimeZone(identifier: "UTC"))
+        let date = Date(timeIntervalSince1970: 1_791_381_909)   // 2026-10-07 14:05:09 UTC
+        #expect(DefaultTitlePreference.format(in: defaults) == nil)
+        let localized = DefaultTitlePreference.title(at: date, defaults: defaults, locale: posix, timeZone: utc)
+        #expect(localized.contains("2026"))
+        DefaultTitlePreference.setFormat("'Lecture' yyyy-MM-dd HH:mm", in: defaults)
+        #expect(defaults.string(forKey: DefaultTitlePreference.defaultsKey) == "'Lecture' yyyy-MM-dd HH:mm")
+        #expect(DefaultTitlePreference.title(at: date, defaults: defaults, locale: posix, timeZone: utc)
+                == "Lecture 2026-10-07 14:05")
+        DefaultTitlePreference.setFormat("  ", in: defaults)
+        #expect(DefaultTitlePreference.format(in: defaults) == nil, "blank: back to the locale's default")
+        #expect(DefaultTitlePreference.title(at: date, defaults: defaults, locale: posix, timeZone: utc) == localized)
+    }
+
     @Test func tagsAddRemoveAndDeduplicate() async throws {
         let model = try await Self.unlockedFixtureModel()
         try await model.addTag(" math ", to: Self.lecture)

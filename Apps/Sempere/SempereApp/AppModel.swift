@@ -112,12 +112,20 @@ final class AppModel {
     /// The newest summary-cache save (`saveSummaryCache`).
     @ObservationIgnored var summaryCacheSave: Task<Void, Never>?
 
-    var sidebarSelection: SidebarItem? = .allNotes { didSet { updateSearch() } }
+    /// The sidebar row shown. Choosing another one scopes a running search to
+    /// it (TestFlight build 6: the title changed but the results stayed those
+    /// of All Notes); the query is kept.
+    var sidebarSelection: SidebarItem? = .allNotes {
+        didSet {
+            if sidebarSelection != oldValue, searchScope != .list { searchScope = .list }
+            updateSearch()
+        }
+    }
     var selectedNoteID: UUID?
     /// The search field's text. `visibleNotes` filters by title with it; the
     /// note list shows `searchResults` (`AppModel+Search`) while it is not empty.
     var searchText = "" { didSet { updateSearch() } }
-    var searchScope = SearchScope.everywhere { didSet { updateSearch() } }
+    var searchScope = SearchScope.list { didSet { updateSearch() } }
     /// Notes matching `searchText` (title, notebook, tag, recognised handwriting), best first.
     var searchResults: [NoteSearchHit] = []
     /// True from a change of the query until its results are in.
@@ -125,6 +133,8 @@ final class AppModel {
     /// The page to show once the note is open (a tapped search hit).
     var pendingJump: PageJump?
     @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// The title of a note created at a date with no title typed (tests replace it).
+    @ObservationIgnored var defaultTitle: (Date) -> String = { DefaultTitlePreference.title(at: $0) }
     /// Pause after typing before the search runs.
     @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
     /// Reads handwriting on pages as they change and when notes open; nil = off.

@@ -9,6 +9,19 @@ enum SearchScope: String, CaseIterable, Identifiable, Sendable {
     case list = "This List"
 
     var id: String { rawValue }
+
+    /// The scope bar's label: the list's is the sidebar row it searches
+    /// ("In “Math”", "In #todo"), so the bar says what the results cover.
+    func title(for selection: SidebarItem?) -> String {
+        guard self == .list else { return rawValue }
+        switch selection ?? .allNotes {
+        case .allNotes: return rawValue
+        case .notebook(let n): return "In “\(NotebookPath.components(n).last ?? n)”"
+        case .tag(let t): return "In #\(t)"
+        case .deleted: return "In Recently Deleted"
+        case .recentlyRecognized: return "In Recently Recognized"
+        }
+    }
 }
 
 /// A page to show once its note is open.

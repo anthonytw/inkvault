@@ -77,7 +77,10 @@ extension AppModel {
     func createNote(title: String, paper: Paper, notebook: String?, pageSize: PageSize = .letter) async throws -> UUID {
         let id = UUID()
         let notebook = NotebookPath.canonical(notebook)
-        try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+        // No title typed: the date and time, in the user's format (`DefaultTitlePreference`).
+        let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = typed.isEmpty ? defaultTitle(Date()) : typed
+        try await commit([(id: id, ops: NoteOps.newNote(title: title,
                                                         paper: paper, pageSize: pageSize, notebook: notebook))],
                          creating: [id])
         selectNewNote(id, notebook: notebook)

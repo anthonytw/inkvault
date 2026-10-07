@@ -41,7 +41,7 @@ struct NoteListView: View {
         .navigationTitle(title)
         .searchable(text: $model.searchText, isPresented: $ui.searchPresented, prompt: "Search notes and handwriting")
         .searchScopes($model.searchScope) {
-            ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+            ForEach(SearchScope.allCases) { Text($0.title(for: model.sidebarSelection)).tag($0) }
         }
         .toolbar {
             if model.isSelectingNotes {
