@@ -114,6 +114,8 @@ struct ItemCommands {
     var copy: @MainActor (_ items: [Item], _ note: UUID) -> Void = { _, _ in }
     var canPaste: @MainActor () -> Bool = { false }
     var paste: @MainActor (_ page: UUID, _ actions: ItemActions) async -> [Item] = { _, _ in [] }
+    /// Opens the crop sheet for an image or PDF page; nil: no Crop in the menu.
+    var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
 
 /// Selecting, moving, resizing and deleting items on the canvas while
@@ -308,6 +310,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                     self.select(new.id)
                 })
+                if let crop = commands.crop, item.cropBounds != nil, let actions {
+                    elements.append(UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in
+                        crop(item, pageID, actions)
+                    })
+                }
                 elements.append(UIAction(title: "Bring to Front", image: UIImage(systemName: "square.3.layers.3d.top.filled")) {
                     [weak self] _ in
                     self?.actions?.bringToFront(id, on: pageID)

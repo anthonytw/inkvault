@@ -28,6 +28,8 @@ struct PageStackView: UIViewRepresentable {
     var itemCommands = ItemCommands()
     var selectingItems = false
     var onSelectingItemsEnded: () -> Void = {}
+    /// Images and PDFs dropped on a page (`PageCanvasContent.onDrop`).
+    var onDrop: ((_ providers: [NSItemProvider], _ pageID: UUID, _ point: CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> PageStackHost {
         PageStackHost()
@@ -39,7 +41,7 @@ struct PageStackView: UIViewRepresentable {
             editor: editor, pageIDs: pageIDs, pageSize: pageSize, pageJump: pageJump, generation: generation,
             paletteVisible: paletteVisible, paletteCompact: paletteCompact, drawingSuspended: drawingSuspended,
             itemSource: itemSource, itemCommands: itemCommands, selectingItems: selectingItems,
-            onSelectingItemsEnded: onSelectingItemsEnded))
+            onSelectingItemsEnded: onSelectingItemsEnded, onDrop: onDrop))
     }
 
     static func dismantleUIView(_ stack: PageStackHost, coordinator: ()) {
@@ -72,6 +74,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         var itemCommands = ItemCommands()
         var selectingItems = false
         var onSelectingItemsEnded: () -> Void = {}
+        var onDrop: ((_ providers: [NSItemProvider], _ pageID: UUID, _ point: CGPoint) -> Void)?
     }
 
     /// One page's canvas and the coordinator that loads its ink.
@@ -318,7 +321,8 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
                                        drawingSuspended: configuration.drawingSuspended,
                                        itemSource: configuration.itemSource, itemCommands: configuration.itemCommands,
                                        selectingItems: configuration.selectingItems,
-                                       onSelectingItemsEnded: configuration.onSelectingItemsEnded),
+                                       onSelectingItemsEnded: configuration.onSelectingItemsEnded,
+                                       onDrop: configuration.onDrop),
             to: slot.host)
         slot.host.itemSelection.scroller = scroller
     }
@@ -529,6 +533,17 @@ extension PageStackHost: CanvasCommandTarget {
     func zoomToActualSize() {
         guard let fit = fitScale else { return }
         setScale(CGFloat(ZoomSteps.actualSize(fit: Double(fit))))
+    }
+
+    /// The visible part of the current page (where Photos, the camera and Paste put an image).
+    var visiblePageRect: CGRect? {
+        guard let editor, let page = editor.currentPage else { return nil }
+        return visibleRect(ofPage: page.id)
+    }
+
+    func visibleRect(ofPage id: UUID) -> CGRect? {
+        guard scale > 0, let index = configuration?.pageIDs.firstIndex(of: id) else { return nil }
+        return layout.visiblePart(ofPage: index, visible: visibleContentRect, scale: Double(scale))
     }
 
     func toggleRuler() {

@@ -1,14 +1,16 @@
 import Sempere
 import SwiftUI
 
-/// The app's settings. Today one section, version history: how old
-/// autosaves must be before they are thinned (format.md §5.8.4), and
-/// "Thin Now" with a preview of what it removes. (The full Settings panel is
+/// The app's settings: photos (the privacy setting of docs/attachments.md
+/// §7, on by default) and version history: how old autosaves must be before
+/// they are thinned (format.md §5.8.4), and "Thin Now" with a preview of
+/// what it removes. (The full Settings panel is
 /// task E6; this is the minimal entry until then.)
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @AppStorage(ThinningPreference.key) private var days = ThinningPreference.defaultDays
+    @AppStorage(PhotoPrivacy.key) private var photoPrivacy = PhotoPrivacy.defaultValue
     @State private var preview: PreviewBox?
     @State private var working = false
     @State private var outcome: String?
@@ -16,6 +18,15 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Toggle("Remove Location and Camera Data", isOn: $photoPrivacy)
+                } header: {
+                    Text("Photos")
+                } footer: {
+                    Text(photoPrivacy
+                         ? "Photos you add are stored without location and camera data, and HEIC photos are converted to JPEG. Exports never include location data. This setting is for this device only."
+                         : "Photos are stored as picked, with their location and camera data, and HEIC photos stay HEIC. Exports still leave location data out.")
+                }
                 Section {
                     Picker("Thin Autosaves Older Than", selection: $days) {
                         ForEach(ThinningPreference.choices, id: \.self) { Text(ThinningPreference.label($0)).tag($0) }

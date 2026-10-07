@@ -178,4 +178,8 @@ final class WindowUI {
     var saveVersionNoteID: UUID?
     var choosingPaper = false
     var searchPresented = false
+    /// A PDF being imported that needs its password (`PDFImportRequest`).
+    var pdfPassword: PDFImportRequest?
+    /// The file importer for a PDF to import as a new note.
+    var importingPDF = false
 }
