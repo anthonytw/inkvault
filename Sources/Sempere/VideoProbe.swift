@@ -386,3 +386,37 @@ public enum VideoMetadata {
         }
     }
 }
+
+extension VideoMetadata {
+    /// Removes the location and device metadata of the clip at `url` in place
+    /// (the same edits as `strippingEdits`, written over the file: its length
+    /// and every sample stay as they are). Returns the number of boxes blanked;
+    /// a file the probe does not take is left as it is (0).
+    @discardableResult
+    public static func strip(fileAt url: URL) throws -> Int {
+        guard let info = try? VideoProbe.probe(file: url), !info.metadataBoxes.isEmpty else { return 0 }
+        let handle: FileHandle
+        do { handle = try FileHandle(forUpdating: url) } catch { throw VaultError.io("open \(url.path): \(error)") }
+        defer { try? handle.close() }
+        let zeros = Data(count: 1 << 16)
+        do {
+            for edit in strippingEdits(info) {
+                try handle.seek(toOffset: edit.range.lowerBound)
+                if let bytes = edit.bytes {
+                    try handle.write(contentsOf: bytes)
+                } else {
+                    var left = edit.range.upperBound - edit.range.lowerBound
+                    while left > 0 {
+                        let n = Int(min(left, UInt64(zeros.count)))
+                        try handle.write(contentsOf: zeros.prefix(n))
+                        left -= UInt64(n)
+                    }
+                }
+            }
+            try handle.synchronize()
+        } catch {
+            throw VaultError.io("write \(url.path): \(error)")
+        }
+        return info.metadataBoxes.count
+    }
+}

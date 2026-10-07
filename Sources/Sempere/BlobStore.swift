@@ -18,6 +18,25 @@ public protocol BlobSource: Sendable {
     /// Runs `body` with a private temporary file holding the verified
     /// content (for random access: PDFs, audio playback), deleted afterwards.
     func withFile<T>(for ref: BlobRef, _ body: (URL) throws -> T) throws -> T
+    /// Hands the content to `sink` in pieces, in memory proportional to a
+    /// piece whatever the blob's size (a 1 GiB video into an export). Content
+    /// may be handed out before the whole is verified: if this throws, what
+    /// the sink received must be discarded (format.md §8.1.4).
+    func stream(for ref: BlobRef, _ sink: (Data) throws -> Void) throws
+    /// A cheap check that the blob is there and is the one referenced (its
+    /// header, not its whole content), so an export can leave out a missing
+    /// 1 GiB clip instead of failing halfway through writing it.
+    func isAvailable(_ ref: BlobRef) -> Bool
+}
+
+extension BlobSource {
+    /// True: sources without a cheaper check find out when they read.
+    public func isAvailable(_ ref: BlobRef) -> Bool { true }
+
+    /// Reads the verified temporary file of `withFile` in 1 MiB pieces.
+    public func stream(for ref: BlobRef, _ sink: (Data) throws -> Void) throws {
+        try withFile(for: ref) { url in try Vault.readSourceFile(url, sink) }
+    }
 }
 
 /// The blobs of one note of a vault, as a `BlobSource`.
@@ -31,6 +50,18 @@ public struct NoteBlobSource: BlobSource {
 
     public func withFile<T>(for ref: BlobRef, _ body: (URL) throws -> T) throws -> T {
         try vault.withBlobFile(note: note, ref, body)
+    }
+
+    /// The blob file exists and its first chunk holds the referenced header
+    /// under a name that verifies (format.md §8.1.4 step 2).
+    public func isAvailable(_ ref: BlobRef) -> Bool {
+        guard let url = try? vault.locateBlob(note: note, ref) else { return false }
+        return vault.isValidBlob(url, ref: ref)
+    }
+
+    /// Decrypts straight into `sink`, without a temporary file.
+    public func stream(for ref: BlobRef, _ sink: (Data) throws -> Void) throws {
+        try vault.streamBlob(note: note, ref, sink)
     }
 }
 
