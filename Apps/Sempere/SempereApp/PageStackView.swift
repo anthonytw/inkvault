@@ -362,7 +362,8 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
     /// responder): the current page's, unless the user drew on another.
     private func ensureFocus() {
         guard window != nil else { return }
-        if slots.values.contains(where: { $0.host.canvas.isFirstResponder }) { return }
+        // A page being drawn on, or a text box being typed in, already has it.
+        if slots.values.contains(where: { $0.host.canvas.isFirstResponder || $0.host.textEditor.isEditing }) { return }
         guard let id = editor?.currentPage?.id, let slot = slots[id] else { return }
         slot.host.focus()
     }

@@ -430,7 +430,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
 
     /// Makes this canvas the first responder (its palette, its undo) when it can be drawn on.
     func focus() {
-        guard window != nil, !isReadOnly, !drawingSuspended else { return }
+        // A text box being typed in keeps the keyboard: its text view is the first responder.
+        guard window != nil, !isReadOnly, !drawingSuspended, !textEditor.isEditing else { return }
         canvas.becomeFirstResponder()
     }
 
