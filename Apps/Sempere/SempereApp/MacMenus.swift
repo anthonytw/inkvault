@@ -29,13 +29,29 @@ enum MacMenus {
             guard let menu = builder.menu(for: identifier) else { continue }
             let kept = menu.children.filter(isAppElement)
             if kept.count == menu.children.count { continue }
-            if kept.isEmpty {
-                builder.remove(menu: identifier)
-            } else {
-                builder.replaceChildren(ofMenu: identifier) { _ in kept }
-            }
+            // The menu itself stays (even empty): SwiftUI places the app's groups by these identifiers.
+            builder.replaceChildren(ofMenu: identifier) { _ in kept }
             built.append("pruned \(identifier.rawValue): \(menu.children.count - kept.count)")
         }
+    }
+
+    /// The File and Edit menus as lines "depth|identifier|title|action|input" (debug log).
+    @MainActor
+    static func tree(_ builder: UIMenuBuilder) -> [String] {
+        func walk(_ element: UIMenuElement, _ depth: Int) -> [String] {
+            if let menu = element as? UIMenu {
+                return ["\(depth)|menu \(menu.identifier.rawValue)|\(menu.title)"] + menu.children.flatMap { walk($0, depth + 1) }
+            }
+            if let key = element as? UIKeyCommand {
+                return ["\(depth)|key|\(key.title)|\(NSStringFromSelector(key.action))|\(key.input ?? "")"]
+            }
+            if let command = element as? UICommand {
+                return ["\(depth)|command|\(command.title)|\(NSStringFromSelector(command.action))"]
+            }
+            if let action = element as? UIAction { return ["\(depth)|action|\(action.title)"] }
+            return ["\(depth)|\(type(of: element))"]
+        }
+        return [UIMenu.Identifier.file, .edit].compactMap { builder.menu(for: $0) }.flatMap { walk($0, 0) }
     }
 
     /// What `prune` did since launch (tests and the debug log).
@@ -59,14 +75,24 @@ enum MacMenus {
 final class SempereAppDelegate: UIResponder, UIApplicationDelegate {
     /// Key commands of the menu bar as last built (tests).
     @MainActor static var lastShortcuts: [String] = []
+    /// The menu tree is logged once per launch (DEBUG).
+    @MainActor private static var dumped = false
 
     override func buildMenu(with builder: UIMenuBuilder) {
         super.buildMenu(with: builder)
         guard builder.system == .main, Platform.isMac else { return }
+        #if DEBUG
+        let dump = !Self.dumped
+        Self.dumped = true
+        if dump { for line in MacMenus.tree(builder) { print("SempereMenuTree before \(line)") } }
+        #endif
         MacMenus.prune(builder)
+        #if DEBUG
+        if dump { for line in MacMenus.tree(builder) { print("SempereMenuTree after \(line)") } }
+        #endif
         Self.lastShortcuts = MacMenus.shortcuts(in: builder)
         #if DEBUG
-        print("SempereMenus \(MacMenus.built) shortcuts=\(Self.lastShortcuts.count)")
+        if dump { print("SempereMenus \(MacMenus.built) shortcuts=\(Self.lastShortcuts.count)") }
         #endif
     }
 }

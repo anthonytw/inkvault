@@ -226,7 +226,7 @@ jobs:
           for f in build/app-test*.log; do
             [ -f "$f" ] || continue
             echo "== $f"
-            grep -E "✘|↳|error:|Failing tests|SempereMenus|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -150
+            grep -E "✘|↳|error:|Failing tests|SempereMenus|SempereMenuTree|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
             # UI test dumps of the windows (several lines each).
             awk '/MACUIDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
           done

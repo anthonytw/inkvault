@@ -67,6 +67,10 @@ final class MacWindowUITests: XCTestCase {
         let titles = file.menuItems.allElementsBoundByIndex.map(\.title)
         let identifiers = file.menuItems.allElementsBoundByIndex.map(\.identifier)
         print("MACUIDEBUG file menu: \(titles) \(identifiers)")
+        for menu in ["Edit", "View", "Note", "Tools"] {
+            let items = app.menuBars.menuBarItems[menu].menuItems.allElementsBoundByIndex.map(\.title)
+            print("MACUIDEBUG \(menu) menu: \(items)")
+        }
         XCTAssertTrue(titles.contains("New Note…"))
         XCTAssertTrue(titles.contains("Open Vault…"))
         XCTAssertFalse(identifiers.contains("new_window"), "no system New Window")
@@ -90,7 +94,10 @@ final class MacWindowUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
-        app.typeKey("n", modifierFlags: .command)
+        // The note list's toolbar button, as on the iPad (⌘N is checked by the File menu test).
+        let newNote = app.buttons["New Note"].firstMatch
+        XCTAssertTrue(newNote.waitForExistence(timeout: 20), "the New Note button")
+        newNote.click()
         let field = app.textFields["notebookField"]
         let found = field.waitForExistence(timeout: 20)
         if !found { dump(app, "new-note-sheet") }
