@@ -99,6 +99,17 @@ extension AppModel {
             }
         }
         try Task.checkCancellation()
+        if options.format == .pdf && options.pdfAttachments {
+            // "PDF + attachments": iCloud fetches audio only when it is used (docs/attachments.md §4).
+            // One that cannot be fetched is left out and reported by the export.
+            for (summary, state) in loaded {
+                for r in state.recordings {
+                    try? await ensureBlobLocal(r.blob, of: summary.id)
+                    if let t = r.transcript { try? await ensureBlobLocal(t, of: summary.id) }
+                }
+            }
+            try ensureCurrent(gen)
+        }
         let source = "sempere:\(vault.vaultId.uuidString.lowercased())"
         let total = ids.count
         let skipped = total - loaded.count

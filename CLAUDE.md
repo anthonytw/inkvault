@@ -452,6 +452,17 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `PageStackLayout.revealOffset`): embedded canvases never scroll. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
+- Recordings (tasks E4, E5, `docs/attachments.md` §14): pure logic (format, `RecordingTimeline`,
+  `RecordingSync`, `TranscriptBuilder`, `TranscriptionLanguage`) in `Sources/Sempere/RecordingSupport.swift`;
+  the Speech framework only in `Sources/SempereSpeech` (behind `#if canImport(Speech)`, shared by the app and
+  `sempere transcribe`), never server recognition. Strokes get `rec` when the ledger converts them
+  (`StrokeLedger.items(for:tool:stamp:)`, from `PKStrokePath.creationDate` through the session's timeline,
+  never wall-clock minus start). One `RecordingSession` app-wide (`RecordingSession.active`); its plaintext
+  segments stay in Application Support/Sempere/Recordings until the blob (and the transcript) is written,
+  and a session left by a crash is saved by `RecordingRecovery` when its note opens. Transcripts are written
+  by the model (`storeTranscript`: blob, then one delta through `commit`), not by the editor, so a job
+  survives the note closing. App tests use `FakeCapture` / `FakePlayback` / `FakeTranscriber` and a
+  serialized suite.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

@@ -57,6 +57,11 @@ public struct RenderReport: Sendable, Equatable {
 
     public var placeholders: [Placeholder] = []
     public var warnings: [String] = []
+    /// Recordings the notes hold that the export left out (PDF without
+    /// `embedRecordings`; SVG and PNG always).
+    public var recordingsOmitted = 0
+    /// Recordings embedded as PDF file attachments.
+    public var recordingsAttached = 0
 
     public init() {}
 

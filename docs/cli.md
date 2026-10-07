@@ -954,6 +954,48 @@ list per note the pages `read` and `cleared` and the `file` written; `--json`
 gives `{dryRun, notes: [{note, title, read, cleared, file, error}]}`. A note
 that cannot be read or written is reported and the exit code is 1.
 
+### Transcription
+
+```
+sempere transcribe (ID|TITLE [RECORDING...] | --all) [--language TAG] [--engine auto|speechtranscriber|sfspeech]
+                   [--force] [--dry-run] [--no-download]
+sempere transcribe --check [--language TAG]
+```
+
+Transcribes a note's recordings on this machine with Apple's Speech framework
+and stores each transcript (`format.md` §8.3.2: time-stamped segments, every
+word with its time and confidence, the language and the engine) as a blob of
+the note, then sets it on the recording: one delta of `setRecording` ops per
+note, stamped with this machine's device id and clock. It is the app's
+engine, with the same code (`SpeechTranscription`, `Sources/SempereSpeech`):
+
+| Engine | When | Notes |
+| --- | --- | --- |
+| `speechtranscriber` | macOS 26 and later | SpeechAnalyzer with SpeechTranscriber, long-form, word times and confidence; the on-device model for the language is installed on first use (Apple's asset service; `--no-download` refuses instead) |
+| `sfspeech` | fallback | `SFSpeechRecognizer` with `requiresOnDeviceRecognition`; needs the speech recognition permission, which a command-line program cannot ask for, so from the CLI it works only once that permission was granted |
+
+Nothing is ever sent to a server: a language without an on-device model is an
+error. The language is `--language`, else the note's language (`format.md`
+§5.4 `lang`, once notes carry it), else this machine's; it is matched to a
+supported one (the same tag, else the same language with this machine's
+region, else the first of that language). Each recording's audio is decrypted
+into a private temporary file (mode 0600) for the recogniser and deleted
+afterwards.
+
+By default only recordings without a transcript are read; recordings named on
+the command line (id, id prefix of 4+ characters, or exact title) are read
+whatever they have, and `--force` replaces every transcript. `--dry-run` lists
+what would be read and works on every platform. `--check` prints which engines
+can transcribe here, for which language, and needs no vault (it is the
+availability matrix of task E5; `--json` gives `{supported, engines: [{engine,
+available, language, detail}]}`).
+
+**macOS only.** The Linux build exits 1 with a message and changes nothing
+(`--dry-run` and `--check` still work). `--json` gives `{dryRun, notes: [{note,
+title, file, error, recordings: [{id, title, engine, language, segments, words,
+transcript, error}]}]}`; a recording that cannot be transcribed is reported
+and the exit code is 1.
+
 ### Export
 
 ```
@@ -961,7 +1003,7 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION] [--breaks gaps|fixed]
                 [--notebook NAME] [--images none|png] [--clean]
                 [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
-                [--assets DIR] [--keep-image-metadata]
+                [--assets DIR] [--keep-image-metadata] [--recordings none|attach]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -993,8 +1035,14 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
 
 Every item kind is drawn by `pdf`, `svg` and `png`: text boxes (bundled fonts and font packs, "Text in
 exports"), images ("Images in exports") and PDF pages ("PDF page backgrounds"), from the
-note's own blobs. Recordings are listed in `json` and `notes show`; drawing them into exports
-(`docs/attachments.md` task C4) is not done yet.
+note's own blobs. Pages never show recordings. `--recordings attach` (PDF only; the app's "PDF +
+attachments") embeds each note's recordings as PDF file attachments (`/Names /EmbeddedFiles`,
+PDF 1.4: the audio byte for byte, named after the recording's title, and its transcript as a
+`.txt` of time-stamped lines); viewers list them and play or save them (`pdfdetach -list`
+shows them). At most 512 MiB of recordings go into one PDF; the rest are left out with a
+warning. Without it (`none`, the default) a PDF export warns "N recordings not exported". The
+`--recordings list` page and `--format media` of task C4 are not done yet; `json` and `notes
+show` list recordings.
 
 - `markdown` and `html`: a folder tree, see "Markdown and HTML exports" below.
   `--notebook NAME` (with `--all`, any format) keeps only notes in that
@@ -1007,7 +1055,8 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
 written is printed. With `--json`, each entry has `note`, `files` and, when
-some items were drawn as placeholders, `placeholders` (their number).
+some items were drawn as placeholders, `placeholders` (their number), and
+`recordings` (the number embedded) with `--recordings attach`.
 
 #### PDF page backgrounds
 

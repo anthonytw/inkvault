@@ -118,6 +118,13 @@ public struct RenderOptions: Sendable {
     /// CoreText in the app). Without one, text items are not drawn and the
     /// export reports them.
     public var shaper: (any TextShaper)?
+    /// PDF only: embed each note's recordings (and their transcripts as
+    /// `.txt`) as file attachments ("PDF + attachments", docs/attachments.md
+    /// §10). Off: recordings are left out and counted in the report.
+    public var embedRecordings: Bool = false
+    /// Most bytes of recordings one PDF embeds; beyond it, the rest are left
+    /// out with a warning (the whole PDF is built in memory).
+    public var maxEmbeddedBytes: Int = 512 << 20
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt
     /// tolerance, cuts moved to gaps in the ink.

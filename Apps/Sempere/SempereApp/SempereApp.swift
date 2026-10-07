@@ -28,6 +28,8 @@ struct SempereApp: App {
         NotePDFExport.purge(olderThan: 0)
         // Work copies of imported PDFs (plaintext) left by an import that never finished.
         PDFPreparation.purge()
+        // Settings shows what the on-device speech engines can do (task E5).
+        TranscriptionPreference.installSettingsHooks()
         // Per-session attachment caches of earlier builds (the app's is in Caches now, `BlobCache.folder`).
         BlobCache.purgeStale()
     }

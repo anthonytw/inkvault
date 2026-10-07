@@ -79,8 +79,14 @@ public enum PDFWriter {
                                  alphas: cs.alphas.sorted(), xobjects: xobjects, fonts: cs.usedFonts.sorted()))
         }
 
+        var embedded = EmbeddedFiles(limit: options.maxEmbeddedBytes)
         for (n, note) in notes.enumerated() {
             let source: (any BlobSource)? = (blobs.flatMap { n < $0.count ? $0[n] : nil }) ?? options.blobs
+            if options.embedRecordings {
+                embedded.add(recordingsOf: note, blobs: source, report: &report)
+            } else {
+                report.recordingsOmitted += note.recordings.count
+            }
             let backgrounds = PDFBackgrounds(blobs: source, rasterizer: options.pdfRasterizer)
             let images = ImageStore(options: options, blobs: source)
             var copiers: [String: PDFFormCopier] = [:]
@@ -178,7 +184,27 @@ public enum PDFWriter {
             doc.set(num, Array(("<< /Type /Page /Parent \(pagesNum) 0 R /MediaBox [0 0 \(fmt(p.width)) \(fmt(p.height))] "
                 + "/Resources \(res) /Contents \(p.content) 0 R >>").utf8))
         }
-        doc.set(catalog, Array("<< /Type /Catalog /Pages \(pagesNum) 0 R >>".utf8))
+        var names = ""
+        if !embedded.files.isEmpty {
+            var entries: [String] = []
+            for (i, f) in embedded.files.enumerated() {
+                let stream = doc.allocate(), spec = doc.allocate()
+                var body = f.data
+                var filter = ""
+                if options.compress && f.compress, let z = try? Zlib.compress(body) {
+                    body = z
+                    filter = " /Filter /FlateDecode"
+                }
+                doc.set(stream, Array(("<< /Type /EmbeddedFile /Subtype /\(PDFNames.name(f.mimeType)) /Length \(body.count)\(filter) "
+                    + "/Params << /Size \(f.data.count) >> >>\nstream\n").utf8) + [UInt8](body) + Array("\nendstream".utf8))
+                doc.set(spec, Array(("<< /Type /Filespec /F \(textString(f.asciiName)) /UF \(textString(f.name)) "
+                    + "/Desc \(textString(f.description)) /EF << /F \(stream) 0 R /UF \(stream) 0 R >> >>").utf8))
+                // Name-tree keys sort byte-wise: zero-padded indexes keep the files in order.
+                entries.append("\(textString(String(format: "%05d", i))) \(spec) 0 R")
+            }
+            names = " /Names << /EmbeddedFiles << /Names [\(entries.joined(separator: " "))] >> >> /PageMode /UseAttachments"
+        }
+        doc.set(catalog, Array("<< /Type /Catalog /Pages \(pagesNum) 0 R\(names) >>".utf8))
         doc.set(pagesNum, Array(("<< /Type /Pages /Kids [\(kids.map { "\($0) 0 R" }.joined(separator: " "))] "
             + "/Count \(pages.count) >>").utf8))
         let title = notes.map(\.meta.title).filter { !$0.isEmpty }.joined(separator: "; ")

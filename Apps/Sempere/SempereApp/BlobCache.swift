@@ -296,11 +296,19 @@ actor BlobCache {
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
     }
 
-    /// Ends one use of `ref`'s file (after `acquire`).
-    func release(note: UUID, ref: BlobRef) {
+    /// Ends one use of `ref`'s file (after `acquire`). With `discard`, the
+    /// file is deleted as soon as no use is left, instead of being kept for
+    /// later: recordings and transcripts (docs/attachments.md §13), whose
+    /// plaintext is kept on disk only while it is played or read.
+    func release(note: UUID, ref: BlobRef, discard: Bool = false) {
         let name = naming(note, ref)
         guard var entry = entries[name] else { return }
         entry.pins = max(0, entry.pins - 1)
+        if discard && entry.pins == 0 {
+            try? FileManager.default.removeItem(at: entry.url)
+            entries[name] = nil
+            return
+        }
         entries[name] = entry
         evict()
     }
