@@ -374,6 +374,7 @@ struct RecipientsRepair: ParsableCommand {
         guard let problem = vault.recipientsStatus.problem else {
             throw CLIError.failure("the device list checks (\(vault.recipientsStatus.name)); nothing to repair")
         }
+        if problem.reason == .secretUnconfirmed { _ = try vault.repairRecipients() }   // throws why not
         guard let target = keys.isEmpty ? problem.restore : keys else {
             throw CLIError.failure("this machine does not know the last verified list: name the keys to keep with --keep")
         }
