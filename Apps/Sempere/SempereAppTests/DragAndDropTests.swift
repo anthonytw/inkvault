@@ -257,18 +257,24 @@ struct DragAndDropTests {
 
     @Test func theHighlightIsOnlyWrittenWhenItChanges() async throws {
         let (model, _) = try await NotebookTreeTests.model()
-        var writes = 0
+        final class Writes: @unchecked Sendable {
+            private let lock = NSLock()
+            private var n = 0
+            func add() { lock.withLock { n += 1 } }
+            var count: Int { lock.withLock { n } }
+        }
+        let writes = Writes()
         func observe() {
-            withObservationTracking { _ = model.dropTarget } onChange: { writes += 1 }
+            withObservationTracking { _ = model.dropTarget } onChange: { writes.add() }
         }
         observe()
         model.setDropTarget(.notebook("School"))
-        #expect(writes == 1)
+        #expect(writes.count == 1)
         observe()
         model.setDropTarget(.notebook("School"))   // every dropUpdated while the finger moves
-        #expect(writes == 1, "an unchanged target does not rebuild the sidebar")
+        #expect(writes.count == 1, "an unchanged target does not rebuild the sidebar")
         model.setDropTarget(nil)
-        #expect(writes == 2)
+        #expect(writes.count == 2)
     }
 
     @Test func closingTheVaultEndsADrag() async throws {

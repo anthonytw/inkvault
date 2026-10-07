@@ -1990,3 +1990,21 @@ Its contents are the implementation's own, change with its schema number, and
 are checked against the revisions read from the vault before they are drawn
 on. It is limited in size (least recently used entries go first) and deleted
 when the vault is closed on that device.
+
+It keeps three more, under the same derivation:
+
+- the **render cache** (purpose `render-cache`, magic `SMPI` ‖ `0x01`):
+  pictures of image items and previews of PDF page items as drawn on that
+  device, labelled by everything the pixels depend on (the item's drawing
+  fields, the blob reference, the scale), sealed as above; limited in size and
+  deleted when the vault is closed;
+- the **activity** file (purpose `activity`, magic `SMPA` ‖ `0x01`, one entry
+  named `activity`, not keyed by `entryName`): the notes "Recognize All" read in
+  the last seven days and the recent search queries, kept across launches;
+- the **blob cache** (purpose `blob-cache`): decrypted attachment content
+  (§8.1), which PDF and image readers need as plain files, so its entries are
+  **not** sealed: each file holds a blob's verified content, is named
+  `entryName("blob|<note id>|<sha256>|<size>")` plus a type extension, and is
+  protected only by the device's file protection. A file found there from an
+  earlier session is used only after its size and SHA-256 match the
+  reference again; the folder is deleted when the vault is closed.

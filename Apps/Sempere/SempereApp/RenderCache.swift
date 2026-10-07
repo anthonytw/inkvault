@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Sempere
+import UIKit
 import UniformTypeIdentifiers
 
 /// Drawn attachments, kept between note opens and launches so that a note
@@ -66,6 +67,7 @@ final class RenderCache: @unchecked Sendable {
     private let lock = NSLock()
     private var closed = false
     private var prepared = false
+    private var memoryWarning: (any NSObjectProtocol)?
     private var memory: [String: (picture: Picture, bytes: Int, use: UInt64)] = [:]
     private var memoryBytes = 0
     private var tick: UInt64 = 0
@@ -80,6 +82,15 @@ final class RenderCache: @unchecked Sendable {
         self.key = key
         directory = key.flatMap { k in root?.appendingPathComponent(k.name, isDirectory: true) }
         self.capBytes = max(capBytes, 1 << 20)
+        // Pictures in memory are a convenience: let them go when the system is short.
+        memoryWarning = NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification,
+                                                               object: nil, queue: nil) { [weak self] _ in
+            self?.trimMemory()
+        }
+    }
+
+    deinit {
+        if let memoryWarning { NotificationCenter.default.removeObserver(memoryWarning) }
     }
 
     // MARK: - Labels

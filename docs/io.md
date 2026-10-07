@@ -256,6 +256,22 @@ SwiftUI `List`.
   `Sempere.drawingCacheMegabytes`), least recently used files first. Opening
   it deletes every other vault's folder (and this vault's under an older
   secret); closing the vault deletes its folder.
+- **Attachments** (TestFlight build 6: a PDF note reopened as slowly as it
+  first opened). Three caches keep them across note opens and launches, each
+  per vault secret and deleted when the vault closes:
+  - `BlobCache` (`Library/Caches/Sempere/Blobs`, 512 MB, `Sempere.blobCacheMegabytes`):
+    the decrypted, verified blob files PDFKit and ImageIO read. File names are
+    keyed (`format.md` §10.1); a file left by an earlier launch is hashed again
+    before use (`adopted`), never decrypted again.
+  - `RenderCache` (`Library/Caches/Sempere/Renders`, 256 MB,
+    `Sempere.renderCacheMegabytes`, plus 96 MB of decoded images in memory):
+    image items as drawn (`ItemRendering`), and one preview bitmap per PDF page
+    item at the unzoomed screen scale. A PDF page shows its preview at once,
+    before its blob is opened, and the tile layer draws the sharp page over
+    it. Files are sealed like the drawing cache's.
+  - The page's tiles themselves are Core Animation's and are not kept: they
+    are redrawn from the open PDF at whatever zoom the page is shown, which is
+    why the preview, not the tiles, is what persists.
 
 ## Performance timing (app)
 
@@ -264,8 +280,13 @@ Every phase above is an `os_signpost` interval (subsystem
 `vault.open`, `index.load`, `reconcile` (`.enumerate`, `.coordinate`,
 `.download`, `.read`, `.validate`), `list.update`, `note.open`,
 `note.download`, `note.read`, `note.reconstruct`, `note.cache`,
-`note.convert`, `note.firstRender`, `cache.write`, and `change.notified`
-events. Debug builds also log each finished interval to the console
+`note.convert`, `note.firstRender`, `cache.write`, `item.picture` (`hit` or
+`drawn`), `pdf.open` (`fetched`, `adopted` or `cached`), `pdf.preview`
+(`hit`, `drawn` or `missing`), and `change.notified` events. Comparing a first
+open with a reopen: open a PDF note, close the app, launch it again, open the
+note: `pdf.open … adopted` and `pdf.preview … hit` lines replace `fetched` and
+`drawn`. `AttachmentPersistenceTests` prints `PERF-REPORT pdf-reopen` lines
+in the CI `app` log. Debug builds also log each finished interval to the console
 (`SemperePerf <phase> <ms> ms <detail>`) and to `Library/Logs/SemperePerf.log`
 in the app container (the previous run's as `.1`):
 
