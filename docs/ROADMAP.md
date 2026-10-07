@@ -98,6 +98,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | --- | --- | --- |
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
 | Vaults | Keys in the Keychain / password manager | ✅ #24 |
+| Vaults | Save Key… (this device's key after Face ID, to Files / the share sheet / a password manager, with the paper kit) and New Key… (a key for another device) in Settings → Device Keys | 🔀 key-passkey-export PR (not yet tried on the iPad) |
 | Vaults | Fast opening: background listing with "Opening vault: n of m", list fills in as notes are read, encrypted summary cache for instant reopen, empty list always explained | ✅ #54 |
 | Vaults | Instant reopen from the local index; change-driven iCloud updates (names diff, file presenter), low-priority validation, throttled diff list updates; signposts + debug timing log | ✅ #56 |
 | Canvas | Fast note open: encrypted per-page drawing cache (LRU, 200 MB), off-main visible-first conversion, fast point decoding | ✅ #56 |

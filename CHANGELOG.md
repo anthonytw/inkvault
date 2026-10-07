@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
+  A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
+  into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to
+  IndexedDB. "Unlock with passkey" is one prompt; "Forget this key" deletes the record. Without PRF the
+  viewer explains why and stores nothing. App: Settings → Device Keys → "Save Key…" exports this device's
+  key after Face ID to Files or the share sheet (for a password manager), with its paper recovery kit;
+  "New Key…" makes a key for another device, encrypts the vault to it and offers the same. Key files are
+  the CLI's format (`keys generate`), written only where the user chooses; the share sheet's copy is
+  deleted when it closes.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed
