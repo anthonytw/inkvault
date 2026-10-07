@@ -30,6 +30,7 @@ public enum NotabilityBundle {
             throw ImportError.notability("no noteBundle in .ntb package")
         }
         var note = try parse(bundle: pkg.read(path))
+        note.bundleFiles = attachmentFiles(pkg)
         let index = pkg.paths.first(where: { $0 == "ios/HandwritingIndex.fb" })
             ?? pkg.paths.first(where: { $0.hasSuffix("/ios/HandwritingIndex.fb") && $0.split(separator: "/").count == 3 })
         // Recognition is auxiliary: a malformed index loses the text, never the ink.
@@ -112,6 +113,7 @@ public enum NotabilityBundle {
         var placed: [(curve: Int, page: Int)] = []   // stroke and line indices with their page
         var originX: [Float] = []   // per stroke, as stored
         var pdfs = 0, media = 0, unsupportedStrokes = 0, unsupportedShapes = 0, dashed = Set<Int>()
+        var attachments: [NotabilityNote.BundleAttachment] = []
 
         // Erase records list the ids of the stroke and shape records they
         // remove (bundles written as a log, without a `.note` next to them;
@@ -163,8 +165,12 @@ public enum NotabilityBundle {
                 }
             case .pdf:
                 pdfs += 1
+                try budget.spend(256)
+                attachments.append(try attachment(fb, payload, kind: .pdf, index: attachments.count))
             case .media:
                 media += 1
+                try budget.spend(256)
+                attachments.append(try attachment(fb, payload, kind: .image, index: attachments.count))
             case .erase:
                 break
             case .stroke:
@@ -198,8 +204,11 @@ public enum NotabilityBundle {
             let dy = Double(page) * pageHeight
             c.points = c.points.map { NotabilityNote.Point(x: $0.x - inset, y: $0.y + dy) }
         }
+        var curvePages = [Int](repeating: 0, count: curves.count), linePages = [Int](repeating: 0, count: lines.count)
         for (index, pg) in placed {
-            if index >= 0 { place(&curves[index], page: pg) } else { place(&lines[-index - 1], page: pg) }
+            if index >= 0 { place(&curves[index], page: pg); curvePages[index] = pg } else {
+                place(&lines[-index - 1], page: pg); linePages[-index - 1] = pg
+            }
         }
         for i in dashed { curves[i].dashed = true }
         // A stroke that starts beyond the right page edge is stored with its
@@ -240,7 +249,56 @@ public enum NotabilityBundle {
         note.unsupportedStrokes = unsupportedStrokes
         note.clampedStrokes = curves.filter(\.originClamped).count
         note.erasedRecords = erasedCount
+        note.bundleAttachments = attachments
+        note.bundleCurvePages = curvePages + linePages
         return note
+    }
+
+    /// A PDF (2) or media (22) record, read without a schema
+    /// (docs/import-notability.md ".ntb attachments"): the file it names is
+    /// any string or byte vector reachable from its payload (three tables
+    /// deep) that holds a 64-hex-digit name, or 32 bytes read as a SHA-256;
+    /// its page is the third word of a 12-byte field 0 (as on strokes); its
+    /// geometry the inline float structs: a 16-byte one is a rectangle
+    /// `(x, y, w, h)`, 8-byte ones are points or sizes in field order.
+    static func attachment(_ fb: FlatBuffer, _ payload: Int, kind: NotabilityNote.BundleAttachment.Kind,
+                           index: Int) throws -> NotabilityNote.BundleAttachment {
+        var a = NotabilityNote.BundleAttachment(kind: kind, index: index)
+        let fields = (try? fb.inlineFields(payload)) ?? []
+        a.layout = fields.map { "\($0.index):\($0.size)" }.joined(separator: ",")
+        var visited = 0
+        func names(in t: Int, depth: Int) {
+            guard depth <= 3, visited < 64, let fs = try? fb.inlineFields(t) else { return }
+            visited += 1
+            for f in fs where f.size == 4 {
+                guard let target = try? fb.ref(f.position) else { continue }
+                if let (start, count) = try? fb.vector(atRef: f.position, elementSize: 1), count > 0, count <= 1024 {
+                    let bytes = Array(fb.bytes[start..<(start + count)])
+                    if let name = BundleFileName.name(in: bytes), !a.fileNames.contains(name) { a.fileNames.append(name) }
+                }
+                if depth < 3, (try? fb.table(target)) != nil { names(in: target, depth: depth + 1) }
+            }
+        }
+        names(in: payload, depth: 0)
+        for f in fields {
+            switch f.size {
+            case 12 where f.index == 0:
+                let page = Int(try fb.u32(f.position + 8))
+                if page < 100_000 { a.page = page }
+            case 16:
+                let v = try (0..<4).map { Double(try fb.f32(f.position + 4 * $0)) }
+                if a.rect == nil, v.allSatisfy({ $0.isFinite && abs($0) <= NotabilityNote.maxCoordinate }) {
+                    a.rect = (v[0], v[1], v[2], v[3])
+                }
+            case 8:
+                let x = Double(try fb.f32(f.position)), y = Double(try fb.f32(f.position + 4))
+                if x.isFinite, y.isFinite, abs(x) <= NotabilityNote.maxCoordinate, abs(y) <= NotabilityNote.maxCoordinate {
+                    a.pairs.append((f.index, x, y))
+                }
+            default: break
+            }
+        }
+        return a
     }
 
     /// The 0-based page of a stroke or shape record (third word of its field 0).
@@ -383,6 +441,34 @@ extension NotabilityBundle {
     }
 }
 
+/// Attachment file names in a `.ntb` bundle: `<64 hex digits>.<ext>`
+/// (the file's SHA-256, then `pdf`, `jpeg`, `jpg`, `png`, `heic`, …).
+enum BundleFileName {
+    /// True for a top-level bundle file that looks like an attachment.
+    static func isAttachment(_ name: String) -> Bool {
+        let parts = name.split(separator: ".", maxSplits: 1)
+        guard parts.count == 2, parts[0].count == 64, parts[0].utf8.allSatisfy(isHex),
+              (1...5).contains(parts[1].count), parts[1].utf8.allSatisfy({ isHex($0) || ($0 | 0x20) >= 0x61 && ($0 | 0x20) <= 0x7A })
+        else { return false }
+        return true
+    }
+
+    static func isHex(_ c: UInt8) -> Bool { (c >= 0x30 && c <= 0x39) || ((c | 0x20) >= 0x61 && (c | 0x20) <= 0x66) }
+
+    /// A name found in a record's bytes: a whole `<hash>.<ext>` string, a
+    /// string starting with 64 hex digits (the hash; the extension is matched
+    /// against the bundle's files later), or 32 raw bytes (hex-encoded). Nil otherwise.
+    static func name(in bytes: [UInt8]) -> String? {
+        if bytes.count == 32, !bytes.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }) {
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+        guard bytes.count >= 64, bytes.prefix(64).allSatisfy(isHex) else { return nil }
+        let text = String(decoding: bytes, as: UTF8.self)
+        if isAttachment(text) { return text }
+        return String(text.prefix(64)).lowercased()
+    }
+}
+
 /// A read-only, bounds-checked view of a FlatBuffers buffer, read without a
 /// schema: tables by field index, references, vectors and strings.
 struct FlatBuffer {
@@ -420,6 +506,33 @@ struct FlatBuffer {
         guard size >= 4, size % 2 == 0 else { throw ImportError.notability(".ntb: bad vtable at \(vt)") }
         try check(vt, size)
         return t
+    }
+
+    /// The fields stored inline in the table at `t`, with their sizes inferred
+    /// from the vtable: a field ends where the next one (by offset) starts,
+    /// the last at the table's end. Without a schema this is all there is to
+    /// tell a reference (4 bytes) from a struct (8, 12, 16 …).
+    func inlineFields(_ t: Int) throws -> [(index: Int, position: Int, size: Int)] {
+        let vt = t - (try i32(t))
+        let vsize = try u16(vt)
+        let tableSize = try u16(vt + 2)
+        var offs: [(Int, Int)] = []
+        var i = 0
+        while 4 + 2 * i + 2 <= vsize, i < 64 {
+            let off = try u16(vt + 4 + 2 * i)
+            if off != 0, off < tableSize { offs.append((i, off)) }
+            i += 1
+        }
+        offs.sort { $0.1 < $1.1 }
+        var out: [(index: Int, position: Int, size: Int)] = []
+        for (k, (index, off)) in offs.enumerated() {
+            let end = k + 1 < offs.count ? offs[k + 1].1 : tableSize
+            let size = end - off
+            guard size > 0 else { continue }
+            try check(t + off, size)
+            out.append((index, t + off, size))
+        }
+        return out.sorted { $0.index < $1.index }
     }
 
     /// The absolute position of field `index` of the table at `t`, or nil when absent.
