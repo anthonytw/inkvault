@@ -1281,6 +1281,54 @@
         }
       }
     },
+    "%lld videos attached" : {
+      "comment" : "Export result: videos embedded in the PDF",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld video attached"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld videos attached"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de vídeos adjuntos"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld vídeo adjunto"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld vídeos adjuntos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "+%lld more" : {
       "comment" : "Search result: how many more pages match",
       "extractionState" : "manual",
@@ -1811,6 +1859,18 @@
         }
       }
     },
+    "Add photos, videos, a picture from the clipboard, or pages of a PDF" : {
+      "comment" : "Help text of the editor's Insert menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir fotos, vídeos, una imagen del portapapeles o páginas de un PDF"
+          }
+        }
+      }
+    },
     "Added %@" : {
       "comment" : "When a device key was added; the value is a date",
       "extractionState" : "manual",
@@ -2141,6 +2201,18 @@
         }
       }
     },
+    "Cannot Play This Video" : {
+      "comment" : "Video player: the clip could not be read",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede reproducir este vídeo"
+          }
+        }
+      }
+    },
     "Cannot Show This Version" : {
       "comment" : "Title when an earlier version cannot be rebuilt",
       "extractionState" : "manual",
@@ -2416,6 +2488,18 @@
         }
       }
     },
+    "Could not add the attachment. %@" : {
+      "comment" : "Something pasted or dropped on the canvas; the value is a sentence saying why",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido añadir el adjunto. %@"
+          }
+        }
+      }
+    },
     "Could not add the image. %@" : {
       "comment" : "The value is a sentence saying why",
       "extractionState" : "manual",
@@ -2436,6 +2520,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido añadir la foto. %@"
+          }
+        }
+      }
+    },
+    "Could not add the video. %@" : {
+      "comment" : "The value is a sentence saying why",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido añadir el vídeo. %@"
           }
         }
       }
@@ -2472,6 +2568,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido importar el PDF. %@"
+          }
+        }
+      }
+    },
+    "Could not load the photo or video: %@" : {
+      "comment" : "The value is the reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido cargar la foto o el vídeo: %@"
           }
         }
       }
@@ -2847,6 +2955,18 @@
         }
       }
     },
+    "Device List Protected" : {
+      "comment" : "Alert title: the vault's device list is now authenticated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lista de dispositivos protegida"
+          }
+        }
+      }
+    },
     "Devices here are the keys this vault is encrypted to (this iPad, that Mac, the paper backup), not people: to share a note, export it. “Rewrite headers only” is fast but leaves old copies of an attachment openable with a key that was removed. “Re-encrypt everything” takes longer in a vault with many attachments." : {
       "comment" : "The quoted names are the picker choices “Rewrite headers only” and “Re-encrypt everything”: use the same translations",
       "extractionState" : "manual",
@@ -2855,6 +2975,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aquí los dispositivos son las claves con las que se cifra esta bóveda (este iPad, ese Mac, la copia en papel), no personas: para compartir una nota, expórtala. «Reescribir solo las cabeceras» es rápido, pero deja copias antiguas de un adjunto que una clave quitada aún puede abrir. «Volver a cifrar todo» tarda más en una bóveda con muchos adjuntos."
+          }
+        }
+      }
+    },
+    "Devices this device never confirmed: %@." : {
+      "comment" : "The value is a list of device names and abbreviated keys",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dispositivos que este dispositivo nunca ha confirmado: %@."
           }
         }
       }
@@ -3537,6 +3669,18 @@
         }
       }
     },
+    "Getting the video…" : {
+      "comment" : "Video player: downloading and decrypting the clip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obteniendo el vídeo…"
+          }
+        }
+      }
+    },
     "Give the vault a name without slashes, leading dots or control characters." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3723,6 +3867,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "He guardado esta clave"
+          }
+        }
+      }
+    },
+    "If you changed the vault's keys on another device, open the vault there, or check the list with `sempere vault recipients confirm`. Otherwise restore vault.json from a backup." : {
+      "comment" : "Device list alert; keep the command and vault.json as they are",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si has cambiado las claves de la bóveda en otro dispositivo, abre la bóveda allí o comprueba la lista con `sempere vault recipients confirm`. Si no, restaura vault.json desde una copia de seguridad."
           }
         }
       }
@@ -4618,6 +4774,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aún no hay etiquetas"
+          }
+        }
+      }
+    },
+    "No unknown device was added, but the list is not the one this device last checked." : {
+      "comment" : "Device list alert",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha añadido ningún dispositivo desconocido, pero la lista no es la que este dispositivo comprobó por última vez."
           }
         }
       }
@@ -5701,6 +5869,18 @@
         }
       }
     },
+    "Photos and Videos…" : {
+      "comment" : "Insert menu: pick from the photo library",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotos y vídeos…"
+          }
+        }
+      }
+    },
     "Photos are stored as picked, with their location and camera data, and HEIC photos stay HEIC. Exports still leave location data out." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6165,6 +6345,18 @@
         }
       }
     },
+    "Record Video…" : {
+      "comment" : "Insert menu: record a clip with the camera",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabar vídeo…"
+          }
+        }
+      }
+    },
     "Record a Voice Note" : {
       "comment" : "App Intent title",
       "extractionState" : "manual",
@@ -6423,6 +6615,18 @@
         }
       }
     },
+    "Remove restores the last checked list and re-encrypts every note with a new vault key, so no other device can read them." : {
+      "comment" : "Device list alert: what its Remove button does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar restaura la última lista comprobada y vuelve a cifrar todas las notas con una nueva clave de la bóveda, para que ningún otro dispositivo pueda leerlas."
+          }
+        }
+      }
+    },
     "Remove this key?" : {
       "comment" : "Confirmation title",
       "extractionState" : "manual",
@@ -6634,6 +6838,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reabrir última bóveda"
+          }
+        }
+      }
+    },
+    "Repair it from a device that has opened this vault before, or with `sempere vault recipients repair --keep`." : {
+      "comment" : "Device list alert (it = the list); keep the command as it is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repárala desde un dispositivo que ya haya abierto esta bóveda o con `sempere vault recipients repair --keep`."
           }
         }
       }
@@ -7453,6 +7669,18 @@
         }
       }
     },
+    "Someone who can change the vault's folder (a sync service, a shared folder) edited its list of devices without the vault's key." : {
+      "comment" : "Device list alert: what happened",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alguien que puede cambiar la carpeta de la bóveda (un servicio de sincronización, una carpeta compartida) ha editado su lista de dispositivos sin la clave de la bóveda."
+          }
+        }
+      }
+    },
     "Sort" : {
       "comment" : "Toolbar menu: sort the note list (verb)",
       "extractionState" : "manual",
@@ -8211,6 +8439,18 @@
         }
       }
     },
+    "The list of devices lost its authentication: someone who can change the vault's folder removed it." : {
+      "comment" : "Device list alert: what happened",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La lista de dispositivos ha perdido su autenticación: alguien que puede cambiar la carpeta de la bóveda la ha quitado."
+          }
+        }
+      }
+    },
     "The note already matches this version." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8391,6 +8631,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La bóveda se cifrará con tu clave poscuántica %1$@…%2$@."
+          }
+        }
+      }
+    },
+    "The vault's key was replaced in a way this device cannot confirm." : {
+      "comment" : "Device list alert: what happened",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La clave de la bóveda se ha sustituido de una forma que este dispositivo no puede confirmar."
+          }
+        }
+      }
+    },
+    "The video could not be read. %@" : {
+      "comment" : "The value is a sentence saying why",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido leer el vídeo. %@"
           }
         }
       }
@@ -8617,6 +8881,17 @@
         }
       }
     },
+    "This file is not a video Sempere can read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este archivo no es un vídeo que Sempere pueda leer."
+          }
+        }
+      }
+    },
     "This file is not an image Sempere can read." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8804,6 +9079,90 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta bóveda está cifrada con una clave clásica, que un futuro ordenador cuántico podría romper. Sus notas siguen bloqueadas hasta que se vuelva a cifrar con una clave poscuántica. Esto reescribe todos los archivos de la bóveda; las copias anteriores (copias de seguridad, historial de versiones de archivos) no cambian."
+          }
+        }
+      }
+    },
+    "This vault's device list was changed without its key" : {
+      "comment" : "Alert title: vault.json's recipients were edited without the vault key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La lista de dispositivos de esta bóveda se ha cambiado sin su clave"
+          }
+        }
+      }
+    },
+    "This vault's list of devices is now protected: a change made without the vault's key will be detected. It trusts these %lld devices: %@. If one is not yours, remove it in Keys." : {
+      "comment" : "Notice after unlocking; the values are the number of devices and their names; Keys is the Keys screen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This vault's list of devices is now protected: a change made without the vault's key will be detected. It trusts %lld device: %@. If it is not yours, remove it in Keys."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This vault's list of devices is now protected: a change made without the vault's key will be detected. It trusts these %lld devices: %@. If one is not yours, remove it in Keys."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La lista de dispositivos de esta bóveda ya está protegida: se detectará cualquier cambio hecho sin la clave de la bóveda. Confía en estos %lld de dispositivos: %@. Si alguno no es tuyo, quítalo en Claves."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La lista de dispositivos de esta bóveda ya está protegida: se detectará cualquier cambio hecho sin la clave de la bóveda. Confía en %lld dispositivo: %@. Si no es tuyo, quítalo en Claves."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La lista de dispositivos de esta bóveda ya está protegida: se detectará cualquier cambio hecho sin la clave de la bóveda. Confía en estos %lld dispositivos: %@. Si alguno no es tuyo, quítalo en Claves."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "This video could not be converted to MP4 (%@)." : {
+      "comment" : "The value is a technical reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido convertir este vídeo a MP4 (%@)."
+          }
+        }
+      }
+    },
+    "This video is too large to add (%@; at most %@). Trim it first." : {
+      "comment" : "The values are file sizes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este vídeo es demasiado grande para añadirlo (%@; como máximo %@). Recórtalo antes."
           }
         }
       }
@@ -9537,6 +9896,42 @@
         }
       }
     },
+    "Video" : {
+      "comment" : "Title of the video player when the clip's length is unknown",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vídeo"
+          }
+        }
+      }
+    },
+    "Video File…" : {
+      "comment" : "Insert menu: pick a video file in Files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivo de vídeo…"
+          }
+        }
+      }
+    },
+    "Video · %@" : {
+      "comment" : "Title of the video player; the value is the clip's length, such as 1:05",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vídeo · %@"
+          }
+        }
+      }
+    },
     "Voice Note" : {
       "comment" : "Shortcut short title / widget name and button (noun)",
       "extractionState" : "manual",
@@ -9676,6 +10071,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tu nueva clave secreta poscuántica. Guárdala ahora: tras la actualización solo esta clave (o una copia protegida con frase de contraseña) abre la bóveda. Perderla es perder la bóveda."
+          }
+        }
+      }
+    },
+    "Your notes can still be read. Nothing is written to this vault until the list is fixed." : {
+      "comment" : "Device list alert",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus notas se pueden seguir leyendo. No se escribe nada en esta bóveda hasta que se corrija la lista."
           }
         }
       }

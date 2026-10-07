@@ -128,7 +128,7 @@ struct ExportSheet: View {
                     .foregroundStyle(.secondary)
             }
             if outcome.videosAttached > 0 {
-                Label("\(outcome.videosAttached) video\(outcome.videosAttached == 1 ? "" : "s") attached", systemImage: "film")
+                Label("\(outcome.videosAttached) videos attached", systemImage: "film")
             }
             ForEach(outcome.items, id: \.self) { Text($0.lastPathComponent).font(.callout) }
         }

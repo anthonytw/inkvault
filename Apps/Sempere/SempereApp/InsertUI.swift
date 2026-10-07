@@ -267,7 +267,7 @@ struct EditorInsert: ViewModifier {
                 let copy = try await Task.detached(priority: .userInitiated) { try VideoPreparation.copyPicked(url) }.value
                 await model.insertVideo(file: copy, into: editor, visible: visible)
             } catch {
-                model.errorMessage = "Could not add the video. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not add the video. \(AppModel.describe(error))", comment: "The value is a sentence saying why")
             }
         }
     }

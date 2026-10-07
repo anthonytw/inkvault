@@ -27,7 +27,7 @@ extension AppModel {
         } catch is CancellationError {
             return nil
         } catch {
-            errorMessage = "Could not add the video. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not add the video. \(Self.describe(error))", comment: "The value is a sentence saying why")
             return nil
         }
     }
