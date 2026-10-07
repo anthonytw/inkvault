@@ -1,0 +1,460 @@
+import Age
+import Crypto
+import Foundation
+import XCTest
+@testable import Sempere
+
+/// The ways an attacker who can write the vault folder (but holds no key)
+/// may change vault.json's recipients (format.md §2.1).
+enum RecipientsTamper: String, CaseIterable {
+    case addedRecipient, removedRecipient, reordered, tagStripped, tagFromAnotherVault, secretReplaced
+
+    /// Rewrites `vault`'s vault.json. The vault must list at least two keys;
+    /// `attacker` is the key an attacker adds, `other` another vault's manifest.
+    func apply(to vault: URL, attacker: NativeRecipient, other: VaultManifest) throws {
+        let url = vault.appendingPathComponent("vault.json")
+        var m = try VaultManifest.decode(Data(contentsOf: url))
+        switch self {
+        case .addedRecipient:
+            m.recipients.append(.init(key: attacker.string, label: "Anthony's new iPad", added: Date()))
+        case .removedRecipient:
+            m.recipients.removeLast()
+        case .reordered:
+            m.recipients.reverse()
+        case .tagStripped:
+            m.recipientsTag = nil
+        case .tagFromAnotherVault:
+            m.recipientsTag = other.recipientsTag
+        case .secretReplaced:
+            // A secret of the attacker's own, encrypted to every listed key
+            // and theirs, with a tag that verifies under it.
+            let forged = VaultSecret.random()
+            m.recipients.append(.init(key: attacker.string, label: "iPad", added: Date()))
+            let keys = try m.recipients.map { try NativeRecipient(string: $0.key) }
+            m.vaultSecret = String(decoding: try AgeFile.encrypt(forged.bytes, to: keys, armor: true), as: UTF8.self)
+            m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: forged)
+            m.secretLink = String(repeating: "0", count: 64)
+        }
+        try m.encoded().write(to: url)
+    }
+}
+
+final class RecipientsAuthTests: VaultTestCase {
+    let a = pqIdentity(), b = pqIdentity(), x = pqIdentity()
+
+    /// A vault of A and B with two notes, opened as device A (with a trust
+    /// record), and another vault's manifest for `tagFromAnotherVault`.
+    func setUpVault(store: MemoryRecipientsTrustStore) throws -> (Vault, [Revision], VaultManifest) {
+        let vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], labels: ["A", "B"],
+                                     identities: [a], trust: store)
+        let revs = try populate(vault)
+        let other = try Vault.create(at: vaultURL("Other"), recipients: [a.recipient, b.recipient], identities: [a])
+        return (vault, revs, other.manifest)
+    }
+
+    func open(_ url: URL, _ store: MemoryRecipientsTrustStore?, _ ids: [NativeIdentity]? = nil) throws -> Vault {
+        try Vault.open(at: url, identities: ids ?? [a], trust: store)
+    }
+
+    // MARK: - Tag
+
+    func testTagIsHMACOverVaultIdAndKeysInOrder() throws {
+        let secret = VaultSecret.random()
+        let id = UUID(uuidString: "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c")!
+        let keys = [a.recipient.string, b.recipient.string]
+        // format.md §2.1, computed independently of RecipientsAuth.
+        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: secret.bytes),
+                                         info: Data("sempere/1 recipients key".utf8), outputByteCount: 32)
+        var message = Data("sempere/1\0recipients\00d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c".utf8)
+        for k in keys { message.append(0); message.append(contentsOf: k.utf8) }
+        let expected = Data(HMAC<SHA256>.authenticationCode(for: message, using: key)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(RecipientsAuth.tag(vaultId: id, keys: keys, secret: secret), expected)
+        XCTAssertTrue(RecipientsAuth.verifyTag(expected, vaultId: id, keys: keys, secret: secret))
+        XCTAssertFalse(RecipientsAuth.verifyTag(expected, vaultId: id, keys: keys.reversed(), secret: secret))
+        XCTAssertFalse(RecipientsAuth.verifyTag(expected, vaultId: UUID(), keys: keys, secret: secret))
+        XCTAssertFalse(RecipientsAuth.verifyTag(expected, vaultId: id, keys: keys, secret: .random()))
+        XCTAssertFalse(RecipientsAuth.verifyTag(expected.uppercased(), vaultId: id, keys: keys, secret: secret), "lowercase hex only")
+        XCTAssertFalse(RecipientsAuth.verifyTag(String(expected.dropLast()), vaultId: id, keys: keys, secret: secret))
+
+        // The link: HMAC under the old secret's linkKey over the new secret's id.
+        let old = VaultSecret.random(), new = VaultSecret.random()
+        let link = RecipientsAuth.link(from: old, to: new, vaultId: id)
+        XCTAssertTrue(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: new, vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(new), to: new, vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: .random(), vaultId: id))
+    }
+
+    func testEveryRecipientChangeWritesTagFeatureAndLink() throws {
+        let store = MemoryRecipientsTrustStore()
+        var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient], identities: [a], trust: store)
+        XCTAssertEqual(vault.manifest.features, ["recipients-tag"])
+        XCTAssertNil(vault.manifest.secretLink)
+        XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged))
+        XCTAssertEqual(try open(vault.url, nil).recipientsStatus, .verified(.firstUse))
+        _ = try populate(vault)
+
+        try vault.addRecipient(b.recipient, label: "B")
+        XCTAssertNil(vault.manifest.secretLink, "an addition keeps the secret: no link")
+        XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged))
+
+        let before = try XCTUnwrap(vault.secret)
+        try vault.removeRecipient(b.recipient)
+        let link = try XCTUnwrap(vault.manifest.secretLink)
+        XCTAssertTrue(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(before), to: try XCTUnwrap(vault.secret),
+                                                vaultId: vault.vaultId))
+        XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged), "this device remembered the rotation")
+
+        let c = pqIdentity()
+        try vault.replaceRecipient(a.recipient, with: c.recipient)
+        XCTAssertEqual(try open(vault.url, store, [c]).recipientsStatus, .verified(.unchanged))
+        XCTAssertTrue(try open(vault.url, store, [c]).verify().isHealthy)
+    }
+
+    /// A device that saw the secret before a rotation made elsewhere accepts
+    /// it through `secretLink`, even when the rotation added a key (replace).
+    func testAnotherDeviceConfirmsARotationThroughTheLink() throws {
+        let deviceA = MemoryRecipientsTrustStore(), deviceB = MemoryRecipientsTrustStore()
+        var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a], trust: deviceA)
+        _ = try populate(vault)
+        XCTAssertEqual(try open(vault.url, deviceB, [b]).recipientsStatus, .verified(.firstUse))
+        let c = pqIdentity()
+        try vault.replaceRecipient(a.recipient, with: c.recipient, label: "C")
+        XCTAssertEqual(try open(vault.url, deviceB, [b]).recipientsStatus, .verified(.rotated))
+        XCTAssertEqual(try open(vault.url, deviceB, [b]).recipientsStatus, .verified(.unchanged), "the record moved on")
+
+        // Two rotations missed, the second adding a key: unconfirmed.
+        let deviceStale = MemoryRecipientsTrustStore()
+        XCTAssertEqual(try open(vault.url, deviceStale, [b]).recipientsStatus, .verified(.firstUse))
+        let d = pqIdentity(), e = pqIdentity()
+        var v2 = try open(vault.url, deviceB, [b])
+        try v2.addRecipient(d.recipient, label: "D")
+        try v2.removeRecipient(c.recipient)
+        try v2.replaceRecipient(d.recipient, with: e.recipient)
+        var stale = try open(vault.url, deviceStale, [b])
+        XCTAssertEqual(stale.recipientsStatus.problem?.reason, .secretUnconfirmed)
+        XCTAssertEqual(stale.recipientsStatus.problem?.unexpected, [e.recipient.string])
+        XCTAssertThrowsError(try stale.repairRecipients()) {
+            guard case .recipientsNotRepairable = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        try stale.confirmRecipients()
+        XCTAssertEqual(try open(vault.url, deviceStale, [b]).recipientsStatus, .verified(.unchanged))
+
+        // Missed rotations that only removed keys: nobody new can read.
+        let deviceOld = MemoryRecipientsTrustStore()
+        XCTAssertEqual(try open(vault.url, deviceOld, [b]).recipientsStatus, .verified(.firstUse))
+        var v3 = try open(vault.url, deviceB, [b])
+        let f = pqIdentity(), g = pqIdentity()
+        try v3.addRecipient(f.recipient, label: "F")
+        try v3.addRecipient(g.recipient, label: "G")
+        let pre = try open(vault.url, deviceOld, [b])
+        XCTAssertEqual(pre.recipientsStatus.problem?.reason, nil, "additions keep the secret: verified")
+        try v3.removeRecipient(f.recipient)
+        try v3.removeRecipient(g.recipient)
+        XCTAssertEqual(try open(vault.url, deviceOld, [b]).recipientsStatus, .verified(.onlyKnownKeys))
+    }
+
+    // MARK: - Tamper fixtures
+
+    /// Each tamper, seen by the device that made the vault (it has a trust
+    /// record): writes refused, reads work, the right keys reported.
+    func testTamperedListsAreRefusedForWritingAndStillRead() throws {
+        for kind in RecipientsTamper.allCases {
+            try FileManager.default.removeItem(at: tmp)
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let store = MemoryRecipientsTrustStore()
+            let (made, revs, other) = try setUpVault(store: store)
+            try kind.apply(to: made.url, attacker: x.recipient, other: other)
+            var vault = try open(made.url, store)
+            let problem = try XCTUnwrap(vault.recipientsStatus.problem, "\(kind)")
+            let expected: (RecipientsProblem.Reason, [String], [String]) = switch kind {
+            case .addedRecipient: (.tagMismatch, [x.recipient.string], [])
+            case .removedRecipient: (.tagMismatch, [], [b.recipient.string])
+            case .reordered, .tagFromAnotherVault: (.tagMismatch, [], [])
+            case .tagStripped: (.tagRemoved, [], [])
+            case .secretReplaced: (.secretUnconfirmed, [x.recipient.string], [])
+            }
+            XCTAssertEqual(problem.reason, expected.0, "\(kind)")
+            XCTAssertEqual(problem.unexpected, expected.1, "\(kind)")
+            XCTAssertEqual(problem.missing, expected.2, "\(kind)")
+
+            // Nothing is encrypted to the list.
+            func refused(_ what: String, _ body: () throws -> Void) {
+                XCTAssertThrowsError(try body(), "\(kind): \(what)") {
+                    guard case .untrustedRecipients = $0 as? VaultError else { return XCTFail("\(kind) \(what): \($0)") }
+                }
+            }
+            var log = LogBuilder()
+            refused("write") { try vault.write(log.delta(devC, 50, [.setMeta(.title("x"))])) }
+            refused("blob") { _ = try vault.writeBlob(note: testNote, Data("x".utf8), type: "image/png") }
+            refused("profile") { _ = try vault.captureProfile(device: devC) }
+            refused("add") { try vault.addRecipient(pqIdentity().recipient, label: "") }
+            refused("remove") { try vault.removeRecipient(a.recipient) }
+            XCTAssertFalse(try vault.upgradeRecipientsTag(), "never upgraded")
+            XCTAssertFalse(vault.verify().isHealthy, "\(kind)")
+            XCTAssertEqual(vault.verify().recipients, vault.recipientsStatus)
+
+            // Reading still works (except under a replaced secret, whose
+            // tags no longer match: reported, never trusted).
+            if kind == .secretReplaced {
+                XCTAssertThrowsError(try vault.readRevision(noteId: revs[0].noteId, name: revs[0].name))
+            } else {
+                XCTAssertEqual(try vault.readRevision(noteId: revs[0].noteId, name: revs[0].name), revs[0], "\(kind)")
+            }
+        }
+    }
+
+    /// The same tampers seen by a device that never opened the vault (no
+    /// trust record): the tag still catches all but a replaced secret,
+    /// which first use cannot tell from the real one (format.md §2.1 "Limits").
+    func testTamperWithoutATrustRecord() throws {
+        for kind in RecipientsTamper.allCases {
+            try FileManager.default.removeItem(at: tmp)
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let (made, _, other) = try setUpVault(store: MemoryRecipientsTrustStore())
+            try kind.apply(to: made.url, attacker: x.recipient, other: other)
+            let fresh = MemoryRecipientsTrustStore()
+            let vault = try open(made.url, fresh, [b])
+            switch kind {
+            case .secretReplaced:
+                XCTAssertEqual(vault.recipientsStatus, .verified(.firstUse))
+            case .addedRecipient:
+                let p = try XCTUnwrap(vault.recipientsStatus.problem)
+                XCTAssertEqual(p.unexpected, [x.recipient.string], "the subset search finds the inserted key")
+                XCTAssertEqual(p.restore, [a.recipient.string, b.recipient.string])
+            default:
+                let p = try XCTUnwrap(vault.recipientsStatus.problem, "\(kind)")
+                XCTAssertNil(p.restore, "\(kind): no record, no verifiable subset")
+                XCTAssertEqual(p.unexpected, vault.recipients.map(\.key), "\(kind): nothing can be confirmed")
+                XCTAssertNil(fresh.record(for: vault.vaultId), "a tampered list is never remembered")
+            }
+        }
+    }
+
+    /// Repair: rewrites the last verified list, rotates the secret, rewraps
+    /// every file away from the attacker's key; other devices accept it.
+    func testRepairRestoresTheLastVerifiedListAndRotates() throws {
+        for kind in RecipientsTamper.allCases where kind != .secretReplaced {
+            try FileManager.default.removeItem(at: tmp)
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let store = MemoryRecipientsTrustStore(), deviceB = MemoryRecipientsTrustStore()
+            let (made, revs, other) = try setUpVault(store: store)
+            XCTAssertEqual(try open(made.url, deviceB, [b]).recipientsStatus, .verified(.firstUse))
+            try kind.apply(to: made.url, attacker: x.recipient, other: other)
+            var vault = try open(made.url, store)
+            let old = try XCTUnwrap(vault.secret)
+            let report = try vault.repairRecipients()
+            XCTAssertTrue(report.isComplete, "\(kind): \(report.failures)")
+            XCTAssertEqual(vault.recipients.map(\.key), [a.recipient.string, b.recipient.string], "\(kind)")
+            XCTAssertNotEqual(vault.secret, old, "\(kind): a repair is a removal: the secret rotates")
+            XCTAssertEqual(try open(made.url, store).recipientsStatus, .verified(.unchanged), "\(kind)")
+            XCTAssertEqual(try open(made.url, deviceB, [b]).recipientsStatus, .verified(.rotated), "\(kind): B follows the link")
+            try assertReadable(revs, at: made.url, by: b)
+            XCTAssertEqual(try stanzaCounts(vault, revs), Array(repeating: 2, count: revs.count), "\(kind)")
+            XCTAssertThrowsError(try Vault.open(at: made.url, identities: [x]), "\(kind): the attacker's key opens nothing")
+            for r in revs {
+                XCTAssertThrowsError(try AgeFile.decrypt(Data(contentsOf: fileURL(vault, r.noteId, r.name)), with: [x]))
+            }
+            if kind == .removedRecipient {
+                XCTAssertEqual(vault.recipients.last?.label, "", "a deleted key comes back from the record, unlabelled")
+            } else {
+                XCTAssertEqual(vault.recipients.map(\.label), ["A", "B"], "\(kind)")
+            }
+        }
+    }
+
+    func testRepairWithoutAKnownListNeedsKeysAndRefusesUnknownOnes() throws {
+        let (made, _, other) = try setUpVault(store: MemoryRecipientsTrustStore())
+        try RecipientsTamper.reordered.apply(to: made.url, attacker: x.recipient, other: other)
+        var vault = try open(made.url, MemoryRecipientsTrustStore(), [b])
+        XCTAssertThrowsError(try vault.repairRecipients()) {
+            guard case .recipientsNotRepairable = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        XCTAssertThrowsError(try vault.repairRecipients(keeping: [x.recipient.string])) {
+            XCTAssertEqual($0 as? VaultError, .unknownRecipient(x.recipient.string))
+        }
+        XCTAssertThrowsError(try vault.confirmRecipients(), "a tag that does not verify is never confirmed")
+        try vault.repairRecipients(keeping: [b.recipient.string, a.recipient.string])
+        XCTAssertEqual(try open(made.url, nil).recipientsStatus, .verified(.firstUse))
+        let verified = try open(made.url, MemoryRecipientsTrustStore())
+        XCTAssertThrowsError(try { var v = verified; try v.repairRecipients() }())
+    }
+
+    // MARK: - Untagged vaults
+
+    func testUntaggedVaultIsUpgradedOnceAndDowngradeIsCaught() throws {
+        let fixture = try FixtureVault.copySample(to: tmp)
+        let id = try FixtureVault.sampleIdentity()
+        XCTAssertNil(try Vault.open(at: fixture).manifest.recipientsTag, "the committed fixture predates §2.1")
+        let store = MemoryRecipientsTrustStore()
+        var vault = try Vault.open(at: fixture, identities: [id], trust: store)
+        XCTAssertEqual(vault.recipientsStatus, .untagged)
+        XCTAssertTrue(vault.recipientsStatus.allowsWriting)
+        XCTAssertNil(store.record(for: vault.vaultId), "nothing remembered before the upgrade")
+        XCTAssertTrue(try vault.upgradeRecipientsTag())
+        XCTAssertFalse(try vault.upgradeRecipientsTag(), "once")
+        XCTAssertEqual(vault.manifest.features.last, "recipients-tag")
+        XCTAssertEqual(try Vault.open(at: fixture, identities: [id], trust: store).recipientsStatus, .verified(.unchanged))
+        XCTAssertTrue(try Vault.open(at: fixture, identities: [id], trust: store).verify().isHealthy)
+
+        // Tag and feature both stripped: a device with a record sees a downgrade.
+        var m = try VaultManifest.decode(Data(contentsOf: fixture.appendingPathComponent("vault.json")))
+        m.recipientsTag = nil
+        m.features.removeAll { $0 == "recipients-tag" }
+        try m.encoded().write(to: fixture.appendingPathComponent("vault.json"))
+        var down = try Vault.open(at: fixture, identities: [id], trust: store)
+        XCTAssertEqual(down.recipientsStatus.problem?.reason, .tagRemoved)
+        XCTAssertFalse(try down.upgradeRecipientsTag(), "a device with a record never re-tags")
+        XCTAssertEqual(try Vault.open(at: fixture, identities: [id]).recipientsStatus, .untagged, "first use cannot tell")
+    }
+
+    func testUpgradeRefusesAManifestChangedSinceOpen() throws {
+        let fixture = try FixtureVault.copySample(to: tmp)
+        var vault = try Vault.open(at: fixture, identities: [try FixtureVault.sampleIdentity()])
+        var m = vault.manifest
+        m.recipients.append(.init(key: x.recipient.string, label: "x", added: Date()))
+        try m.encoded().write(to: fixture.appendingPathComponent("vault.json"))
+        XCTAssertThrowsError(try vault.upgradeRecipientsTag())
+        XCTAssertNil(try VaultManifest.decode(Data(contentsOf: fixture.appendingPathComponent("vault.json"))).recipientsTag)
+    }
+
+    // MARK: - Rewrap and capture
+
+    /// A planted journal with a planted key: resuming would re-encrypt every
+    /// file to the attacker, so it is refused.
+    func testPlantedRewrapJournalIsNotResumedToATamperedList() throws {
+        let store = MemoryRecipientsTrustStore()
+        let (made, revs, other) = try setUpVault(store: store)
+        try RecipientsTamper.addedRecipient.apply(to: made.url, attacker: x.recipient, other: other)
+        try Data(#"{"format":"sempere/1"}"#.utf8).write(to: made.url.appendingPathComponent("rewrap-journal.json"))
+        var vault = try open(made.url, store)
+        XCTAssertThrowsError(try vault.resumeRewrap()) {
+            guard case .untrustedRecipients = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        for r in revs {
+            XCTAssertThrowsError(try AgeFile.decrypt(Data(contentsOf: fileURL(vault, r.noteId, r.name)), with: [x]))
+        }
+    }
+
+    /// Captures are sealed to the profile's list, made while the list
+    /// checked; a list tampered later never reaches a capture.
+    func testCaptureSealsToTheVerifiedProfileOnly() throws {
+        let store = MemoryRecipientsTrustStore()
+        let (made, _, other) = try setUpVault(store: store)
+        let profile = try made.captureProfile(device: devC)
+        try RecipientsTamper.addedRecipient.apply(to: made.url, attacker: x.recipient, other: other)
+        XCTAssertThrowsError(try open(made.url, store).captureProfile(device: devC))
+        let sealed = try CaptureWriter(profile: profile).seal(audio: Data(repeating: 1, count: 64), started: Date())
+        XCTAssertEqual(try Vault.stanzaCounts(sealed.data), ["mlkem768x25519": 2])
+        XCTAssertThrowsError(try AgeFile.decrypt(sealed.data, with: [x]))
+    }
+
+    // MARK: - Incoming vault.json (sync)
+
+    func testIncomingManifestIsCheckedBeforeReplacingTheLocalOne() throws {
+        let store = MemoryRecipientsTrustStore()
+        var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a], trust: store)
+        _ = try populate(vault)
+        let manifestURL = vault.url.appendingPathComponent("vault.json")
+        let local = try Data(contentsOf: manifestURL)
+        let other = try Vault.create(at: vaultURL("Other"), recipients: [a.recipient], identities: [a]).manifest
+
+        // A legitimate change made elsewhere (a copy changed by another device).
+        let copy = vaultURL("Copy")
+        try FileManager.default.copyItem(at: vault.url, to: copy)
+        var elsewhere = try Vault.open(at: copy, identities: [a])
+        try elsewhere.removeRecipient(b.recipient)
+        let legit = try Data(contentsOf: copy.appendingPathComponent("vault.json"))
+        XCTAssertNil(Vault.incomingManifestProblem(legit, local: local, vault: vault), "rotation confirmed by the link")
+        XCTAssertNil(Vault.incomingManifestProblem(local, local: local, vault: nil), "same list, no key needed")
+        XCTAssertNil(Vault.incomingManifestProblem(legit, local: nil, vault: nil), "a first pull takes what is there")
+        XCTAssertNotNil(Vault.incomingManifestProblem(legit, local: local, vault: nil), "a changed list needs the key")
+
+        for kind in RecipientsTamper.allCases {
+            try Data(local).write(to: manifestURL)
+            try kind.apply(to: vault.url, attacker: x.recipient, other: other)
+            let tampered = try Data(contentsOf: manifestURL)
+            try Data(local).write(to: manifestURL)
+            XCTAssertNotNil(Vault.incomingManifestProblem(tampered, local: local, vault: vault), "\(kind)")
+            if kind == .tagFromAnotherVault {
+                XCTAssertNil(Vault.incomingManifestProblem(tampered, local: local, vault: nil), "same keys: nobody new reads")
+            } else {
+                XCTAssertNotNil(Vault.incomingManifestProblem(tampered, local: local, vault: nil), "\(kind) without a key")
+            }
+        }
+        XCTAssertNotNil(Vault.incomingManifestProblem(Data("{".utf8), local: local, vault: vault))
+        vault = try Vault.open(at: vault.url, identities: [a])   // no trust store: the local vault is the anchor
+        try kind(.secretReplaced)
+        func kind(_ k: RecipientsTamper) throws {
+            try k.apply(to: vault.url, attacker: x.recipient, other: other)
+            let t = try Data(contentsOf: manifestURL)
+            try Data(local).write(to: manifestURL)
+            XCTAssertNotNil(Vault.incomingManifestProblem(t, local: local, vault: vault))
+        }
+    }
+
+    // MARK: - Untrusted input
+
+    func testMalformedTagFieldsReadAsTagsThatDoNotVerify() throws {
+        let store = MemoryRecipientsTrustStore()
+        let vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a], trust: store)
+        let url = vault.url.appendingPathComponent("vault.json")
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        for bad: Any in [42, ["x"], ["k": 1], "", "ZZ", String(repeating: "A", count: 64), true] {
+            obj["recipientsTag"] = bad
+            obj["secretLink"] = bad
+            try JSONSerialization.data(withJSONObject: obj).write(to: url)
+            let v = try Vault.open(at: url.deletingLastPathComponent(), identities: [a], trust: store)
+            XCTAssertEqual(v.recipientsStatus.problem?.reason, .tagMismatch, "\(bad)")
+            XCTAssertEqual(try v.manifest.encoded().isEmpty, false)
+        }
+        obj["recipientsTag"] = NSNull()
+        try JSONSerialization.data(withJSONObject: obj).write(to: url)
+        XCTAssertEqual(try Vault.open(at: vault.url, identities: [a], trust: store).recipientsStatus.problem?.reason, .tagRemoved)
+    }
+
+    func testTrustRecordRoundTripsAndRejectsMalformedFiles() throws {
+        let dir = tmp.appendingPathComponent("trust")
+        let store = FileRecipientsTrustStore(directory: dir)
+        let record = RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
+        try store.save(record)
+        XCTAssertEqual(store.record(for: record.vaultId), record)
+        let file = dir.appendingPathComponent("\(record.vaultId.uuidString.lowercased()).json")
+        #if !os(Windows)
+        let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o600)
+        #endif
+        XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("vaultSecret"))
+        for junk in ["{", #"{"format":"x"}"#, #"{"format":"sempere-trust/1","vaultId":"\#(record.vaultId.uuidString.lowercased())","linkKey":"00","recipients":[]}"#] {
+            try Data(junk.utf8).write(to: file)
+            XCTAssertNil(store.record(for: record.vaultId), junk)
+        }
+        XCTAssertNil(store.record(for: UUID()))
+    }
+
+    func testSubsetSearchIsBounded() throws {
+        let secret = VaultSecret.random(), id = UUID()
+        let keys = (0..<5).map { _ in pqIdentity().recipient.string }
+        let tag = RecipientsAuth.tag(vaultId: id, keys: [keys[0], keys[2]], secret: secret)
+        let found = try XCTUnwrap(RecipientsAuth.verifiedSubset(of: keys, tag: tag, vaultId: id, secret: secret))
+        XCTAssertEqual(found.kept, [keys[0], keys[2]])
+        XCTAssertEqual(found.deleted, [keys[1], keys[3], keys[4]])
+        let four = RecipientsAuth.tag(vaultId: id, keys: [keys[0]], secret: secret)
+        XCTAssertNil(RecipientsAuth.verifiedSubset(of: keys, tag: four, vaultId: id, secret: secret), "four deletions: beyond the bound")
+        let many = (0..<17).map { "age1pq1\($0)" }
+        let t = RecipientsAuth.tag(vaultId: id, keys: Array(many.dropLast()), secret: secret)
+        XCTAssertNil(RecipientsAuth.verifiedSubset(of: many, tag: t, vaultId: id, secret: secret), "lists over 16 keys are not searched")
+    }
+}
+
+/// The committed sample vault (untagged: it predates format.md §2.1).
+enum FixtureVault {
+    static func copySample(to dir: URL) throws -> URL {
+        let dest = dir.appendingPathComponent("sample.sempere")
+        try FileManager.default.copyItem(at: try FixtureTests.bundled("sample.sempere"), to: dest)
+        return dest
+    }
+
+    static func sampleIdentity() throws -> NativeIdentity {
+        try IdentityFile.parse(String(contentsOf: FixtureTests.bundled("sample.key"), encoding: .utf8))
+    }
+}

@@ -125,22 +125,24 @@ public enum RecipientsAuth {
         guard let tag = manifest.recipientsTag else {
             let featured = manifest.features.contains(VaultManifest.recipientsTagFeature)
             guard featured || record != nil else { return .untagged }
-            return .tampered(.init(reason: .tagRemoved, current: keys, restore: record.map { r in keys.filter(r.recipients.contains) },
-                                   record: record))
+            return .tampered(.init(reason: .tagRemoved, current: keys, restore: record?.recipients, record: record))
         }
         guard verifyTag(tag, vaultId: id, keys: keys, secret: secret) else {
             if let found = verifiedSubset(of: keys, tag: tag, vaultId: id, secret: secret) {
                 return .tampered(.init(reason: .tagMismatch, current: keys, restore: found.kept, record: record))
             }
-            return .tampered(.init(reason: .tagMismatch, current: keys, restore: record.map { r in keys.filter(r.recipients.contains) },
-                                   record: record))
+            // Same secret as when the record was made, or the device would
+            // see another reason: the record's list is the last verified one.
+            return .tampered(.init(reason: .tagMismatch, current: keys, restore: record?.recipients, record: record))
         }
         guard let record else { return .verified(.firstUse) }
         if constantTimeEqual(linkKey(secret), record.linkKey) { return .verified(.unchanged) }
         if verifyLink(manifest.secretLink, linkKey: record.linkKey, to: secret, vaultId: id) { return .verified(.rotated) }
         let known = Set(record.recipients)
         if keys.allSatisfy(known.contains) { return .verified(.onlyKnownKeys) }
-        return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: keys.filter(known.contains), record: record))
+        // No repair: the files are tagged under a secret this device no longer
+        // holds (format.md §2.1 "Repair").
+        return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: nil, record: record))
     }
 
     static func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
@@ -238,21 +240,22 @@ public struct RecipientsProblem: Hashable, Sendable {
     }
 
     public var reason: Reason
-    /// Keys listed now that are not in the last verified list; when that list
-    /// is not known, every listed key (none can be confirmed).
+    /// Keys listed now that are not in the last verified list (this device's
+    /// record when there is no other); when no list is known, every listed
+    /// key (none can be confirmed).
     public var unexpected: [String]
     /// Keys of the last verified list that are no longer listed.
     public var missing: [String]
-    /// The last verified list (in the current order), which a repair writes;
-    /// nil when this device cannot tell it.
+    /// The last verified list, which a repair writes; nil when this device
+    /// cannot tell it, or (`secretUnconfirmed`) when no repair is possible.
     public var restore: [String]?
 
     init(reason: Reason, current: [String], restore: [String]?, record: RecipientsTrustRecord?) {
         self.reason = reason
         let restore = restore.flatMap { $0.isEmpty ? nil : $0 }
         self.restore = restore
-        if let restore {
-            let keep = Set(restore)
+        if let known = restore ?? record?.recipients {
+            let keep = Set(known)
             unexpected = current.filter { !keep.contains($0) }
         } else {
             unexpected = current
@@ -390,12 +393,14 @@ extension Vault {
     /// Whether a `vault.json` received from elsewhere (a sync server) may
     /// replace the local one (format.md §2.1): nil when it may, else why not.
     ///
-    /// It may when it lists the same keys as `local` (and keeps a tag `local`
-    /// has), or when `vault` is unlocked and the incoming list verifies: its
+    /// It may when it is `local`'s list, tag and secret, or when `vault` is
+    /// unlocked and the incoming list verifies: its
     /// tag under the secret it carries, and that secret is the local one or
     /// a confirmed successor (`secretLink`). The anchor is this device's
     /// trust record when it has one, else the local vault's own secret and
-    /// list. Without a key a changed list cannot be checked and is refused.
+    /// list. Without a key a changed list cannot be checked and is refused;
+    /// the same keys under another tag are taken (nobody new can read, and
+    /// the next unlock checks the tag).
     ///
     /// - Parameters:
     ///   - data: the incoming bytes.
@@ -408,8 +413,11 @@ extension Vault {
         guard let mine = try? readManifest(local) else { return nil }   // a damaged local copy: take the remote one
         guard incoming.vaultId == mine.vaultId else { return "the incoming vault.json belongs to another vault" }
         let sameKeys = incoming.recipients.map(\.key) == mine.recipients.map(\.key)
-        if sameKeys, incoming.recipientsTag != nil || mine.recipientsTag == nil { return nil }
+        if sameKeys, incoming.recipientsTag == mine.recipientsTag, incoming.vaultSecret == mine.vaultSecret { return nil }
         guard let vault, vault.canRead, vault.vaultId == mine.vaultId else {
+            // Without the key only the keys can be compared: the same keys
+            // (still tagged) let nobody new read; anything else waits.
+            if sameKeys, incoming.recipientsTag != nil || mine.recipientsTag == nil { return nil }
             return sameKeys ? "the incoming vault.json drops the device list's tag (format.md §2.1); unlock (--identity) to check it"
                 : "the incoming vault.json changes the device list; unlock (--identity) so it can be checked (format.md §2.1)"
         }

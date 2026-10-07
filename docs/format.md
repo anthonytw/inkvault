@@ -155,10 +155,11 @@ writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
 files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
 reports the keys that are not in the last verified list (the **unexpected**
 keys). Reading notes still works: revisions and blobs carry their own tags.
-The last verified list is the trust record's, or, when the current secret
-verifies a tag over the current list with up to three entries deleted (order
-kept), that shorter list: an attacker who only inserted keys is undone
-exactly, including keys another device added since this one last checked.
+The last verified list is, when the current secret verifies a tag over the
+current list with up to three entries deleted (order kept), that shorter
+list: an attacker who only inserted keys is undone exactly, including keys
+another device added since this one last checked. Otherwise it is the trust
+record's list, if the device has one.
 
 An untagged vault is upgraded by the first writer that holds the secret:
 it writes the tag over the current list and the feature, and reports the
@@ -166,13 +167,17 @@ list it now trusts. This trusts whatever the list is at that moment
 (trust on first use); a device that has a trust record never upgrades, it
 reports a downgrade.
 
-**Repair.** A key holder repairs a tampered list by writing the last verified
-list (keeping the labels the current entries have) as a recipient removal
-(§3.3): the secret rotates and every file is rewrapped, so no file stays
-encrypted to an unexpected key. A device that missed a legitimate change may
-instead confirm the current list explicitly, after the user has checked it;
-the tag must verify under the current secret. Rewriting a list whose tag does
-not verify is never done implicitly.
+**Repair.** A key holder repairs a list whose tag does not verify, or was
+removed, by writing the last verified list (keeping the labels the current
+entries have; a key the attacker deleted comes back with an empty label) as a
+recipient removal (§3.3): the secret rotates and every file is rewrapped, so
+no file stays encrypted to an unexpected key. An unconfirmed secret change
+cannot be repaired this way: the files are tagged under a secret the device
+no longer holds, so the user restores `vault.json` from a backup or another
+device, or, when the device only missed a legitimate change, confirms the
+current list explicitly after checking it (the tag must verify under the
+current secret; the trust record is updated, nothing in the vault changes).
+Neither is ever done implicitly.
 
 **Limits.** The check is only as fresh as the trust record. A device that
 opens a vault for the first time trusts the list it finds; a removed device,
@@ -2091,7 +2096,7 @@ where the table says how they degrade.
 | revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
 | `recipientsTag`, `secretLink` (§2.1) | a value that is not a string of 64 lowercase hex digits is a tag that does not verify (tampered), never a parse error | `VaultManifest` |
-| subsets tried to find the last verified list (§2.1) | up to 3 entries deleted, lists of at most 64 keys | `RecipientsAuth.maxSearchDeletions` |
+| subsets tried to find the last verified list (§2.1) | up to 3 entries deleted, lists of at most 16 keys (C(16, ≤3) = 696 tags) | `RecipientsAuth.maxSearchDeletions` |
 | blob collector state (device-local, §8.1.6) | 64 MiB | `BlobCollectorState` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |

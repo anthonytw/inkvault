@@ -519,6 +519,7 @@ public struct Vault: Sendable {
     mutating func addRecipient(_ recipient: NativeRecipient, label: String, added: Date,
                                policy: RewrapPolicy = RewrapPolicy(), stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
+        try requireTrustedRecipients()
         let key = recipient.string
         var report = RewrapReport()
         let resumed = pendingRewrap
@@ -544,6 +545,7 @@ public struct Vault: Sendable {
     mutating func replaceRecipient(_ old: NativeRecipient, with new: NativeRecipient, label: String?, added: Date,
                                    policy: RewrapPolicy = RewrapPolicy(), stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
+        try requireTrustedRecipients()
         let oldKey = old.string, newKey = new.string
         var report = RewrapReport()
         func has(_ k: String) -> Bool { manifest.recipients.contains { $0.key == k } }
@@ -569,6 +571,7 @@ public struct Vault: Sendable {
     mutating func removeRecipient(_ recipient: NativeRecipient, policy: RewrapPolicy = RewrapPolicy(),
                                   stopAfter: Int?) throws -> RewrapReport {
         _ = try requireSecret()
+        try requireTrustedRecipients()
         let key = recipient.string
         var report = RewrapReport()
         let resumed = pendingRewrap
@@ -696,16 +699,24 @@ public struct Vault: Sendable {
     /// unexpected key.
     ///
     /// - Parameter keeping: the keys to keep, in order; each must be listed
-    ///   now. Needed when this device cannot tell the last verified list.
+    ///   now or be in this device's trust record (a key the attacker deleted
+    ///   comes back with an empty label). Needed when this device cannot tell
+    ///   the last verified list.
     /// - Throws: `recipientsNotRepairable` when the list checks, when no list
-    ///   is known or given, or while a recipient change is unfinished (its
-    ///   journal holds a secret a second rotation would lose: restore
-    ///   `vault.json` from a backup instead).
+    ///   is known or given, after an unconfirmed secret change (the files are
+    ///   tagged under a secret this device no longer holds: restore
+    ///   `vault.json` from a backup or another device, or confirm the list), or
+    ///   while a recipient change is unfinished (its journal holds a secret a
+    ///   second rotation would lose: restore `vault.json` from a backup).
     @discardableResult
     public mutating func repairRecipients(keeping: [String]? = nil, policy: RewrapPolicy = RewrapPolicy()) throws -> RewrapReport {
         _ = try requireReadable()
         guard let problem = recipientsStatus.problem else {
             throw VaultError.recipientsNotRepairable("the recipients list checks; nothing to repair")
+        }
+        guard problem.reason != .secretUnconfirmed else {
+            throw VaultError.recipientsNotRepairable("the vault's secret was replaced: restore vault.json from a backup or "
+                + "another device, or confirm the list if the change was yours")
         }
         guard let keys = keeping ?? problem.restore, !keys.isEmpty else {
             throw VaultError.recipientsNotRepairable("this device does not know the last verified list: name the keys to keep")
@@ -714,10 +725,16 @@ public struct Vault: Sendable {
             throw VaultError.recipientsNotRepairable("a recipient change is unfinished; restore vault.json from a backup")
         }
         if let dup = Self.firstDuplicate(keys) { throw VaultError.duplicateRecipient(dup) }
+        let remembered = Set(trustStore?.record(for: vaultId)?.recipients ?? [])
         var next: [VaultManifest.Recipient] = []
         for k in keys {
-            guard let entry = manifest.recipients.first(where: { $0.key == k }) else { throw VaultError.unknownRecipient(k) }
-            next.append(entry)
+            if let entry = manifest.recipients.first(where: { $0.key == k }) {
+                next.append(entry)
+            } else if remembered.contains(k), (try? NativeRecipient(string: k)) != nil {
+                next.append(.init(key: k, label: "", added: Date()))
+            } else {
+                throw VaultError.unknownRecipient(k)
+            }
         }
         return try changeRecipients(next, rotate: true, policy: policy, stopAfter: nil, repairing: true)
     }
