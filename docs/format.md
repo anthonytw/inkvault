@@ -993,6 +993,17 @@ so the version is the note exactly as the user saw it. A checkpoint may carry
 ops; the version is then the note as of the delta, ops included. `checkpoint`
 on a snapshot means nothing and is ignored.
 
+**Imports are checkpoints.** A writer that imports a note from another
+application (the reference importer: `sempere import notability`, including
+`--overwrite`) writes the import's delta as a checkpoint: it is a deliberate
+full write of the note, not an autosave. The reference importer names it
+`Imported from Notability on <UTC minute>` plus ` (modified in Notability
+<UTC minute>)` when the source records a modification date. Its `wall` is the
+import time, except for a note's first import, whose `wall` is the source's
+creation date because it sets `created` (§5.4); the import time is then only in
+the name. Imports written before this rule carry no `checkpoint` and are
+autosaves (§5.8.4 may thin an older one).
+
 A checkpoint is never deleted by compaction or thinning (§5.3, §5.8.4).
 Checkpoints are not merged: two devices saving versions at the same time
 make two checkpoints, each a restore point.
@@ -1063,6 +1074,17 @@ deletes nothing) and the note's revisions ordered by `(hlc, device, seq)`:
   first revision while another has an earlier `wall` (§5.3).
 - Everything else in the range may be deleted, deltas and snapshots alike,
   subject to the rules below. Revisions after the range are never deleted.
+
+A cutoff of zero ("thin everything except checkpoints") puts every revision
+whose `wall` is not in the future in the range: what stays is every
+checkpoint, each session's last point and the newest revision. Writers offer
+it as its own, explicitly labelled action, never as the default, and say in
+the preview which rule applies and what it keeps.
+
+Whether a note has anything to delete is decided from its revisions' names,
+`wall`, `checkpoint`, `session`, `asOf` and snapshot `included` only, never
+their ops or states; a thinner may keep that metadata per revision file
+(§10) and read in full only notes that have a candidate.
 
 A thinner must not delete anything until it has written the snapshots its
 deletions rely on, and must keep these rules, which make every subset of its
@@ -1946,7 +1968,10 @@ again.
 nonce ‖ ciphertext ‖ 16-byte tag) under `key`, with associated data
 `SMPS` ‖ `0x01` ‖ the file name (UTF-8). The plaintext is `gzip(JSON)` of
 `{"schema": N, "notes": …}`: per note id, the sorted file names of the
-revisions the summary was made from and the summary. Its JSON shape is the
+revisions the summary was made from, the summary and, optionally, the metadata
+of each of those revisions that thinning needs (name, `wall`, `checkpoint`,
+`session`, `asOf`, snapshot `included`; §5.8.4), used only when it names
+exactly the entry's files. Its JSON shape is the
 implementation's own and changes with `schema`.
 
 **Validity.** Revision files are write-once and named by `(hlc, device,

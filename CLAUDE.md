@@ -245,6 +245,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `merge` (an edit's own re-read, immediate), never by assigning `notes`
   wholesale. Tests that need "another device wrote a revision" use
   `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Thinning (`format.md` §5.8.4) is decided from revision metadata first
+  (`RevisionMeta`, kept per entry in the `SummaryCache`; `CompactionPlanner.select` /
+  `mayDelete` take hollow revisions): never add a rule to `select` that needs ops or
+  states, or the metadata stage stops being exact. Imports are checkpoints (§5.8.1).
+  The app thins through `thinVault(rule:)` (`ThinningRule`: the window, or everything
+  except checkpoints), the CLI through `Vault.prepareCompactions`.
 - Drawing cache (`DrawingCache`, format.md §10.1): keyed by note id + revision
   file names; a note opened from it is `isPreparing` (read-only) until its
   revisions are read and every shown cached drawing passed

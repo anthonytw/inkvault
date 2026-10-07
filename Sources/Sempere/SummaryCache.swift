@@ -58,6 +58,10 @@ public final class SummaryCache: @unchecked Sendable {
         /// Sorted revision file names.
         var revisions: [String]
         var summary: NoteSummary
+        /// The metadata of those revisions, oldest first (`RevisionMeta`), for
+        /// thinning; absent in entries written before it was kept, or when the
+        /// summary was stored without it. Optional, so the schema is unchanged.
+        var history: [RevisionMeta]?
     }
 
     private struct Payload: Codable {
@@ -103,6 +107,15 @@ public final class SummaryCache: @unchecked Sendable {
         return e.summary
     }
 
+    /// The revision metadata stored for note `id` if it was made from
+    /// exactly `revisions` (any order), else nil.
+    public func history(for id: UUID, revisions: [RevisionName]) -> [RevisionMeta]? {
+        let names = revisions.map(\.filename).sorted()
+        lock.lock(); defer { lock.unlock() }
+        guard let e = entries[id], e.revisions == names else { return nil }
+        return e.history
+    }
+
     /// Every stored summary, whether or not it is still current: what to show
     /// while the vault is checked.
     public var storedSummaries: [NoteSummary] {
@@ -140,14 +153,18 @@ public final class SummaryCache: @unchecked Sendable {
 
     /// Stores `summary`, made from `revisions`. Summaries with a `problem`
     /// are not stored (and drop an older entry).
-    public func store(_ summary: NoteSummary, revisions: [RevisionName]) {
+    public func store(_ summary: NoteSummary, revisions: [RevisionName], history: [RevisionMeta]? = nil) {
         let names = revisions.map(\.filename).sorted()
+        // Metadata of other files than the summary's is never stored.
+        let history = history.flatMap { h in h.map(\.name.filename).sorted() == names ? h.sorted { $0.name < $1.name } : nil }
         lock.lock(); defer { lock.unlock() }
         if summary.problem != nil || names.isEmpty {
             if entries.removeValue(forKey: summary.id) != nil { dirty = true }
             return
         }
-        let e = Entry(revisions: names, summary: summary)
+        // A summary stored again without metadata keeps the metadata of the same files.
+        let kept = history ?? entries[summary.id].flatMap { $0.revisions == names ? $0.history : nil }
+        let e = Entry(revisions: names, summary: summary, history: kept)
         guard entries[summary.id] != e else { return }
         entries[summary.id] = e
         dirty = true
@@ -205,13 +222,16 @@ public final class SummaryCache: @unchecked Sendable {
                 loadProblem = "schema \(payload.schema), expected \(Self.schemaVersion)"
                 return
             }
+            var notes = payload.notes
             for (id, e) in payload.notes {
                 guard e.summary.id == id, e.revisions == e.revisions.sorted(),
                       e.revisions.allSatisfy({ RevisionName($0) != nil }) else {
                     throw SummaryCacheError.damaged("entry \(id.uuidString.lowercased())")
                 }
+                // Metadata that does not describe exactly the entry's files is dropped (read again when needed).
+                if let h = e.history, h.map(\.name.filename) != e.revisions { notes[id]?.history = nil }
             }
-            entries = payload.notes
+            entries = notes
         } catch {
             entries = [:]
             loadProblem = "\(error)"

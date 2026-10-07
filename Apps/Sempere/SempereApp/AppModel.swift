@@ -195,6 +195,11 @@ final class AppModel {
     /// (`thinIfDue`, format.md §5.8.4). The app turns it on; tests leave it
     /// off so nothing is written that they did not ask for.
     var automaticThinning = false
+    /// How far a thinning run (or its preview) has got, counted per note;
+    /// nil when none is running (`thinVault`).
+    var thinningProgress: ThinningProgress?
+    /// Notes thinning works on at once (`thinVault`).
+    var thinningConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
     var cloudProgress: CloudProgress?
     /// True when the open vault is in iCloud Drive: reads and writes are
@@ -251,6 +256,17 @@ final class AppModel {
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow
+    /// How many notes already known to be arriving a pass re-checks with
+    /// iCloud (in rotation, `nextPendingChecks`).
+    var cloudCheckLimit = 64
+    /// Where the rotation of `nextPendingChecks` stopped (an id string).
+    @ObservationIgnored var pendingCheckCursor = ""
+    /// Notes the file presenter reported changed since the last pass: checked
+    /// with iCloud by the next pass even when already known to be arriving.
+    @ObservationIgnored var reportedNoteIDs: Set<UUID> = []
+    /// The shortest time between two summary-cache saves while notes arrive.
+    var summaryCacheSaveInterval = Duration.seconds(20)
+    @ObservationIgnored var lastSummaryCacheSave: ContinuousClock.Instant?
     /// Test seam: awaited before an editor opened from the drawing cache
     /// takes the note it read in the background.
     @ObservationIgnored var editorLoadHook: (@Sendable () async -> Void)?
@@ -258,6 +274,8 @@ final class AppModel {
     @ObservationIgnored var onSummaryRead: (@Sendable (Int) -> Void)?
     /// Notes read per published batch, and threads reading them (`AppModel+Loading`).
     var loadBatchSize = 24
+    /// The largest batch `readSummaries` makes when many notes changed.
+    var loadBatchLimit = 96
     var loadConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Where summaries are cached between launches (`SummaryCache`); nil (the
     /// default, for tests): no cache. The app passes `defaultSummaryCacheDirectory`.
@@ -856,6 +874,11 @@ final class AppModel {
         dirtyNoteIDs = []
         dirtyAll = false
         lastValidation = nil
+        reportedNoteIDs = []
+        pendingCheckCursor = ""
+        // Saves are throttled while notes arrive: what the last passes read is kept.
+        saveSummaryCache()
+        lastSummaryCacheSave = nil
         summaryCache = nil
         summaryCacheOpening = nil
         // Drawings of this vault's notes do not outlive it on this device.

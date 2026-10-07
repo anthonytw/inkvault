@@ -449,6 +449,20 @@ Phase 1 task detail (historical, for reference):
   automatic run once a day per vault after the listing (`thinIfDue`, open
   notes and non-local iCloud notes skipped, off in tests and DEBUG scripted
   runs), Settings sheet from the sidebar's gear button (now the E6 panel, below).
+- Performance round 3 (PR #88, TestFlight build 6 feedback; maintainer decisions 2026-10-07):
+  - Imports are checkpoints (`format.md` §5.8.1): "Imported from Notability on <UTC time>
+    (modified in Notability <date>)". An `--overwrite` is dated when it ran; a first import keeps
+    the creation date as `wall` because it sets `created`. Imports written before this carry no
+    checkpoint: thinning then deletes an older import as an autosave. The build 6 report
+    ("deleted autosaves from all notes") was that case and was correct: the state and the kept
+    re-import were unchanged (`testLegacyReimportThinsOnlyTheFirstImportAndChangesNothing`).
+  - Two explicit rules (`ThinningRule`, shared wording): "Thin versions older than N days"
+    (the setting; `compact --thin-older-than`) and "Thin everything except checkpoints"
+    (`compact --thin-all`, cutoff 0). Previews state the rule and what it keeps.
+  - Thinning decides from revision metadata (`RevisionMeta`, kept in the summary cache next to
+    each summary; `CompactionPlanner.select` / `mayDelete`) and reads in full only the notes
+    with a candidate; snapshots are encoded once (`PreparedCompaction`); notes run in
+    parallel (`prepareCompactions`, app `thinningConcurrency`) with per-note progress.
 
 ## Gotchas collected so far
 

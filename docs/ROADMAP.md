@@ -59,6 +59,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | ✅ #52 | ✅ #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | ✅ #74 | ✅ #74 |
+| `compact --thin-all [--dry-run]` (thin everything except checkpoints), imports written as checkpoints, thinning from indexed revision metadata | ✅ #88 | ✅ #88 |
 | import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | ✅ #70 | ✅ #70 |
 | import notability: typed text and recordings (D3, D4) | ✅ #73 | ✅ #73 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
@@ -113,6 +114,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | ✅ #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | ✅ #74 (not yet tried on the iPad) |
+| App | Performance round 3: mass-changed vault reconcile without quadratic iCloud checks ("Updating N changed notes"), thinning with progress, "Thin Versions Older Than N Days" and "Thin Everything Except Checkpoints" | 🔀 #88 (not yet tried on the iPad) |
 | App | Settings panel (E6): one screen (sidebar gear on iPad and iPhone, Settings… ⌘, on the Mac) with General, New Notes, Recording, Transcription, Photos, Version History, Device Keys and Storage; the recording, transcription, voice-notebook and title-format settings are stored now and read by their features when those land | 🔀 draft (not yet tried on the iPad) |
 | App | Spanish localization (L) | 📋 |
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | ✅ #68 |
