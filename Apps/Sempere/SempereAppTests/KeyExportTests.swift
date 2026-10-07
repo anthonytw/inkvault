@@ -52,6 +52,14 @@ struct KeyExportTests {
         }
     }
 
+    /// Biometrics when enrolled, never the passcode after a lockout (anyone who
+    /// knows it could fail Face ID on purpose); the passcode only without biometrics.
+    @Test func ownerCheckNeverFallsBackToThePasscodeAfterALockout() {
+        #expect(OwnerCheck.choose(biometricsUsable: true, biometricsLockedOut: false) == .biometrics)
+        #expect(OwnerCheck.choose(biometricsUsable: false, biometricsLockedOut: true) == .lockedOut)
+        #expect(OwnerCheck.choose(biometricsUsable: false, biometricsLockedOut: false) == .passcode)
+    }
+
     @Test func saveKeyNeedsAnUnlockedVaultThatStaysOpen() async throws {
         let locked = AppModel()
         let auth = FakeAuthenticator()

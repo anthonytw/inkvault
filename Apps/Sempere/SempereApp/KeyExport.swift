@@ -35,14 +35,38 @@ protocol OwnerAuthenticator: Sendable {
     func authenticate(reason: String) async throws
 }
 
+/// Which check `SystemOwnerAuthenticator` asks for.
+enum OwnerCheck: Equatable {
+    case biometrics
+    case passcode
+    /// Biometrics are enrolled but locked out (too many failed attempts).
+    case lockedOut
+
+    /// Biometrics whenever they are enrolled; the passcode only on a device
+    /// without them. A lockout is not "without": falling back to the passcode
+    /// then would let anyone who knows it fail Face ID on purpose and save the key.
+    static func choose(biometricsUsable: Bool, biometricsLockedOut: Bool) -> OwnerCheck {
+        biometricsUsable ? .biometrics : biometricsLockedOut ? .lockedOut : .passcode
+    }
+}
+
 /// Face ID or Touch ID when enrolled, with no passcode fallback (as for
-/// device-only remembered keys, `RememberedKeys.deviceOnlyFooter`); the
-/// passcode (or the Mac's password) only on a device without biometrics.
+/// device-only remembered keys, `RememberedKeys.deviceOnlyFooter`), not even
+/// after a lockout; the passcode (or the Mac's password) only on a device
+/// without biometrics.
 struct SystemOwnerAuthenticator: OwnerAuthenticator {
     func authenticate(reason: String) async throws {
         let context = LAContext()
-        let policy: LAPolicy = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-            ? .deviceOwnerAuthenticationWithBiometrics : .deviceOwnerAuthentication
+        var biometricsError: NSError?
+        let usable = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &biometricsError)
+        let lockedOut = biometricsError.map { $0.domain == LAErrorDomain && $0.code == LAError.Code.biometryLockout.rawValue }
+            ?? false
+        let policy: LAPolicy
+        switch OwnerCheck.choose(biometricsUsable: usable, biometricsLockedOut: lockedOut) {
+        case .biometrics: policy = .deviceOwnerAuthenticationWithBiometrics
+        case .passcode: policy = .deviceOwnerAuthentication
+        case .lockedOut: throw AppModel.KeyExportError.biometryLockedOut
+        }
         guard context.canEvaluatePolicy(policy, error: nil) else { throw AppModel.KeyExportError.noDeviceLock }
         do {
             _ = try await context.evaluatePolicy(policy, localizedReason: reason)
@@ -91,11 +115,14 @@ extension AppModel {
     enum KeyExportError: Error, Equatable, CustomStringConvertible {
         case notAuthenticated
         case noDeviceLock
+        case biometryLockedOut
 
         var description: String {
             switch self {
             case .notAuthenticated: return "Sempere could not confirm it is you, so the key was not shown."
             case .noDeviceLock: return "Set a passcode (or Face ID or Touch ID) on this device to save its key."
+            case .biometryLockedOut:
+                return "Face ID or Touch ID is locked after too many attempts. Lock the device and unlock it with its passcode, then try again."
             }
         }
     }
