@@ -40,6 +40,7 @@ printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 | 3 | `vault verify` or `backup verify` found problems, a restored vault is not healthy, or a recipient change is incomplete. |
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
 | 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: sempere vault recipients replace OLD NEW`. |
+| 6 | Untrusted device list: `vault.json`'s recipients do not check (`format.md` §2.1: changed without the vault's key, its tag removed, or the vault secret replaced in a way this machine cannot confirm). Every command that would encrypt to the list refuses (nothing is written), `vault verify` reports it, and `sync webdav` exits 6 when it rejected a remote `vault.json`. The message names the unexpected keys and `sempere vault recipients repair`. Reading notes still works. |
 
 **Legacy vaults** (format.md §3.3.2) are migrate-only. On a vault that lists a
 classic X25519 recipient, alone or next to post-quantum ones, only these run:
@@ -141,6 +142,8 @@ sempere vault info
 sempere vault recipients add age1pq1... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE [--store-passphrase-env VAR] [--work-factor 15...18]]
 sempere vault recipients remove age1... [--rewrap header|reencrypt]
 sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE ...]
+sempere vault recipients repair [--keep age1pq1... ...] [--dry-run] [--rewrap header|reencrypt]
+sempere vault recipients confirm
 sempere vault rewrap-resume
 sempere vault verify
 sempere vault index [--out PATH|-]
@@ -199,11 +202,52 @@ sempere vault index [--out PATH|-]
 - `info` abbreviates post-quantum keys, shows each recipient's type
   (`x25519` / `mlkem768x25519`, `type` in `--json`) and a `Post-quantum:`
   line: `yes` only when no X25519 recipient is left.
-- `rewrap-resume` finishes an interrupted change.
+- **Authenticated device list** (`format.md` §2.1). `vault.json` carries
+  `recipientsTag`, an HMAC of the vault id and the recipient keys under a key
+  derived from the vault secret, so nobody without the key can add a device
+  (a sync server, a shared folder). `init` and every `recipients` command
+  write it in the same write as the list (a secret rotation also writes
+  `secretLink`, which proves it was made with the old secret). With a key,
+  every command checks the list against this machine's trust record
+  (`$XDG_STATE_HOME/sempere/trust/<vault id>.json`, mode 0600, kept by
+  commands that write; it holds no secret). A list that does not check is
+  refused for writing with exit 6 (see Exit codes); reading still works. An
+  older vault without a tag is tagged by the first command that writes to it,
+  which reports it once on stderr ("vault.json's device list is now
+  authenticated … check them with `sempere vault info`"); read-only commands
+  never write `vault.json`.
+- `info` has a `Device list:` line and `recipientsAuth` in `--json`:
+  `status` (`verified`, `untagged`, `tampered`, or `not-checked` without a
+  key), `tagged`, and for `verified` a `verification` (`unchanged`,
+  `firstUse`, `rotated`: a secret rotation confirmed by its `secretLink`),
+  for `tampered` a `reason` (`tagMismatch`, `tagRemoved`,
+  `secretUnconfirmed`), `unexpected` (keys not in the last verified list),
+  `missing` and `restore` (what `repair` would write).
+- `recipients repair` undoes a tampered list: it writes the last verified
+  list (this machine's record, or the list the tag still verifies once the
+  inserted keys are deleted), keeping the current labels, as a recipient
+  removal: the vault secret rotates and every file is rewrapped, so nothing
+  stays encrypted to an unexpected key. `--keep KEY` (repeatable) names the
+  keys instead, needed when this machine never wrote to the vault. `--dry-run`
+  prints (`--json`: `reason`, `unexpected`, `keep`) and writes nothing. A
+  replaced vault secret cannot be repaired (the files are tagged under a
+  secret this machine no longer has): restore `vault.json` from a backup or
+  another device (exit 1 says so).
+- `recipients confirm` trusts the current list on this machine after you
+  have checked every key: for a secret change this machine missed (it was
+  offline for two or more key changes), or an
+  untagged copy older than the tag (a restored backup), which it tags again.
+  Never for a tag that does not verify. Confirming a list an attacker wrote
+  lets them read what this machine writes.
+- `rewrap-resume` finishes an interrupted change; it refuses (exit 6) a list
+  that does not check, so a planted journal cannot re-encrypt the vault to a
+  planted key.
 - `verify` decrypts, tag-checks and decodes every file and prints
-  `status  path` per file plus counts. Exit 0 only if the vault is healthy,
-  else 3. `-q` lists only problem files. `--json` emits `healthy`,
-  `manifestProblems`, `rewrapPending`, `journalProblem`, `counts` and `files`.
+  `status  path` per file plus counts, and a `RECIPIENTS` line (the device
+  list, as in `info`). Exit 0 only if the vault is healthy, 6 when the device
+  list does not check, else 3. `-q` lists only problem files. `--json` emits
+  `healthy`, `manifestProblems`, `rewrapPending`, `journalProblem`, `counts`,
+  `files` and `recipientsAuth` (as in `info`).
   Attachment blobs are decrypted and hashed in full: `ok`, `unreferenced`
   (healthy: no revision of its note uses it; `blobs gc` removes it later),
   `invalid` (bad framing, padding, hash or name), `staleRecipients`, and a
@@ -1075,7 +1119,10 @@ same path as the app's widgets, Control Center control and Siri. `enable`
 writes this machine's **capture profile** (the vault's public recipients and
 its capture key, which can only add captures and never reads anything) to
 `$XDG_STATE_HOME/sempere/capture/<vault id>.json`, mode 0600. Run it again after
-a key is removed from the vault: that rotates the capture key. `capture` reads
+a key is removed from the vault: that rotates the capture key. It refuses (exit
+6) a device list that does not check (`format.md` §2.1): captures are sealed to
+the profile's list and nothing else, so a profile is only ever made from a
+checked one. `capture` reads
 only `vault.json` and the profile, no identity or passphrase. It seals the
 audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
 with the capture key) and prints the capture id. `--transcript` seals a
@@ -1462,6 +1509,13 @@ if no revision of its note references it there and every revision of the
 note could be read (`format.md` §8.1.6 rules 1–3); otherwise it is copied
 back. Blob paths appear in the output and the JSON report like revisions
 (`notes/<id>/att/<name>`).
+A remote `vault.json` whose device list changed is copied over the local one
+only when it checks (`format.md` §2.1): its tag verifies under the secret it
+carries, and that secret is the local one or a rotation confirmed by its
+`secretLink` (from this machine's trust record, else the local vault's
+secret). That needs the key; without it only a list with the same keys is
+taken. Anything else is reported as `rejected` (stderr line and `--json`
+`rejected: [{path, message}]`), the local copy stays, and the exit code is 6.
 `--dry-run` makes no request that changes anything and writes nothing; it
 lists `would upload`, `would download` and `would delete` lines. It cannot see
 files it would first download, so it may under-report deletions.
@@ -1471,8 +1525,9 @@ Output: one line per action, then
 lines, `-v` adds skipped and ignored entries). `--json` prints the report:
 `dryRun`, `uploaded`, `downloaded`, `deleted` (`{side, path}`), `conflicts`
 (`{path, remoteCopy, detail}`), `errors` and `skipped` (`{path, message}`) and
-`ignored` (remote names that are not vault files). One failing file does not stop the
-run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts.
+`ignored` (remote names that are not vault files), and `rejected`. One failing file does not stop the
+run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts, 6 a
+rejected `vault.json`.
 
 ## Worked examples
 

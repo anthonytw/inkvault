@@ -101,8 +101,13 @@ extension Vault {
 
     /// A capture profile for this device: the recipients and the capture
     /// key. Needs the vault unlocked once; afterwards captures need nothing else.
+    ///
+    /// - Throws: `VaultError.untrustedRecipients` when the recipients list
+    ///   does not check (format.md §2.1).
     public func captureProfile(device: DeviceID, notebook: String = CaptureProfile.defaultNotebook) throws -> CaptureProfile {
         try requireMigrated()
+        // Captures are sealed to these keys alone (format.md §11.1): never to a list that does not check.
+        try requireTrustedRecipients()
         let nb = NoteOps.normalizedNotebook(notebook) ?? CaptureProfile.defaultNotebook
         return CaptureProfile(vaultId: vaultId, recipients: recipients.map(\.key), key: try captureKey().bytes,
                               device: device.rawValue, notebook: nb)
