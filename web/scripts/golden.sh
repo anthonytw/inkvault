@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates web/test/golden from the Swift CLI: for every note of every
-# fixture vault, `sempere export --format json` and `--format svg`. The web
+# fixture vault, `sempere export --format json` and `--format svg`, and the
+# vault's published summaries (`sempere vault summaries --plaintext`). The web
 # tests compare the TypeScript reducer and renderer with these files; CI runs
 # this script and fails on any difference (docs/web-viewer.md "Tests").
 #
@@ -30,6 +31,8 @@ export_vault() {   # name vault-dir
     for f in "$tmp"/*.svg; do mv "$f" "$dest/$id/${f##*-}"; done
     rm -rf "$tmp"
   done
+  # The published summaries' content (format.md §12), as JSON (the sealed file has a random nonce).
+  "$SEMPERE" vault summaries --vault "$vault" --identity "$key" --plaintext --out "$out/$name.summaries.json" -q >/dev/null
 }
 
 export_vault sample "$repo/Tests/SempereTests/Fixtures/sample.sempere"

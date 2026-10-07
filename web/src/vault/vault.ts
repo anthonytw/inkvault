@@ -148,6 +148,10 @@ async function hmacKey(secret: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", buf(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
+async function hkdfKey(secret: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", buf(secret), "HKDF", false, ["deriveKey"]);
+}
+
 /** An unlocked vault: the identity and the vault secret, in memory only. */
 export class UnlockedVault {
   private constructor(
@@ -157,7 +161,18 @@ export class UnlockedVault {
     private readonly previous: CryptoKey | undefined,
     /** The recipient of the pasted identity. */
     readonly recipient: string,
+    /** The vault secret (then the previous one) as HKDF input, for derived keys (format.md §12). */
+    private readonly derivation: CryptoKey[] = [],
   ) {}
+
+  /**
+   * The keys derived for `info` (HKDF-SHA256, empty salt, format.md §10, §12)
+   * under the current secret and, during an unfinished rewrap, the previous one.
+   */
+  async derivedKeys(info: string, algorithm: AesKeyGenParams, usages: KeyUsage[]): Promise<CryptoKey[]> {
+    return Promise.all(this.derivation.map((k) => crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: encoder.encode(info) }, k, algorithm, false, usages)));
+  }
 
   /**
    * Decrypts `vault.json`'s secret with `identity` (and, while a rewrap is
@@ -178,18 +193,23 @@ export class UnlockedVault {
     }
     const secretBytes = await decryptSecret(decrypter, manifest.vaultSecret);
     const secret = await hmacKey(secretBytes);
+    const derivation = [await hkdfKey(secretBytes)];
     let previous: CryptoKey | undefined;
     if (journal) {
       try {
         const o = obj(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(journal)), "$");
         const p = opt(o, "previousVaultSecret");
-        if (typeof p === "string") previous = await hmacKey(await decryptSecret(decrypter, p));
+        if (typeof p === "string") {
+          const bytes = await decryptSecret(decrypter, p);
+          previous = await hmacKey(bytes);
+          derivation.push(await hkdfKey(bytes));
+        }
       } catch {
         // An unreadable journal only matters for files not yet re-tagged; they
         // then fail their tag check and are reported.
       }
     }
-    return new UnlockedVault(manifest, decrypter, secret, previous, recipient);
+    return new UnlockedVault(manifest, decrypter, secret, previous, recipient, derivation);
   }
 
   /**
