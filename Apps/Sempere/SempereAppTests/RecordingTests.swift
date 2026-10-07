@@ -3,6 +3,7 @@ import Foundation
 import PencilKit
 import UIKit
 import Sempere
+import SempereRender
 import Testing
 @testable import SempereApp
 
