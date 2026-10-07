@@ -74,7 +74,7 @@ struct SettingsView: View {
             .sheet(item: $preview) { box in
                 ThinningPreviewView(report: box.report) {
                     preview = nil
-                    Task { await thin(box.report.rule) }
+                    Task { await thin(box.report.rule, now: box.report.now) }
                 } cancel: {
                     preview = nil
                 }
@@ -98,11 +98,12 @@ struct SettingsView: View {
         }
     }
 
-    private func thin(_ rule: ThinningRule) async {
+    /// Runs `rule` as of `now`, the preview's time (nil: the current time).
+    private func thin(_ rule: ThinningRule, now: Date?) async {
         working = true
         defer { working = false }
         do {
-            let done = try await model.thinVault(rule: rule, dryRun: false)
+            let done = try await model.thinVault(rule: rule, dryRun: false, now: now ?? Date())
             outcome = ThinningPreviewView.sentence(done, done: true)
         } catch is CancellationError {
         } catch {

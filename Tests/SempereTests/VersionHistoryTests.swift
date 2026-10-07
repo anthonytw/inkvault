@@ -776,3 +776,34 @@ extension VersionHistoryTests {
         XCTAssertGreaterThan(nonEmpty, 20)   // the property is not vacuous
     }
 }
+
+// MARK: - "Thin everything except checkpoints" (cutoff zero)
+
+extension VersionHistoryTests {
+    /// The random property tests draw the cutoff from a continuum, so they never
+    /// try the explicit zero cutoff `ThinningRule.allButCheckpoints` uses, where
+    /// every revision is in the thinned range. The same guarantees (G1–G5) hold,
+    /// and the metadata-only stage still decides exactly what the full one does.
+    func testThinEverythingExceptCheckpointsGuarantees() throws {
+        let mode = ThinningRule.allButCheckpoints.mode
+        XCTAssertEqual(mode, .thin(olderThan: 0))
+        var deleted = 0
+        for seed in UInt64(1)...120 {
+            var rng = SplitMix64(seed: seed &* 6_151)
+            let revs = seed % 2 == 0 ? try RandomHistory.makeSkewed(using: &rng) : try RandomHistory.make(using: &rng)
+            let now = revs.map(\.wall).max()!.addingTimeInterval(Double.random(in: 1...86_400, using: &rng))
+            try checkGuarantees(revs, mode: mode, now: now, seed: seed, rng: &rng)
+            var clock = HybridClock()
+            let plan = try CompactionPlanner.plan(revs, mode: mode, now: now, device: devC, clock: &clock, wall: now, app: "t")
+            deleted += plan.deletions.count
+            XCTAssertEqual(CompactionPlanner.mayDelete(revs.map(RevisionMeta.init), noteId: revs[0].noteId, mode: mode, now: now),
+                           !CompactionPlanner.select(revs, mode: mode, now: now).candidates.isEmpty, "seed \(seed)")
+            // What stays: every checkpoint, each session's newest point and the newest revision.
+            let points = NoteHistory.restorePoints(revs)
+            let gone = Set(plan.deletions)
+            XCTAssertTrue(gone.isDisjoint(with: points.filter(\.isCheckpoint).map(\.name)), "seed \(seed)")
+            XCTAssertFalse(gone.contains(revs.map(\.name).max()!), "seed \(seed)")
+        }
+        XCTAssertGreaterThan(deleted, 200)   // the property is not vacuous
+    }
+}

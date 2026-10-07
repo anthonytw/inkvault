@@ -213,6 +213,35 @@ struct VersionHistoryAppTests {
         #expect(try await model.thinVault(rule: .allButCheckpoints, dryRun: true).notes.isEmpty, "nothing left")
     }
 
+    /// Confirming a preview runs as of the preview's time (`ThinningReport.now`):
+    /// autosaves written after the preview are not in the range, even with the
+    /// zero cutoff of "Thin everything except checkpoints". Re-planning at the
+    /// confirmation's time would delete the older of two newer autosaves of the
+    /// same session, which the preview never listed.
+    @Test func confirmingAPreviewKeepsWhatWasWrittenSince() async throws {
+        let model = try await HistoryTests.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        for y in [260.0, 300] { try await HistoryTests.draw(editor, y: y) }   // the first is then not a session end
+        let preview = try await model.thinVault(rule: .allButCheckpoints, dryRun: true)
+        #expect(preview.notes.first { $0.id == Self.lecture } != nil)
+        let at = try #require(preview.now)
+        try await Task.sleep(for: .milliseconds(50))
+        for y in [340.0, 380] { try await HistoryTests.draw(editor, y: y) }
+        let since = try vault.loadNote(Self.lecture).revisions.filter { $0.wall > at }.map(\.name)
+        #expect(since.count >= 2)
+        let current = try vault.reconstruct(noteId: Self.lecture)
+
+        let done = try await model.thinVault(rule: .allButCheckpoints, dryRun: false, now: at)
+        #expect(done.now == at)
+        #expect(done.notes.first { $0.id == Self.lecture } != nil)
+        let after = Set(try vault.revisionNames(of: Self.lecture))
+        for name in since { #expect(after.contains(name), "written after the preview: \(name.filename)") }
+        #expect(try vault.reconstruct(noteId: Self.lecture).pages.map(\.strokes.count) == current.pages.map(\.strokes.count))
+    }
+
     @Test func thinningProgressHeadline() {
         #expect(ThinningProgress(done: 120, total: 640, dryRun: true).headline == "Checking notes: 120 of 640")
         #expect(ThinningProgress(done: 3, total: 12, dryRun: false).headline == "Thinning notes: 3 of 12")

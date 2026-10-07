@@ -65,6 +65,11 @@ struct ThinningReport: Hashable, Sendable {
     var skipped: [UUID: String] = [:]
     /// Notes looked at.
     var checked = 0
+    /// The time the rule was applied at. Confirming a preview runs with this
+    /// time, so the run removes what the preview listed and nothing written
+    /// since (with "Thin everything except checkpoints", a newer autosave
+    /// would otherwise be in the range too).
+    var now: Date?
 
     var deletions: Int { notes.reduce(0) { $0 + $1.deletions } }
     var snapshots: Int { notes.reduce(0) { $0 + $1.snapshots } }
@@ -177,7 +182,7 @@ extension AppModel {
         let titles = Dictionary(notes.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
         let ids = try await offMain(priority: .utility) { try vault.noteIDs() }
         try ensureCurrent(gen)
-        var report = ThinningReport(rule: rule)
+        var report = ThinningReport(rule: rule, now: now)
         let work = ids.filter { !(skipOpen && open.contains($0)) }
         for id in ids where skipOpen && open.contains(id) { report.skipped[id] = "open" }
         thinningProgress = ThinningProgress(done: 0, total: work.count, dryRun: dryRun)

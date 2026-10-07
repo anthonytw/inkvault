@@ -107,8 +107,6 @@ public final class SummaryCache: @unchecked Sendable {
         return e.summary
     }
 
-    /// Every stored summary, whether or not it is still current: what to show
-    /// while the vault is checked.
     /// The revision metadata stored for note `id` if it was made from
     /// exactly `revisions` (any order), else nil.
     public func history(for id: UUID, revisions: [RevisionName]) -> [RevisionMeta]? {
@@ -118,6 +116,8 @@ public final class SummaryCache: @unchecked Sendable {
         return e.history
     }
 
+    /// Every stored summary, whether or not it is still current: what to show
+    /// while the vault is checked.
     public var storedSummaries: [NoteSummary] {
         lock.lock(); defer { lock.unlock() }
         return entries.values.map(\.summary)
