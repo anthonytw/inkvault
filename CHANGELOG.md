@@ -20,6 +20,20 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   inside it, the drop target highlights, and each drop is one commit with one undo step. CLI:
   `sempere recognize [NOTE...] [--dry-run]` (macOS; reports the notes it changed), `sempere search
   --show-boxes` (match locations, numbered across the note), `sempere notebooks move NOTEBOOK PARENT`.
+- Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
+  the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
+  original PDF, laid out from the PDF's own page boxes), and images become image items with
+  their frame, rotation and crop, metadata stripped. `sempere import notability` gains
+  `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
+  and why anything was left out (`warnings`).
+- Attachments from the command line (task F, `docs/cli.md` "Adding attachments"): `sempere attach
+  image|pdf|text|recording|transcript` add an image, PDF pages (as new background pages or as a
+  figure), a text box, an MPEG-4 recording or a transcript to a note, each as one delta with
+  `--json` output; `sempere import pdf` makes a note from a PDF, one page per PDF page with the
+  page as its background; `sempere search` also searches the text of text boxes and, with
+  `--transcripts`, transcripts; Markdown and HTML exports include typed text. The logic is shared
+  with the app: `NoteOps` placement builders, `AudioProbe` (MPEG-4 header reader), `ImageIngest`
+  and `PDFIngest`.
 - Attachment merge (task A1, `docs/format.md` §5.3, §8.2.2, §8.3.1): placed items and recordings
   merge as sets with permanent tombstones, orphans and covered-add removal, and their fields as
   last-writer-wins registers (unknown fields included), in the library and the web viewer.

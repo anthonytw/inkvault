@@ -1379,6 +1379,18 @@ synthetic `.note` fixture so CI covers the mapping.
   thumbnails), `dropped.pdfPages` is 0, template PDFs handled or reported.
 - **D2 — images.** *Done when:* the 4 image notes import their images where
   the thumbnails show them; non-JPEG/PNG reported.
+- *Status of D1 and D2:* in review (#70), built on synthetic notes only (no
+  access to the reference backup). Code: `NotabilityAttachments.swift`
+  (reading the package, layout), `NotabilityMedia.swift` (layout entries,
+  media objects read without a schema), `SempereRender/ImageImport.swift`
+  (sniffing, EXIF orientation, HEIF size, metadata stripping). Decisions
+  that the real backup must confirm, each visible in the import report's
+  `warnings`: PDF page numbers are 1-based (as the eval scripts read them;
+  0-based when a note holds a 0); notes mixing PDF page sizes stack each page
+  at the sum of the heights above it; the image fields are the candidate
+  names in `MediaObject` (a media object that does not match is reported with
+  its field names); a `TemplatePDF:` paper uses a PDF under `PDFs/` whose
+  name holds the template uuid, else is reported (`dropped.templatePDFs`).
 - **D3 — typed text.** *Done when:* synthetic fixture with styled text maps
   to runs (including a non-Latin run with its `lang`); real notes with text
   import it (if the backup has any).
@@ -1453,6 +1465,15 @@ synthetic `.note` fixture so CI covers the mapping.
 (needs C3) and `attach image|audio NOTE FILE` for scripted use and tests.
 *Done when:* end-to-end CLI tests: import a PDF, attach an image and audio,
 export PDF with backgrounds and attachments, search finds typed text.
+
+*Status:* done (PR #69, `docs/cli.md` "Adding attachments"). Shipped as `attach image|pdf|text|recording|transcript`
+(one blob write, then one delta each, `--json`, `--dry-run`), `import pdf`, `search` over text boxes and
+(`--transcripts`) transcripts, and typed text in the Markdown and HTML exports. The logic is in shared
+core code that the app's add flows (E0–E4) call too: `NoteOps.placeImage` / `placeText` / `placePDFPage` /
+`insertPDFPages` / `newPDFNote` / `recording` / `setTranscript` (`Sources/Sempere/AttachmentOps.swift`),
+`AudioProbe` (MPEG-4 header reader, `Sources/Sempere/AudioProbe.swift`), and `ImageIngest` / `PDFIngest`
+(`Sources/SempereRender/AttachmentIngest.swift`: JPEG/PNG size, EXIF orientation and metadata removal;
+PDF page sizes). Not done: recordings in exports (C4), editing or removing a placed item from the CLI.
 
 ### G. Future item kinds (not scheduled)
 

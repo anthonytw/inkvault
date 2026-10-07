@@ -207,6 +207,8 @@ enum SyntheticNote {
     static let created = Date(timeIntervalSinceReferenceDate: 700_000_000)
     static let width = 716.8
     static let pageHeight = 716.8 * 21 / 16
+    /// The file name of the note's PDF under `PDFs/`.
+    static let pdfName = "00000000-0000-4000-8000-0000000000AA.pdf"
 
     struct CurveSpec {
         var points: [(Float, Float)]
@@ -260,9 +262,16 @@ enum SyntheticNote {
     ///   - shapes: a `shapes` plist for the spatial hash.
     ///   - numcurvesOverride: a `numcurves` / `numpoints` value that disagrees
     ///     with the arrays (for corrupt-input tests).
+    ///   - layout: replaces the `pageLayoutArray` built for `pdfPages`: per
+    ///     Notability page its document page number, PDF file name (nil for a
+    ///     paper page) and PDF page number.
+    ///   - media: builds the `mediaObjects` entries.
+    ///   - paperIdentifier: the `paperIdentifier` attribute (`TemplatePDF:<uuid>:#FFFFFF`, …).
     static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter",
                         styles: Data? = nil, shapes: Data? = nil, created: Date = created,
-                        numcurvesOverride: Int? = nil) -> Data {
+                        numcurvesOverride: Int? = nil, layout: [(Int, String?, Int)]? = nil,
+                        media: ((inout KeyedArchiveBuilder) -> [BValue])? = nil,
+                        paperIdentifier: String = "Legacy:13") -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
@@ -292,23 +301,30 @@ enum SyntheticNote {
         let reflow = a.object("NBReflowStateLocked", [("pageWidthInDocumentCoordsKey", .real(width)),
                                                      ("nativeLayoutDeviceStringKey", a.string("iPad"))])
         var pdfFiles: [BValue] = [], pageLayout: [BValue] = []
-        if pdfPages > 0 {
-            let name = "00000000-0000-4000-8000-0000000000AA.pdf"
+        if pdfPages > 0 || layout != nil {
+            let name = pdfName
             let file = a.object("PDFFile", [("pdfFileName", a.string(name)), ("contentBoxVersion", .int(1)),
                                             ("highlights", a.array([])), ("type", .int(0)), ("version", .int(2))])
             pdfFiles = [file]
-            pageLayout = (1...pdfPages).map { n in
-                a.dict([("kPageLayoutDocumentPageNumberKey", .int(Int64(n))), ("kPageLayoutPageIsBookmarkedKey", .bool(false)),
-                        ("kPageLayoutPDFFileNameKey", a.string(name)), ("kPageLayoutPDFIsOriginalPageKey", .bool(true)),
-                        ("kPageLayoutPDFPageNumberKey", .int(Int64(n))), ("kPageLayoutPDFFileKey", file)])
+            let entries = layout ?? (1...max(pdfPages, 1)).map { ($0, name, $0) }
+            pageLayout = entries.map { doc, fileName, page in
+                var fields: [(String, BValue)] = [("kPageLayoutDocumentPageNumberKey", .int(Int64(doc))),
+                                                  ("kPageLayoutPageIsBookmarkedKey", .bool(false))]
+                if let fileName {
+                    fields += [("kPageLayoutPDFFileNameKey", a.string(fileName)), ("kPageLayoutPDFIsOriginalPageKey", .bool(true)),
+                               ("kPageLayoutPDFPageNumberKey", .int(Int64(page))), ("kPageLayoutPDFFileKey", file)]
+                }
+                return a.dict(fields)
             }
         }
+        let mediaObjects = media.map { $0(&a) } ?? []
         let rich = a.object("FormattedString", [
             ("attributedString", attributed), ("Handwriting Overlay", overlay), ("reflowState", reflow),
-            ("pdfFiles", a.array(pdfFiles)), ("mediaObjects", a.array([])), ("pageLayoutArray", a.array(pageLayout)),
+            ("pdfFiles", a.array(pdfFiles)), ("mediaObjects", a.array(mediaObjects)),
+            ("pageLayoutArray", a.array(pageLayout)),
         ])
         let attrs = a.object("GLModel.PaperAttributes", [
-            ("paperIdentifier", a.string("Legacy:13")), ("paperSize", a.string(paperSize)),
+            ("paperIdentifier", a.string(paperIdentifier)), ("paperSize", a.string(paperSize)),
             ("paperOrientation", a.string("portrait")),
             ("paperSizingBehavior", a.string("lockedWidth:716.8:iPad")),
             ("lineStyle2", a.string("Dots:false:true:0.25")),

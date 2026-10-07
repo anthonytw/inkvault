@@ -13,6 +13,7 @@
 | 0.7 | CLI `search` over page recognition text (done, `docs/cli.md`; matching note title, notebook and tags is not implemented) | `Sources/SempereCLI` | end-to-end test: import fixture → search finds a recognised word |
 | 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
 | 0.9 | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); still to do: page delete/move/duplicate and layout after #52, `recognize` after #44 | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
+| 0.10 | CLI for attachments (done, `docs/cli.md`): `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over typed text and transcripts | `Sources/SempereCLI`, `Sources/Sempere` | end-to-end CLI tests in `Tests/CLITests/CLIAttachTests.swift` |
 
 ## Phase 1 — iPad app
 
@@ -83,8 +84,8 @@ goes first; after it, the rest run in parallel along the dependencies in
 | C2 | Export text: full Unicode (Noto + optional font packs, OpenType reader, UAX #9/#14/#29, small shaper, stored `breaks`, font **subsets** in PDF/SVG, missing-script report). **In review (#64)**: `Sources/SempereRender/Text/`, `Sources/SempereFonts` | `Sources/SempereRender` | A0 | layout tests incl. RTL; CJK via font pack in `pdftotext`; subset-only fonts; goldens |
 | C3 | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning. **In review (#61)**: `Sources/SemperePDF`, `SempereRender` (`Items.swift`, `PDFBackgrounds.swift`), CLI `PopplerRasterizer.swift`; reads blobs through B2's `BlobSource` | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
 | C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
-| D1 | Notability PDF backgrounds | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
-| D2 | Notability images | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
+| D1 | Notability PDF backgrounds. **In review (#70)**: `NotabilityAttachments.swift`, `NotabilityMedia.swift`; CLI `--no-attachments` | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
+| D2 | Notability images. **In review (#70)**: media objects read without a schema (field names unconfirmed, reported); `SempereRender.ImageImport`; CLI `--keep-image-metadata` | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
 | D3 | Notability typed text | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
 | D4 | Notability recordings + ink sync | `Sources/SempereImport` | A0, B2 | recordings import; strokes carry `rec` |
 | E0 | App plumbing: `NoteWriter.addBlob`/`copyBlob`, blob cache, lazy per-kind iCloud download, item layer + selection | `Apps/` | A1, B2 | one delta per gesture; app tests |

@@ -157,6 +157,36 @@ final class ImageFuzzTests: XCTestCase {
         for f in report.failures { XCTFail("\(f)") }
     }
 
+    /// What a writer learns about a file before storing it: JPEG/PNG size, the EXIF
+    /// orientation parser, metadata removal, and PDF page sizes.
+    func testFuzzIngest() throws {
+        let pdfs = try ["classic.pdf", "rotated.pdf", "broken-xref.pdf"].map {
+            try Data(contentsOf: AttachmentIngestTests.pdfFixtures.appendingPathComponent($0))
+        }
+        let exif = try Self.fixtures(".jpg").prefix(2).map { AttachmentIngestTests.insertExif(into: $0, orientation: 6, bigEndian: false) }
+        let seeds = try Array(Self.fixtures(".jpg").prefix(4)) + Array(Self.fixtures(".png").prefix(4)) + exif + pdfs
+        let report = Fuzz.run("ingest", seeds: seeds, quick: 300, maxSize: 64 << 10) { input in
+            do {
+                let image = try ImageIngest.prepare(input, maxPixels: Self.maxPixels)
+                // Whatever is stored is itself attachable and keeps its type and (upright) size: the
+                // orientation moved into the field, so the stripped bytes carry none.
+                let again = try ImageIngest.prepare(image.data, maxPixels: Self.maxPixels)
+                if again.mediaType != image.mediaType || again.orientation != nil { return "stripping changed the image" }
+                if image.orientation == nil, again.pixelSize != image.pixelSize { return "stripping changed the size" }
+                if image.pixelSize.w < 1 || image.pixelSize.h < 1 { return "empty size" }
+            } catch is ImageIngestError {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            do {
+                let pdf = try PDFIngest.inspect(input)
+                if pdf.pages.isEmpty || pdf.pages.contains(where: { !$0.size.isPositive }) { return "unusable page accepted" }
+            } catch is PDFIngestError {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+
     /// One mutated image blob placed by mutated items in all three writers.
     func testFuzzImageExport() throws {
         let seeds = try Array(Self.fixtures(".jpg").prefix(4)) + Array(Self.fixtures(".png").prefix(6))
@@ -185,6 +215,28 @@ final class ImageFuzzTests: XCTestCase {
                 _ = try PDFWriter.render(note: note, options: options, report: &r)
             } catch is RenderError {
             } catch { return "untyped error \(type(of: error)): \(error)" }
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+    /// Image preparation for storing (`ImageImport`): sniffing, EXIF
+    /// orientation, HEIF sizes and stripping. Only `Failure` may be thrown.
+    func testFuzzImageImport() throws {
+        let seeds = try Array(Self.fixtures(".jpg").prefix(6)) + Array(Self.fixtures(".png").prefix(4))
+        let report = Fuzz.run("image-import", seeds: seeds, quick: 300, maxSize: 64 << 10,
+                              generate: Self.generateJPEG) { input in
+            _ = JPEG.exifOrientation(input)
+            _ = HEIF.imageSize(input)
+            do {
+                let p = try ImageImport.prepare(input)
+                if p.width <= 0 || p.height <= 0 { return "non-positive size \(p.width) × \(p.height)" }
+                if let o = p.orientation, !(2...8).contains(o) { return "orientation \(o)" }
+            } catch is ImageImport.Failure {
+            } catch { return "untyped error \(type(of: error)): \(error)" }
+            var heif = Data([0, 0, 0, 16]) + Data("ftypheic".utf8) + Data(count: 4)
+            heif += input
+            _ = HEIF.imageSize(heif)
             return nil
         }
         XCTAssertGreaterThan(report.cases, 0)
@@ -264,4 +316,5 @@ final class TextFuzzTests: XCTestCase {
         XCTAssertGreaterThan(report.cases, 0)
         for f in report.failures { XCTFail("\(f)") }
     }
+
 }

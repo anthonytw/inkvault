@@ -41,7 +41,8 @@ working state.
 | Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | 🔀 #64 |
 | Render | Recordings in exports (C4) | 📋 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
-| Import | Notability PDF backgrounds, images, typed text, recordings (D1–D4) | 📋 |
+| Import | Notability PDF backgrounds and images (D1, D2) | 🔀 #70 |
+| Import | Notability typed text, recordings (D3, D4) | 📋 |
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3): streamed, resumable, GC-safe deletes | 🔀 #67 |
 
@@ -56,6 +57,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
+| import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | 🔀 #70 | 🔀 #70 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | 🔀 #72 | 🔀 #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
@@ -69,7 +71,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | 🔀 #26 | 🔀 #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | 🔀 #60 | 🔀 #60 |
 | Attachments: `notes show` lists items and recordings, `notes list --json` counts them, `search` finds typed text (A1) | 🔀 #66 | 🔀 #66 |
-| Attachments: `import pdf`, `attach`, search over transcripts (F) | 📋 | 📋 |
+| Attachments: `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over text boxes and (`--transcripts`) transcripts, typed text in Markdown/HTML exports (F) | 🔀 #69 | 🔀 #69 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | 🔀 #61 | 🔀 #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 

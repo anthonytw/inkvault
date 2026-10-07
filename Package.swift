@@ -47,7 +47,8 @@ let package = Package(
         ),
         .target(
             name: "SempereImport",
-            dependencies: ["Sempere", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
+            // SemperePDF for page boxes of imported PDFs, SempereRender for image headers and metadata stripping.
+            dependencies: ["Sempere", "SemperePDF", "SempereRender", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
         // The only target allowed network code (CLAUDE.md).
         .target(

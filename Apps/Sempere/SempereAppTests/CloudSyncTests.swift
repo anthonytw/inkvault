@@ -188,6 +188,50 @@ struct CloudSyncTests {
         #expect(try Self.revisionCount(url, Self.lecture) == before)
     }
 
+    /// A new note in an iCloud vault has no files yet: creating it must not
+    /// run the "every file is local" check, which refuses an empty folder
+    /// (TestFlight build 4: "has not listed this note's files yet (0 missing)").
+    @Test func creatingANoteInAnICloudVaultWritesIt() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(model.isCloudVault)
+        let id = try await model.createNote(title: "New in iCloud", paper: .blank, notebook: nil)
+        #expect(try Self.revisionCount(url, id) == 1)
+        #expect(model.notes.contains { $0.id == id && $0.title == "New in iCloud" })
+        let filed = try await model.createNote(title: "Filed", paper: .blank, notebook: "School/Math")
+        #expect(model.notes.first { $0.id == filed }?.notebook == "School/Math")
+        // Later edits of the new note still run the check, and pass: its file is local.
+        try await model.renameNote(id, to: "Renamed")
+        #expect(model.notes.first { $0.id == id }?.title == "Renamed")
+        model.close()
+    }
+
+    /// The creation exemption never lets an existing note through: an id
+    /// whose folder lists revisions is checked even when passed as new, so
+    /// nothing is written into it while one of them is evicted.
+    @Test func theCreationExemptionNeverCoversAnExistingNote() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        model.pauseCloudSync()
+        try cloud.evictDataless(Self.lecture)
+        let before = try Self.revisionCount(url, Self.lecture)
+        let lecture = Self.lecture
+        await #expect(throws: CloudVault.CloudError.self) {
+            try await model.commit(ids: [lecture], creating: [lecture]) { vault, clock, cloud, verifier in
+                try await NoteWriter.append([.setMeta(.title("X"))], to: lecture, vault: vault, clock: clock,
+                                            coordinated: cloud, verify: verifier(lecture))
+            }
+        }
+        #expect(try Self.revisionCount(url, Self.lecture) == before)
+        model.close()
+    }
+
     @Test func aNotebookRenameWritesNothingIntoANoteEvictedSinceTheLastPass() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let cloud = FakeCloud(vault: url)
