@@ -285,8 +285,11 @@ struct RootView: View {
         } catch is CancellationError {
             // The user stopped the iCloud download.
         } catch {
-            model.errorMessage = "Could not reopen “\(entry.name)”: \(error)"
-                + (pickOnFailure ? "\n\nChoose the vault folder again." : "")
+            let detail = "\(error)"
+            model.errorMessage = pickOnFailure
+                ? String(localized: "Could not reopen “\(entry.name)”: \(detail)\n\nChoose the vault folder again.",
+                         comment: "First %@ is the vault's name, second the error (English)")
+                : String(localized: "Could not reopen “\(entry.name)”: \(detail)", comment: "First %@ is the vault's name, second the error (English)")
             pickAfterAlert = pickOnFailure
         }
     }

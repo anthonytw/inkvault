@@ -108,8 +108,9 @@ enum SidebarDrop {
     /// The undo menu title of a drop.
     static func actionName(_ payload: DragPayload) -> String {
         switch payload {
-        case .notes(let ids): return ids.count == 1 ? "Move Note" : "Move Notes"
-        case .notebook: return "Move Notebook"
+        case .notes(let ids): return ids.count == 1 ? String(localized: "Move Note", comment: "Undo action name: one note moved to a notebook")
+            : String(localized: "Move Notes", comment: "Undo action name: several notes moved to a notebook")
+        case .notebook: return String(localized: "Move Notebook", comment: "Undo action name")
         }
     }
 }

@@ -25,8 +25,8 @@ struct ExportProgress: Equatable, Sendable {
 
     var description: String {
         switch phase {
-        case .reading: return "Reading note \(min(done + 1, total)) of \(total)…"
-        case .rendering: return done >= total ? "Finishing…" : "Exporting note \(done + 1) of \(total)…"
+        case .reading: return String(localized: "Reading note \(min(done + 1, total)) of \(total)…")
+        case .rendering: return done >= total ? String(localized: "Finishing…", comment: "Export progress: last step") : String(localized: "Exporting note \(done + 1) of \(total)…")
         }
     }
 }

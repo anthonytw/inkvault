@@ -132,7 +132,7 @@ extension AppModel {
         var description: String {
             switch self {
             case .unreadableRevisions(let n):
-                return "\(n) revision(s) of this note could not be read, so it cannot be exported completely."
+                return String(localized: "\(n) revisions of this note could not be read, so it cannot be exported completely.")
             }
         }
     }
