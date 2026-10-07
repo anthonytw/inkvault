@@ -53,6 +53,11 @@ final class NoteEditor {
     private(set) var lastRemoteUpdate: Date?
     /// Canvases showing this note's ink (`attachInkView`).
     @ObservationIgnored fileprivate var inkViews: [WeakInkView] = []
+    /// How long a merge (`mergeRevisions`) waits for a stroke under way
+    /// before it gives up; the next listing tries again. Bounded so that a
+    /// canvas that never reports the end of a stroke cannot stall merges of
+    /// the note for as long as it stays open.
+    @ObservationIgnored var inkWaitLimit = Duration.seconds(30)
 
     var isReadOnly: Bool { readOnlyReason != nil || isPreparing }
     var currentPage: Page? { pages.indices.contains(pageIndex) ? pages[pageIndex] : nil }
@@ -996,7 +1001,8 @@ extension NoteEditor {
     /// Brings revisions written elsewhere (another device, or this device's
     /// browser edits) into the open editor without losing anything unsaved.
     ///
-    /// Waits until no canvas is mid-stroke, saves what is pending (so the
+    /// Waits until no canvas is mid-stroke (at most `inkWaitLimit`, else
+    /// `.skipped`), saves what is pending (so the
     /// read holds this canvas's ink too), reads the note again (the caller
     /// has made every revision local: `downloadNote`), and applies the merged
     /// state (format.md §5.3 decides concurrent edits) as a minimal diff:
@@ -1013,7 +1019,9 @@ extension NoteEditor {
                         verify: (@Sendable () throws -> Void)?) async throws -> RemoteMergeOutcome {
         for _ in 0..<4 {
             guard !isShutDown, !isPreparing, !loadFailed, writer != nil else { return .skipped }
+            let waitStart = ContinuousClock.now
             while isInkInUse {
+                guard ContinuousClock.now - waitStart < inkWaitLimit else { return .skipped }
                 try await Task.sleep(for: .milliseconds(100))
                 guard !isShutDown else { return .skipped }
             }

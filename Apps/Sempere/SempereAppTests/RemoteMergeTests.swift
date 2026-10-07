@@ -246,6 +246,42 @@ struct RemoteMergeTests {
         await model.closingEditor?.value
         #expect(try vault.revisionNames(of: Self.lecture).filter { $0.device == device }.isEmpty, "no echo delta")
     }
+
+    /// iCloud Drive, as iPadOS 26 presents an evicted note (dataless files
+    /// under their real names): another device's revision of the open note is
+    /// listed but not downloaded. The merge downloads every revision of the
+    /// note first and applies nothing until they are all local.
+    @Test func aRemoteRevisionNotYetDownloadedIsMergedOnlyOnceLocal() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = try await ProgressiveLoadTests.cloudModel(cloud, key: key)
+        #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        model.stopCloudSync()   // the test drives the merge
+        let page = try #require(editor.currentPage)
+        _ = editor.drawing(for: page.id)
+        let remote = TS.stroke(x: 300, y: 500)
+        try TS.writeAsAnotherDevice([.addStroke(page: page.id, stroke: remote)], to: Self.lecture, vault: url, key: key)
+        try cloud.evictDataless(Self.lecture)
+        let names = try #require(try VaultEnumeration.listNotes(vault: url, only: [Self.lecture]).first?.names)
+        #expect(editor.hasUnmergedRevisions(names), "the new name is listed")
+
+        let merge = Task { try await model.mergeRemoteRevisions(into: editor) }
+        #expect(await TS.waitUntil { cloud.requestedNotes.contains(Self.lecture.uuidString.lowercased()) })
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(!editor.liveStrokes(of: page.id).contains { $0.id == remote.id }, "nothing applied from a partial log")
+        try cloud.deliver(Self.lecture)
+        #expect(try await merge.value == .merged(fromOtherDevice: true))
+        #expect(editor.liveStrokes(of: page.id).contains { $0.id == remote.id })
+        #expect(model.editor === editor)
+        let vault = try #require(model.vault)
+        let device = try DeviceState.loadOrCreate(at: model.deviceStateURL).device
+        model.close()
+        await model.closingEditor?.value
+        #expect(try vault.revisionNames(of: Self.lecture).filter { $0.device == device }.isEmpty, "no echo delta")
+    }
 }
 
 /// The canvases: a merge reaches the page canvases of the paged stack in the
@@ -305,5 +341,30 @@ struct RemoteMergeCanvasTests {
         #expect(try await merge.value == .merged(fromOtherDevice: true))
         #expect(slot.host.canvas.drawing.strokes.count == 1)
         await editor.close()
+    }
+
+    /// A canvas that never reports the end of a stroke cannot stall merges of
+    /// the note: the merge gives up after `inkWaitLimit` without applying
+    /// anything, and a canvas that loads a page again forgets the stroke.
+    @Test func aStrokeThatNeverEndsDoesNotStallMerges() async throws {
+        let (vault, editor, clock, id, window, stack) = try await Self.stackOnSavedNote()
+        defer { window.isHidden = true }
+        let slot = try StackTS.slot(stack, editor, page: 0)
+        #expect(await StackTS.ready(slot))
+        let page = editor.pages[0].id
+        try vault.apply([.addStroke(page: page, stroke: TS.stroke(x: 100, y: 200))], to: id,
+                        deviceState: TS.deviceStateURL(), app: "other-device/1")
+        editor.inkWaitLimit = .milliseconds(300)
+        slot.coordinator.canvasViewDidBeginUsingTool(slot.host.canvas)   // and no end, ever
+        #expect(try await editor.mergeRevisions(vault: vault, clock: clock, coordinated: false, verify: nil) == .skipped)
+        #expect(slot.host.canvas.drawing.strokes.isEmpty)
+        #expect(editor.liveStrokes(of: page).isEmpty)
+        slot.coordinator.load(editor: editor, pageID: page, host: slot.host, keepScroll: true)
+        #expect(!editor.isInkInUse)
+        #expect(try await editor.mergeRevisions(vault: vault, clock: clock, coordinated: false, verify: nil)
+            == .merged(fromOtherDevice: true))
+        #expect(slot.host.canvas.drawing.strokes.count == 1)
+        await editor.close()
+        #expect(try NoteEditorTests.myDeltas(vault, clock, note: id).isEmpty)
     }
 }

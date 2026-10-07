@@ -160,6 +160,7 @@ struct PageCanvasView: UIViewRepresentable {
             loadTask = nil
             loadToken &+= 1
             pageID = nil
+            usingTool = false
             editor?.detachInkView(self)
             editor = nil   // a spare canvas holds no note
             editorID = nil
@@ -184,6 +185,7 @@ struct PageCanvasView: UIViewRepresentable {
             loadToken &+= 1
             let token = loadToken
             isLoading = true
+            usingTool = false      // a stroke under way belonged to the drawing being replaced
             host.cancelErasing()   // an erase in progress belongs to the old page
             if !keepScroll { host.scrollToTop() }
             if let ready = editor.readyDrawing(for: pageID) {

@@ -299,7 +299,9 @@ edits) in place, without being reopened (`AppModel+RemoteMerge`,
   vault is listed again on a reload. At most one merge runs per note.
 - **Before reading**, every revision of the note is made local
   (`downloadNote`); the editor never writes while one is missing. The merge
-  waits while a canvas is mid-stroke or mid-erase, then saves what is pending
+  waits while a canvas is mid-stroke or mid-erase (at most `inkWaitLimit`,
+  30 s, then it gives up and the next listing tries again: a canvas that never
+  reports a stroke's end cannot stall the note's merges), then saves what is pending
   (one delta through the editor's `NoteWriter`, as autosave does) and reads
   the note again. A save that starts during that read (autosave, a page
   gesture) makes it read again (`writeEpoch`), since its strokes would
