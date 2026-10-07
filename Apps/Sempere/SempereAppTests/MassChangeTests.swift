@@ -41,6 +41,9 @@ struct MassChangeTests {
         try await model.openVault(at: url)
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         #expect(model.notes.count == ids.count)
+        // The simulator's file presenter would report the evictions and deliveries below on its own
+        // schedule; the passes here count only the arrivals the test reports.
+        model.stopWatchingNotes()
         for id in ids { try TS.writeAsAnotherDevice([.setMeta(.title("Changed \(id)"))], to: id, vault: url, key: key) }
         for id in ids { try cloud.evict(id) }
 
@@ -59,6 +62,9 @@ struct MassChangeTests {
             let next = Array(ids.dropFirst(delivered.count).prefix(2))
             for id in next { try cloud.deliver(id) }
             delivered += next
+            model.dirtyNoteIDs = []
+            model.dirtyAll = false
+            model.reportedNoteIDs = []
             model.noteFoldersChanged(Set(next))   // what the file presenter reports
             _ = model.nextSyncScope(lastFullPass: .now)
             let before = calls.value
