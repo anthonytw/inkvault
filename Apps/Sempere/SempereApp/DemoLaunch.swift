@@ -1,4 +1,5 @@
 #if DEBUG
+import CoreGraphics
 import Foundation
 import Sempere
 import UIKit
@@ -12,6 +13,7 @@ import UIKit
 /// - `SEMPERE_DEMO_NOTE`: a `DemoVault.Spec.key` (`respiration`, `atlas`, …) to open.
 /// - `SEMPERE_DEMO_SIDEBAR`: `all`, `notebook:School/Physics` or `tag:lecture`.
 /// - `SEMPERE_DEMO_PAPER_PICKER`: open the paper picker over the note.
+/// - `SEMPERE_DEMO_PDF`: also import a synthetic PDF as a new note and open it (Mac UI tests).
 /// - `SEMPERE_DEMO_MAC_WINDOW`: `WIDTHxHEIGHT` in points, Mac Catalyst only.
 /// - `SEMPERE_DEBUG_COLUMNS`: `all`, `doubleColumn` or `detailOnly` (`DebugLaunch`).
 enum DemoLaunch {
@@ -41,6 +43,29 @@ enum DemoLaunch {
             if env["SEMPERE_DEMO_LOCKED"] == nil { try await model.unlock(identityText: built.identityText) }
             if let side = env["SEMPERE_DEMO_SIDEBAR"] { model.sidebarSelection = sidebarItem(side) }
             if let key = env["SEMPERE_DEMO_NOTE"], let id = built.notes[key] { model.selectedNoteID = id }
+        }
+        if env["SEMPERE_DEMO_PDF"] != nil, env["SEMPERE_DEMO_LOCKED"] == nil { await importDemoPDF(model) }
+    }
+
+    /// `SEMPERE_DEMO_PDF`: a synthetic two-page PDF (a red square at each
+    /// page's top-left) imported as a new note through the app's own import,
+    /// and opened: Mac UI tests check that its pages reach the screen.
+    @MainActor
+    static func importDemoPDF(_ model: AppModel) async {
+        do {
+            let url = try PDFPreparation.workFolder().appendingPathComponent("Demo PDF.pdf")
+            var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+            guard let ctx = CGContext(url as CFURL, mediaBox: &box, nil) else { return }
+            for _ in 0..<2 {
+                ctx.beginPDFPage(nil)
+                ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+                ctx.fill(CGRect(x: 0, y: 792 - 200, width: 200, height: 200))   // top-left (PDF space is y up)
+                ctx.endPDFPage()
+            }
+            ctx.closePDF()
+            _ = await model.importPDF(copy: url, to: .newNote(notebook: nil), password: nil)
+        } catch {
+            model.errorMessage = "Demo PDF: \(error)"
         }
     }
 

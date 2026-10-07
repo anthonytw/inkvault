@@ -83,6 +83,12 @@ actor NoteWriter {
         self.coordinated = coordinated; self.wall = wall; self.session = session
     }
 
+    /// Makes the next `seq` at least `seq`: a revision of this device that
+    /// another writer (a browser edit) added since this one started.
+    func raiseNextSeq(to seq: Int) {
+        nextSeq = max(nextSeq, seq)
+    }
+
     /// `sempere-ios/<version>` (format.md §5.1 `app`).
     static var appName: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"

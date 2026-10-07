@@ -263,8 +263,8 @@ struct NoteListView: View {
 /// Notes) it moves there, and so do the other ticked notes when it is one of
 /// several selected: its ids go as a payload that stays in this app
 /// (`DragPayload`). On the Mac it is also dragged out to the Finder (or any
-/// app) as a PDF, rendered when the drop asks for it (`AppModel.exportPDF`),
-/// not when the drag starts.
+/// app) as a PDF (`NoteFileDrag`): prepared when the drag starts, rendered
+/// when the drop asks for it.
 private struct NoteDragOut: ViewModifier {
     @Environment(AppModel.self) private var model
     let note: NoteSummary
@@ -282,24 +282,10 @@ private struct NoteDragOut: ViewModifier {
         // The ticked notes go together when this one is among them.
         let ids = model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
         let payload = DragPayload.notes(ids)
-        let id = note.id
-        let exporter = model
         // Notes in Recently Deleted are not moved by a drop (the drag still carries a PDF out on the Mac).
         return model.beginDrag(note.deleted ? nil : payload, provider: payload.provider { provider in
             guard Platform.isMac else { return }
-            provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
-                                                visibility: .all) { completion in
-                let progress = Progress(totalUnitCount: 1)
-                Task { @MainActor in
-                    do {
-                        completion(try await exporter.exportPDF(noteID: id), false, nil)
-                    } catch {
-                        completion(nil, false, error)
-                    }
-                    progress.completedUnitCount = 1
-                }
-                return progress
-            }
+            NoteFileDrag.register(on: provider, title: note.title, prepare: NoteFileDrag.prepare(note.id, model: model))
         })
     }
 }
