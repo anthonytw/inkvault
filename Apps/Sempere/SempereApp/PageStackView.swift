@@ -300,7 +300,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
 
     private func configure(_ slot: Slot, index: Int, pageID: UUID, editor: NoteEditor, configuration: Configuration) {
         let frame = layout.pageFrame(index, scale: Double(scale))
-        if slot.host.frame != frame { slot.host.frame = frame }
+        if !Self.sameFrame(slot.host.frame, frame) { slot.host.frame = frame }
         let page: Page
         if editor.pages.indices.contains(index), editor.pages[index].id == pageID {
             page = editor.pages[index]
@@ -366,6 +366,12 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         pan.minimumNumberOfTouches = Self.minimumPanTouches(drawing: drawing, fingersDraw: fingersDraw)
     }
 
+    /// Frames equal up to UIKit's rounding (a frame set reads back a few ulps off).
+    static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 0.01 && abs(a.minY - b.minY) < 0.01
+            && abs(a.width - b.width) < 0.01 && abs(a.height - b.height) < 0.01
+    }
+
     /// The touch types that scroll the stack.
     static func panTouchTypes(drawing: Bool, isMac: Bool) -> [NSNumber] {
         var types: [UITouch.TouchType] = [.direct, .indirect]
@@ -417,7 +423,8 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
 
     /// Tells the editor which page the scroll is on.
     private func trackCurrentPage() {
-        guard let editor, scale > 0 else { return }
+        // A jump is waiting (another note, a chosen page): the offset it replaces says nothing.
+        guard let editor, scale > 0, !pendingJump else { return }
         let visible = visibleContentRect
         let positional = layout.currentPage(visibleTop: Double(visible.minY), height: Double(visible.height),
                                             scale: Double(scale))
