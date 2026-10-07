@@ -377,6 +377,19 @@ public enum CaptureAdoption {
         return (UUID.derived(from: base + " note"), UUID.derived(from: base + " page"), UUID.derived(from: base + " recording"))
     }
 
+    /// The inbox files of `pending` that may be deleted once its note is
+    /// `after` (nil: no note): the capture once the note exists; the
+    /// transcript once the recording has one (or is gone: removed by the user).
+    public static func consumed(_ pending: PendingCapture, after: NoteState?) -> [String] {
+        guard let after, !after.pages.isEmpty || !after.recordings.isEmpty else { return [] }
+        var done = pending.files.filter { CaptureFile.parse(name: $0)?.kind == .capture }
+        let rec = after.recordings.first { $0.id == ids(for: pending.id).recording }
+        if rec == nil || rec?.transcript != nil {
+            done += pending.files.filter { CaptureFile.parse(name: $0)?.kind == .transcript }
+        }
+        return done
+    }
+
     /// The ops that adopt `pending` into its note, whose current state is
     /// `current` (nil: no revision yet). A new note gets its title, notebook,
     /// one page, the recording (`audio` is its blob) and the transcript when
@@ -521,9 +534,6 @@ extension Vault {
                                                    if case .addRecording(let r) = $0 { return r.transcript != nil }
                                                    return false }
             if dryRun { return result }
-            // What may be deleted afterwards: the capture once its note exists;
-            // the transcript once its recording has one.
-            var done: [String] = []
             if !planned.isEmpty {
                 let refs = try writeCaptureBlobs(pending)
                 let revision: Revision?
@@ -538,14 +548,7 @@ extension Vault {
                 result.file = revision?.name.filename
             }
             let after = try noteIDs().contains(ids.note) ? try reconstruct(try loadNote(ids.note)) : nil
-            if let after, !after.pages.isEmpty || !after.recordings.isEmpty {
-                done.append(contentsOf: pending.files.filter { CaptureFile.parse(name: $0)?.kind == .capture })
-                let rec = after.recordings.first { $0.id == ids.recording }
-                // A transcript is consumed once the recording has one, or the recording is gone.
-                if rec == nil || rec?.transcript != nil {
-                    done.append(contentsOf: pending.files.filter { CaptureFile.parse(name: $0)?.kind == .transcript })
-                }
-            }
+            let done = CaptureAdoption.consumed(pending, after: after)
             removeInboxFiles(done)
             result.removed = done
         } catch {
