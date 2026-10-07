@@ -132,7 +132,7 @@ the pseudo-language check below uses 2×.
 - `scripts/app.sh pseudo` runs the UI test `PseudoLanguageUITests` on the simulator three times: with
   the **double-length** pseudo-language (`-NSDoubleLocalizedStrings YES`), with the **right-to-left**
   pseudo-language (`-AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`) and in Spanish
-  (`-AppleLanguages (es)`), walking the main screens of the demo vault. It fails when a control or label
+  (`-AppleLanguages (es)`), walking the main screens of the demo vault (library, locked, note, tags, paper picker and, through `SEMPERE_DEMO_SETTINGS`, Settings). It fails when a control or label
   leaves the window or a single-line label is cut off, and attaches a screenshot of every screen.
 - `LocalizationCatalogTests` also fails if a Spanish string is more than twice as long as its English
   source for short strings (under 40 characters) — the budget the double-length check proves the
