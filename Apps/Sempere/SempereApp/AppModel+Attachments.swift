@@ -9,12 +9,29 @@ extension AppModel {
     /// is unlocked. Each blob is fetched through the vault's checks, and in
     /// iCloud Drive downloaded first (only that file) and read under
     /// coordination with `CloudVault.requireBlob`.
+    ///
+    /// Its folder is the same for every launch while the vault secret is
+    /// (`LocalCacheKey`, purpose `blob-cache`), so attachments opened before
+    /// are not decrypted (or downloaded) again; folders of other vaults and
+    /// the per-session folders of older builds are deleted. Where files are
+    /// not encrypted at rest (a Mac: `blobCacheAcrossLaunches` false), what an
+    /// earlier launch left is deleted instead: plaintext lasts one session.
     func attachmentCache() -> BlobCache? {
         if let blobCache { return blobCache }
-        guard let vault, phase == .unlocked else { return nil }
+        guard let vault, phase == .unlocked,
+              let key = try? LocalCacheKey(vault: vault, purpose: "blob-cache", magic: [0x53, 0x4D, 0x50, 0x42, 0x01])
+        else { return nil }
         let cloud = isCloudVault, hooks = cloudHooks, stall = cloudStallTimeout, poll = cloudPollInterval
-        BlobCache.purgeStale(in: blobCacheFolder)
-        let cache = BlobCache(root: blobCacheFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)) {
+        let folder = blobCacheFolder
+        let root = folder.appendingPathComponent(key.name, isDirectory: true)
+        // Renamed away before the cache writes there: the background delete below takes it.
+        if !blobCacheAcrossLaunches { BlobCache.retire(root) }
+        Task.detached(priority: .utility) {
+            BlobCache.purgeStale(in: BlobCache.legacyFolder, olderThan: 0)
+            BlobCache.removeOthers(in: folder, keeping: key.name)
+        }
+        let cache = BlobCache(root: root,
+                              maxBytes: BlobCache.configuredMaxBytes, naming: BlobCache.keyedNaming(key)) {
             note, ref, destination in
             try await Self.fetchBlob(ref, of: note, from: vault, to: destination, cloud: cloud, hooks: hooks,
                                      stallTimeout: stall, pollInterval: poll)
@@ -42,11 +59,13 @@ extension AppModel {
         }.value
     }
 
-    /// Deletes the decrypted attachments and forgets copied items (the vault
-    /// closed, or changed under them).
+    /// Deletes the decrypted attachments and their pictures and forgets
+    /// copied items (the vault closed, or changed under them).
     func dropAttachments() {
         if let cache = blobCache { Task { await cache.clear() } }
         blobCache = nil
+        renderCache?.close()
+        renderCache = nil
         itemClipboard.clear()
     }
 
@@ -111,9 +130,19 @@ extension AppModel {
 }
 
 extension AppModel {
+    /// The open vault's cache of drawn attachments, made on first use (in
+    /// memory only without `renderCacheRoot`); nil while no vault is unlocked.
+    func attachmentRenders() -> RenderCache? {
+        if let renderCache { return renderCache }
+        guard let vault, phase == .unlocked else { return nil }
+        let cache = RenderCache(root: renderCacheRoot, vault: vault)
+        renderCache = cache
+        return cache
+    }
+
     /// What the canvas's item layer draws from.
     var itemLayerSource: ItemLayerSource {
-        ItemLayerSource(cache: attachmentCache(), prefetch: { [weak self] note, items in
+        ItemLayerSource(cache: attachmentCache(), renders: attachmentRenders(), prefetch: { [weak self] note, items in
             self?.prefetchBlobs(note: note, items: items)
         })
     }

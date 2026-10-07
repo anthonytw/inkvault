@@ -208,6 +208,33 @@ struct BrowserTests {
         #expect(model.notebooks == ["Uni"])
     }
 
+    /// A new note with no title typed is named after its date and time
+    /// (TestFlight build 6), in the format Settings → New Notes picks.
+    @Test func aNewNoteWithoutATitleGetsTheDateAndTime() async throws {
+        let model = try await Self.unlockedFixtureModel()
+        var asked: [Date] = []
+        model.defaultTitle = { asked.append($0); return "Note of \($0.timeIntervalSince1970 > 0)" }
+        let id = try await model.createNote(title: "   ", paper: .ruled, notebook: nil)
+        #expect(model.notes.first { $0.id == id }?.title == "Note of true")
+        #expect(asked.count == 1)
+        // A typed title is kept as typed.
+        let typed = try await model.createNote(title: " Lab ", paper: .ruled, notebook: nil)
+        #expect(model.notes.first { $0.id == typed }?.title == "Lab")
+        #expect(asked.count == 1)
+    }
+
+    /// The Settings choice is the one the model uses: Blank leaves the note
+    /// untitled (`createNote` never puts a date over it).
+    @Test func theDefaultTitleFollowsTheNewNotesSetting() async throws {
+        let model = try await Self.unlockedFixtureModel()
+        model.defaultTitle = { NewNoteSettings.title(.blank, now: $0) }
+        let id = try await model.createNote(title: NewNoteSettings.title(.blank), paper: .ruled, notebook: nil)
+        #expect(model.notes.first { $0.id == id }?.title == "")
+        let d = try #require(UserDefaults(suiteName: "TitleFormat-\(UUID().uuidString)"))
+        NewNoteSettings.setTitleFormat(.dateOnly, in: d)
+        #expect(NewNoteSettings.resolvedTitle(typed: " ", defaults: d) == NewNoteSettings.title(.dateOnly))
+    }
+
     @Test func tagsAddRemoveAndDeduplicate() async throws {
         let model = try await Self.unlockedFixtureModel()
         try await model.addTag(" math ", to: Self.lecture)

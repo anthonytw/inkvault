@@ -77,7 +77,10 @@ extension AppModel {
     func createNote(title: String, paper: Paper, notebook: String?, pageSize: PageSize = .letter) async throws -> UUID {
         let id = UUID()
         let notebook = NotebookPath.canonical(notebook)
-        try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+        // No title typed: the date (and time), or nothing, as Settings → New Notes says (`NewNoteSettings`).
+        let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = typed.isEmpty ? defaultTitle(Date()) : typed
+        try await commit([(id: id, ops: NoteOps.newNote(title: title,
                                                         paper: paper, pageSize: pageSize, notebook: notebook))],
                          creating: [id])
         selectNewNote(id, notebook: notebook)
@@ -417,5 +420,55 @@ extension AppModel {
             }
         }
         undoManager?.setActionName(record.actionName)
+    }
+}
+
+// MARK: - Drags inside the app
+
+extension AppModel {
+    /// Starts a drag of `payload` (nil: a drag that moves nothing, a note in
+    /// Recently Deleted) and returns `provider`, held by the model until the
+    /// drop: iPadOS 26 releases the provider `onDrag` returns as soon as the
+    /// closure ends unless someone keeps it, and a drop then loads nothing.
+    func beginDrag(_ payload: DragPayload?, provider: NSItemProvider) -> NSItemProvider {
+        draggedPayload = payload
+        dragProvider = provider
+        return provider
+    }
+
+    /// Highlights `target` (nil: no row) while a drag is over it. Unchanged
+    /// values are not written again: the sidebar would be rebuilt on every
+    /// `dropUpdated` while the finger moves.
+    func setDropTarget(_ target: DropTarget?) {
+        if dropTarget != target { dropTarget = target }
+    }
+
+    /// Whether a drag over `target` would be accepted: the drag this model
+    /// started, by the rules (`SidebarDrop.accepts`); a drag it does not know
+    /// (nothing started here) is left to the drop. A drag that does not carry
+    /// the app's own types (`carriesAppTypes` false: a photo, text from
+    /// another app) is never one: `draggedPayload` may be left over from a
+    /// cancelled drag, since `onDrag` reports no end.
+    func acceptsDrop(on target: DropTarget, carriesAppTypes: Bool = true) -> Bool {
+        guard carriesAppTypes else { return false }
+        return draggedPayload.map { SidebarDrop.accepts($0, on: target, notes: notes) } ?? true
+    }
+
+    /// The drop on `target` of the drag this model started: its payload when
+    /// the drop is accepted, nil otherwise. Ends the drag either way. A drop
+    /// inside the app never depends on the item provider's data (see
+    /// `beginDrag`); only a drag the model did not start is decoded from it.
+    func takeDrop(on target: DropTarget, carriesAppTypes: Bool = true) -> DragPayload? {
+        let payload = draggedPayload
+        endDrag()
+        guard carriesAppTypes, let payload, phase == .unlocked, SidebarDrop.accepts(payload, on: target, notes: notes) else { return nil }
+        return payload
+    }
+
+    /// Forgets the drag in progress (dropped, or the vault closed).
+    func endDrag() {
+        draggedPayload = nil
+        dragProvider = nil
+        setDropTarget(nil)
     }
 }

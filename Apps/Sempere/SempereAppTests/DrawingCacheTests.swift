@@ -151,7 +151,8 @@ struct DrawingCacheTests {
         _ = await first.prepareDrawing(for: page.id)
         let cache = try #require(model.drawingCache)
         let key = try Self.key(url, Self.lecture)
-        #expect(await TS.waitUntil { cache.drawing(key, page: page.id) != nil })
+        // The layout is written by a utility-priority task: on a busy runner it can come after the page.
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { cache.drawing(key, page: page.id) != nil && cache.layout(key) != nil })
         try await model.openEditor(for: nil)
         // One foreign stroke where the note has two.
         cache.store(drawing: PKDrawing(strokes: [TS.canvasStroke(TS.stroke(x: 10, y: 10))]).dataRepresentation(), for: key, page: page.id)

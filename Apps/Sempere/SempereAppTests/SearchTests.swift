@@ -76,6 +76,43 @@ struct SearchTests {
         #expect(await TS.waitUntil { model.searchResults.map(\.note) == [Self.lecture] })
     }
 
+    /// TestFlight build 6: with a search running, choosing a notebook changed
+    /// the title but kept the All Notes results. The query stays and is
+    /// scoped to the notebook or tag chosen.
+    @Test func choosingASidebarRowScopesTheRunningSearch() async throws {
+        let (model, _, _) = try await Self.model()
+        let physics = try await model.createNote(title: "Momentum problems", paper: .ruled, notebook: "Science/Physics")
+        model.searchText = "momentum"
+        #expect(await TS.waitUntil { Set(model.searchResults.map(\.note)) == [Self.lecture, physics] })
+
+        model.sidebarSelection = .notebook("Science")
+        #expect(model.searchScope == .list)
+        #expect(await TS.waitUntil { model.searchResults.map(\.note) == [physics] && !model.isSearching })
+        #expect(model.searchText == "momentum", "the query is kept")
+
+        model.sidebarSelection = .tag("FIXTURE")
+        #expect(await TS.waitUntil { model.searchResults.map(\.note) == [Self.lecture] && !model.isSearching })
+
+        // "All Notes" in the scope bar widens it; choosing another row scopes it again.
+        model.searchScope = .everywhere
+        #expect(await TS.waitUntil { model.searchResults.count == 2 && !model.isSearching })
+        model.sidebarSelection = .notebook("Science/Physics")
+        #expect(model.searchScope == .list)
+        #expect(await TS.waitUntil { model.searchResults.map(\.note) == [physics] && !model.isSearching })
+
+        model.sidebarSelection = .allNotes
+        #expect(await TS.waitUntil { model.searchResults.count == 2 && !model.isSearching })
+    }
+
+    @Test func theScopeBarNamesTheListItSearches() {
+        #expect(SearchScope.everywhere.title(for: .notebook("A/B")) == "All Notes")
+        #expect(SearchScope.list.title(for: .notebook("School/Math")) == "In “Math”")
+        #expect(SearchScope.list.title(for: .tag("todo")) == "In #todo")
+        #expect(SearchScope.list.title(for: .deleted) == "In Recently Deleted")
+        #expect(SearchScope.list.title(for: .allNotes) == "This List")
+        #expect(SearchScope.list.title(for: nil) == "This List")
+    }
+
     @Test func clearingTheQueryClearsTheResultsAndAJumpForAnotherNoteIsDropped() async throws {
         let (model, _, pages) = try await Self.model()
         model.searchText = "momentum"

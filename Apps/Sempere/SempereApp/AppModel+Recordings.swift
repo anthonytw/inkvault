@@ -19,7 +19,8 @@ struct SpeechRecordingTranscriber: RecordingTranscribing {
 
 /// Playback and transcription of the open notes' recordings
 /// (docs/attachments.md §9, §13). Audio is played from the model's
-/// `BlobCache` (verified temporary files); transcripts are written as a blob
+/// `BlobCache` (verified files), released with `discard` so its plaintext is
+/// deleted once nothing plays or reads it, as are transcripts'; transcripts are written as a blob
 /// of the note, then one `setRecording(transcript)` delta through the
 /// browser's write path (`commit(_:building:)`), so a job finishes even if
 /// the note is closed meanwhile, and an open editor takes the result.
@@ -60,7 +61,7 @@ extension AppModel {
             do {
                 let url = try await cache.acquire(note: editor.noteID, ref: recording.blob)
                 do { try player.load(recording, file: url) } catch {
-                    await cache.release(note: editor.noteID, ref: recording.blob)
+                    await cache.release(note: editor.noteID, ref: recording.blob, discard: true)
                     throw error
                 }
             } catch {
@@ -84,7 +85,7 @@ extension AppModel {
         let cache = attachmentCache(), note = editor.noteID
         player.onUnload = { [weak editor] recording in
             editor?.clearPlaybackHighlight()
-            Task { await cache?.release(note: note, ref: recording.blob) }
+            Task { await cache?.release(note: note, ref: recording.blob, discard: true) }
         }
         player.onPosition = { [weak editor] recording, position in
             editor?.updatePlaybackHighlight(recording, at: position)
@@ -98,7 +99,7 @@ extension AppModel {
     func loadTranscript(_ recording: Recording, note: UUID) async -> Transcript? {
         guard let ref = recording.transcript, let cache = attachmentCache() else { return nil }
         guard let url = try? await cache.acquire(note: note, ref: ref) else { return nil }
-        defer { Task { await cache.release(note: note, ref: ref) } }
+        defer { Task { await cache.release(note: note, ref: ref, discard: true) } }
         let decoded = await Task.detached(priority: .userInitiated) { () -> Transcript? in
             guard let data = try? BoundedRead.contents(of: url, maxBytes: Transcript.maxSize) else { return nil }
             return try? Transcript.decode(data)
@@ -116,7 +117,7 @@ extension AppModel {
         do {
             let url = try await cache.acquire(note: note, ref: recording.blob)
             await transcribe(recording, note: note, file: url, meta: editor.meta)
-            await cache.release(note: note, ref: recording.blob)
+            await cache.release(note: note, ref: recording.blob, discard: true)
         } catch {
             errorMessage = "Could not read the recording: \(error)"
         }
