@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// Scenes: the library window (vault, notes, one note on the canvas); on the
 /// Mac also a window per note (`NoteWindowView`, restored at launch with the
-/// values it was opened with) and one key window. The iPad opens only the
+/// values it was opened with), one key window and one Settings window (⌘,). The iPad opens only the
 /// first (multiple scenes are switched on for Mac Catalyst alone in the
 /// project's build settings), and the Mac menu bar is attached for Catalyst only.
 @main
@@ -37,6 +37,10 @@ struct SempereApp: App {
                     .environment(library)
                     .environment(keys)
             }
+        }
+        WindowGroup("Settings", id: "settings") {
+            SettingsView(showsDone: false)
+                .environment(model)
         }
         WindowGroup("Vault Keys", id: "keys") {
             KeysWindowView()

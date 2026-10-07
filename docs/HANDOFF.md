@@ -448,7 +448,7 @@ Phase 1 task detail (historical, for reference):
 - App: thinning setting `Sempere.thinAfterDays` (per device; 0 = never),
   automatic run once a day per vault after the listing (`thinIfDue`, open
   notes and non-local iCloud notes skipped, off in tests and DEBUG scripted
-  runs), Settings sheet from the sidebar's gear button (E6 will absorb it).
+  runs), Settings sheet from the sidebar's gear button (now the E6 panel, below).
 
 ## Gotchas collected so far
 
