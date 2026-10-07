@@ -222,7 +222,7 @@ struct RootView: View {
             || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: shown)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible, windowID: ui.id, exportIDs: model.exportTargetIDs,
+                             paletteVisible: paletteVisible, exportIDs: model.exportTargetIDs, windowID: ui.id,
                              perform: { command in perform(command, editor: shown) },
                              openRecent: { id in
                                  if let entry = library.recents.first(where: { $0.id == id }) { Task { await reopen(entry) } }
