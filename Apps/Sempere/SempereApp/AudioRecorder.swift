@@ -178,6 +178,10 @@ final class RecordingSession {
     @ObservationIgnored private let center: NotificationCenter
     /// A new segment starts after this many seconds of audio.
     @ObservationIgnored var segmentSeconds: Double = 600
+    /// Called when the session stops by itself (the media server was reset,
+    /// or no new segment file could be started): its owner saves what was
+    /// recorded, as after `stop`.
+    @ObservationIgnored var onStoppedBySystem: (@MainActor () -> Void)?
 
     /// The session recording now, app-wide (the audio session is shared).
     static weak var active: RecordingSession?
@@ -288,6 +292,13 @@ final class RecordingSession {
         end()
     }
 
+    /// `stop`, then `onStoppedBySystem`: the session ended without the user.
+    func stopBySystem() {
+        guard isActive else { return }
+        stop()
+        onStoppedBySystem?()
+    }
+
     /// Marks the session failed (nothing to save) and releases the microphone.
     func fail(_ why: String) {
         backend.finish()
@@ -318,11 +329,13 @@ final class RecordingSession {
         backend.finish()
         finishedSegments = segments.count
         do { try beginSegment() } catch {
-            // No new file: stop here; what was recorded is complete.
+            // No new file: stop here; what was recorded is complete and is saved.
             timeline.stop(at: t)
             state = .stopped
             backend.deactivate()
+            try? writeManifest()
             end()
+            onStoppedBySystem?()
         }
     }
 
@@ -349,8 +362,8 @@ final class RecordingSession {
             MainActor.assumeIsolated { self?.routeChanged(oldDeviceUnavailable: gone) }
         }
         let m = center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            // The recorder is gone with the media server: what was written up to now is kept.
-            MainActor.assumeIsolated { self?.stop() }
+            // The recorder is gone with the media server: what was written up to now is kept and saved.
+            MainActor.assumeIsolated { self?.stopBySystem() }
         }
         observers = [i, r, m]
     }
