@@ -33,6 +33,8 @@ export_vault() {   # name vault-dir
 }
 
 export_vault sample "$repo/Tests/SempereTests/Fixtures/sample.sempere"
+# A vault of a later format version (format.md §7): what this version shows of it.
+export_vault newer "$repo/Tests/SempereTests/Fixtures/newer.sempere"
 if [ -d "$web/test/fixtures/render.sempere" ]; then
   export_vault render "$web/test/fixtures/render.sempere"
 fi

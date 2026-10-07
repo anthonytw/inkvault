@@ -6,7 +6,8 @@ import { type NotebookNode, type SearchHit, canonicalNotebook, isWithinNotebook,
 import { tagKey } from "../format/tags.ts";
 import { type LoadedNote, type NoteSummary, loadNote, mapLimited, summarize } from "../vault/library.ts";
 import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional } from "../vault/source.ts";
-import { UnlockedVault, VaultError, limits, parseIdentity, parseManifest, type VaultManifest } from "../vault/vault.ts";
+import { UnlockedVault, VaultError, limits, parseIdentity, parseManifest, readOnlyReasons, type VaultManifest } from "../vault/vault.ts";
+import { newerSummary } from "../format/newer.ts";
 import { clear, formatDate, h } from "./dom.ts";
 import { NoteView, hasUnknownPaper } from "./noteview.ts";
 import { RecordingsPanel } from "./recordings.ts";
@@ -246,6 +247,11 @@ export class App {
     const problems = [...this.notes.values()].filter((n) => n.error !== undefined || n.failures > 0).length;
     this.status.textContent = done < total ? `Decrypting ${done} of ${total} notes…`
       : `${total} note${total === 1 ? "" : "s"}${problems ? ` · ${problems} with problems` : ""}`;
+    // Content of a newer format version (format.md §7.3): shown as far as understood.
+    const newer = (this.manifest ? readOnlyReasons(this.manifest) : []).length > 0
+      || [...this.notes.values()].some((n) => n.newer);
+    if (newer) this.status.textContent += " · written partly by a newer Sempere";
+    this.status.title = this.manifest ? readOnlyReasons(this.manifest).join("; ") : "";
   }
 
   private visible(n: NoteSummary): boolean {
@@ -327,6 +333,7 @@ export class App {
       const badges: string[] = [];
       if (n.error !== undefined) badges.push("unreadable");
       else if (n.failures > 0) badges.push(`${n.failures} unreadable revision${n.failures === 1 ? "" : "s"}`);
+      if (n.newer) badges.push("newer version");
       return h("li", {}, h("button", {
         class: n.id === this.selected ? "note active" : "note", attrs: { type: "button" },
         on: { click: () => void this.open(n.id, hit?.page?.number) },
@@ -391,6 +398,10 @@ export class App {
       this.detail.replaceChildren(h("div", { class: "note-header" }, h("h2", { text: "This note cannot be opened" }),
         h("p", { class: "error", text: note.error ?? "unknown error" })), ...warnings);
       return;
+    }
+    if (note.newer) {
+      warnings.push(h("p", { class: "warning", text:
+        `Parts of this note were written by a newer version of Sempere (${newerSummary(note.newer)}); it is shown as far as this viewer understands it.` }));
     }
     if (state.deleted) warnings.push(h("p", { class: "warning", text: "This note is deleted (it stays in the vault until restored in the app)." }));
     if (hasUnknownPaper(state)) warnings.push(h("p", { class: "warning", text: "Some paper was made by a newer app; it is shown as blank paper." }));

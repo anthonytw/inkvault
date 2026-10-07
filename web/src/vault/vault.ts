@@ -6,6 +6,7 @@ import { Decrypter, armor, identityToRecipient } from "age-encryption";
 import { DecodeError, arr, isObject, obj, opt, reqWith, str, uuid } from "../format/json.ts";
 import { parseRevisionName, revisionFilename } from "../format/ids.ts";
 import { type Revision, decodeRevision } from "../format/model.ts";
+import { formatMajor, majorOf, manifestReadOnlyReasons, revisionMarkersNewer } from "../format/newer.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
 import { gunzip } from "./gzip.ts";
 
@@ -27,7 +28,8 @@ export class VaultError extends Error {
   }
 }
 
-export type RevisionErrorCode = "undecryptable" | "tagMismatch" | "corruptBody" | "undecodable";
+/** `newer`: written by a newer version and not readable by this one (format.md §7.2, §7.4). */
+export type RevisionErrorCode = "undecryptable" | "tagMismatch" | "corruptBody" | "undecodable" | "newer";
 
 /** Why one revision file could not be read; reported, never silently dropped (§4). */
 export class RevisionReadError extends Error {
@@ -90,17 +92,32 @@ export function parseManifest(bytes: Uint8Array): VaultManifest {
       features: Array.isArray(features) ? features.filter((f): f is string => typeof f === "string") : [],
     };
   } catch (e) {
+    // A later major that does not decode cannot be opened even read-only (§7.2).
+    if (isObject(json) && typeof json.format === "string" && (majorOf(json.format) ?? 0) > formatMajor) {
+      throw new VaultError("unsupportedFormat", `vault format ${json.format} cannot be read by this viewer`);
+    }
     throw new VaultError("manifestCorrupt", e instanceof Error ? e.message : String(e));
   }
-  if (m.format !== "sempere/1") throw new VaultError("unsupportedFormat", `unsupported vault format ${m.format}`);
+  // A later major opens read-only, which the viewer always is (format.md §7.3).
+  const major = majorOf(m.format);
+  if (major === undefined) throw new VaultError("unsupportedFormat", `unsupported vault format ${m.format.slice(0, 64)}`);
   if (m.recipients.length === 0) throw new VaultError("manifestCorrupt", "no recipients");
-  for (const r of m.recipients) {
+  // A later major may list recipient types this viewer does not know.
+  for (const r of major <= formatMajor ? m.recipients : []) {
     if (!recipientType(r.key)) throw new VaultError("manifestCorrupt", `invalid recipient ${r.key.slice(0, 24)}…`);
   }
   if (new Set(m.recipients.map((r) => r.key)).size !== m.recipients.length) {
     throw new VaultError("manifestCorrupt", "duplicate recipient");
   }
   return m;
+}
+
+/**
+ * Why the vault is read-only for this version (format.md §7.3): a later
+ * `format`, unknown `features`. The viewer never writes; this is what it reports.
+ */
+export function readOnlyReasons(m: VaultManifest): string[] {
+  return manifestReadOnlyReasons(m.format, m.features);
 }
 
 /** True when the vault lists an X25519 recipient: migrate-only (format.md §3.3.2). */
@@ -226,6 +243,7 @@ export class UnlockedVault {
     }
     if (plain.length < headerSize) throw new RevisionReadError("corruptBody", "body shorter than its header");
     if (!magic.every((b, i) => plain[i] === b)) throw new RevisionReadError("corruptBody", "body does not start with SMPR");
+    if ((plain[4] ?? 0) > 1) throw new RevisionReadError("newer", `written by a newer version (body version ${plain[4]})`);
     if (plain[4] !== 1) throw new RevisionReadError("corruptBody", `unsupported body version ${plain[4]}`);
     const tag = plain.subarray(5, headerSize);
     const gz = plain.subarray(headerSize);
@@ -245,7 +263,15 @@ export class UnlockedVault {
     try {
       rev = decodeRevision(json);
     } catch (e) {
-      throw new RevisionReadError("undecodable", e instanceof Error ? e.message : String(e));
+      // A newer revision that does not decode is newer, not corrupt (§7.2).
+      let newer: boolean;
+      try {
+        newer = isObject(json) && revisionMarkersNewer(json);
+      } catch {
+        newer = false;
+      }
+      throw new RevisionReadError(newer ? "newer" : "undecodable",
+        (newer ? "written by a newer version: " : "") + (e instanceof Error ? e.message : String(e)));
     }
     if (rev.noteId !== noteId || rev.hlc !== name.hlc || rev.device !== name.device || rev.seq !== name.seq
       || rev.body.type !== name.kind) {
