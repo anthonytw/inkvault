@@ -27,6 +27,7 @@ working state.
 | Vault | History and restore points | ✅ |
 | Vault | Version history round 2 (`format.md` §5.8): checkpoints, editing-session ids, positioned snapshots (`asOf`), thinning with stated and property-tested guarantees; compaction keeps checkpoints complete | ✅ #74 |
 | Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | ✅ #54 |
+| Vault | Published summaries `sempere-summaries.sealed` (`format.md` §12): AES-256-GCM under an HKDF key of the vault secret, entries keyed by revision names, a hint | 🔀 #100 |
 | Vault | Fast exact decoding of stroke points; per-device cache keys (`format.md` §10.1) | ✅ #56 |
 | Vault | Tags merge per tag (add wins) | ✅ #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | ✅ #25 |
@@ -82,6 +83,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
 | sync webdav of attachment blobs (`--max-blob-mib`) | ✅ #67 | ✅ #67 |
+| `vault summaries` (published summaries for the web viewer, `format.md` §12), kept current by unlocked commands and `sync webdav` (`--web-viewer` creates them and the index on the server) | 🔀 #100 | 🔀 #100 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | ✅ #26 | ✅ #26 |
@@ -165,7 +167,7 @@ behaviour and testing on a real Mac.
 | --- | --- | --- |
 | iPhone: "Don't see iCloud Drive?" help (iCloud Drive's per-device sync setting, Files' hidden locations; `docs/iphone.md`) | 🔀 #84 | The picker needs no entitlement; the cause is a device setting. |
 | iPhone app as a reader | ✅ #65 (`docs/iphone.md`) | Same SwiftUI target, device family 1,2. Compact stack (vault, notebooks and tags, list, note); read-first note view (pan, zoom, page bar, finger annotation behind a pencil button); search, export, history and Face ID unlock shared with the iPad; tests at iPhone sizes run on an iPhone simulator in the `app` job; 6.9" screenshots (`scripts/screenshots.sh iphone`). Not yet tried on a physical iPhone. |
-| Web viewer with in-browser decryption | ✅ #63; attachments ✅ #75 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Attachments (#75): images, text boxes (stored `breaks`), PDF pages (pinned pdf.js), placeholders, recordings with playback and transcripts; blobs fetched lazily and verified (hash and keyed name). Later: transcript search, passphrase-wrapped keys, a passkey. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
+| Web viewer with in-browser decryption | ✅ #63; attachments ✅ #75 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Attachments (#75): images, text boxes (stored `breaks`), PDF pages (pinned pdf.js), placeholders, recordings with playback and transcripts; blobs fetched lazily and verified (hash and keyed name). Opening fast (🔀 #100): `config.json` fixes the vault, the list comes from the published summaries (`format.md` §12), encrypted files are cached in IndexedDB (write-once, LRU, evicted when gone), only changed notes are decrypted. Later: transcript search, passphrase-wrapped keys, a passkey. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
 | WebDAV mirror for the viewer | 📋 with the web viewer (#63 documents the Caddy + `sync webdav` setup; static hosts use `sempere vault index`) | A WebDAV share on the NAS, plus a macOS `launchd` agent running `sempere sync webdav` every few minutes from the iCloud vault. The CLI already does the sync; the setup lives in the sysadmin repo. Decided 2026-10-06: wait until the viewer exists. |
 | WebDAV as a vault location in the app | 💭 low priority | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
 | Other Files-app providers (Google Drive, Proton Drive, Dropbox, OneDrive, Nextcloud) | 💭 test on demand | They probably already work through the folder picker. The download checks are tuned for iCloud, so each provider needs a test pass. |
