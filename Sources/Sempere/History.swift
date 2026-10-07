@@ -19,10 +19,19 @@ public struct RestorePoint: Hashable, Sendable {
     /// ordered before it was deleted by compaction and no snapshot at or
     /// before this point covers it, or one ordered before it is unreadable.
     public var complete: Bool
+    /// Set when the revision is a version the user saved (format.md §5.8.1).
+    public var checkpoint: Checkpoint?
+    /// The editing session that wrote it (format.md §5.8.2), if recorded.
+    public var session: String?
 
-    public init(name: RevisionName, wall: Date, app: String, complete: Bool) {
+    public init(name: RevisionName, wall: Date, app: String, complete: Bool,
+                checkpoint: Checkpoint? = nil, session: String? = nil) {
         self.name = name; self.wall = wall; self.app = app; self.complete = complete
+        self.checkpoint = checkpoint; self.session = session
     }
+
+    /// True for a checkpoint.
+    public var isCheckpoint: Bool { checkpoint != nil }
 
     /// The revision's hybrid logical clock reading.
     public var hlc: HLC { name.hlc }
@@ -140,9 +149,56 @@ public enum NoteHistory {
     /// - Parameter unreadable: listed revisions that could not be read; any
     ///   point at or after one of them is incomplete.
     public static func restorePoints(_ revisions: [Revision], unreadable: [RevisionName] = []) -> [RestorePoint] {
-        let sorted = revisions.sorted { $0.name < $1.name }
-        let complete = Completeness(revisions, unreadable: unreadable).isComplete(at: sorted.map(\.name))
-        return zip(sorted, complete).map { r, ok in RestorePoint(name: r.name, wall: r.wall, app: r.app, complete: ok) }
+        let positioned = positions(revisions, unreadable: unreadable)
+        // A positioned snapshot is bookkeeping, not a version (format.md §5.8.3).
+        let sorted = revisions.filter { positioned[$0.name] == nil }.sorted { $0.name < $1.name }
+        let complete = Completeness(revisions, unreadable: unreadable, positions: positioned)
+            .isComplete(at: sorted.map(\.name))
+        return zip(sorted, complete).map { r, ok in
+            RestorePoint(name: r.name, wall: r.wall, app: r.app, complete: ok,
+                         checkpoint: r.kind == .delta ? r.checkpoint : nil, session: r.kind == .delta ? r.session : nil)
+        }
+    }
+
+    /// The snapshots whose `asOf` is valid (format.md §5.8.3), mapped to
+    /// that position: `asOf` is ordered before the snapshot's own name, and
+    /// its `included` covers no listed revision (readable or not) ordered
+    /// after `asOf` other than itself and other valid positioned snapshots
+    /// positioned at or before its `asOf` (decided first: candidates are
+    /// taken by `(asOf, name)`). Other revisions are positioned at their own
+    /// names and are not in the result.
+    ///
+    /// Cost: O(n log n) to sort the n listed names, then per positioned
+    /// snapshot one pass over the names after its `asOf` (O(p × n) for p
+    /// positioned snapshots), each name checked with `Included.covers`.
+    public static func positions(_ revisions: [Revision], unreadable: [RevisionName] = []) -> [RevisionName: RevisionKey] {
+        let candidates = revisions.filter { r in
+            guard r.kind == .snapshot, let a = r.asOf else { return false }
+            return a < RevisionKey(r.name)
+        }.sorted { ($0.asOf!, $0.name) < ($1.asOf!, $1.name) }
+        guard !candidates.isEmpty else { return [:] }
+        let listed = (revisions.map(\.name) + unreadable).sorted()
+        let keys = listed.map(RevisionKey.init)
+        var out: [RevisionName: RevisionKey] = [:]
+        for r in candidates {
+            guard let asOf = r.asOf, case .snapshot(let included, _) = r.body else { continue }
+            // First listed name ordered after `asOf`.
+            var lo = 0, hi = listed.count
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2
+                if keys[mid] <= asOf { lo = mid + 1 } else { hi = mid }
+            }
+            var leaks = false
+            for i in lo..<listed.count {
+                let n = listed[i]
+                guard n != r.name, included.covers(device: n.device, seq: n.seq) else { continue }
+                if let p = out[n], p <= asOf { continue }
+                leaks = true
+                break
+            }
+            if !leaks { out[r.name] = asOf }
+        }
+        return out
     }
 
     /// The note as of restore point `point`: the merge of every revision
@@ -155,10 +211,13 @@ public enum NoteHistory {
         guard revisions.contains(where: { $0.name == point }) else {
             throw HistoryError.unknownRevision(point.filename)
         }
-        guard Completeness(revisions, unreadable: unreadable).isComplete(at: [point]) == [true] else {
+        let positioned = positions(revisions, unreadable: unreadable)
+        guard positioned[point] == nil else { throw HistoryError.unknownRevision(point.filename) }
+        guard Completeness(revisions, unreadable: unreadable, positions: positioned).isComplete(at: [point]) == [true] else {
             throw HistoryError.incompleteHistory(point)
         }
-        return try NoteReducer.reconstruct(revisions.filter { $0.name <= point })
+        let key = RevisionKey(point)
+        return try NoteReducer.reconstruct(revisions.filter { (positioned[$0.name] ?? RevisionKey($0.name)) <= key })
     }
 
     /// The ops of one delta that turns `current` into `target` (format.md §5.7).
@@ -383,7 +442,8 @@ public enum NoteHistory {
 /// The cost is about points × devices × log plus snapshots × extras, not
 /// points × extras.
 struct Completeness {
-    var snapshots: [(name: RevisionName, included: Included)] = []
+    /// Readable snapshots by position (format.md §5.8.3: `asOf` when valid, else the name).
+    var snapshots: [(position: RevisionKey, included: Included)] = []
     var listed: [RevisionName]
     var unreadable: [RevisionName]
     /// Every seq in some file name, per device.
@@ -391,16 +451,19 @@ struct Completeness {
     /// The union of every readable snapshot's `included`.
     var covered = Included()
 
-    init(_ revisions: [Revision], unreadable: [RevisionName]) {
+    /// `positions`: the valid positioned snapshots (`NoteHistory.positions`);
+    /// nil computes them.
+    init(_ revisions: [Revision], unreadable: [RevisionName], positions: [RevisionName: RevisionKey]? = nil) {
         listed = revisions.map(\.name) + unreadable
         self.unreadable = unreadable
+        let positions = positions ?? NoteHistory.positions(revisions, unreadable: unreadable)
         for n in listed { present[n.device, default: []].insert(n.seq) }
         for r in revisions {
             guard case .snapshot(let included, _) = r.body else { continue }
-            snapshots.append((r.name, included))
+            snapshots.append((positions[r.name] ?? RevisionKey(r.name), included))
             covered = covered.union(included)
         }
-        snapshots.sort { $0.name < $1.name }
+        snapshots.sort { $0.position < $1.position }
     }
 
     /// The per-device state of the sweep.
@@ -491,7 +554,7 @@ struct Completeness {
         var before = Included()
         var merged = 0
         return points.map { point in
-            while merged < snapshots.count, snapshots[merged].name <= point {
+            while merged < snapshots.count, snapshots[merged].position <= RevisionKey(point) {
                 before = before.union(snapshots[merged].included)
                 merged += 1
             }

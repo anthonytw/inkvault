@@ -8,6 +8,8 @@ import {
   type DrawCommand, RenderError, RenderLimits, fmt, paint, paintHex, pointCount,
 } from "./primitives.ts";
 import { applyTransform, meanScale, strokeCommands, transformOf } from "./stroke.ts";
+import { type PreparedItem, maxItemsPerPage, prepareItem } from "./items.ts";
+import { cmpItems } from "../format/registers.ts";
 
 export interface RenderOptions {
   paper: boolean;
@@ -21,6 +23,7 @@ export interface PreparedStroke {
   commands: DrawCommand[];
   minY: number;
   maxY: number;
+  centreY: number;
 }
 
 export function chunkHeight(options: RenderOptions, meta: NoteMeta): number {
@@ -32,6 +35,9 @@ export function chunkHeight(options: RenderOptions, meta: NoteMeta): number {
 export class PreparedPage {
   readonly paper: Paper;
   readonly strokes: PreparedStroke[] = [];
+  /** Placed items in drawing order (§8.2.3); those that cannot be drawn are in `warnings`. */
+  readonly items: PreparedItem[] = [];
+  readonly warnings: string[] = [];
   /** Page height: `pageSize.height`, or for infinite pages also the lowest ink and one chunk. */
   readonly extent: number;
   /** `paper`, or its plain background when ruling every band would be too much. */
@@ -73,14 +79,31 @@ export class PreparedPage {
       const commands = strokeCommands(stroke, options.tolerance);
       outline += commands.reduce((m, c) => m + pointCount(c), 0);
       if (outline > maxOutlinePoints) throw new RenderError("the page has more ink geometry than the renderer accepts");
-      this.strokes.push({ commands, minY: lo - pad, maxY: hi + pad });
+      this.strokes.push({ commands, minY: lo - pad, maxY: hi + pad, centreY: lo / 2 + hi / 2 });
       low = Math.max(low, hi + pad);
     }
+    // Items count toward an infinite page's extent like strokes (§8.2.3); one
+    // that cannot be drawn is skipped, never fatal to the page (§8.5.2).
+    for (const item of [...page.items].sort(cmpItems).slice(0, maxItemsPerPage)) {
+      const p = prepareItem(item);
+      if (typeof p === "string") {
+        this.warnings.push(`item ${String(item.id).slice(0, 8)}: ${p}`);
+        continue;
+      }
+      this.items.push(p);
+      low = Math.max(low, p.maxY);
+    }
+    if (page.items.length > maxItemsPerPage) this.warnings.push(`more than ${maxItemsPerPage} items; the rest are not drawn`);
     if (size.infinite) {
       if (low > maxE) throw new RenderError("the page is taller than the supported extent");
       this.extent = Math.max(size.height, Math.ceil(low), chunkHeight(options, meta));
     } else {
-      this.extent = size.height;
+      // Ink centred at or below a finite page adds to its extent (PageComposer.swift).
+      let below = 0;
+      for (const sp of [...this.strokes, ...this.items.map((i) => ({ minY: i.minY, maxY: i.maxY, centreY: i.minY / 2 + i.maxY / 2 }))]) {
+        if (sp.centreY >= size.height) below = Math.max(below, sp.maxY);
+      }
+      this.extent = Math.max(size.height, Math.ceil(Math.min(below, maxE)));
     }
     let ruling = 0;
     for (const c of chunks(meta, this.extent, chunkHeight(options, meta))) {

@@ -158,14 +158,21 @@ extension Vault {
         if try revisionNames(of: revision.noteId).contains(where: { $0.device == name.device && $0.seq == name.seq }) {
             throw VaultError.seqInUse(device: name.device.rawValue, seq: name.seq)
         }
-        let json = try InkJSON.encoder().encode(revision)
-        let body = try BodyFraming.frame(json: json, noteId: revision.noteId.uuidString.lowercased(),
-                                         filename: name.filename, secret: secret)
-        let encrypted = try Self.encrypt(body, to: ageRecipients())
+        let encrypted = try encodedRevision(revision, secret: secret)
         // Attachment ops need every writer to know blobs (format.md §2).
         if revision.holdsAttachments { try ensureFeature(VaultManifest.attachmentsFeature) }
         try FileIO.createDirectory(dir)
         try FileIO.writeAtomically(encrypted, to: file, replacing: false)
+    }
+
+    /// A revision as `write` stores it: JSON, gzip, frame and tag, encrypted
+    /// to the current recipients.
+    func encodedRevision(_ revision: Revision, secret: VaultSecret? = nil) throws -> Data {
+        let secret = try secret ?? requireSecret()
+        let json = try InkJSON.encoder().encode(revision)
+        let body = try BodyFraming.frame(json: json, noteId: revision.noteId.uuidString.lowercased(),
+                                         filename: revision.name.filename, secret: secret)
+        return try Self.encrypt(body, to: ageRecipients())
     }
 
     /// The next `seq` for `device` in this note (format.md §5): one more than

@@ -8,17 +8,54 @@ struct NotesHistory: ParsableCommand {
         abstract: "List a note's restore points: one per revision, oldest first.",
         discussion: """
             Each row is a revision the note can be viewed at (`export --at`) or restored to
-            (`notes restore --to`): kind, wall time, device, app and the revision name. Revisions
-            deleted by compaction are not restore points; a point marked "incomplete" cannot be
-            rebuilt because revisions before it were compacted away or are unreadable.
+            (`notes restore --to`): kind, wall time, device, app and the revision name. Checkpoints
+            (versions saved with `notes checkpoint` or the app's Save Version) are marked with their
+            name. Revisions deleted by compaction are not restore points; a point marked "incomplete"
+            cannot be rebuilt because revisions before it were compacted away or are unreadable.
+            With --sessions the points are grouped as a history view shows them (format.md §5.8.2):
+            each checkpoint on its own, and the autosaves between checkpoints in editing sessions
+            (a new session when the note was closed and reopened, after a gap of 10 minutes or more,
+            or when another device wrote). In --json every point says which group it is in.
             """
     )
 
     @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
     var note: String
 
+    @Flag(name: .long, help: "Group the points into checkpoints and editing sessions.")
+    var sessions = false
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
+
+    struct Point: Encodable {
+        var revision: String; var kind: String; var hlc: String; var device: String; var seq: Int
+        var wall: Date; var app: String; var complete: Bool
+        /// True for a checkpoint (format.md §5.8.1).
+        var checkpoint: Bool
+        /// The checkpoint's name, if it has one.
+        var name: String?
+        /// The editing-session id the revision carries, if any (format.md §5.8.2).
+        var session: String?
+        /// Index of the point's group in `notes history --sessions --json`.
+        var group: Int
+    }
+
+    struct Group: Encodable {
+        /// `checkpoint` or `session`.
+        var type: String
+        var device: String
+        var session: String?
+        /// The checkpoint's name (checkpoints only).
+        var name: String?
+        var start: Date
+        var end: Date
+        /// Number of restore points (saves) in the group.
+        var saves: Int
+        /// The newest point's revision: the one thinning keeps.
+        var newest: String
+        var points: [Point]
+    }
 
     func run() throws {
         let vault = try access.openVault(.required)
@@ -28,24 +65,90 @@ struct NotesHistory: ParsableCommand {
         if !loaded.failures.isEmpty {
             printError("warning: \(loaded.failures.count) unreadable revision(s) are not listed (see `notes show`)")
         }
+        let groups = NoteHistory.groups(points)
+        var groupOf: [RevisionName: Int] = [:]
+        for (i, g) in groups.enumerated() { for p in g.points { groupOf[p.name] = i } }
+        func json(_ p: RestorePoint) -> Point {
+            Point(revision: p.name.filename, kind: p.kind.rawValue, hlc: p.hlc.description, device: p.device.rawValue,
+                  seq: p.name.seq, wall: p.wall, app: p.app, complete: p.complete, checkpoint: p.isCheckpoint,
+                  name: p.checkpoint?.name, session: p.session, group: groupOf[p.name] ?? 0)
+        }
         if output.json {
-            struct Point: Encodable {
-                var revision: String; var kind: String; var hlc: String; var device: String; var seq: Int
-                var wall: Date; var app: String; var complete: Bool
+            if sessions {
+                try output.emitJSON(groups.map { g -> Group in
+                    let first = g.points[0]
+                    let isCheckpoint: Bool
+                    if case .checkpoint = g { isCheckpoint = true } else { isCheckpoint = false }
+                    return Group(type: isCheckpoint ? "checkpoint" : "session", device: first.device.rawValue,
+                                 session: first.session, name: isCheckpoint ? first.checkpoint?.name : nil,
+                                 start: first.wall, end: g.newest.wall, saves: g.points.count,
+                                 newest: g.newest.name.filename, points: g.points.map(json))
+                })
+            } else {
+                try output.emitJSON(points.map(json))
             }
-            try output.emitJSON(points.map {
-                Point(revision: $0.name.filename, kind: $0.kind.rawValue, hlc: $0.hlc.description,
-                      device: $0.device.rawValue, seq: $0.name.seq, wall: $0.wall, app: $0.app, complete: $0.complete)
-            })
             return
         }
         if points.isEmpty { output.info("No restore points."); return }
+        func mark(_ p: RestorePoint) -> String {
+            var s = p.name.filename
+            if let c = p.checkpoint { s += "  (checkpoint" + (c.name.map { ": \($0)" } ?? "") + ")" }
+            if !p.complete { s += "  (incomplete)" }
+            return s
+        }
+        if sessions {
+            var rows = output.quiet ? [] : [["GROUP", "FROM", "TO", "DEVICE", "SAVES", "NEWEST"]]
+            for g in groups {
+                let first = g.points[0]
+                let label: String
+                if case .checkpoint = g { label = "checkpoint" } else { label = "session" }
+                rows.append([label, Format.local(first.wall), Format.local(g.newest.wall), first.device.rawValue,
+                             "\(g.points.count)", mark(g.newest)])
+            }
+            print(Format.table(rows))
+            return
+        }
         var rows = output.quiet ? [] : [["KIND", "WALL", "DEVICE", "APP", "REVISION"]]
         for p in points {
-            rows.append([p.kind.rawValue, Format.local(p.wall), p.device.rawValue, p.app,
-                         p.name.filename + (p.complete ? "" : "  (incomplete)")])
+            rows.append([p.kind.rawValue, Format.local(p.wall), p.device.rawValue, p.app, mark(p)])
         }
         print(Format.table(rows))
+    }
+}
+
+struct NotesCheckpoint: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "checkpoint",
+        abstract: "Save the note as it is now as a named version (a checkpoint).",
+        discussion: """
+            Writes one delta with no ops marked as a checkpoint (format.md §5.8.1). Checkpoints are
+            listed by `notes history`, can be restored with `notes restore --to`, and are never
+            deleted by `compact`. The name is optional (trimmed, at most 200 characters). Device id
+            and clock as for `sempere snapshot`.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Option(name: .long, help: ArgumentHelp("The version's name.", valueName: "text"))
+    var name: String?
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let rev = try vault.checkpoint(id, name: name, deviceState: DeviceState.defaultURL(), app: appName)
+        let noteName = id.uuidString.lowercased()
+        if output.json {
+            struct Out: Encodable { var note: String; var file: String; var name: String?; var device: String }
+            try output.emitJSON(Out(note: noteName, file: rev.name.filename, name: rev.checkpoint?.name,
+                                    device: rev.device.rawValue))
+        } else {
+            output.info("Saved version\(rev.checkpoint?.name.map { " \"\($0)\"" } ?? "") of \(noteName): \(rev.name.filename)")
+        }
     }
 }
 

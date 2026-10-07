@@ -506,8 +506,9 @@ sempere notes paper ID|TITLE [KIND] [--page N] [PAPER OPTIONS]
 sempere notes search QUERY [--notebook PATH] [--tag T] [--deleted] [--no-cache]
 sempere notes delete ID|TITLE
 sempere notes undelete ID|TITLE
-sempere notes history ID|TITLE
+sempere notes history ID|TITLE [--sessions]
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
+sempere notes checkpoint ID|TITLE [--name TEXT]
 sempere notes layout ID|TITLE paged|pageless [--dry-run]
 ```
 
@@ -532,8 +533,21 @@ full id, an id prefix of 4 or more characters, or its exact title
 
 `history` lists the note's restore points, one per readable revision, oldest
 first by `(hlc, device, seq)`: kind, wall time, device, app and revision name.
-`--json` gives `revision`, `kind`, `hlc`, `device`, `seq`, `wall`, `app` and
-`complete` per point. Revisions deleted by `compact` are not restore points. A
+`--json` gives `revision`, `kind`, `hlc`, `device`, `seq`, `wall`, `app`,
+`complete`, `checkpoint` (true for a saved version), `name` (the checkpoint's
+name, if any), `session` (the editing-session id the app wrote, if any) and
+`group` (the index of the point's group, below) per point. A checkpoint is
+marked `(checkpoint: NAME)` in the text output. `--sessions` groups the points
+as the app's history view does (`docs/format.md` §5.8.2): each checkpoint on
+its own, and the autosaves between checkpoints in editing sessions; a new
+session starts when the note was closed and reopened (another `session` id),
+after a gap of 10 minutes or more, or when another device wrote. The text
+output is one line per group (GROUP, FROM, TO, DEVICE, SAVES, NEWEST); `--json`
+gives an array of groups, oldest first, each with `type` (`checkpoint` or
+`session`), `device`, `session`, `name` (checkpoints), `start`, `end`, `saves`,
+`newest` (the revision thinning keeps) and `points` (as above). Snapshots that
+`compact` writes "as of" a kept version (`asOf`, `docs/format.md` §5.8.3) are
+bookkeeping and are not listed. Revisions deleted by `compact` are not restore points. A
 point is `complete: false` (shown as `(incomplete)`) when the note as of it can
 no longer be rebuilt: revisions before it were compacted away and no snapshot
 at or before it covers them, or one before it (or any snapshot) is unreadable. Unreadable
@@ -560,6 +574,14 @@ an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 `recognitionChanges`, `pagePaperChanges`, `itemsRemoved`, `itemsRestored`,
 `itemChanges`, `recordingsRemoved`, `recordingsRestored`, `recordingChanges`,
 `metaFields`, `deleted`).
+
+`checkpoint` saves the note as it is now as a version, optionally named
+(`--name`, trimmed, at most 200 characters): one delta with no ops marked as a
+checkpoint (`docs/format.md` §5.8.1), stamped with this machine's device id and
+clock as for `snapshot`. The app's Save Version writes the same. Checkpoints are
+restore points like any other (`notes restore --to`, `export --at`), and
+`compact` never deletes one. `--json` emits `note`, `file`, `name` and
+`device`.
 
 `layout` switches a note between paged (fixed-size pages) and pageless (one
 infinite page) by writing **one new delta** (`docs/format.md` §5.4.3).
@@ -1135,7 +1157,7 @@ another vault` to stderr and exits 3 so scripts can tell. Wrong key: exit 4.
 ### Maintenance
 
 ```
-sempere compact (ID|TITLE | --all) [--retention DAYS] [--dry-run]
+sempere compact (ID|TITLE | --all) [--retention DAYS | --thin-older-than AGE] [--dry-run]
 sempere snapshot ID|TITLE
 ```
 
@@ -1147,7 +1169,36 @@ writes a snapshot first (device id and clock as for `snapshot`), then compacts.
 `--dry-run` writes and deletes nothing and lists `would snapshot` and
 `would delete` lines. With `--all` a note that cannot be compacted (an unreadable
 revision) is reported on stderr, the other notes are still processed, and the
-exit code is 1. `snapshot` writes a snapshot of the note. Both need a
+exit code is 1.
+
+Checkpoints (`notes checkpoint`) are never deleted, and each one stays a
+complete restore point with the same content: when the revisions a checkpoint
+depends on are deleted, `compact` first writes a snapshot *as of* the
+checkpoint (`asOf`, `docs/format.md` §5.8.3) and keeps one revision per other
+device just after it (a *witness*, §5.8.4 rule 3).
+
+`--thin-older-than AGE` thins instead (`docs/format.md` §5.8.4): `AGE` is days,
+as `30d` or `30` (more than 0), or `never` (do nothing). Among the revisions
+older than that (the longest run from the oldest revision whose wall times are
+all older), it keeps every checkpoint, the newest autosave of each editing
+session (the groups of `notes history --sessions`) and the note's newest
+revision, and deletes the rest, deltas and snapshots alike. Every kept version
+and every newer revision stays a complete restore point with the same content,
+and the note's current state is unchanged; to make that so it writes a snapshot
+as of each kept version that needs one, before deleting anything. Each of those
+is a full copy of the note, so thinning can add bytes while it removes files:
+the output says how many it deletes and adds (`Would delete 12 file(s), 48.0 KB;
+would add 2 snapshot(s), 310.5 KB.`), with `would snapshot NOTE (as of
+REVISION)` lines. Thinning twice with the same age does nothing the second
+time. `--retention` and `--thin-older-than` are different modes; give one.
+
+`--json` emits one object per note: `note`, `snapshotNeeded`, `snapshot` (the
+first snapshot written; null on a dry run), `snapshots` (each `{file, asOf}`;
+`file` null on a dry run, `asOf` set for a positioned snapshot), `files` (the
+revisions deleted, or that would be), `witnesses`, `bytesDeleted` and
+`bytesAdded`.
+
+`snapshot` writes a snapshot of the note. Both need a
 key. Snapshots stamp the file with this machine's
 device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 `~/.local/state/sempere/device.json`), created on first use:

@@ -27,9 +27,14 @@ function canonical(v: unknown): unknown {
   return v;
 }
 
-/** An SVG export without its `<g id="items">` group (format.md §8.2.3: it sits between paper and strokes). */
+/**
+ * An SVG export without its `<g id="items">` group (format.md §8.2.3: it
+ * sits between paper and strokes) and the `xlink` namespace its images use.
+ * items-crosscheck.test.ts compares the group itself.
+ */
 function withoutItems(svg: string): string {
-  return svg.replace(/<g id="items">[\s\S]*?<\/g>\n(?=<g id="strokes">|<\/svg>)/, "");
+  return svg.replace(/<g id="items">\n[\s\S]*?<\/g>\n(?=<g id="strokes">)/, "")
+    .replace(" xmlns:xlink=\"http://www.w3.org/1999/xlink\"", "");
 }
 
 for (const [name, dir] of vaults.filter(([, d]) => existsSync(d))) {
@@ -61,8 +66,8 @@ for (const [name, dir] of vaults.filter(([, d]) => existsSync(d))) {
         expect(pageFiles.length).toBe(state.pages.length);
         state.pages.forEach((page, i) => {
           const want = readFileSync(join(golden, name, id, pageFiles[i] ?? ""), "utf8");
-          // The viewer does not draw placed items yet (docs/web-viewer.md): compare
-          // everything else, without the Swift export's `items` group.
+          // Paper, extent and ink byte for byte; the items group is checked
+          // structurally in items-crosscheck.test.ts (the glyphs differ by design).
           expect(renderSVG(page, state.meta)).toBe(page.items.length > 0 ? withoutItems(want) : want);
         });
       });
