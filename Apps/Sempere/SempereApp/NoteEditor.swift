@@ -694,6 +694,15 @@ final class NoteEditor {
         return true
     }
 
+    /// Takes pages built elsewhere (a PDF's, `NoteEditor+Insert`), shows
+    /// `show`, and saves them at once as one delta.
+    func applyInsertedPages(_ edit: PageEdit, show: UUID?) {
+        guard !isReadOnly, !isShutDown else { return }
+        apply(edit, show: show)
+        for page in edit.pages where !page.items.isEmpty { itemRevisions[page.id, default: 0] &+= 1 }
+        saveNow()
+    }
+
     /// Writes what is pending now rather than after the pause.
     private func saveNow() {
         Task { await flush() }

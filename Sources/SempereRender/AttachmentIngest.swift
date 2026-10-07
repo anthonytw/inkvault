@@ -36,6 +36,11 @@ public struct PreparedImage: Hashable, Sendable {
     public var pixelSize: Size
     /// EXIF orientation 2…8; nil is 1.
     public var orientation: Int?
+
+    public init(data: Data, mediaType: String, pixelSize: Size, orientation: Int?) {
+        self.data = data; self.mediaType = mediaType; self.pixelSize = pixelSize
+        self.orientation = orientation == 1 ? nil : orientation
+    }
 }
 
 public enum ImageIngest {
