@@ -54,7 +54,9 @@ extension AppModel {
         }
         let known = before.union(indexed.keys)
         // Notes still arriving that this pass does not look at stay pending.
-        let pendingElsewhere = scope.map { pendingNoteIDs.subtracting($0) } ?? []
+        var pendingElsewhere = scope.map { pendingNoteIDs.subtracting($0) } ?? []
+        let reported = reportedNoteIDs
+        reportedNoteIDs = []
 
         // 1. Names only.
         let listings = try await offMain(priority: .utility) {
@@ -74,9 +76,20 @@ extension AppModel {
         var ready: [UUID]
         var pending: [UUID] = []
         if cloud {
-            let focus = canRead || !hasLocalIndex
-                ? Set(diff.changed).union(pendingNoteIDs.intersection(present))
-                : []   // locked, with an index: nothing to fetch before the key shows what changed
+            var focus: Set<UUID> = []
+            if canRead || !hasLocalIndex {
+                // Asking iCloud for a file's state costs a round trip on a device. A note seen
+                // for the first time (or reported changed) is checked now; notes already known
+                // to be arriving are re-checked `cloudCheckLimit` at a time, in rotation, so a
+                // pass over N arriving notes costs O(limit), not O(N), and N notes arriving
+                // over many passes cost O(N + passes × limit) in all, not O(N × passes).
+                let arriving = pendingNoteIDs.intersection(present)
+                let fresh = Set(diff.changed).subtracting(arriving).union(reported.intersection(present))
+                let rotation = nextPendingChecks(arriving.subtracting(fresh), limit: cloudCheckLimit)
+                focus = fresh.union(rotation)
+                if let selected = selectedNoteID, arriving.contains(selected) { focus.insert(selected) }
+                pendingElsewhere.formUnion(arriving.subtracting(focus))
+            }   // else locked, with an index: nothing to fetch before the key shows what changed
             let priority = selectedNoteID
             let window = cloudWindow
             let pass = focus.isEmpty ? ProgressiveLoad.Pass() : try await offMain(priority: .utility) {
@@ -149,12 +162,32 @@ extension AppModel {
         placeholderNoteIDs.subtract(ready)
         pendingNoteIDs = stillPending.union(placeholderNoteIDs)
         if scope == nil { summaryCache?.retain(only: present.union(notes.map(\.id))) }
-        saveSummaryCache()
+        // The whole index is re-encrypted on every save: while notes keep arriving, at most
+        // once per `summaryCacheSaveInterval`, and once they have all arrived.
+        saveSummaryCacheIfDue(force: pendingNoteIDs.isEmpty)
         markIndexed()
         listLoaded = true
         loadFailure = nil
         if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
         return pendingNoteIDs.count
+    }
+
+    /// Up to `limit` of `arriving`, continuing in id order from where the
+    /// previous pass stopped (`pendingCheckCursor`), so every arriving note is
+    /// checked once every `arriving.count / limit` passes.
+    func nextPendingChecks(_ arriving: Set<UUID>, limit: Int) -> Set<UUID> {
+        guard arriving.count > limit else { return arriving }
+        let order = arriving.sorted { $0.uuidString < $1.uuidString }
+        let start = order.firstIndex { $0.uuidString > pendingCheckCursor } ?? 0
+        var out: [UUID] = []
+        out.reserveCapacity(limit)
+        var i = start
+        while out.count < max(1, limit) {
+            out.append(order[i])
+            i = (i + 1) % order.count
+        }
+        pendingCheckCursor = out.last?.uuidString ?? ""
+        return Set(out)
     }
 
     /// The row of a note iCloud has not delivered and nothing is known about.
