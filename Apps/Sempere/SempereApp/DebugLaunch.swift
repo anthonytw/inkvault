@@ -161,5 +161,31 @@ enum DebugLaunch {
             }
         }
     }
+
+    /// The first layout of a paged note's page stack: the requested zoom
+    /// (`SEMPERE_DEBUG_ZOOM`, times the fit) and scroll (`SEMPERE_DEBUG_SCROLL_Y`,
+    /// page points from the top of the stack, gaps included), the geometry
+    /// in the log and the snapshot, if asked.
+    @MainActor
+    static func stackDidLayOut(_ stack: PageStackHost) {
+        let env = environment
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak stack] in
+            guard let stack, let fit = stack.fitScale else { return }
+            if let z = env["SEMPERE_DEBUG_ZOOM"].flatMap(Double.init) { stack.setScale(fit * CGFloat(z)) }
+            stack.scroller.setContentOffset(CGPoint(x: 0, y: CGFloat(scrollY ?? 0) * stack.scale), animated: false)
+            NSLog("SempereDebug stack scale=%f pages=%d canvases=%d contentSize=%@ offset=%@ bounds=%@", stack.scale,
+                  stack.layout.count, stack.slots.count, NSCoder.string(for: stack.scroller.contentSize),
+                  NSCoder.string(for: stack.scroller.contentOffset), NSCoder.string(for: stack.bounds))
+            guard let path = env["SEMPERE_DEBUG_SNAPSHOT"] else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak stack] in
+                guard let stack else { return }
+                let image = UIGraphicsImageRenderer(bounds: stack.bounds).image { _ in
+                    stack.drawHierarchy(in: stack.bounds, afterScreenUpdates: true)
+                }
+                try? image.pngData()?.write(to: URL(fileURLWithPath: expand(path)))
+                NSLog("SempereDebug snapshot %@", path)
+            }
+        }
+    }
 }
 #endif
