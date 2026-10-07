@@ -48,6 +48,23 @@ final class CLINoteEditTests: CLITestCase {
         XCTAssertNotNil(UUID(uuidString: plain.out.trimmingCharacters(in: .whitespacesAndNewlines)), plain.out)
     }
 
+    /// Without a title the note is named after the date and time, as in the app.
+    func testNewWithoutATitleUsesTheDateAndTime() throws {
+        let year = Calendar(identifier: .gregorian).component(.year, from: Date())
+        let obj = try json(["notes", "new", "--title-format", "'Note' yyyy"])
+        let title = try XCTUnwrap(try note(obj)["title"] as? String)
+        // The year may turn between the command and this line only on New Year's Eve at midnight.
+        XCTAssertTrue(title == "Note \(year)" || title == "Note \(year + 1)", title)
+
+        let plain = try json(["notes", "new"])
+        let defaultTitle = try XCTUnwrap(try note(plain)["title"] as? String)
+        XCTAssertFalse(defaultTitle.isEmpty)
+        XCTAssertTrue(defaultTitle.contains(String(year)) || defaultTitle.contains(String(year % 100)), defaultTitle)
+
+        // An explicit empty title stays empty.
+        XCTAssertEqual(try note(try json(["notes", "new", ""]))["title"] as? String, "")
+    }
+
     func testRenameByTitleAndPrefixWritesOneDeltaOrNothing() throws {
         let before = try revisions(Self.lecture)
         let obj = try json(["notes", "rename", "fixture LECTURE", "  Renamed  "])
