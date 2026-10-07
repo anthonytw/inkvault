@@ -138,10 +138,11 @@ public enum RecipientsAuth {
         guard let record else { return .verified(.firstUse) }
         if constantTimeEqual(linkKey(secret), record.linkKey) { return .verified(.unchanged) }
         if verifyLink(manifest.secretLink, linkKey: record.linkKey, to: secret, vaultId: id) { return .verified(.rotated) }
-        let known = Set(record.recipients)
-        if keys.allSatisfy(known.contains) { return .verified(.onlyKnownKeys) }
-        // No repair: the files are tagged under a secret this device no longer
-        // holds (format.md §2.1 "Repair").
+        // Unconfirmed, even when every key is one this device trusted: a
+        // secret this device cannot link to one it verified may be an
+        // attacker's, and accepting it would let a later `secretLink` made
+        // under it vouch for any list. No repair: the files are tagged under a
+        // secret this device no longer holds (format.md §2.1 "Repair").
         return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: nil, record: record))
     }
 
@@ -197,9 +198,6 @@ public enum RecipientsStatus: Hashable, Sendable {
         case firstUse
         /// The secret rotated and `secretLink` verifies under the record.
         case rotated
-        /// The secret changed without a link this device can check, but the
-        /// list holds only keys this device already trusted.
-        case onlyKnownKeys
     }
 
     /// True when writers may encrypt to the list: verified or untagged.
@@ -234,8 +232,8 @@ public struct RecipientsProblem: Hashable, Sendable {
         case tagMismatch
         /// The tag was removed from a vault that had one (a downgrade).
         case tagRemoved
-        /// The secret changed without a `secretLink` this device can check,
-        /// and the list holds keys it never verified.
+        /// The secret changed without a `secretLink` this device can check
+        /// (whatever keys the list holds).
         case secretUnconfirmed
     }
 

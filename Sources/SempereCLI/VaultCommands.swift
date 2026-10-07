@@ -176,7 +176,7 @@ struct VaultInfo: ParsableCommand {
 struct RecipientsStatusOutput: Encodable {
     /// `verified`, `untagged`, `tampered` or `not-checked` (locked).
     var status: String
-    /// For `verified`: `unchanged`, `firstUse`, `rotated` or `onlyKnownKeys`.
+    /// For `verified`: `unchanged`, `firstUse` or `rotated`.
     var verification: String?
     /// For `tampered`: `tagMismatch`, `tagRemoved` or `secretUnconfirmed`.
     var reason: String?

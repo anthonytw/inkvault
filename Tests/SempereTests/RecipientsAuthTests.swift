@@ -158,7 +158,8 @@ final class RecipientsAuthTests: VaultTestCase {
         try stale.confirmRecipients()
         XCTAssertEqual(try open(vault.url, deviceStale, [b]).recipientsStatus, .verified(.unchanged))
 
-        // Missed rotations that only removed keys: nobody new can read.
+        // Missed rotations that only removed keys: still unconfirmed (the
+        // secret cannot be told from an attacker's), until confirmed.
         let deviceOld = MemoryRecipientsTrustStore()
         try touch(vault.url, deviceOld, [b])
         var v3 = try open(vault.url, deviceB, [b])
@@ -169,7 +170,54 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertEqual(pre.recipientsStatus.problem?.reason, nil, "additions keep the secret: verified")
         try v3.removeRecipient(f.recipient)
         try v3.removeRecipient(g.recipient)
-        XCTAssertEqual(try open(vault.url, deviceOld, [b]).recipientsStatus, .verified(.onlyKnownKeys))
+        var old = try open(vault.url, deviceOld, [b])
+        XCTAssertEqual(old.recipientsStatus.problem?.reason, .secretUnconfirmed)
+        XCTAssertEqual(old.recipientsStatus.problem?.unexpected, [])
+        XCTAssertThrowsError(try old.requireWritable())
+        try old.confirmRecipients()
+        XCTAssertEqual(try open(vault.url, deviceOld, [b]).recipientsStatus, .verified(.unchanged))
+    }
+
+    /// Regression: a secret replaced without adding a key must not count as
+    /// verified. If it did, the device would move its record to the
+    /// attacker's secret, and a second forgery adding the attacker's key with
+    /// a `secretLink` made under that secret would verify as a rotation.
+    func testAReplacedSecretWithOnlyKnownKeysIsNotAStepToAddingOne() throws {
+        let store = MemoryRecipientsTrustStore()
+        let (made, _, _) = try setUpVault(store: store)
+        let url = made.url.appendingPathComponent("vault.json")
+        let recordBefore = try XCTUnwrap(store.record(for: made.vaultId))
+
+        // Step 1: the attacker's secret S1, the same keys, a tag under S1.
+        let s1 = VaultSecret.random()
+        var m = try VaultManifest.decode(Data(contentsOf: url))
+        let keys = try m.recipients.map { try NativeRecipient(string: $0.key) }
+        m.vaultSecret = String(decoding: try AgeFile.encrypt(s1.bytes, to: keys, armor: true), as: UTF8.self)
+        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: s1)
+        m.secretLink = nil
+        try m.encoded().write(to: url)
+
+        let step1 = try open(made.url, store)
+        XCTAssertEqual(step1.recipientsStatus.problem?.reason, .secretUnconfirmed)
+        XCTAssertThrowsError(try step1.requireWritable()) {
+            guard case .untrustedRecipients = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        XCTAssertEqual(store.record(for: made.vaultId), recordBefore, "the record never moves to an unconfirmed secret")
+
+        // Step 2: S2 to the listed keys and the attacker's, linked from S1.
+        let s2 = VaultSecret.random()
+        m.recipients.append(.init(key: x.recipient.string, label: "iPad", added: Date()))
+        let all = try m.recipients.map { try NativeRecipient(string: $0.key) }
+        m.vaultSecret = String(decoding: try AgeFile.encrypt(s2.bytes, to: all, armor: true), as: UTF8.self)
+        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: s2)
+        m.secretLink = RecipientsAuth.link(from: s1, to: s2, vaultId: m.vaultId)
+        try m.encoded().write(to: url)
+
+        let step2 = try open(made.url, store)
+        XCTAssertEqual(step2.recipientsStatus.problem?.reason, .secretUnconfirmed)
+        XCTAssertEqual(step2.recipientsStatus.problem?.unexpected, [x.recipient.string])
+        XCTAssertThrowsError(try step2.requireWritable())
+        XCTAssertEqual(store.record(for: made.vaultId), recordBefore)
     }
 
     // MARK: - Tamper fixtures

@@ -141,12 +141,13 @@ cannot check nor drop the tag by rewriting `vault.json`.
    current secret equals the record's, the list is **verified**. Otherwise
    the secret changed since the device last checked: if `secretLink` verifies
    under the record's `linkKey`, the list is verified (a rotation by a key
-   holder). If it does not, the change is **unconfirmed**: the list is
-   tampered when it holds a key that is not in the record's list, and
-   verified otherwise (nobody this device did not already trust can read
-   what it writes). A device that missed two or more rotations, of which one
-   added a key, therefore sees a tampered list; it can confirm the list
-   explicitly (below).
+   holder). If it does not, the change is **unconfirmed** and the list is
+   tampered, whatever keys it holds: the new secret may be an attacker's,
+   and a device that accepted it would also accept any later `secretLink`
+   made under it, including one that adds the attacker's key. A device that
+   missed two or more rotations therefore sees a tampered list, even when
+   they only removed keys; it can confirm the list explicitly (below). A
+   device never updates its trust record to an unconfirmed secret.
 4. The tag verifies and the device has no trust record: verified (first use
    on this device).
 
@@ -187,10 +188,11 @@ opens a vault for the first time trusts the list it finds; a removed device,
 which knew the outgoing secret, can still forge a `secretLink` for devices
 that have not seen its removal; and an attacker who removes keys from the
 list (without adding any) can stop those devices' keys from receiving new
-files, which is reported as tampering but cannot be prevented. An attacker
-who replaced the secret (step 3, no unexpected key) knows the new one and can
-plant revisions tagged under it; the vault's earlier revisions then fail
-their tags under it, which readers report (§4).
+files, which is reported as tampering but cannot be prevented. A device with no
+trust record cannot tell a replaced secret from the real one (step 4); an
+attacker who replaced it knows it and can plant revisions tagged under it,
+and the vault's earlier revisions then fail their tags under it, which
+readers report (§4).
 
 ## 3. Keys
 
@@ -2190,7 +2192,11 @@ is opened, not in the listing.
 A reader may keep other caches derived from a vault on a device, under the
 same rules as §10: never in the vault, unreadable and unlinkable to the vault
 without its secret, and never trusted over the vault. Each cache has a
-*purpose* (a short ASCII word) and a 5-byte magic. With `vaultSecret` as
+*purpose* (lowercase ASCII letters and digits in hyphen-separated words, at
+most 64 bytes) and a 5-byte magic. The purposes `summary-cache`,
+`recipients` and `capture` are reserved: with them the derivations below
+would give the keys of §10, §2.1 and §11.1 (the other info strings of §2.1
+contain a space, which no purpose can). With `vaultSecret` as
 HKDF-SHA256 input key material (empty salt):
 
 ```

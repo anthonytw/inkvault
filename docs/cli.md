@@ -219,9 +219,8 @@ sempere vault index [--out PATH|-]
 - `info` has a `Device list:` line and `recipientsAuth` in `--json`:
   `status` (`verified`, `untagged`, `tampered`, or `not-checked` without a
   key), `tagged`, and for `verified` a `verification` (`unchanged`,
-  `firstUse`, `rotated`: a secret rotation confirmed by its `secretLink`,
-  `onlyKnownKeys`: a rotation this machine cannot confirm that only removed
-  keys), for `tampered` a `reason` (`tagMismatch`, `tagRemoved`,
+  `firstUse`, `rotated`: a secret rotation confirmed by its `secretLink`),
+  for `tampered` a `reason` (`tagMismatch`, `tagRemoved`,
   `secretUnconfirmed`), `unexpected` (keys not in the last verified list),
   `missing` and `restore` (what `repair` would write).
 - `recipients repair` undoes a tampered list: it writes the last verified
@@ -236,7 +235,7 @@ sempere vault index [--out PATH|-]
   another device (exit 1 says so).
 - `recipients confirm` trusts the current list on this machine after you
   have checked every key: for a secret change this machine missed (it was
-  offline for two or more key changes, one of which added a device), or an
+  offline for two or more key changes), or an
   untagged copy older than the tag (a restored backup), which it tags again.
   Never for a tag that does not verify. Confirming a list an attacker wrote
   lets them read what this machine writes.
