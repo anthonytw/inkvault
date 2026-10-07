@@ -23,7 +23,7 @@ import Foundation
 public final class SummaryCache: @unchecked Sendable {
     /// Bumped whenever `NoteSummary` or how it is computed changes, so older
     /// files are ignored instead of serving stale fields.
-    public static let schemaVersion = 4   // 4: page texts include PDF page text (format.md §8.2.6)
+    public static let schemaVersion = 5   // 5: favorite and created (published summaries, format.md §12)
     /// The largest cache file read (about 50 000 notes' summaries).
     public static let maxFileBytes = 64 << 20
     /// HKDF `info` for the encryption key (format.md §10).

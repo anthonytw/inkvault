@@ -46,6 +46,10 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var lang: String?
     /// Marker strokes drawn below content items (format.md §5.4).
     public var markersBehindText = false
+    /// The note is a favorite (format.md §5.4).
+    public var favorite = false
+    /// When the note was created (`meta.created`); nil when it could not be reconstructed.
+    public var created: Date?
 
     public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
                 strokes: Int, modified: Date?, problem: String?) {
@@ -216,6 +220,8 @@ extension Vault {
             s.blobs = state.blobReferences
             s.lang = state.meta.lang
             s.markersBehindText = state.meta.markersBehindText
+            s.favorite = state.meta.favorite
+            s.created = state.meta.created
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }

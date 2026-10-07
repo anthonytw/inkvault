@@ -2255,8 +2255,8 @@ Test vector (`vaultSecret` = 32 bytes `0x00 0x01 … 0x1f`, `vaultId`
 plaintext the ASCII bytes `{}` (not gzip, to keep the vector short)):
 
 ```
-key  = VECTOR_KEY
-file = VECTOR_FILE
+key  = 4ffd10840df4dc46092a2c424919f611c1bcc355fe7526a19e25a1489bf5510a
+file = 534d505501a0a1a2a3a4a5a6a7a8a9aaabb466bcf027fe45b94f3fe195f6e0b57d9c6e
 ```
 
 ### 12.2 Content
@@ -2267,8 +2267,8 @@ file = VECTOR_FILE
   "vaultId": "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c",
   "notes": {
     "6f1c2b9e-0a43-4f6e-9a51-2c8d7e3b4a10": {
-      "revisions": ["00017596000000000000-a1b2c3d4-1.delta.age",
-                    "00017596000120000000-a1b2c3d4-2.delta.age"],
+      "revisions": ["17596320000000000-a1b2c3d4-1.delta.age",
+                    "17596952000000000-a1b2c3d4-2.delta.age"],
       "title": "Groceries",
       "tags": ["home"],
       "notebook": "Personal/Lists",
