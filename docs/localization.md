@@ -7,9 +7,10 @@ development language; **Spanish (`es`) is complete**; other languages are welcom
 Scope: interface text only.
 
 - **Note content is never translated or touched**, and neither is anything the app *writes into a
-  vault* (note titles, notebook and tag names, transcript text). A new note's default title and the
-  default voice-note notebook are stored data, so they stay English on every device: a notebook whose
-  name changed with the device language would split in two when a vault is shared between devices.
+  vault* (note titles, notebook and tag names, transcript text). The default voice-note notebook is stored
+  data, so it stays English on every device: a notebook whose name changed with the device language
+  would split in two when a vault is shared between devices. A new note's default title is the date
+  (and time) in the device's own date format: it is a title, never a key, so nothing splits.
   Only how the app *displays* an empty title (a placeholder) is localized.
 - **The CLI's messages stay English** (`Sources/` is Foundation + swift-crypto only and is shared with
   Linux). The app shows its own localized sentence and, where it adds detail from a library error,
@@ -61,9 +62,13 @@ Rules:
 8. Dates, numbers and sizes use `Date.FormatStyle`, `Measurement`, `ByteCountFormatter` and
    `FormatStyle`s so the locale formats them; never a fixed `dateFormat`.
 
-`scripts/l10n.py check` lists every literal in `Apps/` that the catalog does not know and every entry
-without a Spanish value or plural variations; `LocalizationCatalogTests` (runs in `swift test`, on
-Linux too) does the same and fails the build.
+`LocalizationCatalogTests` (runs in `swift test`, on Linux too) lists every literal in `Apps/` that the
+catalog does not know and every entry without a Spanish value or plural variations, and fails the build.
+It sees literals in localizing positions (`Text(…)`, `String(localized:)`, …) and the known bypasses
+(`errorMessage = "…"`, `message:`, `Text(verbatim:)`); a `String` built elsewhere and shown later still
+needs `String(localized:)` by hand. A plural is only needed where the *translation* changes with the
+number: a sentence whose verb or noun agrees with a count is reworded around it (“sin listar: 3”) or
+made plural; a `%lld` that only shows a position (“Página 3 de 10”) is not.
 
 ## Spanish glossary
 
@@ -152,8 +157,8 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-language) for the short versio
 3. Add the language code to `knownRegions` in `Apps/Sempere/Sempere.xcodeproj/project.pbxproj`.
 4. Add a glossary section for the language to this file (fix the term for *vault*, *notebook*, *tag*
    before translating, then use it everywhere).
-5. `scripts/l10n.py check --lang xx` must report nothing missing, `swift test --filter
-   LocalizationCatalogTests` must pass (set the language in the test's `supportedLanguages`), and
+5. `swift test --filter LocalizationCatalogTests` must pass with the language added to the test's
+   `languages` (and, if needed, `pluralCategories`), and
    `scripts/app.sh pseudo` should show no clipping in a language of similar length.
 6. Open a pull request; the maintainer (or a native-speaking reviewer) checks the glossary.
 
@@ -163,6 +168,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-language) for the short versio
 
 | Command | What it does |
 | --- | --- |
-| `check [--lang es]` | scan `Apps/Sempere/{SempereApp,SempereShared,SempereWidgets}` for localized literals and compare with the catalog |
-| `merge FRAGMENT.json…` | merge hand-written fragments (key → `en`/`es` values, plural and device forms) into the catalog |
-| `stale` | catalog keys that no literal in the source uses |
+| `merge [--table T] FRAGMENT.json…` | merge hand-written fragments (key → `en`/`es` values, plural and device forms) into the catalog (`Localizable`, or `InfoPlist` / `AppShortcuts`) |
+| `format` | rewrite the catalogs the way Xcode writes them |
+
+Checking is `LocalizationCatalogTests` (above), not the script.

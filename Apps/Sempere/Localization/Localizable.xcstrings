@@ -193,19 +193,19 @@
               "many" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld no se pudieron leer"
+                  "value" : "%lld no se han podido leer"
                 }
               },
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld no se pudo leer"
+                  "value" : "%lld no se ha podido leer"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld no se pudieron leer"
+                  "value" : "%lld no se han podido leer"
                 }
               }
             }
@@ -748,7 +748,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld de los %@ de esta nota aún no se han descargado de iCloud Drive, así que no se ha abierto (se vería vacía o incompleta). Vuelve a intentarlo en un momento."
+            "value" : "Esta nota no se ha abierto porque aún faltan archivos por descargar de iCloud Drive (%1$lld de %2$@) y se vería vacía o incompleta. Vuelve a intentarlo en un momento."
           }
         }
       }
@@ -1165,19 +1165,19 @@
               "many" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "No se pudieron leer %lld de revisiones de esta nota, así que se abre en solo lectura."
+                  "value" : "No se han podido leer %lld de revisiones de esta nota, así que se abre en solo lectura."
                 }
               },
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "No se pudo leer %lld revisión de esta nota, así que se abre en solo lectura."
+                  "value" : "No se ha podido leer %lld revisión de esta nota, así que se abre en solo lectura."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "No se pudieron leer %lld revisiones de esta nota, así que se abre en solo lectura."
+                  "value" : "No se han podido leer %lld revisiones de esta nota, así que se abre en solo lectura."
                 }
               }
             }
@@ -2411,7 +2411,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo abrir la nota"
+            "value" : "No se ha podido abrir la nota"
           }
         }
       }
@@ -2519,7 +2519,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo leer la escritura a mano: %@"
+            "value" : "No se ha podido leer la escritura a mano: %@"
           }
         }
       }
@@ -2579,7 +2579,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo volver a abrir «%1$@»: %2$@"
+            "value" : "No se ha podido volver a abrir «%1$@»: %2$@"
           }
         }
       }
@@ -2591,7 +2591,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo volver a abrir «%1$@»: %2$@\n\nVuelve a elegir la carpeta de la bóveda."
+            "value" : "No se ha podido volver a abrir «%1$@»: %2$@\n\nVuelve a elegir la carpeta de la bóveda."
           }
         }
       }
@@ -2615,7 +2615,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo guardar el texto reconocido: %@"
+            "value" : "No se ha podido guardar el texto reconocido: %@"
           }
         }
       }
@@ -2639,7 +2639,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo guardar: %@"
+            "value" : "No se ha podido guardar: %@"
           }
         }
       }
@@ -2723,7 +2723,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Columna de claves"
+            "value" : "Columna de ideas clave"
           }
         }
       }
@@ -4807,7 +4807,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudieron mostrar las notas"
+            "value" : "No se han podido mostrar las notas"
           }
         }
       }
@@ -7448,7 +7448,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Algunas revisiones no se pudieron leer"
+            "value" : "Algunas revisiones no se han podido leer"
           }
         }
       }
@@ -8275,7 +8275,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo dibujar la página para leerla."
+            "value" : "No se ha podido dibujar la página para leerla."
           }
         }
       }
@@ -8704,7 +8704,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo leer esta nota: %@"
+            "value" : "No se ha podido leer esta nota: %@"
           }
         }
       }
@@ -9744,7 +9744,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "iCloud Drive no ha entregado los archivos de la bóveda: %lld de %lld siguen sin descargarse tras %@ sin avances. Comprueba que este dispositivo tiene conexión y ha iniciado sesión en iCloud Drive, y vuelve a intentarlo."
+            "value" : "iCloud Drive no ha entregado los archivos de la bóveda (sin descargar: %1$lld de %2$lld) tras %3$@ sin avances. Comprueba que este dispositivo tiene conexión y ha iniciado sesión en iCloud Drive, y vuelve a intentarlo."
           }
         }
       }
@@ -9821,13 +9821,13 @@
       }
     },
     "iCloud Drive has not listed this note's files yet (%lld missing). Try again in a moment." : {
-      "comment" : "[not-plural] the number is files missing",
+      "comment" : "The number is files missing. [not-plural]: the Spanish avoids number agreement (sin listar: N)",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "iCloud Drive aún no ha listado los archivos de esta nota (faltan %lld). Vuelve a intentarlo en un momento."
+            "value" : "iCloud Drive aún no ha listado los archivos de esta nota (sin listar: %lld). Vuelve a intentarlo en un momento."
           }
         }
       }

@@ -133,8 +133,10 @@ struct RecordingSettings: Hashable, Sendable {
 
     /// "Quality" row label: "64 kbit/s".
     static func label(bitRate: Int) -> String { "\(bitRate / 1000) kbit/s" }
-    static func label(sampleRate: Int) -> String {
-        sampleRate % 1000 == 0 ? "\(sampleRate / 1000) kHz" : String(format: "%.2f kHz", Double(sampleRate) / 1000)
+    /// "48 kHz", "22.05 kHz" ("22,05 kHz" in Spanish): the number in `locale`'s format.
+    static func label(sampleRate: Int, locale: Locale = .current) -> String {
+        let khz = (Double(sampleRate) / 1000).formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        return "\(khz) kHz" // l10n:ignore: a number and a unit symbol
     }
 
     /// "About 29 MB per hour".

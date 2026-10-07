@@ -153,6 +153,23 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    /// A Spanish string that is not plural must not make a verb agree with a bare count: “faltan 1”
+    /// and “1 de 5 siguen…” are wrong at 1. Reword around the number (“sin listar: %lld”) or add
+    /// plural variations.
+    func testSpanishVerbsDoNotAgreeWithABareCount() throws {
+        let count = #"%(\d\$)?lld"#
+        let verbs = #"(faltan|quedan|siguen|son|están|han|se han|no se han)"#
+        let patterns = [#"\b\#(verbs) \#(count)"#, #"\#(count)( de \#(count))? \#(verbs)\b"#]
+        var bad: [String] = []
+        for (key, entry) in try catalog("Localizable").entries where entry.shouldTranslate {
+            guard case .plain(let es)? = entry.value("es") else { continue }
+            if patterns.contains(where: { es.range(of: $0, options: .regularExpression) != nil }) {
+                bad.append("“\(key)” → “\(es)”")
+            }
+        }
+        XCTAssertTrue(bad.isEmpty, "Spanish verbs agreeing with a count in a non-plural string:\n" + bad.joined(separator: "\n"))
+    }
+
     /// A Spanish string longer than twice its source does not fit the double-length layouts that
     /// `scripts/app.sh pseudo` proves (docs/localization.md). Long sentences wrap and are exempt.
     func testShortStringsStayWithinTheDoubleLengthBudget() throws {
