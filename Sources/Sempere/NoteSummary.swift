@@ -259,8 +259,10 @@ extension Vault {
                 let names = try revisionNames(of: id)
                 let files = names.map(\.filename).sorted()
                 if let hit = cache?.summary(for: id, revisions: names) { return (hit, true, files) }
-                let s = summary(of: id, loaded: try loadNote(id, names: names, detail: .withoutStrokePoints))
-                cache?.store(s, revisions: names)
+                let loaded = try loadNote(id, names: names, detail: .withoutStrokePoints)
+                let s = summary(of: id, loaded: loaded)
+                // The revisions' metadata too, so thinning need not read them again (`revisionIndex`).
+                cache?.store(s, revisions: names, history: loaded.failures.isEmpty ? loaded.revisions.map(RevisionMeta.init) : nil)
                 return (s, false, files)
             }
         } done: { _, result in

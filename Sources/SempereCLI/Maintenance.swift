@@ -38,6 +38,7 @@ struct CompactCommand: ParsableCommand {
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
+    @OptionGroup var cache: CacheOptions
 
     /// Days from `30d`, `30` or `never` (nil); nil for anything else is an error.
     static func parseAge(_ text: String) throws -> Double? {
@@ -81,30 +82,29 @@ struct CompactCommand: ParsableCommand {
         var items: [Item] = []
         var failures = 0
         let now = Date()
-        for id in ids {
+        let summaries = cache.cache(for: vault)
+        defer { if summaries?.hasChanges == true { try? summaries?.save() } }
+        // Read, planned and carried out in parallel; notes whose revision metadata shows nothing to
+        // delete are not read in full (the summary cache usually has that metadata).
+        var clock = state.clock
+        let prepared = vault.prepareCompactions(ids, mode: mode, now: now, device: state.device, clock: &clock,
+                                                app: appName, cache: summaries, execute: !dryRun)
+        if !dryRun, clock != state.clock {
+            state.clock = clock
+            try state.save(to: stateURL)
+        }
+        for (id, result) in prepared {
             let name = id.uuidString.lowercased()
             do {
-                let loaded = try vault.loadNote(id)
-                var clock = state.clock
-                let plan = try vault.planCompaction(id, loaded: loaded, mode: mode, now: now, device: state.device,
-                                                    clock: &clock, app: appName)
-                let added = try vault.addedBytes(plan)
-                let freed = vault.deletedBytes(plan)
-                if !dryRun, !plan.isEmpty {
-                    if !plan.snapshots.isEmpty {
-                        // The clock moves on before anything is written, so readings never repeat.
-                        state.clock = clock
-                        try state.save(to: stateURL)
-                    }
-                    try vault.execute(plan)
-                }
+                let prepared = try result.get()
+                let plan = prepared.plan
                 items.append(Item(note: name, snapshotNeeded: !plan.snapshots.isEmpty,
                                   snapshot: dryRun ? nil : plan.snapshots.first?.name.filename,
                                   snapshots: plan.snapshots.map {
                                       Item.Snapshot(file: dryRun ? nil : $0.name.filename, asOf: $0.asOf?.description)
                                   },
                                   files: plan.deletions.map(\.filename), witnesses: plan.witnesses.map(\.filename),
-                                  bytesDeleted: freed, bytesAdded: added))
+                                  bytesDeleted: prepared.bytesDeleted, bytesAdded: prepared.bytesAdded))
             } catch {
                 failures += 1
                 printError("\(name): \(CLIError.from(error).message)")
