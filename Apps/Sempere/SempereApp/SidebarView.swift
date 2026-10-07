@@ -37,8 +37,7 @@ struct SidebarView: View {
                             .sidebarDropTarget(.notebook(node.path))
                             .onDrag {
                                 // Dropped on another notebook it nests there; on All Notes it goes to the top level.
-                                model.draggedPayload = .notebook(node.path)
-                                return DragPayload.notebook(node.path).provider()
+                                model.beginDrag(.notebook(node.path), provider: DragPayload.notebook(node.path).provider())
                             }
                             .contextMenu {
                                 Button("Rename or Move…", systemImage: "pencil") { newName = node.path; renaming = node.path }

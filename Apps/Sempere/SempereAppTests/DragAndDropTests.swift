@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Sempere
 import Testing
 import UniformTypeIdentifiers
@@ -209,6 +210,72 @@ struct DragAndDropTests {
         here.endUndoGrouping()
         #expect(here.canUndo)
         #expect(!other.canUndo)
+    }
+
+    // MARK: the drag session (TestFlight build 6: releasing over a notebook did nothing)
+
+    /// A drop inside the app is made from the payload the model recorded when
+    /// the drag started, not from the item provider, which iPadOS 26 may have
+    /// released by then; the provider is held until the drop anyway.
+    @Test func aDropUsesTheDragTheModelStartedNotTheProvider() async throws {
+        let (model, ids) = try await NotebookTreeTests.model()
+        let lab = try #require(ids["Lab"])
+        // A provider with no data at all: the drop must not need it.
+        let empty = NSItemProvider()
+        #expect(model.beginDrag(.notes([lab]), provider: empty) === empty)
+        #expect(model.dragProvider === empty, "held until the drop")
+        #expect(model.acceptsDrop(on: .notebook("School")))
+        #expect(!model.acceptsDrop(on: .notebook("Research/Lab")), "already there")
+
+        let payload = try #require(model.takeDrop(on: .notebook("School")))
+        #expect(payload == .notes([lab]))
+        #expect(model.draggedPayload == nil && model.dragProvider == nil && model.dropTarget == nil, "the drag ended")
+        await model.move(payload, to: .notebook("School"), undoManager: nil)
+        #expect(model.notes.first { $0.id == lab }?.notebook == "School")
+    }
+
+    @Test func aRefusedDropEndsTheDragAndMovesNothing() async throws {
+        let (model, ids) = try await NotebookTreeTests.model()
+        let lab = try #require(ids["Lab"])
+        _ = model.beginDrag(.notebook("Research"), provider: NSItemProvider())
+        #expect(!model.acceptsDrop(on: .notebook("Research/Lab")), "into its own descendant")
+        #expect(model.takeDrop(on: .notebook("Research/Lab")) == nil)
+        #expect(model.draggedPayload == nil && model.dragProvider == nil)
+        #expect(model.notes.first { $0.id == lab }?.notebook == "Research/Lab")
+        // Nothing dragged by the model: the drop decides from the provider's data.
+        #expect(model.acceptsDrop(on: .topLevel))
+        #expect(model.takeDrop(on: .topLevel) == nil)
+    }
+
+    @Test func aNotebookDragDropsThroughTheModel() async throws {
+        let (model, _) = try await NotebookTreeTests.model()
+        _ = model.beginDrag(.notebook("Research/Lab"), provider: DragPayload.notebook("Research/Lab").provider())
+        let payload = try #require(model.takeDrop(on: .topLevel))
+        await model.move(payload, to: .topLevel, undoManager: nil)
+        #expect(model.notes.first { $0.title == "Lab" }?.notebook == "Lab")
+    }
+
+    @Test func theHighlightIsOnlyWrittenWhenItChanges() async throws {
+        let (model, _) = try await NotebookTreeTests.model()
+        var writes = 0
+        func observe() {
+            withObservationTracking { _ = model.dropTarget } onChange: { writes += 1 }
+        }
+        observe()
+        model.setDropTarget(.notebook("School"))
+        #expect(writes == 1)
+        observe()
+        model.setDropTarget(.notebook("School"))   // every dropUpdated while the finger moves
+        #expect(writes == 1, "an unchanged target does not rebuild the sidebar")
+        model.setDropTarget(nil)
+        #expect(writes == 2)
+    }
+
+    @Test func closingTheVaultEndsADrag() async throws {
+        let (model, ids) = try await NotebookTreeTests.model()
+        _ = model.beginDrag(.notes([try #require(ids["Lab"])]), provider: NSItemProvider())
+        model.close()
+        #expect(model.draggedPayload == nil && model.dragProvider == nil)
     }
 
     @Test func theMoveNotebookSheetOnlyOffersLegalMoves() {

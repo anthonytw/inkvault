@@ -271,10 +271,10 @@ private struct NoteDragOut: ViewModifier {
         // The ticked notes go together when this one is among them.
         let ids = model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
         let payload = DragPayload.notes(ids)
-        model.draggedPayload = note.deleted ? nil : payload   // notes in Recently Deleted are not moved by a drop
         let id = note.id
         let exporter = model
-        return payload.provider { provider in
+        // Notes in Recently Deleted are not moved by a drop (the drag still carries a PDF out on the Mac).
+        return model.beginDrag(note.deleted ? nil : payload, provider: payload.provider { provider in
             guard Platform.isMac else { return }
             provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
                                                 visibility: .all) { completion in
@@ -289,7 +289,7 @@ private struct NoteDragOut: ViewModifier {
                 }
                 return progress
             }
-        }
+        })
     }
 }
 

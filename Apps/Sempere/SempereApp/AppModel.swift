@@ -142,6 +142,10 @@ final class AppModel {
     /// What is being dragged inside the app (set when a drag starts), so the
     /// sidebar can tell whether a row would accept it while the drag is still over it.
     var draggedPayload: DragPayload?
+    /// The item provider of the drag in progress, kept until it is dropped or
+    /// another drag starts: iPadOS 26 releases a provider as soon as `onDrag`
+    /// returns it unless someone holds it (`beginDrag`).
+    @ObservationIgnored var dragProvider: NSItemProvider?
     /// The sidebar row a drag is over that would accept it (highlighted).
     var dropTarget: DropTarget?
     @ObservationIgnored var recognitionTask: Task<Void, Never>?
@@ -825,6 +829,7 @@ final class AppModel {
         recognitionProgress = nil
         recognitionResults = nil
         draggedPayload = nil
+        dragProvider = nil
         dropTarget = nil
         pendingJump = nil
         searchText = ""
