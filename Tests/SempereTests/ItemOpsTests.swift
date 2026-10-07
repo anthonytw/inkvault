@@ -187,6 +187,18 @@ final class ItemOpsTests: XCTestCase {
         XCTAssertEqual(runs, [TextRun("Caf\u{E9}\nx"), TextRun("yz", b: true)])
     }
 
+    /// Pasted text can hold controls the format refuses: line breaking ones
+    /// become `\n`, the others go, so the edit is never refused as a whole.
+    func testNormalizedRunsHoldNoControlCharacters() throws {
+        let runs = NoteOps.normalizedRuns([TextRun("a\u{0B}b\u{0C}c\rd\u{0}e\u{1B}f\tg")])
+        XCTAssertEqual(runs, [TextRun("a\nb\nc\ndef\tg")])
+        XCTAssertTrue(runs.allSatisfy { TextRun.isValidText($0.t) })
+        let page = Page(id: pageID, order: "a", items: [text("hello")])
+        var content = try XCTUnwrap(page.items[0].text)
+        content.runs = runs
+        XCTAssertNotNil(try NoteOps.setText(page.items[0].id, to: content, on: page))
+    }
+
     func testSetTextWritesTextAndFrameInOneDelta() throws {
         let a = text("hello")
         let page = Page(id: pageID, order: "a", items: [a])

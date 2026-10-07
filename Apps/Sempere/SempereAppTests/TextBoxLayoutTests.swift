@@ -190,6 +190,19 @@ struct TextBoxLayoutTests {
         #expect(TextBoxEditing.content(from: typed, style: style, original: nil, keyboardLanguage: "dictation", frame: frame).content.lang == nil)
     }
 
+    /// A box never grows past the format's text limit while it is edited
+    /// (it could not be written, and the edit would be lost on closing).
+    @Test func typingStopsAtTheTextLimit() {
+        let limit = TextContent.Limits.utf8Bytes
+        let full = String(repeating: "a", count: limit)
+        #expect(TextBoxEditorController.fits("", replacing: NSRange(location: 0, length: 0), with: "hello"))
+        #expect(!TextBoxEditorController.fits(full, replacing: NSRange(location: limit, length: 0), with: "b"))
+        #expect(!TextBoxEditorController.fits(String(full.dropLast()), replacing: NSRange(location: limit - 1, length: 0), with: "é"),
+                "two bytes where one is left")
+        #expect(TextBoxEditorController.fits(full, replacing: NSRange(location: 0, length: 3), with: "xyz"), "same size")
+        #expect(TextBoxEditorController.fits(full, replacing: NSRange(location: 0, length: 10), with: ""), "deleting always works")
+    }
+
     @Test func newBoxesStartWhereTapped() {
         let f = TextBoxPlacement.newFrame(at: ItemFrames.Point(x: 100, y: 200), pageWidth: 612, size: 20)
         #expect(f == Rect(x: 100, y: 188, w: 320, h: 24))

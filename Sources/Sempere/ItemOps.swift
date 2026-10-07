@@ -291,13 +291,15 @@ public enum ItemFrames {
 // MARK: - Text boxes (format.md §8.2.4, task E2)
 
 extension NoteOps {
-    /// Runs as writers store them (format.md §8.2.4): `\r\n` and `\r` as
-    /// `\n`, each run's text in NFC, empty runs dropped, adjacent runs with
-    /// equal attributes merged.
+    /// Runs as writers store them (format.md §8.2.4): `\r\n`, `\r` and the
+    /// other line breaking controls (vertical tab, form feed) as `\n`, any
+    /// other control character but the tab dropped (the format refuses them,
+    /// `TextRun.isValidText`; pasted text can hold them), each run's text in
+    /// NFC, empty runs dropped, adjacent runs with equal attributes merged.
     public static func normalizedRuns(_ runs: [TextRun]) -> [TextRun] {
         var out: [TextRun] = []
         for var run in runs {
-            run.t = run.t.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            run.t = withoutControls(run.t.replacingOccurrences(of: "\r\n", with: "\n"))
                 .precomposedStringWithCanonicalMapping
             guard !run.t.isEmpty else { continue }
             if let last = out.last, last.hasSameAttributes(as: run) {
@@ -308,6 +310,21 @@ extension NoteOps {
             }
         }
         return out
+    }
+
+    /// `text` with `\r`, vertical tab and form feed as `\n` and every other
+    /// C0 control but `\n` and `\t` removed.
+    static func withoutControls(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        for s in text.unicodeScalars {
+            switch s.value {
+            case 0x0D, 0x0B, 0x0C: out.append("\n")
+            case 0x09, 0x0A: out.append(s)
+            case ..<0x20: continue
+            default: out.append(s)
+            }
+        }
+        return String(out)
     }
 
     /// Sets the text of the text box `id` (one `setItem(text)`, the whole

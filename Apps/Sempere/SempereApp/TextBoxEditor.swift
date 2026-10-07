@@ -217,6 +217,21 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         canvas?.bringSubviewToFront(tv)
     }
 
+    /// Typing or pasting that would take the box past the format's text
+    /// limit (format.md §8.4) is refused as it happens: a box over it could
+    /// not be written, and the whole edit would be lost when it closes.
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        Self.fits(textView.text ?? "", replacing: range, with: text)
+    }
+
+    /// Whether `current` with `range` (UTF-16) replaced by `text` stays
+    /// within `TextContent.Limits.utf8Bytes`. A change that shortens the text always fits.
+    nonisolated static func fits(_ current: String, replacing range: NSRange, with text: String) -> Bool {
+        guard let r = Range(range, in: current) else { return true }
+        let removed = current[r].utf8.count, added = text.utf8.count
+        return added <= removed || current.utf8.count - removed + added <= TextContent.Limits.utf8Bytes
+    }
+
     func textViewDidChange(_ textView: UITextView) {
         session?.dirty = true
         layoutTextView()
