@@ -84,6 +84,14 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: .random(), vaultId: id))
     }
 
+    /// Shared with web/test/vault.test.ts.
+    func testKnownAnswerVector() throws {
+        let secret = try VaultSecret(bytes: Data((1...32).map { UInt8($0) }))
+        let id = UUID(uuidString: "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c")!
+        XCTAssertEqual(RecipientsAuth.tag(vaultId: id, keys: ["age1pq1example0", "age1pq1example1"], secret: secret),
+                       "548c16534c81b7cfb1c92c574380129377d3616b02b631d9fa99bf6356b63c0c")
+    }
+
     func testEveryRecipientChangeWritesTagFeatureAndLink() throws {
         let store = MemoryRecipientsTrustStore()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient], identities: [a], trust: store)
@@ -305,6 +313,27 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertEqual(down.recipientsStatus.problem?.reason, .tagRemoved)
         XCTAssertFalse(try down.upgradeRecipientsTag(), "a device with a record never re-tags")
         XCTAssertEqual(try Vault.open(at: fixture, identities: [id]).recipientsStatus, .untagged, "first use cannot tell")
+    }
+
+    /// Writers tag an untagged vault before their first write; readers never write.
+    func testFirstWriteTagsAnUntaggedVault() throws {
+        let fixture = try FixtureVault.copySample(to: tmp)
+        let id = try FixtureVault.sampleIdentity()
+        let store = MemoryRecipientsTrustStore()
+        let vault = try Vault.open(at: fixture, identities: [id], trust: store)
+        _ = try vault.summaries()
+        _ = vault.verify()
+        XCTAssertNil(try Vault.open(at: fixture).manifest.recipientsTag, "reading writes nothing")
+        var log = LogBuilder()
+        var first = log.delta(devC, 1, [.setMeta(.title("new"))])
+        first.noteId = UUID()
+        try vault.write(first)
+        XCTAssertNotNil(try Vault.open(at: fixture).manifest.recipientsTag)
+        XCTAssertEqual(try Vault.open(at: fixture, identities: [id], trust: store).recipientsStatus, .verified(.unchanged))
+        var second = log.delta(devC, 2, [.setMeta(.title("again"))])
+        second.noteId = UUID()
+        try vault.write(second)   // already tagged: no rewrite
+        XCTAssertTrue(try Vault.open(at: fixture, identities: [id], trust: store).verify().isHealthy)
     }
 
     func testUpgradeRefusesAManifestChangedSinceOpen() throws {

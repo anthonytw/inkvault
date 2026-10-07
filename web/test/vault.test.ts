@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadNote } from "../src/vault/library.ts";
-import { RevisionReadError, UnlockedVault, VaultError, parseIdentity, parseManifest, recipientType } from "../src/vault/vault.ts";
+import { RevisionReadError, UnlockedVault, VaultError, checkRecipients, parseIdentity, parseManifest, recipientType,
+  recipientsTag, type VaultManifest } from "../src/vault/vault.ts";
+import { recipientsWarning } from "../src/ui/app.ts";
 import { gunzip } from "../src/vault/gzip.ts";
 import { isRevisionFile } from "../src/vault/source.ts";
 import { NodeDirSource, fixtures, sampleIdentity } from "./support.ts";
@@ -82,6 +84,61 @@ describe("unlock", () => {
     const e = await caught(UnlockedVault.unlock(m, other));
     expect((e as VaultError).code).toBe("wrongKey");
     expect((await caught(UnlockedVault.unlock(m, "AGE-SECRET-KEY-PQ-1NOTAKEY")) as VaultError).code).toBe("badIdentity");
+  });
+});
+
+describe("recipients tag (format.md §2.1)", () => {
+  // The same vector as RecipientsAuthTests.testKnownAnswerVector (Swift).
+  it("matches the known-answer vector", async () => {
+    const secret = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+    expect(await recipientsTag("0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c", ["age1pq1example0", "age1pq1example1"], secret))
+      .toBe("548c16534c81b7cfb1c92c574380129377d3616b02b631d9fa99bf6356b63c0c");
+  });
+
+  async function secretOf(m: VaultManifest): Promise<Uint8Array> {
+    const { Decrypter, armor } = await import("age-encryption");
+    const d = new Decrypter();
+    d.addIdentity(sampleIdentity());
+    return d.decrypt(armor.decode(m.vaultSecret));
+  }
+
+  function withManifest(edit: (o: Record<string, unknown>) => void): VaultManifest {
+    const o = JSON.parse(readFileSync(join(fixtures, "sample.sempere", "vault.json"), "utf8")) as Record<string, unknown>;
+    edit(o);
+    return parseManifest(enc.encode(JSON.stringify(o)));
+  }
+
+  it("reports untagged, verified and tampered lists; reading is unaffected", async () => {
+    const plain = parseManifest(readFileSync(join(fixtures, "sample.sempere", "vault.json")));
+    expect((await UnlockedVault.unlock(plain, sampleIdentity())).recipientsStatus).toEqual({ status: "untagged" });
+    const secret = await secretOf(plain);
+    const tag = await recipientsTag(plain.vaultId, plain.recipients.map((r) => r.key), secret);
+    const tagged = withManifest((o) => { o.recipientsTag = tag; o.features = ["recipients-tag"]; });
+    const ok = await UnlockedVault.unlock(tagged, sampleIdentity());
+    expect(ok.recipientsStatus).toEqual({ status: "verified" });
+    expect(recipientsWarning(ok.recipientsStatus)).toEqual([]);
+
+    const cases: [string, (o: Record<string, unknown>) => void, string][] = [
+      ["added recipient", (o) => {
+        o.recipientsTag = tag;
+        (o.recipients as unknown[]).push({ key: "age1pq1" + "q".repeat(60), label: "x", added: "2026-10-07T00:00:00Z" });
+      }, "tagMismatch"],
+      ["tag from another vault", (o) => { o.recipientsTag = "ab".repeat(32); }, "tagMismatch"],
+      ["tag of the wrong type", (o) => { o.recipientsTag = 42; }, "tagMismatch"],
+      ["uppercase tag", (o) => { o.recipientsTag = tag.toUpperCase(); }, "tagMismatch"],
+      ["tag stripped", (o) => { o.features = ["recipients-tag"]; }, "tagRemoved"],
+    ];
+    for (const [name, edit, reason] of cases) {
+      const m = withManifest(edit);
+      const s = await checkRecipients(m, secret);
+      expect(s, name).toEqual({ status: "tampered", reason });
+      expect(recipientsWarning(s).length, name).toBe(1);
+    }
+    // A tampered list still unlocks and reads (the viewer only reports).
+    const tampered = await UnlockedVault.unlock(withManifest((o) => { o.recipientsTag = "00".repeat(32); }), sampleIdentity());
+    expect(tampered.recipientsStatus.status).toBe("tampered");
+    const note = await loadNote(new NodeDirSource(join(fixtures, "sample.sempere")), tampered, lecture);
+    expect(note.failures).toEqual([]);
   });
 });
 

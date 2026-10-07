@@ -351,8 +351,8 @@ extension AccessOptions {
                 ids = [try identityFromKeyFiles(of: locked)]
             }
         }
-        var vault = try Vault.open(at: url, identities: ids, trust: trustStore())
-        upgradeRecipientsTag(&vault)
+        let vault = try Vault.open(at: url, identities: ids, trust: trustStore())
+        if case .untagged = vault.recipientsStatus { UntaggedVaults.shared.record(vault) }
         return vault
     }
 }
@@ -362,17 +362,29 @@ func trustStore() -> FileRecipientsTrustStore {
     FileRecipientsTrustStore(directory: FileRecipientsTrustStore.cliDirectory())
 }
 
-/// The one-time upgrade of an untagged vault (format.md §2.1), reported on
-/// stderr. A vault that cannot be written (read-only media, an unknown
-/// feature) stays untagged and is still read; the next writable unlock tags it.
-func upgradeRecipientsTag(_ vault: inout Vault) {
-    guard case .untagged = vault.recipientsStatus else { return }
-    do {
-        guard try vault.upgradeRecipientsTag() else { return }
-        printStderr("sempere: vault.json's device list is now authenticated (format.md §2.1); it trusts these "
-            + "\(vault.recipients.count) recipient(s), check them with `sempere vault info`: "
-            + vault.recipients.map { abbreviateKey($0.key) + ($0.label.isEmpty ? "" : " (\($0.label))") }.joined(separator: ", "))
-    } catch {
-        printError("could not authenticate vault.json's device list: \(CLIError.from(error).message)")
+/// Vaults opened untagged (format.md §2.1). The library tags such a vault
+/// at its first write; after the command, each one that is now tagged is
+/// reported once on stderr (the one-time upgrade).
+final class UntaggedVaults: @unchecked Sendable {
+    static let shared = UntaggedVaults()
+    private let lock = NSLock()
+    private var vaults: [URL: [VaultManifest.Recipient]] = [:]
+
+    func record(_ vault: Vault) {
+        lock.lock(); defer { lock.unlock() }
+        vaults[vault.url.standardizedFileURL] = vault.recipients
+    }
+
+    func reportUpgrades() {
+        lock.lock()
+        let all = vaults
+        vaults = [:]
+        lock.unlock()
+        for (url, recipients) in all.sorted(by: { $0.key.path < $1.key.path }) {
+            guard (try? Vault.open(at: url))?.manifest.recipientsTag != nil else { continue }
+            printStderr("sempere: vault.json's device list is now authenticated (format.md §2.1); it trusts these "
+                + "\(recipients.count) recipient(s), check them with `sempere vault info`: "
+                + recipients.map { abbreviateKey($0.key) + ($0.label.isEmpty ? "" : " (\($0.label))") }.joined(separator: ", "))
+        }
     }
 }

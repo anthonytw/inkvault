@@ -195,9 +195,13 @@ public struct Vault: Sendable {
     ///
     /// It also throws `VaultError.untrustedRecipients` when the recipients
     /// list did not check (format.md §2.1): nothing is encrypted to it.
+    ///
+    /// The first write to an untagged vault tags it on disk (format.md §2.1:
+    /// the one-time upgrade by the first writer holding the secret).
     public func requireWritable() throws {
         try requireKnownFeatures()
         try requireTrustedRecipients()
+        if case .untagged = recipientsStatus { try tagOnDisk() }
     }
 
     func requireKnownFeatures() throws {
@@ -677,19 +681,42 @@ public struct Vault: Sendable {
     ///   was opened (open it again).
     @discardableResult
     public mutating func upgradeRecipientsTag() throws -> Bool {
-        guard case .untagged = recipientsStatus, let secret else { return false }
+        guard case .untagged = recipientsStatus, secret != nil else { return false }
         try requireKnownFeatures()
-        var m = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
-        guard m.recipients.map(\.key) == manifest.recipients.map(\.key), m.vaultSecret == manifest.vaultSecret,
-              m.recipientsTag == nil else {
-            throw VaultError.manifestCorrupt("vault.json changed since it was opened")
-        }
-        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: secret)
-        if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
-        manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
+        manifest = try tagOnDisk()
         recipientsStatus = .verified(.firstUse)
-        rememberRecipients()
         return true
+    }
+
+    /// Writes `recipientsTag` and the feature into `vault.json` for the list
+    /// this vault was opened with, unless a tag for it is already there (an
+    /// earlier write, or another copy of this value, did it). Returns the
+    /// manifest as written, and remembers the list.
+    ///
+    /// - Throws: `manifestCorrupt` when `vault.json` changed since the vault
+    ///   was opened (another list or secret, or a tag that does not verify):
+    ///   open it again so it is checked.
+    @discardableResult
+    func tagOnDisk() throws -> VaultManifest {
+        let secret = try requireSecret()
+        var m = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
+        let keys = manifest.recipients.map(\.key)
+        guard m.recipients.map(\.key) == keys, m.vaultSecret == manifest.vaultSecret else {
+            throw VaultError.manifestCorrupt("vault.json changed since it was opened; open the vault again")
+        }
+        if let tag = m.recipientsTag {
+            guard RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: keys, secret: secret) else {
+                throw VaultError.manifestCorrupt("vault.json changed since it was opened; open the vault again")
+            }
+            return m
+        }
+        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: keys, secret: secret)
+        if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
+        let written = try Self.writeManifest(m, to: manifestURL, replacing: true)
+        if let trustStore {
+            try? trustStore.save(RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: keys))
+        }
+        return written
     }
 
     /// Repairs a tampered list (format.md §2.1 "Repair"): writes the last
