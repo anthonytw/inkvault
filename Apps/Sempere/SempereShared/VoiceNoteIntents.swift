@@ -27,8 +27,9 @@ enum VoiceNoteIntentError: Error, CustomLocalizedStringResourceConvertible {
 /// to the vault's public keys when it stops.
 struct StartVoiceNoteIntent: AudioRecordingIntent, LiveActivityIntent {
     static let title: LocalizedStringResource = "Record a Voice Note"
-    static let description = IntentDescription(
-        "Records a voice note into your Sempere vault's inbox, encrypted on this device, without unlocking the vault.")
+    static var description: IntentDescription? {
+        IntentDescription("Records a voice note into your Sempere vault's inbox, encrypted on this device, without unlocking the vault.")
+    }
 
     @MainActor
     func perform() async throws -> some IntentResult {
@@ -41,7 +42,9 @@ struct StartVoiceNoteIntent: AudioRecordingIntent, LiveActivityIntent {
 /// Stops the voice note being recorded and saves it (encrypted) to the inbox.
 struct StopVoiceNoteIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Stop the Voice Note"
-    static let description = IntentDescription("Stops the voice note being recorded and saves it, encrypted, to the inbox.")
+    static var description: IntentDescription? {
+        IntentDescription("Stops the voice note being recorded and saves it, encrypted, to the inbox.")
+    }
 
     @MainActor
     func perform() async throws -> some IntentResult {
