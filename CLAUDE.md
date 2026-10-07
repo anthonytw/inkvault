@@ -63,6 +63,11 @@ app. CLI edits write one delta per note through `Vault.apply` with the
 machine's `DeviceState`, and name notes by id, id prefix or exact title
 (`Vault.resolveNote`). Apple-only features (Vision, PencilKit) get the CLI
 command behind `#if canImport(...)`, with a clear error elsewhere.
+Handwriting recognition is shared that way: `RecognitionPolicy.pagesToRead`
+(Sempere), `RecognitionImage` and `VisionText` (SempereRender, the latter
+behind `#if canImport(Vision)`) serve both the app and `sempere recognize`;
+only the drawing differs (PencilKit in the app, the pure-Swift rasterizer in
+the CLI).
 
 ## Workflow
 

@@ -80,6 +80,10 @@ struct NoteCanvasView: View {
                     ExportMenu(ids: [note.id])
                 }
                 ToolbarItem(placement: .secondaryAction) {
+                    Button("Save Version…", systemImage: "bookmark") { ui.saveVersionNoteID = note.id }
+                        .disabled(note.deleted)
+                }
+                ToolbarItem(placement: .secondaryAction) {
                     Button("Version History…", systemImage: "clock.arrow.circlepath") { showingHistory = true }
                 }
                 ToolbarItem(placement: .secondaryAction) {

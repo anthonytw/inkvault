@@ -15,6 +15,9 @@ struct HistoryData: Sendable {
     let points: [RestorePoint]
     /// The rows to show, newest first.
     let entries: [HistoryEntry]
+    /// The same rows grouped as the list shows them (format.md §5.8.2):
+    /// checkpoints and editing sessions, newest first.
+    let groups: [HistoryGroupRow]
 
     init(noteID: UUID, revisions: [Revision], unreadable: [RevisionName], thisDevice: DeviceID?) {
         self.noteID = noteID
@@ -23,6 +26,7 @@ struct HistoryData: Sendable {
         self.thisDevice = thisDevice
         points = NoteHistory.restorePoints(revisions, unreadable: unreadable)
         entries = HistoryEntry.entries(points, thisDevice: thisDevice)
+        groups = HistoryGroupRow.rows(points, entries: entries)
     }
 
     /// The note as of `point`; throws `HistoryError.incompleteHistory` for a
@@ -53,8 +57,17 @@ struct HistoryEntry: Identifiable, Hashable, Sendable {
         isThisDevice ? "This device" : "Device \(point.device.rawValue.prefix(4))"
     }
 
-    /// "Edit" for a delta, "Snapshot" for a snapshot.
-    var kindLabel: String { point.kind == .snapshot ? "Snapshot" : "Edit" }
+    /// "Saved version" for a checkpoint, "Edit" for a delta, "Snapshot" for a snapshot.
+    var kindLabel: String {
+        if point.isCheckpoint { return "Saved version" }
+        return point.kind == .snapshot ? "Snapshot" : "Edit"
+    }
+
+    /// A checkpoint's name; "Saved Version" when it has none; nil for other points.
+    var checkpointTitle: String? {
+        guard let c = point.checkpoint else { return nil }
+        return c.name ?? "Saved Version"
+    }
 
     /// Why the point is greyed out, when it is.
     var unavailableReason: String? {
@@ -75,6 +88,51 @@ struct HistoryEntry: Identifiable, Hashable, Sendable {
         guard points.contains(where: { $0.kind == .snapshot || !$0.complete }) else { return nil }
         return "Revisions removed by compaction are not restore points and are not listed. "
             + "Versions that depend on them are greyed out and cannot be shown or restored."
+    }
+}
+
+/// One top-level row of the history list: a checkpoint, or an editing
+/// session whose autosaves are shown when it is expanded.
+struct HistoryGroupRow: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case checkpoint, session }
+    let kind: Kind
+    /// The group's rows, newest first; never empty.
+    let entries: [HistoryEntry]
+
+    /// The newest point's revision.
+    var id: RevisionName { entries[0].id }
+    var newest: HistoryEntry { entries[0] }
+    /// `wall` of the oldest and the newest point.
+    var start: Date { entries[entries.count - 1].date }
+    var end: Date { entries[0].date }
+    var saves: Int { entries.count }
+    /// Whether the note as it is now is in this group.
+    var containsLatest: Bool { entries.contains(where: \.isLatest) }
+
+    /// "This device · 12 saves" (the device and the number of autosaves).
+    var summary: String {
+        "\(newest.deviceLabel) · \(saves) save\(saves == 1 ? "" : "s")"
+    }
+
+    /// "Oct 6, 2026, 2:02 PM – 2:31 PM": the date and time range of a session
+    /// (one time when it has one save; both dates when it spans days).
+    var timeRange: String {
+        let first = start.formatted(date: .abbreviated, time: .shortened)
+        guard saves > 1, end != start else { return first }
+        let sameDay = Calendar.current.isDate(start, inSameDayAs: end)
+        return first + " – " + end.formatted(date: sameDay ? .omitted : .abbreviated, time: .shortened)
+    }
+
+    /// Groups `points` (oldest first) with `NoteHistory.groups` and pairs them
+    /// with their `entries` (newest first, as `HistoryEntry.entries` makes them).
+    static func rows(_ points: [RestorePoint], entries: [HistoryEntry]) -> [HistoryGroupRow] {
+        let byName = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return NoteHistory.groups(points).reversed().compactMap { group in
+            let rows = group.points.reversed().compactMap { byName[$0.name] }
+            guard !rows.isEmpty else { return nil }
+            if case .checkpoint = group { return HistoryGroupRow(kind: .checkpoint, entries: rows) }
+            return HistoryGroupRow(kind: .session, entries: rows)
+        }
     }
 }
 
@@ -144,5 +202,32 @@ extension AppModel {
         guard let result else { return nil }
         try await reopenEditor(ifShowing: id)
         return result.summary
+    }
+
+    /// Saves note `id` as it is now as a version (a checkpoint, format.md
+    /// §5.8.1): the open canvas's pending ink is saved first, then one delta
+    /// with no ops carries the checkpoint and its name (trimmed; blank is
+    /// unnamed), through the same path as the browser's edits.
+    ///
+    /// - Returns: the checkpoint's revision.
+    @discardableResult
+    func saveVersion(of id: UUID, name: String?) async throws -> RevisionName {
+        try await downloadNote(id)
+        if let editor, editor.noteID == id {
+            await editor.flush()
+            if let failure = editor.saveError { throw ModelError.unsavedChanges(failure) }
+        }
+        if let windowed = windowEditors[id] {
+            await windowed.flush()
+            if let failure = windowed.saveError { throw ModelError.unsavedChanges(failure) }
+        }
+        let checkpoint = Checkpoint(name: name)
+        var written: RevisionName?
+        try await commit(ids: [id]) { vault, clock, cloud, verifier in
+            written = try await NoteWriter.append([], to: id, vault: vault, clock: clock, coordinated: cloud,
+                                                  checkpoint: checkpoint, verify: verifier(id))
+        }
+        guard let written else { throw ModelError.noVaultOpen }
+        return written
     }
 }

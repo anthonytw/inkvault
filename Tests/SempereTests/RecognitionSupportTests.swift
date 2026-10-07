@@ -161,4 +161,34 @@ final class RecognitionSupportTests: VaultTestCase {
         XCTAssertEqual(r.text, "a b")
         XCTAssertEqual(RecognitionLayout.assemble(engine: "e", lines: [], basis: nil).text, "")
     }
+
+    // MARK: pages a pass reads (`sempere recognize` modes)
+
+    func testPagesToReadPerMode() {
+        func stroke(_ n: Int) -> Stroke {
+            Stroke(id: id(n), ink: Ink(tool: .pen, color: .black, width: 2), points: [StrokePoint(x: 1, y: 1, t: 0, w: 2, h: 2)])
+        }
+        func page(_ n: Int, strokes: [Stroke], _ rec: Recognition?) -> Page {
+            var p = Page(id: id(100 + n), order: "a\(n)", strokes: strokes)
+            p.recognition = rec
+            return p
+        }
+        let ink = [stroke(1), stroke(2)]
+        let ours = Recognition(engine: "vision-26.0", text: "x", basis: RecognitionBasis.digest(of: ink.map(\.id)))
+        let pages = [
+            page(1, strokes: ink, nil),                                                         // never read
+            page(2, strokes: ink, ours),                                                        // current
+            page(3, strokes: ink + [stroke(3)], ours),                                          // stale: ink added
+            page(4, strokes: ink, Recognition(engine: "notability-14", text: "Lecture")),       // Notability's
+            page(5, strokes: [], nil),                                                          // blank
+            page(6, strokes: [], ours),                                                         // our text, ink erased
+            page(7, strokes: [], Recognition(engine: "notability-14", text: "Old")),           // Notability's text, no ink
+        ]
+        func numbers(_ mode: RecognitionMode) -> [Int] {
+            RecognitionPolicy.pagesToRead(pages, mode: mode).compactMap { p in pages.firstIndex(of: p).map { $0 + 1 } }
+        }
+        XCTAssertEqual(numbers(.stale), [1, 3, 6], "Notability's recognition is never replaced by default")
+        XCTAssertEqual(numbers(.missing), [1])
+        XCTAssertEqual(numbers(.all), [1, 2, 3, 4, 6, 7])
+    }
 }

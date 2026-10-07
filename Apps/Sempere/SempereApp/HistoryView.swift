@@ -43,21 +43,36 @@ struct HistoryView: View {
     }
 
     private func list(_ data: HistoryData) -> some View {
-        let entries = data.entries
-        return List {
-            if entries.isEmpty {
+        List {
+            if data.entries.isEmpty {
                 Text("This note has no history yet.").foregroundStyle(.secondary)
             }
-            ForEach(entries) { entry in
-                if entry.isAvailable {
-                    NavigationLink(value: entry.id) { HistoryRow(entry: entry) }
-                } else {
-                    HistoryRow(entry: entry).foregroundStyle(.secondary)
+            // Checkpoints at the top level; the autosaves of each editing
+            // session collapsed under one row (format.md §5.8.2).
+            ForEach(data.groups) { group in
+                switch group.kind {
+                case .checkpoint:
+                    link(group.newest)
+                case .session:
+                    DisclosureGroup {
+                        ForEach(group.entries) { entry in link(entry) }
+                    } label: {
+                        SessionRow(group: group)
+                    }
                 }
             }
             if let notice = data.compactionNotice {
                 Section { } footer: { Text(notice) }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func link(_ entry: HistoryEntry) -> some View {
+        if entry.isAvailable {
+            NavigationLink(value: entry.id) { HistoryRow(entry: entry) }
+        } else {
+            HistoryRow(entry: entry).foregroundStyle(.secondary)
         }
     }
 
@@ -72,11 +87,31 @@ struct HistoryView: View {
     }
 }
 
+/// One editing session, collapsed: its time range, device and saves.
+private struct SessionRow: View {
+    let group: HistoryGroupRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(group.timeRange)
+                if group.containsLatest { Text("Current").font(.caption.bold()).foregroundStyle(.tint) }
+            }
+            Text(group.summary).font(.caption).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Editing session, \(group.timeRange), \(group.summary)")
+    }
+}
+
 private struct HistoryRow: View {
     let entry: HistoryEntry
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if let title = entry.checkpointTitle {
+                Label(title, systemImage: "bookmark.fill").font(.headline)
+            }
             HStack {
                 Text(entry.date.formatted(date: .abbreviated, time: .standard))
                 if entry.isLatest { Text("Current").font(.caption.bold()).foregroundStyle(.tint) }

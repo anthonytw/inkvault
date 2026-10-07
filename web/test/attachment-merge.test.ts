@@ -45,6 +45,20 @@ function merged(revs: Revision[]): NoteState {
 }
 
 describe("attachment merge (docs/attachments.md §14)", () => {
+  it("reads a snapshot item or recording whose origin is null as having none (fuzz regression)", () => {
+    const log = new LogBuilder();
+    const img = image();
+    const rec = recording();
+    const d0 = log.delta(devA, 0, [op.addPage(p1, "a"), att.addItem(p1, img), att.addRecording(rec)]);
+    const snap = log.snapshot(devC, 30, [d0]);
+    const { state } = snapshotParts(snap);
+    for (const it of state.pages.flatMap((p) => p.items)) it.origin = null;
+    for (const r of state.recordings) r.origin = null;
+    const s = reconstruct([snap]);
+    expect(items(s).map((i) => i.id)).toEqual([img.id]);
+    expect(s.recordings.map((r) => r.id)).toEqual([rec.id]);
+  });
+
   it("keeps the higher-stamped frame", () => {
     const log = new LogBuilder();
     const img = image();

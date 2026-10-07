@@ -146,17 +146,6 @@ extension NoteOps {
         }
         return byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
-
-    /// The op that appends `count` blank pages after the last page of a note
-    /// with `pages` (the app's Add Page), or none when `count` is not positive.
-    public static func appendPages(_ count: Int, after pages: [Page]) -> [Op] {
-        var last = pages.last?.order
-        return (0..<max(count, 0)).map { _ in
-            let page = Page(order: PageOrder.between(last, nil))
-            last = page.order
-            return .addPage(page)
-        }
-    }
 }
 
 extension Vault {
@@ -176,7 +165,7 @@ extension Vault {
         let loaded = try loadNote(noteId)
         let ops = try build(try reconstruct(loaded))
         guard !ops.isEmpty else { return nil }
-        return try write(ops, to: noteId, loaded: loaded, deviceState: deviceState, app: app, wall: wall)
+        return try writeDelta(ops, to: noteId, loaded: loaded, deviceState: deviceState, app: app, wall: wall)
     }
 
     /// Writes one delta of `ops` for a note as this device: the device id and
@@ -194,11 +183,11 @@ extension Vault {
                       wall: Date = Date()) throws -> Revision {
         try requireMigrated()
         guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
-        return try write(ops, to: noteId, loaded: try loadNote(noteId), deviceState: deviceState, app: app, wall: wall)
+        return try writeDelta(ops, to: noteId, loaded: try loadNote(noteId), deviceState: deviceState, app: app, wall: wall)
     }
 
-    private func write(_ ops: [Op], to noteId: UUID, loaded: LoadedNote, deviceState: URL, app: String,
-                       wall: Date) throws -> Revision {
+    func writeDelta(_ ops: [Op], to noteId: UUID, loaded: LoadedNote, deviceState: URL, app: String,
+                    wall: Date, checkpoint: Checkpoint? = nil) throws -> Revision {
         var state = try DeviceState.loadOrCreate(at: deviceState)
         var clock = state.clock
         for r in loaded.revisions { clock.observe(r.hlc, wall: wall) }
@@ -209,7 +198,7 @@ extension Vault {
         state.clock = clock
         try state.save(to: deviceState)
         let revision = Revision(noteId: noteId, device: state.device, seq: seq, hlc: hlc, wall: wall, app: app,
-                                body: .delta(ops: ops))
+                                body: .delta(ops: ops), checkpoint: checkpoint)
         try write(revision)
         return revision
     }

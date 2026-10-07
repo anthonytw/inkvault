@@ -60,17 +60,6 @@ final class NoteEditOpsTests: VaultTestCase {
                        ["a9", "a10", "b", "Math"])
     }
 
-    func testAppendPagesOrdersAfterTheLastPage() throws {
-        let first = Page(order: PageOrder.between(nil, nil))
-        let ops = NoteOps.appendPages(3, after: [first])
-        let pages = ops.compactMap { op -> Page? in if case .addPage(let p) = op { return p } else { return nil } }
-        XCTAssertEqual(pages.count, 3)
-        XCTAssertEqual(([first] + pages).map(\.order), ([first] + pages).map(\.order).sorted())
-        XCTAssertEqual(Set(pages.map(\.order)).count, 3)
-        XCTAssertEqual(NoteOps.appendPages(0, after: [first]), [])
-        XCTAssertEqual(NoteOps.appendPages(-1, after: []), [])
-    }
-
     func testApplyBuildingWritesOneDeltaOrNothing() throws {
         let vault = try makeVault(pqIdentity())
         let id = UUID()

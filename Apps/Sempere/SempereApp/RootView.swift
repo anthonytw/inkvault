@@ -220,6 +220,7 @@ struct RootView: View {
         // Only the window whose detail pane hosts the canvas drives the editor.
         let shown = model.editor?.noteID == model.selectedNoteID && model.canvasWindow == ui.id ? model.editor : nil
         context.editingText = ui.searchPresented || ui.renameNoteID != nil || ui.tagsNoteID != nil
+            || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: shown)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
                              paletteVisible: paletteVisible,
@@ -246,6 +247,7 @@ struct RootView: View {
         case .reloadVault: Task { await model.report { try await model.reload() } }
         case .renameNote: ui.renameNoteID = selected
         case .editTags: ui.tagsNoteID = selected
+        case .saveVersion: ui.saveVersionNoteID = selected
         case .deleteNote:
             if let selected { Task { await model.report { try await model.deleteNote(selected) } } }
         case .restoreNote:

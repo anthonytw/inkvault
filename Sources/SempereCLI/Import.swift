@@ -117,19 +117,37 @@ struct ImportNotability: ParsableCommand {
     @Flag(name: .long, help: "Store images with their camera and location metadata (stripped by default).")
     var keepImageMetadata = false
 
+    @Option(name: .long, help: ArgumentHelp(
+        "After importing, read the handwriting of pages Notability never indexed (macOS only).", valueName: "missing"))
+    var recognize: RecognizeAfterImport?
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
+
+    enum RecognizeAfterImport: String, ExpressibleByArgument, CaseIterable {
+        case missing
+    }
 
     func validate() throws {
         if paths.isEmpty { throw ValidationError("give at least one PATH") }
     }
 
     func run() throws {
+        // Refused before anything is imported, not after.
+        if recognize != nil && !dryRun && !RecognitionRun.available { throw RecognitionRun.unavailable }
         let options = NotabilityImporter.Options(overwrite: overwrite, notebook: notebook, scaleToLetterWidth: !noScale,
                                                  tagsFromFolders: !noFolderTags, extraTags: tags,
                                                  attachments: !noAttachments, keepImageMetadata: keepImageMetadata)
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let report: NotabilityImporter.ImportReport
+        var recognized: [RecognitionRun.NoteResult] = []
+        /// Runs `--recognize` over the notes just written.
+        func recognizeImported(_ report: NotabilityImporter.ImportReport, in vault: Vault) {
+            guard recognize != nil else { return }
+            recognized = report.notes.filter { $0.status == .ok }.compactMap(\.noteId).map {
+                RecognitionRun.run(note: $0, vault: vault, mode: .missing, dryRun: dryRun)
+            }
+        }
         if dryRun {
             // Import into a throwaway copy of the vault with a throwaway device.
             let scratch = FileManager.default.temporaryDirectory
@@ -148,6 +166,7 @@ struct ImportNotability: ParsableCommand {
             var clock = HybridClock()
             report = try NotabilityImporter.import(paths: urls, into: vault, device: .random(), clock: &clock,
                                                    options: options)
+            recognizeImported(report, in: vault)
         } else {
             let vault = try access.openVault(.required)
             let stateURL = DeviceState.defaultURL()
@@ -160,13 +179,20 @@ struct ImportNotability: ParsableCommand {
             }
             report = try NotabilityImporter.import(paths: urls, into: vault, device: state.device, clock: &clock,
                                                    options: options)
+            // Recognition writes through the device state file: save the import's clock first.
+            state.clock = clock
+            try state.save(to: stateURL)
+            recognizeImported(report, in: vault)
+            if let saved = try? DeviceState.loadOrCreate(at: stateURL) { state = saved; clock = saved.clock }
         }
-        try emit(report)
+        try emit(report, recognized: recognized)
         if report.notes.isEmpty { throw CLIError.failure("no .note or .ntb files found in the given paths") }
         if report.failed > 0 { throw CLIError.failure("\(report.failed) note(s) failed to import") }
+        let unread = recognized.filter { $0.error != nil }.count
+        if unread > 0 { throw CLIError.failure("\(unread) imported note(s) could not be recognised") }
     }
 
-    private func emit(_ report: NotabilityImporter.ImportReport) throws {
+    private func emit(_ report: NotabilityImporter.ImportReport, recognized: [RecognitionRun.NoteResult]) throws {
         let written = report.notes.filter { $0.status == .ok }
         if output.json {
             struct Summary: Encodable {
@@ -175,7 +201,9 @@ struct ImportNotability: ParsableCommand {
                 var pdfPages: Int, images: Int, textItems: Int, recordings: Int, recLinkedStrokes: Int
                 var blobs: Int, blobBytes: Int64, droppedPDFPages: Int, droppedMedia: Int
             }
-            struct Out: Encodable { var summary: Summary; var notes: [ImportNoteJSON] }
+            struct Out: Encodable {
+                var summary: Summary; var notes: [ImportNoteJSON]; var recognized: [RecognitionRun.NoteResult]?
+            }
             try output.emitJSON(Out(summary: Summary(dryRun: dryRun, notes: report.notes.count, imported: report.imported,
                                                      skipped: report.skipped, failed: report.failed, strokes: report.strokes,
                                                      ntb: report.notes.filter { $0.format == .ntb }.count,
@@ -189,7 +217,8 @@ struct ImportNotability: ParsableCommand {
                                                      blobBytes: written.reduce(0) { $0 + $1.attachments.blobBytes },
                                                      droppedPDFPages: written.reduce(0) { $0 + $1.dropped.pdfPages },
                                                      droppedMedia: written.reduce(0) { $0 + $1.dropped.media }),
-                                    notes: report.notes.map(ImportNoteJSON.init)))
+                                    notes: report.notes.map(ImportNoteJSON.init),
+                                    recognized: recognize == nil ? nil : recognized))
             return
         }
         var rows = output.quiet ? [] : [["STATUS", "TITLE", "NOTEBOOK", "STROKES", "TEXT", "SOURCE"]]
@@ -238,6 +267,14 @@ struct ImportNotability: ParsableCommand {
         }
         output.info("\(dryRun ? "Dry run: " : "")\(report.imported) \(dryRun ? "would be imported" : "imported"), "
                     + "\(report.skipped) skipped, \(report.failed) failed; \(report.strokes) strokes.")
+        if recognize != nil {
+            let pages = recognized.reduce(0) { $0 + $1.read.count }
+            output.info("Recognition: \(pages) page(s) without Notability's text \(dryRun ? "would be read" : "read") in "
+                        + "\(recognized.filter { !$0.read.isEmpty }.count) note(s).")
+            for r in recognized where r.error != nil {
+                printStderr("recognition failed for \(r.note): \(r.error ?? "")")
+            }
+        }
     }
 }
 

@@ -146,6 +146,10 @@ final class AppModel {
     var isEditing = false
     /// Serialises edits (`commit`).
     let editGate = EditGate()
+    /// Thin old autosaves once a day after a vault's notes are listed
+    /// (`thinIfDue`, format.md §5.8.4). The app turns it on; tests leave it
+    /// off so nothing is written that they did not ask for.
+    var automaticThinning = false
     /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
     var cloudProgress: CloudProgress?
     /// True when the open vault is in iCloud Drive: reads and writes are
@@ -299,8 +303,10 @@ final class AppModel {
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
          recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
          summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
+         automaticThinning: Bool = false,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
+        self.automaticThinning = automaticThinning
         self.summaryCacheDirectory = summaryCacheDirectory
         self.drawingCacheRoot = drawingCacheRoot
         self.editorDebounce = editorDebounce

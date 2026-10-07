@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import PencilKit
 import Sempere
+import SempereRender
 import UIKit
 import Vision
 
@@ -32,22 +33,14 @@ enum RecognitionPreference {
     }
 }
 
-/// Recognition with Vision's `VNRecognizeTextRequest` on an image of the
-/// page's ink: the strokes are drawn black on white (markers left out, they
-/// would cover text), cropped to the ink, at up to 2x and no more than
-/// `maxPixels`.
+/// Recognition with Vision on an image of the page's ink: the strokes are
+/// drawn black on white (markers left out, they would cover text), cropped
+/// to the ink, at the scale `RecognitionImage.plan` picks. The region, the
+/// scale and the Vision mapping (`VisionText`) are shared with `sempere
+/// recognize`; only the drawing is PencilKit's here.
 struct VisionPageRecognizer: PageRecognizing {
-    /// Margin around the ink, in points.
-    static let margin = 24.0
-    /// Largest image, in pixels, and its longest side.
-    static let maxPixels = 36_000_000.0
-    static let maxSide = 8000.0
-
     /// `vision-<iPadOS major.minor>` (format.md §5.5 `engine`).
-    static var engine: String {
-        let v = ProcessInfo.processInfo.operatingSystemVersion
-        return "vision-\(v.majorVersion).\(v.minorVersion)"
-    }
+    static var engine: String { VisionText.engine }
 
     func recognize(strokes: [Stroke]) async throws -> Recognition {
         try await Task.detached(priority: .utility) { try Self.recognizeNow(strokes) }.value
@@ -55,25 +48,20 @@ struct VisionPageRecognizer: PageRecognizing {
 
     static func recognizeNow(_ strokes: [Stroke]) throws -> Recognition {
         let empty = Recognition(engine: engine, text: "")
-        let drawable = strokes.filter { $0.ink.tool != .marker && !$0.points.isEmpty }.map { s -> PKStroke in
-            var black = s
-            black.ink.color = .black
-            return StrokeConversion.pkStroke(black)
-        }
+        let drawable = RecognitionImage.readableStrokes(strokes).map(StrokeConversion.pkStroke)
         let drawing = PKDrawing(strokes: drawable)
         let bounds = drawing.bounds
-        guard !drawable.isEmpty, !bounds.isNull, !bounds.isInfinite, bounds.width.isFinite, bounds.height.isFinite
+        guard !drawable.isEmpty, !bounds.isNull, !bounds.isInfinite,
+              let plan = RecognitionImage.plan(inkBounds: .init(x: Double(bounds.minX), y: Double(bounds.minY),
+                                                                w: Double(bounds.width), h: Double(bounds.height)))
         else { return empty }
-        let region = bounds.insetBy(dx: -margin, dy: -margin)
-        let scale = min(2, (maxPixels / (region.width * region.height)).squareRoot(),
-                        maxSide / max(region.width, region.height))
+        let region = CGRect(x: plan.region.x, y: plan.region.y, width: plan.region.w, height: plan.region.h)
         // A page whose ink cannot be drawn is an error, not "nothing legible": an
         // empty result would be stored as current and never read again.
-        guard scale > 0, scale.isFinite, let image = render(drawing, region: region, scale: scale) else {
+        guard let image = render(drawing, region: region, scale: CGFloat(plan.scale)) else {
             throw RecognitionFailure.cannotRender
         }
-        let lines = try VisionText.lines(in: image, region: .init(x: Double(region.minX), y: Double(region.minY),
-                                                                  w: Double(region.width), h: Double(region.height)))
+        let lines = try VisionText.lines(VNImageRequestHandler(cgImage: image, options: [:]), region: plan.region)
         return RecognitionLayout.assemble(engine: engine, lines: lines, basis: nil)
     }
 
@@ -92,46 +80,5 @@ struct VisionPageRecognizer: PageRecognizing {
             ctx.fill(bounds)
             ink?.draw(in: bounds)
         }.cgImage
-    }
-}
-
-/// The Vision call, apart from the page rendering so a test can read a
-/// printed image.
-enum VisionText {
-    /// Recognised lines of `image`, with word boxes in page points. `region`
-    /// is the page rectangle the image shows.
-    static func lines(in image: CGImage, region: Recognition.Box) throws -> [RecognizedLine] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        return (request.results ?? []).compactMap { observation -> RecognizedLine? in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
-            let text = candidate.string
-            let lineBox = pageBox(observation.boundingBox, region)
-            var words: [Recognition.Word] = []
-            var failed = false
-            var i = text.startIndex
-            while i < text.endIndex {
-                if text[i].isWhitespace { i = text.index(after: i); continue }
-                var j = i
-                while j < text.endIndex, !text[j].isWhitespace { j = text.index(after: j) }
-                if let rect = try? candidate.boundingBox(for: i..<j) {
-                    words.append(.init(text: String(text[i..<j]), box: pageBox(rect.boundingBox, region)))
-                } else {
-                    failed = true
-                }
-                i = j
-            }
-            // Word boxes are best effort: without them the line's box is shared out.
-            if failed || words.isEmpty { words = RecognitionLayout.distribute(text: text, in: lineBox) }
-            return RecognizedLine(text: text, words: words)
-        }
-    }
-
-    private static func pageBox(_ n: CGRect, _ region: Recognition.Box) -> Recognition.Box {
-        RecognitionLayout.pageBox(normalized: .init(x: Double(n.minX), y: Double(n.minY), w: Double(n.width), h: Double(n.height)),
-                                  region: region)
     }
 }

@@ -5,10 +5,10 @@ import Sempere
 struct NotesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notes",
-        abstract: "List, create and edit notes, switch page layout, show their history and restore earlier revisions.",
+        abstract: "List, find, create and edit notes, switch page layout, show their history and restore earlier revisions.",
         subcommands: [NotesList.self, NotesShow.self, NotesNew.self, NotesRename.self, NotesTag.self, NotesMove.self,
-                      NotesPaper.self, NotesLayout.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
-                      NotesRestore.self]
+                      NotesPaper.self, NotesLayout.self, NotesSearch.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
+                      NotesRestore.self, NotesCheckpoint.self]
     )
 }
 
