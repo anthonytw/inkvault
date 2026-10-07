@@ -1,0 +1,337 @@
+import Foundation
+import Sempere
+
+// The per-device settings of docs/attachments.md §15. Every one lives in
+// `UserDefaults` on this device and never in the vault. Each type reads and
+// writes a `UserDefaults` it is given (tests pass a scratch suite), clamps
+// whatever is stored to a valid value, and holds the decided default.
+// Pure Foundation: no UIKit, so the logic is typechecked on Linux.
+
+// MARK: - Recording
+
+/// The format new recordings are made in: *Recording* in the Settings panel.
+/// The recorder reads `RecordingSettings.load()` when a recording starts;
+/// `sempere attach recording` takes the same values as flags and never reads
+/// these.
+struct RecordingSettings: Hashable, Sendable {
+    enum Codec: String, CaseIterable, Sendable, Identifiable {
+        case aacLC = "aac"
+        case heAAC = "he-aac"
+        case appleLossless = "alac"
+
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .aacLC: return "AAC-LC"
+            case .heAAC: return "HE-AAC"
+            case .appleLossless: return "Apple Lossless"
+            }
+        }
+        /// Lossless audio has no bit rate to choose.
+        var hasBitRate: Bool { self != .appleLossless }
+    }
+
+    enum Channels: Int, CaseIterable, Sendable, Identifiable {
+        case mono = 1
+        case stereo = 2
+
+        var id: Int { rawValue }
+        var title: String { self == .mono ? "Mono" : "Stereo" }
+    }
+
+    static let defaultCodec = Codec.aacLC
+    /// Bits per second (docs/attachments.md §16 decision 8).
+    static let defaultBitRate = 64_000
+    static let defaultSampleRate = 48_000
+    static let defaultChannels = Channels.mono
+
+    /// Bit rates offered, per second per channel pair as the encoder is told.
+    static let bitRates = [24_000, 32_000, 48_000, 64_000, 96_000, 128_000]
+    /// HE-AAC is a low-rate codec: it does not offer the top rates.
+    static let heAACBitRates = [24_000, 32_000, 48_000, 64_000]
+    static let sampleRates = [16_000, 22_050, 32_000, 44_100, 48_000]
+
+    static let codecKey = "Sempere.recording.codec"
+    static let bitRateKey = "Sempere.recording.bitRate"
+    static let sampleRateKey = "Sempere.recording.sampleRate"
+    static let channelsKey = "Sempere.recording.channels"
+
+    var codec = defaultCodec
+    var bitRate = defaultBitRate
+    var sampleRate = defaultSampleRate
+    var channels = defaultChannels
+
+    /// The bit rates the settings offer for `codec`.
+    static func bitRates(for codec: Codec) -> [Int] {
+        switch codec {
+        case .aacLC: return bitRates
+        case .heAAC: return heAACBitRates
+        case .appleLossless: return []
+        }
+    }
+
+    /// The stored settings, each field replaced by its default or nearest
+    /// offered value when missing or not one of the choices.
+    static func load(from defaults: UserDefaults = .standard) -> RecordingSettings {
+        var s = RecordingSettings()
+        if let raw = defaults.string(forKey: codecKey), let c = Codec(rawValue: raw) { s.codec = c }
+        if let r = defaults.object(forKey: sampleRateKey) as? Int, sampleRates.contains(r) { s.sampleRate = r }
+        if let c = defaults.object(forKey: channelsKey) as? Int, let ch = Channels(rawValue: c) { s.channels = ch }
+        if let b = defaults.object(forKey: bitRateKey) as? Int { s.bitRate = b }
+        return s.normalized()
+    }
+
+    func save(to defaults: UserDefaults = .standard) {
+        let n = normalized()
+        defaults.set(n.codec.rawValue, forKey: Self.codecKey)
+        defaults.set(n.bitRate, forKey: Self.bitRateKey)
+        defaults.set(n.sampleRate, forKey: Self.sampleRateKey)
+        defaults.set(n.channels.rawValue, forKey: Self.channelsKey)
+    }
+
+    /// Fields forced onto the choices: a bit rate the codec does not offer
+    /// becomes the nearest one it does (the default when the codec has none),
+    /// a sample rate outside the list becomes the default.
+    func normalized() -> RecordingSettings {
+        var s = self
+        if !Self.sampleRates.contains(s.sampleRate) { s.sampleRate = Self.defaultSampleRate }
+        let offered = Self.bitRates(for: s.codec)
+        // Clamped first: the difference below must not overflow for a stored Int.min or Int.max.
+        let wanted = min(max(s.bitRate, 0), 1 << 30)
+        if let nearest = offered.min(by: { abs($0 - wanted) < abs($1 - wanted) }) {
+            s.bitRate = nearest
+        } else {
+            s.bitRate = Self.defaultBitRate
+        }
+        return s
+    }
+
+    /// The channel count a recording uses: stereo only when chosen *and* the
+    /// input has two channels (docs/attachments.md §15).
+    func effectiveChannels(inputChannels: Int) -> Int {
+        channels == .stereo && inputChannels >= 2 ? 2 : 1
+    }
+
+    /// Estimated bytes of one hour of audio.
+    ///
+    /// AAC and HE-AAC are constant-rate in effect: `bitRate / 8 × 3600`
+    /// (the rate is for the whole stream, not per channel). Apple Lossless
+    /// has no rate: speech compresses to about half of 16-bit PCM, so
+    /// `sampleRate × 2 bytes × channels × 3600 / 2`, an estimate only. The
+    /// arithmetic is in `Int64` and every operand is bounded by the choice
+    /// lists, so nothing overflows.
+    func bytesPerHour(inputChannels: Int = 1) -> Int64 {
+        let n = normalized()
+        if n.codec.hasBitRate { return Int64(n.bitRate) / 8 * 3600 }
+        return Int64(n.sampleRate) * 2 * Int64(n.effectiveChannels(inputChannels: inputChannels)) * 3600 / 2
+    }
+
+    /// "Quality" row label: "64 kbit/s".
+    static func label(bitRate: Int) -> String { "\(bitRate / 1000) kbit/s" }
+    static func label(sampleRate: Int) -> String {
+        sampleRate % 1000 == 0 ? "\(sampleRate / 1000) kHz" : String(format: "%.2f kHz", Double(sampleRate) / 1000)
+    }
+
+    /// "About 29 MB per hour".
+    func sizePerHourText(inputChannels: Int = 1) -> String {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return "About \(f.string(fromByteCount: bytesPerHour(inputChannels: inputChannels))) per hour"
+    }
+}
+
+// MARK: - Transcription
+
+/// *Transcription*: on-device, opt-in (docs/attachments.md §16 decision 9).
+enum TranscriptionSettings {
+    static let enabledKey = "Sempere.transcription.enabled"
+    static let localeKey = "Sempere.transcription.locale"
+    /// Opt-in: nothing is transcribed until the user turns it on.
+    static let defaultEnabled = false
+
+    static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+
+    static func setEnabled(_ on: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(on, forKey: enabledKey)
+    }
+
+    /// The stored locale identifier, or nil for "same as the device". An
+    /// identifier that is not a well-formed BCP 47 / ICU tag reads as nil.
+    static func localeIdentifier(_ defaults: UserDefaults = .standard) -> String? {
+        guard let id = defaults.string(forKey: localeKey), isWellFormed(id) else { return nil }
+        return id
+    }
+
+    static func setLocaleIdentifier(_ id: String?, in defaults: UserDefaults = .standard) {
+        if let id, isWellFormed(id) { defaults.set(id, forKey: localeKey) } else { defaults.removeObject(forKey: localeKey) }
+    }
+
+    /// Letters, digits and `-`/`_` only, at most 35 characters, starting with a letter.
+    static func isWellFormed(_ id: String) -> Bool {
+        let scalars = Array(id.unicodeScalars)
+        guard (1...35).contains(scalars.count), scalars[0].isASCII, scalars[0].properties.isAlphabetic else { return false }
+        return scalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || $0.properties.numericType != nil || $0 == "-" || $0 == "_") }
+    }
+
+    /// Languages the picker offers: the device's preferred ones, in order, without repeats.
+    static func offeredLocales(preferred: [String] = Locale.preferredLanguages) -> [String] {
+        var seen = Set<String>()
+        return preferred.filter { isWellFormed($0) && seen.insert($0).inserted }
+    }
+
+    /// Whether the recognition model for a locale is on the device.
+    enum ModelStatus: Equatable, Sendable {
+        /// The transcription engine is not part of this build or OS.
+        case unavailable
+        case notDownloaded
+        case downloading(fraction: Double?)
+        case installed
+
+        var text: String {
+            switch self {
+            case .unavailable: return "Not available on this device"
+            case .notDownloaded: return "Not downloaded"
+            case .downloading(let f):
+                guard let f, f.isFinite else { return "Downloading…" }
+                return "Downloading… \(Int((min(max(f, 0), 1)) * 100)) %"
+            case .installed: return "Downloaded"
+            }
+        }
+    }
+
+    /// Asks the engine for the model status of a locale (nil: the device's).
+    /// The transcription feature installs the real lookup at launch; until
+    /// then the Settings panel shows `unavailable`.
+    @MainActor static var statusProvider: @Sendable (String?) async -> ModelStatus = { _ in .unavailable }
+    /// Starts downloading the model; nil when no engine is installed.
+    @MainActor static var downloader: (@Sendable (String?) async throws -> Void)?
+}
+
+// MARK: - Device keys
+
+/// *Device keys*: how recipient changes rewrap attachments (format.md §8.1.5).
+enum RewrapSettings {
+    static let onAddKey = "Sempere.rewrap.onAdd"
+    static let onRemoveKey = "Sempere.rewrap.onRemoveOrUpgrade"
+
+    static func onAdd(_ defaults: UserDefaults = .standard) -> RewrapMethod {
+        defaults.string(forKey: onAddKey).flatMap(RewrapMethod.init(rawValue:)) ?? RewrapPolicy().onAdd
+    }
+
+    static func onRemoveOrUpgrade(_ defaults: UserDefaults = .standard) -> RewrapMethod {
+        defaults.string(forKey: onRemoveKey).flatMap(RewrapMethod.init(rawValue:)) ?? RewrapPolicy().onRemoveOrTypeChange
+    }
+
+    static func setOnAdd(_ m: RewrapMethod, in defaults: UserDefaults = .standard) { defaults.set(m.rawValue, forKey: onAddKey) }
+    static func setOnRemoveOrUpgrade(_ m: RewrapMethod, in defaults: UserDefaults = .standard) {
+        defaults.set(m.rawValue, forKey: onRemoveKey)
+    }
+
+    /// What `Vault.addRecipient` / `removeRecipient` / `replaceRecipient` get.
+    static func policy(_ defaults: UserDefaults = .standard) -> RewrapPolicy {
+        RewrapPolicy(onAdd: onAdd(defaults), onRemoveOrTypeChange: onRemoveOrUpgrade(defaults))
+    }
+
+    /// Header-only after a removal leaves the removed key able to open old
+    /// copies of every attachment: choosing it needs a warning and a confirmation.
+    static func needsConfirmation(forRemoval method: RewrapMethod) -> Bool { method == .headerOnly }
+
+    static func title(_ m: RewrapMethod) -> String {
+        m == .headerOnly ? "Rewrite headers only" : "Re-encrypt everything"
+    }
+}
+
+// MARK: - New notes
+
+/// *New notes*: the title a note gets when the user gives none, the default
+/// notebook of quick voice notes, and (with `PaperPreference`) the paper.
+enum NewNoteSettings {
+    enum TitleFormat: String, CaseIterable, Sendable, Identifiable {
+        case dateAndTime
+        case dateOnly
+        case blank
+
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .dateAndTime: return "Date and Time"
+            case .dateOnly: return "Date"
+            case .blank: return "Untitled"
+            }
+        }
+    }
+
+    static let titleFormatKey = "Sempere.newNote.titleFormat"
+    static let voiceNotebookKey = "Sempere.newNote.voiceNotebook"
+    static let defaultTitleFormat = TitleFormat.dateAndTime
+    static let defaultVoiceNotebook = "Inbox"
+
+    static func titleFormat(_ defaults: UserDefaults = .standard) -> TitleFormat {
+        defaults.string(forKey: titleFormatKey).flatMap(TitleFormat.init(rawValue:)) ?? defaultTitleFormat
+    }
+
+    static func setTitleFormat(_ f: TitleFormat, in defaults: UserDefaults = .standard) {
+        defaults.set(f.rawValue, forKey: titleFormatKey)
+    }
+
+    /// The title for a note made at `now` in `format`: "Oct 7, 2026 at 2:30 PM",
+    /// "Oct 7, 2026", or "" (shown as "Untitled").
+    static func title(_ format: TitleFormat, now: Date = Date(), locale: Locale = .current,
+                      timeZone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.locale = locale
+        f.timeZone = timeZone
+        switch format {
+        case .blank: return ""
+        case .dateOnly:
+            f.dateStyle = .medium
+            f.timeStyle = .none
+        case .dateAndTime:
+            f.dateStyle = .medium
+            f.timeStyle = .short
+        }
+        return f.string(from: now)
+    }
+
+    /// `typed` when the user typed a title, else the stored format's.
+    static func resolvedTitle(typed: String, defaults: UserDefaults = .standard, now: Date = Date()) -> String {
+        let t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? title(titleFormat(defaults), now: now) : t
+    }
+
+    /// The notebook quick voice notes go to: "Inbox" until changed. A name
+    /// that is blank after canonicalising ("", " / ") reads as the default.
+    static func voiceNotebook(_ defaults: UserDefaults = .standard) -> String {
+        NotebookPath.canonical(defaults.string(forKey: voiceNotebookKey)) ?? defaultVoiceNotebook
+    }
+
+    /// `name` as `voiceNotebook` would read it back.
+    static func canonicalNotebook(_ name: String) -> String { NotebookPath.canonical(name) ?? defaultVoiceNotebook }
+
+    static func setVoiceNotebook(_ name: String, in defaults: UserDefaults = .standard) {
+        if let canonical = NotebookPath.canonical(name) {
+            defaults.set(canonical, forKey: voiceNotebookKey)
+        } else {
+            defaults.removeObject(forKey: voiceNotebookKey)
+        }
+    }
+}
+
+// MARK: - Storage
+
+/// Sizes shown under *Storage*.
+enum StorageText {
+    /// "12.3 MB", "Zero KB".
+    static func bytes(_ n: Int64) -> String {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return f.string(fromByteCount: max(n, 0))
+    }
+
+    /// "3 items, 12.3 MB".
+    static func items(_ count: Int, bytes n: Int64) -> String {
+        "\(count) item\(count == 1 ? "" : "s"), \(bytes(n))"
+    }
+}
