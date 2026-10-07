@@ -68,8 +68,12 @@ extension AppModel {
         quickCapture.flushQueue(into: url, vaultId: vault.vaultId, coordinated: cloud)
         var done = 0
         do {
-            let items = try await offMain { try CloudScan.inboxItems(inVault: url) }
+            // Not `offMain`: an empty inbox (the usual case) does no vault work,
+            // so it must not pass the `afterIO` hook that tests use to order
+            // the listing's reads.
+            let items = try await Task.detached(priority: .utility) { try CloudScan.inboxItems(inVault: url) }.value
             guard !items.isEmpty else { return 0 }
+            try ensureCurrent(gen)
             if cloud {
                 try await CloudVault.download(items: items.map(\.item), hooks: hooks, stallTimeout: cloudStallTimeout,
                                               pollInterval: cloudPollInterval) { _ in }
