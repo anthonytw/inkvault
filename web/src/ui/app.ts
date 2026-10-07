@@ -6,7 +6,8 @@ import { type NotebookNode, type SearchHit, canonicalNotebook, isWithinNotebook,
 import { tagKey } from "../format/tags.ts";
 import { type LoadedNote, type NoteSummary, loadNote, mapLimited, summarize } from "../vault/library.ts";
 import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional } from "../vault/source.ts";
-import { type RecipientsStatus, UnlockedVault, VaultError, limits, parseIdentity, parseManifest, type VaultManifest } from "../vault/vault.ts";
+import { type RecipientsStatus, UnlockedVault, VaultError, limits, parseIdentity, parseManifest, recipientsWarningText,
+  type VaultManifest } from "../vault/vault.ts";
 import { clear, formatDate, h } from "./dom.ts";
 import { NoteView, hasUnknownPaper } from "./noteview.ts";
 import { RecordingsPanel } from "./recordings.ts";
@@ -412,15 +413,8 @@ export class App {
   }
 }
 
-/**
- * A banner when vault.json's device list does not check (format.md §2.1).
- * The viewer only reads, so it reports; the app or `sempere vault recipients
- * repair` fixes it.
- */
-export function recipientsWarning(status: RecipientsStatus | undefined): HTMLElement[] {
-  if (status?.status !== "tampered") return [];
-  const why = status.reason === "tagRemoved" ? "lost its authentication tag" : "was changed without the vault's key";
-  return [h("p", { class: "warning", attrs: { role: "alert" },
-    text: `This vault's device list ${why}. Notes still read correctly here, but the Sempere app and CLI will not `
-      + "write to it until it is repaired (sempere vault recipients repair)." })];
+/** A banner when vault.json's device list does not check (format.md §2.1). */
+function recipientsWarning(status: RecipientsStatus | undefined): HTMLElement[] {
+  const text = recipientsWarningText(status);
+  return text ? [h("p", { class: "warning", attrs: { role: "alert" }, text })] : [];
 }

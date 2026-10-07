@@ -7,8 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadNote } from "../src/vault/library.ts";
 import { RevisionReadError, UnlockedVault, VaultError, checkRecipients, parseIdentity, parseManifest, recipientType,
-  recipientsTag, type VaultManifest } from "../src/vault/vault.ts";
-import { recipientsWarning } from "../src/ui/app.ts";
+  recipientsTag, recipientsWarningText, type VaultManifest } from "../src/vault/vault.ts";
 import { gunzip } from "../src/vault/gzip.ts";
 import { isRevisionFile } from "../src/vault/source.ts";
 import { NodeDirSource, fixtures, sampleIdentity } from "./support.ts";
@@ -116,7 +115,7 @@ describe("recipients tag (format.md §2.1)", () => {
     const tagged = withManifest((o) => { o.recipientsTag = tag; o.features = ["recipients-tag"]; });
     const ok = await UnlockedVault.unlock(tagged, sampleIdentity());
     expect(ok.recipientsStatus).toEqual({ status: "verified" });
-    expect(recipientsWarning(ok.recipientsStatus)).toEqual([]);
+    expect(recipientsWarningText(ok.recipientsStatus)).toBeUndefined();
 
     const cases: [string, (o: Record<string, unknown>) => void, string][] = [
       ["added recipient", (o) => {
@@ -132,7 +131,7 @@ describe("recipients tag (format.md §2.1)", () => {
       const m = withManifest(edit);
       const s = await checkRecipients(m, secret);
       expect(s, name).toEqual({ status: "tampered", reason });
-      expect(recipientsWarning(s).length, name).toBe(1);
+      expect(recipientsWarningText(s), name).toMatch(/device list/);
     }
     // A tampered list still unlocks and reads (the viewer only reports).
     const tampered = await UnlockedVault.unlock(withManifest((o) => { o.recipientsTag = "00".repeat(32); }), sampleIdentity());

@@ -197,6 +197,18 @@ export async function checkRecipients(m: VaultManifest, secret: Uint8Array): Pro
   return diff === 0 ? { status: "verified" } : { status: "tampered", reason: "tagMismatch" };
 }
 
+/**
+ * What the viewer says about a list that does not check (format.md §2.1),
+ * or undefined. The viewer only reads, so it reports; the app or
+ * `sempere vault recipients repair` fixes it.
+ */
+export function recipientsWarningText(status: RecipientsStatus | undefined): string | undefined {
+  if (status?.status !== "tampered") return undefined;
+  const why = status.reason === "tagRemoved" ? "lost its authentication tag" : "was changed without the vault's key";
+  return `This vault's device list ${why}. Notes still read correctly here, but the Sempere app and CLI will not `
+    + "write to it until it is repaired (sempere vault recipients repair).";
+}
+
 /** An unlocked vault: the identity and the vault secret, in memory only. */
 export class UnlockedVault {
   private constructor(
