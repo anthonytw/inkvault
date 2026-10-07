@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { encodeState, decodeRevision } from "../src/format/model.ts";
-import { countName, majorOf, maxNameLength, maxNames, newerSummary, otherName } from "../src/format/newer.ts";
+import { countName, emptyNewer, majorOf, maxNameLength, maxNames, newerSummary, otherName } from "../src/format/newer.ts";
 import { formatRFC3339 } from "../src/format/rfc3339.ts";
 import { loadNote, summarize } from "../src/vault/library.ts";
 import { UnlockedVault, VaultError, parseManifest, readOnlyReasons } from "../src/vault/vault.ts";
@@ -79,6 +79,17 @@ describe("newer revisions", () => {
     const map: Record<string, number> = {};
     for (let i = 0; i < 100; i++) countName(map, `n${i}`);
     expect(map[otherName]).toBe(100 - maxNames);
+  });
+
+  it("count names that Object.prototype holds like any other", () => {
+    const names = ["constructor", "__proto__", "toString", "hasOwnProperty", "constructor"];
+    const rev = decodeRevision(envelope({ format: "sempere/2", ops: names.map((op) => ({ op })) }));
+    const skipped = rev.newer?.skippedOps ?? {};
+    expect(Object.keys(skipped).sort()).toEqual(["__proto__", "constructor", "hasOwnProperty", "toString"]);
+    expect(Object.values(skipped).reduce((a, b) => a + b, 0)).toBe(5);
+    expect(Object.hasOwn(skipped, "constructor") && skipped.constructor).toBe(2);
+    expect(newerSummary(rev.newer ?? emptyNewer())).toContain("5 ops skipped (__proto__ ×1, constructor ×2, hasOwnProperty ×1, toString ×1)");
+    expect(Object.getPrototypeOf(skipped)).toBe(Object.prototype);
   });
 });
 

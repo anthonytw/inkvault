@@ -39,19 +39,29 @@ export function emptyNewer(): NewerContent {
   return { revisions: 0, unreadable: 0, skippedOps: {}, skippedElements: 0, formats: {}, features: {} };
 }
 
+/**
+ * Adds `n` to `map[key]` as an own property: names come from the vault, and
+ * one like `constructor` or `__proto__` must count like any other, not read
+ * or set what `Object.prototype` holds under it.
+ */
+function bump(map: Record<string, number>, key: string, n: number): void {
+  const value = (Object.hasOwn(map, key) ? (map[key] ?? 0) : 0) + n;
+  Object.defineProperty(map, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
 /** Counts `n` more under `name`: cut to `maxNameLength`, or `otherName` once `maxNames` are kept. */
 export function countName(map: Record<string, number>, name: string, n = 1): void {
   const key = [...name].slice(0, maxNameLength).join("");
   if (!Object.hasOwn(map, key) && Object.keys(map).length >= maxNames) {
-    map[otherName] = (map[otherName] ?? 0) + n;
+    bump(map, otherName, n);
     return;
   }
-  map[key] = (map[key] ?? 0) + n;
+  bump(map, key, n);
 }
 
 function mergeNames(from: Record<string, number>, into: Record<string, number>): void {
   for (const k of Object.keys(from).sort()) if (k !== otherName) countName(into, k, from[k] ?? 0);
-  if (from[otherName] !== undefined) into[otherName] = (into[otherName] ?? 0) + from[otherName];
+  if (Object.hasOwn(from, otherName)) bump(into, otherName, from[otherName] ?? 0);
 }
 
 export function mergeNewer(into: NewerContent, from: NewerContent): void {
