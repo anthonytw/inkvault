@@ -17,6 +17,7 @@ struct WelcomeView: View {
                 Section {
                     Button("New Vault…", systemImage: "plus.circle", action: newVault)
                     Button("Open Vault…", systemImage: "folder", action: openFolder)
+                    ICloudDriveHelpButton()
                 } footer: {
                     Text("A vault is one .sempere item in Files: on this device, in iCloud Drive, or anywhere else. Choose the .sempere item itself (a plain folder works too).")
                 }

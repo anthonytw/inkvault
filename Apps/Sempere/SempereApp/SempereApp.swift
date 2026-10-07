@@ -14,6 +14,8 @@ struct SempereApp: App {
     @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
                                         summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
                                         drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
+                                        blobCacheRoot: BlobCache.folder,
+                                        renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
                                         automaticThinning: true)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
@@ -32,6 +34,8 @@ struct SempereApp: App {
         Task { await QuickCapture.shared.sweep() }
         // Settings shows what the on-device speech engines can do (task E5).
         TranscriptionPreference.installSettingsHooks()
+        // Per-session attachment caches of earlier builds (the app's is in Caches now, `BlobCache.folder`).
+        BlobCache.purgeStale()
     }
 
     var body: some Scene {
