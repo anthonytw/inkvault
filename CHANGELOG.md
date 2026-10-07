@@ -19,6 +19,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   the keyed name. The Content-Security-Policy gains `blob:` images and media, a same-origin
   worker and one Trusted Types policy for it. Cross-checked against the CLI's SVG export of new
   synthetic fixture notes.
+- Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
+  the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
+  original PDF, laid out from the PDF's own page boxes), and images become image items with
+  their frame, rotation and crop, metadata stripped. `sempere import notability` gains
+  `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
+  and why anything was left out (`warnings`).
 - Attachments from the command line (task F, `docs/cli.md` "Adding attachments"): `sempere attach
   image|pdf|text|recording|transcript` add an image, PDF pages (as new background pages or as a
   figure), a text box, an MPEG-4 recording or a transcript to a note, each as one delta with
