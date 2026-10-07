@@ -141,6 +141,12 @@ public struct PreparedCompaction: Sendable {
         return p
     }
 
+    /// Nothing to write or delete in note `id`.
+    public static func nothing(_ id: UUID) -> PreparedCompaction {
+        PreparedCompaction(plan: CompactionPlan(noteId: id, snapshots: [], deletions: [], witnesses: [], targets: []),
+                           encoded: [], bytesDeleted: 0)
+    }
+
     /// False once the encoded snapshots were dropped.
     public var canExecute: Bool { encoded.count == plan.snapshots.count }
 }
@@ -177,8 +183,7 @@ extension Vault {
                                   clock: inout HybridClock, app: String, cache: SummaryCache?) throws -> PreparedCompaction {
         let index = try revisionIndex(of: noteId, cache: cache)
         guard CompactionPlanner.mayDelete(index.revisions, noteId: noteId, mode: mode, now: now) else {
-            return PreparedCompaction(plan: CompactionPlan(noteId: noteId, snapshots: [], deletions: [], witnesses: [], targets: []),
-                                      encoded: [], bytesDeleted: 0)
+            return .nothing(noteId)
         }
         let plan = try planCompaction(noteId, loaded: try loadNote(noteId), mode: mode, now: now, device: device,
                                       clock: &clock, app: app)

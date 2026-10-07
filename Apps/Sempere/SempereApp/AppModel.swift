@@ -163,6 +163,11 @@ final class AppModel {
     /// (`thinIfDue`, format.md §5.8.4). The app turns it on; tests leave it
     /// off so nothing is written that they did not ask for.
     var automaticThinning = false
+    /// How far a thinning run (or its preview) has got, counted per note;
+    /// nil when none is running (`thinVault`).
+    var thinningProgress: ThinningProgress?
+    /// Notes thinning works on at once (`thinVault`).
+    var thinningConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
     var cloudProgress: CloudProgress?
     /// True when the open vault is in iCloud Drive: reads and writes are
