@@ -513,7 +513,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     private func textEditingChanged(_ editing: Bool) {
         itemSelection.setActive(itemSelectionActive && !editing)
         updateEraser()
-        if !editing { updateToolPicker() }
+        guard !editing else { return }
+        updateToolPicker()
+        if isEmbedded { focus() }   // a page of the stack takes the palette back itself
     }
 
     @available(*, unavailable)
