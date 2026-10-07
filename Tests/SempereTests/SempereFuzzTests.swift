@@ -159,8 +159,13 @@ final class SempereFuzzTests: VaultTestCase {
             Item.pdfPage(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d3")!,
                          blob: BlobRef(sha256: hash, size: 7, type: "application/pdf"), pageIndex: 2,
                          pageSize: Size(w: 612, h: 792), frame: Rect(x: 0, y: 0, w: 612, h: 792), z: "a"),
-            Item(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d4")!, kind: .math, layer: ItemLayer(rawValue: 250),
+            Item(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d4")!, kind: ItemKind(rawValue: "shape"), layer: ItemLayer(rawValue: 250),
                  frame: Rect(x: 1, y: 1, w: 2, h: 2), rotation: 45, z: "c", extra: ["latex": .string("x^2"), "render": try JSONValue(encoding: blob)]),
+            Item.math(id: UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000d5")!,
+                      MathContent(latex: "\\int_0^1 x^2\\,dx = \\frac{1}{3}", display: false, size: 18, color: .black,
+                                  render: BlobRef(sha256: hash, size: 70, type: "application/pdf"), renderSize: Size(w: 90, h: 30),
+                                  engine: "swiftmath-1.7.3", extra: ["future": .bool(true)]),
+                      frame: Rect(x: 50, y: 60, w: 90, h: 30), z: "d"),
         ]
         var log = LogBuilder()
         let d1 = log.delta(devA, 0, NoteOps.newNote(title: "Att", pageId: page))
@@ -171,6 +176,7 @@ final class SempereFuzzTests: VaultTestCase {
             .setItem(page: page, itemId: items[1].id, change: .rotation(90)),
             .setItem(page: page, itemId: items[0].id, change: .text(text)),
             .setItem(page: page, itemId: items[3].id, change: .other(field: "latex", value: .string("y"))),
+            .setItem(page: page, itemId: items[4].id, change: .math(MathContent(latex: "\\sqrt{2}", size: 12))),
             .setRecording(recordingId: rec.id, change: .title("U")),
             .setRecording(recordingId: rec.id, change: .transcript(nil)),
             .removeItem(page: page, itemId: items[2].id), .removeRecording(recordingId: UUID()),
@@ -197,6 +203,41 @@ final class SempereFuzzTests: VaultTestCase {
             } catch {
                 return "a decoded revision does not round-trip: \(error)"
             }
+        })
+    }
+
+    /// LaTeX sources (format.md §8.2.7): `MathSource.check` must answer every
+    /// input quickly (linear, no recursion), and a source it accepts must
+    /// stay within the limits it promises.
+    func testFuzzMathSource() throws {
+        let seeds = ["\\frac{a}{b}", "\\left( \\sum_{i=1}^{n} x_i \\right)^{2}",
+                     "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", "\\sqrt\\sqrt{x}", "e^{i\\pi}+1=0",
+                     "\\{ x \\} \\left\\{ \\right.", "{{{{x}}}}", "a^^__"].map { Data($0.utf8) }
+        assertClean(Fuzz.run("math-source", seeds: seeds, quick: 3000, text: true, maxSize: 3 * MathSource.maxBytes,
+                             generate: { rng in
+            // Deep or long structures built directly.
+            let pieces = ["{", "}", "\\left(", "\\right)", "\\begin{x}", "\\end{x}", "\\sqrt", "^", "_", "x", " ", "\\"]
+            return Data((0..<rng.below(9000)).map { _ in rng.pick(pieces) }.joined().utf8)
+        }) { input in
+            let latex = String(decoding: input, as: UTF8.self)
+            let issue = MathSource.check(latex)
+            if issue == nil {
+                if latex.utf8.count > MathSource.maxBytes { return "accepted a source over the byte limit" }
+                if latex.unicodeScalars.filter({ !$0.properties.isWhitespace }).count > 2 * MathSource.maxTokens + latex.utf8.count {
+                    return "accepted too many tokens"
+                }
+            }
+            // Item decoding with the source in it fails with a typed error or round-trips.
+            let item = ##"{"id":"7e57c0de-0000-4000-8000-0000000000d5","kind":"math","frame":[1,2,3,4],"z":"a","math":"##
+                + ##"{"display":true,"size":12,"color":"#000000FF","latex":"##
+            var json = Data(item.utf8)
+            json.append((try? JSONSerialization.data(withJSONObject: [latex], options: [.fragmentsAllowed]).dropFirst().dropLast()) ?? Data("\"\"".utf8))
+            json.append(Data("}}".utf8))
+            do {
+                let decoded = try InkJSON.decoder().decode(Item.self, from: json)
+                let again = try InkJSON.decoder().decode(Item.self, from: try InkJSON.encoder().encode(decoded))
+                return again == decoded ? nil : "math item does not round-trip"
+            } catch is DecodingError { return nil } catch { return "untyped error \(type(of: error))" }
         })
     }
 

@@ -259,10 +259,10 @@ final class AttachmentModelTests: XCTestCase {
     // MARK: Open format (§7)
 
     func testUnknownKindFieldsAndLayerAreKeptVerbatim() throws {
-        // A `math` item (reserved: read as unknown) on an undefined layer,
+        // An item of a kind this reader does not know on an undefined layer,
         // with unknown fields, some of them named like fields of other kinds.
         let source = #"""
-            { "id": "\#(Self.itemId)", "kind": "math", "layer": 250, "frame": [10.5, 20, 30, 40], "z": "b",
+            { "id": "\#(Self.itemId)", "kind": "shape", "layer": 250, "frame": [10.5, 20, 30, 40], "z": "b",
               "latex": "e^{i\\pi} + 1 = 0", "display": true, "size": 14.25, "color": "#112233FF",
               "text": "not a text object", "crop": "whatever", "pixelSize": [1, 2, 3],
               "render": { "sha256": "\#(Self.hashA)", "size": 1000, "type": "application/pdf", "pages": 1 },
@@ -270,8 +270,9 @@ final class AttachmentModelTests: XCTestCase {
               "big": 12345678901234 }
             """#
         let item = try assertRoundTrip(source, as: Item.self)
-        XCTAssertEqual(item.kind, .math)
+        XCTAssertEqual(item.kind, ItemKind(rawValue: "shape"))
         XCTAssertFalse(item.kind.isDefined)
+        XCTAssertFalse(ItemKind.video.isDefined)
         XCTAssertEqual(item.layer.rawValue, 250)
         XCTAssertNil(item.text)
         XCTAssertNil(item.crop)
