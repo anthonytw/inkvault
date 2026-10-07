@@ -73,13 +73,91 @@ the owning session (`claude -p "…" --cloud <session_id>`).
   features. Everything should be automatable (aside from the UI)." Every
   feature prompt includes a `sempere` command with `--json` output and CLI
   tests, sharing the core code the app uses (see `CLAUDE.md` "CLI first").
-- **Export compliance:** the maintainer answered App Store Connect's questions on build 2.
-The result was "does not use non-exempt encryption", the mass-market exemption.
-Info.plist mirrors that with `ITSAppUsesNonExemptEncryption = NO`, so uploads need no
-per-build answer. (Setting YES made every upload demand an
-`ITSEncryptionExportComplianceCode`; patching a build's answer through the API did not
-stick.) France stays excluded until the ANSSI declaration is approved
-(`docs/appstore/france-declaration.md`); revisit this key then.
+- **Export compliance:** mass-market, standard published algorithms, full
+  strength. The App Store Connect answer is "exempt" (Info.plist
+  `ITSAppUsesNonExemptEncryption = NO`, so no per-build question). France is
+  excluded from availability until the ANSSI declaration
+  (`docs/appstore/france-declaration.md`) is approved.
+- **Attachments design (#22):**
+  - per-note storage `notes/<id>/att/`, keyed-hash names, Padmé padding;
+  - LWW item fields, integer z-layers (0 background, 100 content, ink above);
+  - full Unicode (system fonts in the app, glyph-subset embedding in exports, Noto on Linux);
+  - Spanish localization, and reserved `math` (LaTeX) and `video` items;
+  - a settings panel (audio codec and quality, EXIF stripping on by default, rewrap modes);
+  - an automatic rewrap policy with settings: adding a device rewrites headers only, removing a device or a PQ migration fully re-encrypts;
+  - time-stamped transcript segments, and `rec: {id, at}` to sync ink and audio;
+  - Poppler on Linux for PDF backgrounds in SVG/PNG (else a placeholder);
+  - a "PDF + attachments" export option and an unused-attachments index in Settings;
+  - on-device AI only.
+- **Notes are keyed by UUID; duplicate titles are fine everywhere.** Notebooks
+  are `/`-separated paths shown as a tree. Folder names become tags on import.
+- **Pages vs pageless:** a per-note choice (#52), with continuous scrolling between pages (#80).
+- **History:** checkpoints, editing sessions and configurable thinning (#74; details below).
+
+## Personal data
+
+`data/` is git-ignored. It holds the user's full Notability backup as three Google Drive
+parts, `Notability-20261005T121200Z-1-00{1,2,3}.zip`. Pass all three together: 928 `.note`,
+603 `.ntb`, 395 Notability PDF exports. `data/README.md` says the same.
+- **Never** commit, quote or paste its contents: not in code, tests, docs, commits, PR
+  bodies, or messages to other agents. Cloud sessions never see it; only the driver
+  verifies on it, locally, reporting structure and counts only.
+- Real-data tests are gated on `SEMPERE_NOTABILITY_SAMPLES`.
+- Scratch output goes under `data/<name>/` and is deleted when done.
+
+Import of the full backup (2026-10-07, after D1–D4, #76):
+- **Notes:** 640 imported, 891 skipped, 0 failed.
+- **Attachments:** 5,013 PDF pages, 25 images and 53 typed-text items (158 blobs, 968 MB).
+- **Recognition:** 536 notes carry Notability's recognition, plus the `.ntb` index (#57).
+- **Still dropped, all legitimately:** 2 encrypted PDFs, 1 broken PDF, 3 empty text boxes,
+  1 empty image, and 310 dashed strokes (imported solid, counted).
+- **Gaps in progress (#79):** `.ntb` top-level PDFs and images (4 notes), PDF text index,
+  handwriting language (52 `es_ES`), highlighter behind text.
+
+## Test vault and the user's iPad
+
+- **iPad:** "antpad", an iPad Pro 12.9" 4th gen (A12Z, Face ID, Pencil 2, no hover).
+  **It runs iPadOS 26.7.1 and cannot update to 27**, so every feature must work on 26.
+  UDID 00008027-001D30E02131802E. It is reachable over Wi-Fi by `devicectl` when awake.
+- **Test vault:** iCloud Drive `Sempere/Notes.sempere`, post-quantum.
+  - Key: `~/.config/sempere/identity.key`.
+  - Full backup imported; re-imported with attachments on 2026-10-07 (1.2 GB, verified healthy).
+  - The user takes no real notes in it yet, so re-importing with `--overwrite` is fine.
+  - To put the key on a device: `pbcopy`, then clear the clipboard after a few minutes.
+- **Device dev builds:** `xcodebuild … -destination 'id=<UDID>' -allowProvisioningUpdates
+  DEVELOPMENT_TEAM=6X3PT3FXGA build`, then `xcrun devicectl device install app` /
+  `process launch`. TestFlight builds cannot be debugged; use a dev build.
+- **Debugging without the user:**
+  - DEBUG launch env vars (`CLAUDE.md`);
+  - `devicectl device copy to/from --domain-type appDataContainer`;
+  - `--console` for logs;
+  - the timing signposts from #56.
+- **User testing:** a checklist page per build, read back by the driver (`docs` is not
+  the place for its URL; see the driver's memory).
+
+## Apple developer / App Store / TestFlight
+
+**Accounts and keys:**
+- Paid Apple Developer Program, team 6X3PT3FXGA (individual).
+- App Store Connect app "Sempere" (id 6819333304, iOS + macOS), bundle id
+  `io.github.anthonytw.sempere`.
+- TestFlight group "Internal" (all builds) holds the user.
+- The listing metadata, availability (every country except France), privacy policy URL,
+  review contact and categories are set through the API (an `asc.py` helper on the
+  driver's Mac).
+- API keys live in `~/.config/sempere/`, mode 0600:
+  - **Admin**, `sempere-admin-AuthKey_47Z492KR68.p8`, can cloud-sign;
+  - **App Manager**, `sempere-app-manager-AuthKey_3M856V593J.p8`, API only, **cannot sign**.
+  - Both use issuer `24e225fb-771e-4dc7-b322-632d16493446`.
+
+**Upload a TestFlight build:** run `~/.claude/scripts/sempere-testflight.sh [ios|mac|both]`
+on the maintainer's Mac. It archives `main` and uploads, signed with the Admin key, so it
+needs no Xcode login. It also handles two gotchas:
+- it puts `/usr/bin` first in PATH, because Homebrew's rsync 3.x breaks IPA packaging ("Copy failed");
+- it sets `manageAppVersionAndBuildNumber`, which assigns build numbers.
+
+The Mac build uses `-destination 'generic/platform=macOS,variant=Mac Catalyst'`. Its sandbox
+entitlements are in `Apps/Sempere/Sempere.entitlements`.
 
 **Never commit `DEVELOPMENT_TEAM`.**
 
