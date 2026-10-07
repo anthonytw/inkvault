@@ -17,13 +17,28 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   [--dry-run]`; in the app a setting, default 30 days or never, a daily automatic run and Thin
   Now with a preview): old autosaves go, every checkpoint and the newest autosave of each
   session stay restorable, the note's state never changes. `compact` never deletes a checkpoint
-  and keeps it restorable.
+  and keeps it restorable, and keeps a note's first revision while device clocks disagree (an
+  older revision with a later `wall`), so the note's creation date cannot move.
+- Web viewer: attachments (`docs/web-viewer.md`, `format.md` §8). Images (orientation, crop,
+  rotation, metadata stripped), text boxes laid out with their stored line breaks and the
+  format's line metrics, PDF pages drawn by a pinned pdf.js (worker and font data served by the
+  viewer itself; no font loading, scripts or annotations), placeholders for unknown kinds and for
+  missing, invalid or undrawable blobs (listed with the reason), and a note's recordings with
+  playback and transcripts. Blobs are read only when their item comes on screen (audio when
+  played), decrypted as a stream and checked before use: framing, zero padding, content hash and
+  the keyed name. The Content-Security-Policy gains `blob:` images and media, a same-origin
+  worker and one Trusted Types policy for it. Cross-checked against the CLI's SVG export of new
+  synthetic fixture notes.
 - Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
   the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
   original PDF, laid out from the PDF's own page boxes), and images become image items with
   their frame, rotation and crop, metadata stripped. `sempere import notability` gains
   `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
   and why anything was left out (`warnings`).
+- Notability import of typed text and recordings (tasks D3, D4): typed text becomes text items
+  with bold, italic, underline, strikethrough, colours and sizes as runs (and `lang` for CJK,
+  Arabic and Hebrew runs); `Recordings/` becomes the note's recordings with their audio, and
+  strokes link to the recording (`rec`) where `eventTokens` read as times in it.
 - Attachments from the command line (task F, `docs/cli.md` "Adding attachments"): `sempere attach
   image|pdf|text|recording|transcript` add an image, PDF pages (as new background pages or as a
   figure), a text box, an MPEG-4 recording or a transcript to a note, each as one delta with

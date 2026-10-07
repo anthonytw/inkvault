@@ -382,7 +382,12 @@ Compaction never deletes blobs; they have their own per-note collection rule
 (§5.8.1), and keeps each checkpoint that was a complete restore point (§5.7)
 complete: it adds the positioned snapshots and keeps the witnesses that
 §5.8.4 rules 2 and 3 require, with the checkpoints as the targets. Thinning
-(§5.8.4) is compaction with a different choice of what to delete.
+(§5.8.4) is compaction with a different choice of what to delete. A
+compactor also keeps the first revision by `(hlc, device, seq)` while any
+other revision has an earlier `wall`: `created` comes from the first
+revision's `wall` (§5.4), so deleting it would let a later-ordered revision
+whose device clock was behind move `created`, in the current state and in
+every version.
 
 ### 5.4 State and metadata
 
@@ -1051,7 +1056,8 @@ deletes nothing) and the note's revisions ordered by `(hlc, device, seq)`:
   editing session (§5.8.2, sessions computed over all the note's restore
   points, so a session that continues past the range keeps its last point
   outside it); the note's newest revision; every snapshot whose valid
-  `asOf` names a revision that is kept; and the *witnesses* below.
+  `asOf` names a revision that is kept; the *witnesses* below; and the
+  first revision while another has an earlier `wall` (§5.3).
 - Everything else in the range may be deleted, deltas and snapshots alike,
   subject to the rules below. Revisions after the range are never deleted.
 

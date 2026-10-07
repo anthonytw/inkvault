@@ -29,16 +29,32 @@ export const svgNS = "http://www.w3.org/2000/svg";
 const allowedSVGAttrs = new Set([
   "x", "y", "width", "height", "x1", "y1", "x2", "y2", "cx", "cy", "r", "points", "d", "fill", "fill-opacity",
   "stroke", "stroke-opacity", "stroke-width", "stroke-linecap", "stroke-linejoin", "viewBox",
+  // Items (format.md §8.2): clips, placed images, text.
+  "id", "transform", "clip-path", "preserveAspectRatio", "href", "font-family", "font-size", "font-weight", "font-style",
+  "text-decoration", "text-anchor", "direction", "unicode-bidi", "lang", "xml:space",
 ]);
-const allowedSVGTags = new Set(["svg", "g", "rect", "line", "circle", "polyline", "path"]);
+const allowedSVGTags = new Set(["svg", "g", "rect", "line", "circle", "polyline", "path", "polygon", "clipPath", "image", "text", "tspan"]);
+const xmlNS = "http://www.w3.org/XML/1998/namespace";
 
 export function s(tag: string, attrs: [string, string][] = []): SVGElement {
   if (!allowedSVGTags.has(tag)) throw new Error(`unexpected SVG element ${tag}`);
   const el = document.createElementNS(svgNS, tag);
   for (const [k, v] of attrs) {
     if (!allowedSVGAttrs.has(k)) throw new Error(`unexpected SVG attribute ${k}`);
-    el.setAttribute(k, v);
+    // Images only ever show blobs the page made from verified attachments.
+    if (k === "href" && !v.startsWith("blob:")) throw new Error("unexpected image reference");
+    if (k === "clip-path" && !/^url\(#[\w-]+\)$/.test(v)) throw new Error("unexpected clip reference");
+    if (k === "xml:space") el.setAttributeNS(xmlNS, k, v);
+    else el.setAttribute(k, v);
   }
+  return el;
+}
+
+/** An SVG element tree: tags and attributes through `s`, text as text. */
+export function svgTree(n: { tag: string; attrs: [string, string][]; text?: string; children?: typeof n[] }): SVGElement {
+  const el = s(n.tag, n.attrs);
+  if (n.text !== undefined) el.textContent = n.text;
+  for (const c of n.children ?? []) el.append(svgTree(c));
   return el;
 }
 

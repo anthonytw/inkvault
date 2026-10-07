@@ -145,7 +145,7 @@ function buf(b: Uint8Array): Uint8Array<ArrayBuffer> {
 }
 
 async function hmacKey(secret: Uint8Array): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", buf(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  return crypto.subtle.importKey("raw", buf(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
 /** An unlocked vault: the identity and the vault secret, in memory only. */
@@ -193,6 +193,24 @@ export class UnlockedVault {
   }
 
   /**
+   * The keyed blob names (format.md §8.1.2) for a content hash (32 raw
+   * bytes): under the current vault secret, then, while a rewrap is
+   * unfinished, under the previous one (§8.1.5).
+   */
+  async blobNames(sha256: Uint8Array): Promise<string[]> {
+    const message = concat([encoder.encode("sempere/1"), Uint8Array.of(0), encoder.encode("blob"), Uint8Array.of(0), sha256]);
+    const keys = this.previous ? [this.secret, this.previous] : [this.secret];
+    const out: string[] = [];
+    for (const k of keys) out.push(hex(new Uint8Array(await crypto.subtle.sign("HMAC", k, buf(message)))));
+    return out;
+  }
+
+  /** Decrypts an age file as a stream (blobs, format.md §8.1.3): authenticated chunk by chunk. */
+  async decryptStream(file: ReadableStream<Uint8Array>): Promise<ReadableStream<Uint8Array>> {
+    return this.decrypter.decrypt(file);
+  }
+
+  /**
    * Reads one revision file (§4, §5): decrypts, checks magic, version and
    * tag, gunzips, decodes, and checks the content names this note and file.
    */
@@ -235,6 +253,10 @@ export class UnlockedVault {
     }
     return rev;
   }
+}
+
+function hex(b: Uint8Array): string {
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 async function decryptSecret(decrypter: Decrypter, armored: string): Promise<Uint8Array> {
