@@ -4,7 +4,7 @@ import Sempere
 import XCTest
 
 /// Vaults of a newer format version (format.md §7): the CLI reads them,
-/// reports `readOnly` and why, and every write exits 6 without touching a file.
+/// reports `readOnly` and why, and every write exits 7 without touching a file.
 final class CLIReadOnlyTests: CLITestCase {
     static var newerVault: String { fixtures.appendingPathComponent("newer.sempere").path }
     static let mixed = "33333333-3333-4333-8333-333333333333"
@@ -100,14 +100,14 @@ final class CLIReadOnlyTests: CLITestCase {
         ]
         for args in writes {
             let r = try cli(args + key)
-            XCTAssertEqual(r.status, 6, "\(args): \(r.err)")
+            XCTAssertEqual(r.status, 7, "\(args): \(r.err)")
             XCTAssertTrue(r.err.contains("read-only"), "\(args): \(r.err)")
         }
         XCTAssertEqual(try files(vault), before, "nothing in the vault changed")
     }
 
     /// A version-1 vault with one newer revision: reads work, the note's
-    /// writes are refused with exit 6, as is any write after it was read.
+    /// writes are refused with exit 7, as is any write after it was read.
     func testNewerRevisionInAVersionOneVault() throws {
         // The fixture's notes under a version-1 manifest: the revisions alone are newer.
         let vault = try copyNewerVault()
@@ -124,10 +124,10 @@ final class CLIReadOnlyTests: CLITestCase {
         let notes = try XCTUnwrap(list.json as? [[String: Any]])
         XCTAssertEqual(notes.first { $0["id"] as? String == Self.mixed }?["readOnly"] as? Bool, true)
         let rename = try cli(["notes", "rename", Self.mixed, "x"] + key)
-        XCTAssertEqual(rename.status, 6, rename.err)
+        XCTAssertEqual(rename.status, 7, rename.err)
         let created = try cli(["notes", "new", "Fresh", "--json"] + key)
         XCTAssertEqual(created.status, 0, "a run that has not read a newer note may write others: \(created.err)")
         let compact = try cli(["compact", "--all", "--thin-all"] + key)
-        XCTAssertEqual(compact.status, 6, "compacting every note reads the newer ones: \(compact.err)")
+        XCTAssertEqual(compact.status, 7, "compacting every note reads the newer ones: \(compact.err)")
     }
 }

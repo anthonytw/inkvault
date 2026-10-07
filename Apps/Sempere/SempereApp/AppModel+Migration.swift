@@ -132,8 +132,9 @@ extension AppModel {
             show("Opening the vault…")
             let identities: [any AgeIdentity]
             if let key = plan.key { identities = [key] } else { identities = unlockIdentities }
+            let trust = recipientsTrust
             let reopened = try await offMain {
-                try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities) }
+                try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities, trust: trust) }
             }
             try ensureCurrent(gen)
             guard !reopened.isLegacy, !reopened.pendingRewrap else {

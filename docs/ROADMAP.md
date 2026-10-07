@@ -23,6 +23,7 @@ working state.
 | Crypto | age v1: X25519, scrypt, armor, STREAM; CCTV vectors | ✅ |
 | Crypto | Post-quantum ML-KEM-768 + X25519 recipients; vaults post-quantum only, legacy vaults open only to migrate | ✅ #33 |
 | Crypto | Streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt (B1) | ✅ #43 |
+| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations, per-device trust records; writes, rewraps and capture profiles refuse a tampered list; repair and confirm; untagged vaults tagged by their first writer | 🔀 #98 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
 | Vault | Version history round 2 (`format.md` §5.8): checkpoints, editing-session ids, positioned snapshots (`asOf`), thinning with stated and property-tested guarantees; compaction keeps checkpoints complete | ✅ #74 |
@@ -33,7 +34,7 @@ working state.
 | Vault | Attachment model types and ops (A0) | ✅ |
 | Vault | Per-note blob store, rewrap policy, GC, repair (B2) | ✅ |
 | Vault | Attachment merge (A1): items and recordings in merge, snapshots, history/restore, summaries | ✅ #66 |
-| Vault | Read-only access to newer format versions (`format.md` §7): vaults and revisions of a later `format` open read-only, unknown ops, fields and snapshot elements are skipped and reported, every write refused; CLI exit 6, app banner, web viewer | 🔀 #94 |
+| Vault | Read-only access to newer format versions (`format.md` §7): vaults and revisions of a later `format` open read-only, unknown ops, fields and snapshot elements are skipped and reported, every write refused; CLI exit 7, app banner, web viewer | 🔀 #94 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | ✅ #52 |
 | Render | Parametric paper templates (line width, spacing) | ✅ #28 |
@@ -82,6 +83,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
 | sync webdav of attachment blobs (`--max-blob-mib`) | ✅ #67 | ✅ #67 |
+| Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | 🔀 #98 | 🔀 #98 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | ✅ #26 | ✅ #26 |
@@ -91,7 +93,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Text boxes: `attach text` stores the `breaks` of its layout (`--no-breaks` to leave wrapping to renderers), `items move` lays a text box out again at a new width (E2) | 🔀 #82 | 🔀 #82 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
-| Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 6 | 🔀 #94 | 🔀 #94 |
+| Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | 🔀 #94 | 🔀 #94 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
 
@@ -100,6 +102,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
 | Vaults | Keys in the Keychain / password manager | ✅ #24 |
 | Vaults | Vaults of a newer format version open read-only: banner over the list, notes open read-only with what was skipped, New Note / Import / Recognize disabled, no autosave, thinning, inbox adoption or transcripts (`format.md` §7.3) | 🔀 #94 |
+| Vaults | Authenticated device list (`format.md` §2.1): blocking alert "This vault's device list was changed without its key" naming the unknown devices, Remove (restore the last checked list, rotate, rewrap) or Cancel (read only); one-time "Device List Protected" notice when an older vault is tagged at unlock; quick capture never takes an unchecked list; the web viewer reports the status | 🔀 #98 (not yet tried on the iPad) |
 | Vaults | Fast opening: background listing with "Opening vault: n of m", list fills in as notes are read, encrypted summary cache for instant reopen, empty list always explained | ✅ #54 |
 | Vaults | Instant reopen from the local index; change-driven iCloud updates (names diff, file presenter), low-priority validation, throttled diff list updates; signposts + debug timing log | ✅ #56 |
 | Canvas | Fast note open: encrypted per-page drawing cache (LRU, 200 MB), off-main visible-first conversion, fast point decoding | ✅ #56 |

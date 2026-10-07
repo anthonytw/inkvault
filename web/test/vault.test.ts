@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadNote } from "../src/vault/library.ts";
-import { RevisionReadError, UnlockedVault, VaultError, parseIdentity, parseManifest, recipientType } from "../src/vault/vault.ts";
+import { RevisionReadError, UnlockedVault, VaultError, checkRecipients, parseIdentity, parseManifest, recipientType,
+  recipientsTag, recipientsWarningText, type VaultManifest } from "../src/vault/vault.ts";
 import { gunzip } from "../src/vault/gzip.ts";
 import { isRevisionFile } from "../src/vault/source.ts";
 import { NodeDirSource, fixtures, sampleIdentity } from "./support.ts";
@@ -82,6 +83,62 @@ describe("unlock", () => {
     const e = await caught(UnlockedVault.unlock(m, other));
     expect((e as VaultError).code).toBe("wrongKey");
     expect((await caught(UnlockedVault.unlock(m, "AGE-SECRET-KEY-PQ-1NOTAKEY")) as VaultError).code).toBe("badIdentity");
+  });
+});
+
+describe("recipients tag (format.md §2.1)", () => {
+  // The same vector as RecipientsAuthTests.testKnownAnswerVector (Swift).
+  it("matches the known-answer vector", async () => {
+    const secret = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+    expect(await recipientsTag("0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c", ["age1pq1example0", "age1pq1example1"], secret))
+      .toBe("548c16534c81b7cfb1c92c574380129377d3616b02b631d9fa99bf6356b63c0c");
+  });
+
+  async function secretOf(m: VaultManifest): Promise<Uint8Array> {
+    const { Decrypter, armor } = await import("age-encryption");
+    const d = new Decrypter();
+    d.addIdentity(sampleIdentity());
+    return d.decrypt(armor.decode(m.vaultSecret));
+  }
+
+  function withManifest(edit: (o: Record<string, unknown>) => void): VaultManifest {
+    const o = JSON.parse(readFileSync(join(fixtures, "sample.sempere", "vault.json"), "utf8")) as Record<string, unknown>;
+    edit(o);
+    return parseManifest(enc.encode(JSON.stringify(o)));
+  }
+
+  it("reports untagged, verified and tampered lists; reading is unaffected", async () => {
+    // The committed fixture is tagged (by the Swift writer).
+    const committed = parseManifest(readFileSync(join(fixtures, "sample.sempere", "vault.json")));
+    const ok = await UnlockedVault.unlock(committed, sampleIdentity());
+    const secret = await secretOf(committed);
+    const tag = await recipientsTag(committed.vaultId, committed.recipients.map((r) => r.key), secret);
+    expect(committed.recipientsTag).toBe(tag);
+    const untagged = withManifest((o) => { delete o.recipientsTag; o.features = ["attachments"]; });
+    expect((await UnlockedVault.unlock(untagged, sampleIdentity())).recipientsStatus).toEqual({ status: "untagged" });
+    expect(ok.recipientsStatus).toEqual({ status: "verified" });
+    expect(recipientsWarningText(ok.recipientsStatus)).toBeUndefined();
+
+    const cases: [string, (o: Record<string, unknown>) => void, string][] = [
+      ["added recipient", (o) => {
+        (o.recipients as unknown[]).push({ key: "age1pq1" + "q".repeat(60), label: "x", added: "2026-10-07T00:00:00Z" });
+      }, "tagMismatch"],
+      ["tag from another vault", (o) => { o.recipientsTag = "ab".repeat(32); }, "tagMismatch"],
+      ["tag of the wrong type", (o) => { o.recipientsTag = 42; }, "tagMismatch"],
+      ["uppercase tag", (o) => { o.recipientsTag = tag.toUpperCase(); }, "tagMismatch"],
+      ["tag stripped", (o) => { delete o.recipientsTag; }, "tagRemoved"],
+    ];
+    for (const [name, edit, reason] of cases) {
+      const m = withManifest(edit);
+      const s = await checkRecipients(m, secret);
+      expect(s, name).toEqual({ status: "tampered", reason });
+      expect(recipientsWarningText(s), name).toMatch(/device list/);
+    }
+    // A tampered list still unlocks and reads (the viewer only reports).
+    const tampered = await UnlockedVault.unlock(withManifest((o) => { o.recipientsTag = "00".repeat(32); }), sampleIdentity());
+    expect(tampered.recipientsStatus.status).toBe("tampered");
+    const note = await loadNote(new NodeDirSource(join(fixtures, "sample.sempere")), tampered, lecture);
+    expect(note.failures).toEqual([]);
   });
 });
 

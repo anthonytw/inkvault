@@ -72,7 +72,8 @@ struct VaultInit: ParsableCommand {
             stored = (id, try obtainPassphrase(envName: passphraseEnv, prompt: "New key passphrase: ", confirm: true,
                                                  asError: CLIError.failure))
         }
-        let vault = try Vault.create(at: URL(fileURLWithPath: path), recipients: recipients, labels: label)
+        let vault = try Vault.create(at: URL(fileURLWithPath: path), recipients: recipients, labels: label,
+                                     trust: trustStore())
         var keyFile: String?
         if let (id, pass) = stored {
             keyFile = try vault.writeIdentityFile(id, passphrase: pass, workFactor: workFactor).path
@@ -119,7 +120,8 @@ struct VaultInfo: ParsableCommand {
             notes: noteCount, keyFiles: keyFiles, pendingRewrap: vault.pendingRewrap,
             journalProblem: vault.journalProblem, unlocked: !vault.isLocked,
             format: vault.manifest.format, features: vault.manifest.features, readOnly: vault.isReadOnly,
-            readOnlyReasons: vault.readOnlyReasons.descriptions)
+            readOnlyReasons: vault.readOnlyReasons.descriptions,
+            recipientsAuth: RecipientsStatusOutput(vault))
         if output.json { try output.emitJSON(info); return }
         print("Vault:          \(info.path)")
         print("Vault id:       \(info.vaultId)")
@@ -141,6 +143,7 @@ struct VaultInfo: ParsableCommand {
         } else {
             print("Post-quantum:   yes")
         }
+        print("Device list:    \(info.recipientsAuth.text)")
         print("Stored keys:    \(keyFiles.isEmpty ? "none" : "\(keyFiles.count) passphrase-wrapped")")
         print("Pending rewrap: \(info.pendingRewrap ? "YES (run `sempere vault rewrap-resume`)" : "no")")
         if !info.unlocked {
@@ -176,6 +179,51 @@ struct VaultInfo: ParsableCommand {
         /// True when this version may read but not change the vault (format.md §7.3).
         var readOnly: Bool
         var readOnlyReasons: [String]
+        var recipientsAuth: RecipientsStatusOutput
+    }
+}
+
+/// `recipientsAuth` in `vault info --json` and `vault verify --json`: how
+/// vault.json's recipients list checked (format.md §2.1).
+struct RecipientsStatusOutput: Encodable {
+    /// `verified`, `untagged`, `tampered` or `not-checked` (locked).
+    var status: String
+    /// For `verified`: `unchanged`, `firstUse` or `rotated`.
+    var verification: String?
+    /// For `tampered`: `tagMismatch`, `tagRemoved` or `secretUnconfirmed`.
+    var reason: String?
+    /// True when `recipientsTag` is present in vault.json.
+    var tagged: Bool
+    /// For `tampered`: keys not in the last verified list.
+    var unexpected: [String]?
+    /// For `tampered`: keys of the last verified list no longer listed.
+    var missing: [String]?
+    /// For `tampered`: the list `recipients repair` would write (nil: unknown, pass --keep).
+    var restore: [String]?
+
+    init(_ vault: Vault) {
+        let s = vault.recipientsStatus
+        status = s.name
+        tagged = vault.manifest.recipientsTag != nil
+        if case .verified(let how) = s { verification = how.rawValue }
+        if let p = s.problem {
+            reason = p.reason.rawValue
+            unexpected = p.unexpected
+            missing = p.missing
+            restore = p.restore
+        }
+    }
+
+    var text: String {
+        switch status {
+        case "verified": return "verified" + (verification == "firstUse" ? " (first use on this machine)" : "")
+        case "untagged": return "not authenticated yet (an older vault; unlocking with a key tags it)"
+        case "not-checked": return tagged ? "authenticated; not checked (locked; pass --identity)" : "not checked (locked)"
+        default:
+            let keys = (unexpected ?? []).map(abbreviateKey).joined(separator: ", ")
+            return "TAMPERED (\(reason ?? "?")): unexpected \(keys.isEmpty ? "none" : keys); writing is refused until "
+                + "`sempere vault recipients repair`"
+        }
     }
 }
 
@@ -185,7 +233,8 @@ struct VaultRecipients: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "recipients",
         abstract: "Add, remove or replace a recipient (rewraps every file).",
-        subcommands: [RecipientsAdd.self, RecipientsRemove.self, RecipientsReplace.self]
+        subcommands: [RecipientsAdd.self, RecipientsRemove.self, RecipientsReplace.self, RecipientsRepair.self,
+                      RecipientsConfirm.self]
     )
 }
 
@@ -308,6 +357,80 @@ struct RecipientsReplace: ParsableCommand {
     }
 }
 
+struct RecipientsRepair: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "repair",
+        abstract: "Undo a device list changed without the vault's key: rewrite the last verified list and rotate.",
+        discussion: """
+            For a vault whose vault.json recipients do not check (format.md §2.1; other write commands exit 6).
+            Writes the last verified list (this machine's trust record, or the list the tag still verifies
+            with the inserted keys deleted), keeping the current labels, as a recipient removal: the vault
+            secret rotates and every file is rewrapped, so nothing stays encrypted to an unexpected key.
+            --keep names the keys to keep instead (required when the last verified list is unknown).
+            """
+    )
+
+    @Option(name: .long, help: ArgumentHelp("A recipient to keep (repeatable), or a file holding it.", valueName: "age1pq1..."))
+    var keep: [String] = []
+
+    @Flag(name: .customLong("dry-run"), help: "Only show what the repair would write.")
+    var dryRun = false
+
+    @OptionGroup var rewrap: RewrapOptions
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let keys = try keep.map { try parseRecipient($0).string }
+        var vault = try access.openVault(.required, migration: true)
+        guard let problem = vault.recipientsStatus.problem else {
+            throw CLIError.failure("the device list checks (\(vault.recipientsStatus.name)); nothing to repair")
+        }
+        if problem.reason == .secretUnconfirmed { _ = try vault.repairRecipients() }   // throws why not
+        guard let target = keys.isEmpty ? problem.restore : keys else {
+            throw CLIError.failure("this machine does not know the last verified list: name the keys to keep with --keep")
+        }
+        if dryRun || !output.json {
+            output.info("Unexpected: \(problem.unexpected.isEmpty ? "none" : problem.unexpected.map(abbreviateKey).joined(separator: ", "))")
+            output.info("Keeping:    \(target.map(abbreviateKey).joined(separator: ", "))")
+        }
+        if dryRun {
+            if output.json {
+                struct Out: Encodable { var reason: String; var unexpected: [String]; var keep: [String] }
+                try output.emitJSON(Out(reason: problem.reason.rawValue, unexpected: problem.unexpected, keep: target))
+            }
+            return
+        }
+        try reportRewrap(try vault.repairRecipients(keeping: target, policy: rewrap.policy), output: output)
+    }
+}
+
+struct RecipientsConfirm: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "confirm",
+        abstract: "Trust the current device list on this machine after checking it (missed key changes).",
+        discussion: """
+            For a vault whose secret changed in a way this machine cannot confirm (format.md §2.1: it missed
+            two or more key changes, one of which added a device). Check every listed key first: confirming a
+            list an attacker wrote lets them read what this machine writes. The tag must verify; nothing in
+            the vault changes. Lists whose tag does not verify can only be repaired.
+            """
+    )
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        var vault = try access.openVault(.required, migration: true)
+        try vault.confirmRecipients()
+        if output.json {
+            try output.emitJSON(RecipientsStatusOutput(vault))
+        } else {
+            output.info("Trusted \(vault.recipients.count) recipient(s) on this machine.")
+        }
+    }
+}
+
 /// `--rewrap header|reencrypt`: how attachment blobs are rewrapped
 /// (format.md §8.1.5). Without it the default policy applies: header-only
 /// when a key is added, full re-encryption when one is removed or replaced
@@ -415,7 +538,10 @@ struct VaultVerify: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "verify",
         abstract: "Check every file: decrypt, tag, decode, recipient count.",
-        discussion: "Exit 0 only if the vault is healthy, 3 otherwise. With -q only problem files are listed."
+        discussion: """
+            Exit 0 only if the vault is healthy, 6 when vault.json's device list does not check (format.md §2.1), \
+            3 otherwise. With -q only problem files are listed.
+            """
     )
 
     @OptionGroup var access: AccessOptions
@@ -425,9 +551,10 @@ struct VaultVerify: ParsableCommand {
         let vault = try access.openVault(.required)
         let report = vault.verify()
         if output.json {
-            try output.emitJSON(Out(report, readOnly: vault.readOnlyReasons))
+            try output.emitJSON(Out(report, vault))
         } else {
             for p in report.manifestProblems { print("MANIFEST   vault.json: \(p)") }
+            print("RECIPIENTS \(RecipientsStatusOutput(vault).text)")
             if let j = report.journalProblem { print("JOURNAL    rewrap-journal.json: \(j)") }
             if report.rewrapPending { print("PENDING    a recipient change is unfinished (`sempere vault rewrap-resume`)") }
             let shown = output.quiet ? report.files.filter { $0.status != .ok } : report.files
@@ -442,6 +569,7 @@ struct VaultVerify: ParsableCommand {
             print("\(report.files.count) file(s)" + (counts.isEmpty ? "" : " (" + counts.joined(separator: ", ") + ")")
                 + (report.isHealthy ? ": healthy" : ": UNHEALTHY"))
         }
+        if report.recipients.problem != nil { throw ExitCode(ExitStatus.untrustedRecipients) }
         if !report.isHealthy { throw ExitCode(ExitStatus.unhealthy) }
     }
 
@@ -455,10 +583,12 @@ struct VaultVerify: ParsableCommand {
         var files: [File]
         var readOnly: Bool
         var readOnlyReasons: [String]
+        var recipientsAuth: RecipientsStatusOutput
 
-        init(_ r: VerifyReport, readOnly reasons: ReadOnlyReasons) {
-            readOnly = !reasons.isEmpty
-            readOnlyReasons = reasons.descriptions
+        init(_ r: VerifyReport, _ vault: Vault) {
+            readOnly = vault.isReadOnly
+            readOnlyReasons = vault.readOnlyReasons.descriptions
+            recipientsAuth = RecipientsStatusOutput(vault)
             healthy = r.isHealthy
             manifestProblems = r.manifestProblems
             rewrapPending = r.rewrapPending

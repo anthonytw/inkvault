@@ -279,6 +279,40 @@ final class NewerFormatTests: VaultTestCase {
         }
     }
 
+    /// An untagged version-1 vault (format.md §2.1) whose newer revision was
+    /// read is read-only (§7.3): no write tags `vault.json` on the way to
+    /// being refused, and neither does an explicit tag upgrade.
+    func testReadOnlyVaultIsNeverTagged() throws {
+        let id = pqIdentity()
+        let created = try makeVault(id)
+        let note = UUID()
+        let device = tmp.appendingPathComponent("device.json")
+        try created.apply(NoteOps.newNote(title: "Plain"), to: note, deviceState: device, app: "t")
+        var d = NewerFixture.envelope(note, NewerFixture.devN, 1, Self.future, "delta")
+        d["ops"] = [["op": "teleport"]]
+        try NewerFixture.writeRaw(created, d, note: note, name: NewerFixture.name(NewerFixture.devN, 1, Self.future, .delta))
+        // The vault as a version before §2.1 wrote it: no tag.
+        let manifestURL = created.url.appendingPathComponent("vault.json")
+        var m = try VaultManifest.decode(Data(contentsOf: manifestURL))
+        m.recipientsTag = nil
+        m.secretLink = nil
+        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        try m.encoded().write(to: manifestURL)
+        let untagged = try Data(contentsOf: manifestURL)
+
+        var vault = try Vault.open(at: created.url, identities: [id])
+        guard case .untagged = vault.recipientsStatus else { return XCTFail("\(vault.recipientsStatus)") }
+        _ = try vault.reconstruct(noteId: note)   // reads the newer revision
+        XCTAssertTrue(vault.isReadOnly)
+        XCTAssertThrowsError(try vault.apply([.setMeta(.title("x"))], to: note, deviceState: device, app: "t")) {
+            guard case .readOnly = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        XCTAssertThrowsError(try vault.upgradeRecipientsTag()) {
+            guard case .readOnly = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        XCTAssertEqual(try Data(contentsOf: manifestURL), untagged, "vault.json is never tagged")
+    }
+
     func testUnmarkedRevisionWithUnknownOpStillFailsClosed() throws {
         let id = pqIdentity()
         let vault = try makeVault(id)

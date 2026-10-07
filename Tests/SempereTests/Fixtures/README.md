@@ -29,7 +29,12 @@ Vault id `5a3b1e00-1000-4000-8000-000000000001`, created
 `Sempere fixture attachment: synthetic, test-only.\n`, type `text/plain`
 (kind `bin`, sha256 `ae0a2902…6436`). No revision references it yet (a
 note with items is a follow-up of the attachments merge, task A1), so `verify`
-lists it as `unreferenced`, and `vault.json` has `features: ["attachments"]`.
+lists it as `unreferenced`, and `vault.json` has `features: ["attachments",
+"recipients-tag"]` and a `recipientsTag` (`format.md` §2.1; it was added to the
+committed file, so copies of the fixture share a vault id without looking
+like a downgrade). Tests that need a vault written before §2.1 take the tag
+and the feature out of a copy (`FixtureVault.copySample`). `legacy.sempere`
+has no tag: its migration writes one.
 
 Stroke ids are `f1c70000-0000-4000-8000-0000000001NN`; page ids end in `…001`,
 `…002` (lecture) and `…003` (deleted note). All clocks are fixed offsets from

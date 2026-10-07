@@ -194,9 +194,15 @@ final class CLIPostQuantumTests: CLITestCase {
         XCTAssertEqual(after.status, 4, after.err)
         XCTAssertTrue(after.err.contains("stores no passphrase-wrapped key"), after.err)
 
+        // Another machine: this one migrated the vault, so an untagged copy of
+        // it from before the migration reads as a downgrade here (format.md §2.1).
         let stored = try copyLegacyVault(as: "stored.sempere")
+        let rolledBack = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", stored], env: pass)
+        XCTAssertEqual(rolledBack.status, 6, rolledBack.err)
+        var elsewhere = pass
+        elsewhere["XDG_STATE_HOME"] = path("other-machine")
         let r = try cli(["vault", "recipients", "replace", old, path("pq.key"), "--vault", stored,
-                         "--store-key", path("pq.key"), "--work-factor", "15"], env: pass)
+                         "--store-key", path("pq.key"), "--work-factor", "15"], env: elsewhere)
         XCTAssertEqual(r.status, 0, r.err)
         XCTAssertEqual(try stanzaTypes(stored), [["mlkem768x25519"]])
         let list = try cli(["notes", "list", "--vault", stored], env: pass)

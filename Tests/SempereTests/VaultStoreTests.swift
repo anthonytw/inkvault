@@ -15,7 +15,10 @@ final class VaultStoreTests: VaultTestCase {
 
         let raw = try Data(contentsOf: vault.url.appendingPathComponent("vault.json"))
         let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: raw) as? [String: Any])
-        XCTAssertEqual(Set(obj.keys), ["format", "vaultId", "created", "recipients", "vaultSecret"])
+        XCTAssertEqual(Set(obj.keys), ["format", "vaultId", "created", "recipients", "vaultSecret", "features",
+                                       "recipientsTag"])
+        XCTAssertEqual(obj["features"] as? [String], ["recipients-tag"])
+        XCTAssertEqual((obj["recipientsTag"] as? String)?.count, 64)
         XCTAssertEqual(obj["format"] as? String, "sempere/1")
         XCTAssertEqual(obj["vaultId"] as? String, "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c")
         XCTAssertEqual(obj["created"] as? String, "2026-10-04T16:20:00.000Z")
