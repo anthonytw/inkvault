@@ -106,9 +106,12 @@ struct VideoCameraPicker: UIViewControllerRepresentable {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.mediaTypes = [UTType.movie.identifier]
+        #if !targetEnvironment(macCatalyst)
+        // A Mac has no camera here (`InsertOptions.camera`); these are iOS-only settings.
         picker.cameraCaptureMode = .video
         picker.videoQuality = .typeHigh
         picker.videoExportPreset = AVAssetExportPresetPassthrough
+        #endif
         picker.delegate = context.coordinator
         return picker
     }
