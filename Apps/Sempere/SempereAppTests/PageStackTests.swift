@@ -26,6 +26,24 @@ enum StackTS {
                                     drawingSuspended: drawingSuspended, selectingItems: selectingItems)
     }
 
+    /// A new paged note of `pages` pages written to the vault before it is
+    /// opened, so no page counts as edited in this session (`dirtyPages`:
+    /// search highlights leave those out; pages `editor(pages:)` adds are).
+    static func savedEditor(pages count: Int) async throws -> NoteEditor {
+        let (vault, _) = try TS.unlockedFixture()
+        let id = UUID()
+        var ops = NoteOps.newNote(title: "Stack")
+        var order = ops.compactMap { op -> String? in if case .addPage(let p) = op { return p.order }; return nil }.last
+        for _ in 1..<max(count, 1) {
+            let next = PageOrder.between(order, nil)
+            ops.append(.addPage(Page(id: UUID(), order: next)))
+            order = next
+        }
+        try vault.apply(ops, to: id, deviceState: TS.deviceStateURL(), app: "test")
+        let (editor, _) = try await NoteEditorTests.open(vault, note: id, debounce: .seconds(600))
+        return editor
+    }
+
     /// A stack showing `editor` in a window of `size`.
     static func stack(_ editor: NoteEditor, size: CGSize = CGSize(width: 1024, height: 1366),
                       drawingSuspended: Bool = false) -> (UIWindow, PageStackHost) {
@@ -342,7 +360,8 @@ struct PageStackTests {
     /// gets the highlight on its own canvas and the stack scrolls the word into
     /// view (the embedded canvases never scroll); a recycled canvas drops it.
     @Test func aSearchMatchIsHighlightedAndScrolledIntoView() async throws {
-        let editor = try await StackTS.editor(pages: 40)
+        let editor = try await StackTS.savedEditor(pages: 40)
+        #expect(!editor.isPageless && editor.pages.count == 40)
         let (window, stack) = StackTS.stack(editor)
         defer { window.isHidden = true }
         var pages = editor.pages
