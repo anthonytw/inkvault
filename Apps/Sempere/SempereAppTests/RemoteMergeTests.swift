@@ -133,7 +133,14 @@ struct RemoteMergeTests {
         #expect(live.contains(remote.id))
         #expect(!live.contains(first.id), "removed elsewhere")
         #expect(!f.editor.hasPendingChanges, "the local stroke was saved before the read")
-        #expect(try f.mine() == [[.addStroke(page: page.id, stroke: mine)]])
+        // One delta adding this canvas's stroke (compared by id: points are stored rounded, InkJSON.round3).
+        let saved = try f.mine().map { ops in
+            ops.map { op -> String in
+                if case .addStroke(let p, let s) = op, p == page.id { return "add \(s.id)" }
+                return "\(op)"
+            }
+        }
+        #expect(saved == [["add \(mine.id)"]])
         let disk = try #require(try f.onDisk().pages.first { $0.id == page.id })
         #expect(Set(disk.strokes.map(\.id)) == Set(live))
         #expect(try f.canvasReports(page.id).isEmpty)
