@@ -113,7 +113,8 @@ struct PolishRound1Tests {
 
         // Next launch (same device folder): still listed, and restorable as a window's selection.
         let next = AppModel(deviceStateURL: model.deviceStateURL)
-        next.activityNow = { start.addingTimeInterval(6 * 86_400) }
+        let sixDays: TimeInterval = 6 * 86_400, overSeven: TimeInterval = 7 * 86_400 + 60
+        next.activityNow = { start.addingTimeInterval(sixDays) }
         try await next.openVault(at: url, identities: identities)
         #expect(next.recognitionResults == nil, "the run itself belongs to the session")
         #expect(next.recentlyRecognizedNotes.map(\.id) == [Self.lecture])
@@ -123,7 +124,7 @@ struct PolishRound1Tests {
         #expect(RestorableSelection(sidebar: .recentlyRecognized, note: nil, vault: nil).sidebarItem == .recentlyRecognized)
 
         // After 7 days it is gone, and so is the selection of it.
-        next.activityNow = { start.addingTimeInterval(7 * 86_400 + 60) }
+        next.activityNow = { start.addingTimeInterval(overSeven) }
         #expect(next.recentlyRecognizedNotes.isEmpty)
         next.leaveEmptyRecognizedSection()
         #expect(next.sidebarSelection == .allNotes)
@@ -144,12 +145,14 @@ struct PolishRound1Tests {
                   RecognizedNote(id: a, title: "", pages: 3, pagesRecognized: 1)], at: t0.addingTimeInterval(86_400))
         #expect(h.entries.count == 2, "one entry per note")
         #expect(h.entry(for: a, now: t0.addingTimeInterval(86_400))?.pagesRecognized == 1, "the newest run wins")
-        #expect(h.recent(now: t0.addingTimeInterval(8 * 86_400 - 1)).map(\.id).sorted { $0.uuidString < $1.uuidString }
-                == [a, b].sorted { $0.uuidString < $1.uuidString })
-        #expect(h.recent(now: t0.addingTimeInterval(8 * 86_400 + 1)).isEmpty)
+        let day: TimeInterval = 86_400
+        let lastMoment = t0.addingTimeInterval(8 * day - 1), afterIt = t0.addingTimeInterval(8 * day + 1)
+        let stillListed: Set<UUID> = Set(h.recent(now: lastMoment).map(\.id))
+        #expect(stillListed == [a, b])
+        #expect(h.recent(now: afterIt).isEmpty)
         // An entry far in the future (a wrong clock) is dropped.
         var future = RecognitionHistory()
-        future.record([RecognizedNote(id: a, title: "", pages: 1, pagesRecognized: 1)], at: t0.addingTimeInterval(3 * 86_400))
+        future.record([RecognizedNote(id: a, title: "", pages: 1, pagesRecognized: 1)], at: t0.addingTimeInterval(3 * day))
         #expect(future.recent(now: t0).isEmpty)
     }
 
