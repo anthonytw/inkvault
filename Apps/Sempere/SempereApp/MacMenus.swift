@@ -43,7 +43,7 @@ enum MacMenus {
                 return ["\(depth)|menu \(menu.identifier.rawValue)|\(menu.title)"] + menu.children.flatMap { walk($0, depth + 1) }
             }
             if let key = element as? UIKeyCommand {
-                return ["\(depth)|key|\(key.title)|\(NSStringFromSelector(key.action))|\(key.input ?? "")"]
+                return ["\(depth)|key|\(key.title)|\(key.action.map(NSStringFromSelector) ?? "")|\(key.input ?? "")"]
             }
             if let command = element as? UICommand {
                 return ["\(depth)|command|\(command.title)|\(NSStringFromSelector(command.action))"]
