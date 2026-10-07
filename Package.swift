@@ -43,7 +43,10 @@ let package = Package(
         ),
         .target(
             name: "SempereRender",
-            dependencies: ["Sempere", "SemperePDF", "CZlib"]
+            dependencies: ["Sempere", "SemperePDF", "CZlib"],
+            // The rasterizer is 10-30x slower unoptimized: debug-build tests and
+            // fuzz cases hit their timeouts (see Age above, docs/HANDOFF.md "CI").
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]
         ),
         .target(
             name: "SempereImport",
