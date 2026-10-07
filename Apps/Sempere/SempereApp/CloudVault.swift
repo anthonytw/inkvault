@@ -14,6 +14,8 @@ enum CloudVault {
         /// A note was about to be read while `missing` of its `total` revision
         /// files were not local (0 of 0: its folder is not listed yet).
         case noteNotLocal(missing: Int, total: Int)
+        /// An attachment was about to be read while its file was not local.
+        case blobNotLocal(name: String)
 
         var description: String {
             switch self {
@@ -28,6 +30,8 @@ enum CloudVault {
             case let .noteNotLocal(missing, total):
                 return "\(missing) of this note's \(total) files are not downloaded from iCloud Drive yet, "
                     + "so it was not opened (it would look empty or incomplete). Try again in a moment."
+            case .blobNotLocal:
+                return "This attachment is not downloaded from iCloud Drive yet. Try again in a moment."
             }
         }
     }

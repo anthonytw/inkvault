@@ -729,6 +729,33 @@ paper and recognised text right after it under new ids.
 A deleted note is refused (exit 1), as is a page number out of range.
 `--json` as for the editing commands.
 
+### Items
+
+```
+sempere items list ID|TITLE [--page N]
+sempere items move ID|TITLE ITEM --frame x,y,w,h
+sempere items rotate ID|TITLE ITEM --degrees D
+sempere items front ID|TITLE ITEM
+sempere items delete ID|TITLE ITEM...
+sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
+sempere items copy ID|TITLE ITEM... --to ID|TITLE [--page N]
+```
+
+The app's gestures on placed items (text boxes, images, PDF pages;
+`docs/format.md` §8.2), one delta each, built by the same `NoteOps` item
+builders as the app's canvas and computed from the note as it is on disk when
+the delta is written. An item is named by its id or an id prefix of at least
+4 characters (an ambiguous prefix is refused); the items of one command must
+be on one page. `list` prints page, id prefix, kind, frame and attachment
+(`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`).
+`move` sets the frame (move and resize), `rotate` the rotation, `front`
+draws the item above the others of its layer, `delete` removes items (their
+attachments stay until `blobs gc`), `duplicate` copies them on their page
+shifted by 20 points (or `--dx`, `--dy`), and `copy` copies them to a page of
+another note, its attachments first (verified as they are read), as the app's
+Paste. Nothing is written when the item already is that way; a deleted note
+is refused (exit 1). `--json` as for the editing commands.
+
 ### Import
 
 ```

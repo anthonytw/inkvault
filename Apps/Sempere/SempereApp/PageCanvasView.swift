@@ -20,6 +20,14 @@ struct PageCanvasView: UIViewRepresentable {
     /// `NoteEditor.canvasGeneration`: a change reloads the drawing even when
     /// the page id stays the same.
     var generation = 0
+    /// Where the item layer reads attachments (`AppModel.attachmentCache`).
+    var itemSource = ItemLayerSource()
+    /// Copy and paste of items (`AppModel.itemClipboard`).
+    var itemCommands = ItemCommands()
+    /// Selection mode: items are selected, moved and resized; nothing draws.
+    var selectingItems = false
+    /// Called when selection mode ends from the canvas (a tool was picked).
+    var onSelectingItemsEnded: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -59,6 +67,12 @@ struct PageCanvasView: UIViewRepresentable {
         host.paletteVisible = paletteVisible
         host.drawingSuspended = drawingSuspended
         host.apply(paper: paper, pageSize: pageSize)
+        host.itemLayer.show(editor.items(on: pageID), note: editor.noteID, paper: paper, source: itemSource)
+        host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
+        host.itemSelection.commands = itemCommands
+        host.onItemSelectionEnded = onSelectingItemsEnded
+        host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
+        host.itemSelection.refresh()
     }
 
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
@@ -146,6 +160,22 @@ struct PageCanvasView: UIViewRepresentable {
 final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDelegate {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
+    /// The page's placed items, between the paper and the ink.
+    let itemLayer = ItemLayerView()
+    /// Selecting, moving and resizing items (selection mode).
+    let itemSelection = ItemSelectionController()
+    /// Called when picking a tool ends selection mode.
+    var onItemSelectionEnded: (() -> Void)?
+
+    /// Selection mode: PencilKit's drawing and the object eraser are off,
+    /// touches select and move items (`ItemSelectionController`).
+    var itemSelectionActive = false {
+        didSet {
+            guard itemSelectionActive != oldValue else { return }
+            itemSelection.setActive(itemSelectionActive)
+            updateEraser()
+        }
+    }
     /// Starts with the last-used eraser mode, the object eraser by default.
     private(set) var toolPicker = ToolPalette.makePicker(compact: ToolPalette.isCompact())
     private var pageSize = PageSize.letter
@@ -226,6 +256,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.alwaysBounceVertical = true
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
+        canvas.insertSubview(itemLayer, aboveSubview: paperView)
         footerButton.isHidden = true
         footerButton.addAction(UIAction { [weak self] _ in self?.footerAction?() }, for: .primaryActionTriggered)
         canvas.addSubview(footerButton)
@@ -239,6 +270,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
+        itemSelection.attach(to: canvas, itemLayer: itemLayer)
         if Platform.isMac {
             let pointer = UIPointerInteraction(delegate: self)
             addInteraction(pointer)
@@ -264,6 +296,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         if let eraser = toolPicker.selectedToolItem as? PKToolPickerEraserItem {
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
+        if itemSelectionActive { onItemSelectionEnded?() }   // picking a tool is picking drawing
         updateEraser()
         cursorInteraction?.invalidate()
     }
@@ -281,7 +314,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let editable = !isReadOnly && !isPreparing && !drawingSuspended
+        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
@@ -422,6 +455,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         paperView.configure(paper: paper, size: size, sheetHeight: PaperRenderer.sheetHeight(for: pageSize))
         paperView.setZoom(z)
         canvas.contentSize = CGSize(width: size.width * z, height: CGFloat(height) * z)
+        itemLayer.frame = CGRect(origin: .zero, size: canvas.contentSize)
+        itemLayer.setZoom(z)
+        itemSelection.refresh()
         if footer != .none {
             footerButton.sizeToFit()
             let b = footerButton.bounds.size
