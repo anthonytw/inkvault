@@ -23,7 +23,9 @@ import Sempere
 // - one that was synced before but is not explained (the local copy may
 //   merely be evicted from iCloud) is kept and listed in `skipped`;
 // - one that was never synced (injected by the server, or from another
-//   writer) is `extraneous`: reported, and removed only with `deleteExtraneous`.
+//   writer) is `extraneous`: reported, and removed only with `deleteExtraneous`
+//   and only when an earlier sync's state exists (on a first run every server
+//   file looks never synced, including the notes a local listing missed).
 
 extension WebDAVSync {
     /// A path component that is safe to send in a DELETE (a name chosen by the server).
@@ -40,8 +42,7 @@ extension WebDAVSync {
         guard let local else {
             guard remote != nil else { return }
             // Nothing is ever pulled; a stale journal also blocks blob collection, so it may go.
-            reportExtraneous(name, remove: [name])
-            if options.deleteExtraneous && name == Self.journalName { remoteJournal = false }
+            if reportExtraneous(name, remove: [name]) && name == Self.journalName { remoteJournal = false }
             return
         }
         let localHash = sha256Hex(local)
@@ -151,6 +152,12 @@ extension WebDAVSync {
     func reportExtraneous(_ path: String, remove components: [String]) -> Bool {
         report.extraneous.append(SyncReport.printable(path))
         guard options.deleteExtraneous, components.allSatisfy(Self.safeComponent) else { return false }
+        guard hadState else {
+            // First sync: a note iCloud has not listed locally yet looks like this too.
+            report.skipped.append(.init(path: SyncReport.printable(path),
+                                        message: "first sync to this server: extraneous files are only listed; run again to remove them"))
+            return false
+        }
         report.deleted.append(.init(side: "remote", path: SyncReport.printable(path)))
         if !options.dryRun {
             do { try client.delete(components) } catch {

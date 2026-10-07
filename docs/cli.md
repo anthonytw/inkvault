@@ -1486,9 +1486,11 @@ junk names, a stray `rewrap-journal.json`) they are `extraneous`: listed, and
 with `--delete-extraneous` removed from the server. One that was synced before
 but is missing locally without a compaction or collection to explain it (or
 with the vault locked) is kept and listed as skipped, never deleted, since the
-local copy may merely be evicted from iCloud; run without
-`--delete-extraneous` first, or with `--dry-run`, when the local vault may not
-be fully downloaded. `--delete-extraneous` needs `--push-only`.
+local copy may merely be evicted from iCloud. On the first sync to a server
+(no sync state for it yet) every server file looks never synced, so
+`--delete-extraneous` only lists them (as skipped) and removes them on a later
+run; use `--dry-run` first when the local vault may not be fully downloaded.
+`--delete-extraneous` needs `--push-only`, and `--push-only` an existing vault.
 
 Output: one line per action, then
 `N uploaded, N downloaded, N deleted, N conflicts, N errors` (`-q` hides the

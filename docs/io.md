@@ -717,8 +717,10 @@ server can be corrupted but can never feed anything back:
   iCloud ones;
 - one never synced and not explained (injected revision or blob, a stray
   journal, junk names) is `extraneous`: reported, and removed only with
-  `--delete-extraneous`. That flag can still delete a legitimate server file if
-  the local folder is incomplete and the state file is new (first run).
+  `--delete-extraneous`, and only when sync state from an earlier run exists:
+  on a first run every server file looks never synced, including those of a
+  note the local listing missed, so they are only listed (as skipped). The
+  flag can still delete a legitimate file another writer added since.
 
 **Limits.** A recipient change rewrites files under `notes/` in place
 (format.md §3.3), which sync never propagates: after one, pull into a fresh

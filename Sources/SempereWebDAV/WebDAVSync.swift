@@ -82,6 +82,9 @@ public final class WebDAVSync {
     var remoteJournal = false
     /// Push-only: remote entries that are not vault files (the `ignored` ones), as paths.
     var remoteJunk: [[String]] = []
+    /// False on a first sync (no readable state): then nothing on the server
+    /// is known to have been synced, so push-only never deletes extraneous files.
+    var hadState = false
 
     /// - Parameters:
     ///   - directory: the local vault; it may be missing or empty for a first pull.
@@ -111,9 +114,13 @@ public final class WebDAVSync {
     ///   root cannot be listed. Anything per file lands in the report.
     public func run() throws -> SyncReport {
         do {
-            if let s = try SyncState.load(stateURL) { state = s }
+            if let s = try SyncState.load(stateURL) { state = s; hadState = true }
         } catch {
             report.skipped.append(.init(path: stateURL.path, message: "sync state unreadable (\(error.localizedDescription)); treated as a first sync"))
+        }
+        if options.pushOnly && !FileManager.default.fileExists(atPath: root.appendingPathComponent(Self.manifestName).path) {
+            // A mirror of nothing would list (and could delete) the whole server.
+            throw WebDAVError.io("push-only sync needs a local vault (no \(Self.manifestName) in \(root.path))")
         }
         let rootEntries = try client.list([]) ?? []
         let remoteRoot = Dictionary(rootEntries.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })

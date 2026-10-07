@@ -219,6 +219,64 @@ final class PushOnlyTests: BlobSyncTestCase {
         }
     }
 
+    /// On a first sync (no state) every server file looks never synced,
+    /// including those of a note the local listing missed (an iCloud folder
+    /// not listed yet): --delete-extraneous lists them and deletes nothing.
+    func testFirstSyncNeverDeletesExtraneousFiles() throws {
+        let server = MockDAV()
+        let a = try makeVault("A")
+        let d = try delta(a, device: devA, t: 0, title: "one")
+        try push(server)
+        try FileManager.default.removeItem(at: tmp.appendingPathComponent("state-A.json"))
+        try FileManager.default.removeItem(at: dir("A").appendingPathComponent(noteRel(d.name.filename)))
+        let log = server.requestLog.count
+        let r = try push(server, deleteExtraneous: true)
+        XCTAssertEqual(r.extraneous, [noteRel(d.name.filename)], "\(r)")
+        XCTAssertTrue(r.deleted.isEmpty && r.errors.isEmpty, "\(r)")
+        XCTAssertTrue(r.skipped.contains { $0.path == noteRel(d.name.filename) && $0.message.contains("first sync") }, "\(r)")
+        XCTAssertNotNil(server.file(noteRel(d.name.filename)))
+        XCTAssertFalse(server.requestLog.dropFirst(log).contains { $0.method == "DELETE" })
+    }
+
+    /// The library refuses a push-only run without a local vault.json (the
+    /// CLI checks too): everything on the server would be extraneous.
+    func testPushOnlyNeedsALocalVault() throws {
+        let server = MockDAV()
+        _ = try makeVault("A")
+        try push(server)
+        try FileManager.default.createDirectory(at: dir("C"), withIntermediateDirectories: true)
+        let log = server.requestLog.count
+        XCTAssertThrowsError(try push("C", server, vault: .some(nil), deleteExtraneous: true))
+        XCTAssertEqual(server.requestLog.count, log, "nothing is sent")
+        XCTAssertNotNil(server.file("vault.json"))
+    }
+
+    /// A stray server journal blocks blob collection there (§8.1.6 rule 2)
+    /// until it is actually gone: a failed DELETE of it keeps the blobs.
+    func testStrayJournalStillBlocksBlobDeletionWhenItsRemovalFails() throws {
+        let server = MockDAV()
+        let a = try makeVault("A")
+        _ = try delta(a, device: devA, t: 0, title: "1")
+        let unused = try a.writeBlob(note: noteID, syntheticBlob(100), type: "image/png")
+        let blob = try blobFile(a, unused)
+        try push(server)
+        var state = BlobCollectorState()
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        _ = try a.collectBlobs(note: noteID, state: &state, now: t0)
+        XCTAssertEqual(try a.collectBlobs(note: noteID, state: &state, now: t0.addingTimeInterval(31 * 86400)).deleted, [blob])
+        server.putDirect("rewrap-journal.json", Data("{}".utf8))
+        server.interceptor = { r in
+            r.method == "DELETE" && r.url.lastPathComponent == "rewrap-journal.json" ? WebDAVResponse(status: 503) : nil
+        }
+        let r = try push(server, deleteExtraneous: true)
+        XCTAssertTrue(r.errors.contains { $0.path == "rewrap-journal.json" }, "\(r)")
+        XCTAssertNotNil(server.file("notes/\(id)/att/\(blob)"), "\(r)")
+        server.interceptor = nil
+        let ok = try push(server, deleteExtraneous: true)
+        XCTAssertNil(server.file("rewrap-journal.json"))
+        XCTAssertNil(server.file("notes/\(id)/att/\(blob)"), "\(ok)")
+    }
+
     func testDryRunChangesNothingAnywhere() throws {
         let server = MockDAV()
         let a = try makeVault("A")
