@@ -224,7 +224,9 @@ struct VersionHistoryAppTests {
         model.selectedNoteID = Self.lecture
         try await model.openEditor(for: Self.lecture)
         let editor = try #require(model.editor)
-        for y in [260.0, 300] { try await HistoryTests.draw(editor, y: y) }   // the first is then not a session end
+        // Three autosaves of one session: the first is the witness the fixture's other device needs
+        // (format.md §5.8.4 rule 3) and the last is the session's end, so the second is thinned.
+        for y in [220.0, 260, 300] { try await HistoryTests.draw(editor, y: y) }
         let preview = try await model.thinVault(rule: .allButCheckpoints, dryRun: true)
         #expect(preview.notes.first { $0.id == Self.lecture } != nil)
         let at = try #require(preview.now)
