@@ -28,6 +28,26 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>io.github.anthonytw.sempere.notes</string>
+			<key>UTTypeDescription</key>
+			<string>Sempere Notes (drag inside the app)</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>io.github.anthonytw.sempere.notebook</string>
+			<key>UTTypeDescription</key>
+			<string>Sempere Notebook (drag inside the app)</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>

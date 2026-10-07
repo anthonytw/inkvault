@@ -45,6 +45,15 @@ final class NoteEditor {
     var isReadOnly: Bool { readOnlyReason != nil || isPreparing }
     var currentPage: Page? { pages.indices.contains(pageIndex) ? pages[pageIndex] : nil }
 
+    /// The words of the search this note was opened from, highlighted on its
+    /// pages (`NoteEditor+SearchHighlight.swift`); nil when none is shown.
+    var searchCursor: SearchMatchCursor?
+    /// Bumped to ask the canvas to scroll to the current match.
+    var revealToken = 0
+    /// The query and starting page to look for once the note is readable
+    /// (`highlightSearch(query:page:)` while it is still opening).
+    @ObservationIgnored var pendingSearch: (query: String, page: UUID?)?
+
     /// The canvas showing this note, for menu commands (`CanvasCommandTarget`).
     @ObservationIgnored weak var canvasTarget: (any CanvasCommandTarget)?
     @ObservationIgnored private var ledgers: [UUID: StrokeLedger] = [:]
@@ -317,6 +326,7 @@ final class NoteEditor {
             canvasGeneration &+= 1
         }
         isPreparing = false
+        applyPendingSearch()
         scheduleRecognition()   // pages that were never read, or changed elsewhere
     }
 

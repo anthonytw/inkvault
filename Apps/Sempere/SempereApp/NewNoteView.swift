@@ -42,7 +42,8 @@ struct NewNoteView: View {
                 Picker("Layout", selection: $layout) {
                     ForEach(NewNoteLayout.allCases) { Text($0.title).tag($0) }
                 }
-                TextField("Notebook (optional; School/Math for levels)", text: $notebook)
+                NotebookField(title: "Notebook (optional; School/Math for levels)", text: $notebook,
+                              notebooks: model.notebooks)
                 if let failure { Text(failure).foregroundStyle(.red) }
             }
             .navigationTitle("New Note")

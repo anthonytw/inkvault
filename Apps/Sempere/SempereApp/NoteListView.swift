@@ -10,10 +10,17 @@ struct NoteListView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var prompt: Prompt?
     @State private var promptText = ""
+    /// The note being moved to a notebook (`MoveNoteView`).
+    @State private var movingNote: MovingNote?
+
+    private struct MovingNote: Identifiable {
+        let note: NoteSummary
+        var id: UUID { note.id }
+    }
 
     /// A text prompt for one note.
     private struct Prompt: Identifiable {
-        enum Kind { case tag, notebook, rename }
+        enum Kind { case tag, rename }
         let kind: Kind
         let note: UUID
         var id: String { "\(kind)-\(note)" }
@@ -88,6 +95,13 @@ struct NoteListView: View {
             VStack(spacing: 0) {
                 if let progress = model.recognitionProgress {
                     RecognitionBar(progress: progress) { model.cancelRecognizingNotes() }
+                } else if let results = model.recognitionResults, results.finished, !results.dismissed,
+                          model.sidebarSelection != .recentlyRecognized {
+                    RecognitionResultBar(results: results) {
+                        model.sidebarSelection = .recentlyRecognized
+                    } dismiss: {
+                        model.recognitionResults?.dismissed = true
+                    }
                 }
                 VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
             }
@@ -95,6 +109,7 @@ struct NoteListView: View {
         .refreshable {
             await model.report { try await model.reload() }
         }
+        .sheet(item: $movingNote) { MoveNoteView(note: $0.note) }
         .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })) {
             TextField(promptField, text: $promptText)
             Button("OK") {
@@ -102,7 +117,6 @@ struct NoteListView: View {
                     let text = promptText
                     switch p.kind {
                     case .tag: run { try await model.addTag(text, to: p.note) }
-                    case .notebook: run { try await model.moveNote(p.note, toNotebook: text) }
                     case .rename: run { try await model.renameNote(p.note, to: text) }
                     }
                 }
@@ -120,8 +134,9 @@ struct NoteListView: View {
     private var notesList: some View {
         List(model.visibleNotes, id: \.id, selection: listSelection) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
-                    downloading: model.pendingNoteIDs.contains(note.id))
-                .modifier(NoteDragOut(note: note, enabled: Platform.isMac && model.phase == .unlocked
+                    downloading: model.pendingNoteIDs.contains(note.id),
+                    recognized: model.sidebarSelection == .recentlyRecognized ? model.recognitionResults?.entry(for: note.id) : nil)
+                .modifier(NoteDragOut(note: note, enabled: model.phase == .unlocked
                                       && !model.placeholderNoteIDs.contains(note.id)))
                 // A placeholder's summary is empty: nothing to act on until it arrives
                 // (the model downloads a note before any edit anyway).
@@ -140,6 +155,11 @@ struct NoteListView: View {
         .overlay {
             if let reason = model.emptyListReason {
                 EmptyListView(reason: reason) { run { try await model.reload() } }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if model.sidebarSelection == .recentlyRecognized, let results = model.recognitionResults {
+                RecognitionResultsHeader(results: results, running: model.recognitionProgress != nil)
             }
         }
     }
@@ -177,22 +197,21 @@ struct NoteListView: View {
         case .notebook(let n): return NotebookPath.components(n).last ?? n
         case .tag(let t): return "#\(t)"
         case .deleted: return "Recently Deleted"
+        case .recentlyRecognized: return "Recently Recognized"
         }
     }
 
     private var promptTitle: String {
         switch prompt?.kind {
         case .tag: return "Add Tag"
-        case .rename: return "Rename Note"
-        default: return "Move to Notebook"
+        default: return "Rename Note"
         }
     }
 
     private var promptField: String {
         switch prompt?.kind {
         case .tag: return "Tag"
-        case .rename: return "Title"
-        default: return "Notebook (School/Math for levels)"
+        default: return "Title"
         }
     }
 
@@ -222,24 +241,19 @@ struct NoteListView: View {
                     }
                 }
             }
-            Menu("Move to Notebook", systemImage: "book.closed") {
-                ForEach(model.notebooks.filter { $0 != NotebookPath.canonical(note.notebook) }, id: \.self) { name in
-                    Button(NotebookPath.components(name).joined(separator: " › ")) { run { try await model.moveNote(note.id, toNotebook: name) } }
-                }
-                Button("New Notebook…") { promptText = ""; prompt = Prompt(kind: .notebook, note: note.id) }
-                if note.notebook != nil {
-                    Button("No Notebook", role: .destructive) { run { try await model.moveNote(note.id, toNotebook: nil) } }
-                }
-            }
+            Button("Move to Notebook…", systemImage: "book.closed") { movingNote = MovingNote(note: note) }
             ExportMenu(ids: exportIDs(for: note))
             Button("Delete", systemImage: "trash", role: .destructive) { run { try await model.deleteNote(note.id) } }
         }
     }
 }
 
-/// Drag a note out of the list to the Finder (or any app) as a PDF (Mac). The
-/// PDF is rendered when the drop asks for it (`AppModel.exportPDF`), not when
-/// the drag starts.
+/// Drag a note from the list. Dropped on a notebook in the sidebar (or on All
+/// Notes) it moves there, and so do the other ticked notes when it is one of
+/// several selected: its ids go as a payload that stays in this app
+/// (`DragPayload`). On the Mac it is also dragged out to the Finder (or any
+/// app) as a PDF, rendered when the drop asks for it (`AppModel.exportPDF`),
+/// not when the drag starts.
 private struct NoteDragOut: ViewModifier {
     @Environment(AppModel.self) private var model
     let note: NoteSummary
@@ -254,23 +268,28 @@ private struct NoteDragOut: ViewModifier {
     }
 
     private func provider() -> NSItemProvider {
-        let provider = NSItemProvider()
+        // The ticked notes go together when this one is among them.
+        let ids = model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
+        let payload = DragPayload.notes(ids)
+        model.draggedPayload = note.deleted ? nil : payload   // notes in Recently Deleted are not moved by a drop
         let id = note.id
-        let model = model
-        provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
-                                            visibility: .all) { completion in
-            let progress = Progress(totalUnitCount: 1)
-            Task { @MainActor in
-                do {
-                    completion(try await model.exportPDF(noteID: id), false, nil)
-                } catch {
-                    completion(nil, false, error)
+        let exporter = model
+        return payload.provider { provider in
+            guard Platform.isMac else { return }
+            provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
+                                                visibility: .all) { completion in
+                let progress = Progress(totalUnitCount: 1)
+                Task { @MainActor in
+                    do {
+                        completion(try await exporter.exportPDF(noteID: id), false, nil)
+                    } catch {
+                        completion(nil, false, error)
+                    }
+                    progress.completedUnitCount = 1
                 }
-                progress.completedUnitCount = 1
+                return progress
             }
-            return progress
         }
-        return provider
     }
 }
 
@@ -280,6 +299,8 @@ private struct NoteRow: View {
     var placeholder = false
     /// Files are (still) downloading; the summary may be out of date.
     var downloading = false
+    /// In "Recently Recognized": what the run read in this note.
+    var recognized: RecognizedNote?
 
     var body: some View {
         if placeholder {
@@ -310,6 +331,9 @@ private struct NoteRow: View {
                     Text(modified, format: .dateTime.year().month().day())
                 }
                 Text("\(note.pages) page\(note.pages == 1 ? "" : "s")")
+                if let recognized {
+                    Label(RecognitionResultsText.pagesRead(recognized.pagesRecognized, of: note.pages), systemImage: "text.viewfinder")
+                }
                 if let notebook = NotebookPath.canonical(note.notebook) {
                     Label(NotebookPath.components(notebook).joined(separator: " › "), systemImage: "book.closed").labelStyle(.titleAndIcon)
                 }
@@ -525,6 +549,70 @@ struct RecognitionBar: View {
             if progress.failed > 0 {
                 Text("\(progress.failed) could not be read").font(.caption).foregroundStyle(.orange)
             }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+    }
+}
+
+/// Wording of the recognition results (tested).
+enum RecognitionResultsText {
+    /// "Read 2 of 5 pages", "Read 1 page".
+    static func pagesRead(_ read: Int, of pages: Int) -> String {
+        read >= pages ? "Read \(read) page\(read == 1 ? "" : "s")" : "Read \(read) of \(pages) pages"
+    }
+
+    /// The line under the headline: what is still going on, or what went wrong.
+    static func detail(_ results: RecognitionResults, running: Bool) -> String? {
+        var parts: [String] = []
+        if running { parts.append("Still reading…") }
+        if results.failed > 0 { parts.append("\(results.failed) could not be read") }
+        if results.stopped { parts.append("Stopped early") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// Above the list in "Recently Recognized": "Recognized 12 notes".
+private struct RecognitionResultsHeader: View {
+    let results: RecognitionResults
+    let running: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(results.headline).font(.footnote.weight(.semibold)).monospacedDigit()
+            if let detail = RecognitionResultsText.detail(results, running: running) {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// After a run: "Recognized 12 notes" with a button to the list.
+struct RecognitionResultBar: View {
+    let results: RecognitionResults
+    let show: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(results.headline).font(.footnote.weight(.semibold)).monospacedDigit()
+                if let detail = RecognitionResultsText.detail(results, running: false) {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if !results.notes.isEmpty { Button("Show", action: show).font(.footnote) }
+            Button("Dismiss", systemImage: "xmark", action: dismiss)
+                .labelStyle(.iconOnly)
+                .font(.footnote)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
