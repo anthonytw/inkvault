@@ -23,6 +23,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                QuickCaptureSettingsSection()
                 RecordingSettingsSection(format: $recording)
                 Section {
                     Toggle("Transcribe Recordings on This Device", isOn: $transcribe)

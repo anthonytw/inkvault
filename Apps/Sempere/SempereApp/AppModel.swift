@@ -142,6 +142,13 @@ final class AppModel {
     @ObservationIgnored var playbackBackend: (@MainActor () -> AudioPlaybackBackend)?
     /// Where recordings in progress keep their files (tests pass their own).
     @ObservationIgnored var recordingRoot = RecordingSession.root
+    /// Quick voice notes (`QuickCapture`, `AppModel+Inbox`); tests pass their own.
+    @ObservationIgnored var quickCapture = QuickCapture.shared
+    /// Voice notes adopted from the inbox in this session (for the UI).
+    var capturesAdopted = 0
+    /// Why the last inbox adoption failed, if it did.
+    var inboxProblem: String?
+    @ObservationIgnored var inboxAdoption: Task<Void, Never>?
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
     /// What the last "Recognize All Notes" run changed, kept (also after it
@@ -495,6 +502,8 @@ final class AppModel {
         phase = .unlocked
         startLoadingNotes(reportErrors: !awaitNotes)
         if awaitNotes { try await notesLoaded() }
+        refreshQuickCaptureProfile()
+        startInboxAdoption()
     }
 
     /// Enters the migration screen for the vault just unlocked with

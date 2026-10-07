@@ -174,6 +174,24 @@ enum CloudScan {
         return Item(url: url, placeholder: placeholder)
     }
 
+    /// One file of the vault's capture inbox (format.md §11), by its real name.
+    struct InboxItem: Hashable, Sendable {
+        var item: Item
+        var id: UUID
+        var kind: CaptureFile.Kind
+    }
+
+    /// The capture inbox's files (`inbox/<id>.<kind>.age`), listed fresh,
+    /// placeholders mapped to their real names; empty without `inbox/`.
+    /// Other names (temporary files, unknown files) are skipped.
+    static func inboxItems(inVault root: URL, fileManager: FileManager = .default) throws -> [InboxItem] {
+        let dir = root.appendingPathComponent(CaptureFile.folderName, isDirectory: true)
+        return try list(dir, fileManager, allowMissing: true).filter(\.isRevisionLike).compactMap { entry in
+            guard let parsed = CaptureFile.parse(name: entry.name) else { return nil }
+            return InboxItem(item: entry.item(in: dir), id: parsed.id, kind: parsed.kind)
+        }
+    }
+
     /// `notes/<id>/att/` of the vault at `root`.
     static func attachmentFolder(inVault root: URL, id: UUID) -> URL {
         noteFolder(inVault: root, id: id).appendingPathComponent("att", isDirectory: true)

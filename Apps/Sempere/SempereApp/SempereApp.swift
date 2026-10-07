@@ -26,6 +26,10 @@ struct SempereApp: App {
         NotePDFExport.purge(olderThan: 0)
         // Work copies of imported PDFs (plaintext) left by an import that never finished.
         PDFPreparation.purge()
+        // Quick voice notes: Siri, Shortcuts, widgets and Control Center act through the shared instance;
+        // a voice note a crash interrupted is sealed (or deleted) now.
+        QuickCapture.register()
+        Task { await QuickCapture.shared.sweep() }
     }
 
     var body: some Scene {
