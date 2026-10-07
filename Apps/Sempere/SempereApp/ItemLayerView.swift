@@ -64,6 +64,10 @@ final class ItemLayerView: UIView {
         backgroundColor = .clear
         isOpaque = false
         accessibilityIdentifier = "itemLayer"
+        // A Mac window moved to a display of another scale: pictures and tiles at the new density.
+        registerForTraitChanges([UITraitDisplayScale.self]) { (view: ItemLayerView, _: UITraitCollection) in
+            if view.noteID != nil { view.layout() }
+        }
     }
 
     @available(*, unavailable)

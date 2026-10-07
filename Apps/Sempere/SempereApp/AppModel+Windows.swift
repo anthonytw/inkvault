@@ -143,6 +143,17 @@ extension AppModel {
     /// shows what is on screen. The file is plaintext: it is for the Finder
     /// drop that asked for it, and `NotePDFExport.purge` removes it later.
     func exportPDF(noteID: UUID) async throws -> URL {
+        let prepared = try await prepareExport(noteID: noteID)
+        let url = try await offMain { try prepared.write() }
+        try ensureCurrent(prepared.generation)
+        return url
+    }
+
+    /// The main-actor part of `exportPDF`: saves the note's pending ink and
+    /// makes it local (iCloud Drive). What it returns renders and writes the
+    /// PDF on any thread, without the main actor, so a drop that asks for the
+    /// file while the main thread waits (a Mac file promise) still gets it.
+    func prepareExport(noteID: UUID) async throws -> PreparedExport {
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
         let gen = generation
         if editor?.noteID == noteID { await editor?.flush() }
@@ -150,13 +161,48 @@ extension AppModel {
         try ensureCurrent(gen)
         try await downloadNote(noteID)
         try ensureCurrent(gen)
-        let coordinate = coordinationURL
-        let rendered = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try NotePDFExport.render(vault: vault, noteID: noteID) }
-        }
-        try ensureCurrent(gen)
+        return PreparedExport(vault: vault, noteID: noteID, coordinate: coordinationURL, folder: exportFolder,
+                              epoch: exportEpoch, generation: gen, startEpoch: exportEpoch.value)
+    }
+}
+
+/// A vault generation readable from any thread: `AppModel.close` bumps it, and
+/// an export prepared before then writes nothing (`PreparedExport.write`).
+final class ExportEpoch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = 0
+
+    var value: Int { lock.withLock { current } }
+
+    func bump() { lock.withLock { current += 1 } }
+}
+
+/// A note ready to be rendered to a PDF (`AppModel.prepareExport`).
+struct PreparedExport: Sendable {
+    let vault: Vault
+    let noteID: UUID
+    /// The vault folder to read under coordination (iCloud Drive), nil otherwise.
+    let coordinate: URL?
+    let folder: URL
+    let epoch: ExportEpoch
+    /// The model's generation when prepared (`ensureCurrent`).
+    let generation: Int
+    let startEpoch: Int
+
+    /// Renders the note and writes `<folder>/<uuid>/<title>.pdf`. Blocking:
+    /// call it off the main actor. Throws `CancellationError` once the vault
+    /// that prepared it has closed.
+    func write() throws -> URL {
+        guard epoch.value == startEpoch else { throw CancellationError() }
+        let rendered = try CloudVault.coordinatedRead(coordinate) { try NotePDFExport.render(vault: vault, noteID: noteID) }
+        guard epoch.value == startEpoch else { throw CancellationError() }
         NotePDFExport.purge(olderThan: 3600)   // folders of earlier runs that never closed a vault
-        return try NotePDFExport.write(rendered, in: exportFolder)
+        let url = try NotePDFExport.write(rendered, in: folder)
+        guard epoch.value == startEpoch else {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            throw CancellationError()
+        }
+        return url
     }
 }
 

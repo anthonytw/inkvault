@@ -9,9 +9,13 @@ menu bar entries, one window, the same pointer behaviour.
 **Verification status.** The logic (command list, enabling, zoom steps,
 window editors, key changes, PDF export, selection restore, folder-access
 check) is covered by tests that run in the `app` CI job on the iPad simulator
-and, as plain Swift, on Linux. Nothing here has been run on a Mac yet: menus,
-drag to Finder, window restoration, the sandbox and pointer input need a
-hand test on a Mac (list at the end).
+and, as plain Swift, on Linux. Since TestFlight build 6 the app's tests also
+run **on Mac Catalyst** (ad-hoc signed and sandboxed like the shipped app):
+`scripts/app.sh test-mac` runs the app suites there and `scripts/app.sh
+test-mac-ui` runs `MacWindowUITests` (menus, note windows, the new-note sheet)
+against the synthetic demo vault. CI runs both on `main` and on a dispatch
+(`gh workflow run CI --ref <branch>`), not on pull requests. What still needs
+a hand test on a real Mac is listed at the end.
 
 ## Menus and shortcuts
 
@@ -25,7 +29,30 @@ from a text field) is used.
 
 Each window publishes a `CommandRouter` (its state for enabling, and what to
 do for a command) as a focused scene value; the menu bar acts on the focused
-window. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
+window.
+
+**UIKit's own items (fixed after build 6).** Before SwiftUI adds the app's
+commands, UIKit builds a default menu bar: File > New Window (⌘N), Open… (⌘O),
+Open Recent and the document commands (Duplicate, Move, Rename…, Export As…),
+and Edit > Find (⌘F, ⌘G, …). UIKit refuses a SwiftUI command group holding a
+shortcut it already has ("Replacement elements conflict" in the log), and with
+it the whole group: in build 6 the File and Edit menus had none of the app's
+commands, and ⌘N was UIKit's New Window, which opened a second library window.
+So the two commands whose shortcut UIKit takes, Open Vault… and Find Notes
+(`MenuCommand.nativeOnMac`), are not SwiftUI commands: `MacMenus`
+(`MacMenus.swift`, run by the app delegate's `buildMenu`) turns UIKit's ⌘O and
+⌘F items into them and drops UIKit's document and text-find commands and New
+Window. Those two items reach the focused window through the responder chain
+(`UIWindow.sempereMenuCommand`) and run its router, which each window also
+publishes to `MenuRouting` (`menuRouter(_:)`); they run only when the router
+enables them, but the menu shows them enabled. `MacMenuBarTests` checks the
+built menu bar on Catalyst (the app's File and Edit commands are there,
+UIKit's duplicates are not, no shortcut twice), and `MacWindowUITests` checks
+it in the running app.
+
+File > Export acts on the focused window's notes (`CommandRouter.exportIDs`:
+the list's selection in a library window, its note in a note window), and its
+sheet opens in that window (`ExportRequest.window`). With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
 
 | Menu | Command | Shortcut |
 | --- | --- | --- |
@@ -69,7 +96,12 @@ command does nothing there.
 * **Library window** (`WindowGroup` id `library`): the sidebar, the note list
   and one note on the canvas, as on the iPad.
 * **Note windows** (`WindowGroup(for: NoteWindowValue.self)`): one note each,
-  opened from the note's context menu or File > Open Note in New Window.
+  opened from the note's context menu or File > Open Note in New Window (⌥⌘N).
+  In build 6, File had none of the app's commands (see "UIKit's own items")
+  and File > New Window (⌘N) was UIKit's, which opens another library window,
+  never a note; UIKit's New Window is gone now. `MacWindowUITests` opens a note
+  window both ways on Catalyst and checks that no second library window
+  appears.
   `NoteWindowValue` is `Codable` (vault id and note id, no path), so SwiftUI
   restores the windows that were open. A note window restored without a library
   window brings the library window up (after a second, if none appeared) to
@@ -108,16 +140,61 @@ Recently Deleted (⌘⌫) is off while a search, rename or tag field may have fo
 Dragging a row of the note list to the Finder (or any app that takes files)
 gives a PDF named after the title (`ExportFileName.pdf`: no path separators,
 colons or control characters, at most 120 bytes, "Untitled" when empty). The
-PDF is rendered when the drop asks for it (`NSItemProvider.registerFileRepresentation`),
-after the open note's pending ink is saved and, in iCloud Drive, after the note
-is downloaded (`AppModel.exportPDF`), with `SempereRender.PDFWriter`, the same
-renderer as `sempere export`. A note with unreadable revisions is refused
-rather than exported with pages missing. The file is plaintext, written under
+item provider offers the PDF first, before the in-app note payload, with that
+name as its suggested name (`NoteFileDrag`).
+
+On a Mac the drop is a file promise, and the system may ask for the file while
+the main thread waits for it. In build 6 the request ran the whole export on
+the main actor, so the drop never got its file. Now the main-actor part (the
+open note's pending ink is saved and, in iCloud Drive, the note downloaded:
+`AppModel.prepareExport`) starts when the drag begins, and the request only
+waits for it, then renders and writes off the main actor
+(`PreparedExport.write`) with `SempereRender.PDFWriter`, the same renderer as
+`sempere export`. `MacDragOutTests` checks that the file arrives while the main
+thread is blocked. A note with unreadable revisions is refused rather than
+exported with pages missing; a drag prepared before the vault closed writes
+nothing (`ExportEpoch`). The file is plaintext, written under
 `$TMPDIR/SempereExport/<model id>/<random id>/<title>.pdf`; the folder is
 emptied when the vault closes and at launch, and files older than ten minutes
-are removed on the next export. Bulk
-export is the CLI's (`sempere export`); the share and export work in the app
-adds its own menu entries to `MenuCommand`.
+are removed on the next export. Bulk export is the CLI's (`sempere export`).
+
+## PDF pages on the canvas
+
+PDF page items are `PDFTileLayer`s (a `CATiledLayer` drawn by Core Graphics,
+`docs/attachments.md` §13). In build 6 they stayed blank on the Mac. What the
+Catalyst runs in CI show:
+
+* The whole path works on Catalyst for a local vault: the blob cache (file
+  protection attributes, the sandboxed temporary folder), Core Graphics, the
+  tile drawing in both context orientations, Core Animation asking for tiles
+  and the pixels in a window (`MacCatalystPDFTests`), and a PDF imported into
+  the demo vault and opened in the running app's canvas
+  (`MacWindowUITests.testPDFPagesAreDrawnOnTheCanvas`).
+* One Mac difference was fixed: a tile layer redrew only when its content
+  changed. An iPad redraws tiles for a new `contentsScale` by itself, a Mac
+  does not, and the canvas can show a page's items before its view is in a
+  window (when the display scale may not be the window's yet). Now a tile layer
+  never takes a scale of 0, redraws when its scale changes, and the item layer
+  lays out again when the display scale changes (a window moved to another
+  display). The runner's display is 1×, so this could not be shown failing
+  before the fix there.
+* Not covered: the maintainer's vault is in iCloud Drive, whose attachments are
+  downloaded lazily (`CloudVault`, the same code as the iPad; the runner has no
+  iCloud). If pages stay blank on a Mac after this PR, that path, on a Retina
+  display, is the next suspect: the DEBUG log (`SemperePerf`, `SempereProbe`)
+  and the item's placeholder (a cloud symbol while downloading, a triangle with
+  the error otherwise) tell which.
+
+## Notebook combo box
+
+The notebook field of New Note, Move to Notebook and Move Notebook (#72) is
+the same view on the Mac. A Mac shows these sheets in a small window without
+visible scroll bars, where the list opened below the window's edge; the field
+now scrolls to the top of the form when its list opens (`NotebookField.reveal`).
+`MacWindowUITests` types into it and opens the list with the chevron on
+Catalyst. Typing suggestions and the chevron worked on Catalyst in CI before
+this change too, so if build 6 showed neither, check that it was built after
+#72.
 
 ## Key window
 
@@ -186,10 +263,16 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 1. Open a vault from the open panel, quit, relaunch: does it reopen (sandboxed
    build: `scripts/app.sh catalyst` with signing, or Xcode)? A DEBUG build logs
    `SempereDebug folderAccess scoped=… listable=…` for every open.
-2. Every menu entry and shortcut above, in the library window and a note window.
-3. Open two notes in two windows, draw in both, quit and relaunch: both windows
-   come back, the vault asks for its key (or Touch ID) once.
+2. Every menu entry and shortcut above, in the library window and a note window;
+   File and Edit hold no UIKit New Window, Open…, Duplicate or Find… items.
+3. Open two notes in two windows (⌥⌘N and the context menu), draw in both, quit
+   and relaunch: both windows come back, the vault asks for its key (or Touch
+   ID) once.
 4. Drag a note to the Desktop; open the PDF in Preview. Drag one that is open
-   with unsaved ink.
-5. Add a key (paste and generate), remove it, print the recovery kit.
-6. Draw with the mouse and trackpad, with each tool; erase with the object eraser.
+   with unsaved ink, and one from an iCloud vault that is not downloaded yet.
+5. Open a note with PDF pages from the iCloud test vault (attachments not yet
+   downloaded on the Mac): the pages appear after the download; zoom in, move
+   the window to another display.
+6. New Note: type part of a notebook name; open the list with the chevron.
+7. Add a key (paste and generate), remove it, print the recovery kit.
+8. Draw with the mouse and trackpad, with each tool; erase with the object eraser.
