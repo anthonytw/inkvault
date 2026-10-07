@@ -416,6 +416,27 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertNil(try VaultManifest.decode(Data(contentsOf: url)).recipientsTag)
     }
 
+    /// Legacy X25519 vaults still open to migrate: the committed one
+    /// (untagged, its secret encrypted to its one key) and one whose
+    /// migration stopped half way (the new list, tagged, with the journal).
+    func testLegacyVaultsStillOpenToMigrate() throws {
+        let legacy = tmp.appendingPathComponent("legacy.sempere")
+        try FileManager.default.copyItem(at: try FixtureTests.bundled("legacy.sempere"), to: legacy)
+        let old = try IdentityFile.parse(String(contentsOf: FixtureTests.bundled("legacy.key"), encoding: .utf8))
+        let store = MemoryRecipientsTrustStore()
+        var vault = try Vault.open(at: legacy, identities: [old], trust: store)
+        XCTAssertEqual(vault.recipientsStatus, .untagged)
+        let new = pqIdentity()
+        XCTAssertThrowsError(try vault.replaceRecipient(.x25519(try X25519Recipient(string: old.recipient.string)),
+                                                        with: new.recipient, label: "pq", added: Date(), stopAfter: 1))
+        let half = try Vault.open(at: legacy, identities: [old, new], trust: store)
+        XCTAssertTrue(half.pendingRewrap)
+        XCTAssertEqual(half.recipientsStatus, .verified(.unchanged))
+        var resumed = half
+        XCTAssertTrue(try resumed.resumeRewrap().isComplete)
+        XCTAssertFalse(try Vault.open(at: legacy, identities: [new], trust: store).isLegacy)
+    }
+
     func testUpgradeRefusesAManifestChangedSinceOpen() throws {
         let fixture = try FixtureVault.copySample(to: tmp)
         var vault = try Vault.open(at: fixture, identities: [try FixtureVault.sampleIdentity()])
