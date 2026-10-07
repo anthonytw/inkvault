@@ -26,7 +26,7 @@ final class CountingAttachmentSource: AttachmentIndexSource, @unchecked Sendable
 }
 
 /// A clock the tests move.
-final class TestClock: @unchecked Sendable {
+final class IndexTestClock: @unchecked Sendable {
     var now: Date
     init(_ now: Date) { self.now = now }
 }
@@ -42,7 +42,7 @@ struct AttachmentIndexAppTests {
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
     /// The fixture with an image (shown) and an audio blob (unused) in the lecture, unlocked and indexed.
-    func indexedModel(clock: TestClock, counting: Bool = false)
+    func indexedModel(clock: IndexTestClock, counting: Bool = false)
         async throws -> (AppModel, URL, URL, image: BlobRef, audio: BlobRef, CountingAttachmentSource?) {
         let (url, key, image, audio) = try AttachmentCloudTests.vaultWithBlobs()
         let model = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .milliseconds(10))
@@ -65,7 +65,7 @@ struct AttachmentIndexAppTests {
     func name(_ model: AppModel, _ ref: BlobRef) throws -> String { try #require(model.vault).blobFileName(for: ref) }
 
     @Test func theListingIndexesNotesAndSettingsShowsTheUnusedOnes() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         let (model, _, _, image, audio, _) = try await indexedModel(clock: clock)
         let report = model.attachmentStorage()
         // The audio blob the test wrote, and the fixture's own orphaned `.bin` blob; the shown image is not listed.
@@ -81,7 +81,7 @@ struct AttachmentIndexAppTests {
 
     /// Every NoteWriter write and every arrival re-indexes only its own note.
     @Test func updatesTouchOnlyTheChangedNote() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         let (model, url, key, _, _, counter) = try await indexedModel(clock: clock, counting: true)
         let source = try #require(counter)
         source.reset()
@@ -117,7 +117,7 @@ struct AttachmentIndexAppTests {
 
     /// Deletable exactly 30 days after first seen unused, and only through collection.
     @Test func deleteHonoursTheThirtyDayWindow() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         let (model, url, _, _, audio, _) = try await indexedModel(clock: clock)
         let audioName = try name(model, audio)
         let attFile = url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())/att/\(audioName)")
@@ -146,7 +146,7 @@ struct AttachmentIndexAppTests {
 
     /// A late delta that uses the blob again resets its clock.
     @Test func aLateReferenceResetsTheWindow() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         let (model, url, key, _, audio, _) = try await indexedModel(clock: clock)
         let audioName = try name(model, audio)
         let vault = try #require(model.vault)
@@ -175,7 +175,7 @@ struct AttachmentIndexAppTests {
 
     /// An item removed in the editor: its image is held by history (the editor's own state says so).
     @Test func aRemovedItemIsHeldByHistory() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         let (model, _, _, image, _, _) = try await indexedModel(clock: clock)
         model.selectedNoteID = Self.lecture
         try await model.openEditor(for: Self.lecture)
@@ -193,7 +193,7 @@ struct AttachmentIndexAppTests {
 
     /// iCloud Drive: while a revision of the note is not on this device, nothing is decided.
     @Test func aNoteNotLocalDecidesNothing() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         // A vault copy the model takes for one in iCloud Drive.
         let (url, key, _, _) = try AttachmentCloudTests.vaultWithBlobs()
         let fakeCloud = FakeCloud(vault: url)
@@ -221,7 +221,7 @@ struct AttachmentIndexAppTests {
     }
 
     @Test func entriesPersistPerVaultAcrossModels() async throws {
-        let clock = TestClock(t0)
+        let clock = IndexTestClock(t0)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let (url, key, _, _) = try AttachmentCloudTests.vaultWithBlobs()
         let first = AppModel(deviceStateURL: TS.deviceStateURL(), attachmentIndexRoot: root)
