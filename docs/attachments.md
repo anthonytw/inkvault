@@ -660,7 +660,7 @@ image blob, a register) that every renderer draws under a play mark.
   CLI refuses and says how to convert). The clip streams from the picked file
   into the blob in 1 MiB pieces, hashed then encrypted, never held in memory.
 - **Metadata.** The location and device metadata (`udta` and `meta` boxes of
-  `moov` and of each track) are blanked *in place* on the way into the blob:
+  `moov` and of each track, a top-level `meta`, and XMP `uuid` boxes) are blanked *in place* on the way into the blob:
   the boxes become `free` boxes of the same length, zero-filled, so every
   sample offset stays valid and nothing is re-encoded. The app follows the
   photo privacy setting (§7, on by default); the CLI strips unless

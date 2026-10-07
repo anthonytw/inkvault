@@ -18,8 +18,10 @@ public struct VideoInfo: Hashable, Sendable {
     public var audioCodec: String?
     /// True when `moov` comes before the first `mdat` ("fast start").
     public var fastStart: Bool
-    /// The `udta` and `meta` boxes directly inside `moov` or a `trak`, in file
-    /// order: the location and device metadata (`VideoMetadata`).
+    /// The location and device metadata (`VideoMetadata`), in file order:
+    /// the `udta` and `meta` boxes directly inside `moov` or a `trak`, a
+    /// top-level `meta`, and XMP `uuid` boxes (`VideoProbe.xmpUUID`, which may
+    /// hold `exif:GPS…`) at the top level or directly inside `moov` or a `trak`.
     public var metadataBoxes: [VideoBox]
 
     public init(mediaType: String, duration: Double, pixelSize: Size, rotation: Int, codec: String,
@@ -97,6 +99,9 @@ public enum VideoProbe {
     static let quickTimeFirst: Set<String> = ["moov", "wide", "free", "skip", "mdat"]
     /// Containers walked on the way to the sample entries.
     static let containers: Set<String> = ["moov", "trak", "mdia", "minf", "stbl"]
+    /// The usertype of an XMP `uuid` box (Adobe XMP, ISO 16684-1): BE7ACFCB-97A9-42E8-9C71-999491E3AFAC.
+    static let xmpUUID: [UInt8] = [0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
+                                   0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC]
 
     /// The video file at `url`.
     public static func probe(file url: URL) throws -> VideoInfo {
@@ -147,6 +152,15 @@ public enum VideoProbe {
         var info = try walker.movie(moov)
         info.mediaType = mediaType
         info.fastStart = firstMdat.map { moov.offset < $0.offset } ?? true
+        var topMetadata: [VideoBox] = []
+        for box in top {
+            if box.type == "meta" {
+                topMetadata.append(box)
+            } else if try walker.isXMP(box) {
+                topMetadata.append(box)
+            }
+        }
+        if !topMetadata.isEmpty { info.metadataBoxes = (info.metadataBoxes + topMetadata).sorted { $0.offset < $1.offset } }
         return info
     }
 
@@ -204,6 +218,12 @@ public enum VideoProbe {
             return out
         }
 
+        /// Whether `box` (a `uuid` box) carries the XMP usertype.
+        func isXMP(_ box: VideoBox) throws -> Bool {
+            guard box.type == "uuid", box.length - box.header >= 16 else { return false }
+            return try bytes(box, max: 16) == VideoProbe.xmpUUID
+        }
+
         /// The first `max` bytes of `box`'s body (all of it when shorter).
         func bytes(_ box: VideoBox, max: Int = VideoProbe.maxLeafBytes) throws -> [UInt8] {
             let n = Int(min(UInt64(max), box.length - box.header))
@@ -222,6 +242,7 @@ public enum VideoProbe {
                 case "mvhd": movieDuration = VideoProbe.duration(try bytes(box))
                 case "mvex": throw VideoProbeError.fragmented
                 case "udta", "meta": metadata.append(box)
+                case "uuid": if try isXMP(box) { metadata.append(box) }
                 case "trak":
                     let (track, meta) = try self.track(box)
                     metadata += meta
@@ -259,6 +280,7 @@ public enum VideoProbe {
                     let d = try bytes(box)
                     (t.tkhdSize, t.rotation) = VideoProbe.trackHeader(d)
                 case "udta", "meta": meta.append(box)
+                case "uuid": if try isXMP(box) { meta.append(box) }
                 case "mdia":
                     for part in try children(of: box.body, depth: 3) {
                         switch part.type {

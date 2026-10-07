@@ -268,7 +268,8 @@ public enum PDFWriter {
                 case .blob(let ref, let source):
                     doc.setStreamed(stream, prefix: Array(("<< /Type /EmbeddedFile /Subtype /\(PDFNames.name(f.mimeType)) "
                         + "/Length \(ref.size) /Params << /Size \(ref.size) >> >>\nstream\n").utf8),
-                                    blob: ref, source: source, suffix: Array("\nendstream".utf8))
+                                    blob: ref, source: source, suffix: Array("\nendstream".utf8),
+                                    stripVideoMetadata: !options.keepImageMetadata && f.mimeType.hasPrefix("video/"))
                 }
                 doc.set(spec, Array(("<< /Type /Filespec /F \(textString(f.asciiName)) /UF \(textString(f.name)) "
                     + "/Desc \(textString(f.description)) /EF << /F \(stream) 0 R /UF \(stream) 0 R >> >>").utf8))
@@ -481,7 +482,7 @@ final class PDFObjects {
     private var next = 1
     private var bodies: [Int: [UInt8]] = [:]
     /// Objects whose stream data is a blob, read only when the file is written.
-    private var streamed: [Int: (prefix: [UInt8], blob: BlobRef, source: any BlobSource, suffix: [UInt8])] = [:]
+    private var streamed: [Int: (prefix: [UInt8], blob: BlobRef, source: any BlobSource, suffix: [UInt8], strip: Bool)] = [:]
 
     func allocate() -> Int {
         defer { next += 1 }
@@ -492,8 +493,12 @@ final class PDFObjects {
 
     /// An object written as `prefix`, the blob's content (exactly
     /// `blob.size` bytes, streamed from `source`), then `suffix`.
-    func setStreamed(_ num: Int, prefix: [UInt8], blob: BlobRef, source: any BlobSource, suffix: [UInt8]) {
-        streamed[num] = (prefix, blob, source, suffix)
+    /// `stripVideoMetadata`: the blob is a clip whose location and device
+    /// metadata are blanked on the way (format.md §8.2.7: exporters strip what
+    /// they pass through unless asked to keep it), in place, so its length is unchanged.
+    func setStreamed(_ num: Int, prefix: [UInt8], blob: BlobRef, source: any BlobSource, suffix: [UInt8],
+                     stripVideoMetadata: Bool = false) {
+        streamed[num] = (prefix, blob, source, suffix, stripVideoMetadata)
     }
 
     /// An RGB image XObject (Flate), with an `/SMask` when any pixel is not opaque.
@@ -595,11 +600,20 @@ final class PDFObjects {
             if let s = streamed[num] {
                 try emit(Array("\(num) 0 obj\n".utf8) + s.prefix)
                 var count: Int64 = 0
-                try s.source.stream(for: s.blob) { piece in
+                func pass(_ piece: Data) throws {
                     count += Int64(piece.count)
                     guard count <= s.blob.size else { throw BlobError.referenceMismatch }
                     written += piece.count
                     try sink(piece)
+                }
+                if s.strip {
+                    // The probe needs the whole container (moov may follow the samples): the verified file, streamed with the edits.
+                    try s.source.withFile(for: s.blob) { url in
+                        let edits = (try? VideoProbe.probe(file: url)).map(VideoMetadata.strippingEdits) ?? []
+                        try Vault.readSourceFile(url, edits: edits, pass)
+                    }
+                } else {
+                    try s.source.stream(for: s.blob, pass)
                 }
                 guard count == s.blob.size else { throw BlobError.referenceMismatch }
                 try emit(s.suffix + Array("\nendobj\n".utf8))

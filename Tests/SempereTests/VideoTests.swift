@@ -150,6 +150,58 @@ final class VideoProbeTests: XCTestCase {
         }
     }
 
+    /// A box of `type` with `body`.
+    static func box(_ type: String, _ body: Data) -> Data {
+        let n = UInt32(8 + body.count)
+        return Data([UInt8(n >> 24), UInt8(n >> 16 & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n & 0xFF)]) + Data(type.utf8) + body
+    }
+
+    /// An XMP packet with a GPS position, as cameras and editors write it.
+    static let xmpGPS = Data("<x:xmpmeta><rdf:Description exif:GPSLatitude=\"48,51.504N\" exif:GPSLongitude=\"2,17.67E\"/></x:xmpmeta>".utf8)
+
+    /// XMP can carry a position too: an XMP `uuid` box at the top level or
+    /// inside `moov` / a `trak`, and a top-level `meta`, are blanked like
+    /// `udta`; a `uuid` box of another kind is left alone.
+    func testStrippingRemovesXMPAndTopLevelMeta() throws {
+        let clip = try Self.fixture("clip-h264.mp4")   // moov after mdat: a box appended to moov moves no sample
+        var info = try VideoProbe.probe(clip)
+        XCTAssertFalse(info.fastStart)
+        // The last top-level box must be moov, so growing it moves nothing else.
+        var pos = 0, last = 0
+        let bytes = [UInt8](clip)
+        while pos + 8 <= bytes.count {
+            last = pos
+            pos += Int(VideoProbe.be32(bytes, pos))
+        }
+        XCTAssertEqual(VideoProbe.fourcc(bytes, last + 4), "moov")
+        let xmp = Self.box("uuid", Data(VideoProbe.xmpUUID) + Self.xmpGPS)
+        let other = Self.box("uuid", Data(repeating: 0x11, count: 16) + Data("keep me".utf8))
+        var moov = clip[last...]
+        moov += xmp
+        let n = UInt32(moov.count)
+        moov.replaceSubrange(moov.startIndex..<moov.startIndex + 4, with: [UInt8(n >> 24), UInt8(n >> 16 & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n & 0xFF)])
+        var data = clip[..<last] + moov
+        data += Self.box("uuid", Data(VideoProbe.xmpUUID) + Self.xmpGPS) + other + Self.box("meta", Data("TestCam 48.8584".utf8))
+        let original = try VideoProbe.probe(clip)
+        info = try VideoProbe.probe(data)
+        XCTAssertEqual(info.pixelSize, original.pixelSize)
+        XCTAssertEqual(info.metadataBoxes.count, original.metadataBoxes.count + 3)
+        XCTAssertEqual(info.metadataBoxes.map(\.offset), info.metadataBoxes.map(\.offset).sorted())
+        var stripped = data
+        ByteEdit.apply(VideoMetadata.strippingEdits(info), to: &stripped, at: 0)
+        XCTAssertEqual(stripped.count, data.count)
+        XCTAssertNil(stripped.range(of: Data("GPSLatitude".utf8)))
+        XCTAssertNil(stripped.range(of: Data("48.8584".utf8)))
+        XCTAssertNotNil(stripped.range(of: Data("keep me".utf8)), "another uuid box is not metadata")
+        let again = try VideoProbe.probe(stripped)
+        XCTAssertTrue(again.metadataBoxes.isEmpty)
+        XCTAssertEqual(again.pixelSize, original.pixelSize)
+        XCTAssertEqual(again.duration, original.duration)
+        // A uuid box too short for a usertype is no XMP and no error.
+        XCTAssertEqual(try VideoProbe.probe(clip + Self.box("uuid", Data([1, 2, 3]))).metadataBoxes.count,
+                       original.metadataBoxes.count)
+    }
+
     func testEditsApplyAcrossPieceBoundaries() {
         let data = Data((0..<100).map { UInt8($0) })
         let edits = [ByteEdit(range: 10..<30), ByteEdit(range: 50..<54, bytes: Data("free".utf8))]

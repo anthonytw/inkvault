@@ -139,4 +139,36 @@ final class VideoExportTests: XCTestCase {
                                                  options: lying, report: &r, to: url.appendingPathExtension("x")))
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("x").path))
     }
+
+    /// A clip stored with its metadata (`--keep-metadata`, or the privacy
+    /// setting off) loses its location when a PDF embeds it, as Markdown and
+    /// HTML exports do (format.md §8.2.7), unless the export keeps metadata;
+    /// the clip keeps its length and every other byte.
+    func testEmbeddedClipsLoseTheirLocationUnlessKept() throws {
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../SempereTests/Fixtures/video").standardizedFileURL
+        let clip = try Data(contentsOf: fixtures.appendingPathComponent("clip-h264.mp4"))
+        XCTAssertNotNil(clip.range(of: Data("48.8584".utf8)))
+        let ref = BlobRef(content: clip, type: "video/mp4")
+        let state = note([video(poster: nil, frame: Rect(x: 0, y: 0, w: 100, h: 50), blob: ref)])
+        var options = RenderOptions(compress: false, blobs: MemoryBlobSource([clip]))
+        options.embedVideos = true
+        var report = RenderReport()
+        let pdf = try PDFWriter.render(note: state, options: options, report: &report)
+        XCTAssertEqual(report.videosAttached, 1)
+        XCTAssertNil(pdf.range(of: Data("48.8584".utf8)), "the location left in the PDF")
+        var stripped = clip
+        ByteEdit.apply(VideoMetadata.strippingEdits(try VideoProbe.probe(clip)), to: &stripped, at: 0)
+        XCTAssertNotNil(pdf.range(of: stripped), "the clip, blanked in place")
+        // Written to a file: the same.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("video-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        var r2 = RenderReport()
+        try PDFWriter.write(note: state, options: options, report: &r2, to: url)
+        XCTAssertEqual(try Data(contentsOf: url), pdf)
+        // Asked to keep metadata: the clip as stored.
+        options.keepImageMetadata = true
+        var r3 = RenderReport()
+        XCTAssertNotNil(try PDFWriter.render(note: state, options: options, report: &r3).range(of: clip))
+    }
 }

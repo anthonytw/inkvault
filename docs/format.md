@@ -1734,8 +1734,13 @@ bands of an infinite page) is its choice (`docs/attachments.md`).
 - Metadata: unless the user chose to keep it, writers remove the location
   and device metadata from the stored bytes: every `udta` and `meta` box
   directly inside `moov` or a `trak` (`©xyz`, `com.apple.quicktime.location.ISO6709`,
-  make, model, software, creation date) has its type changed to `free` and
-  its contents set to zero bytes. Nothing else moves, so every sample offset
+  make, model, software, creation date), every top-level `meta` box, and
+  every XMP `uuid` box (usertype `BE7ACFCB-97A9-42E8-9C71-999491E3AFAC`,
+  which may hold `exif:GPSLatitude` and the like) at the top level or
+  directly inside `moov` or a `trak` has its type changed to `free` and
+  its contents set to zero bytes. Positions recorded per frame in the
+  samples of a timed-metadata or text track (a drone's or action camera's
+  telemetry) are not removed this way. Nothing else moves, so every sample offset
   (`stco`, `co64`) stays valid and the clip plays unchanged. Exporters do the
   same to bytes they pass through into an export unless asked to keep them
   (as for images, §8.2.5).

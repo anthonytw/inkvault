@@ -364,7 +364,8 @@ exit 2).
   with a typed error) for the duration, the display size (`pixelSize`, after
   the track's rotation) and the rotation (`videoRotation`). Unless
   `--keep-metadata`, the location and device metadata (every `udta` and `meta`
-  box in `moov` or a track: GPS position, make, model, software) are blanked
+  box in `moov` or a track, a top-level `meta` and XMP `uuid` boxes: GPS
+  position, make, model, software) are blanked
   **in place** on the way into the blob (type `free`, contents zero): the file
   keeps its length and every sample offset, so it plays as before; the file on
   disk is not changed. Other codecs (MPEG-4 Part 2, VP9, AV1), WebM, AVI and

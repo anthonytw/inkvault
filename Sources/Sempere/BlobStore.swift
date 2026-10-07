@@ -350,7 +350,7 @@ extension Vault {
 
     /// Feeds a source file to `body` in 1 MiB pieces (regular files only),
     /// with `edits` applied.
-    static func readSourceFile(_ url: URL, edits: [ByteEdit] = [], _ body: (Data) throws -> Void) throws {
+    public static func readSourceFile(_ url: URL, edits: [ByteEdit] = [], _ body: (Data) throws -> Void) throws {
         let handle = try BoundedRead.openRegularFile(url)
         defer { try? handle.close() }
         var offset: UInt64 = 0
