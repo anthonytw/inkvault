@@ -49,6 +49,10 @@ public struct ShapedLine: Sendable {
     /// Left edge and width of the drawn line.
     public var x: Double
     public var width: Double
+    /// The line's characters as offsets in Unicode scalar values into the
+    /// item's text (`TextContent.string`), trailing white space included:
+    /// what `TextLineBreaks` turns into `breaks`.
+    public var range: Range<Int> = 0..<0
 }
 
 /// Text laid out in a frame (format.md §8.5.3), ready for any writer.
@@ -126,11 +130,7 @@ public struct DefaultTextShaper: TextShaper {
         }
         var out = ShapedText()
         // format.md §8.5.3: stored breaks are used only if valid, including grapheme boundaries.
-        var breaks = content.validBreaks.map(Set.init)
-        if let b = breaks {
-            let clusters = Set(GraphemeClusters.boundaries(chars.map(\.scalar)))
-            if !b.allSatisfy({ clusters.contains($0) }) { breaks = nil }
-        }
+        let breaks = TextLineBreaks.usable(content, scalars: chars.map(\.scalar)).map(Set.init)
         let sizes = content.runs.map { $0.size ?? content.size }
         var y = frame.y
         var start = 0
@@ -318,7 +318,8 @@ public struct DefaultTextShaper: TextShaper {
                 }
             }
             let text = String(String.UnicodeScalarView(chars[drawn].compactMap { Unicode.Scalar($0.scalar) }))
-            out.lines.append(ShapedLine(baseline: baseline, size: lineSize, runs: runs, text: text, rtl: rtl, x: x0, width: lineWidth))
+            out.lines.append(ShapedLine(baseline: baseline, size: lineSize, runs: runs, text: text, rtl: rtl, x: x0, width: lineWidth,
+                                        range: line))
             y += 1.2 * lineSize
         }
     }

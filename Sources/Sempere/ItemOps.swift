@@ -287,3 +287,75 @@ public enum ItemFrames {
         return Rect(x: c.x - w / 2, y: c.y - h / 2, w: w, h: h)
     }
 }
+
+// MARK: - Text boxes (format.md §8.2.4, task E2)
+
+extension NoteOps {
+    /// Runs as writers store them (format.md §8.2.4): `\r\n` and `\r` as
+    /// `\n`, each run's text in NFC, empty runs dropped, adjacent runs with
+    /// equal attributes merged.
+    public static func normalizedRuns(_ runs: [TextRun]) -> [TextRun] {
+        var out: [TextRun] = []
+        for var run in runs {
+            run.t = run.t.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+                .precomposedStringWithCanonicalMapping
+            guard !run.t.isEmpty else { continue }
+            if let last = out.last, last.hasSameAttributes(as: run) {
+                out[out.count - 1].t += run.t
+                out[out.count - 1].t = out[out.count - 1].t.precomposedStringWithCanonicalMapping
+            } else {
+                out.append(run)
+            }
+        }
+        return out
+    }
+
+    /// Sets the text of the text box `id` (one `setItem(text)`, the whole
+    /// `text` object being one register) and, when `frame` is given and
+    /// differs, its frame (a `setItem(frame)` in the same delta: a writer
+    /// that lays text out keeps the height its lines need). Nil when nothing
+    /// changes or the page has no such text box.
+    ///
+    /// - Throws: `AttachmentOpsError.invalidText` for control characters or
+    ///   content beyond the limits of format.md §8.4, `.invalidFrame` for a
+    ///   frame that is not finite and positive.
+    public static func setText(_ id: UUID, to content: TextContent, frame: Rect? = nil, on page: Page) throws -> ItemEdit? {
+        guard let i = page.items.firstIndex(where: { $0.id == id }), page.items[i].kind == .text else { return nil }
+        guard content.runs.allSatisfy({ TextRun.isValidText($0.t) }) else { throw AttachmentOpsError.invalidText("control characters") }
+        if let why = content.limitViolation { throw AttachmentOpsError.invalidText(why) }
+        if let frame {
+            guard [frame.x, frame.y, frame.w, frame.h].allSatisfy(\.isFinite), frame.hasPositiveSize else {
+                throw AttachmentOpsError.invalidFrame("frame must be finite with a positive width and height")
+            }
+        }
+        var out = page
+        var ops: [Op] = []
+        if let frame, out.items[i].frame.rounded != frame.rounded {
+            out.items[i].apply(.frame(frame))
+            ops.append(.setItem(page: page.id, itemId: id, change: .frame(frame)))
+        }
+        if out.items[i].text != content {
+            out.items[i].apply(.text(content))
+            ops.append(.setItem(page: page.id, itemId: id, change: .text(content)))
+        }
+        guard !ops.isEmpty else { return nil }
+        out.items.sort(by: Item.drawsBefore)
+        return ItemEdit(ops: ops, page: out)
+    }
+
+    /// Moves or resizes item `id` like `setFrame`; for a text box whose
+    /// width changes, `relayout` lays its text out again at the new frame and
+    /// returns the content (new `breaks`) and the frame (the height its lines
+    /// need) to store, written in the same delta (format.md §8.2.4: `breaks`
+    /// belong to the wrapping width). Nil when nothing changes.
+    public static func setFrame(_ id: UUID, to frame: Rect, on page: Page,
+                                relayout: (TextContent, Rect) -> (content: TextContent, frame: Rect)) -> ItemEdit? {
+        guard let item = page.items.first(where: { $0.id == id }), item.kind == .text, let text = item.text,
+              InkJSON.round3(item.frame.w) != InkJSON.round3(frame.w),
+              [frame.x, frame.y, frame.w, frame.h].allSatisfy(\.isFinite), frame.hasPositiveSize else {
+            return setFrame(id, to: frame, on: page)
+        }
+        let laid = relayout(text, frame)
+        return (try? setText(id, to: laid.content, frame: laid.frame, on: page)) ?? setFrame(id, to: frame, on: page)
+    }
+}
