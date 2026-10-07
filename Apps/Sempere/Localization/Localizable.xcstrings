@@ -1366,13 +1366,13 @@
               "ipad" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Una bóveda es un único elemento .sempere en Files: en este dispositivo, en iCloud Drive o en cualquier otro lugar. Elige el propio elemento .sempere (también sirve una carpeta normal)."
+                  "value" : "Una bóveda es un único elemento .sempere en Archivos: en este dispositivo, en iCloud Drive o en cualquier otro lugar. Elige el propio elemento .sempere (también sirve una carpeta normal)."
                 }
               },
               "iphone" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Una bóveda es un único elemento .sempere en Files: en este dispositivo, en iCloud Drive o en cualquier otro lugar. Elige el propio elemento .sempere (también sirve una carpeta normal)."
+                  "value" : "Una bóveda es un único elemento .sempere en Archivos: en este dispositivo, en iCloud Drive o en cualquier otro lugar. Elige el propio elemento .sempere (también sirve una carpeta normal)."
                 }
               },
               "mac" : {
@@ -1384,7 +1384,7 @@
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Una bóveda es un único elemento .sempere en Files: en este dispositivo, en iCloud Drive o en cualquier otro lugar. Elige el propio elemento .sempere (también sirve una carpeta normal)."
+                  "value" : "Una bóveda es un único elemento .sempere en Archivos: en este dispositivo, en iCloud Drive o en cualquier otro lugar. Elige el propio elemento .sempere (también sirve una carpeta normal)."
                 }
               }
             }
@@ -4207,7 +4207,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abre la app Files una vez: iCloud Drive puede tardar un minuto en aparecer en un dispositivo que acaba de empezar a sincronizarlo."
+            "value" : "Abre la app Archivos una vez: iCloud Drive puede tardar un minuto en aparecer en un dispositivo que acaba de empezar a sincronizarlo."
           }
         }
       }
@@ -4357,7 +4357,7 @@
       }
     },
     "Page %lld of %lld" : {
-      "comment" : "Current page number of the page count",
+      "comment" : "Current page number of the page count [not-plural] (a page position, not a quantity)",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
@@ -5825,7 +5825,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sempere abre las bóvedas con el selector de archivos del sistema, así que ve exactamente las ubicaciones que muestra la app Files."
+            "value" : "Sempere abre las bóvedas con el selector de archivos del sistema, así que ve exactamente las ubicaciones que muestra la app Archivos."
           }
         }
       }
@@ -6122,7 +6122,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "¿Sigue sin aparecer? Crea la bóveda «En este dispositivo» por ahora y muévela a iCloud Drive más tarde en Files."
+            "value" : "¿Sigue sin aparecer? Crea la bóveda «En este dispositivo» por ahora y muévela a iCloud Drive más tarde en Archivos."
           }
         }
       }
@@ -7290,13 +7290,13 @@
               "ipad" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Para guardar una bóveda en iCloud Drive, elige una carpeta dentro de él. Sirve cualquier ubicación de Files."
+                  "value" : "Para guardar una bóveda en iCloud Drive, elige una carpeta dentro de él. Sirve cualquier ubicación de Archivos."
                 }
               },
               "iphone" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Para guardar una bóveda en iCloud Drive, elige una carpeta dentro de él. Sirve cualquier ubicación de Files."
+                  "value" : "Para guardar una bóveda en iCloud Drive, elige una carpeta dentro de él. Sirve cualquier ubicación de Archivos."
                 }
               },
               "mac" : {
@@ -7308,7 +7308,7 @@
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Para guardar una bóveda en iCloud Drive, elige una carpeta dentro de él. Sirve cualquier ubicación de Files."
+                  "value" : "Para guardar una bóveda en iCloud Drive, elige una carpeta dentro de él. Sirve cualquier ubicación de Archivos."
                 }
               }
             }

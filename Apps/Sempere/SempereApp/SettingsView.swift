@@ -76,7 +76,7 @@ private struct NewNoteSettingsSection: View {
                 HStack {
                     Text("Paper").foregroundStyle(.primary)
                     Spacer()
-                    Text(paper.kind.title).foregroundStyle(.secondary)
+                    Text(paper.kind.localizedTitle).foregroundStyle(.secondary)
                     Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
             }
