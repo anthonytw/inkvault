@@ -161,20 +161,29 @@ are removed on the next export. Bulk export is the CLI's (`sempere export`).
 ## PDF pages on the canvas
 
 PDF page items are `PDFTileLayer`s (a `CATiledLayer` drawn by Core Graphics,
-`docs/attachments.md` §13). In build 6 they stayed blank on the Mac. The
-canvas shows a page's items before its view is in a window, when its display
-scale may be 0 (or not the window's), and the tile layer only redrew for a
-content change: an iPad redraws tiles for a new `contentsScale` by itself, a
-Mac does not. Now a tile layer never takes a scale of 0, redraws whenever its
-scale changes, and the item layer lays out again when the display scale
-changes (a window moved to another display). `MacCatalystPDFTests` runs the
-whole path on Catalyst (blob cache with file protection, the sandboxed
-temporary folder, Core Graphics, the tile drawing in both context
-orientations, Core Animation asking for tiles, the pixels in the window),
-including items shown before the view is in a window. Not covered by tests:
-an iCloud Drive vault whose attachments are not downloaded yet on the Mac
-(the same `CloudVault` path as the iPad; the simulator and the runner have
-no iCloud).
+`docs/attachments.md` §13). In build 6 they stayed blank on the Mac. What the
+Catalyst runs in CI show:
+
+* The whole path works on Catalyst for a local vault: the blob cache (file
+  protection attributes, the sandboxed temporary folder), Core Graphics, the
+  tile drawing in both context orientations, Core Animation asking for tiles
+  and the pixels in a window (`MacCatalystPDFTests`), and a PDF imported into
+  the demo vault and opened in the running app's canvas
+  (`MacWindowUITests.testPDFPagesAreDrawnOnTheCanvas`).
+* One Mac difference was fixed: a tile layer redrew only when its content
+  changed. An iPad redraws tiles for a new `contentsScale` by itself, a Mac
+  does not, and the canvas can show a page's items before its view is in a
+  window (when the display scale may not be the window's yet). Now a tile layer
+  never takes a scale of 0, redraws when its scale changes, and the item layer
+  lays out again when the display scale changes (a window moved to another
+  display). The runner's display is 1×, so this could not be shown failing
+  before the fix there.
+* Not covered: the maintainer's vault is in iCloud Drive, whose attachments are
+  downloaded lazily (`CloudVault`, the same code as the iPad; the runner has no
+  iCloud). If pages stay blank on a Mac after this PR, that path, on a Retina
+  display, is the next suspect: the DEBUG log (`SemperePerf`, `SempereProbe`)
+  and the item's placeholder (a cloud symbol while downloading, a triangle with
+  the error otherwise) tell which.
 
 ## Notebook combo box
 
