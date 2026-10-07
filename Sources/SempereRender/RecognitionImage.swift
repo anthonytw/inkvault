@@ -19,19 +19,20 @@ public enum RecognitionImage {
         public var region: Recognition.Box
     }
 
-    /// The image of `strokes`, or nil when none can be seen (no strokes, only
-    /// markers, or no finite extent).
+    /// The image of `strokes`, or nil when there is nothing to read (no
+    /// strokes, or only markers): the caller stores empty text for such a page.
     ///
     /// - Throws: `RenderError` when the page cannot be drawn (non-finite data,
     ///   an extent beyond `RenderLimits.maxExtent`), so the caller never stores
     ///   "nothing legible" for a page that was not read.
     public static func render(strokes: [Stroke]) throws -> Rendered? {
         let drawable = strokes.filter { $0.ink.tool != .marker && !$0.points.isEmpty }
-        guard let bounds = inkBounds(drawable) else { return nil }
+        guard !drawable.isEmpty else { return nil }
+        guard let bounds = inkBounds(drawable) else { throw RenderError.invalidGeometry }
         let region = Recognition.Box(x: bounds.minX - margin, y: bounds.minY - margin,
                                      w: bounds.maxX - bounds.minX + 2 * margin, h: bounds.maxY - bounds.minY + 2 * margin)
         let scale = min(2, (maxPixels / (region.w * region.h)).squareRoot(), maxSide / max(region.w, region.h))
-        guard scale > 0, scale.isFinite else { return nil }
+        guard scale > 0, scale.isFinite else { throw RenderError.extentTooLarge(max(region.w, region.h)) }
         let moved = drawable.map { s -> Stroke in
             var s = s
             s.ink.color = .black

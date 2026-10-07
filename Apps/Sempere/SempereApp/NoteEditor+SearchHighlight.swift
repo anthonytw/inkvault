@@ -60,7 +60,8 @@ extension NoteEditor {
 
     /// What the canvas draws on page `id`: the matching boxes, the current one flagged.
     func highlightBoxes(onPage id: UUID) -> [HighlightBox] {
-        guard let cursor = searchCursor else { return [] }
+        // A page edited since the cursor was made has stale boxes: none until the next step rebuilds the list.
+        guard let cursor = searchCursor, !dirtyPages.contains(id) else { return [] }
         return cursor.matches(onPage: id).map { HighlightBox(box: $0.match.box, isCurrent: $0.index == cursor.index) }
     }
 

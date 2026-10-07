@@ -37,7 +37,8 @@ enum DragPayload: Equatable, Sendable {
     /// The payload in `data`, nil when it is empty or malformed.
     static func decode(_ data: Data, as type: UTType) -> DragPayload? {
         if type == .sempereNotes {
-            guard let names = try? JSONDecoder().decode([String].self, from: data), names.count <= maxNotes else { return nil }
+            guard data.count <= maxNotes * 48,   // a quoted uuid and a comma are 40 bytes
+                  let names = try? JSONDecoder().decode([String].self, from: data), names.count <= maxNotes else { return nil }
             let ids = names.compactMap { UUID(uuidString: $0) }
             return ids.isEmpty ? nil : .notes(ids)
         }

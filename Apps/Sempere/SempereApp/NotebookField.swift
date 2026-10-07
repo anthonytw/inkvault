@@ -189,7 +189,7 @@ struct MoveNotebookView: View {
 
     private func move(into target: String) {
         let from = path
-        model.undoManager = undoManager
+        if let undoManager { model.undoManager = undoManager }   // never replace the sidebar's with nil
         dismiss()
         Task { await model.move(.notebook(from), to: NotebookPath.canonical(target).map(DropTarget.notebook) ?? .topLevel) }
     }

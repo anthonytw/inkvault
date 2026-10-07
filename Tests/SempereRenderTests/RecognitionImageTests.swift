@@ -38,6 +38,16 @@ final class RecognitionImageTests: XCTestCase {
         XCTAssertEqual(both.region, plain.region, "the marker does not widen the image")
     }
 
+    func testMarkerOnlyPageIsNothingToReadButBrokenGeometryThrows() throws {
+        XCTAssertNil(try RecognitionImage.render(strokes: [stroke(.marker), stroke(.marker, tx: 90)]))
+        var bad = stroke()
+        bad.points[3].x = .nan
+        XCTAssertThrowsError(try RecognitionImage.render(strokes: [bad]))
+        var far = stroke()
+        far.points[3].x = 1e9
+        XCTAssertThrowsError(try RecognitionImage.render(strokes: [far]), "beyond the render limits is an error, not empty text")
+    }
+
     func testHugeInkIsScaledDownNotRejected() throws {
         var s = stroke()
         s.points[19].x = 20_000

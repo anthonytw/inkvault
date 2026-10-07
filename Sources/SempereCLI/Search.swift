@@ -126,7 +126,7 @@ struct SearchCommand: ParsableCommand {
             guard !state.deleted else { continue }
             title = state.meta.title
             let noteId = id.uuidString.lowercased()
-            let located = showBoxes ? SearchMatches.matches(words: tokens, in: state.pages) : []
+            let located = showBoxes ? SearchMatches.matches(needle, in: state.pages) : []
             for (index, page) in state.pages.enumerated() {
                 let pageId = page.id.uuidString.lowercased()
                 if let rec = page.recognition {

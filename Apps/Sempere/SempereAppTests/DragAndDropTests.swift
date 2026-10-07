@@ -26,6 +26,7 @@ struct DragAndDropTests {
         #expect(DragPayload.decode(Data(" / ".utf8), as: .sempereNotebook) == nil)
         #expect(DragPayload.decode(Data(repeating: 0x41, count: DragPayload.maxPathBytes + 1), as: .sempereNotebook) == nil)
         #expect(DragPayload.decode(notes.data, as: .pdf) == nil)
+        #expect(DragPayload.decode(Data(repeating: 0x20, count: DragPayload.maxNotes * 48 + 1), as: .sempereNotes) == nil)
         // Ids that do parse are kept, the others dropped.
         let mixed = Data(#"["\#(ids[0].uuidString)", "x"]"#.utf8)
         #expect(DragPayload.decode(mixed, as: .sempereNotes) == .notes([ids[0]]))

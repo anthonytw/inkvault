@@ -116,10 +116,11 @@ struct Recognizer {
         #endif
         #if canImport(Vision)
         return Recognizer(engine: VisionRecognition.engine) { page in
-            // A page that cannot be drawn is an error, not "nothing legible": an empty result
-            // would be stored as current and never read again.
+            // A page that cannot be drawn throws (RenderError): an empty result would be stored
+            // as current and never read again. A page with nothing to read (only markers) is
+            // current with empty text, as in the app.
             guard let image = try RecognitionImage.render(strokes: page.strokes) else {
-                throw CLIError.failure("a page's ink could not be drawn for reading")
+                return Recognition(engine: VisionRecognition.engine, text: "")
             }
             let lines = try VisionRecognition.lines(inPNG: image.png, region: image.region)
             return RecognitionLayout.assemble(engine: VisionRecognition.engine, lines: lines, basis: nil)

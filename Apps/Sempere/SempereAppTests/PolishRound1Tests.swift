@@ -186,6 +186,8 @@ struct PolishRound1Tests {
         var drawing = editor.drawing(for: pages[1])
         drawing.strokes.append(TS.canvasStroke(TS.stroke(x: 50, y: 400)))
         editor.drawingDidChange(pageID: pages[1], drawing: drawing, tool: nil)
+        #expect(editor.highlightBoxes(onPage: pages[1]).isEmpty, "stale boxes vanish at once, not at the next step")
+        #expect(editor.highlightBoxes(onPage: pages[0]).count == 1)
         editor.stepSearchMatch(1)
         #expect(editor.searchCursor?.matches.allSatisfy { $0.pageId == pages[0] } == true)
     }
