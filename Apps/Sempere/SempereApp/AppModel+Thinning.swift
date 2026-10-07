@@ -97,6 +97,9 @@ extension NoteWriter {
     static func thin(_ noteID: UUID, mode: CompactionMode, vault: Vault, clock: DeviceClock, cache: SummaryCache?,
                      app: String = NoteWriter.appName, coordinated: Bool, verify: (@Sendable () throws -> Void)?,
                      dryRun: Bool, now: Date = Date()) async throws -> PreparedCompaction {
+        let interval = Perf.begin(.thinNote)
+        var stage = "metadata"
+        defer { Perf.end(interval, "note=\(Perf.short(noteID)) \(stage)") }
         let empty = PreparedCompaction.nothing(noteID)
         let folder = coordinated ? vault.url.appendingPathComponent("notes", isDirectory: true)
             .appendingPathComponent(noteID.uuidString.lowercased(), isDirectory: true) : nil
@@ -118,6 +121,7 @@ extension NoteWriter {
             }
         }.value
         guard let loaded else { return empty }
+        stage = "full"
         let device = clock.device
         let plan = try await clock.withClock(save: !dryRun) { c in
             try vault.planCompaction(noteID, loaded: loaded, mode: mode, now: now, device: device, clock: &c, app: app)
@@ -178,6 +182,9 @@ extension AppModel {
         for id in ids where skipOpen && open.contains(id) { report.skipped[id] = "open" }
         thinningProgress = ThinningProgress(done: 0, total: work.count, dryRun: dryRun)
         defer { if generation == gen { thinningProgress = nil } }
+        let interval = Perf.begin(.thin)
+        var readInFull = 0
+        defer { Perf.end(interval, "notes=\(work.count) read=\(readInFull) dryRun=\(dryRun)") }
         var changed: [UUID] = []
         // A real run holds the edit gate throughout (as browser edits and key changes do), so it
         // never interleaves with them; a preview writes nothing and takes no gate.
@@ -219,6 +226,7 @@ extension AppModel {
         for (id, result) in results {
             switch result {
             case .success(let p):
+                if !p.plan.targets.isEmpty || !p.plan.deletions.isEmpty { readInFull += 1 }
                 guard !p.plan.deletions.isEmpty else { continue }
                 report.notes.append(NoteThinning(id: id, title: titles[id] ?? "", deletions: p.plan.deletions.count,
                                                  snapshots: p.plan.snapshots.count, bytesDeleted: p.bytesDeleted,

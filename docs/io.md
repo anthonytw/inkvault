@@ -116,8 +116,13 @@ below): it lists the note folders by name, and only notes whose revision
 names differ from those their shown summary was made from are checked with
 iCloud (`ProgressiveLoad.pass(notes:)`, one state query per file), sorted
 into *ready* (all files local: read at once) and *pending* (some file not
-local), and pending ones requested at most 16 notes at a time, the note the
-user selected first. A note whose files iCloud evicted but whose names are
+local), and pending ones requested at most 64 notes at a time, the note the
+user selected first. A note first seen changed (or reported by the file
+presenter) is checked at once; notes already known to be arriving are
+re-checked at most 64 per pass, in rotation (`cloudCheckLimit`,
+`nextPendingChecks`), so N notes arriving over many passes cost
+O(N + passes × 64) state queries, not O(N × passes) (performance round 3: a
+mass re-import changed every note of a 640-note vault at once). A note whose files iCloud evicted but whose names are
 unchanged is not pending: its row comes from the index and it is downloaded
 only when opened (`downloadNote`). While locked, a device that already has an
 index of the vault fetches nothing (the index will show which notes changed);
@@ -144,13 +149,17 @@ Listing (any vault, `AppModel+Loading`): unlocking only checks the key; the
 note list is then read by a task the model owns (`startLoadingNotes`), so the
 unlock sheet closes at once and no view going away can cancel the listing.
 Summaries are read without stroke geometry, on up to four threads, in
-batches of 24 that are queued for the list as they finish (applied at most
-four times a second, `queueListUpdate`); the bar under the list shows
-"Opening vault: n of m notes" (or "Updating notes" when the list already
-shows every note) next to the iCloud progress. On a reopen the indexed
+batches of 24 (an eighth of the notes, at most 96, when many changed) that are
+queued for the list as they finish (applied at most four times a second,
+`queueListUpdate`); the bar under the list shows "Opening vault: n of m notes"
+(or "Updating 640 changed notes: n done" when the list already shows every
+note) next to the iCloud progress. On a reopen the indexed
 summaries are shown before anything is read, and only notes whose revision
 file names changed are read at all. Listings never overlap (`loadGate`), and
-the cache file is written once per listing, not per batch. The list is usable
+the cache file is written once per listing, not per batch, and while notes
+keep arriving from iCloud at most every 20 s (`summaryCacheSaveInterval`;
+also when they have all arrived, when the app goes to the background and when
+the vault closes): every save re-encrypts the whole index. The list is usable
 while it loads, so edits never decide from a summary not read in this session
 (`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
 first), a notebook rename waits until every note was read, a batch read

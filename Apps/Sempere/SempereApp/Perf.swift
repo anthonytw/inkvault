@@ -61,6 +61,10 @@ enum Perf {
         case cacheWrite = "cache.write"
         /// A note folder reported changed by the file presenter (an event).
         case changeNotified = "change.notified"
+        /// A thinning run or preview over the vault (`thinVault`).
+        case thin = "thin"
+        /// Thinning one note: metadata, then (when something may go) read, plan, encode, write.
+        case thinNote = "thin.note"
     }
 
     /// An interval in progress; pass it to `end`.
@@ -145,6 +149,8 @@ extension Perf.Phase {
         case .noteFirstRender: return "note.firstRender"
         case .cacheWrite: return "cache.write"
         case .changeNotified: return "change.notified"
+        case .thin: return "thin"
+        case .thinNote: return "thin.note"
         }
     }
 }
