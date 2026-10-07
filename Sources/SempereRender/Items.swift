@@ -558,6 +558,10 @@ enum TextItems {
                 report.warn(prefix + "\(TextIssues.name(script)) text is drawn without full shaping (approximate); "
                     + "the app's export is exact")
             }
+            for (script, example) in shaped.bitmapScripts.sorted(by: { $0.key < $1.key }) {
+                report.warn(prefix + "\(TextIssues.name(script)) characters such as U+\(String(format: "%04X", example)) have colour "
+                    + "or bitmap glyphs only and are left out of the export")
+            }
             return .success((shaped, ItemGeometry.rotate(frame: it.item.frame, degrees: it.item.rotation ?? 0)))
         } catch {
             return .failure(.textUnavailable("text box cannot be laid out (\(error))"))

@@ -171,8 +171,10 @@ enum NotePDFExport {
         let loaded = try vault.loadNote(noteID)
         guard loaded.failures.isEmpty else { throw AppModel.ExportError.unreadableRevisions(loaded.failures.count) }
         let state = try NoteReducer.reconstruct(loaded.revisions)
-        // PDF page backgrounds are copied from the note's attachments (docs/attachments.md §10).
-        let options = RenderOptions(blobs: vault.blobSource(note: noteID), pdfRasterizer: PDFKitRasterizer())
+        // PDF page backgrounds are copied from the note's attachments (docs/attachments.md §10);
+        // text boxes are laid out as the canvas shows them.
+        let options = RenderOptions(blobs: vault.blobSource(note: noteID), pdfRasterizer: PDFKitRasterizer(),
+                                    shaper: CoreTextShaper())
         return Rendered(title: state.meta.title, pdf: try PDFWriter.render(note: state, options: options))
     }
 

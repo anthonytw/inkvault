@@ -178,4 +178,80 @@ final class ItemOpsTests: XCTestCase {
         XCTAssertEqual(flat.w, 8)
         XCTAssertEqual(ItemFrames.moved(frame, dx: 3, dy: -4), Rect(x: 3, y: -4, w: 80, h: 40))
     }
+
+    // MARK: Text boxes (task E2)
+
+    func testNormalizedRunsAreNFCMergedAndWithoutEmptyRuns() {
+        let runs = NoteOps.normalizedRuns([TextRun("Cafe\u{301}\r\n"), TextRun(""), TextRun("x"), TextRun("y", b: true),
+                                           TextRun("z", b: true)])
+        XCTAssertEqual(runs, [TextRun("Caf\u{E9}\nx"), TextRun("yz", b: true)])
+    }
+
+    /// Pasted text can hold controls the format refuses: line breaking ones
+    /// become `\n`, the others go, so the edit is never refused as a whole.
+    func testNormalizedRunsHoldNoControlCharacters() throws {
+        let runs = NoteOps.normalizedRuns([TextRun("a\u{0B}b\u{0C}c\rd\u{0}e\u{1B}f\tg")])
+        XCTAssertEqual(runs, [TextRun("a\nb\nc\ndef\tg")])
+        XCTAssertTrue(runs.allSatisfy { TextRun.isValidText($0.t) })
+        let page = Page(id: pageID, order: "a", items: [text("hello")])
+        var content = try XCTUnwrap(page.items[0].text)
+        content.runs = runs
+        XCTAssertNotNil(try NoteOps.setText(page.items[0].id, to: content, on: page))
+    }
+
+    func testSetTextWritesTextAndFrameInOneDelta() throws {
+        let a = text("hello")
+        let page = Page(id: pageID, order: "a", items: [a])
+        var content = try XCTUnwrap(a.text)
+        content.runs = [TextRun("hello world")]
+        content.breaks = [6]
+        let edit = try XCTUnwrap(try NoteOps.setText(a.id, to: content, frame: Rect(x: 0, y: 0, w: 50, h: 28.8), on: page))
+        XCTAssertEqual(edit.ops.count, 2)
+        guard case .setItem(_, _, .frame) = edit.ops[0], case .setItem(_, _, .text(let t)) = edit.ops[1] else {
+            return XCTFail("\(edit.ops)")
+        }
+        XCTAssertEqual(t.breaks, [6])
+        let start = try NoteOps.placeOnTop(a, on: Page(id: pageID, order: "a"))
+        let on = try XCTUnwrap(try NoteOps.setText(a.id, to: content, frame: Rect(x: 0, y: 0, w: 50, h: 28.8), on: start.page))
+        XCTAssertEqual(strip(try reduced([start.ops, on.ops]).items), on.page.items)
+        // Unchanged: nothing; same frame: only the text.
+        XCTAssertNil(try NoteOps.setText(a.id, to: try XCTUnwrap(a.text), frame: a.frame, on: page))
+        XCTAssertEqual(try NoteOps.setText(a.id, to: content, on: page)?.ops.count, 1)
+        // Not a text box, or bad content: refused.
+        let img = image()
+        XCTAssertNil(try NoteOps.setText(img.id, to: content, on: Page(id: pageID, order: "a", items: [img])))
+        content.runs = [TextRun("bad\u{7}")]
+        XCTAssertThrowsError(try NoteOps.setText(a.id, to: content, on: page))
+        content.runs = [TextRun("ok")]
+        content.size = 2000
+        XCTAssertThrowsError(try NoteOps.setText(a.id, to: content, on: page))
+    }
+
+    func testResizingATextBoxRelaysItOut() throws {
+        let a = text("hello world")
+        let page = Page(id: pageID, order: "a", items: [a])
+        var calls = 0
+        func relayout(_ c: TextContent, _ f: Rect) -> (content: TextContent, frame: Rect) {
+            calls += 1
+            var out = c
+            out.breaks = f.w < 40 ? [6] : nil
+            return (out, Rect(x: f.x, y: f.y, w: f.w, h: f.w < 40 ? 28.8 : 14.4))
+        }
+        // A move keeps the width: no relayout, one setItem(frame).
+        let move = try XCTUnwrap(NoteOps.setFrame(a.id, to: Rect(x: 5, y: 5, w: 50, h: 20), on: page, relayout: relayout))
+        XCTAssertEqual(calls, 0)
+        XCTAssertEqual(move.ops.count, 1)
+        // Narrower: new breaks and the height the lines need, in the same delta.
+        let narrow = try XCTUnwrap(NoteOps.setFrame(a.id, to: Rect(x: 0, y: 0, w: 30, h: 99), on: page, relayout: relayout))
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(narrow.ops.count, 2)
+        XCTAssertEqual(narrow.page.items[0].frame, Rect(x: 0, y: 0, w: 30, h: 28.8))
+        XCTAssertEqual(narrow.page.items[0].text?.breaks, [6])
+        // Images are never laid out.
+        let img = image()
+        let resized = try XCTUnwrap(NoteOps.setFrame(img.id, to: Rect(x: 0, y: 0, w: 30, h: 15),
+                                                     on: Page(id: pageID, order: "a", items: [img]), relayout: relayout))
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(resized.ops.count, 1)
+    }
 }

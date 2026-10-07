@@ -282,7 +282,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   Whatever a page canvas needs goes through `PageCanvasContent` and
   `Coordinator.apply` (both paths), never set on the one-page host alone (drops,
   item commands, highlights). Insertions fit into `visibleRect(ofPage:)` of the
-  page they land on (the stack's `PageStackLayout.visiblePart`).
+  page they land on (the stack's `PageStackLayout.visiblePart`). The stack gives
+  a page canvas the focus only when no canvas has it and no text box is being
+  typed in (`ensureFocus`, `PageCanvasHost.focus`): the text view keeps the keyboard.
 - Paged vs pageless is only `pageSize.infinite` (`format.md` §5.4.3). Page
   gestures (add, move, delete, undo, duplicate) and the layout switch are built
   by `NoteOps` (`Sources/Sempere/PageLayout.swift`), which also predicts the

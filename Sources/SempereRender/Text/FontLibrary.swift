@@ -8,6 +8,16 @@ public struct FontFace: Sendable {
     public let url: URL
     public let faceIndex: Int
 
+    /// A face loaded from somewhere other than a font file: `url` must name
+    /// it uniquely (two faces with the same `url` and `faceIndex` must hold
+    /// the same font), as exports share one subset per name. The app's
+    /// CoreText shaper passes fonts built with `OutlineFont`.
+    public init(font: OpenTypeFont, url: URL, faceIndex: Int) {
+        self.font = font
+        self.url = url
+        self.faceIndex = faceIndex
+    }
+
     /// A key unique per face.
     var key: String { url.path + "#\(faceIndex)" }
 }
