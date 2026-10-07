@@ -116,6 +116,7 @@ struct PageCanvasView: UIViewRepresentable {
             loadTask = nil
             loadToken &+= 1
             pageID = nil
+            editor = nil   // a spare canvas holds no note
             editorID = nil
             generation = nil
             host.cancelErasing()

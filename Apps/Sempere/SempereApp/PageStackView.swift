@@ -283,9 +283,14 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
     private func configure(_ slot: Slot, index: Int, pageID: UUID, editor: NoteEditor, configuration: Configuration) {
         let frame = layout.pageFrame(index, scale: Double(scale))
         if slot.host.frame != frame { slot.host.frame = frame }
-        let page = editor.pages.indices.contains(index) && editor.pages[index].id == pageID
-            ? editor.pages[index] : editor.pages.first { $0.id == pageID }
-        guard let page else { return }
+        let page: Page
+        if editor.pages.indices.contains(index), editor.pages[index].id == pageID {
+            page = editor.pages[index]
+        } else if let found = editor.pages.first(where: { $0.id == pageID }) {
+            page = found
+        } else {
+            return
+        }
         slot.host.footer = .none
         slot.host.paletteVisible = configuration.paletteVisible
         slot.coordinator.apply(
