@@ -75,6 +75,12 @@ enum ItemRendering {
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
+        // An equation no typesetter has rendered yet (the CLI's): typeset here (format.md §8.2.7 step 2).
+        if item.kind == .math, let math = item.math, math.render == nil {
+            return MathTypesetter.picture(math, frame: item.frame, rotation: item.rotation, scale: key.scale)
+                .map { ItemPicture.image($0.0, bounds: $0.1) }
+                ?? .placeholder(.unavailable("the equation cannot be typeset"))
+        }
         let interval = Perf.begin(.itemPicture)
         let label = renders == nil ? nil : RenderCache.pictureLabel(key)
         if let renders, let label {
@@ -86,7 +92,7 @@ enum ItemRendering {
         }
         defer { Perf.end(interval, "drawn") }
         var files: [String: URL] = [:]
-        let blobs = item.blob.map { [$0] } ?? []
+        let blobs = item.blobReferences   // an image's or PDF page's blob, an equation's render
         if let cache {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {

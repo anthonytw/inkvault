@@ -316,6 +316,10 @@ struct EditorView: View {
         commands.crop = { item, page, actions in
             state.cropping = CropRequest(item: item, page: page, note: note, actions: actions)
         }
+        let editor = self.editor
+        commands.editMath = { item, page, actions in
+            state.editingMath = MathRequest(editor: editor, page: page, item: item, actions: actions, visible: nil)
+        }
         return commands
     }
 

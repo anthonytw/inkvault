@@ -87,6 +87,8 @@ final class InsertState {
     var takingPhoto = false
     var pickingPDF = false
     var cropping: CropRequest?
+    /// The equation being added or edited (`MathEditorView`).
+    var editingMath: MathRequest?
     /// Something is being added (a spinner in the menu's place).
     var working = 0
 }
@@ -115,10 +117,15 @@ struct InsertMenu: View {
             PasteButton(supportedContentTypes: [.image], payloadAction: onPaste)
             Button("PDF Pages…", systemImage: "doc.richtext") { state.pickingPDF = true }
                 .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
+            Button("Equation…", systemImage: "function") {
+                guard let page = editor.currentPage?.id else { return }
+                state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
+                                                visible: editor.canvasTarget?.visibleRect(ofPage: page))
+            }
         } label: {
             Label("Insert", systemImage: state.working > 0 ? "hourglass" : "photo.badge.plus")
         }
-        .help("Add photos, a picture from the clipboard, or pages of a PDF")
+        .help("Add photos, a picture from the clipboard, pages of a PDF, or an equation")
         .disabled(editor.isReadOnly || editor.currentPage == nil)
     }
 }
@@ -154,6 +161,9 @@ struct EditorInsert: ViewModifier {
             }
             .sheet(item: $state.cropping) { request in
                 CropView(request: request, cache: model.attachmentCache())
+            }
+            .sheet(item: $state.editingMath) { request in
+                MathEditorView(request: request)
             }
     }
 

@@ -116,6 +116,8 @@ struct ItemCommands {
     var paste: @MainActor (_ page: UUID, _ actions: ItemActions) async -> [Item] = { _, _ in [] }
     /// Opens the crop sheet for an image or PDF page; nil: no Crop in the menu.
     var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
+    /// Opens the equation sheet for a math item; nil: no Edit Equation in the menu.
+    var editMath: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
 
 /// Selecting, moving, resizing and deleting items on the canvas while
@@ -318,6 +320,12 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                     self.select(new.id)
                 })
+                if let editMath = commands.editMath, item.kind == .math, item.math != nil, let actions {
+                    elements.append(UIAction(title: "Edit Equation…", image: UIImage(systemName: "function")) { [weak self] _ in
+                        self?.select(nil)
+                        editMath(item, pageID, actions)
+                    })
+                }
                 if let crop = commands.crop, item.cropBounds != nil, let actions {
                     elements.append(UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in
                         crop(item, pageID, actions)
