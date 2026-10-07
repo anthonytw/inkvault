@@ -49,18 +49,33 @@ public enum ImageIngest {
     /// - Throws: `ImageIngestError`.
     public static func prepare(_ data: Data, keepMetadata: Bool = false,
                                maxPixels: Int = ImageLimits.maxPixels) throws -> PreparedImage {
+        switch format(of: data) {
+        case .jpeg: return try jpeg(data, keepMetadata: keepMetadata, maxPixels: maxPixels)
+        case .png: return try png(data, keepMetadata: keepMetadata, maxPixels: maxPixels)
+        case .heic: throw ImageIngestError.heic
+        case .other: throw ImageIngestError.unsupportedFormat
+        }
+    }
+
+    /// What an image file is, from its first bytes (not a validation).
+    public enum Format: Hashable, Sendable {
+        case jpeg, png
+        /// HEIC or another HEIF brand.
+        case heic
+        /// Anything else (WebP, GIF, TIFF, ...).
+        case other
+    }
+
+    /// The format of `data` by its signature.
+    public static func format(of data: Data) -> Format {
         let head = [UInt8](data.prefix(12))
-        if head.count >= 3, head[0] == 0xFF, head[1] == 0xD8 {
-            return try jpeg(data, keepMetadata: keepMetadata, maxPixels: maxPixels)
-        }
-        if head.count >= 8, Array(head[0..<8]) == PNG.signature {
-            return try png(data, keepMetadata: keepMetadata, maxPixels: maxPixels)
-        }
+        if head.count >= 3, head[0] == 0xFF, head[1] == 0xD8 { return .jpeg }
+        if head.count >= 8, Array(head[0..<8]) == PNG.signature { return .png }
         if head.count >= 12, Array(head[4..<8]) == Array("ftyp".utf8),
            ["heic", "heix", "hevc", "heim", "heis", "mif1", "msf1"].contains(String(decoding: head[8..<12], as: UTF8.self)) {
-            throw ImageIngestError.heic
+            return .heic
         }
-        throw ImageIngestError.unsupportedFormat
+        return .other
     }
 
     private static func jpeg(_ data: Data, keepMetadata: Bool, maxPixels: Int) throws -> PreparedImage {
