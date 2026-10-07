@@ -751,6 +751,34 @@ secret the local one or confirmed by `secretLink`). Otherwise it is listed in
 `rejected`, the local file stays and the sync state is not updated, so the
 next run reports it again.
 
+**Push-only mirror** (`--push-only`, `WebDAVSyncOptions.pushOnly`). A two-way
+sync rejects a `vault.json` whose recipients changed without a valid tag
+(format.md §2.1, above), but it still takes whatever else the server holds:
+new revisions and blobs, deletions it can explain, journals. For a server that
+is only a copy (the web viewer's mirror) and is not trusted to write back, the
+run is one-way, and the server can be corrupted but can never feed anything
+back:
+
+- nothing is downloaded, and nothing in the vault folder is written, restored
+  or deleted (every local write path refuses in this mode; only the sync-state
+  file outside the vault changes);
+- a file the server lacks is uploaded, including one the last sync had;
+- `vault.json` and `rewrap-journal.json` on the server are replaced by the
+  local copy when they differ (reported in `overwritten`); a malformed server
+  manifest is repaired the same way, one of another vault still aborts;
+- a file only the server has is deleted there if it was synced before and the
+  compaction (`CompactionPlanner`) or blob collection (§8.1.6 rules 1–3) rules
+  explain its absence locally, exactly as in the table above;
+- one synced before but not explained (or unjudgeable with the vault locked) is
+  kept and listed as skipped: a local listing can miss files, notably evicted
+  iCloud ones;
+- one never synced and not explained (injected revision or blob, a stray
+  journal, junk names) is `extraneous`: reported, and removed only with
+  `--delete-extraneous`, and only when sync state from an earlier run exists:
+  on a first run every server file looks never synced, including those of a
+  note the local listing missed, so they are only listed (as skipped). The
+  flag can still delete a legitimate file another writer added since.
+
 **Limits.** A recipient change rewrites files under `notes/` in place
 (format.md §3.3), which sync never propagates: after one, pull into a fresh
 folder from a new collection (or upload the rewritten vault to a new one) and
