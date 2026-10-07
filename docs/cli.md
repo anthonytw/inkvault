@@ -681,6 +681,7 @@ sempere notes tag "Week 3" --add exam --remove draft
 ```
 sempere notebooks list [--deleted] [--no-cache]
 sempere notebooks rename OLD NEW [--dry-run]
+sempere notebooks move NOTEBOOK (PARENT | --top-level) [--dry-run]
 sempere tags list [--no-cache]
 ```
 
@@ -699,6 +700,17 @@ the cache; if any cannot be read the command writes nothing and exits 1 (its
 notebook is unknown, so it would be left behind). `--dry-run` lists the notes
 that would move. `--json` gives `from`, `to`, `dryRun` and `notes`
 (`note`, `title`, `from`, `to`, `file`).
+
+`notebooks move` is what dragging a notebook onto another does in the app (or
+"Move Notebook To…"): `NOTEBOOK` keeps its last level and takes `PARENT` as its
+parent, so `notebooks move School/Math Archive` makes `School/Math` →
+`Archive/Math`, every note below it coming along (the same prefix rename,
+deleted notes included, one delta per note, same refusals and `--json` as
+`notebooks rename`). `""` or `--top-level` un-nests it. Moving a notebook into
+itself or a notebook inside it is a usage error (exit 2, nothing written), and a
+notebook that already has the name at the destination is merged with it.
+Moving into the notebook it is already in changes nothing. Notes are moved with
+`notes move`.
 
 `tags list` prints each tag once (tags match case-insensitively; the first
 spelling found is shown, as in the app's sidebar) with the number of notes
@@ -887,6 +899,13 @@ their `[x, y, w, h]` boxes) for handwriting; `page`, `pageId`, `itemId` and `box
 `end` (seconds), `engine` for a transcript (no `page`). No match prints `No
 matches.` (an empty list with `--json`) and exits 0. Notes are read in parallel
 and without stroke geometry, as for `notes list`.
+
+`--show-boxes` reports where each match is, as the app's "3 of 12" stepper
+does: every recognised word containing a word of the term, numbered across the
+note (pages in order, words in reading order). Human output adds one line per
+match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
+`locations`, a list of `{n, of, text, box}` for the matches on that hit's page
+(`n` counts from 1 over the whole note, `of` is the note's total).
 
 ### Handwriting recognition
 

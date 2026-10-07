@@ -17,6 +17,8 @@ enum SidebarItem: Hashable, Sendable {
     case notebook(String)
     case tag(String)
     case deleted
+    /// The notes the last "Recognize All Notes" run changed (`AppModel.recognitionResults`).
+    case recentlyRecognized
 }
 
 /// Window-level state: the open vault, its note summaries and the current
@@ -51,6 +53,8 @@ final class AppModel {
         case notesStillDownloading
         /// The open note's pending canvas changes could not be saved first.
         case unsavedChanges(String)
+        /// A notebook dropped into itself or a notebook inside it.
+        case invalidNotebookMove
 
         var description: String {
             switch self {
@@ -63,6 +67,7 @@ final class AppModel {
                 return "iCloud Drive has not delivered all of this note's files yet. Try again in a moment."
             case .notesStillDownloading:
                 return "Some notes are still loading or downloading from iCloud Drive. Try again once the list has finished loading."
+            case .invalidNotebookMove: return "A notebook cannot be moved into itself or into a notebook inside it."
             case .unsavedChanges(let reason):
                 return "The note's latest changes could not be saved first, so nothing was restored. \(reason)"
             }
@@ -131,6 +136,14 @@ final class AppModel {
     }
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
+    /// What the last "Recognize All Notes" run changed, kept (also after it
+    /// ends) until the next run starts; the "Recently Recognized" filter lists it.
+    var recognitionResults: RecognitionResults?
+    /// What is being dragged inside the app (set when a drag starts), so the
+    /// sidebar can tell whether a row would accept it while the drag is still over it.
+    var draggedPayload: DragPayload?
+    /// The sidebar row a drag is over that would accept it (highlighted).
+    var dropTarget: DropTarget?
     @ObservationIgnored var recognitionTask: Task<Void, Never>?
     /// Pause after the last stroke change before the open note's pages are recognised.
     let recognitionDelay: Duration
@@ -371,6 +384,9 @@ final class AppModel {
         case .notebook(let n): return notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
+        case .recentlyRecognized:
+            let ids = Set(recognitionResults?.notes.map(\.id) ?? [])
+            return notes.filter { !$0.deleted && ids.contains($0.id) }
         }
     }
 
@@ -807,6 +823,9 @@ final class AppModel {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionProgress = nil
+        recognitionResults = nil
+        draggedPayload = nil
+        dropTarget = nil
         pendingJump = nil
         searchText = ""
         sidebarSelection = .allNotes
