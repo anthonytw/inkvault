@@ -156,6 +156,8 @@ struct EditorView: View {
     @State private var showingTranscript: Recording?
     /// The recording being renamed.
     @State private var renamingRecording: Recording?
+    /// `editor.remoteUpdates` the "Updated from another device" notice is shown for (0: none).
+    @State private var remoteNoticeFor = 0
 
     var body: some View {
         @Bindable var ui = ui
@@ -226,6 +228,20 @@ struct EditorView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            if remoteNoticeFor > 0, remoteNoticeFor == editor.remoteUpdates {
+                RemoteUpdateNotice()
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                    .task(id: remoteNoticeFor) {
+                        try? await Task.sleep(for: RemoteUpdateNotice.duration)
+                        withAnimation { remoteNoticeFor = 0 }
+                    }
+            }
+        }
+        .onChange(of: editor.remoteUpdates) { _, new in
+            withAnimation { remoteNoticeFor = new }
+        }
         .inspector(isPresented: Binding(get: { stripVisible && !editor.isPageless }, set: { stripVisible = $0 })) {
             PageStripView(editor: editor)
                 .inspectorColumnWidth(min: 150, ideal: 180, max: 260)
@@ -256,6 +272,7 @@ struct EditorView: View {
             selectingItems = false
             addingText = false
             showingTranscript = nil
+            remoteNoticeFor = 0
         }
         .onChange(of: selectingItems) { if selectingItems { addingText = false } }
         .onChange(of: addingText) { if addingText { selectingItems = false } }
@@ -513,6 +530,25 @@ struct SearchMatchBar: View {
         .padding(.vertical, 6)
         .background(.bar)
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// "Updated from another device": a small capsule over the top of the
+/// canvas for a few seconds after a merge brought another device's changes
+/// (`NoteEditor.mergeRevisions`). It takes no touches.
+struct RemoteUpdateNotice: View {
+    static let text = "Updated from another device"
+    static let duration = Duration.seconds(3)
+
+    var body: some View {
+        Label(Self.text, systemImage: "arrow.triangle.2.circlepath")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: Capsule())
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("remoteUpdateNotice")
     }
 }
 

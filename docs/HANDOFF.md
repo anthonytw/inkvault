@@ -351,8 +351,8 @@ Phase 1 task detail (historical, for reference):
      used); tests pass on iOS 26.5 and 27 simulators. Left: no UI tests and no
      run on real hardware yet (pixel eraser verified with synthetic masks);
      the note list does not refresh its stroke counts after edits; remote
-     changes arriving while a note is open are not merged into the canvas
-     until it is reopened; no page delete/reorder; the app never writes
+     changes arriving while a note is open were not merged into the canvas
+     until it was reopened (merged in place since #91); no page delete/reorder; the app never writes
      snapshots; `reed` ink is stored as `fountainPen`.
    - 3b + 3c merge (#15 onto #17): the generation token also guards the
      iCloud download wait, browser edits (`refresh`), `createVault` (a vault

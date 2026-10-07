@@ -336,6 +336,12 @@ final class AppModel {
     @ObservationIgnored var renderCache: RenderCache?
     /// Items copied for pasting (`ItemClipboard`), within the open vault.
     let itemClipboard = ItemClipboard()
+    /// Merges of revisions written elsewhere into open editors, by note id
+    /// (`AppModel+RemoteMerge`).
+    @ObservationIgnored var remoteMerges: [UUID: Task<Void, Never>] = [:]
+    /// Per note, the revision names a merge could not read: not tried again
+    /// until the names change.
+    @ObservationIgnored var unreadableMergeNames: [UUID: [String]] = [:]
     /// Editors of note windows (Mac), by note id: one per note, each with its
     /// own canvas (`AppModel+Windows`).
     var windowEditors: [UUID: NoteEditor] = [:]
@@ -854,6 +860,7 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        cancelRemoteMerges()
         isCloudVault = false
         isBusy = false
         let editor = self.editor

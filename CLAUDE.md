@@ -245,6 +245,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `merge` (an edit's own re-read, immediate), never by assigning `notes`
   wholesale. Tests that need "another device wrote a revision" use
   `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Remote changes reach an open note in place (`AppModel+RemoteMerge`,
+  `NoteEditor.mergeRevisions`, docs/io.md "Changes from other devices while a
+  note is open"): a listing names a revision the editor does not know
+  (`knownRevisionNames`), the note is downloaded, the editor saves, re-reads
+  and applies the result synchronously. Never replace a canvas's drawing for
+  a merge except through `RemoteInkView.reloadInk` in that same main-actor
+  turn, after `StrokeLedger.mergeStored`: a canvas reporting a drawing the
+  ledger does not know is taken as the user's edit (echo deltas). Every write
+  an editor starts bumps `writeEpoch`. Tests: `RemoteMergeTests`.
 - Thinning (`format.md` §5.8.4) is decided from revision metadata first
   (`RevisionMeta`, kept per entry in the `SummaryCache`; `CompactionPlanner.select` /
   `mayDelete` take hollow revisions): never add a rule to `select` that needs ops or

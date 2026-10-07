@@ -120,6 +120,9 @@ extension AppModel {
             return pendingNoteIDs.count
         }
 
+        // Open notes another writer changed take the new revisions in place.
+        mergeIntoOpenEditors(listedNames: names)
+
         // 3. What the list shows before anything is read.
         let gone = Set(diff.removed).subtracting(present)
         if !gone.isEmpty {
