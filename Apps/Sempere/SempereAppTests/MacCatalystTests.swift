@@ -67,8 +67,7 @@ struct MacCatalystPDFTests {
         }
         // Core Animation asks the tile layer for its tiles.
         let asked = await TS.waitUntil(timeout: .seconds(20)) { tile.content.drawCount > 0 }
-        #expect(asked, "Core Animation drew tiles (scale \(tile.contentsScale), bounds \(tile.bounds), "
-                + "transform \(tile.affineTransform()), scene \(scene != nil))")
+        #expect(asked, "Core Animation drew tiles (scale \(tile.contentsScale), bounds \(tile.bounds), transform \(tile.affineTransform()), scene \(scene != nil))")
         // What the window shows once Core Animation has drawn the tiles.
         var shown: (r: Int, g: Int, b: Int)?
         let drawn = await TS.waitUntil(timeout: .seconds(20)) {
@@ -113,6 +112,11 @@ struct MacDragOutTests {
         var data: Data?
         var name: String?
         var error: (any Error)?
+
+        /// Blocks the calling thread (the main thread in these tests) until delivered or `seconds` pass.
+        nonisolated func wait(seconds: Double) -> Bool {
+            done.wait(timeout: .now() + seconds) == .success
+        }
     }
 
     @Test func theFileIsDeliveredWhileTheMainThreadWaits() async throws {
@@ -128,7 +132,8 @@ struct MacDragOutTests {
             delivery.done.signal()
         }
         // Block the main thread, as a file promise's writer may: the PDF still arrives.
-        #expect(delivery.done.wait(timeout: .now() + 60) == .success, "delivered without the main thread")
+        let delivered = delivery.wait(seconds: 60)
+        #expect(delivered, "delivered without the main thread")
         #expect(delivery.error == nil)
         #expect(delivery.name == "Fixture lecture.pdf")
         #expect(delivery.data?.starts(with: Data("%PDF-".utf8)) == true)
@@ -149,7 +154,7 @@ struct MacDragOutTests {
             delivery.error = error
             delivery.done.signal()
         }
-        let delivered = await Task.detached { delivery.done.wait(timeout: .now() + 60) == .success }.value
+        let delivered = await Task.detached { delivery.wait(seconds: 60) }.value
         #expect(delivered)
         #expect(delivery.error == nil)
         #expect(delivery.data?.starts(with: Data("%PDF-".utf8)) == true)
