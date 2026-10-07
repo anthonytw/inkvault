@@ -203,6 +203,18 @@ jobs:
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'
         run: scripts/app.sh catalyst
+      # The Mac suites and UI tests on Mac Catalyst (ad-hoc signed, sandboxed like the
+      # shipped app): main and dispatch runs (`gh workflow run CI --ref <branch>`).
+      - name: Test on Mac Catalyst
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        timeout-minutes: 45
+        env:
+          SEMPERE_MAC_TESTS: all
+        run: scripts/app.sh test-mac
+      - name: UI tests on Mac Catalyst
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        timeout-minutes: 20
+        run: scripts/app.sh test-mac-ui
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'
         with:

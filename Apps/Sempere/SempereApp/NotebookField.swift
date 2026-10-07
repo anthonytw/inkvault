@@ -65,6 +65,7 @@ struct NotebookField: View {
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel(isOpen ? "Hide Notebooks" : "Show Notebooks")
+                .accessibilityIdentifier("notebookChoices")
                 .disabled(notebooks.isEmpty)
             }
             if isOpen {

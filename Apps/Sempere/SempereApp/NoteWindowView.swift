@@ -51,6 +51,8 @@ struct NoteWindowView: View {
                     }
                 }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("noteWindow")
         .environment(ui)
         .windowSheets(ui)
         .focusedSceneValue(\.commandRouter, router)

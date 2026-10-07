@@ -40,6 +40,8 @@ struct RootView: View {
     /// Two properties, so the compiler checks two shorter modifier chains.
     var body: some View {
         content
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("libraryWindow")
             .environment(ui)
             .windowSheets(ui)
             .focusedSceneValue(\.commandRouter, router)
