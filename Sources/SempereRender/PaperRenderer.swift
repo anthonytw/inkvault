@@ -12,8 +12,7 @@ public enum PaperRenderer {
     /// height, or for an infinite page its `breakHeight` (else letter aspect
     /// from the width), so the structure repeats once per exported page.
     public static func sheetHeight(for size: PageSize) -> Double {
-        let h = size.infinite ? (size.breakHeight ?? size.width * 11 / 8.5) : size.height
-        return h.isFinite && h > 0 ? min(max(h, 72), RenderLimits.maxExtent) : 792
+        size.sheetHeight   // format.md §5.4.3; maxSheetHeight == RenderLimits.maxExtent
     }
 
     /// Commands for a `width` x `height` region whose top edge is at global

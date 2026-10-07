@@ -72,8 +72,18 @@ final class AppModel {
     private(set) var phase: Phase = .noVault
     /// The open vault's folder.
     private(set) var vaultURL: URL?
-    /// Every note in the vault, deleted ones included, sorted by title.
-    var notes: [NoteSummary] = []
+    /// Every note in the vault, deleted ones included, sorted by title
+    /// (`byTitle`). Passes change it in batches (`queueListUpdate`).
+    var notes: [NoteSummary] = [] {
+        didSet {
+            listVersion &+= 1
+            updateSearch()
+        }
+    }
+    /// Bumped on every change of `notes`; keys the derived lists (`derived`).
+    private(set) var listVersion = 0
+    /// `visibleNotes`, `tags` and `notebookTree`, computed once per change.
+    @ObservationIgnored var derived = DerivedLists()
     /// True while vault I/O is in flight.
     private(set) var isBusy = false
     /// The last error, as a sentence for an alert; cleared by the view.
@@ -97,8 +107,33 @@ final class AppModel {
     /// The newest summary-cache save (`saveSummaryCache`).
     @ObservationIgnored var summaryCacheSave: Task<Void, Never>?
 
-    var sidebarSelection: SidebarItem? = .allNotes
+    var sidebarSelection: SidebarItem? = .allNotes { didSet { updateSearch() } }
     var selectedNoteID: UUID?
+    /// The search field's text. `visibleNotes` filters by title with it; the
+    /// note list shows `searchResults` (`AppModel+Search`) while it is not empty.
+    var searchText = "" { didSet { updateSearch() } }
+    var searchScope = SearchScope.everywhere { didSet { updateSearch() } }
+    /// Notes matching `searchText` (title, notebook, tag, recognised handwriting), best first.
+    var searchResults: [NoteSearchHit] = []
+    /// True from a change of the query until its results are in.
+    var isSearching = false
+    /// The page to show once the note is open (a tapped search hit).
+    var pendingJump: PageJump?
+    @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// Pause after typing before the search runs.
+    @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
+    /// Reads handwriting on pages as they change and when notes open; nil = off.
+    var recognizer: (any PageRecognizing)? {
+        didSet {
+            editor?.recognizer = recognizer
+            for window in windowEditors.values { window.recognizer = recognizer }
+        }
+    }
+    /// Progress of "Recognise All Notes" (`AppModel+Search`).
+    var recognitionProgress: RecognitionProgress?
+    @ObservationIgnored var recognitionTask: Task<Void, Never>?
+    /// Pause after the last stroke change before the open note's pages are recognised.
+    let recognitionDelay: Duration
     /// True while the note list ticks several notes (to export them); the
     /// open note (`selectedNoteID`) is untouched meanwhile.
     var isSelectingNotes = false
@@ -106,8 +141,6 @@ final class AppModel {
     var multiSelection: Set<UUID> = []
     /// The export sheet's request (`AppModel+Export`).
     var exportRequest: ExportRequest?
-    /// Filters the note list by title (recognised-text search is task 3f).
-    var searchText = ""
     var sortOrder = NoteSort.modified
     /// True while an edit is being written.
     var isEditing = false
@@ -123,8 +156,33 @@ final class AppModel {
     var pendingNoteIDs: Set<UUID> = []
     /// The pending notes that have no summary yet (listed as placeholders).
     var placeholderNoteIDs: Set<UUID> = []
-    /// The pending notes as of the last pass that read summaries (re-read once ready).
-    var loadedPendingIDs: Set<UUID> = []
+    /// Per note shown, the sorted revision file names its summary was made
+    /// from: from the index on open, then from every read. A pass reads only
+    /// notes whose names on disk differ (`reconcile`).
+    @ObservationIgnored var indexedNames: [UUID: [String]] = [:]
+    /// Summary changes waiting for the next list update (`queueListUpdate`).
+    @ObservationIgnored var listUpserts: [UUID: NoteSummary] = [:]
+    @ObservationIgnored var listRemovals: Set<UUID> = []
+    @ObservationIgnored var listFlushTask: Task<Void, Never>?
+    @ObservationIgnored var lastListApply: ContinuousClock.Instant?
+    /// The shortest time between two list updates while notes are read.
+    var listUpdateInterval = Duration.milliseconds(250)
+    /// Note folders a file presenter reported changed, for the next pass;
+    /// `dirtyAll` when it could not say which.
+    @ObservationIgnored var dirtyNoteIDs: Set<UUID> = []
+    @ObservationIgnored var dirtyAll = false
+    /// Wakes the sync loop early when a change is reported (`noteFoldersChanged`).
+    @ObservationIgnored let syncWakeup = SyncWakeup()
+    /// Reports changes inside the open iCloud vault's `notes/` folder.
+    @ObservationIgnored var notesPresenter: NotesFolderPresenter?
+    /// The background validation in progress (`validateIfDue`).
+    @ObservationIgnored var validationTask: Task<Void, Never>?
+    @ObservationIgnored var validationRun = 0
+    /// When the background validation (`validateVault`) last finished.
+    @ObservationIgnored var lastValidation: ContinuousClock.Instant?
+    /// How often the background validation runs while the vault is open
+    /// (also once, shortly after the list settles).
+    var cloudValidationInterval = Duration.seconds(30 * 60)
     /// Progress of the open iCloud vault's sync, for the list's progress bar;
     /// nil outside iCloud Drive.
     var cloudSync: CloudSyncStatus?
@@ -144,6 +202,11 @@ final class AppModel {
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow
+    /// Test seam: awaited before an editor opened from the drawing cache
+    /// takes the note it read in the background.
+    @ObservationIgnored var editorLoadHook: (@Sendable () async -> Void)?
+    /// Test seam: told how many notes each listing batch read.
+    @ObservationIgnored var onSummaryRead: (@Sendable (Int) -> Void)?
     /// Notes read per published batch, and threads reading them (`AppModel+Loading`).
     var loadBatchSize = 24
     var loadConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
@@ -152,6 +215,15 @@ final class AppModel {
     let summaryCacheDirectory: URL?
     /// The open vault's summary cache, once unlocked.
     @ObservationIgnored var summaryCache: SummaryCache?
+    /// The load of `summaryCache` in progress (`openSummaryCache`).
+    @ObservationIgnored var summaryCacheOpening: Task<Void, any Error>?
+    /// Where page drawings are cached between note opens (`DrawingCache`);
+    /// nil (the default, for tests): no cache. The app passes
+    /// `DrawingCache.defaultRoot`.
+    let drawingCacheRoot: URL?
+    /// The open vault's drawing cache, opened with the first note; deleted
+    /// when the vault closes.
+    @ObservationIgnored var drawingCache: DrawingCache?
     /// The listing started by `unlock`, owned by the model so that no view
     /// (an unlock sheet going away) can cancel it.
     @ObservationIgnored var loadTask: Task<Void, any Error>?
@@ -168,6 +240,30 @@ final class AppModel {
     private(set) var editor: NoteEditor?
 
     private(set) var vault: Vault?
+    /// Editors of note windows (Mac), by note id: one per note, each with its
+    /// own canvas (`AppModel+Windows`).
+    var windowEditors: [UUID: NoteEditor] = [:]
+    /// Notes shown by a window of their own; the library window's detail pane
+    /// does not open an editor for them.
+    var windowClaims: Set<UUID> = []
+    /// Bumped when the vault's keys changed under the open editors
+    /// (`AppModel+Keys`): views reopen their notes.
+    var keyEpoch = 0
+    /// True while a recipient change re-encrypts the vault (`AppModel+Keys`):
+    /// no editor opens meanwhile, since it would hold the old vault and secret.
+    var isChangingKeys = false
+    /// The library window whose detail pane shows `editor` (`WindowUI.id`).
+    /// One canvas per editor: a second canvas on the same editor would report
+    /// a drawing without the first one's new strokes, which the ledger takes
+    /// as erasures.
+    var canvasWindow: UUID?
+    /// When a note window last asked for a library window (coalesces the
+    /// requests of several restored note windows).
+    var libraryWindowRequested: Date?
+    /// Where this model's PDF exports (drag to Finder) are written; emptied when the vault closes.
+    let exportFolder = NotePDFExport.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    /// Library windows on screen (a note window restored alone opens one).
+    var libraryWindowCount = 0
     /// The migration of a legacy vault while `phase == .migrating`.
     var migration: VaultMigration?
     /// The identities the vault was unlocked with, for reopening it after a
@@ -180,21 +276,25 @@ final class AppModel {
     private(set) var generation = 0
     /// The save of the editor `close()` dropped; awaited before any note is
     /// opened again, so a reopened note is read after its last delta landed.
-    private var closingEditor: Task<Void, Never>?
+    var closingEditor: Task<Void, Never>?
     /// This installation's device id and clock, created on first write
     /// access. Every write (canvas autosave and browser edits) ticks this one
     /// clock, so the state file has a single writer.
     private var deviceClock: DeviceClock?
-    private let editorDebounce: Duration
+    let editorDebounce: Duration
     /// Test seam: awaited after each piece of off-main vault work.
     private let afterIO: (@Sendable () async -> Void)?
 
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
-         summaryCacheDirectory: URL? = nil,
+         recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
+         summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
         self.summaryCacheDirectory = summaryCacheDirectory
+        self.drawingCacheRoot = drawingCacheRoot
         self.editorDebounce = editorDebounce
+        self.recognizer = recognizer
+        self.recognitionDelay = recognitionDelay
         self.afterIO = afterIO
     }
 
@@ -208,7 +308,11 @@ final class AppModel {
     /// The notebook hierarchy of live notes (names are `/`-separated paths,
     /// format.md §5.4).
     var notebookTree: [NotebookNode] {
-        NotebookNode.tree(notes.filter { !$0.deleted }.map(\.notebook))
+        let version = listVersion
+        if let t = derived.tree, t.version == version { return t.value }
+        let tree = NotebookNode.tree(notes.filter { !$0.deleted }.map(\.notebook))
+        derived.tree = (version, tree)
+        return tree
     }
 
     /// Every notebook path in use by live notes, parents included, in tree order.
@@ -219,21 +323,38 @@ final class AppModel {
     /// Tags in use by live notes, sorted. Tags match case-insensitively
     /// ("Math" and "math" are one); the spelling shown is the first seen.
     var tags: [String] {
-        NoteOps.vaultTags(notes)
+        let version = listVersion
+        if let t = derived.tags, t.version == version { return t.value }
+        let tags = NoteOps.vaultTags(notes)
+        derived.tags = (version, tags)
+        return tags
     }
 
     /// The note list for the current sidebar selection, title search and sort order.
     var visibleNotes: [NoteSummary] {
-        let inSelection: [NoteSummary]
-        switch sidebarSelection ?? .allNotes {
-        case .allNotes: inSelection = notes.filter { !$0.deleted }
-        case .notebook(let n): inSelection = notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
-        case .tag(let t): inSelection = notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
-        case .deleted: inSelection = notes.filter(\.deleted)
-        }
+        let key = DerivedLists.VisibleKey(version: listVersion, selection: sidebarSelection, search: searchText,
+                                          sort: sortOrder)
+        if let v = derived.visible, v.key == key { return v.value }
+        let value = computeVisibleNotes()
+        derived.visible = (key, value)
+        return value
+    }
+
+    private func computeVisibleNotes() -> [NoteSummary] {
+        let inSelection = notesInSelection
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matching = query.isEmpty ? inSelection : inSelection.filter { $0.title.localizedCaseInsensitiveContains(query) }
         return Self.sorted(matching, by: sortOrder)
+    }
+
+    /// The notes the sidebar selection shows, before any search.
+    var notesInSelection: [NoteSummary] {
+        switch sidebarSelection ?? .allNotes {
+        case .allNotes: return notes.filter { !$0.deleted }
+        case .notebook(let n): return notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
+        case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
+        case .deleted: return notes.filter(\.deleted)
+        }
     }
 
     static func sorted(_ list: [NoteSummary], by order: NoteSort) -> [NoteSummary] {
@@ -274,11 +395,19 @@ final class AppModel {
         let gen = generation
         let holder = scope ?? url
         let scoped = holder.startAccessingSecurityScopedResource()
+        let interval = Perf.begin(.vaultOpen)
         do {
+            // A sandboxed Mac refuses a folder whose saved permission did not come back.
+            #if DEBUG
+            NSLog("SempereDebug folderAccess scoped=%d listable=%d", scoped ? 1 : 0,
+                  (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil ? 1 : 0)
+            #endif
+            try FolderAccess.check(url, scoped: scoped)
             let cloud = try await fetchFromICloud(url, scope: .essentials)
             try ensureCurrent(gen)
             let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             try ensureCurrent(gen)
+            Perf.end(interval, "cloud=\(cloud)")
             if scoped { scopedURL = holder }
             isCloudVault = cloud
             vault = opened
@@ -287,6 +416,7 @@ final class AppModel {
             // The notes start downloading while the user enters the key.
             startCloudSync()
         } catch {
+            Perf.end(interval, "failed")
             if scoped { holder.stopAccessingSecurityScopedResource() }
             throw error
         }
@@ -353,6 +483,14 @@ final class AppModel {
     func replaceMigratingVault(_ next: Vault) {
         guard phase == .migrating else { return }
         vault = next
+    }
+
+    /// The vault after a recipient change made through the library
+    /// (`AppModel+Keys`); every editor was closed before it.
+    func adoptRewrapped(_ next: Vault) {
+        guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
+        vault = next
+        keyEpoch += 1
     }
 
     /// Makes `opened` the open vault and shows the notes (after a migration).
@@ -423,10 +561,10 @@ final class AppModel {
             try await openSummaryCache()
             try ensureCurrent(gen)
             if isCloudVault {
-                // Unlocking files first (small), then the notes as they arrive.
+                // Unlocking files first (small), then the notes that changed.
                 _ = try await fetchFromICloud(vault.url)
                 try ensureCurrent(gen)
-                try await loadNotes(full: true)
+                try await reconcile(full: true)
                 startCloudSync()
             } else {
                 try await listLocalNotes()
@@ -455,9 +593,32 @@ final class AppModel {
         await closingEditor?.value
         try ensureCurrent(gen)
         guard let noteID else { return }
+        guard !isChangingKeys else { throw CancellationError() }   // reopened after the change (`keyEpoch`)
+        let epoch = keyEpoch
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
-        try await downloadNote(noteID)   // iCloud: this note first, before the rest of the vault
+        let interval = Perf.begin(.noteOpen)
+        let render = Perf.begin(.noteFirstRender)
+        var shown = false
+        defer {
+            if !shown {
+                Perf.end(interval, "\(Perf.short(noteID)) not shown")
+                Perf.end(render, "\(Perf.short(noteID)) not shown")
+            }
+        }
+        // iCloud: this note first, before the rest of the vault.
+        let download = Perf.begin(.noteDownload)
+        do { try await downloadNote(noteID) } catch {
+            Perf.end(download, "\(Perf.short(noteID)) failed")
+            throw error
+        }
+        Perf.end(download, "\(Perf.short(noteID))")
         let clock = try deviceClockForWriting()
+        let cache = await openDrawingCache()
+        let url = vault.url
+        // The names say which cached version of the note is current; listing them reads no file.
+        let listed = cache == nil ? nil : try? await offMain {
+            try VaultEnumeration.listNotes(vault: url, only: [noteID]).first?.names
+        }
         var verify: (@Sendable () throws -> Void)?
         if isCloudVault, let url = vaultURL {
             let hooks = cloudHooks
@@ -466,27 +627,81 @@ final class AppModel {
         let opened: NoteEditor
         do {
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
-                                               coordinated: isCloudVault, verify: verify)
+                                               recognizer: recognizer, recognitionDelay: recognitionDelay,
+                                               coordinated: isCloudVault, verify: verify, cache: cache,
+                                               listedNames: listed, beforeFinishing: editorLoadHook,
+                                               redownload: { [weak self] in
+                                                   guard let self else { throw CancellationError() }
+                                                   try self.ensureCurrent(gen)   // never into another vault
+                                                   try await self.downloadNote(noteID)
+                                               })
         } catch CloudVault.CloudError.noteNotLocal {
             // A file went missing (or a new one was listed) since `downloadNote`: once more.
             try ensureCurrent(gen)
             try await downloadNote(noteID)
             opened = try await NoteEditor.open(vault: vault, noteID: noteID, clock: clock, debounce: editorDebounce,
-                                               coordinated: isCloudVault, verify: verify)
+                                               recognizer: recognizer, recognitionDelay: recognitionDelay,
+                                               coordinated: isCloudVault, verify: verify, cache: cache)
         }
         await afterIO?()
-        try ensureCurrent(gen)
-        guard selectedNoteID == noteID else { return }   // the selection moved on meanwhile
-        guard editor?.noteID != noteID else { return }    // a concurrent open won; keep its edits
+        guard gen == generation, selectedNoteID == noteID,   // closed, or the selection moved on meanwhile
+              editor?.noteID != noteID else {                // a concurrent open won; keep its edits
+            opened.cancelLoading()
+            try ensureCurrent(gen)
+            return
+        }
+        // A note window took the note meanwhile (one editor per note), or the
+        // keys changed under the vault copy this editor was opened with.
+        guard !windowClaims.contains(noteID), !isChangingKeys, epoch == keyEpoch else {
+            Task { await opened.close() }
+            throw CancellationError()
+        }
+        // The background read of a note opened from the cache failed: show the
+        // failure (and Try Again) rather than a partial read-only canvas.
+        opened.onLoadFailed = { [weak self, weak opened] message in
+            guard let self, let opened, self.editor === opened else { return }
+            self.editor = nil
+            if self.selectedNoteID == noteID { self.editorFailure = (noteID, message) }
+            Task { await opened.close() }
+        }
+        if opened.loadFailed {   // it failed before the callback was set
+            if let stale = editor { editor = nil; Task { await stale.close() } }
+            editorFailure = (noteID, opened.readOnlyReason ?? "This note could not be read.")
+            Task { await opened.close() }
+            return
+        }
         let stale = editor
+        opened.onRecognized = { [weak self] id in
+            guard let self else { return }
+            Task { try? await self.refresh([id]) }   // search sees the new text
+        }
+        Perf.end(interval, "\(Perf.short(noteID)) pages=\(opened.pages.count) fromCache=\(opened.isPreparing)")
+        opened.openInterval = render   // ended by the canvas when the ink is on screen
+        shown = true
         editor = opened
+        applyPendingJump()
         if let stale { Task { await stale.close() } }
+    }
+
+    /// Opens the open vault's drawing cache (`DrawingCache`) once.
+    func openDrawingCache() async -> DrawingCache? {
+        if let drawingCache { return drawingCache }
+        guard let root = drawingCacheRoot, let vault, vault.canRead else { return nil }
+        let gen = generation
+        let cache = try? await offMain(priority: .utility) { try DrawingCache(root: root, vault: vault) }
+        // A newer session may already use the same folder (the vault closed and
+        // reopened meanwhile): drop this instance without deleting anything; the
+        // closed session's `close` cleared its cache.
+        guard gen == generation else { return nil }
+        if drawingCache == nil { drawingCache = cache }
+        return drawingCache
     }
 
     /// Opens the selected note on the canvas for the detail pane, keeping a
     /// failure next to the note (`editorFailure`) instead of a blank canvas.
     func showSelectedNote() async {
-        let id = phase == .unlocked ? selectedNoteID : nil
+        var id = phase == .unlocked ? selectedNoteID : nil
+        if let claimed = id, windowClaims.contains(claimed) { id = nil }   // a window of its own has it
         editorFailure = nil
         do {
             try await openEditor(for: id)
@@ -500,6 +715,7 @@ final class AppModel {
     /// changes whether it may be edited, e.g. delete or restore). Pending
     /// canvas changes are saved first.
     func reopenEditor(ifShowing id: UUID) async throws {
+        if windowEditors[id] != nil { await reopenWindowNote(id) }
         guard editor?.noteID == id else { return }
         try await openEditor(for: nil)
         try await openEditor(for: id)
@@ -523,14 +739,19 @@ final class AppModel {
         isCloudVault = false
         isBusy = false
         let editor = self.editor
+        let windowed = Array(windowEditors.values)
+        windowEditors = [:]
+        windowClaims = []
         let scoped = scopedURL
         self.editor = nil
-        if editor != nil || scoped != nil {
+        NotePDFExport.purge(in: exportFolder, olderThan: 0)   // plaintext PDFs dragged out of this vault
+        if editor != nil || scoped != nil || !windowed.isEmpty {
             let earlier = closingEditor
             let gate = editGate
             closingEditor = Task {
                 await earlier?.value
                 await editor?.close()
+                for open in windowed { await open.close() }
                 // A browser edit already writing (`commit`) finishes first.
                 await gate.acquire()
                 gate.release()
@@ -545,7 +766,16 @@ final class AppModel {
         loadFailure = nil
         verifiedNoteIDs = []
         summaryEpochs = [:]
+        indexedNames = [:]
+        discardListUpdates()
+        dirtyNoteIDs = []
+        dirtyAll = false
+        lastValidation = nil
         summaryCache = nil
+        summaryCacheOpening = nil
+        // Drawings of this vault's notes do not outlive it on this device.
+        drawingCache?.close()
+        drawingCache = nil
         vault = nil
         migration = nil
         unlockIdentities = []
@@ -556,6 +786,10 @@ final class AppModel {
         multiSelection = []
         exportRequest = nil
         editorFailure = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionProgress = nil
+        pendingJump = nil
         searchText = ""
         sidebarSelection = .allNotes
         phase = .noVault
@@ -573,8 +807,9 @@ final class AppModel {
     }
 
     /// Runs blocking vault work (file I/O, decryption) on a background thread.
-    func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        let value = try await Task.detached(priority: .userInitiated) { try work() }.value
+    func offMain<T: Sendable>(priority: TaskPriority = .userInitiated,
+                              _ work: @escaping @Sendable () throws -> T) async throws -> T {
+        let value = try await Task.detached(priority: priority) { try work() }.value
         await afterIO?()
         return value
     }

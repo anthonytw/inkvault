@@ -74,9 +74,19 @@ struct ExportTests {
         }
     }
 
-    @Test func markdownOfOneNoteIsAFolder() async throws {
+    @Test func markdownOfOneNoteIsOneFileByDefault() async throws {
         let model = try await BrowserTests.unlockedFixtureModel()
         let r = try await export(model, [Self.lecture], ShareOptions(format: .markdown), into: try scratch())
+        #expect(r.items.map(\.lastPathComponent) == [Self.lectureStem + ".md"])
+        let md = try String(contentsOf: r.items[0], encoding: .utf8)
+        #expect(md.contains("title: \"Fixture lecture\""))
+        #expect(!md.contains(".pdf"))
+    }
+
+    @Test func markdownOfOneNoteWithThePDFIsAFolder() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        let r = try await export(model, [Self.lecture], ShareOptions(format: .markdown, markdownPDF: true),
+                                 into: try scratch())
         #expect(r.items.map(\.lastPathComponent) == [Self.lectureStem])
         let names = files(r.items[0])
         #expect(names.contains(Self.lectureStem + ".md"))
@@ -111,9 +121,12 @@ struct ExportTests {
         #expect(htmlFiles.contains("index.html"))
         #expect(htmlFiles.filter { $0.hasSuffix(".html") }.count == 3, "two notes and the index: \(htmlFiles)")
 
-        let md = try await export(model, both, ShareOptions(format: .markdown), into: try scratch())
+        let md = try await export(model, both, ShareOptions(format: .markdown, markdownPDF: true), into: try scratch())
         #expect(md.items.map(\.lastPathComponent) == [ShareExport.treeFolderName])
         #expect(files(md.items[0]).filter { $0.hasSuffix(".pdf") }.count == 2)
+        let text = try await export(model, both, ShareOptions(format: .markdown), into: try scratch())
+        #expect(files(text.items[0]).filter { $0.hasSuffix(".pdf") }.isEmpty)
+        #expect(files(text.items[0]).filter { $0.hasSuffix(".md") }.count == 3, "two notes and the README")
 
         let merged = try await export(model, both, ShareOptions(format: .pdf, mergePDF: true), into: try scratch())
         #expect(merged.items.map(\.lastPathComponent) == [ShareExport.mergedPDFName])
@@ -312,10 +325,31 @@ struct ExportTests {
 
     // MARK: Commands and targets
 
-    @Test func commandsCoverEveryFormatOnce() {
-        #expect(ExportCommand.allCases.map(\.format) == ShareFormat.allCases)
-        #expect(Set(ExportCommand.allCases.map(\.title)).count == 4)
-        #expect(Set(ExportCommand.allCases.map(\.systemImage)).count == 4)
+    /// PDF, PNG and text; HTML stays in the CLI only.
+    @Test func commandsCoverTheAppFormatsOnce() {
+        #expect(ExportCommand.allCases.map(\.format) == [.pdf, .png, .markdown])
+        #expect(!ExportCommand.formats.contains(.html))
+        #expect(ExportCommand.markdown.title == "Text (Markdown)…")
+        #expect(ShareFormat.markdown.title == "Text (Markdown)")
+        #expect(Set(ExportCommand.allCases.map(\.title)).count == 3)
+        #expect(Set(ExportCommand.allCases.map(\.systemImage)).count == 3)
+        #expect(ShareOptions(format: .markdown).markdownPDF == false, "the PDF is opt-in")
+    }
+
+    /// The text export needs recognised handwriting in some selected note.
+    @Test func textExportNeedsRecognisedText() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        // The fixture has no recognised text; pretend the lecture has some.
+        let i = try #require(model.notes.firstIndex { $0.id == Self.lecture })
+        #expect(!model.canExport(.markdown, ids: [Self.lecture, Self.deleted]))
+        model.requestExport(.markdown, ids: [Self.lecture])
+        #expect(model.exportRequest == nil)
+        #expect(model.canExport(.pdf, ids: [Self.deleted]))
+        model.notes[i].recognizedPages = 1
+        #expect(model.canExport(.markdown, ids: [Self.lecture, Self.deleted]))
+        #expect(!model.canExport(.markdown, ids: [Self.deleted]))
+        #expect(!model.canExport(.pdf, ids: []))
+        model.close()
     }
 
     @Test func requestsAndTargets() async throws {
@@ -326,14 +360,14 @@ struct ExportTests {
 
         model.selectedNoteID = Self.lecture
         #expect(model.exportTargetIDs == [Self.lecture])
-        model.requestExport(.markdown, ids: model.exportTargetIDs)
+        model.requestExport(.png, ids: model.exportTargetIDs)
         #expect(model.exportRequest?.noteIDs == [Self.lecture])
-        #expect(model.exportRequest?.format == .markdown)
+        #expect(model.exportRequest?.format == .png)
         // A second command while the sheet is up does not replace (and so dismiss) it.
         let first = model.exportRequest?.id
         model.requestExport(.pdf, ids: [Self.deleted])
         #expect(model.exportRequest?.id == first)
-        #expect(model.exportRequest?.format == .markdown)
+        #expect(model.exportRequest?.format == .png)
 
         model.isSelectingNotes = true
         model.multiSelection = [Self.lecture, Self.deleted, UUID()]

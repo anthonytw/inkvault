@@ -80,43 +80,54 @@ ubiquitous (`FileManager.isUbiquitousItem(at:)`):
 Progressive loading: only the small unlocking files (`vault.json`, the
 rewrap journal, `keys/`) are awaited before the unlock sheet; the notes are
 not. As soon as the vault opens (still locked) `AppModel.startCloudSync`
-starts passing over the notes, so they download while the user types the
-key. Each pass (`ProgressiveLoad`) lists each note's files and sorts notes
-into *ready* (all files local: the summary is read at once, once unlocked)
-and *pending* (some file not local). On iPadOS 26 (measured on 26.7.1) a
-file iCloud has not downloaded keeps its real name and is *dataless*:
+starts passing over the notes. On iPadOS 26 (measured on 26.7.1) a file
+iCloud has not downloaded keeps its real name and is *dataless*:
 `ubiquitousItemDownloadingStatus` is "not downloaded", it allocates no
-blocks, and no `.icloud` stand-in exists; both forms count as pending. A
-note folder that lists no revision file at all is pending too ("not listed
-yet"), never an empty note: every note has at least one revision, and
-iCloud lists a folder's contents after the folder itself. The app asks for
-the folder (`startDownloadingUbiquitousItem` on it) and waits.
+blocks, and no `.icloud` stand-in exists; both forms count as not local. A
+note folder that lists no revision file at all is "not listed yet", never an
+empty note: every note has at least one revision, and iCloud lists a
+folder's contents after the folder itself. The app asks for the folder
+(`startDownloadingUbiquitousItem` on it) and waits.
 
-Pending notes appear in the list with the summary this device cached for
-them on an earlier launch (`SummaryCache`, `format.md` §10) and a small
-spinner, or, when nothing is cached, as "Downloading from iCloud…" rows with a
-spinner, and are requested from iCloud at most 16 notes at a time, the
-note the user selected first. A bar under the list shows "Downloading from
-iCloud: n of m notes", a progress bar and "n of m files"
-(`CloudSyncStatus`); it disappears when every note is local. The loop
-passes every second while notes are pending or the note set is still
-changing, then every 15 s (doubling while nothing changes, at most every
-60 s) for as long as the vault is open, so revisions other devices write
-arrive without a pull to refresh; it pauses while the app is in the
-background, restarts when the app becomes active and on every reopen, and a
-pass of a loop replaced or paused meanwhile publishes nothing. 90 s without progress shows a
-problem line in the bar (not an alert) and the loop keeps trying; the line
-clears when files arrive.
+Each pass is change-driven (`AppModel.reconcile`; see "Opening a vault fast"
+below): it lists the note folders by name, and only notes whose revision
+names differ from those their shown summary was made from are checked with
+iCloud (`ProgressiveLoad.pass(notes:)`, one state query per file), sorted
+into *ready* (all files local: read at once) and *pending* (some file not
+local), and pending ones requested at most 16 notes at a time, the note the
+user selected first. A note whose files iCloud evicted but whose names are
+unchanged is not pending: its row comes from the index and it is downloaded
+only when opened (`downloadNote`). While locked, a device that already has an
+index of the vault fetches nothing (the index will show which notes changed);
+a device opening the vault for the first time requests every note, so they
+download while the key is typed.
+
+Pending notes appear in the list with their indexed summary and a small
+spinner, or, when nothing is indexed, as "Downloading from iCloud…" rows with
+a spinner. A bar under the list shows "Downloading from iCloud: n of m
+notes", a progress bar and "n of m files" (`CloudSyncStatus`); it disappears
+when no note is pending. While notes are pending the loop re-checks just
+those every second (and lists every folder every 15 s); once settled it lists
+every folder every 15 s, doubling while nothing changes, at most every 60 s,
+for as long as the vault is open, so revisions other devices write arrive
+without a pull to refresh. A file presenter on `notes/`
+(`NotesFolderPresenter`) wakes the loop early for the notes it names. The
+loop pauses while the app is in the background, restarts when the app
+becomes active and on every reopen, and a pass of a loop replaced or paused
+meanwhile publishes nothing. 90 s without progress shows a problem line in
+the bar (not an alert) and the loop keeps trying; the line clears when files
+arrive.
 
 Listing (any vault, `AppModel+Loading`): unlocking only checks the key; the
 note list is then read by a task the model owns (`startLoadingNotes`), so the
 unlock sheet closes at once and no view going away can cancel the listing.
 Summaries are read without stroke geometry, on up to four threads, in
-batches of 24 that are merged into the list as they finish; the bar under the
-list shows "Opening vault: n of m notes" (or "Updating notes" when the list
-already shows every note) next to the iCloud progress. On a reopen the cached
+batches of 24 that are queued for the list as they finish (applied at most
+four times a second, `queueListUpdate`); the bar under the list shows
+"Opening vault: n of m notes" (or "Updating notes" when the list already
+shows every note) next to the iCloud progress. On a reopen the indexed
 summaries are shown before anything is read, and only notes whose revision
-file names changed are decrypted. Listings never overlap (`loadGate`), and
+file names changed are read at all. Listings never overlap (`loadGate`), and
 the cache file is written once per listing, not per batch. The list is usable
 while it loads, so edits never decide from a summary not read in this session
 (`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
@@ -148,6 +159,145 @@ Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
 
+## Opening a vault fast (app)
+
+The note list is shown from a persistent local **index**: the encrypted
+per-device summary cache (`SummaryCache`, `format.md` §10) in Application
+Support, never in iCloud. It holds each note's summary (title, tags,
+notebook, deleted flag, counts, newest time, and whatever `NoteSummary` gains,
+such as recognised text for search) and the sorted revision file names it was
+made from. On a reopen it is decrypted and shown as it is, before any note
+folder is looked at (`openSummaryCache`, `Perf` phase `index.load`).
+
+Keeping it current (`AppModel.reconcile`, `VaultIndex.swift`):
+
+1. **Enumerate by name** (`VaultEnumeration`, phase `reconcile.enumerate`):
+   one directory listing per note folder, iCloud placeholders mapped to
+   their real names, no file read, no iCloud state asked.
+2. **Diff** (`IndexDiff`): revision files are write-once and named by
+   `(hlc, device, seq)` (`format.md` §5), so a note whose names equal those
+   of its shown summary is unchanged: nothing is downloaded, coordinated or
+   decrypted for it. Changed and new notes are read; notes whose folder is
+   gone leave the list (only notes listed before the pass, so one created
+   meanwhile stays).
+3. **Download and read only what changed** (phases `reconcile.download`,
+   `reconcile.coordinate`, `reconcile.read`); `indexedNames` records the names
+   each summary was made from.
+
+Passes run when the vault opens, when the app becomes active, at the loop's
+idle pace and, for the notes named, when the file presenter reports a change.
+Every pass waits for the index to be loaded first, so it never mistakes an
+unloaded index for a vault where everything changed. A pull to refresh also
+re-reads notes the index file does not hold (a summary with a problem).
+
+A **full validation** (`validateVault`, phase `reconcile.validate`) asks
+iCloud for the state of every file (slow on a device: one round trip per
+file), refreshes out-of-date local copies, reports download errors in the
+bar and drops index entries of notes that are gone. It runs at background
+priority, outside the listing lock, once the list has settled and then every
+30 minutes, and never blocks the list.
+
+**List updates** are batched and throttled: queued summaries are applied at
+most every 250 ms (`listUpdateInterval`) as differences (`NoteListDiff`: a
+summary whose title order is unchanged is replaced in place, others are
+removed and merged in; no re-sort), and `visibleNotes`, `tags` and
+`notebookTree` are computed once per change of the list or the filters
+(`DerivedLists`), not on every render. An edit's own re-read is applied at
+once and supersedes anything queued for that note. The list stays a lazy
+SwiftUI `List`.
+
+## Opening a note fast (app)
+
+- **Fast decoding.** A revision's point arrays are parsed by a hand-written
+  exact reader (`FastRevisionDecoder`) instead of generic `Codable`
+  decoding; the JSON is unchanged and anything unusual goes through the
+  ordinary decoder.
+- **Drawing cache** (`DrawingCache`, `format.md` §10.1): per note version
+  (note id + sorted revision file names) a layout (the note without stroke
+  geometry) and each page's PencilKit `dataRepresentation`, sealed under a
+  key derived from the vault secret, in `Library/Caches/Sempere/Drawings`.
+  Opening a note lists its folder's names; when that version's layout is
+  cached the editor opens from it at once (`NoteEditor.isPreparing`: shown,
+  not editable) and the shown page's drawing comes from the cache, while the
+  revisions are read in the background. Once read, every cached drawing
+  shown is checked against the strokes (`DrawingPreparation.matches`: count,
+  texture seed from the stroke id, ink, points, ends, transform); a match
+  becomes the page's ledger without any conversion, a mismatch is replaced
+  by the real page (`canvasGeneration`) before anything can be drawn.
+- **On a miss** the page is converted off the main actor, the strokes on
+  screen first (`DrawingPreparation.convert(visible:)`, shown as soon as
+  they are ready, drawing disabled until the whole page is in), and stored
+  in the cache afterwards. Closing a note that was edited stores its new
+  version (layout, unchanged pages as shown, changed pages converted in the
+  background) and drops the old one.
+- The cache is limited to 200 MB (`UserDefaults` key
+  `Sempere.drawingCacheMegabytes`), least recently used files first. Opening
+  it deletes every other vault's folder (and this vault's under an older
+  secret); closing the vault deletes its folder.
+
+## Performance timing (app)
+
+Every phase above is an `os_signpost` interval (subsystem
+`io.github.anthonytw.sempere`, category Points of Interest), in every build:
+`vault.open`, `index.load`, `reconcile` (`.enumerate`, `.coordinate`,
+`.download`, `.read`, `.validate`), `list.update`, `note.open`,
+`note.download`, `note.read`, `note.reconstruct`, `note.cache`,
+`note.convert`, `note.firstRender`, `cache.write`, and `change.notified`
+events. Debug builds also log each finished interval to the console
+(`SemperePerf <phase> <ms> ms <detail>`) and to `Library/Logs/SemperePerf.log`
+in the app container (the previous run's as `.1`):
+
+```
+xcrun devicectl device copy from --device <id> --domain-type appDataContainer \
+    --domain-identifier io.github.anthonytw.sempere --source Library/Logs/SemperePerf.log --destination .
+```
+
+Details hold counts and 8-hex-digit note id prefixes only. `SEMPERE_PERF_LOG=0`
+turns the debug log off; `SEMPERE_DEBUG_DRAWING_CACHE=0` runs without the
+drawing cache, for comparisons.
+
+## Saved folder access (sandboxed Mac)
+
+The app opens a vault folder through the system picker and remembers it as a
+bookmark (`VaultBookmark`, recent vaults in `VaultLibrary`). Whether a
+remembered folder is still usable after a relaunch is the platform's decision:
+
+* **iPadOS:** a bookmark made from a picker URL carries its security scope;
+  `startAccessingSecurityScopedResource()` on the resolved URL grants access.
+  Verified on devices.
+* **Mac Catalyst, not sandboxed:** the app can read what the user can; scope
+  calls return false and nothing depends on them.
+* **Mac Catalyst, sandboxed (Mac App Store, `Sempere.entitlements`):**
+  `.withSecurityScope` is AppKit-only and is not in the Catalyst SDK, so
+  bookmarks are made with plain options, as on iOS (`VaultBookmark.make`).
+  Apple documents security-scoped bookmarks for sandboxed apps with the
+  `com.apple.security.files.bookmarks.app-scope` entitlement (set) and
+  `files.user-selected.read-write` (set); whether a plain bookmark of a
+  picker URL brings the sandbox extension back after a relaunch under
+  Catalyst **has not been verified**: it needs a signed sandboxed build on a
+  Mac, which the cloud sessions and CI do not have.
+
+What the code does so that either answer is safe:
+
+* `AppModel.openVault` lists the folder before reading anything
+  (`FolderAccess.check`). When the system refuses (`EPERM`/`EACCES`, Cocoa
+  257/513, also as an underlying error) it throws `FolderAccess.Problem.noAccess`
+  naming the vault folder, instead of a file error from inside `Vault.open`.
+* `RootView.reopen` already turns any failure of a recent vault into a message
+  and the folder picker, so a lost permission ends with the user choosing the
+  folder again, and `remember` saves a fresh bookmark from that scope.
+  At launch (`pickOnFailure: false`) only the message shows.
+* A stale bookmark is re-saved while its scope is held (`VaultBookmark.resolve`).
+* DEBUG builds log `SempereDebug folderAccess scoped=<0|1> listable=<0|1>` for
+  every open (no names), to read the answer off a real sandboxed build: after
+  choosing a folder and relaunching, `scoped=0 listable=0` means the plain
+  bookmark does not survive, and the fix is a Catalyst-only
+  `NSURL` bookmark call through an Objective-C shim, which this repository
+  does not have.
+* The vault's own files under `notes/` are written only through the open
+  scope; nothing outside the picked folder is touched. The temporary PDFs of
+  drag and drop (`docs/mac.md`) are in the app's container.
+
 ## Share and export (app)
 
 The app exports notes through the system share sheet and Save to Files. It
@@ -159,12 +309,13 @@ CLI into `SempereRender`) writes the Markdown and HTML trees.
 | --- | --- | --- |
 | PDF | `<stem>.pdf` | one per note, or one merged `Sempere-Notes.pdf` |
 | PNG pages | `<stem>-p001.png`, ... | a folder per note |
-| Markdown (Obsidian) | a folder: `.md`, the PDF, optional page PNGs, `README.md` | `Sempere Export/`, mirroring the notebook tree |
-| HTML | one self-contained `.html` | `Sempere Export/` with one file per note and `index.html` |
+| Text (Markdown) | `<stem>.md` leading with the recognised text; with the PDF (optional, off) or page PNGs, a folder with them and `README.md` | `Sempere Export/`, mirroring the notebook tree |
 
 `<stem>` is `ExportName.stem` (sanitised title and the first 8 characters of the
 note id). Options: paper background (on), PNG resolution (72, 144, 216, 300
-dpi), merged PDF, Markdown page images. A one-off share writes no export
+dpi), merged PDF, and for text the PDF (off) and page images. The text export
+is disabled when no selected note has recognised handwriting. HTML is the
+CLI's only (`sempere export --format html`). A one-off share writes no export
 manifest.
 
 - **Selection.** "Select" in the note list ticks several notes; a keyboard
@@ -224,6 +375,21 @@ lack the `.age` suffix, so every listing ignores them. Deletions (compaction,
 the journal) also fsync their directory. Filesystems that cannot fsync a
 directory (`EINVAL`, `ENOTSUP`) are accepted (`verify` reports a
 leftover as `unknownFile`; nothing deletes it automatically).
+
+**Blobs** (`notes/<id>/att/`, `format.md` §8.1.4) are streamed: the age
+file is written chunk by chunk to `.sempere-tmp-<uuid>` in the note's `att/`
+(mode 0600) and `fsync`ed, then put in place with `link(2)` onto the final
+name, which fails rather than replace an existing file, then the temporary
+name is unlinked and the directory `fsync`ed. On file systems without hard
+links (FAT, some network shares) it falls back to the existence check and
+`rename(2)` above. The only blob that is ever replaced is one whose first
+chunk does not decrypt to a valid header for its name (format.md §8.1.4
+step 2), or, during a recipient change, a blob rewritten in place or a
+damaged file under its new name (§8.1.5). Writers write the blob before the
+revision that references it, so a crash leaves an unreferenced blob, never
+a dangling reference. `withBlobFile` and `blobs extract --out` decrypt to a
+private file that appears (or is handed out) only once the whole content
+verified.
 
 Revisions are write-once: `write` refuses an existing name and a reused
 `(device, seq)` before renaming. The existence check and the rename are not
@@ -304,6 +470,21 @@ rewrapped still verify (if the journal cannot be read, `open` records why in
 are already current are skipped, so a run can be repeated any number of
 times.
 
+**Blobs in a recipient change** (`Sources/Sempere/BlobRewrap.swift`). After
+a note's revisions, each blob in its `att/` is checked from its first chunk
+only (stanza counts, and the name against the hash in its header): complete
+blobs are skipped. Others are rewritten by the method the journal records
+(`rekeyBlobs`, chosen by `RewrapPolicy`): header-only (`AgeFile.rewrapHeader`)
+or full re-encryption (`AgeFile.reencrypt`), streaming, with the whole
+plaintext checked on the way (framing, zero padding, hash), to a temporary
+file. A blob named under the current secret (an addition) replaces itself; one
+named under `previousVaultSecret` (a removal) goes to its new name and then the
+old name is deleted, and a run that finds a complete copy already under the new
+name (a crash between the two) only deletes the old one. A blob whose name
+verifies under neither secret, or whose content fails a check, is left as it is
+and reported, which keeps the journal. While the journal exists, lookups try
+the current name, then the previous one.
+
 Why a stanza count and not "the header lists all recipients": X25519 and
 mlkem768x25519 stanzas carry only an ephemeral share or encapsulation, not
 the recipient, so a header cannot be matched against public keys. Within one
@@ -341,7 +522,7 @@ entry a status.
 
 The one target with network code. It talks to a plain WebDAV collection that
 holds a copy of the vault folder (same layout, `vault.json` at the collection
-root) using PROPFIND (Depth 1), GET, PUT, MKCOL and DELETE, so any server
+root) using PROPFIND (Depth 1), GET (with `Range` for blobs), PUT, MKCOL, MOVE and DELETE, so any server
 works (Nextcloud, Apache `mod_dav`, nginx dav, rclone serve webdav,
 wsgidav). Everything is behind `WebDAVTransport`; `URLSessionTransport` is
 the real one (it never follows redirects, so credentials cannot be forwarded
@@ -353,10 +534,11 @@ server is already age-encrypted, except `vault.json` (public by design).
 A remote `vault.json` with another `vaultId` aborts the run before any
 change.
 
-**What is synced.** `vault.json`, `rewrap-journal.json` and
-`notes/<uuid>/<name>.age` (each note's `att/` blobs are designed but not
-synced yet: `docs/attachments.md` §4, task B3). Remote entries that are not a lowercase-UUID note
-directory or a canonical revision file name (format.md §5) are ignored and
+**What is synced.** `vault.json`, `rewrap-journal.json`,
+`notes/<uuid>/<name>.age` and each note's attachment blobs
+`notes/<uuid>/att/<64 hex>.<kind>.age` (below). Remote entries that are not a lowercase-UUID note
+directory, a canonical revision file name (format.md §5), an `att`
+collection or a canonical blob name (format.md §8.1.2) are ignored and
 listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
 and unknown files are not synced. A downloaded revision must start with the
 age header or it is rejected. Remote names are reported with control
@@ -392,6 +574,61 @@ folder therefore deletes nothing locally; its files are uploaded again. A snapsh
 the `included` coverage recorded when it was last synced. Without an unlocked
 vault nothing can be checked, so nothing is deleted. A removal that fails the
 check is undone (the file is copied back).
+
+**Attachment blobs** (`docs/attachments.md` §4). Each note's `att/` follows
+the same write-once table, keyed `<noteId>/att/<name>` in the state. A note
+whose listing has an `att` collection costs one more PROPFIND. Per note,
+blobs are transferred before revisions, so a revision does not arrive before
+the blobs it references (format.md §8.1.4 step 4) unless a blob transfer
+fails: that one is reported and retried by the next run while the note's
+revisions still sync, and readers draw a placeholder for it meanwhile
+(§8.5.2). Small kinds go first (transcripts, images, PDFs, then the rest), smaller files first.
+
+- *Streaming, own limit.* An upload is a PUT streamed from the file. A
+  download is a series of `Range` GETs of 2 MiB (`blobSegmentBytes`), each
+  streamed to a partial file, so memory stays bounded by one segment even
+  when the server is faster than the disk (on Linux, URLSession queues every
+  delivery for its delegate without flow control; with 2 MiB segments the
+  resident set stayed near 20 MiB for blobs of 300 MB to 1 GB against a
+  local wsgidav). A server that ignores `Range` sends the file in one
+  streamed 200, which is still written to disk as it arrives but, on Linux,
+  is no longer bounded in memory by the segment size. Blob files have their own limit, `maxBlobBytes` (default
+  1 GiB + 64 MiB, `--max-blob-mib`): a larger one is neither uploaded nor
+  downloaded, and a body is cut off at the limit whatever the listing said.
+  A downloaded blob must have the listed size and start with the age header,
+  or it is not written. Its content is verified when read, as for revisions.
+- *Write-once on the server.* An upload goes to `att/.sempere-tmp-<uuid>`
+  (`If-None-Match: *`) and is renamed with `MOVE` and `Overwrite: F`, so no
+  reader sees a partial blob under its name (a server that writes PUT bodies
+  in place would show one) and an existing blob is never replaced; losing
+  that race is success, since the name is keyed by the content hash. The
+  temporary name is recorded in the state before the upload and deleted
+  afterwards, or by the next run if this one dies. Other devices' temporary
+  names are skipped silently.
+- *Resumable.* A download goes to `att/.sempere-tmp-part-<name>` and is linked
+  into place (`link(2)`). If the run is cut off, the partial file stays and
+  the remote ETag is recorded in the state (saved at once); the next run asks
+  for the rest with `Range` and `If-Range: <etag>`, so a blob replaced on the
+  server meanwhile comes whole again. A partial file as long as the listing
+  says is only checked and placed. A partial file whose blob is no longer
+  wanted is removed. Uploads restart from the beginning (WebDAV has no
+  standard partial PUT), but only the blob that was cut off. A run killed at
+  any request is finished by the next one (`BlobResumeTests`).
+- *GC-safe deletes.* A blob one side dropped since the last sync is deleted
+  on the other side only if format.md §8.1.6 rules 1–3 hold for its note
+  there (the side that dropped it applied rule 4): every local revision of
+  the note was read and verified and every revision the server holds is one
+  of them (they are byte-identical copies, so both sides' sets were read);
+  no `rewrap-journal.json` on either side; and no revision read references a
+  content hash whose keyed name is the blob's (any kind). Otherwise the blob
+  is copied back. A side with no `att/` at all (a wiped or recreated
+  folder) deletes nothing on the other. With the vault locked nothing is
+  checked: the blob is neither deleted nor copied back, and is listed as
+  skipped.
+
+`sempere-index.json` lists revisions only (`docs/web-viewer.md`), so blobs do
+not change it; the run still rewrites the server's copy to list the
+revisions the server holds afterwards.
 
 **Mutable files.** `vault.json` and `rewrap-journal.json` are compared by
 content hash (SHA-256) against the last-synced hash; the server ETag (or

@@ -29,8 +29,10 @@ export, which the import ignores). Google Drive splits a large backup into
 several zips (`Notability-<date>-1-001.zip`, `-002`, …): **pass all of them
 in one run**, so copies of a note in different parts are resolved together
 (below). Each imported note becomes one delta: `addPage`, one `addStroke`
-per stroke, `setMeta` for title, notebook, paper and page size, one `addTag`
-per tag (`format.md` §5.4.1), and `setPageRecognition`. An overwrite also
+per stroke, one `addItem` per attachment (PDF page backgrounds and images,
+"Attachments" below; their blobs are written first), `setMeta` for title,
+notebook, paper and page size, one `addTag` per tag (`format.md` §5.4.1),
+and `setPageRecognition`. An overwrite also
 removes the old tags (`removeTag`). Every input file gets one report row,
 whatever happens to it: nothing is silently ignored.
 
@@ -439,9 +441,98 @@ whose strokes are all in it are reported as `superseded: .ntb copy of the
 note imported from …`. A bundle without such a `.note` (6: 3 of the 9 alone
 by path have their `.note` in another folder) is imported on its own (id
 derived from `ntb-created:<ms>`, title from the document record, notebook
-from its folder; no recognition, which the bundle does not have; 4 of them
+from its folder; recognition from `ios/HandwritingIndex.fb` when present; 4 of them
 sit on PDFs the bundle does not contain). Bundles are never silently
 ignored: each gets a report row.
+
+## Attachments
+
+PDF page backgrounds and images (tasks D1, D2 of `docs/attachments.md` §14)
+are read from the package when a note is written
+(`NotabilityAttachments.resolve`) and placed as items of the note's one
+page; their bytes become blobs of the note (`format.md` §8.1), written before
+the delta. `--no-attachments` (`Options.attachments = false`) leaves them out
+and reports them as before. Nothing in a package can fail a note through its
+attachments: what cannot be placed is counted in `dropped` and explained in
+the report's `warnings`, one line each (file names and Notability field
+names, never note content). These mappings were built on synthetic packages;
+the driver checks them against the reference backup.
+
+**PDF pages (D1).** Every `pageLayoutArray` entry that names a PDF (by
+`kPageLayoutPDFFileNameKey`, or a non-null `kPageLayoutPDFFileKey`) becomes
+one `pdfPage` item in the background layer (`0`):
+
+- blob: `PDFs/<name>`, stored byte for byte (`application/pdf`), one blob per
+  content however many pages show it. The PDF is read with `SemperePDF`; an
+  encrypted, missing or unreadable file leaves its pages out (`dropped.pdfPages`,
+  and the file in `dropped.pdfs`).
+- `pageIndex`: `kPageLayoutPDFPageNumberKey − 1` (1-based, as the fidelity
+  evaluation reads it; a note holding a 0 is read as 0-based, with a warning).
+  A page beyond the PDF is left out.
+- `pageSize`: the page's effective size (CropBox ∩ MediaBox, turned by
+  `/Rotate`), `W' × H'` points.
+- order: by `kPageLayoutDocumentPageNumberKey` when the entries number 1…n,
+  else as stored.
+- frame: `[0, top, W, W · H'/W']` in document units (full page width, no x
+  inset), × `612 / W` when scaling, where `top` is the sum of the heights of
+  the Notability pages above: a PDF page is `⌈W · H'/W'⌉` high (the stride
+  measured on real notes, now from the PDF's own box instead of the
+  thumbnail), any other page (an inserted paper page) `paper.pageHeight`.
+  With one page size this is the old `(n − 1) · stride`. With several
+  (unknown 4 of `docs/attachments.md` §11; never seen in the samples) each
+  page is stacked on the ones above, which is unverified; the report warns.
+- the note's `breakHeight` is the first PDF page's height, and recognition
+  boxes of page `n` move by its `top`.
+- the page extent covers every background, so a PDF that was never written on
+  imports with all its pages.
+- a note that would be taller than the renderer's extent (200 000 pt,
+  `format.md` §8.4; a PDF of about 250 letter pages or more) is not one
+  infinite page: it is cut into pages of its page height, as `sempere notes
+  layout paged` does (`format.md` §5.4.3), with ids still derived from the
+  note, so it can be exported. Shorter notes keep the one infinite page.
+  At most 64 blank pages are kept (`NotabilityImporter.maxBlankSheets`):
+  further blank ones are left out, so a stray point far down the page cannot
+  turn a small note into thousands of empty pages.
+
+`PDFFile.highlights` (always empty in the samples) are counted in
+`dropped.pdfHighlights`. A `TemplatePDF:<uuid>` paper uses a PDF under `PDFs/`
+whose name holds the uuid, if there is one (where Notability keeps it is not
+known): page 1 of it as a background on every page down to the lowest ink;
+otherwise `dropped.templatePDFs` is 1 and the note keeps blank paper. `.ntb`
+bundles do not contain the PDF, so their PDF pages stay dropped.
+
+**Images (D2).** Notability's field names for `mediaObjects` are not known
+(unknown 1 of `docs/attachments.md` §11), so `MediaObject.read` walks each
+object (6 levels, 4 096 values at most) and takes the shallowest field of each
+candidate name, case-insensitively:
+
+| Part | Candidate fields | Value |
+| --- | --- | --- |
+| file | any string naming a package file (whole relative path, a path ending in it, or its file name), `Images/` and `Assets/` first | e.g. `figure.FigureBackgroundObjectKey.kImageObjectSnapshotKey.relativePath` |
+| frame | `frame`, `documentFrame`, `contentFrame`, `bounds`, `rect`, … | `{{x, y}, {w, h}}` (also inside an `NSValue`), or four float64s |
+| or origin + size | `documentContentOrigin`, `origin`, `position`, … and `unscaledContentSize`, `contentSize`, `size`, … times `contentScale` / `scale` (or a transform's scale) | `{x, y}`, `{w, h}` |
+| rotation | `rotation`, `rotationAngle`, `angle`, … (radians unless the name says degrees), else a `transform`'s angle | number |
+| crop | `cropRect`, `crop`, `contentsRect`, … | rect, in pixels, or unit coordinates when every value is within 0…1 |
+
+The frame is in ink coordinates (the x inset is added, then everything is
+scaled with the ink); the item goes into the content layer (`100`) in
+Notability's order. The bytes are sniffed: JPEG and PNG are stored with
+metadata stripped (`format.md` §8.2.5; the EXIF orientation becomes the
+item's `orientation`, `pixelSize` is after it) unless `--keep-image-metadata`;
+HEIC is stored as is (sized from its `ispe`, metadata not stripped, with a
+warning); GIF, TIFF, WebP, BMP and AVIF are left out, and so is an image over
+100 megapixels (`format.md` §8.4). At most 2 GiB of PDFs and images is held for
+one note while it is imported (a package entry may be 1 GiB, and a small zip
+can hold many): past that an attachment is left out with a warning. A media object with no
+file, no frame, a frame that is not a finite box of at least 1 × 1 unit, or
+any class that is not an image is counted in `dropped.media`; its warning
+names its class and top-level field names, and every placed image's warning
+names the fields its geometry came from, so a run on the reference backup
+shows which names are real.
+
+**Report.** Per note `attachments` (`pdfs`, `pdfPages`, `templatePages`,
+`images`, `blobs`, `blobBytes`), `dropped` and `warnings`; the CLI's
+`--json` summary adds the totals.
 
 ## Package layout
 
@@ -619,6 +710,30 @@ words grouped between whitespace with the union of their character boxes,
 moved by `pageContentOrigin`, the 18.8-unit inset and `(n − 1) × page
 height`. `engine` is `notability-<app version>`.
 
+## ios/HandwritingIndex.fb (.ntb)
+
+Newer bundles keep Notability's recognition in `ios/HandwritingIndex.fb`, a
+FlatBuffers buffer read without a schema. Its fields mirror
+`HandwritingIndex/index.plist`. It exists only where Notability has indexed the
+note (2 of 603 `.ntb` files in the reference backup).
+
+- Root: field 0 and field 1 are bytes (4 and 5, versions); field 3 is 8 bytes;
+  field 2 is a table whose field 0 lists the page tables. Its field 1 lists them again.
+- Page table:
+  - field 0: three 32-bit words, the third being the **0-based page index**
+    (the same convention as stroke records);
+  - field 1: the text, lines separated by `\n`;
+  - field 2: one 8-byte struct per UTF-16 unit of the text, four IEEE half
+    floats `(x, y, w, h)`, with whitespace stored as infinities (the `.note`
+    `characterRects` encoding);
+  - field 3: a 32-byte hash (presumably `sha256Hash`).
+- Boxes are **page coordinates**, as the bundle's strokes are. The importer
+  gives each page the origin `(−inset, 0)`, so the usual merge
+  (`(n − 1) × page height`, plus the inset) places the words exactly where the
+  strokes go. On the reference notes every word box contains ink.
+- Recognition is auxiliary: a missing or malformed index imports the note
+  without text, never without its ink.
+
 ## Mapping
 
 | Notability | Sempere |
@@ -638,6 +753,8 @@ height`. `engine` is `notability-<app version>`.
 | force, altitude, atan2(azimuth vector) | `f`, `al`, `az` (0, π/2, 0 when absent) |
 | | `o = 1`, `t = index / 120 s` (no timing is stored) |
 | handwriting index | page `recognition` |
+| `pageLayoutArray` PDF page | `pdfPage` item, layer 0 ("Attachments") |
+| `mediaObjects` image | `image` item, layer 100 ("Attachments") |
 
 **Curves.** Each Bézier segment is sampled (one sample per 3 units of
 control-polygon length, 1–8 per segment), attributes interpolated linearly
@@ -651,19 +768,19 @@ of the Bézier.
 
 ## Not imported
 
-Attachments (PDF backgrounds, images, typed text, recordings) are now
-designed (`docs/attachments.md` §11 maps each Notability structure and lists
-what is still unknown); until tasks D1–D4 land they are dropped as below.
+PDF backgrounds and images are imported ("Attachments"); typed text and
+recordings are designed (`docs/attachments.md` §11) and dropped until tasks D3
+and D4 land.
 
 | What | Why |
 | --- | --- |
 | Pages of two heights (paper pages inserted into a note made from a PDF: 4 of the notes with a Notability PDF export) | the note has one `breakHeight`, so exports break where the PDF pages do throughout; ink positions are exact, page breaks after an inserted page and recognition boxes on later pages are not |
-| PDF backgrounds (`pdfFiles`, 26 of 130 sample notes) and PDF templates | the format has no page backgrounds yet; the ink is imported in place, so it floats on blank paper. The report counts the PDF pages (`dropped.pdfPages`). |
-| Images and other media (`mediaObjects`) | no image support in the format |
+| PDF pages whose PDF is missing, encrypted or unreadable; PDFs of `.ntb` bundles; template PDFs not found in the package; PDF highlights | counted (`dropped.pdfPages`, `pdfs`, `templatePDFs`, `pdfHighlights`) with a warning |
+| Media objects that are not images, or have no file or frame; GIF, TIFF, WebP images | counted in `dropped.media` with a warning naming the class and fields |
 | Typed text (`attributedString`) | the format has no typed text (`DESIGN.md` non-goals); counted in the report. In the samples it was only newlines. |
 | Audio recordings and playback events | non-goal |
 | Dashed strokes | no dash attribute; imported solid and counted |
-| Paper colours, PDF-template paper | not stored per note; defaults used |
+| Paper colours | not stored per note; defaults used |
 | Page structure | the note becomes one infinite page; its `breakHeight` makes exports break where Notability's pages did |
 | `options`, `groupsArrays`, `bezierPathsDataDictionary`, `eventTokens` | empty or unknown |
 
@@ -672,8 +789,8 @@ have none, and none of them has any ink to import: their `InkedSpatialHash`
 is empty (`numcurves` 0, empty arrays), they have no
 `HandwritingIndex/index.plist`, their `PDFFile.highlights` are empty, and
 their PDFs carry no ink annotations. 15 are PDFs that were never written on
-(the CLI prints `no ink in …` for them) and 2 are blank paper notes. Their
-content arrives with PDF backgrounds (Phase 3). `testNotesWithoutCurvesAreInkless`
+and 2 are blank paper notes. The 15 now import with their PDF pages as
+backgrounds ("Attachments"). `testNotesWithoutCurvesAreInkless`
 checks this on a backup.
 
 `deviceBasedWidth` notes without a recorded width (two empty samples) use

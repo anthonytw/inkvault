@@ -14,6 +14,12 @@ struct PageCanvasView: UIViewRepresentable {
     /// The tool palette's shown/compact state (`ToolPalette`).
     var paletteVisible = true
     var paletteCompact = false
+    /// Reading on an iPhone: the canvas only pans and zooms, the palette is hidden
+    /// (`PhoneReading`).
+    var drawingSuspended = false
+    /// `NoteEditor.canvasGeneration`: a change reloads the drawing even when
+    /// the page id stays the same.
+    var generation = 0
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -27,39 +33,36 @@ struct PageCanvasView: UIViewRepresentable {
         let c = context.coordinator
         c.editor = editor
         c.host = host
-        if c.pageID != pageID || c.editorID != ObjectIdentifier(editor) {
+        editor.canvasTarget = host
+        if c.pageID != pageID || c.editorID != ObjectIdentifier(editor) || c.generation != generation {
+            let samePage = c.pageID == pageID && c.editorID == ObjectIdentifier(editor)
             c.pageID = pageID
             c.editorID = ObjectIdentifier(editor)
-            c.isLoading = true
-            host.cancelErasing()   // an erase in progress belongs to the old page
-            host.canvas.drawing = editor.drawing(for: pageID)
-            host.canvas.undoManager?.removeAllActions()   // undo must not cross pages or notes
-            c.isLoading = false
-            host.inkDidChange()
-            host.scrollToTop()
-            #if DEBUG
-            if DebugLaunch.isActive {
-                let d = host.canvas.drawing
-                NSLog("SempereDebug loaded strokes=%d bounds=%@ pageSize=%@", d.strokes.count,
-                      NSCoder.string(for: d.bounds), "\(pageSize)")
-            }
-            #endif
+            c.generation = generation
+            c.load(editor: editor, pageID: pageID, host: host, keepScroll: samePage)
         }
         host.isReadOnly = editor.isReadOnly
         let index = editor.pages.firstIndex { $0.id == pageID }
         let isLast = index == editor.pages.count - 1
-        host.footer = pageSize.infinite ? .none
-            : (isLast ? (editor.isReadOnly ? .none : .addPage) : .nextPage)
+        let footer = PhoneReading.footer(infinite: pageSize.infinite, isLast: isLast, readOnly: editor.isReadOnly,
+                                         drawingSuspended: drawingSuspended)
+        host.footer = footer
         host.footerAction = { [weak editor] in
             guard let editor else { return }
-            if isLast { editor.addPage() } else if let index { editor.selectPage(index + 1) }
+            switch footer {
+            case .addPage: editor.addPage()
+            case .nextPage: if let index { editor.selectPage(index + 1) }
+            case .none: break
+            }
         }
         host.paletteCompact = paletteCompact
         host.paletteVisible = paletteVisible
+        host.drawingSuspended = drawingSuspended
         host.apply(paper: paper, pageSize: pageSize)
     }
 
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
+        coordinator.loadTask?.cancel()
         coordinator.host = nil
         Task { await coordinator.editor?.flush() }
     }
@@ -70,7 +73,61 @@ struct PageCanvasView: UIViewRepresentable {
         weak var host: PageCanvasHost?
         var pageID: UUID?
         var editorID: ObjectIdentifier?
+        var generation: Int?
+        /// True while the canvas's drawing is being replaced: its changes are not the user's.
         var isLoading = false
+        /// The page's drawing being prepared off the main actor.
+        var loadTask: Task<Void, Never>?
+        /// Bumped per load, so a late partial drawing never lands over a newer one.
+        private var loadToken = 0
+
+        /// Shows the page's ink: at once when the editor has its drawing
+        /// ready, else prepared off the main actor (from the drawing cache, or
+        /// converted with the strokes on screen first), with drawing disabled
+        /// until the whole page is in.
+        func load(editor: NoteEditor, pageID: UUID, host: PageCanvasHost, keepScroll: Bool) {
+            loadTask?.cancel()
+            loadToken &+= 1
+            let token = loadToken
+            isLoading = true
+            host.cancelErasing()   // an erase in progress belongs to the old page
+            if !keepScroll { host.scrollToTop() }
+            if let ready = editor.readyDrawing(for: pageID) {
+                show(ready, host: host, editor: editor, partial: false)
+                return
+            }
+            host.canvas.drawing = PKDrawing()
+            host.canvas.undoManager?.removeAllActions()   // the previous page's undo must not run on this one
+            host.isPreparing = true
+            let visible = host.visiblePageRect
+            loadTask = Task { @MainActor [weak self, weak host, weak editor] in
+                guard let editor else { return }
+                let drawing = await editor.prepareDrawing(for: pageID, visible: visible) { [weak self, weak host] part in
+                    guard let self, let host, self.loadToken == token, self.isLoading else { return }
+                    host.canvas.drawing = part
+                    host.inkDidChange()
+                    editor.didShowInk(partial: true)
+                }
+                guard let self, let host, self.loadToken == token, !Task.isCancelled else { return }
+                // Nil: the page changed while it was prepared; the editor's own conversion is current.
+                self.show(drawing ?? editor.drawing(for: pageID), host: host, editor: editor, partial: false)
+            }
+        }
+
+        private func show(_ drawing: PKDrawing, host: PageCanvasHost, editor: NoteEditor, partial: Bool) {
+            isLoading = true
+            host.canvas.drawing = drawing
+            host.canvas.undoManager?.removeAllActions()   // undo must not cross pages or notes
+            isLoading = false
+            host.isPreparing = false
+            host.inkDidChange()
+            editor.didShowInk(partial: partial)
+            #if DEBUG
+            if DebugLaunch.isActive {
+                NSLog("SempereDebug loaded strokes=%d bounds=%@", drawing.strokes.count, NSCoder.string(for: drawing.bounds))
+            }
+            #endif
+        }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             if let type = EraserPreference.eraserType(of: canvasView.tool) { EraserPreference.save(type) }
@@ -86,7 +143,7 @@ struct PageCanvasView: UIViewRepresentable {
 }
 
 /// UIKit side of `PageCanvasView`.
-final class PageCanvasHost: UIView, PKToolPickerObserver {
+final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDelegate {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
     /// Starts with the last-used eraser mode, the object eraser by default.
@@ -100,6 +157,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     private(set) var inkMaxY: Double?
     /// The Add Page / Next Page button below a finite page.
     let footerButton = UIButton(configuration: .bordered())
+    /// The pointer's shape over the canvas (Mac, `pointerInteraction(_:styleFor:)`).
+    private var cursorInteraction: UIPointerInteraction?
 
     /// What the button below a finite page does (`PageExtent`).
     var footer = PageExtent.Footer.none {
@@ -117,12 +176,40 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         didSet { if paletteCompact != oldValue { rebuildToolPicker() } }
     }
 
+    /// Reading mode (iPhone): fingers scroll and zoom, nothing draws, no palette.
+    var drawingSuspended = false {
+        didSet {
+            guard drawingSuspended != oldValue else { return }
+            updateEraser()
+            updateToolPicker()
+        }
+    }
+
     var isReadOnly = false {
         didSet {
             guard isReadOnly != oldValue else { return }
             updateEraser()
             updateToolPicker()
         }
+    }
+
+    /// The page's ink is still being prepared: nothing can be drawn, and a
+    /// spinner shows over the canvas.
+    var isPreparing = false {
+        didSet {
+            guard isPreparing != oldValue else { return }
+            updateEraser()
+            if isPreparing { spinner.startAnimating() } else { spinner.stopAnimating() }
+        }
+    }
+    private let spinner = UIActivityIndicatorView(style: .medium)
+
+    /// The part of the page on screen, in page points (nil before layout).
+    var visiblePageRect: CGRect? {
+        let z = canvas.zoomScale
+        guard z > 0, bounds.width > 0, bounds.height > 0 else { return nil }
+        return CGRect(x: canvas.contentOffset.x / z, y: canvas.contentOffset.y / z,
+                      width: bounds.width / z, height: bounds.height / z)
     }
 
     override init(frame: CGRect) {
@@ -132,7 +219,10 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         canvas.isOpaque = false
         // Ink colours are stored as drawn on light paper; never invert them.
         canvas.overrideUserInterfaceStyle = .light
-        canvas.drawingPolicy = .default
+        // A Mac has no Pencil: the mouse and trackpad always draw, whatever
+        // the system's Pencil preference says (`.default` follows it).
+        // An iPhone has no Pencil: a finger draws (once annotating is switched on).
+        canvas.drawingPolicy = Platform.isMac || Platform.isPhone ? .anyInput : .default
         canvas.alwaysBounceVertical = true
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
@@ -140,10 +230,32 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
         footerButton.addAction(UIAction { [weak self] _ in self?.footerAction?() }, for: .primaryActionTriggered)
         canvas.addSubview(footerButton)
         addSubview(canvas)
+        spinner.hidesWhenStopped = true
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(spinner)
+        NSLayoutConstraint.activate([spinner.centerXAnchor.constraint(equalTo: centerXAnchor),
+                                     spinner.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 16)])
         toolPicker.addObserver(canvas)
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
+        if Platform.isMac {
+            let pointer = UIPointerInteraction(delegate: self)
+            addInteraction(pointer)
+            cursorInteraction = pointer
+        }
+    }
+
+    /// A circle the size of the ink tool's stroke at the current zoom, so the
+    /// pointer shows where a mouse stroke lands. The object eraser draws its
+    /// own cursor, and the lasso and the pixel eraser keep the system arrow.
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard !isReadOnly else { return nil }
+        if objectEraserSelected { return UIPointerStyle.hidden() }
+        guard let tool = canvas.tool as? PKInkingTool else { return nil }
+        let d = CGFloat(PointerCursor.diameter(toolWidth: Double(tool.width), zoom: Double(canvas.zoomScale)))
+        return UIPointerStyle(shape: .path(UIBezierPath(ovalIn: CGRect(x: -d / 2, y: -d / 2, width: d, height: d))),
+                              constrainedAxes: [])
     }
 
     /// Remembers the eraser mode the user picks, for the next canvas, and
@@ -153,6 +265,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
         updateEraser()
+        cursorInteraction?.invalidate()
     }
 
     /// Drops an object-eraser gesture in progress (the drawing is being replaced).
@@ -168,9 +281,10 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let ours = !isReadOnly && objectEraserSelected
+        let editable = !isReadOnly && !isPreparing && !drawingSuspended
+        let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
-        canvas.drawingGestureRecognizer.isEnabled = !isReadOnly && !ours
+        canvas.drawingGestureRecognizer.isEnabled = editable && !ours
     }
 
     @available(*, unavailable)
@@ -184,9 +298,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     private func updateToolPicker() {
         guard window != nil else { return }
         defer { updateEraser() }
-        let show = !isReadOnly && paletteVisible
+        let show = !isReadOnly && !drawingSuspended && paletteVisible
         toolPicker.setVisible(show, forFirstResponder: canvas)
-        if !isReadOnly { canvas.becomeFirstResponder() }
+        if !isReadOnly && !drawingSuspended { canvas.becomeFirstResponder() }
     }
 
     /// Swaps in a picker of the other size, keeping the selected tool when the
@@ -299,6 +413,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver {
     func zoomChanged() {
         let z = canvas.zoomScale
         guard z > 0 else { return }
+        cursorInteraction?.invalidate()
         let height = PageExtent.scrollHeight(pageSize: pageSize, inkMaxY: inkMaxY,
                                              viewportHeight: Double(bounds.height / z),
                                              footerHeight: footer == .none ? 0 : Double(PageExtent.footerScreenHeight / z))
@@ -349,5 +464,39 @@ enum PageExtent {
             return max(page, clamped(inkMaxY)) + screen
         }
         return max(page + clamped(footerHeight), screen)
+    }
+}
+
+// MARK: - Menu commands (Mac)
+
+extension PageCanvasHost: CanvasCommandTarget {
+    @discardableResult
+    func select(tool choice: ToolChoice) -> Bool {
+        guard !isReadOnly, let item = toolPicker.toolItems.first(where: { choice.matches($0) }) else { return false }
+        toolPicker.selectedToolItemIdentifier = item.identifier
+        updateEraser()
+        cursorInteraction?.invalidate()
+        return true
+    }
+
+    func zoom(in zoomingIn: Bool) {
+        guard fittedWidth > 0 else { return }
+        let target = ZoomSteps.step(from: Double(canvas.zoomScale), fit: Double(fittedWidth), zoomingIn: zoomingIn)
+        canvas.setZoomScale(CGFloat(target), animated: true)
+    }
+
+    func zoomToFit() {
+        guard fittedWidth > 0 else { return }
+        canvas.setZoomScale(fittedWidth, animated: true)
+    }
+
+    func zoomToActualSize() {
+        guard fittedWidth > 0 else { return }
+        canvas.setZoomScale(CGFloat(ZoomSteps.actualSize(fit: Double(fittedWidth))), animated: true)
+    }
+
+    func toggleRuler() {
+        guard !isReadOnly else { return }
+        canvas.isRulerActive.toggle()
     }
 }

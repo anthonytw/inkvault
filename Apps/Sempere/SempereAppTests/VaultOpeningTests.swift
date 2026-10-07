@@ -151,7 +151,7 @@ struct VaultOpeningTests {
         await first.summaryCacheSave?.value   // written after the listing, in the background
         first.close()
         #expect(await TS.waitUntil {
-            ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1
+            TS.summaryFiles(cacheDir).count == 1
         })
         let vault = try Vault.open(at: url, identities: [try IdentityFile.parse(key)])
         _ = try vault.apply([.setMeta(.title("Renamed elsewhere"))], to: Self.lecture,
@@ -241,7 +241,7 @@ struct VaultOpeningTests {
         await first.summaryCacheSave?.value   // written after the listing, in the background
         first.close()
         #expect(await TS.waitUntil {
-            ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1
+            TS.summaryFiles(cacheDir).count == 1
         })
         // Another device renames a note meanwhile.
         let vault = try Vault.open(at: url, identities: [try IdentityFile.parse(key)])
@@ -274,9 +274,11 @@ struct VaultOpeningTests {
         model.close()
     }
 
-    /// iCloud: a note whose files were evicted since the last launch keeps
-    /// its cached summary (marked downloading) instead of a blank placeholder.
-    @Test func evictedICloudNoteShowsItsCachedSummaryWhileDownloading() async throws {
+    /// iCloud: a note whose files were evicted since the last launch, but
+    /// whose revision names are the ones its indexed summary was made from,
+    /// is shown from the index as it is: not downloaded, not read, not
+    /// pending, and editable (its summary is current).
+    @Test func evictedICloudNoteWithUnchangedNamesIsShownFromTheIndex() async throws {
         let cacheDir = Self.tempDir()
         let (url, keyURL) = try AppModelTests.fixtureVault()
         let key = try Self.key(keyURL)
@@ -290,22 +292,59 @@ struct VaultOpeningTests {
         #expect(!cached.title.isEmpty)
         await first.summaryCacheSave?.value   // written after the listing, in the background
         first.close()
-        #expect(await TS.waitUntil {
-            ((try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path)) ?? []).count == 1
-        })
+        #expect(await TS.waitUntil { TS.summaryFiles(cacheDir).count == 1 })
 
         try cloud.evict(Self.lecture)
+        try cloud.evictDataless(Self.other)
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), summaryCacheDirectory: cacheDir)
+        model.cloudHooks = cloud.hooks
+        model.cloudPollInterval = .milliseconds(10)
+        try await model.openVault(at: url)
+        #expect(model.hasLocalIndex)
+        try await model.unlock(identityText: key)
+        #expect(model.pendingNoteIDs.isEmpty)
+        #expect(model.placeholderNoteIDs.isEmpty)
+        #expect(model.notes.first { $0.id == Self.lecture } == cached)
+        #expect(model.verifiedNoteIDs.isSuperset(of: [Self.lecture, Self.other]))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(cloud.requestedNotes.isEmpty, "nothing downloaded for the list: \(cloud.requestedNotes)")
+        #expect(model.cloudSync?.isDownloading == false)
+        model.close()
+    }
+
+    /// iCloud: a revision another device added since the last launch changes
+    /// the note's names: the note keeps its indexed summary (marked
+    /// downloading), is downloaded and read, and only it is read.
+    @Test func aNoteChangedElsewhereIsDownloadedAndReadAlone() async throws {
+        let cacheDir = Self.tempDir()
+        let (url, keyURL) = try AppModelTests.fixtureVault()
+        let key = try Self.key(keyURL)
+        let cloud = FakeCloud(vault: url)
+        let first = AppModel(deviceStateURL: TS.deviceStateURL(), summaryCacheDirectory: cacheDir)
+        first.cloudHooks = cloud.hooks
+        try await first.openVault(at: url)
+        try await first.unlock(identityText: key)
+        let cached = try #require(first.notes.first { $0.id == Self.lecture })
+        await first.summaryCacheSave?.value
+        first.close()
+        #expect(await TS.waitUntil { TS.summaryFiles(cacheDir).count == 1 })
+
+        try TS.writeAsAnotherDevice([.setMeta(.title("Renamed on the Mac"))], to: Self.lecture, vault: url, key: keyURL)
+        try cloud.evictDataless(Self.lecture)   // listed, not downloaded yet
+        try cloud.evictDataless(Self.other)
         let model = AppModel(deviceStateURL: TS.deviceStateURL(), summaryCacheDirectory: cacheDir)
         model.cloudHooks = cloud.hooks
         model.cloudPollInterval = .milliseconds(10)
         try await model.openVault(at: url)
         try await model.unlock(identityText: key)
-        #expect(model.pendingNoteIDs.contains(Self.lecture))
+        #expect(model.pendingNoteIDs == [Self.lecture])
         #expect(!model.placeholderNoteIDs.contains(Self.lecture))
         #expect(model.notes.first { $0.id == Self.lecture } == cached)
+        #expect(cloud.requestedNotes == [Self.lecture.uuidString.lowercased()], "only the changed note")
         try cloud.deliver(Self.lecture)
         #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
-        #expect(model.notes.first { $0.id == Self.lecture }?.title == cached.title)
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Renamed on the Mac")
+        #expect(cloud.requestedNotes == [Self.lecture.uuidString.lowercased()])
         model.close()
     }
 

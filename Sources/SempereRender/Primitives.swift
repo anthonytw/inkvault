@@ -91,13 +91,59 @@ public struct RenderOptions: Sendable {
     /// page's `pageSize.breakHeight`, else the page width x 11 / 8.5 (letter
     /// aspect), independent of the page's current extent. Clamped to 72 ... `RenderLimits.maxExtent`.
     public var infiniteChunkHeight: Double?
+    /// Where paginating writers cut a pageless page (format.md §5.4.3).
+    public var breaks: PageBreaks
+    /// The note's attachments. Without it every blob-backed item is a
+    /// placeholder (format.md §8.5.2).
+    public var blobs: (any BlobSource)?
+    /// Draws PDF pages for SVG and PNG (and for PDF pages that cannot be
+    /// copied as forms). Without it those are placeholders.
+    public var pdfRasterizer: (any PDFPageRasterizer)?
+    /// Pixels per point for rasterized PDF pages in SVG and PDF output (PNG
+    /// uses its own resolution).
+    public var rasterScale: Double
+    /// Most pixels one rasterized PDF page may have; larger ones are drawn at
+    /// a lower resolution.
+    public var maxBackgroundPixels: Int = RenderLimits.maxBackgroundPixels
+    /// Decodes image types SempereRender cannot (HEIC, in the app). Without
+    /// it a HEIC image is a placeholder with a report entry.
+    public var imageDecoder: (any ImageDecoding)?
+    /// Keep the metadata of images passed through into an export (EXIF,
+    /// XMP, GPS, comments). Off by default: exports strip it whatever is
+    /// stored (format.md §8.2.5).
+    public var keepImageMetadata: Bool
+    /// Images with more pixels are placeholders (format.md §8.4).
+    public var maxImagePixels: Int
+    /// Lays out and shapes text items (`DefaultTextShaper` in the CLI,
+    /// CoreText in the app). Without one, text items are not drawn and the
+    /// export reports them.
+    public var shaper: (any TextShaper)?
 
-    /// Creates options; the defaults are paper on, compression on, 0.05 pt tolerance.
+    /// Creates options; the defaults are paper on, compression on, 0.05 pt
+    /// tolerance, cuts moved to gaps in the ink.
     public init(paper: Bool = true, compress: Bool = true, tolerance: Double = 0.05,
-                infiniteChunkHeight: Double? = nil) {
+                infiniteChunkHeight: Double? = nil, breaks: PageBreaks = .gaps, blobs: (any BlobSource)? = nil,
+                pdfRasterizer: (any PDFPageRasterizer)? = nil, rasterScale: Double = 2,
+                imageDecoder: (any ImageDecoding)? = nil, keepImageMetadata: Bool = false,
+                maxImagePixels: Int = ImageLimits.maxPixels, shaper: (any TextShaper)? = nil) {
         self.paper = paper; self.compress = compress; self.tolerance = tolerance
         self.infiniteChunkHeight = infiniteChunkHeight
+        self.breaks = breaks
+        self.blobs = blobs; self.pdfRasterizer = pdfRasterizer; self.rasterScale = rasterScale
+        self.imageDecoder = imageDecoder; self.keepImageMetadata = keepImageMetadata
+        self.maxImagePixels = maxImagePixels
+        self.shaper = shaper
     }
+}
+
+/// How a pageless page (and ink below a finite page) is cut into output pages
+/// (format.md §5.4.3, "Exporting").
+public enum PageBreaks: String, Sendable, CaseIterable {
+    /// At each sheet height, moved up (by at most a quarter sheet) to a gap
+    /// in the ink when the line would cross a stroke.
+    case gaps
+    /// At every multiple of the sheet height, through any ink.
+    case fixed
 }
 
 /// Hard limits protecting the renderers from hostile or corrupt input.
@@ -128,6 +174,14 @@ public enum RenderLimits {
     /// `RenderError.tooComplex`. A dense page of handwriting needs well under
     /// a tenth of this.
     public static let maxOutlinePoints = 40_000_000
+    /// Most items drawn on one page (format.md §8.4); the rest are reported, not drawn.
+    public static let maxItemsPerPage = 10_000
+    /// Most pixels of rasterized PDF pages per export, and per page drawn
+    /// (larger ones are drawn at a lower resolution); beyond the export's
+    /// budget pages are placeholders.
+    public static let maxBackgroundPixels = 16_000_000
+    /// Most pixels of rasterized PDF pages one export draws in all.
+    public static let maxBackgroundPixelsPerExport = 256_000_000
 }
 
 /// Errors thrown by the renderers.
@@ -147,6 +201,8 @@ public enum RenderError: Error, Equatable {
     /// A page's strokes would produce more than `RenderLimits.maxOutlinePoints`
     /// outline points.
     case tooComplex
+    /// An image's size and pixel buffer disagree.
+    case invalidImage
 }
 
 extension RenderError: LocalizedError {
@@ -160,6 +216,7 @@ extension RenderError: LocalizedError {
         case .imageTooLarge(let pixels, let limit):
             return "image of \(fmt(pixels)) pixels exceeds the limit of \(limit); lower --dpi"
         case .tooComplex: return "the page has more ink geometry than the renderer accepts"
+        case .invalidImage: return "an image's pixel data does not match its size"
         }
     }
 }
@@ -186,6 +243,17 @@ extension DrawCommand {
 func fmt(_ v: Double) -> String {
     guard v.isFinite else { return "0" }
     var s = String(format: "%.3f", v)
+    while s.hasSuffix("0") { s.removeLast() }
+    if s.hasSuffix(".") { s.removeLast() }
+    return (s == "-0" || s.isEmpty) ? "0" : s
+}
+
+/// A matrix coefficient: `fmt`, but with 6 decimals below 1 so that a large
+/// image scaled down to a small frame keeps its size.
+func coef(_ v: Double) -> String {
+    guard v.isFinite else { return "0" }
+    if abs(v) >= 1 || v == 0 { return fmt(v) }
+    var s = String(format: "%.6f", v)
     while s.hasSuffix("0") { s.removeLast() }
     if s.hasSuffix(".") { s.removeLast() }
     return (s == "-0" || s.isEmpty) ? "0" : s

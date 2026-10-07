@@ -31,6 +31,15 @@ public struct VaultManifest: Hashable, Sendable, Codable {
     public var recipients: [Recipient]
     /// The 32-byte vault secret, age-encrypted (armored) to exactly `recipients`.
     public var vaultSecret: String
+    /// Format extensions the vault uses (format.md §2), e.g. `attachments`.
+    /// Empty when absent; written only when non-empty.
+    public var features: [String]
+
+    /// The extensions this implementation knows. A writer must not write to
+    /// a vault that uses any other (format.md §2).
+    public static let knownFeatures: Set<String> = [attachmentsFeature]
+    /// Added before the first blob or attachment op is written (format.md §2, §8).
+    public static let attachmentsFeature = "attachments"
 
     /// Builds a manifest value. No validation happens here; `Vault.create`
     /// and `Vault.open` enforce format.md §2.
@@ -39,12 +48,12 @@ public struct VaultManifest: Hashable, Sendable, Codable {
     ///   - format: `sempere/1` unless testing other versions.
     ///   - vaultSecret: the armored age file holding the 32-byte secret.
     public init(format: String = SempereFormat.identifier, vaultId: UUID, created: Date, recipients: [Recipient],
-                vaultSecret: String) {
+                vaultSecret: String, features: [String] = []) {
         self.format = format; self.vaultId = vaultId; self.created = created
-        self.recipients = recipients; self.vaultSecret = vaultSecret
+        self.recipients = recipients; self.vaultSecret = vaultSecret; self.features = features
     }
 
-    enum CodingKeys: String, CodingKey { case format, vaultId, created, recipients, vaultSecret }
+    enum CodingKeys: String, CodingKey { case format, vaultId, created, recipients, vaultSecret, features }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -53,6 +62,7 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         created = try c.decode(Date.self, forKey: .created)
         recipients = try c.decode([Recipient].self, forKey: .recipients)
         vaultSecret = try c.decode(String.self, forKey: .vaultSecret)
+        features = try c.decodeIfPresent([String].self, forKey: .features) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -62,6 +72,12 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         try c.encode(created, forKey: .created)
         try c.encode(recipients, forKey: .recipients)
         try c.encode(vaultSecret, forKey: .vaultSecret)
+        if !features.isEmpty { try c.encode(features, forKey: .features) }
+    }
+
+    /// The features this implementation does not know, sorted.
+    public var unknownFeatures: [String] {
+        Set(features).subtracting(Self.knownFeatures).sorted()
     }
 
     /// The manifest as written to disk: InkJSON conventions, pretty-printed

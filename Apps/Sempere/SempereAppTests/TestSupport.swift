@@ -36,6 +36,19 @@ enum TS {
             .appendingPathComponent("device.json")
     }
 
+    /// The summary-cache files in `dir` (the index; markers and other files aside).
+    static func summaryFiles(_ dir: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".summaries") }
+    }
+
+    /// Another device writes `ops` into note `id`: a new revision file in the
+    /// note's folder, as iCloud Drive delivers it.
+    static func writeAsAnotherDevice(_ ops: [Op], to id: UUID, vault url: URL, key: URL) throws {
+        let identity = try IdentityFile.parse(try String(contentsOf: key, encoding: .utf8))
+        let vault = try Vault.open(at: url, identities: [identity])
+        _ = try vault.apply(ops, to: id, deviceState: deviceStateURL(), app: "other-device/1")
+    }
+
     /// Polls `condition` every 10 ms until it holds or `timeout` passes.
     @MainActor
     static func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {

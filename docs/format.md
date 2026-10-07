@@ -415,6 +415,8 @@ notes may share a title, in one notebook or several.
 - `pageSize.breakHeight` (optional, points): for an infinite page, the height
   of each page a paginating exporter (PDF) splits it into. Absent, it
   is `width × 11 / 8.5` (letter aspect). Ignored for finite pages.
+  §5.4.3 calls this the note's *sheet height* and says how exporters
+  paginate.
 - In a snapshot, `pages` are sorted by `(order, id)`.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`
@@ -627,6 +629,138 @@ with a `setPagePaper` the snapshot does not cover. `addPage` ignores any
 plus a `setPagePaper` with `null` for each page that has its own. A page
 added later follows the note's paper.
 
+#### 5.4.3 Paged and pageless notes
+
+A note is **paged** when `pageSize.infinite` is false: every page is a sheet
+`width × height`, and pages are read top to bottom in page order (§5.5). It
+is **pageless** when `infinite` is true: normally one page that grows
+downward. Nothing else marks the layout; it is the `pageSize` register
+(LWW, §5.4), so it needs no new op or field.
+
+The **sheet height** `H` of a note is `height` when paged and `breakHeight`
+(default `width × 11 / 8.5`) when pageless. Readers use `H = 792` when the
+value is not finite or not positive, and clamp it to 72 … 200 000.
+
+**Switching layout** is one delta written from the writer's current state.
+It never deletes ink: every stroke that moves is re-added under a new id
+with `parent` naming the old one (§5.2), its `transform` translated
+vertically (`ty` changed, nothing else), so on screen and in exports each
+stroke keeps its position relative to the sheet it is on, and ink keeps
+its reading order. A re-added stroke keeps everything else, `rec` included
+(§8.3.3). Placed items (§8.2) move the same way: `removeItem` (or the page's
+`removePage`) and `addItem` of a new id with `parent` naming the old one
+(§8.2.2), `frame` moved vertically by the same amount, every other field
+kept; an item's sheet is the one holding the vertical centre of its `frame`.
+
+- **Paged → pageless (join).** Let the pages be `P0 … Pn-1` in page order,
+  and `s(P)` the sheets a page's ink reaches: 1 + the largest sheet `k` (as
+  for a split, below) of its strokes and items, at least 1; it is 1 unless a
+  concurrent edit left ink below the page. Page `Pj` starts at
+  `oj = (s(P0) + … + s(Pj-1)) × H` (`j × H` when every `s` is 1), so ink
+  below one page never lands on the next. `P0` stays. Each stroke of `Pj`
+  (j ≥ 1), in that page's stroke order, is re-added to `P0` with `ty + oj`;
+  then each `Pj` is removed (`removePage`). If any `Pj` (j ≥ 1) has
+  recognition, `P0` gets one `setPageRecognition` (§5.5) whose `text` is the
+  pages' texts joined by `\n` and whose `words` are theirs with boxes moved
+  by `oj`. Own paper of pages after `P0` is not carried over. Last, `setMeta`
+  of `pageSize` with `infinite: true`, the same `width`, `height` the total
+  `(s(P0) + … + s(Pn-1)) × H` rounded up to a whole point, and
+  `breakHeight: H`, so the pageless page's sheets are where the pages were.
+  A pageless note with more than one page (a concurrent split that the
+  note's own later `pageSize` write overrode, below) is joined the same
+  way, with its sheet height.
+- **Pageless → paged (split).** For each page `P` in page order: a stroke
+  is on sheet `k = ⌊c / H⌋` (0 for negative or non-finite `c`), where `c` is
+  the midpoint of the smallest and largest `y` of its control points after
+  its transform. `P` becomes `m` sheets, `m − 1` being the largest `k` of
+  its strokes and items, raised for a note with exactly one page to the number of
+  whole sheets in `pageSize.height` (`⌊(height + 1) / H⌋`), at least 1 and at
+  most 10 000 (larger `k` count as the last sheet). Sheet 0 is `P` itself
+  and keeps its strokes. Each sheet `k ≥ 1`, blank ones included so later
+  ink keeps its place, is a new page (`addPage`) whose `order` sorts after
+  `P` and its earlier sheets and before the next page; each of its strokes
+  is removed from `P` and re-added to it with `ty − k × H`; it gets `P`'s own
+  paper, if any (`setPagePaper`). A recognition with `words` is split: each
+  word goes to the sheet holding the vertical centre of its box (beyond the
+  last sheet: the last), box moved by `−k × H`; a sheet's `text` is its
+  words in order, separated by `\n` where the original text has a line
+  break between them (found by locating each word in order in the text;
+  if one is missing, all are separated by spaces), else by a space. `P`
+  gets a `setPageRecognition` with its share; sheets without words get
+  none. A recognition without `words` stays on `P`. Last, `setMeta` of
+  `pageSize` with `infinite: false`, the same `width` and `height: H`.
+
+**Recognition that moves** (join, split, and the duplicate and undo-delete
+below) keeps telling current from stale (§5.5): its `basis` becomes the digest
+of the receiving page's live strokes when every source page's recognition was
+current (or the page was blank without any); it is absent when a source had
+none (an import, kept until edited); and when a source was stale, or had ink
+and no recognition, it is the digest of a freshly generated id, which matches
+no strokes, so the text is read again. Text without `words` that stays on a
+page whose ink a split moved away is stale.
+
+Translations are exact up to the 3-decimal rounding of `transform` (§5.6),
+so a split of a join (or a join of a split) puts every stroke back where
+it was, under new ids. Strokes with a non-identity transform keep it:
+only `ty` changes.
+
+A concurrent revision merges with a switch like any other: a stroke
+another device adds to a page the join removes is removed with it (as for
+any page removal, §5.2); a stroke added to a pageless page below its first
+sheet after a split was written stays on that page, below its bottom edge,
+until the note is joined again. Readers draw and export it anyway (finite
+pages, below). A device still drawing on the pageless page may write
+`pageSize` (to grow it) after a concurrent split; that write wins the
+register, leaving a pageless note with several pages, which readers show in
+page order and a join merges.
+
+**Page edits in a paged note** use the ops of §5.2, one delta per user
+action:
+
+- *Add a page* (after the current one, or at the end): `addPage` with an
+  `order` strictly between its neighbours' keys (§5.5).
+- *Move a page*: one `setPageOrder` with a key strictly between its new
+  neighbours. Pages with equal keys (two devices inserted at the same place)
+  sort by id; when no key fits between the new neighbours, the writer also
+  gives the following pages new keys, in order, until one does.
+- *Delete a page*: `removePage`. It wins over every concurrent edit of the
+  page, a concurrent `setPageOrder` included.
+- *Undo a delete*: the page id cannot be added again (§5.2), so the page is
+  re-created as for a restore (§5.7): `addPage` with a new id and `parent`
+  naming the old one, its strokes and items re-added under new ids with
+  `parent` (and their `rec`), its recognition and own paper.
+- *Duplicate a page*: `addPage` right after it, copies of its strokes and
+  items under new ids (no `parent`: they re-create nothing; `rec` kept), its
+  recognition and own paper.
+
+Concurrent moves of one page resolve by LWW on its `order`; moves of
+different pages all apply, so the result can interleave both devices'
+intentions but always holds every live page exactly once.
+
+**Exporting.** A paginating exporter (PDF, PNG) writes one output page per
+page of a paged note, `width × height`. Ink below a finite page (a stroke
+whose centre `c`, as for a split, is at or below `height`: only a concurrent
+edit, above, or another writer leaves one) adds output pages of the same
+size after it (at least 72 pt tall, the clamped sheet height), cut like a
+pageless page from `height` down and keeping only those that hold ink
+centred below the page, so no ink is lost; strokes merely crossing the
+bottom edge are clipped by it. A
+pageless page is cut into output pages of `width × H`: from the top `t`
+of the current output page, the cut is at `t + H`, unless that line
+crosses ink; then it moves up to the top of the ink it crosses, if that is
+at least `t + 3H / 4` and makes room for the cut (a gap no stroke spans),
+otherwise it stays at `t + H` and strokes crossing it appear on both
+pages, clipped. A stroke spans the extent of its drawn outline (its
+control points under its transform, widened by half its nib); a placed item
+(§8.2) spans its frame and, below a finite page, counts by its frame's
+vertical centre. The next
+output page starts at the cut, and the paper is drawn over each whole
+output page from `t` down, so ruling stays aligned with the ink. Notes
+on `cornell` paper, whose layout repeats every sheet, are always cut at
+`k × H`. Exporters may offer fixed cuts (`k × H`) as an option. A
+non-paginating exporter (SVG) writes each page as one image of its full
+extent.
+
 ### 5.5 Page
 
 ```json
@@ -656,18 +790,29 @@ A page may carry `"recognition"`, the text recognised in its handwriting:
 
 ```json
 "recognition": {
-  "engine": "pencilkit-27.0",
+  "engine": "vision-26.7",
   "text": "Lecture 3\nlinear maps",
-  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ]
+  "words": [ { "t": "Lecture", "box": [52.5, 40.0, 96.25, 30.5] }, ... ],
+  "basis": "9f2c4e1d7a0b3c58e6d1f4a2b7c90e13"
 }
 ```
 
 - `engine`: free-form name and version of whatever produced the text, e.g.
+  `vision-<iPadOS version>` (the app's on-device recogniser),
   `pencilkit-<iPadOS version>` or `notability-<version>` for an import.
 - `text`: the page's recognised text in reading order, lines separated by `\n`.
 - `words[].t`: one word of `text`; `words[].box`: its bounding box
   `[x, y, w, h]` in page coordinates (points, origin top-left, y down).
   Writers round to at most 3 decimals. `words` may be empty.
+- `basis` (optional): which strokes the text was read from, so a writer can
+  tell current recognition from stale without reading the ink. The first 16
+  bytes, as 32 lowercase hex digits, of the SHA-256 of the page's live stroke
+  ids (§5.2): each id as lowercase text, sorted as strings (byte order),
+  joined by `\n` with no trailing newline. Strokes are write-once, so equal
+  ids mean equal ink. An empty page's basis is the digest of the empty
+  string, `e3b0c44298fc1c149afbf4c8996fb924`. Readers ignore a value they do
+  not understand and treat it as an opaque string they only compare for
+  equality.
 
 Recognition is derived data: it is set as a whole, never merged, and a writer
 may replace it at any time (for example after strokes change). It is an LWW
@@ -682,6 +827,18 @@ a `setPageRecognition` the snapshot does not cover. `addPage` ignores any
 
 Readers that index text for search use `text`; `words` lets a viewer
 highlight hits on the page.
+
+**When recognition is stale.** A page's recognition is *current* when it has
+a `basis` equal to the digest of the page's live stroke ids; one with a
+different basis is stale (strokes were added or erased since) and a writer
+that recognises text replaces it, with a `basis` of its own. Recognition
+without a `basis` (an import, or a writer that does not record one) cannot be
+checked: a writer keeps it until it itself changes the page's strokes, and
+then replaces it. A page with strokes and no recognition has none yet; a page
+with no strokes keeps recognition without a `basis` and clears (sets to
+`null`) one whose `basis` names strokes that are gone. Recognition with
+empty `text` is valid and current: it says the page was read and had
+nothing legible.
 
 In a snapshot, every page and stroke carries `"origin"`,
 `"<hlc>-<device>-<seq>-<op>"`: the revision that added it and the op's
@@ -766,8 +923,14 @@ one delta whose ops turn the current state into the state as of R:
 A page, stroke, item or recording counts as present when its id is, or when
 one with `parent` naming it is (for a stroke, also with the same `ink`,
 `points` and `transform`; for an item or recording, also with the same
-immutable fields, §8.2.2), so restoring the same point twice writes nothing
-the second time. Restoring never needs a blob the vault has deleted: a blob
+immutable fields other than `id` and `parent`, §8.2.2), so restoring the same
+point twice writes nothing the second time. Strokes and items are matched
+only on the page that corresponds to theirs (the same id, or the re-created
+page), so an item moved to another page since R (`removeItem` plus `addItem`
+with `parent`, §8.2.2) is put back on its page as of R and its copy on the
+other page is removed. An unknown field (§7) that an item or recording has now
+but did not have as of R is left as it is: no op makes a field absent again
+(`null` is a value of it, §8.2.2). Restoring never needs a blob the vault has deleted: a blob
 referenced by any surviving revision of its note is never collected (§8.1.6). The delta's `hlc` is issued after observing every revision of the
 note, so its LWW ops win over what they set back. Re-added strokes are
 drawn above the strokes that stayed (they sort by their new `origin`).
@@ -998,7 +1161,10 @@ Default policy, chosen automatically by the kind of change:
 | a recipient is removed | full re-encryption | every old copy of a blob's header (backups, file-version history, another device's cache) has a stanza the removed key opens; with the same file key it would open the current file too |
 | the recipients' type changes (classic X25519 to the post-quantum hybrid) | full re-encryption | an old header's classic stanza stays breakable later; with the same file key it would open the post-quantum file too |
 
-A change that both adds and removes follows the removal row. Implementations
+A change that both adds and removes follows the removal row, and so does an
+addition that changes the set of stanza types among the recipients (for
+example an MLKEM768-X25519 recipient added to a vault of X25519 ones, the
+first step of a §3.3.2 migration by adding then removing). Implementations
 may let the user choose the other method for each of the two cases (adding;
 removing or changing type); the default is the table above. The method in
 force is written to `rewrap-journal.json` as `rekeyBlobs` (§3.3.1) before the
@@ -1033,7 +1199,8 @@ blob in `notes/<N>/att/` may be deleted only when all of these hold:
    never in the vault.
 
 No other note is read: references never cross notes (§8.1.1). Blob files
-that cannot be decrypted or verified are never deleted by collection; they
+that cannot be decrypted or verified (as a whole, §8.1.4, with the name
+checked under the current secret) are never deleted by collection; they
 are reported. Because every surviving revision keeps its blobs, history
 (§5.7) never loses an attachment that a restore point needs.
 
@@ -1059,7 +1226,9 @@ age -d -i key.txt "$B" | tail -c +46 | head -c "$((16#<L hex>))" > out
 The content hash matches the `sha256` of the item or recording that uses the
 blob (readable from any revision of the same note, §4); `KIND` and
 `file out` tell the type. Without `head -c` the output carries the zero
-padding after the content.
+padding after the content. `$((16#…))` is bash/zsh arithmetic, and BSD `head` (macOS) refuses
+`-c 0` (an empty content has nothing to extract); where `xxd`
+is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
@@ -1137,6 +1306,14 @@ and never changed.
   the reader does not know is a register (§7), and `null` is a value of it
   like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
+  Writers name the item's own page in `setItem`; readers key the registers by
+  item id and use `page` only to tell whether the op is an orphan (§5.3).
+- A field named like an immutable field of some kind (`blob` on a text item,
+  an unknown field there, §8.2.1) is not a register either: `setItem` can
+  never name it, so it keeps the value its `addItem` gave it. Snapshot
+  `clocks` list every register of the item, including `rotation` and `crop`
+  while absent (a reset is a value with a stamp, like `recognitionClock`,
+  §5.5).
 - Items merge as sets like strokes (§5.3), with permanent tombstones (§5.4).
   An item belongs to one page; moving it to another page is `removeItem`
   plus `addItem` of a new id with `parent` naming the old one (to another
@@ -1321,7 +1498,8 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
   snapshots. Every other field is immutable: a `setRecording` naming one, or
   `origin` or `clocks`, or giving `title` a non-string or `transcript` a value
   that is not a blob reference, is invalid (the revision is rejected); `null`
-  resets `title` to absent. Unknown fields as in §7.
+  resets `title` to absent. Unknown fields as in §7; like an item's (§8.2.2)
+  they are registers, set by `setRecording` and stamped in `clocks`.
 - Recordings merge as sets like items, with permanent tombstones (§5.4).
 
 #### 8.3.2 Transcript
@@ -1384,7 +1562,10 @@ is set when the stroke or item is added and never changes (a stroke sliced by
 the eraser passes it to its pieces). A player can highlight or fade in what
 was written up to the current position and seek to where a stroke was drawn;
 with a transcript, a word's `start` finds the strokes drawn around it. A
-`rec` naming a recording that is not present is ignored.
+`rec` naming a recording that is not present refers to a present recording
+whose `parent` names it (one re-created by a restore, §5.7; the first by
+`(started, id)` if several), else it is ignored. `rec` is immutable, so this
+is how links survive a recording being removed and restored.
 
 ### 8.4 Limits
 
@@ -1518,6 +1699,7 @@ where the table says how they degrade.
 | --- | --- | --- |
 | revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
+| blob collector state (device-local, §8.1.6) | 64 MiB | `BlobCollectorState` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |
 | `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |
@@ -1541,7 +1723,13 @@ where the table says how they degrade.
 | nib width | 1 000 pt (drawn no wider) | `RenderLimits.maxNibWidth` |
 | paper ruling | 40 000 commands per band, 1 M per page (plain background beyond) | `RenderLimits.maxPaperCommands…` |
 | PNG image | 40 M pixels by default | `PNGOptions.maxPixels` |
+| image decoded for export (§8.2.5) | 100 M pixels (§8.4) and at most 1 024 per byte of the file + 1 M (a header cannot claim more than its data can hold); 64 MiB per image blob; a truncated JPEG scan decodes as far as its data goes | `ImageLimits` |
+| items drawn per page | 10 000 (§8.4); the rest are reported, not drawn | `RenderLimits.maxItemsPerPage` |
+| font file (font packs, render) | 64 MiB; 512 tables; composite glyphs 8 levels and 65 536 points; CFF subroutines 10 levels, 65 536 charstring operations, 48 operands; layout substitutions 2^20 steps, nested lookups 8 levels; any failure falls back to another font | `OpenTypeFont`, `CFFFont`, `GSUBApplier` |
+| font-pack scan | 20 000 font files, 64 faces per collection | `FontLibrary` |
 | notebook levels shown | 64 | `NotebookNode.maxDepth` |
+| PDF attachment (export, `SemperePDF`) | 1 GiB file; 10⁶ objects; 256 MiB per decoded stream, 1 GiB decoded per file; nesting and page-tree depth 64; 32 reference hops; 4 096 cross-reference sections; 16 filters per stream; encrypted files refused | `PDFLimits` |
+| PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
@@ -1556,7 +1744,7 @@ itself and checks PROPFIND bodies before `XMLParser` sees them.
 
 Not part of a vault and never stored in one: a reader may keep, per device,
 the summaries of a vault's notes (title, tags, notebook, deleted flag, page,
-stroke and recognised-page counts, newest `wall`) so that listing the vault
+stroke and recognised-page counts, the recognised text of each page for search, newest `wall`) so that listing the vault
 again does not decrypt every note. The reference implementation keeps it in
 the app's Application Support folder and, for the CLI, in
 `$XDG_CACHE_HOME/sempere/` (default `~/.cache/sempere/`). Other readers need
@@ -1592,3 +1780,39 @@ authenticate or decompress, does not parse, or has another `schema` is
 ignored and replaced on the next write. Because entries trust file names, a
 revision damaged in place after it was cached is reported only when the note
 is opened, not in the listing.
+
+### 10.1 Other per-device caches
+
+A reader may keep other caches derived from a vault on a device, under the
+same rules as §10: never in the vault, unreadable and unlinkable to the vault
+without its secret, and never trusted over the vault. Each cache has a
+*purpose* (a short ASCII word) and a 5-byte magic. With `vaultSecret` as
+HKDF-SHA256 input key material (empty salt):
+
+```
+key      = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 <purpose> key",   L = 32)
+entryKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 <purpose> entry", L = 32)
+name     = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 <purpose> name",  L = 16)
+folder   = lowercase hex(name)
+entry    = lowercase hex(first 16 bytes of HMAC-SHA256(entryKey, label)) ‖ suffix
+```
+
+where `label` is the implementation's description of the entry (for example
+a note id and its revision file names). Each entry file is `magic` ‖
+ChaCha20-Poly1305 sealed box (12-byte random nonce ‖ ciphertext ‖ 16-byte
+tag) under `key`, with associated data `magic` ‖ the entry's file name
+(UTF-8), so an entry renamed or copied over another fails to open. A file that
+is missing, too large or fails to open is a miss. A vault whose secret rotates
+(§3.3) derives another folder; the old one is never read again and may be
+deleted.
+
+The reference app keeps one such cache, the **drawing cache** (purpose
+`drawing-cache`, magic `SMPD` ‖ `0x01`), in its Caches folder: per note
+*version* (the note id and the sorted file names of its revisions, which
+identify its content because revision files are write-once, §5), the note's
+state without stroke geometry (a JSON `layout`) and, per page, PencilKit's
+`dataRepresentation` of the page's ink, one canvas stroke per stored stroke.
+Its contents are the implementation's own, change with its schema number, and
+are checked against the revisions read from the vault before they are drawn
+on. It is limited in size (least recently used entries go first) and deleted
+when the vault is closed on that device.

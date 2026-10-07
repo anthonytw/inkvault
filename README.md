@@ -21,7 +21,7 @@ that matter and nothing else:
 
 Free software under the GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`), no telemetry. The `sempere` CLI is a
 first-class Linux citizen: keys, unlock, verify, recovery and PDF/SVG export
-all run natively on Linux, and CI publishes a static Linux binary.
+all run natively on Linux, and CI publishes a static Linux binary. The CLI ships the Noto fonts (SIL Open Font License 1.1, `Sources/SempereFonts/Fonts/OFL.txt`) for text in exports.
 
 ## Layout
 
@@ -32,6 +32,7 @@ all run natively on Linux, and CI publishes a static Linux binary.
 | `Sources/SempereRender` | Stroke geometry, PDF and SVG writers |
 | `Sources/SempereCLI` | Command-line tool: keys, verify, export, recover |
 | `Apps/Sempere` | iPad app, Mac via Catalyst (Xcode project, phase 1; a shell so far) |
+| `web` | Read-only web viewer, decrypts in the browser (`docs/web-viewer.md`) |
 | `docs/format.md` | The on-disk format, normative |
 | `DESIGN.md` | Why it is built this way |
 | `docs/plan.md` | Phases and task board |

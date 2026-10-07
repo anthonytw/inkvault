@@ -188,10 +188,54 @@ struct CloudSyncTests {
         #expect(try Self.revisionCount(url, Self.lecture) == before)
     }
 
+    /// A new note in an iCloud vault has no files yet: creating it must not
+    /// run the "every file is local" check, which refuses an empty folder
+    /// (TestFlight build 4: "has not listed this note's files yet (0 missing)").
+    @Test func creatingANoteInAnICloudVaultWritesIt() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(model.isCloudVault)
+        let id = try await model.createNote(title: "New in iCloud", paper: .blank, notebook: nil)
+        #expect(try Self.revisionCount(url, id) == 1)
+        #expect(model.notes.contains { $0.id == id && $0.title == "New in iCloud" })
+        let filed = try await model.createNote(title: "Filed", paper: .blank, notebook: "School/Math")
+        #expect(model.notes.first { $0.id == filed }?.notebook == "School/Math")
+        // Later edits of the new note still run the check, and pass: its file is local.
+        try await model.renameNote(id, to: "Renamed")
+        #expect(model.notes.first { $0.id == id }?.title == "Renamed")
+        model.close()
+    }
+
+    /// The creation exemption never lets an existing note through: an id
+    /// whose folder lists revisions is checked even when passed as new, so
+    /// nothing is written into it while one of them is evicted.
+    @Test func theCreationExemptionNeverCoversAnExistingNote() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        model.pauseCloudSync()
+        try cloud.evictDataless(Self.lecture)
+        let before = try Self.revisionCount(url, Self.lecture)
+        let lecture = Self.lecture
+        await #expect(throws: CloudVault.CloudError.self) {
+            try await model.commit(ids: [lecture], creating: [lecture]) { vault, clock, cloud, verifier in
+                try await NoteWriter.append([.setMeta(.title("X"))], to: lecture, vault: vault, clock: clock,
+                                            coordinated: cloud, verify: verifier(lecture))
+            }
+        }
+        #expect(try Self.revisionCount(url, Self.lecture) == before)
+        model.close()
+    }
+
     @Test func aNotebookRenameWritesNothingIntoANoteEvictedSinceTheLastPass() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let cloud = FakeCloud(vault: url)
-        let model = Self.model(cloud)
+        let model = Self.model(cloud, stall: .milliseconds(200))
         try await model.openVault(at: url)
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         try await model.moveNote(Self.lecture, toNotebook: "Old")
@@ -199,8 +243,75 @@ struct CloudSyncTests {
         try cloud.evictDataless(Self.lecture)
         #expect(model.pendingNoteIDs.isEmpty)
         let before = try Self.revisionCount(url, Self.lecture)
-        await #expect(throws: CloudVault.CloudError.self) { try await model.renameNotebook("Old", to: "New") }
+        await #expect(throws: (any Error).self) { try await model.renameNotebook("Old", to: "New") }
         #expect(try Self.revisionCount(url, Self.lecture) == before)
+        model.close()
+    }
+
+    /// A replaced loop's sleep is ended when the new loop starts sleeping
+    /// before the old one's cancellation was handled: its task returns.
+    @Test func aNewSleepEndsAReplacedLoopsSleep() async throws {
+        final class Flag: @unchecked Sendable { var done = false }
+        let wakeup = SyncWakeup()
+        let flag = Flag()
+        let old = Task { @MainActor in
+            try? await wakeup.sleep(for: .seconds(60))
+            flag.done = true
+        }
+        try await Task.sleep(for: .milliseconds(50))   // the old loop is asleep
+        old.cancel()                                   // its resume is queued on the main actor
+        Task { @MainActor in wakeup.wake() }           // queued after it: ends the new sleep
+        try await wakeup.sleep(for: .seconds(60))      // installs its waiter before either runs
+        #expect(await TS.waitUntil(timeout: .seconds(2)) { flag.done }, "the replaced loop's task returned")
+    }
+
+    /// A note whose read failed (a revision unreadable for a moment) is read
+    /// again by the next pass of the sync loop, not shown with its problem
+    /// until the next full reload.
+    @Test func aNoteWithAProblemIsReadAgainByTheNextPass() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let dir = url.appendingPathComponent("notes/\(Self.lecture.uuidString.lowercased())")
+        let file = try #require(try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(".age") && !$0.hasPrefix(".") }.sorted().first)
+        let fileURL = dir.appendingPathComponent(file)
+        let original = try Data(contentsOf: fileURL)
+        try Data("not an age file".utf8).write(to: fileURL)
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud)
+        model.cloudMaxIdleInterval = .milliseconds(40)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(await TS.waitUntil { model.notes.first { $0.id == Self.lecture }?.problem != nil })
+        try original.write(to: fileURL)              // same name: only a re-read can tell
+        #expect(await TS.waitUntil(timeout: .seconds(10)) {
+            model.notes.first { $0.id == Self.lecture }.map { $0.problem == nil } ?? false
+        })
+        model.close()
+    }
+
+    /// A rename over several notes, one of them evicted (shown from the index,
+    /// so not pending): nothing is written while it cannot be downloaded, and
+    /// every note is renamed once it can. Never half a notebook.
+    @Test func aNotebookRenameDownloadsEvictedNotesFirstAndNeverStopsHalfway() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud, stall: .milliseconds(200))
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        try await model.moveNote(Self.lecture, toNotebook: "Old")
+        try await model.moveNote(Self.other, toNotebook: "Old")   // deleted notes move with their notebook too
+        model.pauseCloudSync()
+        try cloud.evictDataless(Self.other)
+        let before = (try Self.revisionCount(url, Self.lecture), try Self.revisionCount(url, Self.other))
+        await #expect(throws: (any Error).self) { try await model.renameNotebook("Old", to: "New") }
+        #expect(try Self.revisionCount(url, Self.lecture) == before.0, "the local note was not renamed alone")
+        #expect(try Self.revisionCount(url, Self.other) == before.1)
+
+        cloud.autoDeliver = true
+        try await model.renameNotebook("Old", to: "New")
+        #expect(try Self.revisionCount(url, Self.lecture) == before.0 + 1)
+        #expect(try Self.revisionCount(url, Self.other) == before.1 + 1)
+        #expect(model.notes.filter { [Self.lecture, Self.other].contains($0.id) }.allSatisfy { $0.notebook == "New" })
         model.close()
     }
 
@@ -250,6 +361,7 @@ struct CloudSyncTests {
         await task.value                             // the loop ended
         #expect(model.cloudSyncTask == nil)
         #expect(model.cloudSync?.readyNotes == 2)
+        try TS.writeAsAnotherDevice([.setMeta(.title("Changed elsewhere"))], to: Self.other, vault: url, key: key)
         try cloud.evictDataless(Self.other)
         try await Task.sleep(for: .milliseconds(150))
         #expect(model.pendingNoteIDs.isEmpty)        // nobody looked
@@ -305,11 +417,30 @@ struct CloudSyncTests {
         try await model.openVault(at: url)
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         try await Task.sleep(for: .milliseconds(200))           // settled, idling
-        try cloud.evictDataless(Self.lecture)
+        try TS.writeAsAnotherDevice([.setMeta(.title("Renamed on the Mac"))], to: Self.lecture, vault: url, key: key)
+        try cloud.evictDataless(Self.lecture)                   // listed, not downloaded yet
         #expect(await TS.waitUntil { model.pendingNoteIDs.contains(Self.lecture) })
         #expect(model.cloudSync?.isDownloading == true)
         try cloud.deliver(Self.lecture)
         #expect(await TS.waitUntil { model.pendingNoteIDs.isEmpty })
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Renamed on the Mac")
+        model.close()
+    }
+
+    /// A note evicted by iCloud (same revision names) is not downloaded again
+    /// by the loop: its summary is current.
+    @Test func anEvictedNoteIsNotDownloadedForTheList() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let cloud = FakeCloud(vault: url)
+        let model = Self.model(cloud)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        try cloud.evictDataless(Self.lecture)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(model.pendingNoteIDs.isEmpty)
+        #expect(cloud.requestedNotes.isEmpty)
+        #expect(model.notes.first { $0.id == Self.lecture }?.title == "Fixture lecture")
         model.close()
     }
 

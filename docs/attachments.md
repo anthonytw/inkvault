@@ -336,8 +336,10 @@ extra PROPFIND. A blob dropped on one side is deleted on the other only if
 `format.md` §8.1.6 rules 1–3 hold for its note there (the side that dropped
 it applied rule 4); otherwise it is copied back. Names must match
 `<64 hex>.<kind>.age`; a downloaded blob must start with the age header.
-Blobs are streamed both ways with their own size limit; small kinds may go
-first.
+Blobs are streamed both ways with their own size limit; small kinds go
+first. Uploads go to a temporary name and are moved into place
+(`MOVE`, `Overwrite: F`); an interrupted download resumes with `Range`
+(`docs/io.md` "Attachment blobs").
 
 A recipient removal renames every blob, which sync sees as "all blobs
 dropped, all new blobs added". As for rewritten revisions, the documented
@@ -766,6 +768,15 @@ the minimal reader. So:
   macOS and Linux but not iOS, so the rasterizer lives in
   `Sources/SempereCLI`, not in `SempereRender`. `--pdf-renderer auto|poppler|none`
   selects it; `auto` is the default.
+  As built (C3): `pdftoppm -f N -l N -singlefile -cropbox -scale-to-x W
+  -scale-to-y H` writing a PPM (no PNG decoder needed; Poppler scales before
+  it applies `/Rotate`, so the request is swapped for 90° and 270°). The CLI
+  starts it through its own hidden `sempere __exec-limited` trampoline, which
+  sets `RLIMIT_CPU`, `RLIMIT_AS` (3 GiB), `RLIMIT_FSIZE` (the PPM's size plus
+  64 KiB) and `RLIMIT_CORE` 0 and then `execv`s Poppler; the parent kills it
+  after `--pdf-timeout` seconds (default 30). `pdftocairo` is not used:
+  `pdftoppm` ships in the same package. A hidden `sempere __rasterize-pdf`
+  runs the same rasterizer on a plain PDF file (tests, checking an install).
 - **No renderer available:** the page is a placeholder (`format.md`
   §8.5.2) and the export prints a clear warning:
   `warning: 12 PDF background pages drawn as placeholders: install poppler
@@ -804,9 +815,18 @@ A new Linux-portable target `SemperePDF` (Foundation + CZlib), used by SempereRe
   `/PieceInfo`, `/Thumb`, `/B`.
 - Refused: `/Encrypt` present. Limits: 10⁶ objects, 256 MiB per decoded
   stream, nesting depth 64, each enforced with an error, never a crash
-  (fuzzed in tests).
+  (fuzzed in tests). Also (implementation, `PDFLimits`): 1 GiB decoded per
+  file in all, reference chains of 32 hops, 4 096 cross-reference sections,
+  16 filters per stream; `/Length` resolution and object streams are guarded
+  against cycles; a cross-reference table that claims more than the file can
+  hold is rebuilt by scanning instead of trusted; references from copied
+  resources to pages, page-tree nodes or the catalog become `null`, so a
+  resource cannot pull the document into the export.
 - Output: `PDFWriter` switches to `%PDF-1.7` when it embeds forms (copied
-  objects may use 1.5+ features such as JPX).
+  objects may use 1.5+ features such as JPX). A page that cannot be copied
+  (a content filter outside the list, a broken page) is rasterized by the
+  export's `PDFPageRasterizer` when there is one and embedded as an image,
+  else it is a placeholder.
 
 ### Text, fonts and the PDF writer
 
@@ -822,6 +842,14 @@ the `TextShaper` hook, which also hands over the font's tables
 (`CTFontCopyTable`) for subsetting. Bold and italic use the family's faces;
 synthesised ones (`format.md` §8.5.3) use an outline stroke or a `Tm` shear
 (12°).
+
+*Implementation notes (C2, CLI):* the shaper also applies GSUB multiple and
+(chained) context substitution, which Arabic fonts such as Noto Naskh use for
+lam-alef, and runs features in HarfBuzz's stage order; its output matches
+HarfBuzz on the test strings. SVG text addresses glyphs through private-use code
+points of the subset's `cmap` (a viewer would otherwise reshape the text with a
+subset that has no layout tables), with an invisible `<text>` per line carrying
+the real characters for selection and search.
 
 ### Audio in exports
 
@@ -1197,6 +1225,16 @@ orphans for `addItem`/`setItem` (unknown page or item) and `setRecording`
 with equal immutable fields; registers via `setItem`/`setRecording`),
 `RestoreSummary` counts. `NoteSummary`: item and recording counts, typed text
 for search, blob references of the note (for the index and collection).
+*Status:* in review (#66). Code: `NoteReducer.swift` (evidence and
+registers per (id, field)), `AttachmentRegisters.swift` (which fields are
+registers, applying a change, `blobReferences`, `NoteState.recording(for:)`),
+`History.swift` (`itemOps`, `recordingOps`), `NoteSummary` (`items`,
+`textItems`, `recordings`, `blobs`; text boxes join `pageTexts`), the web
+viewer's `reducer.ts` / `registers.ts`, CLI `notes show`. Tests:
+`AttachmentMergeTests`, `MergeTests.testReconstructWithAttachmentsIsOrderIndependent`,
+`CLIAttachmentsTests`, `web/test/attachment-merge.test.ts`. Not done: the
+fixture vault's note with items (it would move the app tests' note counts
+and the web goldens; left for a follow-up).
 *Done when:* the shuffled-order property test covers items and recordings;
 scenario tests: concurrent `setItem(frame)` (higher stamp wins, both orders),
 move vs crop on different fields (both apply), `removeItem` vs concurrent
@@ -1235,6 +1273,16 @@ own in Application Support). CLI: `sempere blobs list [NOTE] | verify |
 extract NOTE SHA256 [--out] | unused [NOTE] | gc [--dry-run] [NOTE…] |
 repair`, `vault recipients add|remove … [--rewrap header|reencrypt]`,
 `recover` extracting a note's attachments with the stock framing.
+*Status:* in review (#60). Code: `Sources/Sempere/Blob.swift` (names, framing,
+Padmé, streaming checker), `BlobStore.swift` (write, read, copy,
+`withBlobFile`, `BlobSource`), `BlobRewrap.swift` (`RewrapPolicy`, the
+per-note rewrap), `BlobCollection.swift` (structural reference scan,
+inventory, collection, repair), blob entries in `Verify.swift`, `features` in
+`VaultManifest.swift`; CLI `Sources/SempereCLI/Blobs.swift`. Two readings of
+the spec, written into `format.md`: an addition that changes the recipients'
+stanza types re-encrypts (§8.1.5), and collection verifies a blob in full
+before deleting it (§8.1.6 "cannot be verified"). The fixture's blob is
+unreferenced until A1 adds a note with items.
 *Done when:* tests for name binding (renamed file, swapped content,
 non-zero padding, wrong length, wrong kind suffix all rejected or
 unresolved), Padmé sizes, the stock recovery commands of `format.md` §8.1.7
@@ -1253,6 +1301,16 @@ side; remote names validated (`<64 hex>.<kind>.age`).
 *Done when:* mock-server tests for each row of the write-once table with
 blobs, a dropped-but-referenced blob is copied back, a hostile name is
 ignored, a 300 MB blob syncs with bounded memory; wsgidav integration test.
+*Status:* in review (#67). Code: `Sources/SempereWebDAV/BlobSync.swift`
+(listing, transfers, deletion rules), `WebDAVClient` (`put(fromFile:)`,
+segmented `download` with `Range`/`If-Range`, `MOVE`), `URLSessionTransport`
+(`bodyFile`, `responseFile`); CLI `--max-blob-mib`; `docs/io.md` "Attachment
+blobs". Decisions beyond this section: uploads go to a temporary name and are
+`MOVE`d into place (`Overwrite: F`); downloads are 2 MiB `Range` requests
+(bounded memory on Linux, where URLSession has no flow control) resumed with
+`If-Range` across runs; a side with no `att/` collection deletes nothing on
+the other; rule 1 for the server side means every revision the server holds
+was read here.
 
 ### C. SempereRender export
 
@@ -1321,6 +1379,18 @@ synthetic `.note` fixture so CI covers the mapping.
   thumbnails), `dropped.pdfPages` is 0, template PDFs handled or reported.
 - **D2 — images.** *Done when:* the 4 image notes import their images where
   the thumbnails show them; non-JPEG/PNG reported.
+- *Status of D1 and D2:* in review (#70), built on synthetic notes only (no
+  access to the reference backup). Code: `NotabilityAttachments.swift`
+  (reading the package, layout), `NotabilityMedia.swift` (layout entries,
+  media objects read without a schema), `SempereRender/ImageImport.swift`
+  (sniffing, EXIF orientation, HEIF size, metadata stripping). Decisions
+  that the real backup must confirm, each visible in the import report's
+  `warnings`: PDF page numbers are 1-based (as the eval scripts read them;
+  0-based when a note holds a 0); notes mixing PDF page sizes stack each page
+  at the sum of the heights above it; the image fields are the candidate
+  names in `MediaObject` (a media object that does not match is reported with
+  its field names); a `TemplatePDF:` paper uses a PDF under `PDFs/` whose
+  name holds the template uuid, else is reported (`dropped.templatePDFs`).
 - **D3 — typed text.** *Done when:* synthetic fixture with styled text maps
   to runs (including a non-Latin run with its `lang`); real notes with text
   import it (if the backup has any).
@@ -1395,6 +1465,15 @@ synthetic `.note` fixture so CI covers the mapping.
 (needs C3) and `attach image|audio NOTE FILE` for scripted use and tests.
 *Done when:* end-to-end CLI tests: import a PDF, attach an image and audio,
 export PDF with backgrounds and attachments, search finds typed text.
+
+*Status:* done (PR #69, `docs/cli.md` "Adding attachments"). Shipped as `attach image|pdf|text|recording|transcript`
+(one blob write, then one delta each, `--json`, `--dry-run`), `import pdf`, `search` over text boxes and
+(`--transcripts`) transcripts, and typed text in the Markdown and HTML exports. The logic is in shared
+core code that the app's add flows (E0–E4) call too: `NoteOps.placeImage` / `placeText` / `placePDFPage` /
+`insertPDFPages` / `newPDFNote` / `recording` / `setTranscript` (`Sources/Sempere/AttachmentOps.swift`),
+`AudioProbe` (MPEG-4 header reader, `Sources/Sempere/AudioProbe.swift`), and `ImageIngest` / `PDFIngest`
+(`Sources/SempereRender/AttachmentIngest.swift`: JPEG/PNG size, EXIF orientation and metadata removal;
+PDF page sizes). Not done: recordings in exports (C4), editing or removing a placed item from the CLI.
 
 ### G. Future item kinds (not scheduled)
 

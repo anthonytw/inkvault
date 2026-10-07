@@ -74,11 +74,12 @@ extension AppModel {
 
     /// Creates a note with one empty page and selects it.
     @discardableResult
-    func createNote(title: String, paper: Paper, notebook: String?) async throws -> UUID {
+    func createNote(title: String, paper: Paper, notebook: String?, pageSize: PageSize = .letter) async throws -> UUID {
         let id = UUID()
         let notebook = NotebookPath.canonical(notebook)
         try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                        paper: paper, notebook: notebook))])
+                                                        paper: paper, pageSize: pageSize, notebook: notebook))],
+                         creating: [id])
         switch sidebarSelection ?? .allNotes {
         case .notebook(let n) where !NotebookPath.name(notebook, isWithin: n): sidebarSelection = .allNotes
         case .tag, .deleted: sidebarSelection = .allNotes
@@ -105,6 +106,14 @@ extension AppModel {
         }
         let current = Dictionary(notes.map { ($0.id, $0.notebook) }, uniquingKeysWith: { a, _ in a })
         let edits = NoteOps.renameNotebook(old, to: target, notebooks: current)
+        // iCloud: a note shown from the index may be evicted (its names did not
+        // change, so it is not pending). Every note is made local before the
+        // first delta is written, so a rename never stops halfway.
+        let gen = generation
+        for edit in edits {
+            try await downloadNote(edit.noteId)
+            try ensureCurrent(gen)
+        }
         try await commit(edits.map { (id: $0.noteId, ops: $0.ops) })
         if case .notebook(let selected)? = sidebarSelection, NotebookPath.name(selected, isWithin: old) {
             sidebarSelection = NotebookPath.renamed(selected, from: old, to: target).map(SidebarItem.notebook) ?? .allNotes
@@ -117,7 +126,7 @@ extension AppModel {
         try await downloadNote(id)
         try await verifySummary(id)
         guard try summary(id).notebook != target else { return }
-        try await commit(id) { state in state.map { NoteOps.move(toNotebook: target, state: $0) } ?? [] }
+        try await commit(id) { state in state.map { NoteOps.move(toNotebook: target, state: $0) } ?? [.setMeta(.notebook(target))] }
     }
 
     /// Renames a note (one `setMeta(.title)` delta). Titles are labels, not keys:
@@ -127,7 +136,7 @@ extension AppModel {
         try await downloadNote(id)
         try await verifySummary(id)
         guard try summary(id).title != title else { return }
-        try await commit(id) { state in state.map { NoteOps.rename(to: title, state: $0) } ?? [] }
+        try await commit(id) { state in state.map { NoteOps.rename(to: title, state: $0) } ?? [.setMeta(.title(title))] }
     }
 
     /// Adds a tag (one `addTag`, format.md §5.4.1). Matching ignores case: a
@@ -164,7 +173,7 @@ extension AppModel {
         try await downloadNote(id)
         try await verifySummary(id)
         guard !(try summary(id).deleted) else { return }
-        try await commit(id) { state in state.map { NoteOps.delete($0) } ?? [] }
+        try await commit(id) { state in state.map { NoteOps.delete($0) } ?? [.deleteNote] }
         try await reopenEditor(ifShowing: id)
     }
 
@@ -173,7 +182,7 @@ extension AppModel {
         try await downloadNote(id)
         try await verifySummary(id)
         guard try summary(id).deleted else { return }
-        try await commit(id) { state in state.map { NoteOps.undelete($0) } ?? [] }
+        try await commit(id) { state in state.map { NoteOps.undelete($0) } ?? [.restoreNote] }
         try await reopenEditor(ifShowing: id)
     }
 
@@ -194,9 +203,9 @@ extension AppModel {
     /// written back over the real one; in iCloud Drive each append re-checks
     /// inside its coordinated read that the note is still all local
     /// (`CloudVault.requireLocal`) and refuses to write otherwise.
-    private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
+    private func commit(_ edits: [(id: UUID, ops: [Op])], creating: Set<UUID> = []) async throws {
         let batch = edits
-        try await commit(ids: batch.map(\.id)) { vault, clock, cloud, verifier in
+        try await commit(ids: batch.map(\.id), creating: creating) { vault, clock, cloud, verifier in
             for edit in batch {
                 try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud,
                                             verify: verifier(edit.id))
@@ -206,8 +215,11 @@ extension AppModel {
 
     /// One delta for note `id` whose ops `build` computes from the note as it
     /// is on disk when written (`NoteWriter.append(to:building:)`); nothing
-    /// is written when it returns none.
-    private func commit(_ id: UUID, building build: @escaping @Sendable (NoteState?) -> [Op]) async throws {
+    /// is written when it returns none. `build` gets nil when no revision of
+    /// the note is readable: edits whose op does not depend on the note then
+    /// write it anyway, so a note that cannot be read can still be renamed,
+    /// moved or deleted.
+    func commit(_ id: UUID, building build: @escaping @Sendable (NoteState?) -> [Op]) async throws {
         try await commit(ids: [id]) { vault, clock, cloud, verifier in
             try await NoteWriter.append(to: id, vault: vault, clock: clock, coordinated: cloud,
                                         verify: verifier(id), building: build)
@@ -216,7 +228,11 @@ extension AppModel {
 
     /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
     /// and the check each note's append runs inside its coordinated read.
-    func commit(ids: [UUID],
+    /// Notes in `creating` are new: they have no files to be local yet, so
+    /// they get no check (requireLocal would refuse an empty, unlisted folder)
+    /// as long as their folder lists no revision; one that does (an id that
+    /// is not new after all) is checked like any other note.
+    func commit(ids: [UUID], creating: Set<UUID> = [],
                         write: (Vault, DeviceClock, Bool, @Sendable (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
         async throws {
         await editGate.acquire()
@@ -234,6 +250,13 @@ extension AppModel {
         // `downloadNote`; a notebook rename does not download at all).
         let verifier: @Sendable (UUID) -> (@Sendable () throws -> Void)? = { id in
             guard cloud else { return nil }
+            if creating.contains(id) {
+                return {
+                    let listed = try CloudScan.noteItems(inVault: url, id: id)
+                    guard !listed.isEmpty else { return }
+                    try CloudVault.requireLocal(note: id, vault: url, hooks: hooks)
+                }
+            }
             return { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
         }
         do {
@@ -251,11 +274,16 @@ extension AppModel {
         let gen = generation
         let coordinate = coordinationURL
         let cache = summaryCache
-        let fresh = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try vault.summaries(of: ids, cache: cache, saveCache: false) }
+        let entries = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) {
+                try vault.summaryEntries(of: ids, cache: cache, saveCache: false)
+                    .map { NamedSummary(summary: $0.summary, revisions: $0.revisions) }
+            }
         }
         try ensureCurrent(gen)
         for id in ids { summaryEpochs[id, default: 0] += 1 }
+        let fresh = entries.map(\.summary)
+        for e in entries { indexedNames[e.summary.id] = e.revisions }
         merge(fresh)
         verifiedNoteIDs.formUnion(fresh.map(\.id))
         saveSummaryCache()

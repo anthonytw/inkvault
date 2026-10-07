@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "Sempere", targets: ["Sempere"]),
         .library(name: "SempereRender", targets: ["SempereRender"]),
         .library(name: "SempereImport", targets: ["SempereImport"]),
+        .library(name: "SemperePDF", targets: ["SemperePDF"]),
         .library(name: "SempereWebDAV", targets: ["SempereWebDAV"]),
         .executable(name: "sempere", targets: ["SempereCLI"]),
     ],
@@ -35,23 +36,31 @@ let package = Package(
             name: "Sempere",
             dependencies: ["Age", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // Minimal PDF reader for untrusted files (docs/attachments.md §10): Foundation + zlib only.
+        .target(
+            name: "SemperePDF",
+            dependencies: ["CZlib"]
+        ),
         .target(
             name: "SempereRender",
-            dependencies: ["Sempere", "CZlib"]
+            dependencies: ["Sempere", "SemperePDF", "CZlib"]
         ),
         .target(
             name: "SempereImport",
-            dependencies: ["Sempere", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
+            // SemperePDF for page boxes of imported PDFs, SempereRender for image headers and metadata stripping.
+            dependencies: ["Sempere", "SemperePDF", "SempereRender", "CZlib", .product(name: "Crypto", package: "swift-crypto")]
         ),
         // The only target allowed network code (CLAUDE.md).
         .target(
             name: "SempereWebDAV",
             dependencies: ["Sempere", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // Noto fonts for text in CLI exports (OFL 1.1); the app does not link them.
+        .target(name: "SempereFonts", resources: [.copy("Fonts")]),
         .executableTarget(
             name: "SempereCLI",
             dependencies: [
-                "Age", "Sempere", "SempereRender", "SempereImport", "SempereWebDAV",
+                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -59,11 +68,14 @@ let package = Package(
         .target(name: "FuzzSupport", path: "Tests/FuzzSupport"),
         .testTarget(name: "AgeTests", dependencies: ["Age", "CZlib", "FuzzSupport"],
                     resources: [.copy("Vectors")]),
-        .testTarget(name: "SempereTests", dependencies: ["Sempere", "FuzzSupport"],
+        .testTarget(name: "SempereTests",
+                    dependencies: ["Sempere", "FuzzSupport", .product(name: "Crypto", package: "swift-crypto")],
                     resources: [.copy("Fixtures")]),
-        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "FuzzSupport"],
-                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py"],
+        .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "SempereFonts", "Age", "FuzzSupport"],
+                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py", "generate_shaping_fixtures.py"],
                     resources: [.copy("Fixtures")]),
+        .testTarget(name: "SemperePDFTests", dependencies: ["SemperePDF", "FuzzSupport"],
+                    exclude: ["generate_fixtures.py"], resources: [.copy("Fixtures")]),
         .testTarget(name: "SempereImportTests",
                     dependencies: ["SempereImport", "Sempere", "SempereRender", "Age", "CZlib", "FuzzSupport"]),
         .testTarget(name: "SempereWebDAVTests", dependencies: ["SempereWebDAV", "Sempere", "Age", "FuzzSupport"]),

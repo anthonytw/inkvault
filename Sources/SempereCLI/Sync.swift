@@ -17,7 +17,10 @@ struct SyncWebDAVCommand: ParsableCommand {
         abstract: "Sync a vault with a WebDAV folder (no server logic needed).",
         discussion: """
             Uploads revision files the server lacks and downloads the ones the vault lacks; files under
-            notes/ are write-once and never overwritten on either side. vault.json and
+            notes/ are write-once and never overwritten on either side. Each note's attachment blobs
+            (notes/<id>/att/) are synced the same way, streamed from and to disk; an interrupted blob
+            download continues on the next run. A blob dropped on one side is deleted on the other
+            only if no revision of its note references it there (format.md §8.1.6), else copied back. vault.json and
             rewrap-journal.json are compared with the last sync; when both sides changed, both copies
             are kept (vault.conflict-<device>-<time>.json) and the exit code is 3. A deletion
             follows only when compaction allows it, which needs the vault unlocked (--identity, or
@@ -42,6 +45,11 @@ struct SyncWebDAVCommand: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp("Name for this device in conflict file names.", valueName: "name"))
     var device: String?
 
+    @Option(name: .customLong("max-blob-mib"),
+            help: ArgumentHelp("Largest attachment blob file to transfer, in MiB (default 1088: 1 GiB of content plus padding).",
+                               valueName: "n"))
+    var maxBlobMiB: Int?
+
     @Flag(name: .customLong("dry-run"), help: "Only list what would be transferred or deleted.")
     var dryRun = false
 
@@ -50,6 +58,11 @@ struct SyncWebDAVCommand: ParsableCommand {
 
     func run() throws {
         guard let remote = URL(string: url) else { throw CLIError.usage("not a URL: \(url)") }
+        var options = WebDAVSyncOptions(dryRun: dryRun)
+        if let maxBlobMiB {
+            guard (1...(1 << 20)).contains(maxBlobMiB) else { throw CLIError.usage("--max-blob-mib must be 1 to 1048576") }
+            options.maxBlobBytes = maxBlobMiB << 20
+        }
         var credentials: WebDAVCredentials?
         if let user {
             let varName = passwordEnv ?? "SEMPERE_WEBDAV_PASSWORD"
@@ -66,13 +79,14 @@ struct SyncWebDAVCommand: ParsableCommand {
         }
 
         let dir = try access.vaultURL()
+        OpenedVaults.shared.record(dir)   // a first pull creates the vault here
         let hasManifest = FileManager.default.fileExists(atPath: dir.appendingPathComponent("vault.json").path)
         let vault = hasManifest ? try access.openVault(.ifPossible) : nil
-        let label = device ?? ProcessInfo.processInfo.hostName
+        options.deviceLabel = device ?? ProcessInfo.processInfo.hostName
         let sync = WebDAVSync(
             directory: dir, vault: vault, client: client,
             stateURL: WebDAVSync.defaultStateURL(remote: remote, vault: dir, environment: Env.vars),
-            options: WebDAVSyncOptions(dryRun: dryRun, deviceLabel: label))
+            options: options)
         let report = try sync.run()
 
         if output.json {

@@ -14,6 +14,7 @@ import UIKit
 /// - `SEMPERE_DEBUG_SCROLL_Y`: page y (points) to scroll the canvas to.
 /// - `SEMPERE_DEBUG_ZOOM`: zoom as a multiple of the fit-width zoom.
 /// - `SEMPERE_DEBUG_SNAPSHOT`: path to write a PNG of the canvas to, once shown.
+/// - `SEMPERE_DEMO`: a synthetic vault for the App Store screenshots (`DemoLaunch`).
 ///
 /// Release builds compile none of this.
 enum DebugLaunch {
@@ -27,7 +28,8 @@ enum DebugLaunch {
 
     /// True when the launch environment names a vault (or asks for the most
     /// recent one, `SEMPERE_DEBUG_RECENT=1`).
-    static var isActive: Bool { environment["SEMPERE_DEBUG_VAULT"] != nil || environment["SEMPERE_DEBUG_RECENT"] != nil }
+    static var isActive: Bool { environment["SEMPERE_DEBUG_VAULT"] != nil || environment["SEMPERE_DEBUG_RECENT"] != nil
+        || DemoLaunch.isActive }
 
     /// Page y to scroll to after a note opens, if requested.
     static var scrollY: Double? { environment["SEMPERE_DEBUG_SCROLL_Y"].flatMap(Double.init) }
@@ -36,6 +38,10 @@ enum DebugLaunch {
     @MainActor
     static func run(_ model: AppModel, library: VaultLibrary) async {
         let env = environment
+        if DemoLaunch.isActive {
+            await DemoLaunch.run(model)
+            return
+        }
         if env["SEMPERE_DEBUG_RECENT"] != nil {
             await runRecent(model, library: library)
             return
@@ -106,6 +112,7 @@ enum DebugLaunch {
                 await model.showSelectedNote()
                 if let failure = model.editorFailure { DebugProbe.log("\(t()) \(id) shown failure: \(failure.message)") }
                 guard let editor = model.editor else { DebugProbe.log("\(t()) \(id) no editor"); continue }
+                await editor.loaded()   // opened from the drawing cache: its strokes arrive in the background
                 opened += 1
                 let strokes = editor.pages.reduce(0) { $0 + editor.liveStrokes(of: $1.id).count }
                 let summary = model.notes.first { $0.id == note.id }

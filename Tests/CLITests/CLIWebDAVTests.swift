@@ -21,6 +21,15 @@ final class CLIWebDAVTests: CLITestCase {
         XCTAssertEqual(lone.status, 2, lone.err)
     }
 
+    func testMaxBlobSizeIsValidated() throws {
+        let vault = try copyFixtureVault()
+        for bad in ["0", "-3", "1048577"] {
+            let r = try cli(["sync", "webdav", "https://dav.example.com/v/", "--vault", vault, "--max-blob-mib", bad])
+            XCTAssertEqual(r.status, 2, "\(bad): \(r.err)")
+            XCTAssertTrue(r.err.contains("max-blob-mib") || r.err.contains("Missing value"), r.err)
+        }
+    }
+
     /// Needs a live server: set by scripts/test-webdav.sh, skipped otherwise.
     func testSyncAgainstRealServer() throws {
         let env = ProcessInfo.processInfo.environment
@@ -37,6 +46,7 @@ final class CLIWebDAVTests: CLITestCase {
         XCTAssertEqual(dryJSON["dryRun"] as? Bool, true)
         let planned = (dryJSON["uploaded"] as? [String])?.count ?? 0
         XCTAssertGreaterThan(planned, 1)
+        XCTAssertTrue((dryJSON["uploaded"] as? [String] ?? []).contains { $0.contains("/att/") }, "the fixture's blob syncs too")
 
         let up = try cli(["sync", "webdav", url, "--vault", vault, "--json"] + common, env: e)
         XCTAssertEqual(up.status, 0, up.err)

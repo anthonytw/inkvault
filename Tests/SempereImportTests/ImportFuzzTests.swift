@@ -131,6 +131,20 @@ final class ImportFuzzTests: XCTestCase {
         })
     }
 
+    /// `.ntb` handwriting indexes (`ios/HandwritingIndex.fb`) through the reader and the merge.
+    func testFuzzNtbHandwritingIndexes() throws {
+        let seeds = [SyntheticBundle.handwritingIndex([
+            .init(index: 0, text: "hi you", boxes: [(36, 20, 8, 10), (44, 20, 4, 10), nil, (60, 22, 9, 10), (69, 22, 9, 10), (78, 22, 9, 10)]),
+            .init(index: 1, text: "two", boxes: [(40, 30, 10, 12), (50, 30, 10, 12), (60, 30, 10, 12)])])]
+        assertClean(Fuzz.run("ntbindex", seeds: seeds, quick: 2000, maxSize: 64 << 10) { input in
+            Self.typed {
+                var note = try NotabilityBundle.parse(bundle: SyntheticBundle.noteBundle(strokes: SyntheticBundle.strokesMatchingSyntheticNote()))
+                note.recognition = try NotabilityBundle.parseHandwritingIndex(input, inset: note.paper.insetX)
+                _ = NotabilityImporter.recognition(note)
+            }
+        })
+    }
+
     /// The `shapes` plist bytes (strict reader) through the shape converter.
     func testFuzzShapes() throws {
         let seeds = [NotabilityBackupTests.shapesPlist(), UntrustedImportTests.sharedShapesPlist(references: 4, segments: 6)]
@@ -173,5 +187,36 @@ final class ImportFuzzTests: XCTestCase {
             }
         }
         return ZipWriter.write(files.map { .init(path: $0.0, data: $0.1, deflate: rng.oneIn(2)) })
+    }
+
+    /// A note with a PDF and images through attachment resolution and
+    /// conversion: mutated sessions (media objects, page layout) and
+    /// mutated PDFs and images must only ever drop attachments.
+    func testFuzzAttachments() throws {
+        let pdf = AttachmentFixtures.pdf(pages: [(612, 792), (1024, 768)])
+        let jpeg = AttachmentFixtures.jpeg(width: 40, height: 30)
+        let session = SyntheticNote.session(pdfPages: 2, media: { a in
+            [AttachmentFixtures.imageObject(&a, file: "Images/p.jpg", origin: (5, 5), size: (40, 30), scale: 0.5,
+                                            extra: [("rotation", .real(0.3)), ("cropRect", a.string("{{0, 0}, {0.5, 1}}"))])]
+        })
+        let seeds = [session, pdf, jpeg]
+        assertClean(Fuzz.run("attachments", seeds: seeds, quick: 300, maxSize: 128 << 10) { input in
+            Self.typed {
+                // The input stands in for each part in turn.
+                let variants: [(Data, Data, Data)] = [(input, pdf, jpeg), (session, input, jpeg), (session, pdf, input)]
+                for (s, p, j) in variants {
+                    let zip = AttachmentFixtures.package(session: s, pdf: p, extra: [("Images/p.jpg", j)])
+                    let pkg = try NotePackage(data: zip)
+                    guard let note = try? NotabilityNote.parse(package: pkg) else { continue }
+                    let a = NotabilityAttachments.resolve(note, package: pkg)
+                    let state = NotabilityImporter.convert(note, attachments: a)
+                    _ = NotabilityImporter.dropped(note, attachments: a)
+                    for item in state.pages[0].items where item.validationError != nil {
+                        throw ImportError.notability("invalid item: \(item.validationError ?? "")")
+                    }
+                    _ = try InkJSON.encoder().encode(NotabilityImporter.ops(for: state))
+                }
+            }
+        })
     }
 }

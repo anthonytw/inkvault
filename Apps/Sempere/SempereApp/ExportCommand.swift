@@ -1,11 +1,13 @@
+import Sempere
 import SempereRender
 import SwiftUI
 
 /// The export actions, in one place: the note list's toolbar and context menu,
 /// the note's toolbar and the Catalyst menu bar all build their items from
-/// this type, so a title, icon or shortcut changes once.
+/// this type, so a title, icon or shortcut changes once. HTML is the CLI's
+/// only (`sempere export --format html`); the app does not offer it.
 enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
-    case pdf, png, markdown, html
+    case pdf, png, markdown
 
     var id: String { rawValue }
 
@@ -14,7 +16,6 @@ enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
         case .pdf: return .pdf
         case .png: return .png
         case .markdown: return .markdown
-        case .html: return .html
         }
     }
 
@@ -23,8 +24,7 @@ enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .pdf: return "PDF…"
         case .png: return "PNG Pages…"
-        case .markdown: return "Markdown (Obsidian)…"
-        case .html: return "HTML…"
+        case .markdown: return "Text (Markdown)…"
         }
     }
 
@@ -33,8 +33,17 @@ enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
         case .pdf: return "doc.richtext"
         case .png: return "photo.on.rectangle"
         case .markdown: return "text.document"
-        case .html: return "safari"
         }
+    }
+
+    /// The formats the export sheet offers, in menu order.
+    static var formats: [ShareFormat] { allCases.map(\.format) }
+
+    /// Whether the command makes sense for notes with these summaries: the
+    /// text export needs recognised handwriting in at least one of them
+    /// (otherwise it would hold titles and tags only).
+    static func isAvailable(_ format: ShareFormat, for notes: [NoteSummary]) -> Bool {
+        format != .markdown || notes.contains { $0.recognizedPages > 0 }
     }
 
     /// The submenu's title.
@@ -42,8 +51,9 @@ enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
     static let menuImage = "square.and.arrow.up"
 }
 
-/// "Export ▸ PDF…, PNG Pages…, Markdown…, HTML…" for `ids` (the notes, in the
-/// order given). Disabled without notes.
+/// "Export ▸ PDF…, PNG Pages…, Text (Markdown)…" for `ids` (the notes, in the
+/// order given). Disabled without notes; the text export is disabled when no
+/// note has recognised handwriting.
 struct ExportMenu: View {
     @Environment(AppModel.self) private var model
     let ids: [UUID]
@@ -54,6 +64,7 @@ struct ExportMenu: View {
                 Button(command.title, systemImage: command.systemImage) {
                     model.requestExport(command, ids: ids)
                 }
+                .disabled(!model.canExport(command.format, ids: ids))
             }
         }
         .disabled(ids.isEmpty || model.phase != .unlocked)
@@ -70,7 +81,7 @@ struct ExportMenuCommands: Commands {
             Menu(ExportCommand.menuTitle) {
                 ForEach(ExportCommand.allCases) { command in
                     Button(command.title) { model.requestExport(command, ids: model.exportTargetIDs) }
-                        .disabled(model.exportTargetIDs.isEmpty || model.phase != .unlocked)
+                        .disabled(model.phase != .unlocked || !model.canExport(command.format, ids: model.exportTargetIDs))
                 }
             }
         }

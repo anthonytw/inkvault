@@ -14,6 +14,7 @@ scripts/test-linux.sh       # on a Mac with Docker, or in a cloud VM: run tests 
 scripts/app.sh test         # iPad app: xcodebuild test on the newest iPadOS 26+ simulator
 scripts/app.sh catalyst     # iPad app: unsigned Mac Catalyst build
 SEMPERE_FUZZ_LONG=1 swift test --filter Fuzz   # deep fuzz run (quick mode runs in every swift test)
+(cd web && npm ci && npm run lint && npm run typecheck && npm test)   # web viewer
 ```
 
 The app lives in `Apps/Sempere/Sempere.xcodeproj` (open it in Xcode; scheme
@@ -191,6 +192,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   device copy to --domain-type appDataContainer`). With `xcrun simctl launch`
   prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
   autosaves.
+- App Store screenshots (`scripts/screenshots.sh`, `docs/appstore/screenshots.md`):
+  `SEMPERE_DEMO=1` builds a synthetic vault in code (`DemoVault`,
+  `DemoHandwriting`, DEBUG only, Linux-typecheckable like the other non-UI
+  logic) and opens it; `SEMPERE_DEMO_*` pick note, sidebar, locked state and
+  the paper picker. The `SempereScreenshots` scheme runs `SempereAppUITests`
+  (not part of `SempereApp`'s test action, so `scripts/app.sh test` never
+  builds it); CI runs it only by dispatch (`-f screenshots=true`). Never put
+  real notes in a demo.
 - `PKCanvasView` inverts ink colours in dark mode; the canvas forces
   `.light` because ink colours are stored as drawn on (light) paper.
 - Vaults are one item in Files: `SempereInfo.plist` (referenced by `INFOPLIST_FILE`,
@@ -221,6 +230,27 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `NoteSummary` gains or changes a field. `RevisionDetail.withoutStrokePoints`
   revisions are for listings and search only: never write, snapshot, render
   or diff them. Tests get no cache unless they pass `summaryCacheDirectory`.
+- The list is change-driven (`AppModel+Reconcile`, docs/io.md "Opening a vault
+  fast"): passes list note folders by NAME (`VaultEnumeration`) and read only
+  notes whose names differ from `indexedNames` (`IndexDiff`); never ask iCloud
+  for every file's state in a foreground pass (`ProgressiveLoad.pass(notes:)`
+  for the changed ones; the full scan is `validateVault`, background only).
+  An evicted note with unchanged names is NOT pending and is not downloaded
+  for the list. Apply summaries through `queueListUpdate` (throttled) or
+  `merge` (an edit's own re-read, immediate), never by assigning `notes`
+  wholesale. Tests that need "another device wrote a revision" use
+  `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Drawing cache (`DrawingCache`, format.md §10.1): keyed by note id + revision
+  file names; a note opened from it is `isPreparing` (read-only) until its
+  revisions are read and every shown cached drawing passed
+  `DrawingPreparation.matches`. The canvas gets its drawing through
+  `readyDrawing`/`prepareDrawing` (off-main, visible strokes first), not
+  `drawing(for:)` (synchronous, tests). Bump `DrawingCache.schemaVersion` when
+  `StrokeConversion` or the layout changes. Tests get no cache unless they pass
+  `drawingCacheRoot`.
+- Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log
+  `Library/Logs/SemperePerf.log`), counts and 8-hex id prefixes only.
+  `PerformanceReportTests` prints `PERF-REPORT` lines in the CI `app` log.
 - Debug device runs against the user's iCloud vault: `SEMPERE_DEBUG_RECENT=1`
   opens the most recent vault through its bookmark (the picker's scope), with
   `SEMPERE_DEBUG_PROBE=1` (log how iCloud presents the files),
@@ -232,6 +262,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   height (`PageExtent.scrollHeight`); finite pages end with an Add Page / Next
   Page button below the page. "Keep Screen On" (`KeepScreenOn`) disables the
   idle timer only while a note is open and the scene is active.
+- Paged vs pageless is only `pageSize.infinite` (`format.md` §5.4.3). Page
+  gestures (add, move, delete, undo, duplicate) and the layout switch are built
+  by `NoteOps` (`Sources/Sempere/PageLayout.swift`), which also predicts the
+  resulting pages, and are written by `NoteEditor`, one delta per gesture. A
+  stroke that changes page is re-added under a new id with its `transform`'s
+  `ty` shifted, never edited in place. A note keeps at least one page.
 - `NavigationSplitView` ignores a programmatic column change that arrives
   while the view is first being built, so the stored choice (`ColumnLayout`,
   `@AppStorage`) is never made to depend on selection state.
@@ -298,3 +334,52 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   that into ordinary `removeStroke` ops. The pixel eraser stays PencilKit's.
   Radius presets (`ObjectEraserSize`, page points) are in `UserDefaults`
   under `Sempere.objectEraserRadius`; the size menu is in the editor toolbar.
+- Mac (Catalyst) behaviour is in `docs/mac.md`. Menu entries are cases of
+  `MenuCommand` (title, shortcut, enabling in one place; `MenuCommandTests`
+  checks shortcut clashes); never add a menu item elsewhere. Menus act through
+  the focused window's `CommandRouter`. A note has at most one `NoteEditor`:
+  note windows go through `AppModel.claimNote` / `openWindowNote` /
+  `releaseNote`, and anything that changes the vault under open editors (key
+  changes) closes them all first and bumps `keyEpoch`. Sheets and alerts that
+  commands open live in `WindowUI`, attached by `windowSheets` to a view that
+  is always on screen (the note list is not when the columns are hidden).
+  Gate Mac-only behaviour on `Platform.isMac` (compiles on the iPad, so the
+  simulator CI checks it) rather than `#if targetEnvironment(macCatalyst)`:
+  the Catalyst build runs on `main` only (or `gh workflow run CI --ref <branch>`).
+  Only the `.commands` line and the entitlements/scene build settings are
+  Catalyst-only.
+- The object eraser must list `indirectPointer` among its touch types on a Mac
+  (`ObjectEraserController.pressTouchTypes`), or the default eraser ignores
+  the mouse; PencilKit's own gesture is off while it is active.
+- Dragging a note out writes a plaintext PDF under `$TMPDIR/SempereExport/`
+  (`NotePDFExport`); keep it per model and purge it when the vault closes.
+- Attachment blobs (`Sources/Sempere/Blob*.swift`, `format.md` §8.1): write with
+  `Vault.writeBlob` / `copyBlob` before the delta that references them; read only
+  through a reference of the same note (`readBlob`, `streamBlob`, `withBlobFile`,
+  `blobSource`), which check framing, padding, hash and keyed name; content a
+  streaming read handed out is unusable if it then throws. Delete blobs only via
+  `collectBlobs` (rules 1–4, per note, device-local `BlobCollectorState`); recipient
+  changes rewrap them by `RewrapPolicy`. References are found structurally (any
+  object with `sha256`) with `JSONSerialization`, whose `NSNumber` says `is Bool`
+  for 0 and 1: test `objCType == "c"` for booleans instead.
+- Handwriting search (`PageRecognizer.swift`, `NoteEditor` extension, `AppModel+Search.swift`;
+  pure logic in `Sources/Sempere/RecognitionSupport.swift` and `NoteSearch.swift`, tested on
+  Linux). Recognition carries `basis` = `RecognitionBasis.digest` of the page's live stroke ids
+  (`format.md` §5.5): current iff equal. Recognition without a basis (Notability import) is
+  never replaced unless the editor itself changed that page's strokes (`touchedPages`), via
+  `RecognitionPolicy.needsRecognition`. The editor saves strokes first, recognises off the main
+  actor (`VisionPageRecognizer`, ink drawn black on white, markers skipped), re-checks the digest
+  before writing and drops the result if strokes changed meanwhile; it writes one delta per
+  pass (all pages read) through its own `NoteWriter`, and stops without writing once closed or
+  switched off. A page that cannot be drawn is an error, never stored as empty text. Vault-wide reading ("Recognize N Notes Now") goes through `commit(_:building:)`
+  and rewrites each page only if its digest still matches. App tests inject `FakeRecognizer`;
+  `AppModel()` defaults to no recognizer so existing tests write no extra deltas. Search is
+  `NoteSearch.search` over `NoteSummary.pageTexts` (filled by `Vault.summary`), run off the main
+  actor with a debounce; no word highlight on the page yet.
+- Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
+  (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
+  merging, decoding or rendering in Swift needs the same change in
+  `web/src/`; `web/scripts/golden.sh` re-exports `web/test/golden` with the
+  CLI and the `web-golden` CI job diffs it. The viewer never parses markup
+  (DOM nodes only, Trusted Types CSP) and never stores or sends the key. Pin
+  npm dependencies exactly; install with `npm ci`.

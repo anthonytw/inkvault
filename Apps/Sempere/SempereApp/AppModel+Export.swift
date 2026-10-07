@@ -40,10 +40,18 @@ extension AppModel {
         return notes.filter { wanted.contains($0.id) && !placeholderNoteIDs.contains($0.id) }.map(\.id)
     }
 
+    /// True when `format` can export `ids` (`ExportCommand.isAvailable`):
+    /// the text export needs a note with recognised handwriting.
+    func canExport(_ format: ShareFormat, ids: [UUID]) -> Bool {
+        guard !ids.isEmpty else { return false }
+        let wanted = Set(ids)
+        return ExportCommand.isAvailable(format, for: notes.filter { wanted.contains($0.id) })
+    }
+
     /// Opens the export sheet for `ids` with the command's format.
     func requestExport(_ command: ExportCommand, ids: [UUID]) {
         // One export at a time: replacing the request would dismiss a running sheet.
-        guard phase == .unlocked, !ids.isEmpty, exportRequest == nil else { return }
+        guard phase == .unlocked, canExport(command.format, ids: ids), exportRequest == nil else { return }
         exportRequest = ExportRequest(noteIDs: ids, format: command.format)
     }
 
@@ -94,8 +102,12 @@ extension AppModel {
         let source = "sempere:\(vault.vaultId.uuidString.lowercased())"
         let total = ids.count
         let skipped = total - loaded.count
-        let render = Task.detached(priority: .userInitiated) { [loaded] in
-            try ShareExport.run(loaded, options: options, into: scratch, vaultSource: source, progress: { done, _ in
+        // PDF page backgrounds: the note's attachments and Core Graphics (docs/attachments.md §10).
+        // An attachment that cannot be read is a placeholder in the export, never a failure.
+        let render = Task.detached(priority: .userInitiated) { [loaded, vault] in
+            try ShareExport.run(loaded, options: options, into: scratch, vaultSource: source,
+                                blobs: { vault.blobSource(note: $0) }, pdfRasterizer: PDFKitRasterizer(),
+                                progress: { done, _ in
                 let shown = done + skipped
                 Task { @MainActor in progress(ExportProgress(phase: .rendering, done: shown, total: total)) }
             })

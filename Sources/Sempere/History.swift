@@ -58,6 +58,19 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
     public var recognitionChanges = 0
     /// Pages whose own paper is set back (or cleared).
     public var pagePaperChanges = 0
+    /// Items removed because they did not exist at the restore point.
+    public var itemsRemoved = 0
+    /// Items re-created (new ids, `parent` = the old id), on surviving or
+    /// re-created pages.
+    public var itemsRestored = 0
+    /// Surviving items with at least one register set back.
+    public var itemChanges = 0
+    /// Recordings removed because they did not exist at the restore point.
+    public var recordingsRemoved = 0
+    /// Recordings re-created (new ids, `parent` = the old id).
+    public var recordingsRestored = 0
+    /// Surviving recordings with at least one register set back.
+    public var recordingChanges = 0
     /// Metadata fields set back, by name (`title`, `tags`, ...).
     public var metaFields: [String] = []
     /// `true` when the restore deletes the note, `false` when it undeletes it.
@@ -69,6 +82,7 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
     public init(_ ops: [Op]) {
         var newPages = Set<UUID>()
         for case .addPage(let p) in ops { newPages.insert(p.id) }
+        var changedItems = Set<UUID>(), changedRecordings = Set<UUID>()
         for op in ops {
             switch op {
             case .removePage: pagesRemoved += 1
@@ -85,10 +99,16 @@ public struct RestoreSummary: Hashable, Sendable, Codable {
             case .addTag, .removeTag: if !metaFields.contains("tags") { metaFields.append("tags") }
             case .deleteNote: deleted = true
             case .restoreNote: deleted = false
-            // A1: restore does not diff items and recordings yet.
-            case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: break
+            case .removeItem: itemsRemoved += 1
+            case .addItem: itemsRestored += 1
+            case .setItem(_, let id, _): changedItems.insert(id)
+            case .removeRecording: recordingsRemoved += 1
+            case .addRecording: recordingsRestored += 1
+            case .setRecording(let id, _): changedRecordings.insert(id)
             }
         }
+        itemChanges = changedItems.count
+        recordingChanges = changedRecordings.count
     }
 
     /// True when nothing changes.
@@ -129,17 +149,12 @@ public enum NoteHistory {
     /// ordered at or before it (`NoteReducer.reconstruct`).
     ///
     /// - Throws: `HistoryError.unknownRevision` if no revision has that name,
-    ///   `.incompleteHistory` if the state cannot be rebuilt, or `NoteLogError`
-    ///   (`.attachmentsNotMerged` for a note with attachments, until A1).
+    ///   `.incompleteHistory` if the state cannot be rebuilt, or `NoteLogError`.
     public static func state(_ revisions: [Revision], at point: RevisionName,
                              unreadable: [RevisionName] = []) throws -> NoteState {
         guard revisions.contains(where: { $0.name == point }) else {
             throw HistoryError.unknownRevision(point.filename)
         }
-        // A1: the merge does not keep attachments yet, so a state without them
-        // would be shown, and a restore would claim to match a point while
-        // leaving every item as it is. Refused, as `makeSnapshot` refuses.
-        if let r = revisions.first(where: \.holdsAttachments) { throw NoteLogError.attachmentsNotMerged(r.name) }
         guard Completeness(revisions, unreadable: unreadable).isComplete(at: [point]) == [true] else {
             throw HistoryError.incompleteHistory(point)
         }
@@ -148,12 +163,17 @@ public enum NoteHistory {
 
     /// The ops of one delta that turns `current` into `target` (format.md §5.7).
     ///
-    /// Pages and strokes correspond by id, or by `parent` (an earlier restore's
-    /// copy, with the same ink, points and transform for a stroke), so
-    /// restoring the same point twice yields no ops. Items of `current` with
-    /// no counterpart are removed; items of `target` with none are re-added
-    /// under a new id from `newID` with `parent` set to the old id. Page order,
-    /// recognition, metadata and `deleted` are set where they differ.
+    /// Pages, strokes, placed items and recordings correspond by id, or by
+    /// `parent` (an earlier restore's copy, with the same ink, points and
+    /// transform for a stroke, the same immutable fields for an item or
+    /// recording), so restoring the same point twice yields no ops. Strokes
+    /// and items correspond only on corresponding pages: an item moved to
+    /// another page since the point goes back to its page. Elements of
+    /// `current` with no counterpart are removed; elements of `target` with
+    /// none are re-added under a new id from `newID` with `parent` set to the
+    /// old id (an item or recording with its register values as of the
+    /// point). Page order, recognition, paper, item and recording registers,
+    /// metadata and `deleted` are set where they differ.
     public static func restoreOps(current: NoteState, target: NoteState,
                                   newID: () -> UUID = { UUID() }) -> [Op] {
         var ops: [Op] = []
@@ -164,6 +184,7 @@ public enum NoteHistory {
             ops.append(.setMeta(want))
         }
         ops += NoteOps.setTags(target.meta.tags, on: current)
+        ops += recordingOps(current: current.recordings, target: target.recordings, newID: newID)
 
         // Pages: exact ids first, then earlier restores' copies.
         var counterpart: [UUID: Page] = [:]
@@ -191,6 +212,7 @@ public enum NoteHistory {
                 let page = Page(id: newID(), order: t.order, parent: t.id)
                 ops.append(.addPage(page))
                 for s in t.strokes { ops.append(.addStroke(page: page.id, stroke: copy(s))) }
+                for i in t.items { ops.append(.addItem(page: page.id, item: copyItem(i, newID: newID))) }
                 if let r = t.recognition { ops.append(.setPageRecognition(pageId: page.id, recognition: r)) }
                 if let p = t.paper { ops.append(.setPagePaper(pageId: page.id, paper: p)) }
                 continue
@@ -215,9 +237,87 @@ public enum NoteHistory {
                 ops.append(.setPageRecognition(pageId: c.id, recognition: t.recognition))
             }
             if c.paper != t.paper { ops.append(.setPagePaper(pageId: c.id, paper: t.paper)) }
+            ops += itemOps(page: c.id, current: c.items, target: t.items, newID: newID)
         }
         if !current.deleted && target.deleted { ops.append(.deleteNote) }
         return ops
+    }
+
+    /// A copy of `item` under a new id naming it as `parent`, with its
+    /// register values (§5.7); snapshot-only fields dropped.
+    static func copyItem(_ item: Item, newID: () -> UUID) -> Item {
+        var c = item
+        c.id = newID(); c.parent = item.id; c.origin = nil; c.clocks = nil
+        return c
+    }
+
+    /// Pairs each `target` element with a `current` one of the same id, else
+    /// with an unpaired one whose `parent` names it and that `same` accepts.
+    /// Returns target id → current element, and the current ids paired.
+    static func counterparts<T: Identifiable>(current: [T], target: [T], parent: (T) -> UUID?,
+                                              same: (T, T) -> Bool) -> ([UUID: T], Set<UUID>) where T.ID == UUID {
+        var pair: [UUID: T] = [:]
+        var used = Set<UUID>()
+        let byId = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for t in target { if let c = byId[t.id] { pair[t.id] = c; used.insert(c.id) } }
+        // Candidates by the id their `parent` names, in `current` order: one
+        // pass, not one scan of `current` per target.
+        var byParent: [UUID: [T]] = [:]
+        for c in current where !used.contains(c.id) {
+            if let p = parent(c) { byParent[p, default: []].append(c) }
+        }
+        for t in target where pair[t.id] == nil {
+            if let hit = byParent[t.id]?.first(where: { !used.contains($0.id) && same($0, t) }) {
+                pair[t.id] = hit
+                used.insert(hit.id)
+            }
+        }
+        return (pair, used)
+    }
+
+    /// Restore ops for one page's items (format.md §5.7, §8.2.2).
+    static func itemOps(page: UUID, current: [Item], target: [Item], newID: () -> UUID) -> [Op] {
+        let (pair, used) = counterparts(current: current, target: target, parent: \.parent,
+                                        same: { $0.hasSameImmutableFields(as: $1) })
+        var ops: [Op] = current.filter { !used.contains($0.id) }.map { .removeItem(page: page, itemId: $0.id) }
+        for t in target {
+            guard let c = pair[t.id] else {
+                ops.append(.addItem(page: page, item: copyItem(t, newID: newID)))
+                continue
+            }
+            ops += registerOps(have: c.registers, want: t.registers).map { .setItem(page: page, itemId: c.id, change: $0) }
+        }
+        return ops
+    }
+
+    /// Restore ops for the note's recordings (format.md §5.7, §8.3.1).
+    static func recordingOps(current: [Recording], target: [Recording], newID: () -> UUID) -> [Op] {
+        let (pair, used) = counterparts(current: current, target: target, parent: \.parent,
+                                        same: { $0.hasSameImmutableFields(as: $1) })
+        var ops: [Op] = current.filter { !used.contains($0.id) }.map { .removeRecording(recordingId: $0.id) }
+        for t in target {
+            guard let c = pair[t.id] else {
+                var copy = t
+                copy.id = newID(); copy.parent = t.id; copy.origin = nil; copy.clocks = nil
+                ops.append(.addRecording(copy))
+                continue
+            }
+            ops += registerOps(have: c.registers, want: t.registers).map { .setRecording(recordingId: c.id, change: $0) }
+        }
+        return ops
+    }
+
+    /// The changes that set every register of `want` that `have` holds with
+    /// another value, in field order. An unknown field that `have` holds and
+    /// `want` lacks stays: no op makes a field absent again (`null` is a value
+    /// of it, §8.2.2). An unknown field is written through
+    /// `init(field:value:)`, so one named like a typed register of another
+    /// kind is routed to it, and one no op can carry is skipped.
+    static func registerOps<C: RegisterChange>(have: [String: C], want: [String: C]) -> [C] {
+        want.keys.sorted().compactMap { field in
+            guard let w = want[field], let wire = w.wireForm, have[field]?.wireForm != wire else { return nil }
+            return w.isUnknownField ? try? C(field: field, value: wire) : w
+        }
     }
 
     /// Same drawing: ink, control points and transform (identity when absent).

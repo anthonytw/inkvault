@@ -59,7 +59,7 @@ extension AppModel {
                     + "encrypted to (the classic key while one is listed) and try again."
             case .notDownloaded(let n):
                 return "iCloud Drive has not delivered \(n) note\(n == 1 ? "" : "s") yet. Every note must be on this "
-                    + "iPad before the vault can be re-encrypted. Check that it is online and try again."
+                    + "device before the vault can be re-encrypted. Check that it is online and try again."
             }
         }
     }
@@ -172,7 +172,7 @@ extension AppModel {
     /// Waits until every note folder is listed and every revision file is
     /// local (a rewrap must see them all: a file it cannot see would stay
     /// encrypted to the classic key only), requesting the downloads.
-    private func downloadEverything(_ url: URL, gen: Int, progress: (String) -> Void) async throws {
+    func downloadEverything(_ url: URL, gen: Int, progress: (String) -> Void) async throws {
         let hooks = cloudHooks
         let window = cloudWindow
         let clock = ContinuousClock()

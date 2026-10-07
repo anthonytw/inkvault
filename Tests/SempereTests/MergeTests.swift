@@ -443,13 +443,30 @@ final class MergeTests: XCTestCase {
     // MARK: Property: order independence (format.md §5.3)
 
     func testReconstructIsOrderIndependent() throws {
+        try checkOrderIndependence(attachments: false)
+    }
+
+    /// The same property with placed items and recordings (format.md §8.2,
+    /// §8.3): adds, removes, register sets, orphans, moves between pages.
+    func testReconstructWithAttachmentsIsOrderIndependent() throws {
+        try checkOrderIndependence(attachments: true)
+    }
+
+    func checkOrderIndependence(attachments: Bool) throws {
         for seed in UInt64(1)...4 {
-            var rng = SplitMix64(seed: seed)
-            let revisions = try randomLog(rng: &rng)
+            var rng = SplitMix64(seed: attachments ? seed + 100 : seed)
+            let revisions = try randomLog(rng: &rng, attachments: attachments)
             XCTAssertEqual(revisions.filter { $0.kind == .snapshot }.count, 2)
             let reference = try NoteReducer.reconstruct(revisions)
             XCTAssertFalse(reference.pages.isEmpty, "seed \(seed): generator produced an empty note")
-            XCTAssertFalse(reference.tagSet?.removed.isEmpty ?? true, "seed \(seed): no tag was removed")
+            if !attachments { XCTAssertFalse(reference.tagSet?.removed.isEmpty ?? true, "seed \(seed): no tag was removed") }
+            if attachments {
+                XCTAssertFalse(reference.pages.allSatisfy(\.items.isEmpty), "seed \(seed): no item")
+                XCTAssertFalse(reference.recordings.isEmpty, "seed \(seed): no recording")
+                XCTAssertFalse(reference.tombstones?.items.isEmpty ?? true, "seed \(seed): no item removed")
+                XCTAssertFalse(reference.tombstones?.recordings.isEmpty ?? true, "seed \(seed): no recording removed")
+                XCTAssertTrue(reference.pages.flatMap(\.items).contains { $0.clocks?["frame"] != nil })
+            }
             let refJSON = try InkJSON.encoder().encode(reference)
             for i in 0..<50 {
                 let shuffled = revisions.shuffled(using: &rng)
@@ -470,6 +487,19 @@ final class MergeTests: XCTestCase {
             XCTAssertEqual(compacted.deleted, reference.deleted, "seed \(seed)")
             XCTAssertEqual(compacted.clocks, reference.clocks, "seed \(seed)")
             XCTAssertEqual(compacted.tagSet, reference.tagSet, "seed \(seed)")
+            XCTAssertEqual(compacted.recordings, reference.recordings, "seed \(seed)")
+            XCTAssertEqual(compacted.tombstones?.items, reference.tombstones?.items, "seed \(seed)")
+            XCTAssertEqual(compacted.tombstones?.recordings, reference.tombstones?.recordings, "seed \(seed)")
+
+            // A snapshot of everything reconstructs to the same note, and its JSON round-trips.
+            var clock = HybridClock()
+            let all = try SnapshotBuilder.makeSnapshot(from: revisions, device: devC, seq: 1_000, clock: &clock,
+                                                       wall: wallAt(baseMillis + 20_000_000), app: "test/0")
+            let fromSnapshot = try NoteReducer.reconstruct([all])
+            XCTAssertEqual(fromSnapshot.pages, reference.pages, "seed \(seed)")
+            XCTAssertEqual(fromSnapshot.recordings, reference.recordings, "seed \(seed)")
+            let json = try InkJSON.encoder().encode(all)
+            XCTAssertEqual(try InkJSON.encoder().encode(InkJSON.decoder().decode(Revision.self, from: json)), json)
         }
     }
 
@@ -477,7 +507,13 @@ final class MergeTests: XCTestCase {
     /// meta incl. per-tag adds and removes and legacy tag writes, page moves,
     /// page removes, delete/restore), 2 snapshots from
     /// partial views. Writers follow §5.2: no removed id is re-added.
-    func randomLog(rng: inout SplitMix64) throws -> [Revision] {
+    ///
+    /// With `attachments`, about a third of the ops are item and recording
+    /// ops: adds of every kind (an unknown one included), removes (some of
+    /// ids nobody adds), `setItem` / `setRecording` of typed and unknown
+    /// fields (some on ids nobody adds: permanent orphans), moves to another
+    /// page (remove + add with `parent`).
+    func randomLog(rng: inout SplitMix64, attachments: Bool = false) throws -> [Revision] {
         let devices = [devA, devB, devC]
         var clocks = [HybridClock(), HybridClock(), HybridClock()]
         var seqs = [0, 0, 0]
@@ -485,6 +521,8 @@ final class MergeTests: XCTestCase {
         var pages: [UUID] = []
         var strokes: [(page: UUID, stroke: Stroke)] = []
         var tagInstances: [(tag: String, origin: Origin)] = []
+        var items: [(page: UUID, item: Item)] = []
+        var recordings: [UUID] = []
         var opCount = 0
         let snapshotAt = [Int.random(in: 30..<100, using: &rng), Int.random(in: 100..<190, using: &rng)]
         var snapshotsDone = 0
@@ -498,6 +536,10 @@ final class MergeTests: XCTestCase {
             var ops: [Op] = []
             for _ in 0..<Int.random(in: 1...4, using: &rng) where opCount < 200 {
                 opCount += 1
+                if attachments, !pages.isEmpty, Double.random(in: 0..<1, using: &rng) < 0.35 {
+                    ops += randomAttachmentOps(rng: &rng, pages: pages, items: &items, recordings: &recordings)
+                    continue
+                }
                 let r = Double.random(in: 0..<1, using: &rng)
                 if pages.isEmpty || r < 0.10 {
                     let p = Page(id: UUID.random(using: &rng), order: ["a", "b", "V", "c0"].randomElement(using: &rng) ?? "a")
@@ -584,5 +626,90 @@ final class MergeTests: XCTestCase {
             }
         }
         return log
+    }
+
+    func randomAttachmentOps(rng: inout SplitMix64, pages: [UUID], items: inout [(page: UUID, item: Item)],
+                             recordings: inout [UUID]) -> [Op] {
+        func rect() -> Rect {
+            Rect(x: Double(Int.random(in: 0..<500, using: &rng)), y: Double(Int.random(in: 0..<700, using: &rng)),
+                 w: Double(Int.random(in: 1..<300, using: &rng)), h: Double(Int.random(in: 1..<300, using: &rng)))
+        }
+        let blob = BlobRef(sha256: String(repeating: "ab", count: 32), size: 10, type: "image/png")
+        func newItem(parent: UUID? = nil, like old: Item? = nil) -> Item {
+            if var c = old { c.id = UUID.random(using: &rng); c.parent = parent; return c }
+            let z = ["a", "b", "a0", "c"].randomElement(using: &rng) ?? "a"
+            switch Int.random(in: 0..<4, using: &rng) {
+            case 0:
+                return .text(id: UUID.random(using: &rng), TextContent(size: 12, color: .black,
+                                                                    runs: [TextRun("t\(Int.random(in: 0..<9, using: &rng))")]),
+                             frame: rect(), z: z)
+            case 1:
+                return .image(id: UUID.random(using: &rng), blob: blob, pixelSize: Size(w: 10, h: 10), frame: rect(), z: z)
+            case 2:
+                return .pdfPage(id: UUID.random(using: &rng), blob: BlobRef(sha256: String(repeating: "cd", count: 32),
+                                                                           size: 99, type: "application/pdf"),
+                                pageIndex: Int.random(in: 0..<3, using: &rng), pageSize: Size(w: 612, h: 792),
+                                frame: rect(), z: z)
+            default:
+                return Item(id: UUID.random(using: &rng), kind: ItemKind(rawValue: "sticker"), layer: ItemLayer(rawValue: 50),
+                            frame: rect(), z: z, extra: ["glyph": .string("star"), "points": .array([.number(1)])])
+            }
+        }
+        let r = Double.random(in: 0..<1, using: &rng)
+        if items.isEmpty || r < 0.22 {
+            let page = pages.randomElement(using: &rng) ?? pages[0]
+            let item = newItem()
+            items.append((page, item))
+            return [.addItem(page: page, item: item)]
+        } else if r < 0.30 {
+            if Double.random(in: 0..<1, using: &rng) < 0.2 {
+                return [.removeItem(page: pages[0], itemId: UUID.random(using: &rng))]
+            }
+            let victim = items.randomElement(using: &rng) ?? items[0]
+            return [.removeItem(page: victim.page, itemId: victim.item.id)]
+        } else if r < 0.35 {
+            // Move to another page: remove + add of a copy naming it.
+            let victim = items.randomElement(using: &rng) ?? items[0]
+            let page = pages.randomElement(using: &rng) ?? pages[0]
+            let copy = newItem(parent: victim.item.id, like: victim.item)
+            items.append((page, copy))
+            return [.removeItem(page: victim.page, itemId: victim.item.id), .addItem(page: page, item: copy)]
+        } else if r < 0.62 {
+            let target = items.randomElement(using: &rng) ?? items[0]
+            var id = target.item.id
+            if Double.random(in: 0..<1, using: &rng) < 0.05 { id = UUID.random(using: &rng) }   // never added
+            let change: ItemChange
+            switch Int.random(in: 0..<6, using: &rng) {
+            case 0: change = .frame(rect())
+            case 1: change = .rotation(Bool.random(using: &rng) ? nil : Double(Int.random(in: 0..<360, using: &rng)))
+            case 2: change = .z(["a", "b", "z"].randomElement(using: &rng) ?? "a")
+            case 3: change = .crop(Bool.random(using: &rng) ? nil : rect())
+            case 4: change = .text(TextContent(size: 14, color: .black, runs: [TextRun("e\(Int.random(in: 0..<9, using: &rng))")]))
+            default: change = .other(field: "note", value: Bool.random(using: &rng) ? .null : .string("n\(Int.random(in: 0..<9, using: &rng))"))
+            }
+            return [.setItem(page: target.page, itemId: id, change: change)]
+        } else if r < 0.75 || recordings.isEmpty {
+            let rec = Recording(id: UUID.random(using: &rng),
+                                blob: BlobRef(sha256: String(repeating: "ef", count: 32), size: 7, type: "audio/mp4"),
+                                started: wallAt(baseMillis + Int64(Int.random(in: 0..<4, using: &rng)) * 1000),
+                                title: Bool.random(using: &rng) ? nil : "r")
+            recordings.append(rec.id)
+            return [.addRecording(rec)]
+        } else if r < 0.82 {
+            let id = Double.random(in: 0..<1, using: &rng) < 0.2 ? UUID.random(using: &rng)
+                : (recordings.randomElement(using: &rng) ?? recordings[0])
+            return [.removeRecording(recordingId: id)]
+        } else {
+            var id = recordings.randomElement(using: &rng) ?? recordings[0]
+            if Double.random(in: 0..<1, using: &rng) < 0.05 { id = UUID.random(using: &rng) }
+            let change: RecordingChange
+            switch Int.random(in: 0..<3, using: &rng) {
+            case 0: change = .title(Bool.random(using: &rng) ? nil : "title \(Int.random(in: 0..<9, using: &rng))")
+            case 1: change = .transcript(Bool.random(using: &rng) ? nil
+                : BlobRef(sha256: String(repeating: "12", count: 32), size: 3, type: BlobRef.transcriptType))
+            default: change = .other(field: "speaker", value: .string("s\(Int.random(in: 0..<3, using: &rng))"))
+            }
+            return [.setRecording(recordingId: id, change: change)]
+        }
     }
 }

@@ -23,7 +23,7 @@ import Foundation
 public final class SummaryCache: @unchecked Sendable {
     /// Bumped whenever `NoteSummary` or how it is computed changes, so older
     /// files are ignored instead of serving stale fields.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 3
     /// The largest cache file read (about 50 000 notes' summaries).
     public static let maxFileBytes = 64 << 20
     /// HKDF `info` for the encryption key (format.md §10).
@@ -108,6 +108,34 @@ public final class SummaryCache: @unchecked Sendable {
     public var storedSummaries: [NoteSummary] {
         lock.lock(); defer { lock.unlock() }
         return entries.values.map(\.summary)
+    }
+
+    /// The sorted revision file names of every stored entry: what a reader
+    /// compares a fresh listing with to tell which notes changed (a note whose
+    /// names are the same has the same summary; nothing needs reading).
+    public var storedRevisionNames: [UUID: [String]] {
+        lock.lock(); defer { lock.unlock() }
+        return entries.mapValues(\.revisions)
+    }
+
+    /// The stored summary of `id`, whether or not it is still current.
+    public func storedSummary(of id: UUID) -> NoteSummary? {
+        lock.lock(); defer { lock.unlock() }
+        return entries[id]?.summary
+    }
+
+    /// The sorted revision file names the stored summary of `id` was made from.
+    public func storedRevisionNames(of id: UUID) -> [String]? {
+        lock.lock(); defer { lock.unlock() }
+        return entries[id]?.revisions
+    }
+
+    /// The stored summary of `id` if it was made from exactly `names`
+    /// (sorted revision file names, as in `storedRevisionNames`).
+    public func summary(for id: UUID, names: [String]) -> NoteSummary? {
+        lock.lock(); defer { lock.unlock() }
+        guard let e = entries[id], e.revisions == names else { return nil }
+        return e.summary
     }
 
     /// Stores `summary`, made from `revisions`. Summaries with a `problem`

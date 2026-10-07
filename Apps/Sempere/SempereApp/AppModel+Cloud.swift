@@ -99,108 +99,45 @@ struct CloudSyncStatus: Equatable, Sendable {
 }
 
 extension AppModel {
-    /// One progressive pass over the notes (`ProgressiveLoad`): summaries of
-    /// the notes whose files are local are read in batches and merged into
-    /// `notes` as they arrive (`readSummaries`, with the summary cache), the
-    /// rest are listed with their cached summary if there is one, else as
-    /// placeholders (`placeholderNoteIDs`), until their files arrive. `full`
-    /// re-checks every ready note (a reload; unchanged ones come from the
-    /// cache); otherwise only notes not yet summarised are read. While the
-    /// vault is locked only the downloads are requested and the progress
-    /// updated (nothing can be read). Passes never overlap (`loadGate`).
+    /// One pass over the notes (`reconcile`): reads the notes whose revision
+    /// names changed since their shown summary was made and whose files are
+    /// local; the rest of the changed notes are listed with their cached
+    /// summary if there is one, else as placeholders (`placeholderNoteIDs`),
+    /// until their files arrive. `full` also re-reads notes the index does
+    /// not hold (a reload). While the vault is locked only the downloads are
+    /// requested (none when this device has an index of the vault) and the
+    /// progress updated. Passes never overlap (`loadGate`).
     ///
     /// - Returns: how many notes are still downloading.
     @discardableResult
     func loadNotes(full: Bool) async throws -> Int {
-        guard let vault else { throw ModelError.noVaultOpen }
-        let gen = generation
-        await loadGate.acquire()
-        defer { loadGate.release() }
-        try ensureCurrent(gen)
-        try Task.checkCancellation()
-        let hooks = cloudHooks
-        let url = vault.url
-        let priority = selectedNoteID
-        let window = cloudWindow
-        // Only notes listed before the scan can be gone (see `listLocalNotes`).
-        let before = Set(notes.map(\.id))
-        let pass = try await offMain { try ProgressiveLoad.pass(vault: url, priority: priority, window: window, hooks: hooks) }
-        try ensureCurrent(gen)
-        // A replaced (or paused) sync loop's pass is stale: never publish it over a newer one.
-        try Task.checkCancellation()
-        #if DEBUG
-        NSLog("SempereProbe pass all=%d ready=%d pending=%d unlisted=%d files=%d local=%d failures=%d", pass.all.count,
-              pass.ready.count, pass.pending.count, pass.unlisted.count, pass.files, pass.localFiles, pass.failures.count)
-        #endif
-        var status = CloudSyncStatus(pass: pass)
-        status.problem = cloudSync?.problem
-        if let failure = pass.failures.first?.value { status.problem = "iCloud Drive: \(failure)" }
-        cloudSync = status
-        // Locked, or migrate-only (a legacy vault's notes are never read): the
-        // downloads are requested and the progress shown, nothing is read.
-        guard vault.canRead, phase == .unlocked else {
-            pendingNoteIDs = Set(pass.pending)
-            return pass.pending.count
-        }
-        let present = Set(pass.all)
-        notes.removeAll { before.contains($0.id) && !present.contains($0.id) }   // deleted remotely
-        // Pending notes: the cached summary if any (marked downloading), else a placeholder.
-        var placeholders = placeholderNoteIDs.intersection(present)
-        let shown = Set(notes.map(\.id))
-        let cached = Dictionary((summaryCache?.storedSummaries ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        var added: [NoteSummary] = []
-        for id in pass.pending where !shown.contains(id) {
-            if let c = cached[id] { added.append(c) } else {
-                added.append(NoteSummary(id: id, title: "", tags: [], notebook: nil, deleted: false, pages: 0, strokes: 0,
-                                         modified: nil, problem: nil))
-                placeholders.insert(id)
-            }
-        }
-        merge(added)
-        // A placeholder stays "pending" until its summary is in, so a note is
-        // never "not pending" while still a placeholder.
-        let stillPending = Set(pass.pending)
-        placeholderNoteIDs = placeholders
-        pendingNoteIDs = stillPending.union(placeholders)
-        let have = Set(notes.map(\.id)).subtracting(placeholders)
-        let wasPending = loadedPendingIDs
-        let toRead = full ? pass.ready : pass.ready.filter { !have.contains($0) || wasPending.contains($0) }
-        try await readSummaries(toRead) { [weak self] batch in
-            guard let self else { return }
-            for s in batch where !stillPending.contains(s.id) {
-                self.placeholderNoteIDs.remove(s.id)
-                self.pendingNoteIDs.remove(s.id)
-            }
-        }
-        try ensureCurrent(gen)
-        try Task.checkCancellation()
-        placeholderNoteIDs.subtract(pass.ready)
-        pendingNoteIDs = stillPending
-        loadedPendingIDs = stillPending
-        summaryCache?.retain(only: present.union(notes.map(\.id)))
-        saveSummaryCache()
-        listLoaded = true
-        loadFailure = nil
-        if let id = selectedNoteID, !notes.contains(where: { $0.id == id }) { selectedNoteID = nil }
-        return pass.pending.count
+        try await reconcile(full: full)
     }
 
-    /// Keeps the open iCloud vault in step: passes (`loadNotes`) every
-    /// `cloudPollInterval` while notes are downloading or the note set is
-    /// still changing (iCloud lists folder contents gradually, so one pass
-    /// can miss notes), then every `cloudIdleInterval`, doubling while
-    /// nothing changes up to `cloudMaxIdleInterval` (`idleInterval`), for as
-    /// long as the vault is open, so revisions other devices write arrive
-    /// without a pull to refresh. Paused while the app is in the background
+    /// Keeps the open iCloud vault in step, change-driven: a pass
+    /// (`reconcile`) lists the note folders by name and reads only notes
+    /// whose names changed. While notes are downloading, the loop re-checks
+    /// just those every `cloudPollInterval` (with a full listing every
+    /// `cloudIdleInterval`); once settled it lists everything every
+    /// `cloudIdleInterval`, doubling while nothing changes up to
+    /// `cloudMaxIdleInterval` (`idleInterval`), for as long as the vault is
+    /// open, so revisions other devices write arrive without a pull to
+    /// refresh. A change the file presenter reports (`noteFoldersChanged`)
+    /// wakes it early for those notes only. Once settled, and then every
+    /// `cloudValidationInterval`, a low-priority full validation runs
+    /// (`validateVault`). Paused while the app is in the background
     /// (`pauseCloudSync`). Nothing arriving for `cloudStallTimeout` sets
     /// `cloudSync.problem` (shown in the list) and slows to the idle pace;
     /// the problem clears when files arrive again. Starts when the vault
     /// opens (still locked: downloads are requested before the key is
-    /// entered) and is restarted by unlocking, reloading and the app becoming
-    /// active. Replaces a loop already running.
+    /// entered when this device has no index of the vault) and is restarted
+    /// by unlocking, reloading and the app becoming active. Replaces a loop
+    /// already running.
     func startCloudSync() {
         guard isCloudVault else { return }
         cloudSyncTask?.cancel()
+        syncWakeup.reset()
+        startWatchingNotes()
         let gen = generation
         cloudSyncTask = Task { [weak self] in
             var quiet = 0
@@ -209,11 +146,14 @@ extension AppModel {
             var lastKnown = -1
             let clock = ContinuousClock()
             var lastChange = clock.now
+            var lastFullPass: ContinuousClock.Instant?
+            var scope: Set<UUID>?
             while !Task.isCancelled {
                 guard let self, self.generation == gen else { return }
                 var interval = self.cloudPollInterval
                 do {
-                    let pending = try await self.loadNotes(full: false)
+                    let pending = try await self.reconcile(scope: scope)
+                    if scope == nil { lastFullPass = clock.now }
                     let known = self.cloudSync?.notes ?? 0
                     let local = self.cloudSync?.localFiles ?? 0
                     if local != lastLocal || known != lastKnown {
@@ -230,12 +170,13 @@ extension AppModel {
                         interval = Self.idleInterval(base: self.cloudIdleInterval, max: self.cloudMaxIdleInterval,
                                                      idlePasses: idlePasses)
                         idlePasses += 1
+                        self.validateIfDue()
                     } else {
                         idlePasses = 0
                     }
                     if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
                         self.cloudSync?.problem = "iCloud Drive has not delivered \(pending) note\(pending == 1 ? "" : "s") for "
-                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this iPad is online and "
+                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this device is online and "
                             + "signed in to iCloud Drive. Sempere keeps trying."
                         interval = self.cloudIdleInterval
                     }
@@ -245,8 +186,69 @@ extension AppModel {
                     self.cloudSync?.problem = "\(error)"
                     interval = self.cloudIdleInterval
                 }
-                do { try await Task.sleep(for: interval) } catch { return }
+                // At least one poll interval between passes, however many changes are reported.
+                let poll = min(interval, self.cloudPollInterval)
+                do {
+                    try await Task.sleep(for: poll)
+                    try await self.syncWakeup.sleep(for: interval - poll)
+                } catch { return }
+                scope = self.nextSyncScope(lastFullPass: lastFullPass)
             }
+        }
+    }
+
+    /// The notes the loop's next pass looks at: nil (every folder) when a
+    /// change could not be placed or a full listing is due, else the notes
+    /// reported changed plus those still downloading.
+    func nextSyncScope(lastFullPass: ContinuousClock.Instant?) -> Set<UUID>? {
+        defer {
+            dirtyNoteIDs = []
+            dirtyAll = false
+        }
+        guard !dirtyAll, let last = lastFullPass, ContinuousClock.now - last < cloudIdleInterval else { return nil }
+        let scope = dirtyNoteIDs.union(pendingNoteIDs)
+        return scope.isEmpty ? nil : scope
+    }
+
+    /// A change below `notes/` was reported (`NotesFolderPresenter`): the
+    /// loop looks at those notes now (nil: at every note).
+    func noteFoldersChanged(_ ids: Set<UUID>?) {
+        Perf.event(.changeNotified, ids.map { "notes=\($0.count)" } ?? "folder")
+        if let ids { dirtyNoteIDs.formUnion(ids) } else { dirtyAll = true }
+        syncWakeup.wake()
+    }
+
+    /// Registers the file presenter on the open vault's `notes/` folder.
+    func startWatchingNotes() {
+        guard notesPresenter == nil, let url = vaultURL else { return }
+        let gen = generation
+        let presenter = NotesFolderPresenter(vault: url) { [weak self] ids in
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == gen else { return }
+                self.noteFoldersChanged(ids)
+            }
+        }
+        presenter.start()
+        notesPresenter = presenter
+    }
+
+    func stopWatchingNotes() {
+        notesPresenter?.stop()
+        notesPresenter = nil
+    }
+
+    /// Starts the background validation when it is due and not running.
+    func validateIfDue() {
+        guard validationTask == nil, phase == .unlocked else { return }
+        if let last = lastValidation, ContinuousClock.now - last < cloudValidationInterval { return }
+        let gen = generation
+        validationRun &+= 1
+        let run = validationRun
+        validationTask = Task(priority: .background) { [weak self] in
+            try? await self?.validateVault()
+            // A newer validation (after a pause and resume) is not this one's to clear.
+            guard let self, self.generation == gen, self.validationRun == run else { return }
+            self.validationTask = nil
         }
     }
 
@@ -263,14 +265,15 @@ extension AppModel {
     func pauseCloudSync() {
         cloudSyncTask?.cancel()
         cloudSyncTask = nil
+        validationTask?.cancel()
+        validationTask = nil
+        stopWatchingNotes()
     }
 
     func stopCloudSync() {
-        cloudSyncTask?.cancel()
-        cloudSyncTask = nil
+        pauseCloudSync()
         pendingNoteIDs = []
         placeholderNoteIDs = []
-        loadedPendingIDs = []
         cloudSync = nil
     }
 
@@ -331,7 +334,6 @@ extension AppModel {
         try await refresh([id])
         pendingNoteIDs.remove(id)
         placeholderNoteIDs.remove(id)
-        loadedPendingIDs.remove(id)
     }
 
     private func showNoteDownload(_ id: UUID, _ progress: CloudProgress) {

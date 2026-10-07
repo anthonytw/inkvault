@@ -9,11 +9,27 @@ public struct WebDAVSyncOptions: Sendable {
     public var deviceLabel = "device"
     /// The clock for conflict file names and compaction checks.
     public var now = Date()
-    /// Remote files larger than this are reported and skipped.
+    /// Remote revisions and other files larger than this are reported and skipped.
     public var maxFileBytes = 256 << 20
+    /// The limit for attachment blobs (`notes/<id>/att/`), which are
+    /// streamed to and from disk: a blob file over it is neither uploaded nor
+    /// downloaded, and is reported. The default fits the largest blob the
+    /// format allows (1 GiB of content, format.md §8.4) with its padding and
+    /// encryption overhead.
+    public var maxBlobBytes = WebDAVSyncOptions.defaultMaxBlobBytes
 
-    public init(dryRun: Bool = false, deviceLabel: String = "device", now: Date = Date(), maxFileBytes: Int = 256 << 20) {
+    /// Blob downloads are made of `Range` requests of this size, so memory
+    /// stays bounded by one of them however fast the server is.
+    public var blobSegmentBytes = WebDAVClient.defaultSegmentBytes
+
+    /// 1 GiB + 64 MiB.
+    public static let defaultMaxBlobBytes = (1 << 30) + (64 << 20)
+
+    public init(dryRun: Bool = false, deviceLabel: String = "device", now: Date = Date(), maxFileBytes: Int = 256 << 20,
+                maxBlobBytes: Int = WebDAVSyncOptions.defaultMaxBlobBytes,
+                blobSegmentBytes: Int = WebDAVClient.defaultSegmentBytes) {
         self.dryRun = dryRun; self.deviceLabel = deviceLabel; self.now = now; self.maxFileBytes = maxFileBytes
+        self.maxBlobBytes = maxBlobBytes; self.blobSegmentBytes = blobSegmentBytes
     }
 }
 
@@ -22,6 +38,11 @@ public struct WebDAVSyncOptions: Sendable {
 ///
 /// - Revision files under `notes/` are write-once: a file missing on one side
 ///   is copied there, an existing one is never overwritten on either side.
+/// - Each note's attachment blobs (`notes/<id>/att/`) follow the same table,
+///   streamed through temporary files on both sides (bounded memory, their
+///   own size limit), and a blob is deleted only under the collection rules
+///   (format.md §8.1.6) on the side it is deleted from. An interrupted blob
+///   download continues where it stopped.
 /// - `vault.json` and `rewrap-journal.json` are compared against the state of
 ///   the last sync; when both sides changed, both copies are kept and the
 ///   conflict is reported.
@@ -36,14 +57,19 @@ public final class WebDAVSync {
     static let journalName = "rewrap-journal.json"
     static let ageMagic = Data("age-encryption.org/v1\n".utf8)
 
-    private let root: URL
-    private let vault: Vault?
-    private let client: WebDAVClient
-    private let stateURL: URL
-    private let options: WebDAVSyncOptions
-    private var state = SyncState()
-    private var report: SyncReport
+    let root: URL
+    let vault: Vault?
+    let client: WebDAVClient
+    let stateURL: URL
+    let options: WebDAVSyncOptions
+    var state = SyncState()
+    var report: SyncReport
     private var madeCollections = Set<[String]>()
+    /// What the server holds after this run, per note (revision file names):
+    /// the listing a server-side `sempere-index.json` must show.
+    private var remoteRevisions: [String: [String]] = [:]
+    /// True when the server holds a `rewrap-journal.json` (format.md §8.1.6 rule 2).
+    var remoteJournal = false
 
     /// - Parameters:
     ///   - directory: the local vault; it may be missing or empty for a first pull.
@@ -80,6 +106,8 @@ public final class WebDAVSync {
         let rootEntries = try client.list([]) ?? []
         let remoteRoot = Dictionary(rootEntries.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         try checkSameVault(remoteRoot)
+        remoteJournal = remoteRoot[Self.journalName] != nil
+        removeLeftoverRemoteTemps()
 
         for name in [Self.manifestName, Self.journalName] {
             do { try syncMutable(name, remote: remoteRoot[name].flatMap { $0.isCollection ? nil : $0 }) } catch {
@@ -89,9 +117,19 @@ public final class WebDAVSync {
 
         let remoteNotes = try listRemoteNotes(rootEntries)
         let localNotes = try localNoteIDs()
+        for (id, entries) in remoteNotes {
+            remoteRevisions[id] = entries.compactMap { e in
+                RevisionName(e.name).flatMap { !e.isCollection && $0.filename == e.name ? e.name : nil }
+            }
+        }
         for id in Set(remoteNotes.keys).union(localNotes).sorted() {
             do { try syncNote(id, remoteEntries: remoteNotes[id]) } catch {
                 report.errors.append(.init(path: "notes/\(id)", message: Self.describe(error)))
+            }
+        }
+        if !options.dryRun, let entry = remoteRoot[WebIndex.fileName], !entry.isCollection {
+            do { try refreshRemoteWebIndex() } catch {
+                report.errors.append(.init(path: WebIndex.fileName, message: Self.describe(error)))
             }
         }
         if !options.dryRun {
@@ -268,7 +306,9 @@ public final class WebDAVSync {
         let dir = root.appendingPathComponent("notes").appendingPathComponent(id)
         var size: [RevisionName: Int] = [:]
         var R = Set<RevisionName>()
+        var remoteAtt: RemoteEntry?
         for e in remoteEntries ?? [] {
+            if e.name == Self.attName && e.isCollection { remoteAtt = e; continue }
             guard !e.isCollection, let n = RevisionName(e.name), n.filename == e.name else {
                 report.ignored.append(SyncReport.printable("notes/\(id)/\(e.name)"))
                 continue
@@ -277,6 +317,11 @@ public final class WebDAVSync {
             if let s = e.size { size[n] = s }
         }
         let remoteListed = R
+        // Whatever happens below, the server ends up holding R.
+        defer { remoteRevisions[id] = R.isEmpty ? nil : R.map(\.filename).sorted() }
+        // Blobs go first, so a revision never arrives on either side before
+        // the blobs it references (format.md §8.1.4 step 4).
+        var blobs = try syncBlobTransfers(id, remoteAtt: remoteAtt)
         var L = Set<RevisionName>()
         for f in try LocalFS.entries(dir) {
             if let n = RevisionName(f), n.filename == f { L.insert(n) }
@@ -370,6 +415,9 @@ public final class WebDAVSync {
             }
         }
 
+        // Blob deletions are judged against the revisions both sides hold now.
+        syncBlobDeletions(id, &blobs, remoteRevisions: R)
+
         guard !options.dryRun else { return }
         // Remember what both sides now share; drop what neither has.
         var coverage: [RevisionName: Included] = [:]
@@ -381,6 +429,18 @@ public final class WebDAVSync {
             state.files[k] = SyncState.FileRecord(included: coverage[n] ?? state.files[k]?.included)
         }
         for n in S where !L.contains(n) && !R.contains(n) { state.files[key(id, n)] = nil }
+    }
+
+    /// Rewrites the server's `sempere-index.json` (kept only where one
+    /// exists; `sempere vault index` creates it) to list what the server
+    /// holds now, so a viewer reading the share as static files is never
+    /// silently stale. Unchanged contents are not rewritten.
+    private func refreshRemoteWebIndex() throws {
+        let data = try WebIndex.encode(remoteRevisions)
+        let current = try? client.get([WebIndex.fileName], maxBytes: WebIndex.maxBytes).data
+        guard current != data else { return }
+        guard try client.put([WebIndex.fileName], data, condition: .unconditional) else { return }
+        report.uploaded.append(WebIndex.fileName)
     }
 
     private func upload(_ id: String, _ n: RevisionName) throws {
@@ -410,7 +470,7 @@ public final class WebDAVSync {
         return true
     }
 
-    private func ensureCollection(_ path: [String]) throws {
+    func ensureCollection(_ path: [String]) throws {
         guard !madeCollections.contains(path) else { return }
         switch try client.mkcol(path) {
         case .created, .exists: break

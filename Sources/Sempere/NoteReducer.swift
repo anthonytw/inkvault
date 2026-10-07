@@ -48,7 +48,8 @@ public enum NoteReducer {
     ///
     /// The result is identical for any permutation of `revisions`. It carries
     /// what a snapshot needs: all `clocks`, `orderClock` and `origin` on every
-    /// page, `origin` on every stroke, and `tombstones` (nil when empty).
+    /// page, `origin` on every stroke, `origin` and `clocks` on every item and
+    /// recording, and `tombstones` (nil when empty).
     public static func reconstruct(_ revisions: [Revision]) throws -> NoteState {
         try resolve(canonical(revisions)).state
     }
@@ -123,20 +124,26 @@ public enum NoteReducer {
         // Removals: every snapshot's tombstones plus removes in uncovered deltas.
         var removedPages = Set<UUID>()
         var removedStrokes = Set<UUID>()
+        var removedItems = Set<UUID>()
+        var removedRecordings = Set<UUID>()
         for s in snapshots {
             removedPages.formUnion(s.state.tombstones?.pages ?? [])
             removedStrokes.formUnion(s.state.tombstones?.strokes ?? [])
+            removedItems.formUnion(s.state.tombstones?.items ?? [])
+            removedRecordings.formUnion(s.state.tombstones?.recordings ?? [])
         }
         for d in uncovered {
             for case .removeStroke(_, let id) in d.ops { removedStrokes.insert(id) }
         }
-        // Page tombstones are permanent (§5.4), so every removePage counts.
-        // So are removed tag instances (§5.4.1).
+        // Page, item and recording tombstones are permanent (§5.4), so every
+        // remove of one counts. So are removed tag instances (§5.4.1).
         var tagRemovals = Set<TagSet.Removal>()
         for d in deltas {
             for op in d.ops {
                 switch op {
                 case .removePage(let id): removedPages.insert(id)
+                case .removeItem(_, let id): removedItems.insert(id)
+                case .removeRecording(let id): removedRecordings.insert(id)
                 case .removeTag(let tag, let observed):
                     let key = NoteOps.tagKey(tag)
                     for o in observed { tagRemovals.insert(TagSet.Removal(key: key, origin: o)) }
@@ -146,13 +153,28 @@ public enum NoteReducer {
         }
 
         // Orphans (§5.3): a delta whose page-targeting op names a page nobody
-        // has seen is applied but not listed in `included`, so it is applied
-        // again once the page arrives. A removed page is known (its tombstone
-        // is permanent), so ops on it are covered no-ops, never orphans.
+        // has seen, or whose `setItem` / `setRecording` names an item or
+        // recording nobody has seen, is applied but not listed in `included`,
+        // so it is applied again once the page, item or recording arrives. A
+        // removed one is known (its tombstone is permanent), so ops on it are
+        // covered no-ops, never orphans.
         var knownPages = removedPages
-        for s in snapshots { knownPages.formUnion(s.state.pages.map(\.id)) }
+        var knownItems = removedItems
+        var knownRecordings = removedRecordings
+        for s in snapshots {
+            knownPages.formUnion(s.state.pages.map(\.id))
+            for p in s.state.pages { knownItems.formUnion(p.items.map(\.id)) }
+            knownRecordings.formUnion(s.state.recordings.map(\.id))
+        }
         for d in deltas {
-            for case .addPage(let p) in d.ops { knownPages.insert(p.id) }
+            for op in d.ops {
+                switch op {
+                case .addPage(let p): knownPages.insert(p.id)
+                case .addItem(_, let item): knownItems.insert(item.id)
+                case .addRecording(let r): knownRecordings.insert(r.id)
+                default: break
+                }
+            }
         }
         func isOrphan(_ d: Revision) -> Bool {
             d.ops.contains { op in
@@ -161,6 +183,13 @@ public enum NoteReducer {
                 case .setPageOrder(let page, _): return !knownPages.contains(page)
                 case .setPageRecognition(let page, _): return !knownPages.contains(page)
                 case .setPagePaper(let page, _): return !knownPages.contains(page)
+                case .addItem(let page, _): return !knownPages.contains(page)
+                // On a removed page, a no-op whatever the item: removing a page
+                // tombstones the page, not its items, so after compaction the
+                // item's id may be known nowhere.
+                case .setItem(let page, let id, _):
+                    return !knownPages.contains(page) || (!removedPages.contains(page) && !knownItems.contains(id))
+                case .setRecording(let id, _): return !knownRecordings.contains(id)
                 default: return false
                 }
             }
@@ -182,6 +211,14 @@ public enum NoteReducer {
         var strokes: [UUID: Evidence<Stroke>] = [:]
         var snapPageIds: [RevisionName: Set<UUID>] = [:]
         var snapStrokeIds: [RevisionName: Set<UUID>] = [:]
+        // Items and recordings: set evidence like strokes, plus one LWW
+        // register per (id, field) (§8.2.2, §8.3.1).
+        var items: [UUID: Evidence<Item>] = [:]
+        var recordings: [UUID: Evidence<Recording>] = [:]
+        var itemRegisters: [UUID: [String: Register<ItemChange>]] = [:]
+        var recordingRegisters: [UUID: [String: Register<RecordingChange>]] = [:]
+        var snapItemIds: [RevisionName: Set<UUID>] = [:]
+        var snapRecordingIds: [RevisionName: Set<UUID>] = [:]
 
         func offerOrder(_ id: UUID, _ value: String, _ k: OpKey) {
             order[id, default: Register(value: value, key: k)].offer(value, k)
@@ -199,6 +236,22 @@ public enum NoteReducer {
         func offerStroke(_ e: Evidence<Stroke>) {
             if let cur = strokes[e.item.id], !e.beats(cur) { return }
             strokes[e.item.id] = e
+        }
+        func offerItemRegister(_ id: UUID, _ change: ItemChange, _ k: OpKey) {
+            itemRegisters[id, default: [:]][change.field, default: Register(value: change, key: .unset)].offer(change, k)
+        }
+        func offerRecordingRegister(_ id: UUID, _ change: RecordingChange, _ k: OpKey) {
+            recordingRegisters[id, default: [:]][change.field, default: Register(value: change, key: .unset)]
+                .offer(change, k)
+        }
+        /// `stamp` is the source's for every register without a recorded clock.
+        func offerItem(_ e: Evidence<Item>, registers k: (String) -> OpKey) {
+            if items[e.item.id].map({ e.beats($0) }) ?? true { items[e.item.id] = e }
+            for (field, change) in e.item.registers { offerItemRegister(e.item.id, change, k(field)) }
+        }
+        func offerRecording(_ e: Evidence<Recording>, registers k: (String) -> OpKey) {
+            if recordings[e.item.id].map({ e.beats($0) }) ?? true { recordings[e.item.id] = e }
+            for (field, change) in e.item.registers { offerRecordingRegister(e.item.id, change, k(field)) }
         }
 
         var tags = TagMerge()
@@ -218,7 +271,7 @@ public enum NoteReducer {
             let m = s.state.meta
             created = min(created ?? m.created, m.created)
 
-            var pageIds = Set<UUID>(), strokeIds = Set<UUID>()
+            var pageIds = Set<UUID>(), strokeIds = Set<UUID>(), itemIds = Set<UUID>()
             for (pos, p) in s.state.pages.enumerated() {
                 pageIds.insert(p.id)
                 // Without a recorded origin, the holding snapshot is the origin (§5.5).
@@ -239,9 +292,27 @@ public enum NoteReducer {
                     let so = st.origin.flatMap(Origin.init) ?? Origin(s.name, op: j)
                     offerStroke(Evidence(origin: so, src: s.name, item: st, page: p.id))
                 }
+                for (j, it) in p.items.enumerated() {
+                    itemIds.insert(it.id)
+                    let io = it.origin.flatMap(Origin.init) ?? Origin(s.name, op: j)
+                    // A register without a clock is stamped by the snapshot (§8.2.1).
+                    offerItem(Evidence(origin: io, src: s.name, item: it, page: p.id)) { field in
+                        .base(it.clocks?[field].flatMap(Stamp.init) ?? stamp, s.name)
+                    }
+                }
+            }
+            var recordingIds = Set<UUID>()
+            for (j, r) in s.state.recordings.enumerated() {
+                recordingIds.insert(r.id)
+                let ro = r.origin.flatMap(Origin.init) ?? Origin(s.name, op: j)
+                offerRecording(Evidence(origin: ro, src: s.name, item: r, page: nil)) { field in
+                    .base(r.clocks?[field].flatMap(Stamp.init) ?? stamp, s.name)
+                }
             }
             snapPageIds[s.name] = pageIds
             snapStrokeIds[s.name] = strokeIds
+            snapItemIds[s.name] = itemIds
+            snapRecordingIds[s.name] = recordingIds
         }
 
         for d in uncovered {
@@ -264,10 +335,16 @@ public enum NoteReducer {
                 case .addTag(let tag): tags.add(tag, Origin(d.name, op: i))
                 case .deleteNote: offer(.deleted(true), k)
                 case .restoreNote: offer(.deleted(false), k)
-                case .removeStroke, .removePage, .removeTag: break
-                // A1: items and recordings are decoded but not merged yet;
-                // `SnapshotBuilder` refuses revisions that hold them.
-                case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: break
+                case .addItem(let page, let item):
+                    // §8.2.2: the add sets every register at its own stamp.
+                    offerItem(Evidence(origin: Origin(d.name, op: i), src: d.name, item: item, page: page)) { _ in k }
+                case .setItem(_, let id, let change):
+                    offerItemRegister(id, change, k)
+                case .addRecording(let recording):
+                    offerRecording(Evidence(origin: Origin(d.name, op: i), src: d.name, item: recording, page: nil)) { _ in k }
+                case .setRecording(let id, let change):
+                    offerRecordingRegister(id, change, k)
+                case .removeStroke, .removePage, .removeTag, .removeItem, .removeRecording: break
                 }
             }
         }
@@ -291,6 +368,37 @@ public enum NoteReducer {
             byPage[page, default: []].append(e)
         }
 
+        var itemsByPage: [UUID: [Item]] = [:]
+        for e in items.values {
+            guard let page = e.page, livePages.contains(page), !removedItems.contains(e.item.id),
+                  !removedByCoverage(e.origin, e.item.id, snapItemIds) else { continue }
+            var item = e.item
+            item.origin = emitted(e.origin)
+            var clocks: [String: String] = [:]
+            for (field, reg) in itemRegisters[item.id] ?? [:] {
+                item.apply(reg.value)
+                clocks[field] = reg.key.stamp.description
+            }
+            item.clocks = clocks
+            itemsByPage[page, default: []].append(item)
+        }
+
+        var outRecordings: [Recording] = []
+        for e in recordings.values {
+            guard !removedRecordings.contains(e.item.id),
+                  !removedByCoverage(e.origin, e.item.id, snapRecordingIds) else { continue }
+            var recording = e.item
+            recording.origin = emitted(e.origin)
+            var clocks: [String: String] = [:]
+            for (field, reg) in recordingRegisters[recording.id] ?? [:] {
+                recording.apply(reg.value)
+                clocks[field] = reg.key.stamp.description
+            }
+            recording.clocks = clocks
+            outRecordings.append(recording)
+        }
+        outRecordings.sort(by: Recording.sortsBefore)
+
         var outPages: [Page] = []
         for id in livePages {
             guard let e = pages[id], let reg = order[id] else { continue }
@@ -305,7 +413,8 @@ public enum NoteReducer {
                                  orderClock: reg.key.stamp.description, origin: emitted(e.origin),
                                  recognition: rec?.value, recognitionClock: rec?.key.stamp.description,
                                  parent: e.item.parent,
-                                 paper: pp?.value, paperClock: pp?.key.stamp.description))
+                                 paper: pp?.value, paperClock: pp?.key.stamp.description,
+                                 items: (itemsByPage[id] ?? []).sorted(by: Item.drawsBefore)))
         }
         // Byte-wise (code point) order, not Swift's normalising String `<`.
         outPages.sort { l, r in
@@ -336,10 +445,11 @@ public enum NoteReducer {
         let keptStrokes = removedStrokes.filter { id in
             !(addOrigins[id] ?? []).contains { included.covers(device: $0.device, seq: $0.seq) }
         }
-        let tomb = Tombstones(strokes: sortedIds(keptStrokes), pages: sortedIds(removedPages))
+        let tomb = Tombstones(strokes: sortedIds(keptStrokes), pages: sortedIds(removedPages),
+                              items: sortedIds(removedItems), recordings: sortedIds(removedRecordings))
 
         var state = NoteState(meta: defaults.meta, pages: outPages,
-                              tombstones: tomb.isEmpty ? nil : tomb)
+                              tombstones: tomb.isEmpty ? nil : tomb, recordings: outRecordings)
         state.meta.created = created ?? defaults.meta.created
         var clocks: [String: String] = [:]
         for (k, reg) in registers where k != .tags {
@@ -502,9 +612,6 @@ public enum SnapshotBuilder {
     public static func makeSnapshot(from revisions: [Revision], device: DeviceID, seq: Int,
                                     clock: inout HybridClock, wall: Date, app: String) throws -> Revision {
         let revs = try NoteReducer.canonical(revisions)
-        // A1: until the merge keeps attachments, a snapshot would cover their
-        // ops (or replace a snapshot holding them) without them, losing them.
-        if let r = revs.first(where: \.holdsAttachments) { throw NoteLogError.attachmentsNotMerged(r.name) }
         let res = NoteReducer.resolve(revs)
         for r in revs { clock.observe(r.hlc, wall: wall) }
         var included = res.included

@@ -20,7 +20,7 @@ enum CloudVault {
             case let .timedOut(progress, seconds):
                 return "iCloud Drive did not deliver the vault's files: \(progress.total - progress.downloaded) of "
                     + "\(progress.total) are still not downloaded after \(seconds) seconds without progress. "
-                    + "Check that this iPad is online and signed in to iCloud Drive, then try again."
+                    + "Check that this device is online and signed in to iCloud Drive, then try again."
             case let .failed(name, reason):
                 return "iCloud Drive could not download “\(name)”: \(reason)"
             case let .noteNotLocal(missing, total) where total == 0:
@@ -165,9 +165,14 @@ enum CloudVault {
         guard let url else { return try body() }
         var result: Result<T, any Error>?
         var error: NSError?
+        let wait = Perf.begin(.reconcileCoordinate)
+        var granted = false
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges], error: &error) { _ in
+            Perf.end(wait, "read")
+            granted = true
             result = Result { try body() }
         }
+        if !granted { Perf.end(wait, "read refused") }
         return try finish(result, error, url)
     }
 
@@ -177,9 +182,14 @@ enum CloudVault {
         guard let url else { return try body() }
         var result: Result<T, any Error>?
         var error: NSError?
+        let wait = Perf.begin(.reconcileCoordinate)
+        var granted = false
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: [], error: &error) { _ in
+            Perf.end(wait, "write")
+            granted = true
             result = Result { try body() }
         }
+        if !granted { Perf.end(wait, "write refused") }
         return try finish(result, error, url)
     }
 

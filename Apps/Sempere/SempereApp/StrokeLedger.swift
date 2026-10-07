@@ -101,6 +101,16 @@ struct StrokeLedger {
         written = Set(stored.map(\.id))
     }
 
+    /// A ledger for a page loaded from disk whose canvas strokes were
+    /// prepared elsewhere (`DrawingPreparation`): `infos[i]` fingerprints the
+    /// canvas stroke shown for `stored[i]`. Nil when the counts differ.
+    init?(stored: [Stroke], infos: [CanvasStrokeInfo]) {
+        guard stored.count == infos.count else { return nil }
+        entries = zip(infos, stored).map { Entry(info: $0, strokes: [$1]) }
+        committed = stored
+        written = Set(stored.map(\.id))
+    }
+
     /// Live strokes, in canvas order.
     var live: [Stroke] { entries.flatMap(\.strokes) }
 
@@ -108,6 +118,17 @@ struct StrokeLedger {
     /// per stored stroke), keeping ids, history and what is committed.
     mutating func rebase(info: (Stroke) -> CanvasStrokeInfo) {
         entries = live.map { Entry(info: info($0), strokes: [$0]) }
+    }
+
+    /// `rebase(info:)` with fingerprints prepared elsewhere: `infos[i]` is
+    /// the canvas stroke shown for `live[i]`. False (and nothing changes)
+    /// when the counts differ.
+    @discardableResult
+    mutating func rebase(infos: [CanvasStrokeInfo]) -> Bool {
+        let live = self.live
+        guard live.count == infos.count else { return false }
+        entries = zip(infos, live).map { Entry(info: $0, strokes: [$1]) }
+        return true
     }
 
     /// Matches the canvas's strokes against the table and assigns ids.

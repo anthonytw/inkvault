@@ -207,9 +207,24 @@ public struct Recognition: Hashable, Sendable, Codable {
     public var text: String
     /// Words of `text` with their boxes; may be empty.
     public var words: [Word]
+    /// Which strokes this was recognised from: `RecognitionBasis.digest` of the
+    /// page's live stroke ids. Nil for recognition that does not say (an import).
+    public var basis: String?
 
-    public init(engine: String, text: String, words: [Word] = []) {
-        self.engine = engine; self.text = text; self.words = words
+    public init(engine: String, text: String, words: [Word] = [], basis: String? = nil) {
+        self.engine = engine; self.text = text; self.words = words; self.basis = basis
+    }
+
+    enum CodingKeys: String, CodingKey { case engine, text, words, basis }
+
+    /// Readers ignore a `basis` they do not understand (format.md §5.5): one
+    /// that is not a string reads as nil instead of making the revision unreadable.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        engine = try c.decode(String.self, forKey: .engine)
+        text = try c.decode(String.self, forKey: .text)
+        words = try c.decode([Word].self, forKey: .words)
+        basis = try? c.decodeIfPresent(String.self, forKey: .basis)
     }
 }
 
@@ -803,8 +818,8 @@ public enum Op: Hashable, Sendable {
     /// LWW on one register of a recording (format.md §8.3.1).
     case setRecording(recordingId: UUID, change: RecordingChange)
 
-    /// True for the attachment ops (format.md §8), which the merge does not
-    /// apply yet (task A1).
+    /// True for the attachment ops (format.md §8): a vault must list the
+    /// `attachments` feature before a revision holding one is written.
     public var isAttachmentOp: Bool {
         switch self {
         case .addItem, .removeItem, .setItem, .addRecording, .removeRecording, .setRecording: return true

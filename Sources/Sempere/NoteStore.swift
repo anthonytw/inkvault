@@ -80,6 +80,15 @@ extension Vault {
 
     func decodeRevisionFile(_ data: Data, note: String, name: RevisionName, secret: VaultSecret,
                             detail: RevisionDetail = .full) throws -> Revision {
+        let json = try revisionJSON(data, note: note, name: name, secret: secret)
+        return try Self.decodeRevisionJSON(json, note: note, name: name, detail: detail)
+    }
+
+    /// Decrypts a revision file, verifies its tag (format.md §4, also under
+    /// the previous secret during an unfinished rotation) and gunzips it.
+    ///
+    /// - Throws: `RevisionReadError`, one case per failing stage.
+    func revisionJSON(_ data: Data, note: String, name: RevisionName, secret: VaultSecret) throws -> Data {
         let plain: Data
         do { plain = try AgeFile.decrypt(data, with: identities) } catch {
             throw RevisionReadError.undecryptable("\(error)")
@@ -97,13 +106,19 @@ extension Vault {
         } catch {
             throw RevisionReadError.corruptBody("\(error)")
         }
-        let json: Data
-        do { json = try Gzip.decompress(unframed.gzip) } catch {
+        do { return try Gzip.decompress(unframed.gzip) } catch {
             throw RevisionReadError.corruptBody("\(error)")
         }
-        let body = detail == .full ? json : StrokePointsFilter.strip(json)
+    }
+
+    /// Decodes verified revision JSON and checks it names this note and file.
+    static func decodeRevisionJSON(_ json: Data, note: String, name: RevisionName,
+                                   detail: RevisionDetail) throws -> Revision {
         let rev: Revision
-        do { rev = try InkJSON.decoder().decode(Revision.self, from: body) } catch {
+        do {
+            rev = detail == .full ? try FastRevisionDecoder.decode(json)
+                : try InkJSON.decoder().decode(Revision.self, from: StrokePointsFilter.strip(json))
+        } catch {
             throw RevisionReadError.undecodable("\(error)")
         }
         guard rev.noteId.uuidString.lowercased() == note, rev.name == name else {
@@ -134,6 +149,7 @@ extension Vault {
     public func write(_ revision: Revision) throws {
         try requireMigrated()
         let secret = try requireSecret()
+        try requireWritable()
         guard (1...RevisionName.maxSeq).contains(revision.seq) else { throw VaultError.seqOutOfRange(revision.seq) }
         let dir = noteURL(revision.noteId)
         let name = revision.name
@@ -146,6 +162,8 @@ extension Vault {
         let body = try BodyFraming.frame(json: json, noteId: revision.noteId.uuidString.lowercased(),
                                          filename: name.filename, secret: secret)
         let encrypted = try Self.encrypt(body, to: ageRecipients())
+        // Attachment ops need every writer to know blobs (format.md §2).
+        if revision.holdsAttachments { try ensureFeature(VaultManifest.attachmentsFeature) }
         try FileIO.createDirectory(dir)
         try FileIO.writeAtomically(encrypted, to: file, replacing: false)
     }
@@ -279,6 +297,8 @@ extension Vault {
     public func compact(noteId: UUID, loaded: LoadedNote, retention: TimeInterval = CompactionPlanner.defaultRetention,
                         now: Date = Date()) throws -> [RevisionName] {
         try requireMigrated()
+        // Deleting is writing: a vault with an unknown feature is read-only (format.md §2).
+        try requireWritable()
         let doomed = loaded.compactionPlan(retention: retention, now: now)
         let dir = noteURL(noteId)
         for n in doomed { try FileIO.remove(dir.appendingPathComponent(n.filename)) }
