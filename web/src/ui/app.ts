@@ -191,7 +191,8 @@ export class App {
         h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, or the whole key file)" }, key),
         h("div", { class: "row" }, button,
           this.locked ? null : h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
-        h("p", { class: "hint", text: "The key is kept in this tab's memory only: not stored, not sent. Closing the tab or Lock forgets it." }))));
+        h("p", { class: "hint", text: "The key is kept in this tab's memory only: not stored, not sent. Closing the tab or Lock forgets it." })),
+      h("p", { class: "hint" }, clearCacheButton())));
     key.focus();
   }
 
