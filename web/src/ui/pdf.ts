@@ -177,15 +177,18 @@ export class NotePDFs {
 
   /**
    * Renders the part `crop` of the effective page (points, y down) at
-   * `scale` pixels per point onto a new canvas.
+   * `scale` pixels per point onto a new canvas: on white, as viewers show a
+   * page, or on nothing (`transparent`: a math item's render, §8.2.7).
    */
-  async render(page: PDFPageProxy, crop: { x: number; y: number; w: number; h: number }, scale: number): Promise<HTMLCanvasElement> {
+  async render(page: PDFPageProxy, crop: { x: number; y: number; w: number; h: number }, scale: number,
+    transparent = false): Promise<HTMLCanvasElement> {
     const lib = await pdfjs();
     const { viewport, width, height } = cropViewport(page, crop, scale);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const task = page.render({ canvas, viewport, annotationMode: lib.AnnotationMode.DISABLE, background: "#ffffff" });
+    const task = page.render({ canvas, viewport, annotationMode: lib.AnnotationMode.DISABLE,
+      background: transparent ? "rgba(0,0,0,0)" : "#ffffff" });
     const timer = setTimeout(() => task.cancel(), renderTimeout);
     try {
       await task.promise;

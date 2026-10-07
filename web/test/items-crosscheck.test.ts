@@ -99,8 +99,20 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
           const corners = pointsAttr(d.it.corners);
           switch (d.kind) {
             case "placeholder":
-            case "pdf":
               got.placeholders.push(corners);
+              break;
+            case "pdf":
+              // Goldens are made with --pdf-renderer none: a PDF page is a placeholder there, and an
+              // equation's render falls back to its source as text (§8.2.7), drawn like a text box.
+              if (!d.math) {
+                got.placeholders.push(corners);
+                break;
+              }
+              for (const line of d.math.layout.lines) {
+                if (line.text.trim().length === 0) continue;
+                got.lines.push({ y: fmt(line.baseline), size: fmt(line.size), text: line.text, rtl: line.rtl,
+                  x: fmt(lineAnchor(d.math.content.align, line.rtl, d.it.frame).x) });
+              }
               break;
             case "image": {
               try {

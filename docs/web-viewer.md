@@ -320,8 +320,12 @@ are missing: download the vault first.
   time). Summaries are not cached between visits (the `format.md` §10 cache
   is per device and would need storage), and the decrypted notes are kept
   only for the notes opened most recently.
-- **Search** covers titles, tags, notebooks, recognised text, text boxes and
-  PDF page text (`pageText`, format.md §8.2.6), as in the app; words are not
+- **Equations** (`math` items, format.md §8.2.7) are drawn from their stored
+  rendering with pdf.js on a transparent page (no white box over the paper);
+  an equation without a rendering, or whose rendering cannot be drawn, shows
+  its LaTeX source in a monospace font. The viewer has no math typesetter.
+- **Search** covers titles, tags, notebooks, recognised text, text boxes,
+  equations' LaTeX source and PDF page text (`pageText`, format.md §8.2.6), as in the app; words are not
   highlighted on the page yet. A note with `markersBehindText` (§5.4) draws
   its marker strokes below its text boxes and images (§8.2.3), as the CLI's
   exports do.
@@ -363,7 +367,9 @@ Tests (`web/test/`, vitest, Node 22):
   notes with blobs (`test/fixtures/media/`: a synthetic JPEG with EXIF and a
   comment, a PNG with a text chunk, a hand-written two-page PDF with a
   CropBox and `/Rotate`, a one-second tone, a transcript; plus a missing, a
-  forged and a HEIC blob, unknown and reserved kinds). The page outside the
+  forged and a HEIC blob, an unknown kind, and two equations: one with a
+  rendering, which the goldens, made without a PDF renderer, draw as its source
+  text, and one without). The page outside the
   `items` group is compared byte for byte; the group itself structurally,
   since the CLI embeds its own font subsets: background fills, placeholders,
   each image's clip polygon and matrix (blobs read by the viewer's own

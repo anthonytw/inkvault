@@ -25,7 +25,11 @@ export type ItemDraw =
   | { kind: "placeholder"; it: PreparedItem; reason: string }
   | { kind: "text"; it: PreparedItem; content: TextContent; layout: TextLayout }
   | { kind: "image"; it: PreparedItem; ref: BlobRef }
-  | { kind: "pdf"; it: PreparedItem; ref: BlobRef; pageIndex: number; pageSize: { w: number; h: number } };
+  | {
+    kind: "pdf"; it: PreparedItem; ref: BlobRef; pageIndex: number; pageSize: { w: number; h: number };
+    /** A math item's render (§8.2.7): drawn on a transparent page, its source as text when it cannot be. */
+    math?: { content: TextContent; layout: TextLayout };
+  };
 
 export interface ResolvedItem {
   /** A background item's paper fill (§8.2.3), drawn first. */
@@ -67,9 +71,30 @@ function resolveItem(it: PreparedItem, measure: Measure): ItemDraw {
       if (!ref || !pageSize || typeof pageIndex !== "number") return { kind: "placeholder", it, reason: "PDF page without a blob" };
       return { kind: "pdf", it, ref, pageIndex, pageSize };
     }
+    case "math": {
+      // §8.2.7: the stored render as a PDF page without crop, else the source as monospace text.
+      const content = mathSource(item);
+      if (!content) return { kind: "placeholder", it, reason: "math item without math" };
+      const fallback = { content, layout: layoutText(content, it.frame, measure) };
+      const m = item.math as JSONObject;
+      const ref = asBlobRef(m.render);
+      const renderSize = size(m.renderSize);
+      if (ref && renderSize) return { kind: "pdf", it, ref, pageIndex: 0, pageSize: renderSize, math: fallback };
+      return { kind: "text", it, ...fallback };
+    }
     default:
       return { kind: "placeholder", it, reason: `${it.kind} items are not drawn by the viewer` };
   }
+}
+
+/** A math item's source as the text box it is drawn as without its render (Swift `MathItems.sourceView`). */
+export function mathSource(item: JSONObject): TextContent | undefined {
+  const m = item.math as JSONObject | undefined;
+  if (!m || typeof m !== "object" || typeof m.latex !== "string") return undefined;
+  const size = typeof m.size === "number" ? m.size : 12;
+  const color = typeof m.color === "string" ? m.color : "#000000FF";
+  const style = { size, color, bold: false, italic: false, underline: false, strike: false };
+  return { font: "mono", size, color, align: "start", dir: "auto", runs: m.latex.length > 0 ? [{ t: m.latex, style }] : [] };
 }
 
 function spec(e: SVGElementSpec): SVGNode {
