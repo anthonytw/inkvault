@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI: `sempere sync webdav --push-only [--delete-extraneous]`, a one-way mirror for a server that is not
+  trusted to write back. It uploads, overwrites the server's `vault.json` / `rewrap-journal.json` from the local
+  copy, and follows local compaction and blob collection with deletions on the server; it never downloads and
+  never changes the vault (a compromised server cannot feed an attacker's recipient back). Files only the server
+  has and nothing explains are reported as `extraneous` (new in `--json`, with `overwritten`) and removed with
+  `--delete-extraneous`.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed

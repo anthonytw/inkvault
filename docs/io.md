@@ -695,6 +695,31 @@ conflict is reported on every run until the files agree. A PUT rejected with
 412 is a conflict too. `rewrap-journal.json` deleted locally is not deleted
 remotely (deletions come only from compaction) and not restored locally.
 
+**Push-only mirror** (`--push-only`, `WebDAVSyncOptions.pushOnly`). `vault.json`'s
+`recipients` list is plaintext and not authenticated. A two-way sync with a
+compromised server could import an attacker's recipient into the local vault,
+and every device would then encrypt new revisions to it. For a server that is
+only a copy (the web viewer's mirror), the run is therefore one-way, and the
+server can be corrupted but can never feed anything back:
+
+- nothing is downloaded, and nothing in the vault folder is written, restored
+  or deleted (every local write path refuses in this mode; only the sync-state
+  file outside the vault changes);
+- a file the server lacks is uploaded, including one the last sync had;
+- `vault.json` and `rewrap-journal.json` on the server are replaced by the
+  local copy when they differ (reported in `overwritten`); a malformed server
+  manifest is repaired the same way, one of another vault still aborts;
+- a file only the server has is deleted there if it was synced before and the
+  compaction (`CompactionPlanner`) or blob collection (§8.1.6 rules 1–3) rules
+  explain its absence locally, exactly as in the table above;
+- one synced before but not explained (or unjudgeable with the vault locked) is
+  kept and listed as skipped: a local listing can miss files, notably evicted
+  iCloud ones;
+- one never synced and not explained (injected revision or blob, a stray
+  journal, junk names) is `extraneous`: reported, and removed only with
+  `--delete-extraneous`. That flag can still delete a legitimate server file if
+  the local folder is incomplete and the state file is new (first run).
+
 **Limits.** A recipient change rewrites files under `notes/` in place
 (format.md §3.3), which sync never propagates: after one, pull into a fresh
 folder from a new collection (or upload the rewritten vault to a new one) and
