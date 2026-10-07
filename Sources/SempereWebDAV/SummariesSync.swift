@@ -21,7 +21,12 @@ extension WebDAVSync {
         }
         let listing: String
         do {
-            listing = SHA256.hash(data: try WebIndex.encode(remoteRevisions)).map { String(format: "%02x", $0) }.joined()
+            // The sealed vault secret too: a rotation (recipient removed) re-seals the file under a new key
+            // though no revision name changes (format.md §12.1).
+            var hashed = try WebIndex.encode(remoteRevisions)
+            hashed.append(0)
+            hashed.append(Data(vault.manifest.vaultSecret.utf8))
+            listing = SHA256.hash(data: hashed).map { String(format: "%02x", $0) }.joined()
         } catch {
             report.errors.append(.init(path: name, message: Self.describe(error)))
             return

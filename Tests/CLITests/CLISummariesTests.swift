@@ -44,6 +44,15 @@ final class CLISummariesTests: CLITestCase {
         XCTAssertEqual(try cli(["vault", "summaries", "--vault", try copyLegacyVault(), "--identity", Self.fixtureKey]).status, 5)
     }
 
+    /// The decrypted content is never written into the vault by default.
+    func testPlaintextNeedsAnExplicitOut() throws {
+        let vault = try copyFixtureVault()
+        let r = try cli(["vault", "summaries", "--vault", vault, "--identity", Self.fixtureKey, "--plaintext"])
+        XCTAssertEqual(r.status, 2, r.err)
+        XCTAssertTrue(r.err.contains("--plaintext needs --out"), r.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: filePath(vault)))
+    }
+
     /// Once it exists, any command that unlocks the vault keeps it current;
     /// none creates it, and a locked command leaves it alone.
     func testUnlockedCommandsKeepAnExistingFileCurrent() throws {

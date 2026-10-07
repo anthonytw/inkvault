@@ -19,7 +19,7 @@ struct VaultSummaries: ParsableCommand {
             Once it exists it stays current: every sempere command that unlocks the vault rewrites it when a
             note changed, and sync webdav keeps the server's copy current (or creates it with --web-viewer).
             --out - prints the sealed file; --plaintext writes the JSON content instead (for checks; it holds
-            note titles and text in the clear).
+            note titles and text in the clear, so it needs --out).
             """
     )
 
@@ -34,6 +34,8 @@ struct VaultSummaries: ParsableCommand {
     var plaintext = false
 
     func run() throws {
+        // Plaintext only where the user names it, never at the vault's sealed path by default.
+        if plaintext && out == nil { throw CLIError.usage("--plaintext needs --out (a file outside the vault, or -)") }
         let vault = try access.openVault(.required)
         let target = out.map { $0 == "-" ? nil : URL(fileURLWithPath: $0) } ?? vault.publishedSummariesURL
         let reuse = target.map { url -> [UUID: PublishedSummaries.Entry] in
