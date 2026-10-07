@@ -280,8 +280,10 @@ actor BlobCache {
         defer { try? handle.close() }
         var hasher = SHA256()
         while true {
-            guard let chunk = try? handle.read(upToCount: 1 << 20) else { return false }
-            if chunk.isEmpty { break }
+            // `read(upToCount:)` returns nil (not empty data) at the end of the file.
+            let chunk: Data?
+            do { chunk = try handle.read(upToCount: 1 << 20) } catch { return false }
+            guard let chunk, !chunk.isEmpty else { break }
             hasher.update(data: chunk)
             await Task.yield()
         }
