@@ -75,7 +75,7 @@ describe("format.md §8 examples", () => {
   });
 });
 
-describe("math items (§8.2.7)", () => {
+describe("math items (§8.2.8)", () => {
   const base = `"id": "${itemId}", "kind": "math", "frame": [1, 2, 3, 4], "z": "a"`;
   const math = (m: string) => `{ ${base}, "math": { ${m} } }`;
   const ok = `"latex": "x^2", "display": true, "size": 12, "color": "#000000FF"`;

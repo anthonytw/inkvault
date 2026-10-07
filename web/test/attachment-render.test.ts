@@ -139,7 +139,7 @@ describe("placement (§8.5.1)", () => {
     expect(resolved.map((r) => [r.draw.kind, r.fill !== undefined])).toEqual([["placeholder", true], ["placeholder", false]]);
   });
 
-  it("draws an equation's render as a transparent PDF page, else its source as monospace text (§8.2.7)", () => {
+  it("draws an equation's render as a transparent PDF page, else its source as monospace text (§8.2.8)", () => {
     const meta = { pageSize: { width: 300, height: 200, infinite: false }, paper: { kindName: "blank", background: "#FFFFFFFF" } } as unknown as NoteMeta;
     const render = { sha256: "ab".repeat(32), size: 10, type: "application/pdf" };
     const page = { id: "p", order: "a", strokes: [], items: [

@@ -178,7 +178,7 @@ export class NotePDFs {
   /**
    * Renders the part `crop` of the effective page (points, y down) at
    * `scale` pixels per point onto a new canvas: on white, as viewers show a
-   * page, or on nothing (`transparent`: a math item's render, §8.2.7).
+   * page, or on nothing (`transparent`: a math item's render, §8.2.8).
    */
   async render(page: PDFPageProxy, crop: { x: number; y: number; w: number; h: number }, scale: number,
     transparent = false): Promise<HTMLCanvasElement> {

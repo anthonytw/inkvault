@@ -1,3 +1,4 @@
+import PencilKit
 import Sempere
 import UIKit
 
@@ -116,6 +117,8 @@ struct ItemCommands {
     var paste: @MainActor (_ page: UUID, _ actions: ItemActions) async -> [Item] = { _, _ in [] }
     /// Opens the crop sheet for an image or PDF page; nil: no Crop in the menu.
     var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
+    /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
+    var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
     /// Opens the equation sheet for a math item; nil: no Edit Equation in the menu.
     var editMath: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
@@ -135,6 +138,8 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     private let overlay = ItemSelectionView()
     private let tap = UITapGestureRecognizer()
     private let pan = UIPanGestureRecognizer()
+    /// Outside selection mode: a finger tap on a video item plays it, when fingers do not draw.
+    private let videoTap = UITapGestureRecognizer()
     private var menu: UIEditMenuInteraction?
     private var model = ItemSelectionModel()
     private var drag: (ItemSelectionModel.Drag, Item)?
@@ -165,6 +170,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             g.isEnabled = false
             canvas.addGestureRecognizer(g)
         }
+        videoTap.addTarget(self, action: #selector(videoTapped(_:)))
+        videoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        videoTap.cancelsTouchesInView = false
+        videoTap.delegate = self
+        canvas.addGestureRecognizer(videoTap)
         let menu = UIEditMenuInteraction(delegate: self)
         canvas.addInteraction(menu)
         self.menu = menu
@@ -223,6 +233,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     // MARK: Gestures
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if g === videoTap { return videoUnderFingerTap(g) != nil }
         guard g === pan else { return true }
         // Only a drag on an item (or a handle) is ours; any other scrolls.
         guard editor?.canEditItems == true else { return false }
@@ -230,7 +241,21 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        false
+        g === videoTap
+    }
+
+    /// The video under a finger tap in drawing mode: only when Play is wired, selection mode is
+    /// off, and fingers do not draw on this canvas (else the tap is ink).
+    private func videoUnderFingerTap(_ g: UIGestureRecognizer) -> Item? {
+        guard commands.play != nil, !isActive, let canvas = canvas as? PKCanvasView,
+              !ObjectEraserController.fingersDraw(canvas) else { return nil }
+        guard let hit = ItemSelectionModel.hit(pagePoint(g), items: items, zoom: Double(zoom)), hit.kind == .video else { return nil }
+        return hit
+    }
+
+    @objc private func videoTapped(_ g: UITapGestureRecognizer) {
+        guard let item = videoUnderFingerTap(g), let pageID else { return }
+        commands.play?(item, pageID)
     }
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
@@ -306,6 +331,9 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         var elements: [UIMenuElement] = []
         let editable = editor?.canEditItems == true
         if let id = model.selected, let pageID, let editor, let item = editor.item(id, on: pageID) {
+            if item.kind == .video, let play = commands.play {
+                elements.append(UIAction(title: "Play", image: UIImage(systemName: "play.fill")) { _ in play(item, pageID) })
+            }
             elements.append(UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
                 self?.commands.copy([item], editor.noteID)
             })

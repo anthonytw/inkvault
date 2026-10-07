@@ -272,7 +272,6 @@ final class AttachmentModelTests: XCTestCase {
         let item = try assertRoundTrip(source, as: Item.self)
         XCTAssertEqual(item.kind, ItemKind(rawValue: "shape"))
         XCTAssertFalse(item.kind.isDefined)
-        XCTAssertFalse(ItemKind.video.isDefined)
         XCTAssertEqual(item.layer.rawValue, 250)
         XCTAssertNil(item.text)
         XCTAssertNil(item.crop)

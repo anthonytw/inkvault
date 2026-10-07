@@ -198,6 +198,9 @@ enum AttachmentListing {
             let t = (i.text?.string ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
             what = "\"" + (t.count > 40 ? t.prefix(39) + "…" : t) + "\""
         case .pdfPage: what = (i.blob.map(blob) ?? "") + " page \((i.pageIndex ?? 0) + 1)"
+        case .video:
+            what = (i.blob.map(blob) ?? "") + " \(number(i.duration ?? 0)) s"
+                + (i.pixelSize.map { " \(number($0.w))×\(number($0.h))" } ?? "") + (i.poster == nil ? " (no poster)" : " +poster")
         case .math:
             let t = (i.math?.latex ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
             what = "$" + (t.count > 40 ? t.prefix(39) + "…" : t) + "$" + (i.math?.render == nil ? " (not typeset)" : "")

@@ -245,6 +245,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `merge` (an edit's own re-read, immediate), never by assigning `notes`
   wholesale. Tests that need "another device wrote a revision" use
   `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Remote changes reach an open note in place (`AppModel+RemoteMerge`,
+  `NoteEditor.mergeRevisions`, docs/io.md "Changes from other devices while a
+  note is open"): a listing names a revision the editor does not know
+  (`knownRevisionNames`), the note is downloaded, the editor saves, re-reads
+  and applies the result synchronously. Never replace a canvas's drawing for
+  a merge except through `RemoteInkView.reloadInk` in that same main-actor
+  turn, after `StrokeLedger.mergeStored`: a canvas reporting a drawing the
+  ledger does not know is taken as the user's edit (echo deltas). Every write
+  an editor starts bumps `writeEpoch`. Tests: `RemoteMergeTests`.
 - Thinning (`format.md` §5.8.4) is decided from revision metadata first
   (`RevisionMeta`, kept per entry in the `SummaryCache`; `CompactionPlanner.select` /
   `mayDelete` take hollow revisions): never add a rule to `select` that needs ops or
@@ -350,6 +359,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   Interop tests need `age` ≥ 1.3 on PATH (the official release; Ubuntu ships
   1.1); CI sets `SEMPERE_REQUIRE_AGE_PQ` so they fail instead of skipping.
   See `docs/post-quantum.md`.
+- Authenticated recipients (`format.md` §2.1, `Sources/Sempere/RecipientsAuth.swift`):
+  `vault.json` carries `recipientsTag` (HMAC of vault id + keys under an HKDF
+  key of the secret) and, after a rotation, `secretLink`; `Vault.open(…, trust:)`
+  classifies the list (`recipientsStatus`) against the device's trust record
+  (CLI `$XDG_STATE_HOME/sempere/trust/`, app `AppModel.defaultTrustDirectory`,
+  tests `MemoryRecipientsTrustStore`). `requireWritable` refuses a tampered list
+  (`VaultError.untrustedRecipients`, CLI exit 6), tags an untagged vault and
+  saves the record: only writers keep records, reads never write. Anything
+  that encrypts to the recipients outside `requireWritable` (capture
+  profiles) calls `requireTrustedRecipients`. Never copy a `vault.json` from
+  elsewhere without `Vault.incomingManifestProblem`. The committed
+  `Fixtures/sample.sempere` is tagged; copies share its vault id, so an
+  untagged copy reads as a downgrade on a device that wrote to a tagged one.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are
@@ -394,6 +416,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the Catalyst build runs on `main` only (or `gh workflow run CI --ref <branch>`).
   Only the `.commands` line and the entitlements/scene build settings are
   Catalyst-only.
+- The Mac menu bar starts from UIKit's own (New Window ⌘N, Open… ⌘O, Find…
+  ⌘F, document commands). UIKit drops a whole SwiftUI command group if one of
+  its shortcuts is taken (log: "Replacement elements conflict"), so a new
+  `MenuCommand` shortcut must not collide with UIKit's; ⌘O and ⌘F are UIKit's
+  items renamed by `MacMenus` (`MenuCommand.nativeOnMac`). Check menus on a
+  real Catalyst runtime: `scripts/app.sh test-mac` (every app suite, ad-hoc
+  signed and sandboxed) and `test-mac-ui` (`MacWindowUITests`), run by CI on
+  `main` and on dispatch. A test that needs pixels on a Mac puts its view in a
+  window of the host app's scene (a window without one is never drawn there).
 - The object eraser must list `indirectPointer` among its touch types on a Mac
   (`ObjectEraserController.pressTouchTypes`), or the default eraser ignores
   the mouse; PencilKit's own gesture is off while it is active.
@@ -494,7 +525,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `inbox/` too (`Vault.rewrapInbox`; in iCloud `downloadEverything` fetches it first) and the app refreshes the
   profile after it. A note "exists" for adoption once it has a revision (a folder holding only `att/` is still
   new), and a waiting transcript writes nothing.
-- Equations (`math` items, `format.md` §8.2.7, task G1): the whole `math` object is ONE register
+- Video items (`format.md` §8.2.7, task G2): a container is read only by
+  `VideoProbe` (pure Swift, bounded reads, fuzzed); location metadata is
+  removed in place by `ByteEdit`s applied while the file streams into the blob
+  (`Vault.writeVideo`, `writeBlob(contentsOf:type:edits:)`), never by
+  rewriting or loading the file. A clip is never held in memory: blobs stream
+  (`BlobSource.stream`), PDFs with clips are written with `PDFWriter.write(…to:)`,
+  Markdown/HTML copies with `ExportVideos.write`. Renderers and the app's item
+  layer draw a video as its `poster` (an image blob, a register; `ItemRendering`
+  acquires the poster, never the clip) under the play mark; the clip is fetched
+  from iCloud only to play (`AppModel.acquireVideo`, `releaseVideo` after).
+  Posters come from `VideoPoster` (AVFoundation, shared by the app and the CLI
+  on macOS); the Linux CLI stores none without `--poster`.
+- Equations (`math` items, `format.md` §8.2.8, task G1): the whole `math` object is ONE register
   (source, style, size, colour, `render`, `renderSize`, `engine`); a value whose source or style
   changed carries a new render or none (`MathContent.withoutRender`, `typesetsLike`). Build edits
   with `NoteOps.math` / `placeMath` / `setMath` (frame follows the render at the same scale,

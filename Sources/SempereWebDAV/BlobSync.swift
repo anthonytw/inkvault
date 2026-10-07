@@ -44,8 +44,8 @@ extension WebDAVSync {
     }
 
     func blobKey(_ id: String, _ name: String) -> String { "\(id)/\(Self.attName)/\(name)" }
-    private func blobPath(_ id: String, _ name: String) -> String { "notes/\(blobKey(id, name))" }
-    private func attURL(_ id: String) -> URL {
+    func blobPath(_ id: String, _ name: String) -> String { "notes/\(blobKey(id, name))" }
+    func attURL(_ id: String) -> URL {
         root.appendingPathComponent("notes").appendingPathComponent(id).appendingPathComponent(Self.attName)
     }
 
@@ -84,6 +84,7 @@ extension WebDAVSync {
                         if e.name.hasPrefix(LocalFS.tempPrefix) { continue }   // another device's upload in flight
                         guard !e.isCollection, Self.isBlobName(e.name) else {
                             report.ignored.append(SyncReport.printable("notes/\(id)/\(Self.attName)/\(e.name)"))
+                            remoteJunk.append(["notes", id, Self.attName, e.name])
                             continue
                         }
                         set.remote[e.name] = e
@@ -107,11 +108,15 @@ extension WebDAVSync {
             set.local[f] = size
         }
 
-        let newRemote = Set(set.remote.keys).subtracting(set.local.keys).subtracting(set.recorded)
-        let newLocal = Set(set.local.keys).subtracting(set.remote.keys).subtracting(set.recorded)
+        // Push-only: nothing is downloaded, and a blob the server lacks is
+        // uploaded whether or not the last sync had it.
+        let newRemote = options.pushOnly ? [] : Set(set.remote.keys).subtracting(set.local.keys).subtracting(set.recorded)
+        let newLocal = options.pushOnly
+            ? Set(set.local.keys).subtracting(set.remote.keys)
+            : Set(set.local.keys).subtracting(set.remote.keys).subtracting(set.recorded)
 
         // A partial file whose blob is not downloaded in this run is stale.
-        if !options.dryRun {
+        if !options.dryRun && !options.pushOnly {
             for p in partials where !newRemote.contains(String(p.dropFirst(Self.partialPrefix.count))) {
                 try? FileManager.default.removeItem(at: att.appendingPathComponent(p))
                 state.partials?[blobKey(id, String(p.dropFirst(Self.partialPrefix.count)))] = nil
@@ -148,8 +153,14 @@ extension WebDAVSync {
     /// that the references both sides hold now are the ones checked.
     func syncBlobDeletions(_ id: String, _ set: inout BlobSet, remoteRevisions: Set<RevisionName>) {
         let local = Set(set.local.keys), remote = Set(set.remote.keys)
-        let remoteDeleted = local.intersection(set.recorded).subtracting(remote)
+        let remoteDeleted = options.pushOnly ? [] : local.intersection(set.recorded).subtracting(remote)
         let localDeleted = remote.intersection(set.recorded).subtracting(local)
+        if options.pushOnly {
+            // Never synced and not local: not ours.
+            for name in remote.subtracting(local).subtracting(set.recorded).sorted() {
+                if reportExtraneous(blobPath(id, name), remove: ["notes", id, Self.attName, name]) { set.remote[name] = nil }
+            }
+        }
 
         if !remoteDeleted.isEmpty || !localDeleted.isEmpty {
             let judge = collectable(id, remoteRevisions: remoteRevisions)
@@ -164,6 +175,7 @@ extension WebDAVSync {
                     }
                     if set.remoteListed && allowed(name) {
                         report.deleted.append(.init(side: "local", path: blobPath(id, name)))
+                        try requireLocalWrite("delete \(blobPath(id, name))")
                         if !options.dryRun { try LocalFS.remove(attURL(id).appendingPathComponent(name)) }
                         set.local[name] = nil
                     } else {
@@ -185,6 +197,9 @@ extension WebDAVSync {
                         report.deleted.append(.init(side: "remote", path: blobPath(id, name)))
                         if !options.dryRun { try client.delete(["notes", id, Self.attName, name]) }
                         set.remote[name] = nil
+                    } else if options.pushOnly {
+                        report.skipped.append(.init(path: blobPath(id, name),
+                                                    message: "missing locally and not explained by collection, kept on the server"))
                     } else if let size = try downloadBlob(id, name, entry: set.remote[name]) {
                         set.local[name] = size
                     }
@@ -306,6 +321,7 @@ extension WebDAVSync {
     /// its size, or nil when the file appeared locally meanwhile. Continues
     /// an earlier partial download of the same remote version.
     func downloadBlob(_ id: String, _ name: String, entry: RemoteEntry?) throws -> Int? {
+        try requireLocalWrite("download \(blobPath(id, name))")
         let path = blobPath(id, name)
         let limit = options.maxBlobBytes
         if let size = entry?.size, size > limit { throw WebDAVError.io("\(path) is \(size) bytes, over the blob limit; skipped") }

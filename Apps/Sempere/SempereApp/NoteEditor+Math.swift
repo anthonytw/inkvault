@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Sempere
 
-/// Equations on the open note (format.md §8.2.7, docs/attachments.md §14
+/// Equations on the open note (format.md §8.2.8, docs/attachments.md §14
 /// G1): typeset with SwiftMath (`MathTypesetter`), the rendered PDF written as
 /// a blob first, then one delta built by the shared `NoteOps` math builders
 /// the CLI's `attach math` and `items math` use.

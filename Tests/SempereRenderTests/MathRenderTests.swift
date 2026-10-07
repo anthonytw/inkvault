@@ -3,7 +3,7 @@ import Sempere
 import XCTest
 @testable import SempereRender
 
-/// How exports draw `math` items (format.md §8.2.7 "Drawing"): the stored
+/// How exports draw `math` items (format.md §8.2.8 "Drawing"): the stored
 /// render as a PDF form or as coverage of its colour, else the source as
 /// monospace text with a warning, else a placeholder; and the text exports.
 final class MathRenderTests: XCTestCase {

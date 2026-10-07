@@ -11,12 +11,15 @@ import SwiftUI
 /// project's build settings), and the Mac menu bar is attached for Catalyst only.
 @main
 struct SempereApp: App {
+    /// Builds the Mac menu bar without the system's duplicates (`MacMenus`).
+    @UIApplicationDelegateAdaptor(SempereAppDelegate.self) private var appDelegate
     @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
                                         summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
                                         drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
                                         blobCacheRoot: BlobCache.folder,
                                         renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
-                                        automaticThinning: true)
+                                        automaticThinning: true,
+                                        recipientsTrust: AppModel.defaultRecipientsTrust)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 

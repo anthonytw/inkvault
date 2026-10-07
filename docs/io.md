@@ -284,6 +284,51 @@ SwiftUI `List`.
     are redrawn from the open PDF at whatever zoom the page is shown, which is
     why the preview, not the tiles, is what persists.
 
+## Changes from other devices while a note is open (app)
+
+A note open in an editor takes revisions written elsewhere (another device
+through iCloud Drive or any other sync, the CLI, this device's browser
+edits) in place, without being reopened (`AppModel+RemoteMerge`,
+`NoteEditor.mergeRevisions`).
+
+- **Detection** is the change-driven listing (above): each pass lists the
+  note folders by name, and an open editor whose folder holds a revision file
+  name it has neither read nor written (`NoteEditor.knownRevisionNames`) gets
+  a merge. In iCloud Drive the file presenter wakes the sync loop for that
+  note, so a delivered revision is merged within a poll interval. A local
+  vault is listed again on a reload. At most one merge runs per note.
+- **Before reading**, every revision of the note is made local
+  (`downloadNote`); the editor never writes while one is missing. The merge
+  waits while a canvas is mid-stroke or mid-erase (at most `inkWaitLimit`,
+  30 s, then it gives up and the next listing tries again: a canvas that never
+  reports a stroke's end cannot stall the note's merges), then saves what is pending
+  (one delta through the editor's `NoteWriter`, as autosave does) and reads
+  the note again. A save that starts during that read (autosave, a page
+  gesture) makes it read again (`writeEpoch`), since its strokes would
+  otherwise look removed elsewhere. A note with an unreadable revision is not
+  merged (tried again when its names change); a read-only editor (Recently
+  Deleted, unreadable revisions) is reopened instead.
+- **Applying** is synchronous on the main actor, so no canvas can report a
+  drawing in between. Per page, `StrokeLedger.mergeStored` takes the merged
+  strokes as what is on disk and keeps what is pending here (strokes drawn
+  since the save stay live on top, unsaved erasures stay erased): only that
+  is ever written afterwards, never the other device's adds or removals (no
+  echo). Canvas strokes are reused where every stored stroke they stand for
+  is still live; only new strokes are converted. Every canvas showing a page
+  whose ink changed (`RemoteInkView`) shows the merged drawing at once at the
+  same scroll and zoom, and drops that page's undo steps (an older undo could
+  put back a drawing without the other device's strokes and so erase them);
+  other pages keep theirs. Items, papers, page order and additions or
+  removals, recognition, meta and recordings are taken as merged; the item
+  layer, text boxes and the selection follow the editor's pages. An infinite
+  page that grew here and is not saved keeps its height. Concurrent edits are
+  decided by the format (`format.md` §5.3, §8.2.2): the editor shows what
+  every device reconstructs.
+- **Shown**: "Updated from another device" for a few seconds above the
+  canvas when a revision of another device changed what the note shows
+  (`NoteEditor.remoteUpdates`). Signpost `note.remoteMerge` (detail: the
+  outcome).
+
 ## Performance timing (app)
 
 Every phase above is an `os_signpost` interval (subsystem
@@ -498,7 +543,11 @@ The only in-place rewrite. The procedure is the recommended one of
    (recipient removed) it holds the **outgoing** vault secret, age-encrypted
    to the new recipient set.
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
-   removal).
+   removal), `recipientsTag` for them and, on removal, `secretLink` from the
+   outgoing secret (format.md §2.1), in the same atomic write; then save this
+   device's trust record. Before step 1 the current list must check
+   (`requireWritable`): a planted list, or a planted journal next to one, is
+   never resumed or rewrapped to.
 3. For every revision file: decrypt with our identities, then
    - **skip** it if its header has exactly one stanza of the matching type
      (`X25519` / `mlkem768x25519`) per current recipient (and no other stanzas)
@@ -694,6 +743,41 @@ saved as `<name>.conflict-<device>-<yyyymmddThhmmssZ>.json` in the vault root
 conflict is reported on every run until the files agree. A PUT rejected with
 412 is a conflict too. `rewrap-journal.json` deleted locally is not deleted
 remotely (deletions come only from compaction) and not restored locally.
+Before a remote `vault.json` replaces the local one, its device list is
+checked (`Vault.incomingManifestProblem`, format.md §2.1): the same keys
+(still tagged) pass without a key; a changed list passes only when the vault
+is unlocked and the list verifies (tag under the secret it carries, that
+secret the local one or confirmed by `secretLink`). Otherwise it is listed in
+`rejected`, the local file stays and the sync state is not updated, so the
+next run reports it again.
+
+**Push-only mirror** (`--push-only`, `WebDAVSyncOptions.pushOnly`). A two-way
+sync rejects a `vault.json` whose recipients changed without a valid tag
+(format.md §2.1, above), but it still takes whatever else the server holds:
+new revisions and blobs, deletions it can explain, journals. For a server that
+is only a copy (the web viewer's mirror) and is not trusted to write back, the
+run is one-way, and the server can be corrupted but can never feed anything
+back:
+
+- nothing is downloaded, and nothing in the vault folder is written, restored
+  or deleted (every local write path refuses in this mode; only the sync-state
+  file outside the vault changes);
+- a file the server lacks is uploaded, including one the last sync had;
+- `vault.json` and `rewrap-journal.json` on the server are replaced by the
+  local copy when they differ (reported in `overwritten`); a malformed server
+  manifest is repaired the same way, one of another vault still aborts;
+- a file only the server has is deleted there if it was synced before and the
+  compaction (`CompactionPlanner`) or blob collection (§8.1.6 rules 1–3) rules
+  explain its absence locally, exactly as in the table above;
+- one synced before but not explained (or unjudgeable with the vault locked) is
+  kept and listed as skipped: a local listing can miss files, notably evicted
+  iCloud ones;
+- one never synced and not explained (injected revision or blob, a stray
+  journal, junk names) is `extraneous`: reported, and removed only with
+  `--delete-extraneous`, and only when sync state from an earlier run exists:
+  on a first run every server file looks never synced, including those of a
+  note the local listing missed, so they are only listed (as skipped). The
+  flag can still delete a legitimate file another writer added since.
 
 **Limits.** A recipient change rewrites files under `notes/` in place
 (format.md §3.3), which sync never propagates: after one, pull into a fresh

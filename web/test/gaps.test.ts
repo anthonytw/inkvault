@@ -95,7 +95,7 @@ describe("pdf page text", () => {
   });
 });
 
-describe("equations (§8.2.7)", () => {
+describe("equations (§8.2.8)", () => {
   it("are searchable by their LaTeX source, and merge as one register", () => {
     const log = new LogBuilder();
     const id = "6f1c2d4e-0000-4000-8000-000000000002";

@@ -40,9 +40,12 @@ struct RootView: View {
     /// Two properties, so the compiler checks two shorter modifier chains.
     var body: some View {
         content
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("libraryWindow")
             .environment(ui)
             .windowSheets(ui)
             .focusedSceneValue(\.commandRouter, router)
+            .menuRouter(router)
             .sheet(isPresented: $ui.creatingNote) {
                 NewNoteView(notebook: currentNotebook)
             }
@@ -114,9 +117,6 @@ struct RootView: View {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
             }
         }
-        .sheet(item: $model.exportRequest) { request in
-            ExportSheet(request: request)
-        }
         .sheet(isPresented: $creatingVault) {
             NewVaultView()
         }
@@ -146,6 +146,24 @@ struct RootView: View {
             }
         } message: {
             Text(model.errorMessage ?? "")
+        }
+        // format.md §2.1: never write to a list nobody with the key wrote.
+        .alert(RecipientsAlert.title, isPresented: Binding(get: { model.recipientsAlert != nil },
+                                                           set: { if !$0 { model.dismissRecipientsAlert() } })) {
+            if model.recipientsAlert?.canRemove == true {
+                Button("Remove", role: .destructive) {
+                    Task { await model.report { try await model.repairRecipients() } }
+                }
+            }
+            Button("Cancel", role: .cancel) { model.dismissRecipientsAlert() }
+        } message: {
+            Text(model.recipientsAlert?.message ?? "")
+        }
+        .alert("Device List Protected", isPresented: Binding(get: { model.recipientsNotice != nil && model.recipientsAlert == nil },
+                                                             set: { if !$0 { model.recipientsNotice = nil } })) {
+            Button("OK", role: .cancel) { model.recipientsNotice = nil }
+        } message: {
+            Text(model.recipientsNotice ?? "")
         }
         .task {
             // Reopen the last vault on launch; a failure leaves the welcome screen.
@@ -228,7 +246,7 @@ struct RootView: View {
             || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: shown)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible,
+                             paletteVisible: paletteVisible, exportIDs: model.exportTargetIDs, windowID: ui.id,
                              perform: { command in perform(command, editor: shown) },
                              openRecent: { id in
                                  if let entry = library.recents.first(where: { $0.id == id }) { Task { await reopen(entry) } }

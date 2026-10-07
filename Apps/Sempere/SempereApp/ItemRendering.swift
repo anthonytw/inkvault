@@ -75,7 +75,7 @@ enum ItemRendering {
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
-        // An equation no typesetter has rendered yet (the CLI's): typeset here (format.md §8.2.7 step 2).
+        // An equation no typesetter has rendered yet (the CLI's): typeset here (format.md §8.2.8 step 2).
         if item.kind == .math, let math = item.math, math.render == nil {
             return MathTypesetter.picture(math, frame: item.frame, rotation: item.rotation, scale: key.scale)
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
@@ -92,7 +92,9 @@ enum ItemRendering {
         }
         defer { Perf.end(interval, "drawn") }
         var files: [String: URL] = [:]
-        let blobs = item.blobReferences   // an image's or PDF page's blob, an equation's render
+        // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7);
+        // anything else from its own blobs (an equation from its render, §8.2.8).
+        let blobs = item.kind == .video ? (item.poster.map { [$0] } ?? []) : item.blobReferences
         if let cache {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {
@@ -108,7 +110,8 @@ enum ItemRendering {
                                         imageDecoder: ImageIODecoder())
             do {
                 let r = try ItemRaster.render(item, scale: key.scale, maxPixels: ItemRendering.maxPixels, paper: key.paper, options: options)
-                if let reason = r.placeholder { return .failed(reason.description) }
+                // A video without a poster is its placeholder under the play mark, as exports draw it.
+                if let reason = r.placeholder, reason != .noPoster { return .failed(reason.description) }
                 return .pixels(r.image, r.bounds)
             } catch {
                 return .failed("\(error)")

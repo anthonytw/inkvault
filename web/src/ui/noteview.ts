@@ -6,9 +6,9 @@
 import { type NoteState, type Page, type Paper, paperKind, pointStride } from "../format/model.ts";
 import { imageInfo, imageLimits, stripMetadata } from "../render/images.ts";
 import {
-  type PreparedItem, after, imageTransform, intersect, maxItemsPerPage, pdfCrop, placement, prepareItem, translate,
+  type PreparedItem, after, imageTransform, intersect, maxItemsPerPage, pdfCrop, placement, posterTransform, prepareItem, translate,
 } from "../render/items.ts";
-import { type ItemDraw, placeholderNodes, rasterNode, resolveItems, textNode } from "../render/itemsvg.ts";
+import { type ItemDraw, placeholderNodes, playMarkNodes, rasterNode, resolveItems, textNode } from "../render/itemsvg.ts";
 import { cmpItems } from "../format/registers.ts";
 import { PreparedPage, chunkHeight, defaultRenderOptions, elementSpec } from "../render/page.ts";
 import { RenderLimits } from "../render/primitives.ts";
@@ -65,9 +65,9 @@ const canvasMeasure: Measure = (text, style, font) => {
   return measureContext.measureText(text).width;
 };
 
-/** An image or PDF page waiting to be fetched until it comes on screen. */
+/** An image, PDF page or video poster waiting to be fetched until it comes on screen. */
 interface PendingItem {
-  draw: Extract<ItemDraw, { kind: "image" | "pdf" }>;
+  draw: Extract<ItemDraw, { kind: "image" | "pdf" | "video" }>;
   g: SVGElement;
   minX: number;
   maxX: number;
@@ -127,9 +127,16 @@ export class NoteView {
   readonly problemsEl = h("details", { class: "warning item-problems" });
   private destroyed = false;
   private rerender?: ReturnType<typeof setTimeout>;
+  /** Video items on drawn pages, for taps (page-local rotated frames). */
+  private readonly videos: { slot: Slot; it: PreparedItem }[] = [];
+  private tap?: { x: number; y: number; id: number };
 
-  /** `blobs` reads the note's attachments; without it every image and PDF page is a placeholder. */
-  constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs) {
+  /**
+   * `blobs` reads the note's attachments; without it every image and PDF page is a placeholder.
+   * `playVideo` is called with a video item's id when it is tapped (§8.2.7).
+   */
+  constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs,
+    private readonly playVideo?: (itemId: string) => void) {
     this.content = h("div", { class: "pages" });
     this.viewport = h("div", { class: "viewport", attrs: { tabindex: "0", role: "region", "aria-label": "Note pages" } }, this.content);
     this.zoomLabel = h("span", { class: "zoom-label" });
@@ -231,6 +238,20 @@ export class NoteView {
           case "text":
             items.append(svgTree(textNode(d.it, d.content, d.layout)));
             break;
+          case "video": {
+            // The poster under the play mark; without one a placeholder (not a problem: §8.2.7).
+            const g = s("g");
+            items.append(g);
+            if (d.poster) {
+              const xs = d.it.corners.map((p) => p.x);
+              slot.pending.push({ draw: d, g, minX: Math.min(...xs), maxX: Math.max(...xs), state: "idle" });
+            } else {
+              for (const n of placeholderNodes(d.it)) g.append(svgTree(n));
+            }
+            for (const n of playMarkNodes(d.it)) items.append(svgTree(n));
+            this.videos.push({ slot, it: d.it });
+            break;
+          }
           default: {
             const g = s("g");
             items.append(g);
@@ -296,10 +317,12 @@ export class NoteView {
     try {
       if (!this.blobs) throw new Error("attachments are not available");
       let url: string, width: number, height: number, transform;
-      if (d.kind === "image") {
-        const bytes = new Uint8Array(await (await this.blobs.get(d.ref, imageLimits.maxBlobBytes)).arrayBuffer());
+      if (d.kind === "image" || d.kind === "video") {
+        const ref = d.kind === "image" ? d.ref : d.poster;
+        if (!ref) throw new Error("video without a poster frame");
+        const bytes = new Uint8Array(await (await this.blobs.get(ref, imageLimits.maxBlobBytes)).arrayBuffer());
         const info = imageInfo(bytes);
-        const m = imageTransform(d.it, info.width, info.height);
+        const m = d.kind === "image" ? imageTransform(d.it, info.width, info.height) : posterTransform(d.it, info.width, info.height);
         if (typeof m === "string") throw new Error(m);
         url = this.url(new Blob([stripMetadata(bytes) as Uint8Array<ArrayBuffer>], { type: info.type }));
         const img = new Image();
@@ -354,7 +377,7 @@ export class NoteView {
         return;
       }
       p.scale = undefined;
-      // An equation whose render cannot be drawn shows its source (§8.2.7).
+      // An equation whose render cannot be drawn shows its source (§8.2.8).
       if (d.kind === "pdf" && d.math) {
         p.g.replaceChildren(svgTree(textNode(d.it, d.math.content, d.math.layout)));
         return;
@@ -448,6 +471,7 @@ export class NoteView {
       }
     }, { passive: false });
     v.addEventListener("pointerdown", (e) => {
+      this.tap = this.pointers.size === 0 ? { ...this.local(e), id: e.pointerId } : undefined;
       v.setPointerCapture(e.pointerId);
       this.pointers.set(e.pointerId, this.local(e));
       if (this.pointers.size === 2) {
@@ -473,6 +497,12 @@ export class NoteView {
       }
     });
     const up = (e: PointerEvent) => {
+      const tap = this.tap;
+      this.tap = undefined;
+      if (e.type === "pointerup" && tap?.id === e.pointerId && this.pointers.size === 1) {
+        const p = this.local(e);
+        if (Math.hypot(p.x - tap.x, p.y - tap.y) < 6) this.tapAt(p);
+      }
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = undefined;
     };
@@ -498,6 +528,18 @@ export class NoteView {
     });
   }
 
+  /** A tap at viewport point `p`: plays the topmost video under it. */
+  private tapAt(p: { x: number; y: number }): void {
+    if (!this.playVideo) return;
+    const x = (p.x - this.x) / this.z, y = (p.y - this.y) / this.z;
+    for (const v of [...this.videos].reverse()) {
+      if (insidePolygon({ x: x - v.slot.left, y: y - v.slot.top }, v.it.corners)) {
+        this.playVideo(String(v.it.item.id));
+        return;
+      }
+    }
+  }
+
   /** Scrolls so page `number` (1-based) is at the top. */
   showPage(number: number): void {
     const slot = this.slots[number - 1];
@@ -506,6 +548,20 @@ export class NoteView {
     this.clampPan();
     this.schedule();
   }
+}
+
+/** True when `p` lies inside the convex polygon `c` (a rotated frame, either winding). */
+export function insidePolygon(p: { x: number; y: number }, c: { x: number; y: number }[]): boolean {
+  let sign = 0;
+  for (let i = 0; i < c.length; i++) {
+    const a = c[i], b = c[(i + 1) % c.length];
+    if (!a || !b) return false;
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (cross === 0) continue;
+    if (sign === 0) sign = Math.sign(cross);
+    else if (Math.sign(cross) !== sign) return false;
+  }
+  return c.length > 2;
 }
 
 /** True when some page uses a paper kind this viewer does not know (drawn blank, §5.4.2). */

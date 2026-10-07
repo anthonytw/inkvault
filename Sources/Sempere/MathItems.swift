@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Math items (docs/format.md §8.2.7)
+// MARK: - Math items (docs/format.md §8.2.8)
 //
 // An equation, stored as LaTeX source with the style it is typeset in and,
 // once a typesetter has run, a one-page PDF of the result (`render`) that
@@ -8,7 +8,7 @@ import Foundation
 // register: the rendering belongs to the exact source, style, size and colour
 // it was made from.
 
-/// The content of a `math` item (format.md §8.2.7). One register: replaced whole.
+/// The content of a `math` item (format.md §8.2.8). One register: replaced whole.
 public struct MathContent: Hashable, Sendable, Codable {
     /// LaTeX math-mode source without delimiters, at most `MathSource.maxBytes` UTF-8 bytes.
     public var latex: String
@@ -36,7 +36,7 @@ public struct MathContent: Hashable, Sendable, Codable {
     /// Media type of a render.
     public static let renderType = "application/pdf"
 
-    /// The reason the value breaks format.md §8.2.7 or §8.4, or nil.
+    /// The reason the value breaks format.md §8.2.8 or §8.4, or nil.
     public var validationError: String? {
         if let why = MathSource.formatViolation(latex) { return why }
         if !TextContent.isValidSize(size) { return "math size out of range" }
@@ -98,7 +98,7 @@ public struct MathContent: Hashable, Sendable, Codable {
     }
 }
 
-/// Checks of LaTeX sources (format.md §8.2.7 "Limits of typesetting", §9):
+/// Checks of LaTeX sources (format.md §8.2.8 "Limits of typesetting", §9):
 /// the format's length rule, and the bounds a source must stay within before
 /// any typesetter parses it. Linear in the source, no recursion, no allocation
 /// beyond a group stack bounded by `maxDepth`.
@@ -112,7 +112,7 @@ public enum MathSource {
 
     /// Why a source cannot be typeset.
     public enum Issue: Error, Hashable, Sendable, CustomStringConvertible {
-        /// Breaks the format (§8.2.7): too long or a control character.
+        /// Breaks the format (§8.2.8): too long or a control character.
         case invalid(String)
         /// More than `maxTokens` tokens.
         case tooManyTokens
@@ -148,7 +148,7 @@ public enum MathSource {
     /// level down, and a typesetter parses it recursively (`a \over b \over c`).
     private static let infixCommands: Set<String> = ["over", "atop", "choose", "brack", "brace"]
 
-    /// Why `latex` may not be typeset, or nil when it may (format.md §8.2.7).
+    /// Why `latex` may not be typeset, or nil when it may (format.md §8.2.8).
     /// Empty sources are refused too (`allowEmpty` lets a renderer draw
     /// nothing instead).
     public static func check(_ latex: String, allowEmpty: Bool = false) -> Issue? {
@@ -253,19 +253,20 @@ extension Item {
         Item(id: id, kind: .math, layer: layer, frame: frame, z: z, rec: rec, math: content)
     }
 
-    /// Every blob reference the item's own fields hold: `blob`, and a math
-    /// item's `render` (format.md §8.1.1), each once.
+    /// Every blob reference the item's own fields hold: `blob`, a video's
+    /// `poster` and a math item's `render` (format.md §8.1.1), each once.
     public var blobReferences: [BlobRef] {
         var refs: [BlobRef] = []
-        if let blob { refs.append(blob) }
-        if let r = math?.render, !refs.contains(where: { $0.sha256 == r.sha256 }) { refs.append(r) }
+        for r in [blob, poster, math?.render].compactMap({ $0 }) where !refs.contains(where: { $0.sha256 == r.sha256 }) {
+            refs.append(r)
+        }
         return refs
     }
 }
 
 extension NoteOps {
     /// A math item's content for `latex`: NFC, `\r\n` and `\r` as `\n`,
-    /// checked against format.md §8.2.7 and the typesetting limits (an empty
+    /// checked against format.md §8.2.8 and the typesetting limits (an empty
     /// or unbalanced source is refused).
     public static func math(_ latex: String, display: Bool = true, size: Double = 20,
                             color: Color = .black) throws -> MathContent {
@@ -280,7 +281,7 @@ extension NoteOps {
     /// The frame a math item gets before any typesetter ran: as many
     /// monospace characters as its longest line at 0.6 em, 1.6 em per line,
     /// within the page's content width. The app replaces it with the
-    /// render's size when it typesets (format.md §8.2.7).
+    /// render's size when it typesets (format.md §8.2.8).
     public static func estimatedMathSize(_ content: MathContent, maxWidth: Double) -> Size {
         let lines = content.latex.split(separator: "\n", omittingEmptySubsequences: false)
         let longest = lines.map { $0.count }.max() ?? 1
@@ -316,7 +317,7 @@ extension NoteOps {
     }
 
     /// The frame a math item takes when its content changes from `old` to
-    /// `new` (format.md §8.2.7): with a new render, the same top-left corner
+    /// `new` (format.md §8.2.8): with a new render, the same top-left corner
     /// and the new render's size times the scale the frame had to the old
     /// render (1 without one); otherwise the frame as it is.
     public static func mathFrame(_ frame: Rect, from old: MathContent?, to new: MathContent) -> Rect {

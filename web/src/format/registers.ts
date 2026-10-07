@@ -22,6 +22,7 @@ export function itemRegisters(item: JSONObject): Map<string, unknown> {
   const r = new Map<string, unknown>([["frame", item.frame], ["rotation", item.rotation ?? null], ["z", item.z]]);
   if (mine.includes("text") && item.text !== undefined) r.set("text", item.text);
   if (mine.includes("crop")) r.set("crop", item.crop ?? null);
+  if (mine.includes("poster")) r.set("poster", item.poster ?? null);
   if (mine.includes("math") && item.math !== undefined) r.set("math", item.math);
   for (const [k, v] of Object.entries(item)) {
     if (!common.has(k) && !mine.includes(k) && !immutableItemFields.has(k)) r.set(k, v);
@@ -36,7 +37,7 @@ export function itemRegisters(item: JSONObject): Map<string, unknown> {
  */
 export function applyItemRegister(item: JSONObject, field: string, value: unknown): void {
   const mine = kindFields(String(item.kind));
-  if (field === "rotation" || (field === "crop" && mine.includes("crop"))) {
+  if (field === "rotation" || ((field === "crop" || field === "poster") && mine.includes(field))) {
     if (value === null) delete item[field];
     else item[field] = value;
   } else if (common.has(field) || mine.includes(field)) {
@@ -82,7 +83,7 @@ export function cmpRecordings(l: JSONObject, r: JSONObject): number {
   return (ls < rs ? -1 : ls > rs ? 1 : 0) || cmpStr(String(l.id), String(r.id));
 }
 
-/** A math item's LaTeX source (§8.2.7); "" for anything else. */
+/** A math item's LaTeX source (§8.2.8); "" for anything else. */
 export function itemLatex(item: JSONObject): string {
   const m = item.math as { latex?: unknown } | undefined;
   return item.kind === "math" && typeof m?.latex === "string" ? m.latex : "";

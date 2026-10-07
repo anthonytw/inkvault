@@ -10,13 +10,13 @@ import Sempere
 struct ItemsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "items",
-        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items.",
+        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items; set a video's poster; change an equation.",
         discussion: """
-            Placed items are text boxes, images, PDF pages and equations (format.md §8.2). An item is named by its
+            Placed items are text boxes, images, PDF pages, video clips and equations (format.md §8.2). An item is named by its
             id or an id prefix of at least 4 characters, as `items list` prints it. Each edit writes one
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
-        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsMath.self, ItemsFront.self,
+        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsPoster.self, ItemsMath.self, ItemsFront.self,
                       ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
     )
 }
@@ -69,7 +69,9 @@ struct ItemsList: ParsableCommand {
         struct Row: Encodable {
             var page: Int; var id: String; var kind: String; var layer: String; var frame: Rect
             var rotation: Double?; var z: String; var blob: BlobRef?; var crop: Rect?
-            /// An equation (format.md §8.2.7): its source, style and rendering.
+            /// Videos: seconds, the poster blob (nil when none).
+            var duration: Double?; var poster: BlobRef?
+            /// An equation (format.md §8.2.8): its source, style and rendering.
             var math: MathContent?
         }
         var rows: [Row] = []
@@ -77,7 +79,8 @@ struct ItemsList: ParsableCommand {
             for item in p.items.sorted(by: Item.drawsBefore) {
                 rows.append(Row(page: i + 1, id: item.id.uuidString.lowercased(), kind: item.kind.rawValue,
                                 layer: "\(item.layer)", frame: item.frame, rotation: item.rotation, z: item.z,
-                                blob: item.blob ?? item.math?.render, crop: item.crop, math: item.math))
+                                blob: item.blob ?? item.math?.render, crop: item.crop, duration: item.duration, poster: item.poster,
+                                math: item.math))
             }
         }
         if output.json { try output.emitJSON(rows); return }
@@ -88,6 +91,9 @@ struct ItemsList: ParsableCommand {
             let n = AttachmentListing.number
             let place: String = n(f.x) + "," + n(f.y) + " " + n(f.w) + "x" + n(f.h)
             var blob: String = r.blob.map(AttachmentListing.blob) ?? "-"
+            if r.kind == ItemKind.video.rawValue {
+                blob += " " + AttachmentListing.number(r.duration ?? 0) + " s" + (r.poster == nil ? " (no poster)" : " +poster")
+            }
             if let m = r.math {
                 let line = m.latex.split(whereSeparator: \.isNewline).joined(separator: " ")
                 blob = (line.count > 40 ? String(line.prefix(39)) + "…" : line) + (m.render == nil ? " (not typeset)" : "")
@@ -380,7 +386,7 @@ struct ItemsMath: ParsableCommand {
         commandName: "math",
         abstract: "Change an equation: its source, style, size, colour or rendering (one delta).",
         discussion: """
-            Writes the item's whole `math` value (format.md §8.2.7). Changing the source, style, size or colour \
+            Writes the item's whole `math` value (format.md §8.2.8). Changing the source, style, size or colour \
             drops the stored rendering (the CLI cannot typeset; exports then draw the source until the app \
             typesets it), unless --render gives a one-page PDF typeset elsewhere for the new value; with a new \
             rendering the frame keeps its top-left corner and its scale. --render alone replaces the rendering \

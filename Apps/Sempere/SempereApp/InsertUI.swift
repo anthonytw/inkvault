@@ -25,17 +25,19 @@ enum InsertOptions {
     }
 }
 
-/// What a drop or a paste brings: image bytes, or a PDF copied into a work folder.
+/// What a drop or a paste brings: image bytes, or a PDF or video clip copied into a work folder.
 enum CanvasDrop {
     enum Content: Sendable {
         case image(Data)
         case pdf(URL)
+        /// A clip (format.md §8.2.7), copied into a work folder.
+        case video(URL)
         /// Something that could not be read (too large, unreadable): why.
         case failed(String)
     }
 
     /// The types the canvas takes.
-    static let typeIdentifiers = [UTType.pdf.identifier, UTType.image.identifier]
+    static let typeIdentifiers = [UTType.pdf.identifier, UTType.movie.identifier, UTType.image.identifier]
 
     /// Loads what the providers hold, in order; anything else is skipped.
     @MainActor
@@ -44,6 +46,8 @@ enum CanvasDrop {
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
                 if let url = await pdfCopy(provider) { out.append(.pdf(url)) }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                out.append(await videoCopy(provider))
             } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 out.append(await imageData(provider))
             }
@@ -67,6 +71,19 @@ enum CanvasDrop {
         }
     }
 
+    /// A dropped clip: the provider's file is only there during the callback, so it is copied out at once.
+    @MainActor
+    private static func videoCopy(_ provider: NSItemProvider) async -> Content {
+        await withCheckedContinuation { (done: CheckedContinuation<Content, Never>) in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
+                guard let url, let copy = try? VideoPreparation.copyPicked(url) else {
+                    return done.resume(returning: .failed(VideoPreparation.Failure.unreadable.description))
+                }
+                done.resume(returning: .video(copy))
+            }
+        }
+    }
+
     /// The provider's file is only there during the callback: it is copied out at once.
     @MainActor
     private static func pdfCopy(_ provider: NSItemProvider) async -> URL? {
@@ -84,13 +101,24 @@ enum CanvasDrop {
 final class InsertState {
     var pickingPhotos = false
     var photoSelection: [PhotosPickerItem] = []
-    var takingPhoto = false
-    var pickingPDF = false
+    /// The camera, taking a photo or recording a clip.
+    var camera: CameraMode?
+    /// The file importer is up, choosing `fileImport`.
+    var pickingFile = false
+    var fileImport = EditorFileImport.pdf
     var cropping: CropRequest?
+    /// The video item playing (format.md §8.2.7).
+    var playing: VideoPlayRequest?
     /// The equation being added or edited (`MathEditorView`).
     var editingMath: MathRequest?
     /// Something is being added (a spinner in the menu's place).
     var working = 0
+}
+
+/// What the camera is for.
+enum CameraMode: String, Identifiable {
+    case photo, video
+    var id: String { rawValue }
 }
 
 /// An item to crop and how to write the result (one undo step).
@@ -102,7 +130,8 @@ struct CropRequest: Identifiable {
     let actions: ItemActions
 }
 
-/// The editor toolbar's Insert menu: Photos, the camera, paste, PDF pages.
+/// The editor toolbar's Insert menu: Photos (pictures and videos), the camera
+/// (a photo or a clip), paste, a video file, PDF pages.
 struct InsertMenu: View {
     let editor: NoteEditor
     let state: InsertState
@@ -110,13 +139,21 @@ struct InsertMenu: View {
 
     var body: some View {
         Menu {
-            Button("Photos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
+            Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
             if InsertOptions.camera {
-                Button("Take Photo…", systemImage: "camera") { state.takingPhoto = true }
+                Button("Take Photo…", systemImage: "camera") { state.camera = .photo }
+                Button("Record Video…", systemImage: "video") { state.camera = .video }
             }
             PasteButton(supportedContentTypes: [.image], payloadAction: onPaste)
-            Button("PDF Pages…", systemImage: "doc.richtext") { state.pickingPDF = true }
-                .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
+            Button("Video File…", systemImage: "film") {
+                state.fileImport = .video
+                state.pickingFile = true
+            }
+            Button("PDF Pages…", systemImage: "doc.richtext") {
+                state.fileImport = .pdf
+                state.pickingFile = true
+            }
+            .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
             Button("Equation…", systemImage: "function") {
                 guard let page = editor.currentPage?.id else { return }
                 state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
@@ -125,7 +162,7 @@ struct InsertMenu: View {
         } label: {
             Label("Insert", systemImage: state.working > 0 ? "hourglass" : "photo.badge.plus")
         }
-        .help("Add photos, a picture from the clipboard, pages of a PDF, or an equation")
+        .help("Add photos, videos, a picture from the clipboard, pages of a PDF, or an equation")
         .disabled(editor.isReadOnly || editor.currentPage == nil)
     }
 }
@@ -142,25 +179,41 @@ struct EditorInsert: ViewModifier {
         @Bindable var state = state
         content
             .photosPicker(isPresented: $state.pickingPhotos, selection: $state.photoSelection, maxSelectionCount: 20,
-                          selectionBehavior: .ordered, matching: .images, preferredItemEncoding: .current)
+                          selectionBehavior: .ordered, matching: .any(of: [.images, .videos]), preferredItemEncoding: .current)
             .onChange(of: state.photoSelection) { _, picked in
                 guard !picked.isEmpty else { return }
                 state.photoSelection = []
                 addPhotos(picked)
             }
-            .fullScreenCover(isPresented: $state.takingPhoto) {
-                CameraPicker { image in
-                    state.takingPhoto = false
-                    if let image { addCameraPhoto(image) }
+            .fullScreenCover(item: $state.camera) { mode in
+                switch mode {
+                case .photo:
+                    CameraPicker { image in
+                        state.camera = nil
+                        if let image { addCameraPhoto(image) }
+                    }
+                    .ignoresSafeArea()
+                case .video:
+                    VideoCameraPicker { url in
+                        state.camera = nil
+                        if let url { addVideo(url) }
+                    }
+                    .ignoresSafeArea()
                 }
-                .ignoresSafeArea()
             }
-            .fileImporter(isPresented: $state.pickingPDF, allowedContentTypes: [.pdf]) { result in
+            .fileImporter(isPresented: $state.pickingFile,
+                          allowedContentTypes: state.fileImport == .video ? [.movie] : [.pdf]) { result in
                 guard case .success(let url) = result else { return }
-                importPDF(url)
+                switch state.fileImport {
+                case .pdf: importPDF(url)
+                case .video: addVideoFile(url)
+                }
             }
             .sheet(item: $state.cropping) { request in
                 CropView(request: request, cache: model.attachmentCache())
+            }
+            .fullScreenCover(item: $state.playing) { request in
+                VideoPlayerSheet(request: request)
             }
             .sheet(item: $state.editingMath) { request in
                 MathEditorView(request: request)
@@ -176,10 +229,15 @@ struct EditorInsert: ViewModifier {
             defer { state.working -= 1 }
             for item in picked {
                 do {
+                    if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                        guard let movie = try await item.loadTransferable(type: PickedMovie.self) else { continue }
+                        await model.insertVideo(file: movie.url, into: editor, visible: visible)
+                        continue
+                    }
                     guard let data = try await item.loadTransferable(type: Data.self) else { continue }
                     await model.insertImage(data, into: editor, visible: visible)
                 } catch {
-                    model.errorMessage = "Could not load the photo: \(error.localizedDescription)"
+                    model.errorMessage = "Could not load the photo or video: \(error.localizedDescription)"
                 }
             }
         }
@@ -195,6 +253,31 @@ struct EditorInsert: ViewModifier {
                 await model.insertImage(data, into: editor, visible: visible)
             } catch {
                 model.errorMessage = "Could not add the photo. \(AppModel.describe(error))"
+            }
+        }
+    }
+
+    /// A recorded clip (already a work copy).
+    private func addVideo(_ url: URL) {
+        let editor = self.editor, visible = self.visible
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            await model.insertVideo(file: url, into: editor, visible: visible)
+        }
+    }
+
+    /// A clip picked in Files (security-scoped: copied first).
+    private func addVideoFile(_ url: URL) {
+        let editor = self.editor, visible = self.visible
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            do {
+                let copy = try await Task.detached(priority: .userInitiated) { try VideoPreparation.copyPicked(url) }.value
+                await model.insertVideo(file: copy, into: editor, visible: visible)
+            } catch {
+                model.errorMessage = "Could not add the video. \(AppModel.describe(error))"
             }
         }
     }
@@ -230,8 +313,12 @@ extension EditorInsert {
                     await model.insertImage(data, into: editor, page: page, visible: visible,
                                             at: InsertOptions.cascade(point, index: images))
                     images += 1
+                case .video(let url):
+                    await model.insertVideo(file: url, into: editor, page: page, visible: visible,
+                                            at: InsertOptions.cascade(point, index: images))
+                    images += 1
                 case .failed(let why):
-                    model.errorMessage = "Could not add the image. \(why)"
+                    model.errorMessage = "Could not add the attachment. \(why)"
                 case .pdf(let url):
                     let index = page.flatMap { id in editor.pages.firstIndex { $0.id == id } } ?? editor.pageIndex
                     if case .needsPassword(let request) = await model.importPDF(copy: url, to: .insert(editor, after: index + 1),

@@ -2,7 +2,7 @@ import Foundation
 import Sempere
 import SemperePDF
 
-/// How every writer draws a `math` item (format.md §8.2.7 "Drawing"): its
+/// How every writer draws a `math` item (format.md §8.2.8 "Drawing"): its
 /// stored `render` as a PDF page without crop, else its LaTeX source as a
 /// monospace text box, else a placeholder. SempereRender has no math
 /// typesetter (step 2 is the app's).
@@ -42,7 +42,7 @@ enum MathItems {
     }
 
     /// A page rasterized onto opaque white turned back into marks of `color`
-    /// on transparency (format.md §8.2.7 step 1): coverage from the channel
+    /// on transparency (format.md §8.2.8 step 1): coverage from the channel
     /// where `color` differs most from white. Unchanged when every channel
     /// of `color` is above 250.
     static func coverage(_ image: RGBAImage, color: Color) -> RGBAImage {
@@ -71,7 +71,7 @@ extension RenderOptions {
 }
 
 extension RasterItems {
-    /// A math item for the SVG and PNG writers (format.md §8.2.7): its
+    /// A math item for the SVG and PNG writers (format.md §8.2.8): its
     /// render rasterized and turned back into coverage of its colour, else
     /// its source as text (with a warning), else a placeholder.
     static func resolveMath(_ it: PreparedItem, backgrounds: PDFBackgrounds, shaper: (any TextShaper)?, scale: Double,
@@ -103,7 +103,7 @@ extension RasterItems {
     }
 }
 
-/// A typeset rendering handed to a writer (format.md §8.2.7 `render`): a
+/// A typeset rendering handed to a writer (format.md §8.2.8 `render`): a
 /// PDF of exactly one page, unencrypted, of a usable size.
 public enum MathRenderIngest {
     /// Largest render accepted, bytes. An equation's PDF is a few kilobytes.

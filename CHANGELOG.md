@@ -9,7 +9,18 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
-- Equations (task G1, `format.md` §8.2.7): `math` items hold LaTeX source, display or inline style,
+- CLI: `sempere sync webdav --push-only [--delete-extraneous]`, a one-way mirror for a server that is not
+  trusted to write back. It uploads, overwrites the server's `vault.json` / `rewrap-journal.json` from the local
+  copy, and follows local compaction and blob collection with deletions on the server; it never downloads and
+  never changes the vault (a compromised server cannot feed an attacker's recipient back). Files only the server
+  has and nothing explains are reported as `extraneous` (new in `--json`, with `overwritten`) and removed with
+  `--delete-extraneous`.
+- A note open in the app picks up what another device writes to it (iCloud Drive, any sync, the CLI)
+  without being reopened: the new revisions are downloaded and merged into the open canvas, pages,
+  items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink
+  changed are redrawn, at the same scroll and zoom; nothing is written back for the merge. A small
+  "Updated from another device" notice shows for a few seconds.
+- Equations (task G1, `format.md` §8.2.8): `math` items hold LaTeX source, display or inline style,
   size, colour and a typeset PDF rendering. App: Insert → Equation… and "Edit Equation…" open a sheet
   with a live SwiftMath preview; the rendering is stored, so exports, the CLI and the web viewer draw
   the equation without a typesetter. CLI: `sempere attach math --latex '…'` (`--inline`, `--size`,

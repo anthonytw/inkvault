@@ -62,6 +62,11 @@ public struct RenderReport: Sendable, Equatable {
     public var recordingsOmitted = 0
     /// Recordings embedded as PDF file attachments.
     public var recordingsAttached = 0
+    /// Video clips the notes hold that the export left out (PDF without
+    /// `embedVideos`, or not available; SVG and PNG draw only their posters).
+    public var videosOmitted = 0
+    /// Video clips embedded as PDF file attachments.
+    public var videosAttached = 0
 
     public init() {}
 
@@ -99,6 +104,9 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
     case imageUnreadable(String)
     /// A text item that cannot be laid out (why).
     case textUnavailable(String)
+    /// A video item without a poster frame (format.md §8.2.7): drawn as a
+    /// placeholder with the play mark; nothing is missing.
+    case noPoster
 
     /// A short English description, for reports.
     public var description: String {
@@ -112,6 +120,7 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
         case .rasterBudget: return "too many PDF background pixels in this export"
         case .imageUnreadable(let why): return why
         case .textUnavailable(let why): return why
+        case .noPoster: return "video without a poster frame"
         }
     }
 }
@@ -210,6 +219,20 @@ enum ItemGeometry {
                 Point(x: f.x, y: f.y + f.h)].map(r.apply)
     }
 
+    /// The play mark over a video item (format.md §8.2.7): a disc of
+    /// diameter `d = min(48, 0.3 · min(w, h))` filled `#00000080` at the
+    /// frame's centre, and a white triangle pointing right, turned with the item.
+    static func playMark(frame f: Rect, degrees: Double) -> [DrawCommand] {
+        let d = min(48, 0.3 * min(f.w, f.h))
+        guard d.isFinite, d > 0 else { return [] }
+        let mx = f.x + f.w / 2, my = f.y + f.h / 2
+        let r = rotate(frame: f, degrees: degrees)
+        let triangle = [Point(x: mx - 0.18 * d, y: my - 0.25 * d), Point(x: mx - 0.18 * d, y: my + 0.25 * d),
+                        Point(x: mx + 0.27 * d, y: my)].map(r.apply)
+        return [DrawCommand(.circle(center: Point(x: mx, y: my), radius: d / 2), fill: Paint(r: 0, g: 0, b: 0, alpha: 128.0 / 255)),
+                DrawCommand(.path([Subpath(points: triangle, closed: true)]), fill: Paint(r: 255, g: 255, b: 255))]
+    }
+
     /// PDF user space → effective-page coordinates (y down) for a page's
     /// visible box and `/Rotate` (format.md §8.5.1 table).
     static func pdfToEffective(visible v: PDFRect, rotation: Int) -> Affine {
@@ -270,6 +293,12 @@ struct PreparedItem {
 
     /// The placeholder, in page coordinates.
     var placeholder: [DrawCommand] { ItemGeometry.placeholder(corners) }
+
+    /// Drawn over the item whatever else is drawn for it: a video's play mark
+    /// (format.md §8.2.7); empty for other kinds.
+    var overlay: [DrawCommand] {
+        item.kind == .video ? ItemGeometry.playMark(frame: item.frame, degrees: item.rotation ?? 0) : []
+    }
 }
 
 /// A PDF page drawn by a `PDFPageRasterizer`, ready to place.
@@ -309,7 +338,7 @@ enum RasterItems {
                 }
             } else if it.item.kind == .math {
                 d = resolveMath(it, backgrounds: backgrounds, shaper: shaper, scale: scale, maxPixels: maxPixels, report: &report)
-            } else if it.item.kind == .image {
+            } else if it.item.kind == .image || it.item.kind == .video {
                 switch images.place(it) {
                 case .success(let p): d = .image(p)
                 case .failure(let reason): d = .placeholder(reason)
@@ -386,9 +415,16 @@ final class ImageStore {
         maxPixels = options.maxImagePixels
     }
 
-    /// Where an image item's pixels land, or why it is a placeholder.
+    /// Where an image item's pixels land, or why it is a placeholder. A video
+    /// item is drawn as its poster (format.md §8.2.7): the whole image, upright,
+    /// onto the frame.
     func place(_ it: PreparedItem) -> Result<PlacedImage, PlaceholderReason> {
-        let item = it.item
+        var item = it.item
+        if item.kind == .video {
+            guard let poster = item.poster else { return .failure(.noPoster) }
+            item = Item(id: item.id, kind: .image, frame: item.frame, rotation: item.rotation, z: item.z, blob: poster,
+                        pixelSize: item.pixelSize)
+        }
         guard let ref = item.blob else { return .failure(.blobUnavailable("image without a blob")) }
         let loadedImage: LoadedImage
         switch load(ref) {

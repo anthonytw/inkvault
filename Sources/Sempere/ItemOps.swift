@@ -107,6 +107,18 @@ extension NoteOps {
         return ItemEdit(ops: [.setItem(page: page.id, itemId: id, change: change)], page: out)
     }
 
+    /// Sets or removes (nil) a video's poster frame (format.md §8.2.7), one
+    /// `setItem(poster)`; nil when the page has no such video or it already
+    /// has that poster. Store the poster's blob first (`Vault.writeBlob`).
+    ///
+    /// - Throws: `AttachmentOpsError.invalidPoster` when `poster` is not a
+    ///   JPEG or PNG reference.
+    public static func setPoster(_ id: UUID, to poster: BlobRef?, on page: Page) throws -> ItemEdit? {
+        if let poster { try VideoIngestRules.checkPoster(poster) }
+        guard page.items.contains(where: { $0.id == id && $0.kind == .video }) else { return nil }
+        return setRegister(id, .poster(poster), on: page) { $0.poster == poster }
+    }
+
     /// Removes the items `ids` from `page`, one `removeItem` each (ids not on
     /// the page are skipped); nil when none is there. The blobs stay: they are
     /// collected later (format.md §8.1.6), so undo and history can use them.
@@ -147,7 +159,7 @@ extension NoteOps {
         return try addItems(copies, to: page)
     }
 
-    /// The blobs `items` reference, each once (to copy into another note
+    /// The blobs `items` reference (a video's poster too), each once (to copy into another note
     /// before the delta that adds the copies).
     public static func blobs(of items: [Item]) -> [BlobRef] {
         var seen: Set<String> = []

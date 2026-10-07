@@ -204,6 +204,10 @@ public struct TreeExporter: Sendable {
             do {
                 var outputs: [(String, Data)] = []
                 var searchText: String?
+                // Clips are written next to the note and linked, never embedded in its PDF.
+                options.embedVideos = false
+                let clips = options.blobs == nil ? [] : ExportVideos.clips(of: state)
+                let videoLinks = clips.map { (clip: $0, path: stem + "-assets/" + $0.fileName) }
                 switch format {
                 case .markdown:
                     if pdf {
@@ -232,12 +236,12 @@ public struct TreeExporter: Sendable {
                         }
                     }
                     let md = MarkdownExport.note(info: info, state: state, pdfName: pdf ? stem + ".pdf" : nil,
-                                                    pageImages: pageImages)
+                                                    pageImages: pageImages, videos: videoLinks)
                     outputs.append((prefix + ".md", Data(md.utf8)))
                 case .html:
                     let svgs = try SVGWriter.export(note: state, options: options, report: &report).pages
                     let back = String(repeating: "../", count: folder.count) + "index.html"
-                    let html = HTMLExport.notePage(info: info, state: state, svgs: svgs, indexHref: back)
+                    let html = HTMLExport.notePage(info: info, state: state, svgs: svgs, indexHref: back, videos: videoLinks)
                     outputs.append((prefix + ".html", Data(html.utf8)))
                     searchText = PageText.texts(of: state.pages).map(\.text).joined(separator: "\n")   // handwriting and typed text
                 default:
@@ -245,6 +249,24 @@ public struct TreeExporter: Sendable {
                 }
                 var result = TreeResult(noteId: id, files: [], changed: [])
                 let nb = NotebookPath.canonical(state.meta.notebook)
+                if let source = options.blobs {
+                    for clip in clips {
+                        let rel = prefix + "-assets/" + clip.fileName
+                        let url = root.appendingPathComponent(rel)
+                        let changed: Bool
+                        do {
+                            changed = try ExportVideos.write(clip, from: source, to: url, keepMetadata: options.keepImageMetadata)
+                        } catch {
+                            report.warn("\(clip.label) could not be written: \(errorText(error))")
+                            continue
+                        }
+                        result.files.append(url.path)
+                        if changed { result.changed.append(url.path) }
+                        runFiles.insert(rel)
+                        manifest.files[rel] = .init(note: id, notebook: nb)
+                        onFile(url.path, changed)
+                    }
+                }
                 for (rel, data) in outputs {
                     let changed = try put(rel, data)
                     result.files.append(root.appendingPathComponent(rel).path)

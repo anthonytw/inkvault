@@ -4,7 +4,7 @@ import Sempere
 import XCTest
 
 /// `sempere attach math`, `items math`, `items list`, `notes show`, `search`
-/// and `export` of equations (format.md §8.2.7, docs/cli.md "Equations"),
+/// and `export` of equations (format.md §8.2.8, docs/cli.md "Equations"),
 /// end to end through the binary.
 final class CLIMathTests: CLITestCase {
     static let pdfFixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

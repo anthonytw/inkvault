@@ -7,7 +7,8 @@
 import type { JSONObject } from "../format/json.ts";
 import { type BlobRef, asBlobRef } from "../vault/blobs.ts";
 import {
-  type Affine, type PreparedItem, backgroundFill, identity, placeholderCommands, pointsAttr, rotate, svgImageMatrix, svgMatrix,
+  type Affine, type PreparedItem, backgroundFill, identity, placeholderCommands, playMarkCommands, pointsAttr, rotate, svgImageMatrix,
+  svgMatrix,
 } from "./items.ts";
 import { type PreparedPage, type SVGElementSpec, elementSpec } from "./page.ts";
 import { fmt, paint, paintHex } from "./primitives.ts";
@@ -27,9 +28,11 @@ export type ItemDraw =
   | { kind: "image"; it: PreparedItem; ref: BlobRef }
   | {
     kind: "pdf"; it: PreparedItem; ref: BlobRef; pageIndex: number; pageSize: { w: number; h: number };
-    /** A math item's render (§8.2.7): drawn on a transparent page, its source as text when it cannot be. */
+    /** A math item's render (§8.2.8): drawn on a transparent page, its source as text when it cannot be. */
     math?: { content: TextContent; layout: TextLayout };
-  };
+  }
+  /** A video clip (§8.2.7): its poster (none: a placeholder) under the play mark; the clip plays on request. */
+  | { kind: "video"; it: PreparedItem; clip: BlobRef; poster?: BlobRef; duration?: number };
 
 export interface ResolvedItem {
   /** A background item's paper fill (§8.2.3), drawn first. */
@@ -71,8 +74,15 @@ function resolveItem(it: PreparedItem, measure: Measure): ItemDraw {
       if (!ref || !pageSize || typeof pageIndex !== "number") return { kind: "placeholder", it, reason: "PDF page without a blob" };
       return { kind: "pdf", it, ref, pageIndex, pageSize };
     }
+    case "video": {
+      const clip = asBlobRef(item.blob);
+      if (!clip) return { kind: "placeholder", it, reason: "video without a blob" };
+      const poster = asBlobRef(item.poster);
+      const duration = typeof item.duration === "number" ? item.duration : undefined;
+      return { kind: "video", it, clip, ...(poster ? { poster } : {}), ...(duration !== undefined ? { duration } : {}) };
+    }
     case "math": {
-      // §8.2.7: the stored render as a PDF page without crop, else the source as monospace text.
+      // §8.2.8: the stored render as a PDF page without crop, else the source as monospace text.
       const content = mathSource(item);
       if (!content) return { kind: "placeholder", it, reason: "math item without math" };
       const fallback = { content, layout: layoutText(content, it.frame, measure) };
@@ -99,6 +109,11 @@ export function mathSource(item: JSONObject): TextContent | undefined {
 
 function spec(e: SVGElementSpec): SVGNode {
   return { tag: e.tag, attrs: e.attrs };
+}
+
+/** The play mark over a video (§8.2.7), drawn whatever is under it. */
+export function playMarkNodes(it: PreparedItem): SVGNode[] {
+  return playMarkCommands(it.frame, it.rotation).map((c) => spec(elementSpec(c)));
 }
 
 /** The placeholder of §8.5.2. */

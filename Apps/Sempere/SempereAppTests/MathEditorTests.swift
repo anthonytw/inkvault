@@ -5,7 +5,7 @@ import Testing
 import UIKit
 @testable import SempereApp
 
-/// Equations in the app (format.md §8.2.7, docs/attachments.md §14 G1):
+/// Equations in the app (format.md §8.2.8, docs/attachments.md §14 G1):
 /// SwiftMath typesets a one-page PDF render that the shared reader accepts,
 /// the render is written before the delta, edits keep the frame's scale and
 /// undo, and an equation without a render (the CLI's) is typeset on the canvas.

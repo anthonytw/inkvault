@@ -19,6 +19,7 @@ extension Item {
         let mine = Self.kindFields(kind)
         if mine.contains("text"), let text { r["text"] = .text(text) }
         if mine.contains("crop") { r["crop"] = .crop(crop) }
+        if mine.contains("poster") { r["poster"] = .poster(poster) }
         if mine.contains("math"), let math { r["math"] = .math(math) }
         for (k, v) in extra where !Self.immutableFields.contains(k) { r[k] = .other(field: k, value: v) }
         return r
@@ -39,6 +40,8 @@ extension Item {
             if mine.contains("text") { text = v } else { extra["text"] = (try? JSONValue(encoding: v)) ?? .null }
         case .crop(let v):
             if mine.contains("crop") { crop = v } else { extra["crop"] = v.flatMap { try? JSONValue(encoding: $0) } ?? .null }
+        case .poster(let v):
+            if mine.contains("poster") { poster = v } else { extra["poster"] = v.flatMap { try? JSONValue(encoding: $0) } ?? .null }
         case .math(let v):
             if mine.contains("math") { math = v } else { extra["math"] = (try? JSONValue(encoding: v)) ?? .null }
         case .other(let field, let value):
@@ -57,7 +60,8 @@ extension Item {
     public func hasSameImmutableFields(as other: Item) -> Bool {
         guard kind == other.kind, layer == other.layer, rec == other.rec, blob == other.blob,
               pixelSize == other.pixelSize, orientation == other.orientation, pageIndex == other.pageIndex,
-              pageSize == other.pageSize else { return false }
+              pageSize == other.pageSize, duration == other.duration, videoRotation == other.videoRotation,
+              codec == other.codec else { return false }
         let fixed = Self.immutableFields
         return extra.filter { fixed.contains($0.key) } == other.extra.filter { fixed.contains($0.key) }
     }
@@ -125,6 +129,7 @@ extension ItemChange: RegisterChange {
         case .z(let v): return .string(v)
         case .text(let v): return try? JSONValue(encoding: v)
         case .crop(let v): return v.map { try? JSONValue(encoding: $0) } ?? .null
+        case .poster(let v): return v.map { try? JSONValue(encoding: $0) } ?? .null
         case .math(let v): return try? JSONValue(encoding: v)
         case .other(_, let v): return v
         }
@@ -146,8 +151,8 @@ extension RecordingChange: RegisterChange {
 }
 
 extension NoteState {
-    /// The blobs this state references: every live item's `blob` (and a math
-    /// item's `render`) and every
+    /// The blobs this state references: every live item's `blob`, a video's
+    /// `poster` and a math item's `render`, and every
     /// recording's `blob` and `transcript`, one per content hash (the first
     /// in that order), sorted by `sha256`.
     public var blobReferences: [BlobRef] {

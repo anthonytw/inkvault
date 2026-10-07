@@ -18,6 +18,16 @@ public struct WebDAVSyncOptions: Sendable {
     /// encryption overhead.
     public var maxBlobBytes = WebDAVSyncOptions.defaultMaxBlobBytes
 
+    /// One-way mirror (`sempere sync webdav --push-only`): upload what the
+    /// server lacks, replace its `vault.json` / `rewrap-journal.json` with the
+    /// local copy and propagate compaction and GC deletions to it, but never
+    /// download, never write or delete anything in the local vault. See
+    /// `WebDAVSync` and docs/io.md.
+    public var pushOnly = false
+    /// Push-only: also remove from the server what the local vault does not
+    /// have and nothing explains (reported in `SyncReport.extraneous` either way).
+    public var deleteExtraneous = false
+
     /// Blob downloads are made of `Range` requests of this size, so memory
     /// stays bounded by one of them however fast the server is.
     public var blobSegmentBytes = WebDAVClient.defaultSegmentBytes
@@ -67,9 +77,14 @@ public final class WebDAVSync {
     private var madeCollections = Set<[String]>()
     /// What the server holds after this run, per note (revision file names):
     /// the listing a server-side `sempere-index.json` must show.
-    private var remoteRevisions: [String: [String]] = [:]
+    var remoteRevisions: [String: [String]] = [:]
     /// True when the server holds a `rewrap-journal.json` (format.md §8.1.6 rule 2).
     var remoteJournal = false
+    /// Push-only: remote entries that are not vault files (the `ignored` ones), as paths.
+    var remoteJunk: [[String]] = []
+    /// False on a first sync (no readable state): then nothing on the server
+    /// is known to have been synced, so push-only never deletes extraneous files.
+    var hadState = false
 
     /// - Parameters:
     ///   - directory: the local vault; it may be missing or empty for a first pull.
@@ -99,9 +114,13 @@ public final class WebDAVSync {
     ///   root cannot be listed. Anything per file lands in the report.
     public func run() throws -> SyncReport {
         do {
-            if let s = try SyncState.load(stateURL) { state = s }
+            if let s = try SyncState.load(stateURL) { state = s; hadState = true }
         } catch {
             report.skipped.append(.init(path: stateURL.path, message: "sync state unreadable (\(error.localizedDescription)); treated as a first sync"))
+        }
+        if options.pushOnly && !FileManager.default.fileExists(atPath: root.appendingPathComponent(Self.manifestName).path) {
+            // A mirror of nothing would list (and could delete) the whole server.
+            throw WebDAVError.io("push-only sync needs a local vault (no \(Self.manifestName) in \(root.path))")
         }
         let rootEntries = try client.list([]) ?? []
         let remoteRoot = Dictionary(rootEntries.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
@@ -110,7 +129,8 @@ public final class WebDAVSync {
         removeLeftoverRemoteTemps()
 
         for name in [Self.manifestName, Self.journalName] {
-            do { try syncMutable(name, remote: remoteRoot[name].flatMap { $0.isCollection ? nil : $0 }) } catch {
+            let remote = remoteRoot[name].flatMap { $0.isCollection ? nil : $0 }
+            do { options.pushOnly ? try pushMutable(name, remote: remote) : try syncMutable(name, remote: remote) } catch {
                 report.errors.append(.init(path: name, message: Self.describe(error)))
             }
         }
@@ -127,6 +147,7 @@ public final class WebDAVSync {
                 report.errors.append(.init(path: "notes/\(id)", message: Self.describe(error)))
             }
         }
+        if options.pushOnly { deleteRemoteJunk() }
         if !options.dryRun, let entry = remoteRoot[WebIndex.fileName], !entry.isCollection {
             do { try refreshRemoteWebIndex() } catch {
                 report.errors.append(.init(path: WebIndex.fileName, message: Self.describe(error)))
@@ -138,6 +159,11 @@ public final class WebDAVSync {
             }
         }
         return report
+    }
+
+    /// Every local write goes through this first: a push-only run never makes one.
+    func requireLocalWrite(_ what: String) throws {
+        if options.pushOnly { throw WebDAVError.io("push-only run refused to \(what) locally") }
     }
 
     static func describe(_ error: Error) -> String {
@@ -154,6 +180,8 @@ public final class WebDAVSync {
               let localId = Self.vaultId(local) else { return }
         let remote = try client.get([Self.manifestName]).data
         guard let remoteId = Self.vaultId(remote) else {
+            // A mirror is repaired from the local manifest; a two-way sync has nothing to compare.
+            if options.pushOnly { return }
             throw WebDAVError.malformedResponse("remote vault.json is not a vault manifest")
         }
         if localId != remoteId { throw WebDAVError.vaultMismatch(local: localId, remote: remoteId) }
@@ -223,6 +251,17 @@ public final class WebDAVSync {
     }
 
     private func accept(_ name: String, _ data: Data, stamp: String?) throws {
+        try requireLocalWrite("write \(name)")
+        if name == Self.manifestName {
+            // Never let a list nobody with the key wrote replace ours (format.md §2.1).
+            let localURL = root.appendingPathComponent(name)
+            let local = FileManager.default.fileExists(atPath: localURL.path)
+                ? try BoundedRead.contents(of: localURL, maxBytes: BoundedRead.maxManifestBytes) : nil
+            if let why = Vault.incomingManifestProblem(data, local: local, vault: vault) {
+                report.rejected.append(.init(path: name, message: SyncReport.printable(why)))
+                return
+            }
+        }
         report.downloaded.append(name)
         guard !options.dryRun else { return }
         try LocalFS.write(data, to: root.appendingPathComponent(name), replacing: true)
@@ -230,7 +269,7 @@ public final class WebDAVSync {
     }
 
     /// Uploads a mutable file; false when the precondition failed.
-    private func push(_ name: String, _ data: Data, condition: PutCondition) throws -> Bool {
+    func push(_ name: String, _ data: Data, condition: PutCondition) throws -> Bool {
         if options.dryRun { report.uploaded.append(name); return true }
         try ensureCollection([])
         guard try client.put([name], data, condition: condition) else { return false }
@@ -238,13 +277,14 @@ public final class WebDAVSync {
         return true
     }
 
-    private func recordMutable(_ name: String, hash: String) throws {
+    func recordMutable(_ name: String, hash: String) throws {
         guard !options.dryRun else { return }
         let entry = try client.stat([name])
         state.mutable[name] = .init(hash: hash, stamp: entry?.stamp)
     }
 
     private func conflict(_ name: String, remote: Data, detail: String) throws {
+        try requireLocalWrite("write a conflict copy of \(name)")
         let base = (name as NSString).deletingPathExtension
         var copy: String?
         if !options.dryRun {
@@ -278,7 +318,7 @@ public final class WebDAVSync {
 
     // MARK: - Notes
 
-    private func localNoteIDs() throws -> [String] {
+    func localNoteIDs() throws -> [String] {
         try LocalFS.entries(root.appendingPathComponent("notes")).filter(Self.isNoteID)
     }
 
@@ -293,6 +333,7 @@ public final class WebDAVSync {
         for d in dirs {
             guard d.isCollection, Self.isNoteID(d.name) else {
                 report.ignored.append(SyncReport.printable("notes/\(d.name)"))
+                remoteJunk.append(["notes", d.name])
                 continue
             }
             out[d.name] = try client.list(["notes", d.name]) ?? []
@@ -300,9 +341,10 @@ public final class WebDAVSync {
         return out
     }
 
-    private func key(_ id: String, _ n: RevisionName) -> String { "\(id)/\(n.filename)" }
+    func key(_ id: String, _ n: RevisionName) -> String { "\(id)/\(n.filename)" }
 
     private func syncNote(_ id: String, remoteEntries: [RemoteEntry]?) throws {
+        if options.pushOnly { return try syncNotePushOnly(id, remoteEntries: remoteEntries) }
         let dir = root.appendingPathComponent("notes").appendingPathComponent(id)
         var size: [RevisionName: Int] = [:]
         var R = Set<RevisionName>()
@@ -311,6 +353,7 @@ public final class WebDAVSync {
             if e.name == Self.attName && e.isCollection { remoteAtt = e; continue }
             guard !e.isCollection, let n = RevisionName(e.name), n.filename == e.name else {
                 report.ignored.append(SyncReport.printable("notes/\(id)/\(e.name)"))
+                remoteJunk.append(["notes", id, e.name])
                 continue
             }
             R.insert(n)
@@ -369,6 +412,7 @@ public final class WebDAVSync {
                     }
                     if allowed {
                         report.deleted.append(.init(side: "local", path: "notes/\(key(id, n))"))
+                        try requireLocalWrite("delete notes/\(key(id, n))")
                         if !options.dryRun { try LocalFS.remove(dir.appendingPathComponent(n.filename)) }
                         L.remove(n)
                     } else if loaded != nil && readable.contains(n) {
@@ -443,7 +487,7 @@ public final class WebDAVSync {
         report.uploaded.append(WebIndex.fileName)
     }
 
-    private func upload(_ id: String, _ n: RevisionName) throws {
+    func upload(_ id: String, _ n: RevisionName) throws {
         let path = "notes/\(key(id, n))"
         report.uploaded.append(path)
         guard !options.dryRun else { return }
@@ -456,6 +500,7 @@ public final class WebDAVSync {
 
     /// Returns false when the file appeared locally in the meantime.
     private func download(_ id: String, _ n: RevisionName, size: Int?) throws -> Bool {
+        try requireLocalWrite("download notes/\(key(id, n))")
         let path = "notes/\(key(id, n))"
         if let size, size > options.maxFileBytes { throw WebDAVError.io("\(path) is \(size) bytes, over the limit; skipped") }
         report.downloaded.append(path)

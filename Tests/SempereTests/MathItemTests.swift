@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import Sempere
 
-/// `math` items (format.md §8.2.7): the JSON shape, validation, the one
+/// `math` items (format.md §8.2.8): the JSON shape, validation, the one
 /// `math` register and its merge, the typesetting limits of `MathSource`,
 /// and the `NoteOps` builders the app and the CLI share.
 final class MathItemTests: VaultTestCase {
@@ -131,7 +131,7 @@ final class MathItemTests: VaultTestCase {
         XCTAssertEqual(PageText.texts(of: [p]).first?.text, "\\alpha + \\beta")
     }
 
-    // MARK: Typesetting limits (format.md §8.2.7)
+    // MARK: Typesetting limits (format.md §8.2.8)
 
     func testSourceChecks() {
         let ok = ["x", "\\frac{a}{b}", "\\left( x \\right)", "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",

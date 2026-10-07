@@ -206,7 +206,7 @@ final class SempereFuzzTests: VaultTestCase {
         })
     }
 
-    /// LaTeX sources (format.md §8.2.7): `MathSource.check` must answer every
+    /// LaTeX sources (format.md §8.2.8): `MathSource.check` must answer every
     /// input quickly (linear, no recursion), and a source it accepts must
     /// stay within the limits it promises.
     func testFuzzMathSource() throws {
@@ -328,6 +328,42 @@ final class SempereFuzzTests: VaultTestCase {
                     _ = clock.observe(HLC(millis: HLC.maxMillis, counter: HLC.maxCounter)!, wall: .distantFuture)
                 }
             }
+        })
+    }
+
+    /// vault.json's `recipientsTag` / `secretLink` (format.md §2.1) and trust
+    /// records: a mutated manifest never verifies with keys other than the
+    /// real ones under the real secret, is never classified untagged by a
+    /// device with a record, and never traps.
+    func testFuzzRecipientsTag() throws {
+        let id = pqIdentity(), other = pqIdentity()
+        let store = MemoryRecipientsTrustStore()
+        let vault = try Vault.create(at: vaultURL(), recipients: [id.recipient, other.recipient], labels: ["a", "b"],
+                                     identities: [id], trust: store)
+        let manifest = try Data(contentsOf: vault.url.appendingPathComponent("vault.json"))
+        let secret = try XCTUnwrap(vault.secret)
+        let record = try XCTUnwrap(store.record(for: vault.vaultId))
+        let recordJSON = try JSONEncoder().encode(record)
+        let keys = vault.recipients.map(\.key)
+        assertClean(Fuzz.run("recipients-tag", seeds: [manifest, recordJSON], quick: 600, text: true) { input in
+            if let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: input), r.linkKey.count != 32 {
+                return "a trust record with a \(r.linkKey.count)-byte link key"
+            }
+            guard let m = try? Vault.readManifest(input) else {
+                _ = Vault.incomingManifestProblem(input, local: manifest, vault: vault)
+                return nil
+            }
+            _ = RecipientsAuth.unhex(m.recipientsTag ?? "")
+            for rec in [record, nil] as [RecipientsTrustRecord?] {
+                let status = RecipientsAuth.evaluate(m, secret: secret, record: rec)
+                if case .verified = status, m.vaultId == vault.vaultId, m.recipients.map(\.key) != keys {
+                    return "a changed list verified: \(status)"
+                }
+                if rec != nil, m.vaultId == vault.vaultId, status == .untagged { return "untagged despite a record" }
+            }
+            _ = Vault.incomingManifestProblem(input, local: manifest, vault: vault)
+            _ = try? m.encoded()
+            return nil
         })
     }
 

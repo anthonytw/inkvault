@@ -91,7 +91,7 @@ struct SearchCommand: ParsableCommand {
         discussion: """
             Case-insensitive substring search over each page's recognised text (from the Notability
             import or on-device recognition), over the text of every text box, the LaTeX source of every
-            equation (format.md §8.2.7; hits say "p3 math") and over the stored text of
+            equation (format.md §8.2.8; hits say "p3 math") and over the stored text of
             every PDF page (format.md §8.2.6; hits say "p3 pdf p7": note page 3, PDF page 7). With --transcripts it
             also searches the transcript of each recording (this decrypts each transcript blob, so it is
             slower). Prints note title, where (p3, p3 text, rec 12:03) and a snippet; --json adds ids,

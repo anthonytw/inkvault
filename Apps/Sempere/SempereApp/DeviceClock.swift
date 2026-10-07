@@ -83,6 +83,12 @@ actor NoteWriter {
         self.coordinated = coordinated; self.wall = wall; self.session = session
     }
 
+    /// Makes the next `seq` at least `seq`: a revision of this device that
+    /// another writer (a browser edit) added since this one started.
+    func raiseNextSeq(to seq: Int) {
+        nextSeq = max(nextSeq, seq)
+    }
+
     /// `sempere-ios/<version>` (format.md §5.1 `app`).
     static var appName: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -193,10 +199,10 @@ actor NoteWriter {
     /// coordinated write on the note's folder, so iCloud uploads the blob.
     /// Picked files and recordings are copied into the app container first:
     /// security-scoped URLs expire (docs/attachments.md §13).
-    func addBlob(from file: URL, type: String) throws -> BlobRef {
+    func addBlob(from file: URL, type: String, edits: [ByteEdit] = []) throws -> BlobRef {
         let vault = self.vault, note = noteID
         return try CloudVault.coordinatedWrite(coordinationURL) {
-            try vault.writeBlob(note: note, contentsOf: file, type: type)
+            try vault.writeBlob(note: note, contentsOf: file, type: type, edits: edits)
         }
     }
 

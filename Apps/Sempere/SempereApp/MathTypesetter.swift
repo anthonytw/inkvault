@@ -4,7 +4,7 @@ import Sempere
 import SwiftMath
 import UIKit
 
-/// The app's math typesetter (format.md §8.2.7, docs/attachments.md §14 G1):
+/// The app's math typesetter (format.md §8.2.8, docs/attachments.md §14 G1):
 /// SwiftMath (MIT) lays out the LaTeX source; the result is stored as the
 /// item's `render`, a one-page PDF of exactly the typeset box plus a margin,
 /// marks only in the equation's colour on a transparent page, so every other
@@ -69,7 +69,7 @@ enum MathTypesetter {
         cg.restoreGState()
     }
 
-    /// The render of `content` (format.md §8.2.7): PDF bytes and its page size in points.
+    /// The render of `content` (format.md §8.2.8): PDF bytes and its page size in points.
     @MainActor
     static func typeset(_ content: MathContent) throws -> (data: Data, size: Size) {
         let label = try label(content)
@@ -110,7 +110,7 @@ enum MathTypesetter {
 
     /// An equation without a render drawn on the canvas: typeset now and
     /// stretched onto its frame, rotated, as a renderer draws the render
-    /// (format.md §8.2.7 step 2). Returns the picture and the page area it
+    /// (format.md §8.2.8 step 2). Returns the picture and the page area it
     /// covers (the rotated frame's bounds).
     @MainActor
     static func picture(_ content: MathContent, frame: Rect, rotation: Double?, scale: Double) -> (CGImage, Rect)? {
