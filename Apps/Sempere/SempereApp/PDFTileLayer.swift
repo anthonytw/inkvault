@@ -78,7 +78,8 @@ final class PDFTileContent: @unchecked Sendable {
 
     /// Draws into a tile's context (user space: the layer's bounds, the item's frame size).
     func draw(in ctx: CGContext) {
-        guard let (box, item) = current else { return }
+        guard let pair = current else { return }
+        let (box, item) = pair
         // Core Animation's contexts on iOS are y down; flip one that is not.
         if ctx.ctm.d > 0 {
             ctx.translateBy(x: 0, y: CGFloat(item.frame.h))

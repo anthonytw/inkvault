@@ -73,7 +73,11 @@ struct PageCanvasView: UIViewRepresentable {
         host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
         host.itemSelection.commands = itemCommands
         host.onItemSelectionEnded = onSelectingItemsEnded
-        host.dropHandler = onDrop.map { handler in { providers, point in handler(providers, pageID, point) } }
+        if let onDrop {
+            host.dropHandler = { providers, point in onDrop(providers, pageID, point) }
+        } else {
+            host.dropHandler = nil
+        }
         host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
         host.itemSelection.refresh()
     }
