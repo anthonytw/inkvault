@@ -233,3 +233,22 @@ public struct LayoutText: Sendable {
     /// The Unicode script of a scalar (`Latin`, `Han`, `Arabic`, …), for reports.
     public static func script(of scalar: Unicode.Scalar) -> String { UnicodeProperties.script[scalar.value] }
 }
+
+extension TextLineBreaks {
+    /// `content` laid out afresh at `frame`'s width by `shaper`, as a writer
+    /// stores it (format.md §8.2.4): its `breaks` where `shaper` broke the
+    /// lines, and `frame` with the height those lines take (at least one line
+    /// of the box's size).
+    public static func relayout(_ content: TextContent, frame: Rect, shaper: any TextShaper) throws
+        -> (content: TextContent, frame: Rect) {
+        var free = content
+        free.breaks = nil
+        let shaped = try shaper.shape(free, frame: frame)
+        var out = content
+        out.breaks = breaks(of: shaped, content: content)
+        let layout = LayoutText(content)
+        let height = LayoutText.height(of: layout.lines(layout.lineRanges(breaks: out.breaks ?? []), top: 0))
+        let h = InkJSON.round3(max(height, 1.2 * content.size))
+        return (out, Rect(x: frame.x, y: frame.y, w: frame.w, h: h))
+    }
+}
