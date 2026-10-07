@@ -1589,7 +1589,11 @@ across export pages like a stroke.
 - `breaks`: optional, the writer's soft line breaks: strictly increasing
   offsets, in Unicode scalar values from the start of the item's text, at
   which a new line starts that is not after a `\n`. Writers that lay text out
-  should store it; renderers use it (§8.5.3).
+  should store it; renderers use it (§8.5.3). `breaks` belong to the frame
+  width they were computed for: a writer that changes a text box's width
+  (a resize) writes the text again in the same delta, with new `breaks` (or
+  none). An empty array is valid: the writer laid the text out and no
+  paragraph wraps.
 - `frame` width is the wrapping width. `frame` height is the height the
   writer laid the text out to; renderers never clip text to it (§8.5.3).
 

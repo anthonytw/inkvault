@@ -418,6 +418,31 @@ struct PageStackTests {
         #expect(try StackTS.slot(stack, editor, page: 0).host.dropHandler == nil)
     }
 
+    /// A text box being typed in on a page of the stack keeps the keyboard
+    /// while the stack lays out again (the keyboard resizing it, a scroll):
+    /// the stack never hands the focus back to a page canvas meanwhile.
+    @Test func typingInATextBoxKeepsTheFocusWhileTheStackMoves() async throws {
+        let editor = try await StackTS.editor(pages: 3)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 1366))
+        let stack = PageStackHost(frame: window.bounds)
+        window.addSubview(stack)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        stack.update(StackTS.configuration(editor))
+        stack.layoutIfNeeded()
+        let slot = try StackTS.slot(stack, editor, page: 0)
+        slot.host.textEditor.beginNew(at: ItemFrames.Point(x: 100, y: 100))
+        let typing = try #require(slot.host.textEditor.textView)
+        #expect(typing.isFirstResponder)
+        stack.frame.size.height -= 300   // the keyboard
+        StackTS.refresh(stack, editor)
+        StackTS.scroll(stack, toShowTopOf: 0, plus: 5)
+        #expect(slot.host.textEditor.isEditing)
+        #expect(typing.isFirstResponder, "the text view keeps the keyboard")
+        #expect(!slot.host.canvas.isFirstResponder)
+        slot.host.textEditor.endEditing(commit: false)
+    }
+
     @Test func anotherNoteStartsFresh() async throws {
         let first = try await StackTS.editor(pages: 12)
         let (window, stack) = StackTS.stack(first)

@@ -337,10 +337,14 @@ exit 2).
   input), at most 65 536 bytes of UTF-8, stored as NFC with `\n` line breaks in
   one style (one trailing newline of a file is dropped). Without a frame the box
   is as wide as the page inside a 36 pt margin (or `--width`), a margin from
-  the top and left (or `--at`) and as tall as its lines at 1.2 × `--size`
-  (default 14); soft line breaks are left to each renderer (no `breaks` are
-  stored, `format.md` §8.5.3). `--lang` picks fonts for CJK text. Typed text is
-  searchable (`search`).
+  the top and left (or `--at`). The text is laid out with the fonts `export`
+  uses (bundled Noto and font packs) and the soft line breaks are **stored**
+  (`breaks`, `format.md` §8.2.4, §8.5.3), so the app, the app's exports and
+  `sempere export` break it into the same lines; without `--frame` the box is
+  as tall as those lines at 1.2 × `--size` (default 14), a `--frame` keeps its
+  height. `--no-breaks` stores none (each renderer then wraps the text with its
+  own fonts); without usable fonts the CLI warns and stores none. `--lang`
+  picks fonts for CJK text. Typed text is searchable (`search`).
 - `recording` stores an audio file and adds it to the note. MPEG-4 audio (`.m4a`;
   AAC-LC, HE-AAC or ALAC, `audio/mp4`) is read for its duration, codec, sample
   rate, channels and average bit rate; each option overrides what was read.
@@ -776,7 +780,9 @@ the delta is written. An item is named by its id or an id prefix of at least
 4 characters (an ambiguous prefix is refused); the items of one command must
 be on one page. `list` prints page, id prefix, kind, frame and attachment
 (`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`, `crop`).
-`move` sets the frame (move and resize), `rotate` the rotation, `crop` the
+`move` sets the frame (move and resize; a text box with stored `breaks` that
+gets another width is laid out again with the CLI's fonts, its new `breaks`
+and the height of its lines written in the same delta, as the app does), `rotate` the rotation, `crop` the
 part of an image or PDF page shown (`--crop` in the source's coordinates:
 pixels of the upright image, or points on the PDF page's visible box; clamped
 to the source; `--clear` shows all of it): the frame follows so the part that

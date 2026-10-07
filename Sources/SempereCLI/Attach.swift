@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Sempere
+import SempereFonts
 import SempereRender
 
 // `sempere attach …`: images, PDF pages, text boxes, recordings and
@@ -434,9 +435,12 @@ struct AttachText: ParsableCommand {
         discussion: """
             The text is the argument, or read from --file (- for standard input); it is stored as NFC with \
             line breaks as \\n, in one style. Without a frame the box is as wide as the page inside a 36 pt margin \
-            (or --width), a margin from the top left (or --at), as tall as its lines at 1.2 × the size. Soft \
-            line wrapping is left to each renderer. Typed text is searchable (`sempere search`). Prints the \
-            new item's id.
+            (or --width), a margin from the top left (or --at). The text is laid out with the CLI's fonts \
+            (the bundled Noto and font packs, as `export` uses) and the line breaks are stored with it \
+            (`breaks`, format.md §8.5.3), so the app, its exports and `sempere export` break it into the \
+            same lines; the box is as tall as those lines at 1.2 × the size (a --frame keeps its height). \
+            --no-breaks stores no breaks and leaves wrapping to each renderer. Typed text is searchable \
+            (`sempere search`). Prints the new item's id.
             """
     )
 
@@ -475,6 +479,9 @@ struct AttachText: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp("content (default) or background.", valueName: "layer"))
     var layer: LayerChoice = .content
 
+    @Flag(name: .customLong("no-breaks"), help: "Store no line breaks: each renderer wraps the text itself.")
+    var noBreaks = false
+
     @Flag(name: .customLong("dry-run"), help: "Say what would be added; write nothing.")
     var dryRun = false
 
@@ -495,12 +502,16 @@ struct AttachText: ParsableCommand {
                               bold: bold, italic: italic, lang: lang)
         let before = try liveState(vault, id)
         let target = try targetPage(before, placement.page)
+        let laysOut = !noBreaks
+        let keepHeight = placement.frame != nil
         func place(_ state: NoteState, _ page: Page) throws -> ItemPlacement {
-            try translating {
+            var placed = try translating {
                 try NoteOps.placeText(string, style: style, on: page, pageSize: state.meta.pageSize, frame: placement.frame?.rect,
                                       at: placement.at.map { ($0.x, $0.y) }, width: placement.width, layer: layer.layer,
                                       rec: try link(placement, in: state))
             }
+            if laysOut { placed.item = laidOutText(placed.item, keepHeight: keepHeight) }
+            return placed
         }
         var placed = try place(before, target.page)
         var number = target.number
@@ -531,6 +542,27 @@ struct AttachText: ParsableCommand {
         guard let s = String(data: data, encoding: .utf8) else { throw CLIError.failure("the text is not valid UTF-8") }
         // One trailing newline is the file's, not the text's.
         return s.hasSuffix("\n") ? String(s.dropLast()) : s
+    }
+}
+
+/// The shaper the CLI lays text out with: the fonts `export` draws with.
+let cliTextShaper: DefaultTextShaper = DefaultTextShaper(
+    library: FontLibrary(bundled: SempereFonts.directory, packs: FontLibrary.defaultPackDirectories()))
+
+/// A text item with `breaks` from the CLI's own layout (format.md §8.2.4)
+/// and, unless `keepHeight`, the height its lines take. Without usable fonts
+/// it is returned as it was (no breaks: renderers wrap it), with a warning.
+func laidOutText(_ item: Item, keepHeight: Bool) -> Item {
+    guard item.kind == .text, let text = item.text else { return item }
+    do {
+        let laid = try TextLineBreaks.relayout(text, frame: item.frame, shaper: cliTextShaper)
+        var out = item
+        out.text = laid.content
+        if !keepHeight { out.frame = laid.frame }
+        return out
+    } catch {
+        printStderr("sempere: warning: the text could not be laid out (\(error)); no line breaks stored")
+        return item
     }
 }
 

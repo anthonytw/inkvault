@@ -55,20 +55,20 @@ struct ItemRenderKey: Hashable, Sendable {
 
 /// Draws items off the main actor for the item layer (`ItemLayerView`):
 /// images and PDF pages through SempereRender's composition (`ItemRaster`,
-/// as exports draw them) from the vault's `BlobCache`; text natively until
-/// the app has its CoreText `TextShaper` (task E2).
+/// as exports draw them) from the vault's `BlobCache`; text boxes from their
+/// CoreText layout (`TextItemImage`), as the app's exports draw them.
 enum ItemRendering {
     /// Largest picture of one item, in pixels.
     static let maxPixels = 6_000_000
 
-    /// Draws one item. Pixels are made off the main actor; the text of a
-    /// text box is drawn here (UIKit text drawing stays on the main actor).
+    /// Draws one item. Pixels are made off the main actor; a text box is
+    /// drawn here (its layout uses UIKit fonts).
     @MainActor
     static func render(_ key: ItemRenderKey, note: UUID, cache: BlobCache?) async -> ItemPicture {
         let item = key.item
         if item.kind == .text, let text = item.text {
-            return TextItemImage.render(text, frame: item.frame, rotation: item.rotation, scale: key.scale)
-                .map { ItemPicture.image($0, bounds: ItemFrames.bounds(item.frame, rotation: item.rotation)) }
+            return TextItemImage.picture(text, frame: item.frame, rotation: item.rotation, scale: key.scale)
+                .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
         var files: [String: URL] = [:]
@@ -152,65 +152,55 @@ struct ImageIODecoder: ImageDecoding {
     }
 }
 
-/// Text boxes drawn with UIKit until task E2 brings the CoreText layout of
-/// format.md §8.5.3 (stored breaks, fixed metrics). Runs keep their bold,
-/// italic, underline, strike-through, colour and size.
+/// Text boxes on the canvas: drawn from their CoreText layout
+/// (`TextBoxLayout`: stored breaks, the format's fixed vertical metrics,
+/// format.md §8.5.3), the same layout the app's exports use. Text is never
+/// clipped to its frame: the picture covers lines that overflow it.
 enum TextItemImage {
-    /// The attributed string for a text box (pure mapping, tested).
+    /// The attributed string a text box is edited as (`TextBoxEditing`).
     @MainActor
     static func attributed(_ content: TextContent) -> NSAttributedString {
-        let out = NSMutableAttributedString()
-        let paragraph = NSMutableParagraphStyle()
-        switch content.align?.rawValue {
-        case "center": paragraph.alignment = .center
-        case "end": paragraph.alignment = content.dir?.rawValue == "rtl" ? .left : .right
-        case "left": paragraph.alignment = .left
-        case "right": paragraph.alignment = .right
-        default: paragraph.alignment = content.dir?.rawValue == "rtl" ? .right : .left
-        }
-        for run in content.runs {
-            let size = CGFloat(run.size ?? content.size)
-            var font = UIFont.systemFont(ofSize: size)
-            var descriptor = font.fontDescriptor
-            switch content.font.rawValue {
-            case "serif": descriptor = descriptor.withDesign(.serif) ?? descriptor
-            case "mono": descriptor = descriptor.withDesign(.monospaced) ?? descriptor
-            default: break
-            }
-            var traits: UIFontDescriptor.SymbolicTraits = []
-            if run.b { traits.insert(.traitBold) }
-            if run.i { traits.insert(.traitItalic) }
-            descriptor = descriptor.withSymbolicTraits(traits) ?? descriptor
-            font = UIFont(descriptor: descriptor, size: size)
-            var attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: paragraph,
-                                                             .foregroundColor: (run.color ?? content.color).uiColor]
-            if run.u { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-            if run.s { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            out.append(NSAttributedString(string: run.t, attributes: attributes))
-        }
-        return out
+        TextBoxEditing.attributed(content)
     }
 
-    /// The text box drawn into the bounds of its rotated frame at `scale`.
+    /// The text box drawn at `scale`, and the page area the picture covers
+    /// (the bounds of the rotated extent of its text and frame).
     @MainActor
-    static func render(_ content: TextContent, frame: Rect, rotation: Double?, scale: Double) -> CGImage? {
-        let bounds = ItemFrames.bounds(frame, rotation: rotation)
+    static func picture(_ content: TextContent, frame: Rect, rotation: Double?, scale: Double) -> (CGImage, Rect)? {
+        let layout = TextBoxLayout(content, frame: frame)
+        let extent = layout.extent
+        // The extent turned about the frame's centre, as the item is.
+        let c = (x: frame.x + frame.w / 2, y: frame.y + frame.h / 2)
+        let rotated = ItemFrames.corners(extent, rotation: nil).map { p -> ItemFrames.Point in
+            let r = (rotation ?? 0) * .pi / 180
+            let dx = p.x - c.x, dy = p.y - c.y
+            return ItemFrames.Point(x: c.x + cos(r) * dx - sin(r) * dy, y: c.y + sin(r) * dx + cos(r) * dy)
+        }
+        let xs = rotated.map(\.x), ys = rotated.map(\.y)
+        guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return nil }
+        let bounds = Rect(x: x0.rounded(.down), y: y0.rounded(.down), w: (x1 - x0.rounded(.down)).rounded(.up),
+                          h: (y1 - y0.rounded(.down)).rounded(.up))
         let pixels = bounds.w * bounds.h * scale * scale
         let s = pixels > Double(ItemRendering.maxPixels) ? (Double(ItemRendering.maxPixels) / (bounds.w * bounds.h)).squareRoot() : scale
         guard bounds.w > 0, bounds.h > 0, s.isFinite, s > 0 else { return nil }
         let format = UIGraphicsImageRendererFormat()
         format.scale = CGFloat(s)
         format.opaque = false
-        let text = attributed(content)
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: bounds.w, height: bounds.h), format: format)
         let image = renderer.image { ctx in
             let cg = ctx.cgContext
-            cg.translateBy(x: CGFloat(frame.x + frame.w / 2 - bounds.x), y: CGFloat(frame.y + frame.h / 2 - bounds.y))
+            // Page coordinates: the item's centre, turned, then the frame's own axes.
+            cg.translateBy(x: CGFloat(c.x - bounds.x), y: CGFloat(c.y - bounds.y))
             cg.rotate(by: CGFloat((rotation ?? 0) * .pi / 180))
-            let local = CGRect(x: -frame.w / 2, y: -frame.h / 2, width: frame.w, height: frame.h)
-            cg.clip(to: local)
-            text.draw(with: local, options: [.usesLineFragmentOrigin], context: nil)
+            cg.translateBy(x: CGFloat(-c.x), y: CGFloat(-c.y))
+            layout.draw(in: cg)
         }
-        return image.cgImage
+        return image.cgImage.map { ($0, bounds) }
+    }
+
+    /// The picture alone (tests).
+    @MainActor
+    static func render(_ content: TextContent, frame: Rect, rotation: Double?, scale: Double) -> CGImage? {
+        picture(content, frame: frame, rotation: rotation, scale: scale)?.0
     }
 }
