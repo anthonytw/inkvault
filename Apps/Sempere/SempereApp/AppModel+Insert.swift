@@ -150,6 +150,8 @@ extension AppModel {
             if case .pagelessNote = e { return String(localized: "This note is pageless: switch it to pages first, or import the PDF as a new note.") }
             return "\(e)"
         case let e as ImageIngestError: return e.description
+        case let e as VideoPreparation.Failure: return e.description
+        case let e as VideoProbeError: return e.description
         default: return "\(error)"
         }
     }

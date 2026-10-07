@@ -33,10 +33,29 @@ public struct LocalCacheKey: Sendable {
     }
 
     init(secret: VaultSecret, purpose: String, magic: [UInt8]) {
+        // Purposes are constants of the caller: a reserved one is a bug, and
+        // would hand a cache the key of a vault-wide use (format.md §10.1).
+        precondition(Self.isUsablePurpose(purpose), "reserved or malformed cache purpose: \(purpose)")
         key = Self.derive(secret, "sempere/1 \(purpose) key", 32)
         entryKey = Self.derive(secret, "sempere/1 \(purpose) entry", 32)
         name = Self.hex(Self.derive(secret, "sempere/1 \(purpose) name", 16))
         self.magic = magic
+    }
+
+    /// Words whose `"sempere/1 <word> key"` (or `name`) is a vault-wide key
+    /// of format.md: the summary cache (§10), authenticated recipients (§2.1)
+    /// and captures (§11.1). No cache may use them.
+    static let reservedPurposes: Set<String> = ["summary-cache", "recipients", "capture"]
+
+    /// True when `purpose` is lowercase ASCII letters and digits in
+    /// hyphen-separated words (so no info string of §2.1, which hold spaces,
+    /// can be formed) and not a reserved word (format.md §10.1).
+    static func isUsablePurpose(_ purpose: String) -> Bool {
+        let words = purpose.split(separator: "-", omittingEmptySubsequences: false)
+        guard purpose.utf8.count <= 64, !reservedPurposes.contains(purpose) else { return false }
+        return words.allSatisfy { w in
+            !w.isEmpty && w.utf8.allSatisfy { (0x61...0x7A).contains($0) || (0x30...0x39).contains($0) }
+        }
     }
 
     static func derive(_ secret: VaultSecret, _ info: String, _ bytes: Int) -> Data {

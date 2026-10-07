@@ -187,3 +187,41 @@ final class BlobRecoveryTests: VaultTestCase {
         if let sampled { XCTAssertLessThan(sampled, 64 << 20, "resident set grew by \(sampled) bytes") }
     }
 }
+
+extension BlobRecoveryTests {
+    /// format.md §2.1 changes vault.json only: after a tamper and a repair
+    /// (secret rotated, every file rewrapped) the stock-CLI recovery of
+    /// revisions (§4) and blobs (§8.1.7) still works, with the new secret.
+    func testStockRecoveryAfterRecipientsRepair() throws {
+        let id = pqIdentity(), attacker = pqIdentity()
+        let store = MemoryRecipientsTrustStore()
+        let made = try Vault.create(at: vaultURL(), recipients: [id.recipient, pqIdentity().recipient],
+                                    identities: [id], trust: store)
+        let log = sampleLog()
+        for r in log { try made.write(r) }
+        let content = Data("recipients repair".utf8)
+        let ref = try made.writeBlob(note: testNote, content, type: "image/png")
+        try RecipientsTamper.addedRecipient.apply(to: made.url, attacker: attacker.recipient,
+                                                  other: made.manifest)
+        var vault = try Vault.open(at: made.url, identities: [id], trust: store)
+        XCTAssertTrue(try vault.repairRecipients().isComplete)
+
+        // The pipeline's steps through the library (always run).
+        for rev in log {
+            let plain = try AgeFile.decrypt(Data(contentsOf: fileURL(vault, testNote, rev.name)), with: [id])
+            XCTAssertEqual(try Gzip.decompress(Data(plain.dropFirst(37))), try InkJSON.encoder().encode(rev))
+        }
+
+        let age = try age(atLeast: 3)
+        let keyFile = tmp.appendingPathComponent("key.txt")
+        try IdentityFile.render(id, created: Date()).write(to: keyFile, atomically: true, encoding: .utf8)
+        for rev in log {
+            let file = fileURL(vault, testNote, rev.name)
+            let json = try bash("\(quote(age.path)) -d -i \(quote(keyFile.path)) \(quote(file.path)) | tail -c +38 | gunzip")
+            XCTAssertEqual(json, try InkJSON.encoder().encode(rev))
+        }
+        let blob = try vault.blobCandidates(note: testNote, ref)[0]
+        let out = try bash("\(quote(age.path)) -d -i \(quote(keyFile.path)) \(quote(blob.path)) | tail -c +46 | head -c \(ref.size)")
+        XCTAssertEqual(out, content)
+    }
+}

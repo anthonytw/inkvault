@@ -2,17 +2,32 @@ import Foundation
 import Sempere
 
 /// Files a PDF export embeds (`/Names /EmbeddedFiles`, PDF 1.4): a note's
-/// recordings and their transcripts as `.txt`, for "PDF + attachments"
-/// (docs/attachments.md §10 "Audio in exports").
+/// recordings and their transcripts as `.txt`, and its video clips, for
+/// "PDF + attachments" (docs/attachments.md §10 "Audio in exports", "Video").
 struct EmbeddedFiles {
     struct File {
         /// The file name shown by viewers (any Unicode).
         var name: String
         var mimeType: String
         var description: String
-        var data: Data
+        var content: Content
         /// Audio is already compressed; text is worth deflating.
         var compress: Bool
+
+        /// Where the bytes come from: held in memory, or streamed from a blob
+        /// when the PDF is written (a video of up to 1 GiB is never held whole).
+        enum Content {
+            case data(Data)
+            case blob(BlobRef, any BlobSource)
+        }
+
+        /// The content's length in bytes.
+        var size: Int64 {
+            switch content {
+            case .data(let d): return Int64(d.count)
+            case .blob(let ref, _): return ref.size
+            }
+        }
 
         /// `name` with anything outside printable ASCII replaced (the `/F` entry).
         var asciiName: String {
@@ -26,6 +41,51 @@ struct EmbeddedFiles {
     private var usedNames: Set<String> = []
 
     init(limit: Int) { self.limit = limit }
+
+    static func videoExtension(_ type: String) -> String {
+        let base = type.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
+        return base == "video/quicktime" ? "mov" : "mp4"
+    }
+
+    /// Adds `note`'s video clips (format.md §8.2.7), in page and drawing
+    /// order, one file per clip however often it is placed. Each is streamed
+    /// from its blob when the PDF is written; one that is not available, or
+    /// would pass the size limit, is left out and reported.
+    mutating func add(videosOf note: NoteState, blobs: (any BlobSource)?, report: inout RenderReport) {
+        let title = note.meta.title.isEmpty ? "Untitled" : note.meta.title
+        var seen: Set<String> = []
+        var n = 0
+        for (p, page) in note.pages.enumerated() {
+            for item in page.items.sorted(by: Item.drawsBefore) where item.kind == .video {
+                guard let ref = item.blob, seen.insert(ref.sha256).inserted else { continue }
+                n += 1
+                guard let blobs else {
+                    report.videosOmitted += 1
+                    report.warn("videos were not embedded: no attachments were available to the export")
+                    continue
+                }
+                guard ref.size >= 0, Int64(bytes) + ref.size <= Int64(limit) else {
+                    report.videosOmitted += 1
+                    report.warn("videos over \(limit >> 20) MiB in one PDF were left out")
+                    continue
+                }
+                guard blobs.isAvailable(ref) else {
+                    report.videosOmitted += 1
+                    report.warn("a video of \(title) is not available (missing or not downloaded)")
+                    continue
+                }
+                bytes += Int(ref.size)
+                let label = "Video \(n)"
+                var desc = "\(label) – \(title), page \(p + 1)"
+                if let d = item.duration, d.isFinite { desc += ", \(Transcript.clock(d))" }
+                let base = Self.safe(title).isEmpty ? label : "\(Self.safe(title)) – \(label)"
+                files.append(File(name: uniqueName(base, ext: Self.videoExtension(ref.type)),
+                                  mimeType: ref.type.split(separator: ";").first.map(String.init) ?? "video/mp4",
+                                  description: desc, content: .blob(ref, blobs), compress: false))
+                report.videosAttached += 1
+            }
+        }
+    }
 
     /// The recording's file name: its title (or "Recording" and its start
     /// time), made safe for file systems and unique in the PDF.
@@ -88,7 +148,7 @@ struct EmbeddedFiles {
             var desc = "\(label) – \(title), \(EmbeddedFormat.utcShort(r.started))"
             if let d = r.duration, d.isFinite { desc += ", \(Transcript.clock(d))" }
             files.append(File(name: audioName, mimeType: r.blob.type.split(separator: ";").first.map(String.init) ?? "audio/mp4",
-                              description: desc, data: audio, compress: false))
+                              description: desc, content: .data(audio), compress: false))
             report.recordingsAttached += 1
             if let ref = r.transcript,
                let content = try? blobs.data(for: ref, maxBytes: Transcript.maxSize),
@@ -97,7 +157,7 @@ struct EmbeddedFiles {
                 bytes += text.count
                 files.append(File(name: uniqueName(base, ext: "txt"), mimeType: "text/plain",
                                   description: "Transcript of \(label) (\(transcript.language), \(transcript.engine))",
-                                  data: text, compress: true))
+                                  content: .data(text), compress: true))
             }
         }
     }

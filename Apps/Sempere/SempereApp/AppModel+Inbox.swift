@@ -37,8 +37,9 @@ extension AppModel {
     /// After an unlock or a key change: the stored profile of this vault gets
     /// the current recipients and capture key (a removed key rotates both).
     func refreshQuickCaptureProfile() {
-        guard let vault, vault.canRead, var stored = quickCaptureProfile, stored.profile.vaultId == vault.vaultId,
-              let key = try? vault.captureKey() else { return }
+        // Never a list that does not check (format.md §2.1, §11.1): captures are sealed to it.
+        guard let vault, vault.canRead, vault.recipientsStatus.allowsWriting, var stored = quickCaptureProfile,
+              stored.profile.vaultId == vault.vaultId, let key = try? vault.captureKey() else { return }
         let recipients = vault.recipients.map(\.key)
         guard stored.profile.recipients != recipients || stored.profile.key != key.bytes else { return }
         stored.profile.recipients = recipients

@@ -40,7 +40,9 @@ Unknown files and directories must be ignored, never deleted.
     { "key": "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
       "label": "Anthony's iPad", "added": "2026-10-04T16:20:00Z" }
   ],
-  "vaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n-----END AGE ENCRYPTED FILE-----\n"
+  "vaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n-----END AGE ENCRYPTED FILE-----\n",
+  "features": ["recipients-tag"],
+  "recipientsTag": "5b0e6f…(64 hex digits)…"
 }
 ```
 
@@ -58,7 +60,139 @@ Unknown files and directories must be ignored, never deleted.
   extensions the vault uses. A writer adds `"attachments"` before it writes
   the first blob or attachment op (§8). A writer that finds a feature it does
   not implement must not write to the vault (it may still read it, §7).
-  Absent means `[]`.
+  Absent means `[]`. `"recipients-tag"` (*new: authenticated recipients*)
+  says the vault carries `recipientsTag` (§2.1).
+- `recipientsTag`, `secretLink` (optional, *new: authenticated recipients*):
+  §2.1.
+
+### 2.1 Authenticated recipients
+
+*New: authenticated recipients.* `vault.json` is plaintext, and everything a
+writer encrypts goes to the keys in `recipients`. Without this section,
+anyone who can write the vault folder (a sync server, a shared folder, a
+stolen backup put back) could add their own recipient, and every writer would
+encrypt new revisions, blobs and captures to it. Revisions and blobs are
+authenticated by the vault secret (§4, §8.1.2), which such an attacker does
+not know; `recipientsTag` extends that to the recipients list, and
+`secretLink` to the secret itself.
+
+**Keys.** With `vaultSecret` (§2) as HKDF-SHA256 input key material
+(RFC 5869, empty salt), as for the other derived keys (§10, §11.1):
+
+```
+recipientsKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 recipients key", L = 32)
+linkKey       = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link key", L = 32)
+secretId      = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret id", L = 32)
+```
+
+**Tag.** `recipientsTag` is the lowercase hex (64 digits) of
+
+```
+HMAC-SHA256(key = recipientsKey,
+            message = "sempere/1" ‖ 0x00 ‖ "recipients" ‖ 0x00 ‖ vaultId
+                      ‖ 0x00 ‖ key₁ ‖ 0x00 ‖ key₂ … ‖ 0x00 ‖ keyₙ)
+```
+
+over `vaultId` and every `recipients[].key`, in list order, each exactly as
+written in `vault.json` (UTF-8; neither contains `0x00`). These are the fields
+that decide who can decrypt: adding, removing, replacing or reordering a key
+changes the tag. `label` and `added` are informational and not covered.
+The tag also covers `vaultSecret` implicitly: under another secret it does
+not verify.
+
+**Secret link.** Anyone can encrypt a secret of their own to public keys, so
+a forged `vault.json` could carry a fresh secret, the attacker's recipient and
+a tag that verifies under that secret. Whenever a writer rotates the secret
+(§3.3) it therefore writes `secretLink`, the lowercase hex (64 digits) of
+
+```
+HMAC-SHA256(key = linkKey(old secret),
+            message = "sempere/1" ‖ 0x00 ‖ "secret link" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ secretId(new secret))
+```
+
+which only a holder of the outgoing secret can compute. It is kept, unchanged,
+by changes that do not rotate the secret, and replaced by the next rotation.
+
+**Trust record.** A reader that writes keeps, per device and per vault,
+outside the vault and never in it (like §10): the vault id, `linkKey` of the
+last secret it verified, and the keys of the last recipients list it verified.
+The reference implementation keeps it in
+`$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI, mode 0600) and in the
+app's Application Support folder. It holds no secret: `linkKey` can only
+check a `secretLink`.
+
+**Writing.** Every write of `recipients` (creating a vault, adding, removing
+or replacing a recipient, a migration, finishing an interrupted change, a
+repair) writes `recipientsTag` under the secret written with it, in the same
+atomic write of `vault.json` (§3.3.1 step 2), adds `"recipients-tag"` to
+`features`, and, when the secret rotated, `secretLink`. Older writers do not
+know the feature and stop writing (§2), so they never encrypt to a list they
+cannot check nor drop the tag by rewriting `vault.json`.
+
+**Checking.** A reader holding the secret classifies the list:
+
+1. `recipientsTag` present: if it is not 64 lowercase hex digits or does not
+   verify, the list is **tampered**.
+2. `recipientsTag` absent: if `features` names `"recipients-tag"` or the
+   device has a trust record for the vault, the tag was removed
+   (a **downgrade**) and the list is tampered; otherwise the vault is
+   **untagged** (written before this section).
+3. The tag verifies and the device has a trust record: if `linkKey` of the
+   current secret equals the record's, the list is **verified**. Otherwise
+   the secret changed since the device last checked: if `secretLink` verifies
+   under the record's `linkKey`, the list is verified (a rotation by a key
+   holder). If it does not, the change is **unconfirmed** and the list is
+   tampered, whatever keys it holds: the new secret may be an attacker's,
+   and a device that accepted it would also accept any later `secretLink`
+   made under it, including one that adds the attacker's key. A device that
+   missed two or more rotations therefore sees a tampered list, even when
+   they only removed keys; it can confirm the list explicitly (below). A
+   device never updates its trust record to an unconfirmed secret.
+4. The tag verifies and the device has no trust record: verified (first use
+   on this device).
+
+A writer that finds the list verified saves it as its trust record before it
+writes (a reader that only reads keeps none). A tampered list is **refused for
+writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
+files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
+reports the keys that are not in the last verified list (the **unexpected**
+keys). Reading notes still works: revisions and blobs carry their own tags.
+The last verified list is, when the current secret verifies a tag over the
+current list with up to three entries deleted (order kept), that shorter
+list: an attacker who only inserted keys is undone exactly, including keys
+another device added since this one last checked. Otherwise it is the trust
+record's list, if the device has one.
+
+An untagged vault is upgraded by the first writer that holds the secret:
+it writes the tag over the current list and the feature, and reports the
+list it now trusts. This trusts whatever the list is at that moment
+(trust on first use); a device that has a trust record never upgrades, it
+reports a downgrade.
+
+**Repair.** A key holder repairs a list whose tag does not verify, or was
+removed, by writing the last verified list (keeping the labels the current
+entries have; a key the attacker deleted comes back with an empty label) as a
+recipient removal (§3.3): the secret rotates and every file is rewrapped, so
+no file stays encrypted to an unexpected key. An unconfirmed secret change
+cannot be repaired this way: the files are tagged under a secret the device
+no longer holds, so the user restores `vault.json` from a backup or another
+device, or, when the device only missed a legitimate change, confirms the
+current list explicitly after checking it (the tag must verify under the
+current secret; the trust record is updated, nothing in the vault changes).
+An untagged copy older than the tag (a restored backup) may be confirmed the
+same way; it is then tagged again. A list whose tag does not verify is never
+confirmed, and nothing here is ever done implicitly.
+
+**Limits.** The check is only as fresh as the trust record. A device that
+opens a vault for the first time trusts the list it finds; a removed device,
+which knew the outgoing secret, can still forge a `secretLink` for devices
+that have not seen its removal; and an attacker who removes keys from the
+list (without adding any) can stop those devices' keys from receiving new
+files, which is reported as tampering but cannot be prevented. A device with no
+trust record cannot tell a replaced secret from the real one (step 4); an
+attacker who replaced it knows it and can plant revisions tagged under it,
+and the vault's earlier revisions then fail their tags under it, which
+readers report (§4).
 
 ## 3. Keys
 
@@ -117,6 +251,8 @@ in a device Keychain or supplied externally.
 
 ### 3.3 Changing recipients
 
+Before any change a writer checks the current list (§2.1) and refuses
+a tampered one (a repair, §2.1, starts from the last verified list instead).
 Adding a recipient: append it to `recipients`, re-encrypt `vaultSecret`
 to the new set, then re-encrypt every revision under `notes/` to the new set
 (new file key and header), and rewrap every blob under `notes/<id>/att/`
@@ -151,7 +287,9 @@ change can be finished by any device holding an identity of the new set:
      (§8.1.5): `true` re-encrypts each under a new file key, `false` rewrites
      only its header. Absent means the default policy of §8.1.5. A device
      finishing an interrupted change uses the recorded value.
-2. Write `vault.json` with the new `recipients` and `vaultSecret`.
+2. Write `vault.json` with the new `recipients` and `vaultSecret`, and with
+   `recipientsTag` (and, when the secret rotates, `secretLink`) for them
+   (§2.1), in one atomic write.
 3. For every file under `notes/` (revisions and `att/` blobs), skip it if it is already
    complete (below); otherwise rewrite it as described above, verifying its
    tag under the current secret or, failing that, under
@@ -173,8 +311,8 @@ are the only header-level check; while a journal exists no other recipient
 change is started, so counts from two changes never mix.
 
 If `rewrap-journal.json` exists when a vault is opened, the change is
-unfinished: a writer finishes steps 3 and 4 before any other recipient
-change, and may verify tags under `previousVaultSecret` meanwhile. Readers
+unfinished: a writer whose list checks (§2.1) finishes steps 3 and 4 before
+any other recipient change, and may verify tags under `previousVaultSecret` meanwhile. Readers
 that do not implement this procedure treat the journal as an unknown file
 (§1).
 
@@ -1205,6 +1343,12 @@ so new item kinds and fields can be added without a version bump:
 - An item `layer` value without a defined meaning is ordered by its number
   (§8.2.3).
 
+*New: authenticated recipients.* `recipientsTag` and `secretLink` (§2.1)
+are a compatible extension: older readers ignore both fields and keep
+reading, and the `"recipients-tag"` feature keeps older writers from writing
+(§2). Nothing under `notes/` or `inbox/` changes, so the stock-CLI recovery
+(§4, §8.1.7, §11.2) works as before.
+
 A future change that older readers must not merge blindly (new merge
 semantics, not just a new kind of placed content) still needs a new op type,
 so that older readers fail closed, or a `features` entry (§2), so that older
@@ -1235,8 +1379,9 @@ Revisions name a blob with a *blob reference*:
   transcript file itself), 64 lowercase hex digits.
 - `size`: the content's length in bytes.
 - `type`: its media type. Defined: `image/jpeg`, `image/png`, `image/heic`
-  (§8.2.5), `application/pdf` (§8.2.6), `audio/mp4` (§8.3.1),
-  `application/vnd.sempere.transcript+json` (§8.3.2). Others are kept (§7).
+  (§8.2.5), `application/pdf` (§8.2.6), `video/mp4` and `video/quicktime`
+  (§8.2.7), `audio/mp4` (§8.3.1), `application/vnd.sempere.transcript+json`
+  (§8.3.2). Others are kept (§7).
 
 Every blob reference in a revision is a JSON object with these three keys
 (and possibly unknown ones, §7); no other object in a revision body has a
@@ -1277,7 +1422,7 @@ ignored:
 | `image/*` | `image` |
 | `application/pdf` | `pdf` |
 | `audio/*` | `audio` |
-| `video/*` | `video` (reserved, §8.2.7) |
+| `video/*` | `video` (§8.2.7) |
 | `application/vnd.sempere.transcript+json` | `transcript` |
 | anything else | `bin` |
 
@@ -1462,8 +1607,8 @@ is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
-A page's `items` (§5.5) are text boxes, images and PDF page backgrounds,
-placed in page coordinates (points, origin top-left, y down).
+A page's `items` (§5.5) are text boxes, images, PDF page backgrounds and
+video clips, placed in page coordinates (points, origin top-left, y down).
 
 #### 8.2.1 Common fields
 
@@ -1485,8 +1630,8 @@ placed in page coordinates (points, origin top-left, y down).
 plus the fields of its kind (§8.2.4–§8.2.7).
 
 - `id`: UUID.
-- `kind`: `text`, `image` or `pdfPage`; `math` and `video` are reserved
-  (§8.2.7); others per §7.
+- `kind`: `text`, `image`, `pdfPage` or `video`; `math` is reserved
+  (§8.2.8); others per §7.
 - `layer`: integer z-layer, 0 to 65 535 (§8.2.3). Defined: `0` background,
   `100` content. Absent means `100`. Writers write only defined values;
   readers order by any value in range and treat a value out of range or not
@@ -1504,12 +1649,13 @@ plus the fields of its kind (§8.2.4–§8.2.7).
 
 Numbers are rounded to at most 3 decimals by writers.
 
-The fields of a defined kind (§8.2.4–§8.2.6) are required unless that section
+The fields of a defined kind (§8.2.4–§8.2.7) are required unless that section
 says what their absence means (`rotation`, `crop`, `orientation`, `family`,
-`lang`, …). An item of a defined kind that lacks one, holds one of the wrong
+`lang`, `poster`, …). An item of a defined kind that lacks one, holds one of the wrong
 type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
 side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
-`size` outside its range) is invalid like a bad common field: the revision is
+`size` outside its range, a `duration` negative or not finite, a
+`videoRotation` other than 0, 90, 180 or 270) is invalid like a bad common field: the revision is
 rejected. A field of another kind on an item (an image with `pageIndex`) is
 an unknown field there and kept (§7); so are all fields beyond the common ones
 on an item of an unknown kind.
@@ -1526,13 +1672,14 @@ and never changed.
 | `text` | `text` | |
 | `image` | `crop` | `blob`, `pixelSize`, `orientation` |
 | `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
+| `video` | `poster` | `blob`, `pixelSize`, `duration`, `videoRotation`, `codec` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
 - `setItem` with `field` naming an immutable field of any kind, or the
   snapshot-only `origin` or `clocks`, is invalid (the revision is rejected),
   as is a value of the wrong type or out of range for a register in the table.
   `value: null` (or no `value`) resets an optional register (`rotation`,
-  `crop`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
+  `crop`, `poster`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
   the reader does not know is a register (§7), and `null` is a value of it
   like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
@@ -1541,8 +1688,8 @@ and never changed.
 - A field named like an immutable field of some kind (`blob` on a text item,
   an unknown field there, §8.2.1) is not a register either: `setItem` can
   never name it, so it keeps the value its `addItem` gave it. Snapshot
-  `clocks` list every register of the item, including `rotation` and `crop`
-  while absent (a reset is a value with a stamp, like `recognitionClock`,
+  `clocks` list every register of the item, including `rotation`, `crop` and
+  `poster` while absent (a reset is a value with a stamp, like `recognitionClock`,
   §5.5).
 - Items merge as sets like strokes (§5.3), with permanent tombstones (§5.4).
   An item belongs to one page; moving it to another page is `removeItem`
@@ -1704,22 +1851,100 @@ PDF before storing it. Within a note one PDF blob serves any number of
 `pdfPage` items. How a writer lays pages out (one note page per PDF page, or
 bands of an infinite page) is its choice (`docs/attachments.md`).
 
-#### 8.2.7 Reserved kinds
+#### 8.2.7 Video
 
-These kind names are reserved for planned features (`docs/attachments.md`
-§14, tasks G1 and G2) and are not defined yet. Writers must not write them
-until this section defines them; readers treat them as unknown kinds (§7),
-drawing a placeholder.
+*New: video clips (`docs/attachments.md` §14, task G2).*
+
+```json
+{ "kind": "video", "layer": 100, "frame": [72, 144, 320, 180], "z": "a2",
+  "blob": { "sha256": "…", "size": 48211330, "type": "video/mp4" },
+  "pixelSize": [1920, 1080], "duration": 42.517, "videoRotation": 90,
+  "codec": "hevc",
+  "poster": { "sha256": "…", "size": 81211, "type": "image/jpeg" } }
+```
+
+- `blob` (immutable): the clip, kind `video` (§8.1.2), at most 1 GiB (§8.4).
+  Writers store `video/mp4` (an ISO base media file, `.mp4`/`.m4v`) or
+  `video/quicktime` (a QuickTime movie, `.mov`): a file that starts with an
+  `ftyp` box (an older QuickTime movie may start with `moov`, `wide`, `free`,
+  `skip` or `mdat` instead), holds one
+  `moov` box with at least one video track (`hdlr` `vide`) whose first sample
+  entry is H.264/AVC (`avc1`, `avc3`) or HEVC/H.265 (`hvc1`, `hev1`), and
+  optionally sound tracks (AAC, `mp4a`, recommended) and others (timed
+  metadata, timecode). Writers convert anything else first (another codec,
+  WebM, AVI, fragmented MP4 without a `moov` sample table) or refuse it. They
+  should place `moov` before `mdat` ("fast start") so a reader can show the
+  clip's size before reading the samples; readers accept either order.
+- Metadata: unless the user chose to keep it, writers remove the location
+  and device metadata from the stored bytes: every `udta` and `meta` box
+  directly inside `moov` or a `trak` (`©xyz`, `com.apple.quicktime.location.ISO6709`,
+  make, model, software, creation date), every top-level `meta` box, and
+  every XMP `uuid` box (usertype `BE7ACFCB-97A9-42E8-9C71-999491E3AFAC`,
+  which may hold `exif:GPSLatitude` and the like) at the top level or
+  directly inside `moov` or a `trak` has its type changed to `free` and
+  its contents set to zero bytes. Positions recorded per frame in the
+  samples of a timed-metadata or text track (a drone's or action camera's
+  telemetry) are not removed this way. Nothing else moves, so every sample offset
+  (`stco`, `co64`) stays valid and the clip plays unchanged. Exporters do the
+  same to bytes they pass through into an export unless asked to keep them
+  (as for images, §8.2.5).
+- `pixelSize` (immutable): `[w, h]`, the clip's display size in pixels: the
+  video track's `tkhd` width and height, swapped when `videoRotation` is 90 or
+  270. For layout and the poster's aspect; players use the decoded size.
+- `videoRotation` (immutable, optional): `0`, `90`, `180` or `270`, the
+  clockwise rotation the video track's `tkhd` matrix applies for display
+  (an iPad held upright records 90); absent means 0. Informational: players
+  apply the track matrix themselves, and `pixelSize` and the poster are
+  already upright. It is independent of the item's `rotation` (§8.2.1).
+- `duration` (immutable): seconds, 3 decimals, finite and not negative: the
+  movie's `mvhd` duration (the video track's `mdhd` duration when `mvhd` has
+  none).
+- `codec` (immutable, optional, informational): `h264` or `hevc`, the video
+  track's codec; other names may come from importers.
+- `poster` (optional register): an image blob reference (§8.2.5 rules for
+  `image/jpeg` and `image/png`, metadata stripped), the frame shown before
+  the clip plays and the only part of the item that renderers draw. It is
+  stored upright: renderers ignore any orientation in its data. Its aspect
+  should match `pixelSize`; renderers scale the axes independently. Absent
+  (or `null`) means no poster: a writer that cannot decode the clip (the CLI
+  on Linux without `--poster`) leaves it absent, and a device that can (the
+  app) may set it later with `setItem`, as for `pageText` (§8.2.6). A value
+  that is not a blob reference is invalid (§8.2.2).
+
+Drawing (renderers, exports and readers that do not play the clip, or before
+it plays): the whole poster is mapped onto the frame (§8.5.1, with the crop
+`[0, 0, w, h]` of the poster's decoded size, orientation 1), clipped to the
+frame, then a *play mark* is drawn over it: with `d = min(48, 0.3 · min(fw, fh))`
+and the frame's centre `(mx, my)`, a disc of diameter `d` centred there,
+filled `#00000080`, and a triangle filled `#FFFFFFFF` with corners
+`(mx − 0.18 d, my − 0.25 d)`, `(mx − 0.18 d, my + 0.25 d)` and
+`(mx + 0.27 d, my)`; both are turned with the item's `rotation` about
+`(mx, my)`. An item whose poster is absent, missing, invalid or not
+decodable is drawn as a placeholder (§8.5.2) with the play mark over it, and
+counted in the export report like any placeholder (an absent poster is
+reported as "no poster", not as missing content). A video item counts toward
+an infinite page's extent and is cut across export pages like an image.
+
+Playing: a reader that plays video plays the verified clip (§8.1.4) from a
+private temporary file or memory (`docs/attachments.md` §2 "Large files"),
+applies the track matrix, and draws the frame's rectangle with the decoded
+picture fitted inside it (aspect kept). A reader that cannot play the clip
+(no decoder for its codec, a renderer, an exporter) shows the poster and play
+mark as above and may offer the clip as a file. A `pdf` export with
+attachments embeds the clip as an embedded file (`docs/attachments.md` §10).
+
+#### 8.2.8 Reserved kinds
+
+This kind name is reserved for a planned feature (`docs/attachments.md`
+§14, task G1) and is not defined yet. Writers must not write it until this
+section defines it; readers treat it as an unknown kind (§7), drawing a
+placeholder.
 
 - `math`: an equation, edited as LaTeX source and drawn typeset. Planned
   fields: `latex` (register, the source), `display` (register, display or
   inline style), `size` and `color` as for text, and `render` (register, a
   blob reference to a one-page PDF of the typeset result, so renderers
   without a math typesetter still draw it).
-- `video`: a video clip on the page. Planned fields: `blob` (`video/mp4` or
-  `video/quicktime`, kind `video`, within the blob limit of §8.4),
-  `poster` (an image blob reference drawn in the frame), `duration`, and
-  `rec`-style links as for audio.
 
 ### 8.3 Recordings
 
@@ -1830,7 +2055,7 @@ Writers must stay within, and readers may reject anything beyond:
 
 | What | Limit |
 | --- | --- |
-| blob content (any kind, including future video) | 1 GiB (2^30 bytes) |
+| blob content (any kind, including video) | 1 GiB (2^30 bytes) |
 | transcript content | 64 MiB |
 | text of one item | 65 536 UTF-8 bytes, 1 000 runs, 10 000 `breaks` |
 | items per page | 10 000 |
@@ -1877,7 +2102,7 @@ point `(a, b)` in PDF user space, with the visible box (CropBox ∩ MediaBox)
 
 An item whose blob is missing, unreadable, invalid (§8.1.4) or of a type the
 renderer cannot draw, and an item of an unknown or reserved kind (§7,
-§8.2.7), is drawn as a placeholder: its frame (rotated) outlined 1 pt in
+§8.2.8), is drawn as a placeholder: its frame (rotated) outlined 1 pt in
 `#9AA0A6FF` with both diagonals. A background placeholder still fills its
 frame (§8.2.3). The export goes on and reports each placeholder; it never
 fails because of one.
@@ -1956,6 +2181,8 @@ where the table says how they degrade.
 | --- | --- | --- |
 | revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
+| `recipientsTag`, `secretLink` (§2.1) | a value that is not a string of 64 lowercase hex digits is a tag that does not verify (tampered), never a parse error | `VaultManifest` |
+| subsets tried to find the last verified list (§2.1) | up to 3 entries deleted, lists of at most 16 keys (C(16, ≤3) = 696 tags) | `RecipientsAuth.maxSearchDeletions` |
 | blob collector state (device-local, §8.1.6) | 64 MiB | `BlobCollectorState` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |
@@ -2046,7 +2273,11 @@ is opened, not in the listing.
 A reader may keep other caches derived from a vault on a device, under the
 same rules as §10: never in the vault, unreadable and unlinkable to the vault
 without its secret, and never trusted over the vault. Each cache has a
-*purpose* (a short ASCII word) and a 5-byte magic. With `vaultSecret` as
+*purpose* (lowercase ASCII letters and digits in hyphen-separated words, at
+most 64 bytes) and a 5-byte magic. The purposes `summary-cache`,
+`recipients` and `capture` are reserved: with them the derivations below
+would give the keys of §10, §2.1 and §11.1 (the other info strings of §2.1
+contain a space, which no purpose can). With `vaultSecret` as
 HKDF-SHA256 input key material (empty salt):
 
 ```
@@ -2127,7 +2358,11 @@ the recipient change re-tags each one that verifies under the outgoing
 capture key and re-encrypts it to the new recipients (§3.3.1 step 3), as it
 does when a recipient is added; a file sealed with a revoked key after that
 never verifies. A capturing device stores the key and the recipients list (a
-*capture profile*); how it stores them is up to the implementation.
+*capture profile*); how it stores them is up to the implementation. The list
+comes from a vault whose recipients checked (§2.1) when the profile was made
+or refreshed; a tampered list is never put in a profile, and a capturing
+device seals to its profile's list only, never to the `recipients` it may
+read from `vault.json` without the secret.
 
 ### 11.2 Inbox files
 

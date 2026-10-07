@@ -359,6 +359,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   Interop tests need `age` ≥ 1.3 on PATH (the official release; Ubuntu ships
   1.1); CI sets `SEMPERE_REQUIRE_AGE_PQ` so they fail instead of skipping.
   See `docs/post-quantum.md`.
+- Authenticated recipients (`format.md` §2.1, `Sources/Sempere/RecipientsAuth.swift`):
+  `vault.json` carries `recipientsTag` (HMAC of vault id + keys under an HKDF
+  key of the secret) and, after a rotation, `secretLink`; `Vault.open(…, trust:)`
+  classifies the list (`recipientsStatus`) against the device's trust record
+  (CLI `$XDG_STATE_HOME/sempere/trust/`, app `AppModel.defaultTrustDirectory`,
+  tests `MemoryRecipientsTrustStore`). `requireWritable` refuses a tampered list
+  (`VaultError.untrustedRecipients`, CLI exit 6), tags an untagged vault and
+  saves the record: only writers keep records, reads never write. Anything
+  that encrypts to the recipients outside `requireWritable` (capture
+  profiles) calls `requireTrustedRecipients`. Never copy a `vault.json` from
+  elsewhere without `Vault.incomingManifestProblem`. The committed
+  `Fixtures/sample.sempere` is tagged; copies share its vault id, so an
+  untagged copy reads as a downgrade on a device that wrote to a tagged one.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are
@@ -512,6 +525,18 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `inbox/` too (`Vault.rewrapInbox`; in iCloud `downloadEverything` fetches it first) and the app refreshes the
   profile after it. A note "exists" for adoption once it has a revision (a folder holding only `att/` is still
   new), and a waiting transcript writes nothing.
+- Video items (`format.md` §8.2.7, task G2): a container is read only by
+  `VideoProbe` (pure Swift, bounded reads, fuzzed); location metadata is
+  removed in place by `ByteEdit`s applied while the file streams into the blob
+  (`Vault.writeVideo`, `writeBlob(contentsOf:type:edits:)`), never by
+  rewriting or loading the file. A clip is never held in memory: blobs stream
+  (`BlobSource.stream`), PDFs with clips are written with `PDFWriter.write(…to:)`,
+  Markdown/HTML copies with `ExportVideos.write`. Renderers and the app's item
+  layer draw a video as its `poster` (an image blob, a register; `ItemRendering`
+  acquires the poster, never the clip) under the play mark; the clip is fetched
+  from iCloud only to play (`AppModel.acquireVideo`, `releaseVideo` after).
+  Posters come from `VideoPoster` (AVFoundation, shared by the app and the CLI
+  on macOS); the Linux CLI stores none without `--poster`.
 - Localization (`docs/localization.md`, task L): every interface string is in
   `Apps/Sempere/Localization/Localizable.xcstrings` (plus `InfoPlist`, `AppShortcuts`), a
   synchronized group of the app and widget targets. SwiftUI literals localize themselves;

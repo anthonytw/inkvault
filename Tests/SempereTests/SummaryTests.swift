@@ -451,6 +451,29 @@ final class LocalCacheKeyTests: XCTestCase {
         XCTAssertFalse(a.entryName("note|r1").contains("note"))
     }
 
+    /// Domain separation: no cache purpose can derive a vault-wide key
+    /// (format.md §10.1). Every HKDF info string the format uses over the
+    /// vault secret, other than §10.1's own, is listed here.
+    func testNoPurposeDerivesAVaultWideKey() throws {
+        let vaultWide = [SummaryCache.keyInfo, SummaryCache.nameInfo, RecipientsAuth.recipientsInfo,
+                         RecipientsAuth.linkInfo, RecipientsAuth.secretIdInfo, CaptureKey.info]
+        for info in vaultWide {
+            XCTAssertTrue(info.hasPrefix("sempere/1 "), info)
+            let rest = info.dropFirst("sempere/1 ".count)
+            for suffix in [" key", " entry", " name"] where rest.hasSuffix(suffix) {
+                let word = String(rest.dropLast(suffix.count))
+                XCTAssertFalse(LocalCacheKey.isUsablePurpose(word), "\(word) would derive \(info)")
+            }
+        }
+        for used in ["drawing-cache", "blob-cache", "render-cache", "activity", "other"] {
+            XCTAssertTrue(LocalCacheKey.isUsablePurpose(used), used)
+        }
+        for bad in ["", "-", "a-", "-a", "a--b", "Recipients", "secret link", "a b", "capture", "é",
+                    String(repeating: "a", count: 65)] {
+            XCTAssertFalse(LocalCacheKey.isUsablePurpose(bad), bad)
+        }
+    }
+
     func testSealedFilesOpenOnlyUnderTheirNameAndKey() throws {
         let magic = Array("SMPD\u{1}".utf8)
         let k = LocalCacheKey(secret: try secret(1), purpose: "drawing-cache", magic: magic)
