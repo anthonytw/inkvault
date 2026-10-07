@@ -146,17 +146,6 @@ extension NoteOps {
         }
         return byKey.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
-
-    /// The op that appends `count` blank pages after the last page of a note
-    /// with `pages` (the app's Add Page), or none when `count` is not positive.
-    public static func appendPages(_ count: Int, after pages: [Page]) -> [Op] {
-        var last = pages.last?.order
-        return (0..<max(count, 0)).map { _ in
-            let page = Page(order: PageOrder.between(last, nil))
-            last = page.order
-            return .addPage(page)
-        }
-    }
 }
 
 extension Vault {
