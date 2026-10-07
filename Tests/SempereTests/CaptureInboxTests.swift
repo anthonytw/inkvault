@@ -44,9 +44,9 @@ final class CaptureInboxTests: VaultTestCase {
 
         // Stock age decrypts it with the identity, as every vault file.
         let plain = try AgeFile.decrypt(sealed.data, with: [identity])
-        // The newline is searched for after the 37-byte header: the random tag may hold a 0x0A byte.
-        let rest = plain[(plain.startIndex + 37)...]
-        let line = rest[..<(try XCTUnwrap(rest.firstIndex(of: 0x0A)))]
+        // The JSON line starts after the 37-byte header, whose tag may itself hold a 0x0A byte.
+        let header = plain.startIndex + CaptureFile.headerSize
+        let line = plain[header..<(try XCTUnwrap(plain[header...].firstIndex(of: 0x0A)))]
         XCTAssertNotNil(try? JSONSerialization.jsonObject(with: Data(line)))
         XCTAssertEqual(plain.suffix(audio.count), audio)
 
@@ -287,6 +287,26 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertThrowsError(try CaptureFile.frame(line: Data("{\n}".utf8), payload: Data(), filename: "f", key: key))
         XCTAssertThrowsError(try CaptureKey(bytes: Data(count: 31)))
         XCTAssertEqual(CaptureWriter.defaultTitle(started, timeZone: TimeZone(identifier: "UTC")!), "Voice note 2027-01-15 08:00")
+    }
+
+    /// The tag is 32 arbitrary bytes, so about one capture in eight has a
+    /// 0x0A in its header: the JSON line is found after the header, by the
+    /// reader and by the stock-CLI recipe (`tail -c +38 | head -n 1`).
+    func testATagHoldingANewlineStillFramesTheLine() throws {
+        let key = try CaptureKey(bytes: Data(repeating: 3, count: 32))
+        let line = Data("{\"a\":1}".utf8)
+        var found: (name: String, framed: Data)?
+        for i in 0..<2_000 {
+            let name = "capture-\(i)"
+            let framed = try CaptureFile.frame(line: line, payload: Data([9]), filename: name, key: key)
+            if framed.prefix(CaptureFile.headerSize).contains(0x0A) { found = (name, framed); break }
+        }
+        let (name, framed) = try XCTUnwrap(found, "2000 tags without a 0x0A: the search is wrong")
+        let opened = try CaptureFile.unframe(framed, filename: name, key: key)
+        XCTAssertEqual(opened.line, line)
+        XCTAssertEqual(opened.payload, Data([9]))
+        let afterHeader = framed.dropFirst(CaptureFile.headerSize)
+        XCTAssertEqual(afterHeader.prefix { $0 != 0x0A }, line[...], "tail -c +38 | head -n 1")
     }
 }
 

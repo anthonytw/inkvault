@@ -71,8 +71,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
 | `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | 🔀 #87 | 🔀 #87 |
-| `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | 🔀 quick capture PR | 🔀 quick capture PR |
 | `notes new` without a title: named after the date and time, `--title-format` (the app's default title) | 🔀 #84 | 🔀 #84 |
+| `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | 🔀 quick capture PR | 🔀 quick capture PR |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |

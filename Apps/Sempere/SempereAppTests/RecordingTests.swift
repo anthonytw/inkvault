@@ -392,6 +392,14 @@ struct RecordingTests {
         #expect(player.position == 4)
         player.stop()
         #expect(player.recording == nil)
+        // The decrypted audio is not kept in the attachment cache once playback ends.
+        let cache = try #require(model.attachmentCache())
+        var released = false
+        for _ in 0..<100 {
+            if await !cache.contains(note: Self.lecture, ref: r.blob) { released = true; break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(released)
     }
 
     /// A recording the app was killed during is saved into its note the next

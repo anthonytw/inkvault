@@ -75,6 +75,24 @@ struct QuickCaptureTests {
         #expect(pending.transcript?.segments.first?.words?.map(\.t) == ["Linear", "maps."])
     }
 
+    /// A voice note started and stopped on the Lock Screen is assembled and
+    /// read back from closed files before any unlock: its files must use a
+    /// class that is readable while locked (after the first unlock), not
+    /// `completeUnlessOpen`, under which sealing would fail and the note be
+    /// lost. In-note recordings keep `completeUnlessOpen`. (The simulator has
+    /// no Data Protection, so the class itself is what is checked.)
+    @Test func voiceNotesAreRecordedInAClassReadableWhileLocked() async throws {
+        let (_, _, _, qc, _) = try Self.setUp(transcribe: false)
+        try await qc.start()
+        let session = try #require(qc.session)
+        #expect(session.protection == .completeUntilFirstUserAuthentication)
+        _ = try await qc.stop()
+        let inNote = RecordingSession(noteID: UUID(), format: .default, root: Self.temp("rec"), backend: FakeCapture())
+        #expect(inNote.protection == .completeUnlessOpen)
+        #expect(RecordingSession.writingOption(.completeUntilFirstUserAuthentication) == .completeFileProtectionUntilFirstUserAuthentication)
+        #expect(RecordingSession.writingOption(.completeUnlessOpen) == .completeFileProtectionUnlessOpen)
+    }
+
     /// A call during a voice note pauses it; it resumes and is sealed whole.
     @Test func interruptionDuringAVoiceNote() async throws {
         let (url, _, _, qc, center) = try Self.setUp(transcribe: false)

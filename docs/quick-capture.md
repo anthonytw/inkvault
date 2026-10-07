@@ -51,7 +51,7 @@ vault, and the vault's integrity.
 | --- | --- |
 | Storage (iCloud, a WebDAV host, a stolen backup) | Inbox files are age-encrypted to the recipients. Without the capture key they cannot add a capture that verifies. They see that captures exist, their sizes and times. |
 | A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and no audio is on disk. |
-| Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox; they show up in the inbox notebook, attributed to a device id. They cannot read any capture, any note, or the caches, and cannot change existing notes. A voice note being recorded at that moment is plaintext in the app's container until it stops. |
+| Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox; they show up in the inbox notebook, attributed to a device id. They cannot read any capture, any note, or the caches, and cannot change existing notes. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
 | Someone using the unlocked device | They can record voice notes, which is the feature. They cannot listen to past ones without unlocking the vault. |
 | A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
 
@@ -59,10 +59,13 @@ vault, and the vault's integrity.
 
 - While recording, `AVAudioRecorder` writes the audio to a file in the app's
   container (`Application Support/Sempere/QuickCapture/<id>/`, not backed up).
-  It is protected `completeUnlessOpen`, the only Data Protection class that
-  can be created and written while the device is locked: the file is
-  encrypted by iOS and becomes unreadable once closed while the device is
-  locked.
+  It is protected `completeUntilFirstUserAuthentication`: unreadable before
+  the device's first unlock after boot, readable afterwards while the device
+  is locked. Not `completeUnlessOpen` (what in-note recordings use): its files
+  can be written while locked but not reopened once closed until the device is
+  unlocked, and a voice note started and stopped on the Lock Screen is
+  assembled from its closed segment files and read back to be sealed before
+  any unlock; it would fail to seal, and the voice note would be lost.
 - On stop, the audio is read into memory, sealed (age, to the recipients),
   and written to the vault inbox or the queue.
 - If transcription is on, the transcript is made on device from that file
