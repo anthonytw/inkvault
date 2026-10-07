@@ -59,8 +59,8 @@ case "${1:-}" in
       -only-testing:SempereAppTests/CompactNavigationTests -only-testing:SempereAppTests/CompactBackTests \
       -only-testing:SempereAppTests/PhoneReadingTests \
       -only-testing:SempereAppTests/PhoneCanvasTests -only-testing:SempereAppTests/PhoneRootTests \
-      -only-testing:SempereAppTests/ZoomStepsTests -only-testing:SempereAppTests/PhoneInsertTests \
-      -only-testing:SempereAppTests/InsertOptionsTests
+      -only-testing:SempereAppTests/ZoomStepsTests -only-testing:SempereAppTests/PhoneStackTests \
+      -only-testing:SempereAppTests/PhoneInsertTests -only-testing:SempereAppTests/InsertOptionsTests
     ;;
   catalyst)
     xcodebuild build -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \

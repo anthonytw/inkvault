@@ -69,6 +69,25 @@ struct ImageInsertTests {
 
     // MARK: The privacy setting
 
+    /// A dropped image file is read with a bound (format.md §9): one over
+    /// `maxInputBytes` is refused by its size before its bytes are read.
+    @Test func aDroppedFileIsReadWithABound() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let small = dir.appendingPathComponent("small.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: small)
+        #expect(try ImagePreparation.readInput(small).count == 4)
+        // A sparse file just over the limit: nothing of it is read.
+        let huge = dir.appendingPathComponent("huge.tiff")
+        #expect(FileManager.default.createFile(atPath: huge.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: huge)
+        try handle.truncate(atOffset: UInt64(ImagePreparation.maxInputBytes) + 1)
+        try handle.close()
+        #expect(throws: ImagePreparation.Failure.fileTooLarge) { try ImagePreparation.readInput(huge) }
+        #expect(throws: ImagePreparation.Failure.unreadable) { try ImagePreparation.readInput(dir) }
+    }
+
     @Test func privacyIsOnByDefault() {
         let defaults = UserDefaults(suiteName: "privacy-\(UUID().uuidString)")!
         #expect(PhotoPrivacy.isOn(defaults))

@@ -30,6 +30,8 @@ enum CanvasDrop {
     enum Content: Sendable {
         case image(Data)
         case pdf(URL)
+        /// Something that could not be read (too large, unreadable): why.
+        case failed(String)
     }
 
     /// The types the canvas takes.
@@ -43,16 +45,25 @@ enum CanvasDrop {
             if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
                 if let url = await pdfCopy(provider) { out.append(.pdf(url)) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                if let data = await imageData(provider) { out.append(.image(data)) }
+                out.append(await imageData(provider))
             }
         }
         return out
     }
 
+    /// Read from the provider's file with a bound (`ImagePreparation.readInput`),
+    /// never loaded whole into memory first: a dropped file can be any size.
     @MainActor
-    private static func imageData(_ provider: NSItemProvider) async -> Data? {
-        await withCheckedContinuation { (done: CheckedContinuation<Data?, Never>) in
-            _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in done.resume(returning: data) }
+    private static func imageData(_ provider: NSItemProvider) async -> Content {
+        await withCheckedContinuation { (done: CheckedContinuation<Content, Never>) in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
+                guard let url else { return done.resume(returning: .failed(ImagePreparation.Failure.unreadable.description)) }
+                do {
+                    done.resume(returning: .image(try ImagePreparation.readInput(url)))
+                } catch {
+                    done.resume(returning: .failed(AppModel.describe(error)))
+                }
+            }
         }
     }
 
@@ -197,7 +208,8 @@ extension EditorInsert {
     @MainActor
     static func add(_ providers: [NSItemProvider], to editor: NoteEditor, page: UUID?, at point: CGPoint?,
                     model: AppModel, ui: WindowUI, state: InsertState) {
-        let visible = editor.canvasTarget?.visiblePageRect
+        // A drop on a page of the paged stack: that page's visible part, not the current page's.
+        let visible = page.flatMap { editor.canvasTarget?.visibleRect(ofPage: $0) } ?? editor.canvasTarget?.visiblePageRect
         state.working += 1
         Task {
             defer { state.working -= 1 }
@@ -208,6 +220,8 @@ extension EditorInsert {
                     await model.insertImage(data, into: editor, page: page, visible: visible,
                                             at: InsertOptions.cascade(point, index: images))
                     images += 1
+                case .failed(let why):
+                    model.errorMessage = "Could not add the image. \(why)"
                 case .pdf(let url):
                     let index = page.flatMap { id in editor.pages.firstIndex { $0.id == id } } ?? editor.pageIndex
                     if case .needsPassword(let request) = await model.importPDF(copy: url, to: .insert(editor, after: index + 1),

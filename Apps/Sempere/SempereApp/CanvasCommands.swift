@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import PencilKit
 
@@ -47,4 +48,12 @@ protocol CanvasCommandTarget: AnyObject {
     /// The part of the page on screen, in page points (nil before layout):
     /// where inserted images go.
     var visiblePageRect: CGRect? { get }
+    /// The part of page `id` on screen, in its page points (nil when it is
+    /// not on screen or before layout): where images dropped on it go.
+    func visibleRect(ofPage id: UUID) -> CGRect?
+}
+
+extension CanvasCommandTarget {
+    /// The one-page canvas shows only the current page.
+    func visibleRect(ofPage id: UUID) -> CGRect? { visiblePageRect }
 }

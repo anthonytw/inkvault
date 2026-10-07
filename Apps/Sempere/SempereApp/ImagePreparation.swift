@@ -35,18 +35,42 @@ enum ImagePreparation {
         case tooLarge
         /// ImageIO could not write the converted image.
         case cannotConvert
+        /// A dropped file over `maxInputBytes`.
+        case fileTooLarge
 
         var description: String {
             switch self {
             case .unreadable: return "This file is not an image Sempere can read."
             case .tooLarge: return "This image is too large to add (at most \(ImageLimits.maxPixels / 1_000_000) megapixels)."
             case .cannotConvert: return "This image could not be converted to JPEG or PNG."
+            case .fileTooLarge: return "This file is too large to add (at most \(ImagePreparation.maxInputBytes >> 20) MB)."
             }
         }
     }
 
     /// JPEG quality of converted photos (docs/attachments.md §7).
     static let jpegQuality = 0.9
+
+    /// Largest image file read for a drop (format.md §9: an import never
+    /// allocates without bound). Above the stored limit (`ImageLimits.maxBlobBytes`)
+    /// because a source may shrink when converted: an uncompressed 100 MP TIFF is ~300 MB.
+    static let maxInputBytes = 512 << 20
+
+    /// The bytes of a dropped image file: refused by its size before anything
+    /// is read, then read through `BoundedRead` (regular files only, at most
+    /// `maxInputBytes`).
+    static func readInput(_ url: URL) throws -> Data {
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > maxInputBytes {
+            throw Failure.fileTooLarge
+        }
+        do {
+            return try BoundedRead.contents(of: url, maxBytes: maxInputBytes)
+        } catch VaultError.fileTooLarge {
+            throw Failure.fileTooLarge
+        } catch {
+            throw Failure.unreadable
+        }
+    }
 
     /// What to store for `data`; `privacy` is `PhotoPrivacy.isOn()`.
     /// Cost: one decode to check the image; a conversion decodes and encodes once more.
