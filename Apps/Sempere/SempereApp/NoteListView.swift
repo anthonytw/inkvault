@@ -40,8 +40,24 @@ struct NoteListView: View {
                                          set: { setSelecting($0.isEditing) }))
         .navigationTitle(title)
         .searchable(text: $model.searchText, isPresented: $ui.searchPresented, prompt: "Search notes and handwriting")
+        .searchSuggestions {
+            // Recent searches while the field is empty: tap one to search it again.
+            if model.searchText.isEmpty, !model.recentSearches.isEmpty {
+                Section {
+                    ForEach(model.recentSearches, id: \.self) { query in
+                        Label(query, systemImage: "clock.arrow.circlepath").searchCompletion(query)
+                    }
+                    Button("Clear Recent Searches", systemImage: "xmark.circle", role: .destructive) {
+                        model.clearRecentSearches()
+                    }
+                } header: {
+                    Text("Recent Searches")
+                }
+            }
+        }
+        .onSubmit(of: .search) { model.recordSearch() }
         .searchScopes($model.searchScope) {
-            ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+            ForEach(SearchScope.allCases) { Text($0.title(for: model.sidebarSelection)).tag($0) }
         }
         .toolbar {
             if model.isSelectingNotes {
@@ -93,15 +109,10 @@ struct NoteListView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
+                // The run's progress only; its results are the sidebar's "Recently Recognized",
+                // never a bar over the list (TestFlight build 6).
                 if let progress = model.recognitionProgress {
                     RecognitionBar(progress: progress) { model.cancelRecognizingNotes() }
-                } else if let results = model.recognitionResults, results.finished, !results.dismissed,
-                          model.sidebarSelection != .recentlyRecognized {
-                    RecognitionResultBar(results: results) {
-                        model.sidebarSelection = .recentlyRecognized
-                    } dismiss: {
-                        model.recognitionResults?.dismissed = true
-                    }
                 }
                 VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
             }
@@ -135,7 +146,7 @@ struct NoteListView: View {
         List(model.visibleNotes, id: \.id, selection: listSelection) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id),
-                    recognized: model.sidebarSelection == .recentlyRecognized ? model.recognitionResults?.entry(for: note.id) : nil)
+                    recognized: model.sidebarSelection == .recentlyRecognized ? model.recognizedEntry(for: note.id)?.recognizedNote : nil)
                 .modifier(NoteDragOut(note: note, enabled: model.phase == .unlocked
                                       && !model.placeholderNoteIDs.contains(note.id)))
                 // A placeholder's summary is empty: nothing to act on until it arrives
@@ -158,8 +169,8 @@ struct NoteListView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if model.sidebarSelection == .recentlyRecognized, let results = model.recognitionResults {
-                RecognitionResultsHeader(results: results, running: model.recognitionProgress != nil)
+            if model.sidebarSelection == .recentlyRecognized {
+                RecognitionResultsHeader(results: model.recognitionResults, running: model.recognitionProgress != nil)
             }
         }
     }
@@ -271,10 +282,10 @@ private struct NoteDragOut: ViewModifier {
         // The ticked notes go together when this one is among them.
         let ids = model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
         let payload = DragPayload.notes(ids)
-        model.draggedPayload = note.deleted ? nil : payload   // notes in Recently Deleted are not moved by a drop
         let id = note.id
         let exporter = model
-        return payload.provider { provider in
+        // Notes in Recently Deleted are not moved by a drop (the drag still carries a PDF out on the Mac).
+        return model.beginDrag(note.deleted ? nil : payload, provider: payload.provider { provider in
             guard Platform.isMac else { return }
             provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
                                                 visibility: .all) { completion in
@@ -289,7 +300,7 @@ private struct NoteDragOut: ViewModifier {
                 }
                 return progress
             }
-        }
+        })
     }
 }
 
@@ -559,6 +570,8 @@ struct RecognitionBar: View {
 
 /// Wording of the recognition results (tested).
 enum RecognitionResultsText {
+    static let sectionHeadline = "Read by Recognize All in the last 7 days"
+
     /// "Read 2 of 5 pages", "Read 1 page".
     static func pagesRead(_ read: Int, of pages: Int) -> String {
         read >= pages ? "Read \(read) page\(read == 1 ? "" : "s")" : "Read \(read) of \(pages) pages"
@@ -574,15 +587,16 @@ enum RecognitionResultsText {
     }
 }
 
-/// Above the list in "Recently Recognized": "Recognized 12 notes".
+/// Above the list in "Recently Recognized": what it is, and how this
+/// session's run went ("Still reading…", "2 could not be read").
 private struct RecognitionResultsHeader: View {
-    let results: RecognitionResults
+    let results: RecognitionResults?
     let running: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(results.headline).font(.footnote.weight(.semibold)).monospacedDigit()
-            if let detail = RecognitionResultsText.detail(results, running: running) {
+            Text(RecognitionResultsText.sectionHeadline).font(.footnote.weight(.semibold))
+            if let results, let detail = RecognitionResultsText.detail(results, running: running) {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -591,32 +605,5 @@ private struct RecognitionResultsHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// After a run: "Recognized 12 notes" with a button to the list.
-struct RecognitionResultBar: View {
-    let results: RecognitionResults
-    let show: () -> Void
-    let dismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(results.headline).font(.footnote.weight(.semibold)).monospacedDigit()
-                if let detail = RecognitionResultsText.detail(results, running: false) {
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if !results.notes.isEmpty { Button("Show", action: show).font(.footnote) }
-            Button("Dismiss", systemImage: "xmark", action: dismiss)
-                .labelStyle(.iconOnly)
-                .font(.footnote)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
     }
 }

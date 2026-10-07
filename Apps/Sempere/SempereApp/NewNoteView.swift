@@ -12,6 +12,7 @@ struct NewNoteView: View {
     @Environment(\.displayScale) private var displayScale
     @State private var notebook: String
     @State private var failure: String?
+    /// What an empty title becomes, shown as the field's placeholder.
 
     init(notebook: String?) {
         _notebook = State(initialValue: notebook ?? "")

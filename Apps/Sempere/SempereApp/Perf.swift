@@ -65,6 +65,13 @@ enum Perf {
         case thin = "thin"
         /// Thinning one note: metadata, then (when something may go) read, plan, encode, write.
         case thinNote = "thin.note"
+        /// Drawing one image item (detail: `hit` from the render cache, or `drawn`).
+        case itemPicture = "item.picture"
+        /// Getting a PDF blob's file from the blob cache and opening it (detail:
+        /// `fetched`, `adopted` from an earlier launch, or `cached`).
+        case pdfOpen = "pdf.open"
+        /// A PDF page's preview (detail: `hit`, or `drawn`).
+        case pdfPreview = "pdf.preview"
     }
 
     /// An interval in progress; pass it to `end`.
@@ -151,6 +158,9 @@ extension Perf.Phase {
         case .changeNotified: return "change.notified"
         case .thin: return "thin"
         case .thinNote: return "thin.note"
+        case .itemPicture: return "item.picture"
+        case .pdfOpen: return "pdf.open"
+        case .pdfPreview: return "pdf.preview"
         }
     }
 }

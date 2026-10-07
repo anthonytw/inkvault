@@ -248,3 +248,18 @@ struct PhoneRootTests {
         model.close()
     }
 }
+
+/// TestFlight build 6: iCloud Drive missing from the picker on an iPhone is a
+/// device setting; the welcome and new-vault screens say where to turn it on.
+@MainActor
+struct ICloudDriveHelpTests {
+    @Test func theStepsNameTheDeviceSettingAndTheFilesLocation() {
+        let phone = ICloudDriveHelp.steps(device: "iPhone")
+        #expect(phone.first?.contains("Settings › your name › iCloud › iCloud Drive") == true)
+        #expect(phone.first?.contains("Sync this iPhone") == true)
+        #expect(phone.contains { $0.contains("Browse") && $0.contains("Edit") })
+        #expect(ICloudDriveHelp.steps(device: "iPad").first?.contains("Sync this iPad") == true)
+        #expect(ICloudDriveHelp.deviceName == (Platform.isPhone ? "iPhone" : "iPad"))
+        #expect(ICloudDriveHelp.isShown == !Platform.isMac)
+    }
+}
