@@ -242,7 +242,7 @@ struct SettingsTests {
         #expect(UnusedAttachmentReport(items: [a, b]).totalBytes == 40)
     }
 
-    @Test func aScanFindsOnlyTheBlobNoRevisionUses() async throws {
+    @Test func aScanFindsTheBlobsNoRevisionUses() async throws {
         let (url, key, _, _) = try AttachmentCloudTests.vaultWithBlobs()
         let model = AppModel(deviceStateURL: TS.deviceStateURL())
         await #expect(throws: AppModel.ModelError.noVaultOpen) { _ = try await model.scanUnusedAttachments() }
@@ -250,11 +250,12 @@ struct SettingsTests {
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         let report = try await model.scanUnusedAttachments()
         #expect(report.skippedNotes == 0)
-        #expect(report.items.count == 1)
-        let item = try #require(report.items.first)
-        #expect(item.note == AttachmentCloudTests.lecture)
-        #expect(item.kind == .audio)
-        #expect(item.bytes > 0)
+        // The fixture's lecture already holds one orphaned `.bin` blob; the audio blob
+        // the test wrote is the other. The referenced image is not listed.
+        #expect(Set(report.items.map(\.kind)) == [.audio, .bin])
+        #expect(report.items.count == 2)
+        #expect(report.items.allSatisfy { $0.note == AttachmentCloudTests.lecture && $0.bytes > 0 })
+        #expect(report.totalBytes == report.items.reduce(0) { $0 + $1.bytes })
     }
 
     @Test func clearCachesEmptiesBothCachesAndKeepsTheVault() async throws {
