@@ -157,6 +157,21 @@ public struct KeyedArchive: Sendable {
 
     /// Maximum nesting followed by `resolveDeep` and the decoders.
     static let maxDepth = 64
+    /// Longest dictionary key accepted, UTF-8 bytes (real keys are short; a
+    /// long key repeated many times would cost its length at every insert).
+    static let maxKeyBytes = 1024
+
+    /// Each archived object of `$objects` (a dictionary with `$class`)
+    /// decoded once, at init: an archive can reference one object any number
+    /// of times, and decoding a dictionary or an object copies all its fields,
+    /// so decoding on every reference would cost (references × size), not the
+    /// input's size (format.md §9). Nil for entries that are plain values.
+    private let decoded: [Decoded?]
+
+    private enum Decoded: Sendable {
+        case node(Node)
+        case failure(ImportError)
+    }
 
     /// Parses an archive from property-list bytes.
     ///
@@ -169,6 +184,59 @@ public struct KeyedArchive: Sendable {
         guard case .dict(let top)? = root["$top"] else { throw ImportError.archive("no $top") }
         self.objects = objects
         self.top = top
+        self.decoded = Self.decodeAll(objects)
+    }
+
+    /// Decodes every archived object once: other classes first, then
+    /// dictionaries, whose keys are strings decoded in the first pass.
+    private static func decodeAll(_ objects: [PlistValue]) -> [Decoded?] {
+        var out = [Decoded?](repeating: nil, count: objects.count)
+        var dictionaries: [(Int, String, [String: PlistValue])] = []
+        for (i, o) in objects.enumerated() {
+            guard case .dict(let fields) = o, let cls = fields["$class"] else { continue }
+            do {
+                let name = try className(cls, objects)
+                if name == "NSDictionary" || name == "NSMutableDictionary" {
+                    dictionaries.append((i, name, fields))
+                } else {
+                    out[i] = .node(try decodeOther(className: name, fields: fields))
+                }
+            } catch let e as ImportError {
+                out[i] = .failure(e)
+            } catch {
+                out[i] = .failure(.archive("\(error)"))
+            }
+        }
+        for (i, name, fields) in dictionaries {
+            do {
+                guard case .array(let keys)? = fields["NS.keys"], case .array(let vals)? = fields["NS.objects"],
+                      keys.count == vals.count else { throw ImportError.archive("malformed \(name)") }
+                var dict: [String: PlistValue] = [:]
+                dict.reserveCapacity(keys.count)
+                for (k, v) in zip(keys, vals) {
+                    let key: String
+                    switch k {
+                    case .string(let s) where s != "$null": key = s
+                    case .int(let n): key = String(n)
+                    case .uid(let j) where j >= 0 && j < objects.count:
+                        if case .string(let s) = objects[j], s != "$null" { key = s }
+                        else if case .node(.string(let s))? = out[j] { key = s }
+                        else if case .int(let n) = objects[j] { key = String(n) }
+                        else { throw ImportError.archive("\(name) key is not a string or number") }
+                    case .uid(let j): throw ImportError.archive("dangling CF$UID \(j)")
+                    default: throw ImportError.archive("\(name) key is not a string or number")
+                    }
+                    guard key.utf8.count <= maxKeyBytes else { throw ImportError.archive("\(name) key longer than \(maxKeyBytes) bytes") }
+                    dict[key] = v
+                }
+                out[i] = .node(.dict(dict))
+            } catch let e as ImportError {
+                out[i] = .failure(e)
+            } catch {
+                out[i] = .failure(.archive("\(error)"))
+            }
+        }
+        return out
     }
 
     /// The root object named `key` in `$top` (`root` or `$0` in practice).
@@ -196,7 +264,11 @@ public struct KeyedArchive: Sendable {
         switch value {
         case .uid(let i):
             guard i >= 0, i < objects.count else { throw ImportError.archive("dangling CF$UID \(i)") }
-            return try node(objects[i], depth: depth + 1)
+            switch decoded[i] {
+            case .node(let n)?: return n
+            case .failure(let e)?: throw e
+            case nil: return try node(objects[i], depth: depth + 1)
+            }
         case .string(let s): return s == "$null" ? .null : .string(s)
         case .int(let i): return .int(i)
         case .real(let x): return .real(x)
@@ -212,6 +284,10 @@ public struct KeyedArchive: Sendable {
     }
 
     private func className(_ ref: PlistValue) throws -> String {
+        try Self.className(ref, objects)
+    }
+
+    private static func className(_ ref: PlistValue, _ objects: [PlistValue]) throws -> String {
         guard case .uid(let i) = ref, i >= 0, i < objects.count,
               case .dict(let cls) = objects[i], let name = cls["$classname"]?.string else {
             throw ImportError.archive("bad $class reference")
@@ -219,6 +295,7 @@ public struct KeyedArchive: Sendable {
         return name
     }
 
+    /// An archived object found inline rather than in `$objects` (not cached).
     private func decode(className: String, fields: [String: PlistValue], depth: Int) throws -> Node {
         switch className {
         case "NSDictionary", "NSMutableDictionary":
@@ -227,12 +304,20 @@ public struct KeyedArchive: Sendable {
             var out: [String: PlistValue] = [:]
             for (k, v) in zip(keys, vals) {
                 switch try node(k, depth: depth + 1) {
-                case .string(let s): out[s] = v
+                case .string(let s) where s.utf8.count <= Self.maxKeyBytes: out[s] = v
                 case .int(let i): out[String(i)] = v
                 default: throw ImportError.archive("\(className) key is not a string or number")
                 }
             }
             return .dict(out)
+        default:
+            return try Self.decodeOther(className: className, fields: fields)
+        }
+    }
+
+    /// Any class but the dictionaries; reads nothing outside `fields`.
+    private static func decodeOther(className: String, fields: [String: PlistValue]) throws -> Node {
+        switch className {
         case "NSArray", "NSMutableArray", "NSSet", "NSMutableSet", "NSOrderedSet", "NSMutableOrderedSet":
             guard case .array(let vals)? = fields["NS.objects"] else { throw ImportError.archive("malformed \(className)") }
             return .array(vals)

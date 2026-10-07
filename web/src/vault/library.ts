@@ -23,7 +23,7 @@ export interface LoadedNote {
   revisionCount: number;
   /** Newest `wall` of a readable revision (Unix ms). */
   modified?: number;
-  /** The note holds items or recordings (format.md §8), which the viewer does not draw yet. */
+  /** The note holds items or recordings (format.md §8). */
   hasAttachments: boolean;
 }
 

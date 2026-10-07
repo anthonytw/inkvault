@@ -50,7 +50,7 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func testPDFPagesBecomeBackgroundsAtTheirBands() throws {
         let pdf = AttachmentFixtures.pdf(pages: Array(repeating: Self.letter, count: 3))
-        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 3), pdf: pdf,
+        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 3), pdf: pdf,
                                              thumbnails: [("thumb.png", 48, 62)])
         let vault = try makeVault()
         let (r, state) = try importPackage(pkg, into: vault)
@@ -113,7 +113,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     /// standard aspect no longer decides it.
     func testPDFPageBoxReplacesTheThumbnailAspect() throws {
         let pdf = AttachmentFixtures.pdf(pages: [Self.slide, Self.slide])
-        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 2), pdf: pdf,
+        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 2), pdf: pdf,
                                              thumbnails: [("thumb.png", 48, 40)])
         let (note, a) = try resolve(pkg)
         XCTAssertEqual(note.paper.pageHeight, 598, accuracy: 1e-9)   // ⌈716.8 × 40/48⌉ from the thumbnail
@@ -127,7 +127,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     /// Mixed sizes: each page starts where the heights above it end.
     func testMixedPDFPageSizesStackPerPage() throws {
         let pdf = AttachmentFixtures.pdf(pages: [Self.letter, Self.slide, Self.letter])
-        let (note, a) = try resolve(AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 3), pdf: pdf))
+        let (note, a) = try resolve(AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 3), pdf: pdf))
         XCTAssertEqual(a.pageTops, [0, 928, 928 + 538])
         XCTAssertEqual(a.placements.map(\.frame.y), [0, 928, 928 + 538])
         XCTAssertTrue(a.warnings.contains { $0.contains("2 heights") }, "\(a.warnings)")
@@ -140,7 +140,7 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func testRotatedPDFPageUsesItsEffectiveSize() throws {
         let pdf = AttachmentFixtures.pdf(pages: [Self.letter], rotate: 90)
-        let (_, a) = try resolve(AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 1), pdf: pdf))
+        let (_, a) = try resolve(AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 1), pdf: pdf))
         guard case let .pdfPage(_, _, size)? = a.placements.first?.content else { return XCTFail("no page") }
         XCTAssertEqual(size, Size(w: 792, h: 612))
         XCTAssertEqual(a.pageStride ?? 0, (716.8 * 612 / 792).rounded(.up))
@@ -149,7 +149,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     /// An inserted paper page keeps the note's page height and gets no background.
     func testInsertedPaperPageInPDFNote() throws {
         let name = SyntheticNote.pdfName
-        let session = SyntheticNote.session(layout: [(1, name, 1), (2, nil, 0), (3, name, 2)])
+        let session = SyntheticNote.session(typed: "", layout: [(1, name, 1), (2, nil, 0), (3, name, 2)])
         let pdf = AttachmentFixtures.pdf(pages: [Self.letter, Self.letter])
         let (note, a) = try resolve(AttachmentFixtures.package(session: session, pdf: pdf,
                                                                thumbnails: [("thumb.png", 48, 62)]))
@@ -163,7 +163,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     /// Entries stored out of order are placed by their document page number.
     func testLayoutOrderFollowsDocumentPageNumbers() throws {
         let name = SyntheticNote.pdfName
-        let session = SyntheticNote.session(layout: [(2, name, 2), (1, name, 1)])
+        let session = SyntheticNote.session(typed: "", layout: [(2, name, 2), (1, name, 1)])
         let pdf = AttachmentFixtures.pdf(pages: [Self.letter, Self.slide])
         let (_, a) = try resolve(AttachmentFixtures.package(session: session, pdf: pdf))
         let indices = a.placements.compactMap { p -> Int? in
@@ -175,7 +175,7 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func testZeroBasedPDFPageNumbers() throws {
         let name = SyntheticNote.pdfName
-        let session = SyntheticNote.session(layout: [(1, name, 0), (2, name, 1)])
+        let session = SyntheticNote.session(typed: "", layout: [(1, name, 0), (2, name, 1)])
         let (_, a) = try resolve(AttachmentFixtures.package(
             session: session, pdf: AttachmentFixtures.pdf(pages: [Self.letter, Self.slide])))
         let sizes = a.placements.compactMap { p -> Size? in
@@ -186,7 +186,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     }
 
     func testPDFPageBeyondTheFileIsDropped() throws {
-        let session = SyntheticNote.session(pdfPages: 3)
+        let session = SyntheticNote.session(typed: "", pdfPages: 3)
         let (note, a) = try resolve(AttachmentFixtures.package(
             session: session, pdf: AttachmentFixtures.pdf(pages: [Self.letter, Self.letter])))
         XCTAssertEqual(a.placements.count, 2)
@@ -199,7 +199,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     func testEncryptedMissingAndBrokenPDFsAreReported() throws {
         for (pdf, expect) in [(AttachmentFixtures.pdf(pages: [Self.letter], encrypt: true), "encrypted"),
                               (nil, "not in the package"), (Data("%PDF-1.4\n".utf8), "not readable")] as [(Data?, String)] {
-            let pkg = AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 2), pdf: pdf)
+            let pkg = AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 2), pdf: pdf)
             let vault = try makeVault()
             let (r, state) = try importPackage(pkg, into: vault)
             XCTAssertEqual(r.dropped.pdfPages, 2, expect)
@@ -214,7 +214,7 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func testNoAttachmentsKeepsTheOldImport() throws {
         let pdf = AttachmentFixtures.pdf(pages: Array(repeating: Self.letter, count: 2))
-        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 2), pdf: pdf)
+        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 2), pdf: pdf)
         let vault = try makeVault()
         let (r, state) = try importPackage(pkg, into: vault, options: .init(attachments: false))
         XCTAssertEqual(r.dropped.pdfPages, 2)
@@ -227,7 +227,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     /// An ink-less PDF note is no longer empty: every page has its background.
     func testInklessPDFNoteImportsItsPages() throws {
         let pdf = AttachmentFixtures.pdf(pages: Array(repeating: Self.slide, count: 12))
-        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(curves: [], pdfPages: 12), pdf: pdf,
+        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(typed: "", curves: [], pdfPages: 12), pdf: pdf,
                                              handwriting: false)
         let (r, state) = try importPackage(pkg, into: try makeVault())
         XCTAssertEqual(r.strokes, 0)
@@ -240,7 +240,7 @@ final class NotabilityAttachmentTests: XCTestCase {
     /// their page) and reuses the blob.
     func testOverwriteReplacesItems() throws {
         let pdf = AttachmentFixtures.pdf(pages: [Self.letter])
-        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(pdfPages: 1), pdf: pdf)
+        let pkg = AttachmentFixtures.package(session: SyntheticNote.session(typed: "", pdfPages: 1), pdf: pdf)
         let vault = try makeVault()
         let (_, first) = try importPackage(pkg, into: vault)
         let (r, second) = try importPackage(pkg, into: vault, options: .init(overwrite: true))
@@ -253,7 +253,7 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func testTemplatePDFPaper() throws {
         let uuid = "11111111-2222-4333-8444-555555555555"
-        let session = SyntheticNote.session(paperIdentifier: "TemplatePDF:\(uuid):#FFFFFF")
+        let session = SyntheticNote.session(typed: "", paperIdentifier: "TemplatePDF:\(uuid):#FFFFFF")
         // Not in the package: reported.
         let (note, missing) = try resolve(AttachmentFixtures.package(session: session))
         XCTAssertEqual(NotabilityImporter.dropped(note, attachments: missing).templatePDFs, 1)
@@ -274,7 +274,7 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func imagePackage(_ media: @escaping (inout KeyedArchiveBuilder) -> [BValue],
                       files: [(String, Data)]) -> Data {
-        AttachmentFixtures.package(session: SyntheticNote.session(media: media), extra: files)
+        AttachmentFixtures.package(session: SyntheticNote.session(typed: "", media: media), extra: files)
     }
 
     func testImagesBecomeImageItems() throws {
@@ -357,6 +357,26 @@ final class NotabilityAttachmentTests: XCTestCase {
     }
 
     /// A frame stored as a rect (`NSValue`), rotation in radians and a unit crop.
+    /// Real notes keep a placeholder `{{0, 0}, {0, 0}}` `rect` on the figure's
+    /// background object; it must not win over `documentContentOrigin` +
+    /// `unscaledContentSize` (25 images of the reference backup were dropped
+    /// as "not a finite box" before). A full-image `FigureCropRectKey` is no crop.
+    func testPlaceholderRectFallsThroughToOriginAndSize() throws {
+        let png = AttachmentFixtures.png(width: 100, height: 50)
+        let pkg = imagePackage({ a in
+            [AttachmentFixtures.imageObject(&a, file: "Images/Image 1.png", origin: (40, 300), size: (200, 100),
+                                            cropPixels: (100, 50))]
+        }, files: [("Images/Image 1.png", png)])
+        let (note, a) = try resolve(pkg)
+        let state = NotabilityImporter.convert(note, scaleToLetterWidth: false, attachments: a)
+        let item = try XCTUnwrap(state.pages[0].items.first)
+        XCTAssertEqual(item.frame.w, 200)
+        XCTAssertEqual(item.frame.h, 100)
+        XCTAssertEqual(item.frame.y, 300, accuracy: 1e-9)
+        XCTAssertTrue(item.crop == nil || item.crop == Rect(x: 0, y: 0, w: 100, h: 50), "\(String(describing: item.crop))")
+        XCTAssertTrue(a.warnings.contains { $0.contains("documentContentOrigin + unscaledContentSize") }, "\(a.warnings)")
+    }
+
     func testFrameRotationAndCropFromOtherFields() throws {
         let png = AttachmentFixtures.png(width: 100, height: 50)
         let pkg = imagePackage({ a in
@@ -467,5 +487,32 @@ final class CLIAttachmentFixtureTests: XCTestCase {
             try data.write(to: Self.url)
         }
         XCTAssertEqual(try Data(contentsOf: Self.url), data, "run with SEMPERE_UPDATE_FIXTURES=1 to regenerate")
+    }
+
+    /// `synthetic-text-audio.note`: styled typed text, a recording and strokes linked to it.
+    static var textAudioURL: URL { url.deletingLastPathComponent().appendingPathComponent("synthetic-text-audio.note") }
+
+    static func textAudioPackage() -> Data {
+        let session = SyntheticNote.session(attributed: { a in
+            let ranges = [a.dict([("rangeKey", a.string("{0, 7}")), ("fontName", a.string("Helvetica-Bold")),
+                                  ("fontSize", .real(24))])]
+            return a.dict([("stringKey", a.string("Heading\nTyped notes about kernels")), ("subRangesKey", a.array(ranges))])
+        }, eventTokens: [0, 1500, -1, 3000])
+        let entry = """
+            <key>name</key><string>Lecture</string><key>fileName</key><string>Recording 1.m4a</string>\
+            <key>creationDate</key><date>2026-10-04T16:20:00Z</date>
+            """
+        return AttachmentFixtures.package(session: session, extra: [
+            ("Recordings/library.plist", AttachmentFixtures.library([("rec-0", entry)])),
+            ("Recordings/Recording 1.m4a", AttachmentFixtures.m4a(seconds: 12.5)),
+        ])
+    }
+
+    func testTextAudioFixtureIsCurrent() throws {
+        let data = Self.textAudioPackage()
+        if ProcessInfo.processInfo.environment["SEMPERE_UPDATE_FIXTURES"] == "1" {
+            try data.write(to: Self.textAudioURL)
+        }
+        XCTAssertEqual(try Data(contentsOf: Self.textAudioURL), data, "run with SEMPERE_UPDATE_FIXTURES=1 to regenerate")
     }
 }

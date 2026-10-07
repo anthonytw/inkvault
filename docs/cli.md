@@ -749,11 +749,14 @@ format the vault does not store, and how each image was placed).
 Attachments (`docs/import-notability.md` "Attachments"): the PDF pages of a
 note made from a PDF become `pdfPage` backgrounds at the bands where
 Notability showed them, backed by the original PDF as one blob of the note,
-and images become `image` items; blobs are written before the note's delta.
+images become `image` items, typed text becomes `text` items (styles mapped
+to runs), and recordings become the note's recordings with their audio
+(strokes get `rec` where `eventTokens` read as times in the one recording);
+blobs are written before the note's delta.
 JPEG and PNG metadata (camera, location) is stripped unless
 `--keep-image-metadata`; HEIC is stored as is; GIF, TIFF, WebP and other
 formats are reported and left out. `--no-attachments` imports ink, recognised
-text and metadata only and reports every attachment as dropped. A note with
+handwriting and metadata only and reports every attachment as dropped. A note with
 no ink and none of its PDF pages imported gets a `no ink in …` line. A note
 already in the vault is skipped unless `--overwrite`, which
 replaces its pages. `--notebook` files every note under one notebook;
@@ -769,12 +772,13 @@ come from `device.json` as for `snapshot`.
 so the report is exact but neither the vault nor `device.json` is touched.
 `--json` emits `summary` (`notes`, `imported`, `skipped`, `failed`,
 `strokes`, `ntb`, `extraVersions`, `dryRun`, and over the notes written
-`pdfPages`, `images`, `blobs`, `blobBytes`, `droppedPDFPages`,
-`droppedMedia`) and `notes` (with `status` `imported`, `skipped` or `failed`,
+`pdfPages`, `images`, `textItems`, `recordings`, `recLinkedStrokes`, `blobs`,
+`blobBytes`, `droppedPDFPages`, `droppedMedia`) and `notes` (with `status` `imported`, `skipped` or `failed`,
 `reason`, `id`, `format` `note`/`ntb`, `shapes`, `duplicateOf`,
 `extraVersion`, `selection`, `dropped` (`pdfs`, `pdfPages`, `media`,
-`pdfHighlights`, `templatePDFs`, `typedTextCharacters`, `recordings`, …),
-`attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`, `blobs`,
+`pdfHighlights`, `templatePDFs`, `typedTextCharacters`, `recordings`,
+`recLinks`, …), `attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`,
+`textItems`, `textCharacters`, `recordings`, `recLinkedStrokes`, `blobs`,
 `blobBytes`) and `warnings`, ...). A skipped note's `dropped` counts
 everything its source holds, since nothing of it was written. Exit 1
 if any note failed, a path does not exist, or no `.note` or `.ntb` file was

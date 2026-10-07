@@ -13,7 +13,13 @@ import { renderSVG } from "../src/render/page.ts";
 import { RenderError } from "../src/render/primitives.ts";
 import { SourceError, parseIndex, propfindNames } from "../src/vault/source.ts";
 import { VaultError, parseManifest } from "../src/vault/vault.ts";
-import { golden } from "./support.ts";
+import { golden, webFixtures } from "./support.ts";
+import { PreparedPage } from "../src/render/page.ts";
+import { resolveItems } from "../src/render/itemsvg.ts";
+import { ImageFormatError, imageInfo, stripMetadata } from "../src/render/images.ts";
+import { decodeTranscript } from "../src/format/transcript.ts";
+import { BlobError, verifyPlaintext } from "../src/vault/blobs.ts";
+import { createHash } from "node:crypto";
 
 const iterations = process.env.SEMPERE_FUZZ_LONG ? 20_000 : 600;
 
@@ -55,7 +61,7 @@ function mutate(v: unknown, r: () => number, depth = 0): unknown {
 
 /** Revisions in plain JSON, from the Swift CLI's state exports wrapped as snapshots. */
 function seeds(): unknown[] {
-  const ids = ["11111111-1111-4111-8111-111111111111", "55555555-5555-4555-8555-555555555555"];
+  const ids = ["11111111-1111-4111-8111-111111111111", "55555555-5555-4555-8555-555555555555", "77777777-7777-4777-8777-777777777777"];
   return ids.flatMap((id) => {
     const dir = id.startsWith("1") ? "sample" : "render";
     const state = JSON.parse(readFileSync(join(golden, dir, `${id}.json`), "utf8")) as unknown;
@@ -85,6 +91,7 @@ describe("fuzz", () => {
         for (const p of state.pages.slice(0, 2)) {
           try {
             renderSVG(p, state.meta);
+            resolveItems(new PreparedPage(p, state.meta));
           } catch (e) {
             if (!(e instanceof RenderError)) throw e;
           }
@@ -115,6 +122,50 @@ describe("fuzz", () => {
       }
       const xml = `<d:multistatus><d:href>${"/a/%zz&#x110000;&amp;<b>".slice(0, Math.floor(r() * 24))}</d:href></d:multistatus>`;
       expect(Array.isArray(propfindNames(xml))).toBe(true);
+    }
+  });
+
+  it("reads mutated images, transcripts and blob plaintexts with typed errors only", async () => {
+    const r = rng(0xa77a);
+    const flip = (b: Uint8Array): Uint8Array => {
+      const out = b.slice(0, r() < 0.1 ? Math.floor(r() * b.length) : b.length);
+      const n = 1 + Math.floor(r() * 4);
+      for (let k = 0; k < n && out.length; k++) out[Math.floor(r() * out.length)] = Math.floor(r() * 256);
+      return out;
+    };
+    const images = ["photo.jpg", "dot.png"].map((f) => new Uint8Array(readFileSync(join(webFixtures, "media", f))));
+    const rec = "11111111-1111-4111-8111-111111111111";
+    const transcript = { format: "sempere-transcript/1", recording: rec, engine: "e", language: "en", created: "2026-10-04T17:21:00Z",
+      segments: [{ start: 0, end: 1, text: "a b", confidence: 0.5, words: [{ t: "a", start: 0, end: 0.5, c: 0.9 }, { t: "b", start: 0.5, end: 1 }] }] };
+    const content = new TextEncoder().encode("hello, sempere!\n");
+    const ref = { sha256: createHash("sha256").update(content).digest("hex"), size: content.length, type: "text/plain" };
+    const framed = new Uint8Array(64);
+    framed.set(new TextEncoder().encode("INKB"));
+    framed[4] = 1;
+    framed.set(createHash("sha256").update(content).digest(), 5);
+    framed[44] = content.length;
+    framed.set(content, 45);
+    for (let i = 0; i < iterations; i++) {
+      const img = flip(images[i % 2] as Uint8Array);
+      try {
+        imageInfo(img);
+        stripMetadata(img);
+      } catch (e) {
+        if (!(e instanceof ImageFormatError)) throw new Error(`image iteration ${i}: ${String(e)}`, { cause: e });
+      }
+      try {
+        decodeTranscript(new TextEncoder().encode(JSON.stringify(mutate(transcript, r))), rec);
+      } catch (e) {
+        if (!(e instanceof DecodeError)) throw new Error(`transcript iteration ${i}: ${String(e)}`, { cause: e });
+      }
+      if (i % 10 === 0) {
+        const bytes = flip(framed);
+        try {
+          await verifyPlaintext(new Blob([bytes as Uint8Array<ArrayBuffer>]).stream(), ref);
+        } catch (e) {
+          if (!(e instanceof BlobError)) throw new Error(`blob iteration ${i}: ${String(e)}`, { cause: e });
+        }
+      }
     }
   });
 });

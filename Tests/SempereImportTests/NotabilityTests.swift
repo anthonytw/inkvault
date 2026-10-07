@@ -186,7 +186,10 @@ final class NotabilityTests: XCTestCase {
         XCTAssertEqual(ok.notebook, "Research/Daily log")
         XCTAssertEqual(ok.strokes, 4)
         XCTAssertEqual(ok.recognizedPages, 2)
-        XCTAssertEqual(ok.dropped.typedTextCharacters, 11)
+        // The typed text is a text item now (task D3).
+        XCTAssertEqual(ok.dropped.typedTextCharacters, 0)
+        XCTAssertEqual(ok.attachments.textItems, 1)
+        XCTAssertEqual(ok.attachments.textCharacters, 11)
         XCTAssertEqual(ok.originalWidth ?? 0, 716.8, accuracy: 1e-9)
 
         let id = try XCTUnwrap(ok.noteId)
