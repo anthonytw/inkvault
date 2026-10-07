@@ -50,7 +50,9 @@ extension AppModel {
     // MARK: - Playback
 
     /// Plays `recording` of the editor's note, from `time` when given.
-    func play(_ recording: Recording, in editor: NoteEditor, from time: Double? = nil, start: Bool = true) async {
+    func play(_ given: Recording, in editor: NoteEditor, from time: Double? = nil, start: Bool = true) async {
+        // The note's current copy: a caller's may predate a rename or a transcript.
+        let recording = editor.recording(given.id) ?? given
         let player = editor.player ?? makePlayer(for: editor)
         if player.recording?.id != recording.id {
             guard let cache = attachmentCache() else { return }
