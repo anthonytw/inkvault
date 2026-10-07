@@ -165,6 +165,54 @@
         }
       }
     },
+    "%lld could not be read" : {
+      "comment" : "A number of notes whose handwriting could not be read",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld could not be read"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld could not be read"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld no se pudieron leer"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld no se pudo leer"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld no se pudieron leer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld days" : {
       "comment" : "Thinning: remove autosaves older than this many days (a choice in Settings)",
       "extractionState" : "manual",
@@ -753,6 +801,54 @@
         }
       }
     },
+    "%lld pages" : {
+      "comment" : "A number of pages (note list row)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld page"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld pages"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de páginas"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld página"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld páginas"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld recordings and their transcripts attached to the PDF." : {
       "comment" : "Export sheet footer",
       "extractionState" : "manual",
@@ -1185,6 +1281,54 @@
         }
       }
     },
+    "+%lld more" : {
+      "comment" : "Search result: how many more pages match",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld más"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld más"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld más"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "1 match" : {
       "comment" : "Search highlights: the only match in the note",
       "extractionState" : "manual",
@@ -1335,6 +1479,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un cuaderno no se puede mover dentro de sí mismo ni de un cuaderno que contenga."
+          }
+        }
+      }
+    },
+    "A notebook cannot go into itself or a notebook inside it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un cuaderno no puede ir dentro de sí mismo ni de un cuaderno que contiene."
           }
         }
       }
@@ -1585,6 +1740,30 @@
         }
       }
     },
+    "Add Tag" : {
+      "comment" : "Alert title: add a tag to a note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir etiqueta"
+          }
+        }
+      }
+    },
+    "Add Tag…" : {
+      "comment" : "Context menu item: add a tag to a note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir etiqueta…"
+          }
+        }
+      }
+    },
     "Add Text" : {
       "comment" : "Undo action name: a text box was added",
       "extractionState" : "manual",
@@ -1728,6 +1907,18 @@
         }
       }
     },
+    "Another Vault Is Open" : {
+      "comment" : "Note window: its vault is not the open one",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hay otra bóveda abierta"
+          }
+        }
+      }
+    },
     "Another note is recording. Stop that recording first." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1851,6 +2042,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este dispositivo nunca elimina guardados automáticos. Otro dispositivo con la reducción activada sí reduce el historial de la bóveda."
+          }
+        }
+      }
+    },
+    "Becomes %@, with every notebook and note inside it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pasará a ser %@, con todos los cuadernos y notas que contiene."
           }
         }
       }
@@ -2047,6 +2249,18 @@
         }
       }
     },
+    "Clear Recent Searches" : {
+      "comment" : "Button under the search field's recent searches",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrar búsquedas recientes"
+          }
+        }
+      }
+    },
     "Close" : {
       "comment" : "Button: close the sheet",
       "extractionState" : "manual",
@@ -2079,6 +2293,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cerrar bóveda"
+          }
+        }
+      }
+    },
+    "Close Window" : {
+      "comment" : "Button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar ventana"
           }
         }
       }
@@ -2342,6 +2568,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido renombrar la grabación: %@"
+          }
+        }
+      }
+    },
+    "Could not reopen “%@”: %@" : {
+      "comment" : "First %@ is the vault's name, second the error (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo volver a abrir «%1$@»: %2$@"
+          }
+        }
+      }
+    },
+    "Could not reopen “%@”: %@\n\nChoose the vault folder again." : {
+      "comment" : "First %@ is the vault's name, second the error (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo volver a abrir «%1$@»: %2$@\n\nVuelve a elegir la carpeta de la bóveda."
           }
         }
       }
@@ -2749,6 +2999,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Descargando de iCloud: %lld de %@"
+          }
+        }
+      }
+    },
+    "Downloading from iCloud…" : {
+      "comment" : "Note list row of a note not downloaded yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargando de iCloud…"
           }
         }
       }
@@ -3334,6 +3596,41 @@
         }
       }
     },
+    "Handwriting" : {
+      "comment" : "Toolbar menu: handwriting recognition",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escritura a mano"
+          }
+        }
+      }
+    },
+    "Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La escritura a mano se lee en este dispositivo; el texto se guarda cifrado en la bóveda para que todos los dispositivos puedan buscar en él."
+          }
+        }
+      }
+    },
+    "Hide Notebooks" : {
+      "comment" : "Accessibility label: close the notebook suggestions",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocultar cuadernos"
+          }
+        }
+      }
+    },
     "Hide Notes" : {
       "comment" : "Toolbar button: hide the note list",
       "extractionState" : "manual",
@@ -3442,6 +3739,18 @@
         }
       }
     },
+    "Import PDF…" : {
+      "comment" : "Toolbar button: make a note from a PDF",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar PDF…"
+          }
+        }
+      }
+    },
     "In #%@" : {
       "comment" : "Search scope: the notes with one tag",
       "extractionState" : "manual",
@@ -3526,6 +3835,18 @@
         }
       }
     },
+    "Into notebook (blank: top level)" : {
+      "comment" : "Notebook field placeholder when moving a notebook",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En el cuaderno (vacío: nivel superior)"
+          }
+        }
+      }
+    },
     "Isometric dots" : {
       "comment" : "Paper kind",
       "extractionState" : "manual",
@@ -3546,6 +3867,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cuadrícula isométrica"
+          }
+        }
+      }
+    },
+    "It is there already." : {
+      "comment" : "Footer: moving the notebook would change nothing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya está ahí."
           }
         }
       }
@@ -3705,6 +4038,18 @@
         }
       }
     },
+    "Layout" : {
+      "comment" : "Picker: paged or pageless layout of a new note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disposición"
+          }
+        }
+      }
+    },
     "Left margin" : {
       "comment" : "Paper parameter",
       "extractionState" : "manual",
@@ -3773,6 +4118,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ubicación"
+          }
+        }
+      }
+    },
+    "Make a note from a PDF: one page per PDF page, to write on" : {
+      "comment" : "Help tag of Import PDF…",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crear una nota a partir de un PDF: una página por cada página del PDF, para escribir encima"
           }
         }
       }
@@ -3897,6 +4254,30 @@
         }
       }
     },
+    "Move to Notebook" : {
+      "comment" : "Sheet title: move a note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover a un cuaderno"
+          }
+        }
+      }
+    },
+    "Move to Notebook…" : {
+      "comment" : "Context menu item: move a note to a notebook",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover a un cuaderno…"
+          }
+        }
+      }
+    },
     "Move to Recently Deleted" : {
       "comment" : "Note menu: delete the note (it can be restored)",
       "extractionState" : "manual",
@@ -3905,6 +4286,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mover a Eliminadas recientemente"
+          }
+        }
+      }
+    },
+    "Move to Top Level" : {
+      "comment" : "Button: move a notebook out of its parent",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover al nivel superior"
           }
         }
       }
@@ -3933,6 +4326,18 @@
         }
       }
     },
+    "Name (optional)" : {
+      "comment" : "Text field placeholder: a version's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre (opcional)"
+          }
+        }
+      }
+    },
     "Never" : {
       "comment" : "Thinning: autosaves are never removed (a choice in Settings)",
       "extractionState" : "manual",
@@ -3953,6 +4358,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clave nueva"
+          }
+        }
+      }
+    },
+    "New Note" : {
+      "comment" : "Button / sheet title: create a note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nueva nota"
           }
         }
       }
@@ -4001,6 +4418,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nueva bóveda…"
+          }
+        }
+      }
+    },
+    "New notebook “%@”" : {
+      "comment" : "Under the notebook field: the typed notebook does not exist yet (its path)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuevo cuaderno «%@»"
           }
         }
       }
@@ -4072,6 +4501,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ninguna nota seleccionada"
+          }
+        }
+      }
+    },
+    "No Notebook" : {
+      "comment" : "Button: take the note out of its notebook",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin cuaderno"
+          }
+        }
+      }
+    },
+    "No Notes" : {
+      "comment" : "Empty list title: the vault has no notes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay notas"
+          }
+        }
+      }
+    },
+    "No Notes Here" : {
+      "comment" : "Empty list title: nothing in the sidebar selection",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay notas aquí"
           }
         }
       }
@@ -4239,6 +4704,30 @@
         }
       }
     },
+    "Note Not Found" : {
+      "comment" : "Note window: the note is gone",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota no encontrada"
+          }
+        }
+      }
+    },
+    "Note downloading from iCloud" : {
+      "comment" : "Accessibility label of a note row not downloaded yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota descargándose de iCloud"
+          }
+        }
+      }
+    },
     "Note title: %@" : {
       "comment" : "Accessibility label of the title button in the toolbar",
       "extractionState" : "manual",
@@ -4259,6 +4748,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cuaderno"
+          }
+        }
+      }
+    },
+    "Notebook (School/Math for levels)" : {
+      "comment" : "Notebook field placeholder; “School/Math” is an example path",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuaderno (Clase/Mates para niveles)"
+          }
+        }
+      }
+    },
+    "Notebook (optional; School/Math for levels)" : {
+      "comment" : "Notebook field placeholder; “School/Math” is an example path",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuaderno (opcional; Clase/Mates para niveles)"
           }
         }
       }
@@ -4287,6 +4800,51 @@
         }
       }
     },
+    "Notes Could Not Be Listed" : {
+      "comment" : "Empty list title after a failure",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudieron mostrar las notas"
+          }
+        }
+      }
+    },
+    "Notes appear here as iCloud Drive delivers them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas aparecen aquí a medida que iCloud Drive las entrega."
+          }
+        }
+      }
+    },
+    "Notes appear here as they are read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas aparecen aquí a medida que se leen."
+          }
+        }
+      }
+    },
+    "Nothing in this notebook, tag or list." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay nada en este cuaderno, etiqueta o lista."
+          }
+        }
+      }
+    },
     "Nothing to remove: every note keeps only checkpoints and the newest save of each editing session." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4305,6 +4863,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nada que eliminar: ningún guardado automático es lo bastante antiguo para reducirlo."
+          }
+        }
+      }
+    },
+    "Now in %@." : {
+      "comment" : "Footer: the note's current notebook",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ahora en %@."
           }
         }
       }
@@ -4439,6 +5009,18 @@
         }
       }
     },
+    "Open" : {
+      "comment" : "Button: open a protected PDF with the password",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir"
+          }
+        }
+      }
+    },
     "Open Note in New Window" : {
       "comment" : "File menu",
       "extractionState" : "manual",
@@ -4510,6 +5092,17 @@
         }
       }
     },
+    "Open and unlock the vault in the library window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre y desbloquea la bóveda en la ventana de la biblioteca."
+          }
+        }
+      }
+    },
     "Open in Its Own Window" : {
       "comment" : "Detail pane: the selected note is open in a separate window",
       "extractionState" : "manual",
@@ -4518,6 +5111,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abierta en su propia ventana"
+          }
+        }
+      }
+    },
+    "Open in New Window" : {
+      "comment" : "Context menu item (Mac): open the note in its own window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir en una ventana nueva"
           }
         }
       }
@@ -4554,6 +5159,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abriendo la bóveda: %lld de %@"
+          }
+        }
+      }
+    },
+    "Opening vault…" : {
+      "comment" : "Progress: the note list is being read",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abriendo la bóveda…"
           }
         }
       }
@@ -4642,6 +5259,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Páginas PDF…"
+          }
+        }
+      }
+    },
+    "PDF Password" : {
+      "comment" : "Alert title: a protected PDF needs its password",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contraseña del PDF"
           }
         }
       }
@@ -4952,6 +5581,18 @@
         }
       }
     },
+    "Password" : {
+      "comment" : "Secure field placeholder: a PDF's password",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contraseña"
+          }
+        }
+      }
+    },
     "Paste" : {
       "comment" : "Undo action name (Edit ▸ Undo …) or item menu command",
       "extractionState" : "manual",
@@ -5248,6 +5889,90 @@
         }
       }
     },
+    "Read %lld of %@" : {
+      "comment" : "Pages read; %@ is a number of pages, e.g. “5 pages”",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld de %@ leídas"
+          }
+        }
+      }
+    },
+    "Read %lld pages" : {
+      "comment" : "Pages of a note whose handwriting was read (all of them)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Read %lld page"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Read %lld pages"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de páginas leídas"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld página leída"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld páginas leídas"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Read by Recognize All in the last 7 days" : {
+      "comment" : "Header above the Recently Recognized list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leídas con Reconocer todo en los últimos 7 días"
+          }
+        }
+      }
+    },
+    "Reading handwriting: %lld of %@" : {
+      "comment" : "Progress of Recognize All; %@ is a number of notes, e.g. “80 notes”",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leyendo escritura a mano: %lld de %@"
+          }
+        }
+      }
+    },
     "Reading history…" : {
       "comment" : "Progress while a note's history is read",
       "extractionState" : "manual",
@@ -5284,6 +6009,18 @@
         }
       }
     },
+    "Recent Searches" : {
+      "comment" : "Section header of the search suggestions",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Búsquedas recientes"
+          }
+        }
+      }
+    },
     "Recently Deleted" : {
       "comment" : "Sidebar row: deleted notes",
       "extractionState" : "manual",
@@ -5304,6 +6041,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reconocidas recientemente"
+          }
+        }
+      }
+    },
+    "Recognize %lld Notes Now" : {
+      "comment" : "Menu button: recognize the handwriting of the notes that need it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Recognize %lld Note Now"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Recognize %lld Notes Now"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Reconocer %lld de notas ahora"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Reconocer %lld nota ahora"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Reconocer %lld notas ahora"
+                }
+              }
+            }
           }
         }
       }
@@ -5626,6 +6411,18 @@
         }
       }
     },
+    "Remove Tag" : {
+      "comment" : "Context submenu: remove one of the note's tags",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar etiqueta"
+          }
+        }
+      }
+    },
     "Remove this key?" : {
       "comment" : "Confirmation title",
       "extractionState" : "manual",
@@ -5741,6 +6538,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Renombrar"
+          }
+        }
+      }
+    },
+    "Rename Note" : {
+      "comment" : "Alert title: rename a note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renombrar nota"
           }
         }
       }
@@ -5901,6 +6710,18 @@
         }
       }
     },
+    "Restore" : {
+      "comment" : "Button / swipe action: restore a deleted note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurar"
+          }
+        }
+      }
+    },
     "Restore Note" : {
       "comment" : "Note menu: bring a deleted note back",
       "extractionState" : "manual",
@@ -5945,6 +6766,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reanudar"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "comment" : "Button: retry the iCloud download",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reintentar"
           }
         }
       }
@@ -6080,6 +6913,30 @@
         }
       }
     },
+    "Save" : {
+      "comment" : "Button: save a version",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar"
+          }
+        }
+      }
+    },
+    "Save Version" : {
+      "comment" : "Alert title: save a named version",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar versión"
+          }
+        }
+      }
+    },
     "Save Version…" : {
       "comment" : "Button: save a named version of the note",
       "extractionState" : "manual",
@@ -6176,6 +7033,29 @@
         }
       }
     },
+    "Saved versions are listed first in Version History and are never removed when old autosaves are thinned." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las versiones guardadas aparecen primero en el historial de versiones y nunca se quitan al reducir los guardados automáticos antiguos."
+          }
+        }
+      }
+    },
+    "Search notes and handwriting" : {
+      "comment" : "Placeholder of the note list's search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buscar en notas y escritura a mano"
+          }
+        }
+      }
+    },
     "Secret key for “%@”" : {
       "comment" : "Section header; the value is a device label",
       "extractionState" : "manual",
@@ -6184,6 +7064,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clave secreta para «%@»"
+          }
+        }
+      }
+    },
+    "Select" : {
+      "comment" : "Toolbar button: start selecting notes in the list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleccionar"
           }
         }
       }
@@ -6371,6 +7263,30 @@
         }
       }
     },
+    "Show Library" : {
+      "comment" : "Button: bring up the library window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar biblioteca"
+          }
+        }
+      }
+    },
+    "Show Notebooks" : {
+      "comment" : "Accessibility label: open the notebook suggestions",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar cuadernos"
+          }
+        }
+      }
+    },
     "Show Notes" : {
       "comment" : "Toolbar button: show the note list",
       "extractionState" : "manual",
@@ -6525,6 +7441,42 @@
         }
       }
     },
+    "Some revisions could not be read" : {
+      "comment" : "Accessibility label of a warning icon in a note row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algunas revisiones no se pudieron leer"
+          }
+        }
+      }
+    },
+    "Sort" : {
+      "comment" : "Toolbar menu: sort the note list (verb)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordenar"
+          }
+        }
+      }
+    },
+    "Sort By" : {
+      "comment" : "Picker in the Sort menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordenar por"
+          }
+        }
+      }
+    },
     "Space between staves" : {
       "comment" : "Paper parameter",
       "extractionState" : "manual",
@@ -6608,6 +7560,18 @@
         }
       }
     },
+    "Still reading…" : {
+      "comment" : "Recognize All is still running",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún leyendo…"
+          }
+        }
+      }
+    },
     "Stop" : {
       "comment" : "Button: stop a running export",
       "extractionState" : "manual",
@@ -6668,6 +7632,18 @@
         }
       }
     },
+    "Stopped early" : {
+      "comment" : "Recognize All was stopped before the end",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detenido antes de acabar"
+          }
+        }
+      }
+    },
     "Stops the voice note being recorded and saves it, encrypted, to the inbox." : {
       "comment" : "App Intent description",
       "extractionState" : "manual",
@@ -6724,6 +7700,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Área de resumen"
+          }
+        }
+      }
+    },
+    "Tag" : {
+      "comment" : "Text field placeholder: a tag name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etiqueta"
           }
         }
       }
@@ -7095,6 +8083,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esa contraseña no abre este PDF."
+          }
+        }
+      }
+    },
+    "That password does not open this PDF. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esa contraseña no abre este PDF. Vuelve a intentarlo."
           }
         }
       }
@@ -7573,6 +8572,17 @@
         }
       }
     },
+    "This PDF is protected. Enter its password to add it; it is stored without the password, encrypted with the vault's key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este PDF está protegido. Introduce su contraseña para añadirlo; se guarda sin contraseña, cifrado con la clave de la bóveda."
+          }
+        }
+      }
+    },
     "This attachment is not downloaded from iCloud Drive yet. Try again in a moment." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7765,6 +8775,17 @@
         }
       }
     },
+    "This vault has no notes yet. Create one with the New Note button." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta bóveda aún no tiene notas. Crea una con el botón Nueva nota."
+          }
+        }
+      }
+    },
     "This vault has no passphrase-protected key file." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7783,6 +8804,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta bóveda está cifrada con una clave clásica, que un futuro ordenador cuántico podría romper. Sus notas siguen bloqueadas hasta que se vuelva a cifrar con una clave poscuántica. Esto reescribe todos los archivos de la bóveda; las copias anteriores (copias de seguridad, historial de versiones de archivos) no cambian."
+          }
+        }
+      }
+    },
+    "This window belongs to a note in a different vault. Close it, or open that vault again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta ventana es de una nota de otra bóveda. Ciérrala o vuelve a abrir esa bóveda."
           }
         }
       }
@@ -8337,6 +9369,18 @@
         }
       }
     },
+    "Updating from iCloud" : {
+      "comment" : "Accessibility label of a note row's spinner",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualizando desde iCloud"
+          }
+        }
+      }
+    },
     "Upgrade Vault" : {
       "comment" : "Button: move the vault to a post-quantum key",
       "extractionState" : "manual",
@@ -8541,6 +9585,18 @@
         }
       }
     },
+    "Waiting for the Vault" : {
+      "comment" : "Note window: the vault is not open or unlocked yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esperando la bóveda"
+          }
+        }
+      }
+    },
     "When Adding a Device" : {
       "comment" : "Settings ▸ Device Keys picker",
       "extractionState" : "manual",
@@ -8585,6 +9641,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blanco"
+          }
+        }
+      }
+    },
+    "Wrong Password" : {
+      "comment" : "Alert title: the PDF password was wrong",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contraseña incorrecta"
           }
         }
       }
