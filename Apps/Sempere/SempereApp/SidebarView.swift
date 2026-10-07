@@ -90,6 +90,15 @@ struct SidebarView: View {
         .sheet(item: $movingNotebook) { MoveNotebookView(path: $0.path) }
         .task(id: model.vault?.vaultId) { await keys.refresh(model) }
         .sheet(isPresented: $showingSettings) { SettingsView() }
+        #if DEBUG
+        // `SEMPERE_DEMO_SETTINGS` opens Settings at launch (the pseudo-language layout check, docs/localization.md).
+        .task {
+            if DebugLaunch.environment["SEMPERE_DEMO_SETTINGS"] != nil {
+                try? await Task.sleep(for: .seconds(3))
+                showingSettings = true
+            }
+        }
+        #endif
         .confirmationDialog("Forget this vault's key?", isPresented: $forgettingKey, titleVisibility: .visible) {
             Button("Forget Key", role: .destructive) {
                 Task { await model.report { try await keys.forget(model) } }
