@@ -45,6 +45,15 @@ final class NoteEditor {
     var isReadOnly: Bool { readOnlyReason != nil || isPreparing }
     var currentPage: Page? { pages.indices.contains(pageIndex) ? pages[pageIndex] : nil }
 
+    /// The words of the search this note was opened from, highlighted on its
+    /// pages (`NoteEditor+SearchHighlight.swift`); nil when none is shown.
+    var searchCursor: SearchMatchCursor?
+    /// Bumped to ask the canvas to scroll to the current match.
+    var revealToken = 0
+    /// The query and starting page to look for once the note is readable
+    /// (`highlightSearch(query:page:)` while it is still opening).
+    @ObservationIgnored var pendingSearch: (query: String, page: UUID?)?
+
     /// The canvas showing this note, for menu commands (`CanvasCommandTarget`).
     @ObservationIgnored weak var canvasTarget: (any CanvasCommandTarget)?
     @ObservationIgnored private var ledgers: [UUID: StrokeLedger] = [:]
@@ -317,6 +326,7 @@ final class NoteEditor {
             canvasGeneration &+= 1
         }
         isPreparing = false
+        applyPendingSearch()
         scheduleRecognition()   // pages that were never read, or changed elsewhere
     }
 
@@ -664,6 +674,34 @@ final class NoteEditor {
             pageIndex = min(pageIndex, max(pages.count - 1, 0))
         }
         pendingPageOps += edit.ops
+    }
+
+    // MARK: - Items (format.md §8.2): each gesture is saved at once, one delta
+
+    /// Item changes per page, so the item layer and thumbnails follow them.
+    private(set) var itemRevisions: [UUID: Int] = [:]
+
+    /// The writer, for attachment blobs (`NoteEditor+Items`); nil when read-only.
+    var attachmentWriter: NoteWriter? { isShutDown ? nil : writer }
+
+    /// iCloud Drive: makes this note's copy of a blob local before the blob is
+    /// written or copied into the note (set by the model; nil elsewhere). A
+    /// copy iCloud lists but has not downloaded would otherwise not be found,
+    /// and a second file written under the same write-once name.
+    @ObservationIgnored var prepareBlobWrite: (@Sendable (BlobRef) async throws -> Void)?
+
+    /// Takes an item gesture's page and queues its ops, then saves them as
+    /// one delta (with any ink still pending). False when the note cannot
+    /// be edited or the page is gone.
+    @discardableResult
+    func applyItemEdit(_ edit: ItemEdit) -> Bool {
+        guard !isReadOnly, !isShutDown, !edit.ops.isEmpty,
+              let i = pages.firstIndex(where: { $0.id == edit.page.id }) else { return false }
+        pages[i].items = edit.page.items
+        itemRevisions[edit.page.id, default: 0] &+= 1
+        pendingPageOps += edit.ops
+        saveNow()
+        return true
     }
 
     /// Writes what is pending now rather than after the pause.

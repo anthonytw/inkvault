@@ -692,6 +692,7 @@ sempere notes markers "Week 3" behind
 ```
 sempere notebooks list [--deleted] [--no-cache]
 sempere notebooks rename OLD NEW [--dry-run]
+sempere notebooks move NOTEBOOK (PARENT | --top-level) [--dry-run]
 sempere tags list [--no-cache]
 ```
 
@@ -710,6 +711,17 @@ the cache; if any cannot be read the command writes nothing and exits 1 (its
 notebook is unknown, so it would be left behind). `--dry-run` lists the notes
 that would move. `--json` gives `from`, `to`, `dryRun` and `notes`
 (`note`, `title`, `from`, `to`, `file`).
+
+`notebooks move` is what dragging a notebook onto another does in the app (or
+"Move Notebook To…"): `NOTEBOOK` keeps its last level and takes `PARENT` as its
+parent, so `notebooks move School/Math Archive` makes `School/Math` →
+`Archive/Math`, every note below it coming along (the same prefix rename,
+deleted notes included, one delta per note, same refusals and `--json` as
+`notebooks rename`). `""` or `--top-level` un-nests it. Moving a notebook into
+itself or a notebook inside it is a usage error (exit 2, nothing written), and a
+notebook that already has the name at the destination is merged with it.
+Moving into the notebook it is already in changes nothing. Notes are moved with
+`notes move`.
 
 `tags list` prints each tag once (tags match case-insensitively; the first
 spelling found is shown, as in the app's sidebar) with the number of notes
@@ -743,6 +755,33 @@ paper and recognised text right after it under new ids.
 
 A deleted note is refused (exit 1), as is a page number out of range.
 `--json` as for the editing commands.
+
+### Items
+
+```
+sempere items list ID|TITLE [--page N]
+sempere items move ID|TITLE ITEM --frame x,y,w,h
+sempere items rotate ID|TITLE ITEM --degrees D
+sempere items front ID|TITLE ITEM
+sempere items delete ID|TITLE ITEM...
+sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
+sempere items copy ID|TITLE ITEM... --to ID|TITLE [--page N]
+```
+
+The app's gestures on placed items (text boxes, images, PDF pages;
+`docs/format.md` §8.2), one delta each, built by the same `NoteOps` item
+builders as the app's canvas and computed from the note as it is on disk when
+the delta is written. An item is named by its id or an id prefix of at least
+4 characters (an ambiguous prefix is refused); the items of one command must
+be on one page. `list` prints page, id prefix, kind, frame and attachment
+(`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`).
+`move` sets the frame (move and resize), `rotate` the rotation, `front`
+draws the item above the others of its layer, `delete` removes items (their
+attachments stay until `blobs gc`), `duplicate` copies them on their page
+shifted by 20 points (or `--dx`, `--dy`), and `copy` copies them to a page of
+another note, its attachments first (verified as they are read), as the app's
+Paste. Nothing is written when the item already is that way; a deleted note
+is refused (exit 1). `--json` as for the editing commands.
 
 ### Import
 
@@ -907,6 +946,13 @@ extracted the text) for pdf; `recordingId`, `recordingTitle`, `start`,
 `end` (seconds), `engine` for a transcript (no `page`). No match prints `No
 matches.` (an empty list with `--json`) and exits 0. Notes are read in parallel
 and without stroke geometry, as for `notes list`.
+
+`--show-boxes` reports where each match is, as the app's "3 of 12" stepper
+does: every recognised word containing a word of the term, numbered across the
+note (pages in order, words in reading order). Human output adds one line per
+match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
+`locations`, a list of `{n, of, text, box}` for the matches on that hit's page
+(`n` counts from 1 over the whole note, `of` is the note's total).
 
 ### Handwriting recognition
 

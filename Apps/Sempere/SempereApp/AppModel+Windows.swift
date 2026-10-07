@@ -63,6 +63,7 @@ extension AppModel {
             Task { await opened.close() }
             throw CancellationError()
         }
+        opened.prepareBlobWrite = blobWritePreparer(note: noteID)
         opened.onRecognized = { [weak self] id in
             guard let self else { return }
             Task { try? await self.refresh([id]) }   // search sees the new text
@@ -112,7 +113,7 @@ extension AppModel {
             if !notebooks.contains(where: { NotebookPath.canonical($0) == wanted }) { item = .allNotes }
         case .tag(let tag):
             if !tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(tag) }) { item = .allNotes }
-        case .allNotes, .deleted:
+        case .allNotes, .deleted, .recentlyRecognized:
             break
         }
         sidebarSelection = item

@@ -20,6 +20,14 @@ struct PageCanvasView: UIViewRepresentable {
     /// `NoteEditor.canvasGeneration`: a change reloads the drawing even when
     /// the page id stays the same.
     var generation = 0
+    /// Where the item layer reads attachments (`AppModel.attachmentCache`).
+    var itemSource = ItemLayerSource()
+    /// Copy and paste of items (`AppModel.itemClipboard`).
+    var itemCommands = ItemCommands()
+    /// Selection mode: items are selected, moved and resized; nothing draws.
+    var selectingItems = false
+    /// Called when selection mode ends from the canvas (a tool was picked).
+    var onSelectingItemsEnded: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -59,6 +67,21 @@ struct PageCanvasView: UIViewRepresentable {
         host.paletteVisible = paletteVisible
         host.drawingSuspended = drawingSuspended
         host.apply(paper: paper, pageSize: pageSize)
+        let pageItems = editor.items(on: pageID)
+        host.itemLayer.show(pageItems, note: editor.noteID, paper: paper, source: itemSource)
+        let overText = MarkerOrder.textOverlay(pageItems, meta: editor.meta)
+        host.textOverlay.isHidden = overText.isEmpty
+        host.textOverlay.show(overText, note: editor.noteID, paper: paper, source: itemSource)
+        host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
+        host.itemSelection.commands = itemCommands
+        host.onItemSelectionEnded = onSelectingItemsEnded
+        host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
+        host.itemSelection.refresh()
+        host.setHighlights(editor.highlightBoxes(onPage: pageID))
+        if c.revealToken != editor.revealToken {
+            c.revealToken = editor.revealToken
+            host.revealHighlight()
+        }
     }
 
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
@@ -74,6 +97,8 @@ struct PageCanvasView: UIViewRepresentable {
         var pageID: UUID?
         var editorID: ObjectIdentifier?
         var generation: Int?
+        /// `NoteEditor.revealToken` last acted on (scroll to the current search match).
+        var revealToken = 0
         /// True while the canvas's drawing is being replaced: its changes are not the user's.
         var isLoading = false
         /// The page's drawing being prepared off the main actor.
@@ -146,6 +171,29 @@ struct PageCanvasView: UIViewRepresentable {
 final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDelegate {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
+    /// The page's placed items, between the paper and the ink.
+    let itemLayer = ItemLayerView()
+    /// Text boxes drawn again above the ink, multiplied, on a note with
+    /// `markersBehindText` (`MarkerOrder`); hidden otherwise.
+    let textOverlay = ItemLayerView()
+    /// Selecting, moving and resizing items (selection mode).
+    let itemSelection = ItemSelectionController()
+    /// Called when picking a tool ends selection mode.
+    var onItemSelectionEnded: (() -> Void)?
+
+    /// Selection mode: PencilKit's drawing and the object eraser are off,
+    /// touches select and move items (`ItemSelectionController`).
+    var itemSelectionActive = false {
+        didSet {
+            guard itemSelectionActive != oldValue else { return }
+            itemSelection.setActive(itemSelectionActive)
+            updateEraser()
+        }
+    }
+    /// Search highlights (`NoteEditor+SearchHighlight.swift`), above the paper and the items, below the ink.
+    private let highlightView = UIView()
+    private var highlights: [HighlightBox] = []
+    private var pendingReveal: Recognition.Box?
     /// Starts with the last-used eraser mode, the object eraser by default.
     private(set) var toolPicker = ToolPalette.makePicker(compact: ToolPalette.isCompact())
     private var pageSize = PageSize.letter
@@ -226,6 +274,13 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.alwaysBounceVertical = true
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
+        canvas.insertSubview(itemLayer, aboveSubview: paperView)
+        highlightView.isUserInteractionEnabled = false
+        canvas.insertSubview(highlightView, aboveSubview: itemLayer)   // over the items, under the ink
+        textOverlay.layer.compositingFilter = "multiplyBlendMode"
+        textOverlay.accessibilityIdentifier = "textOverlay"
+        textOverlay.isHidden = true
+        canvas.addSubview(textOverlay)   // above PencilKit's ink view
         footerButton.isHidden = true
         footerButton.addAction(UIAction { [weak self] _ in self?.footerAction?() }, for: .primaryActionTriggered)
         canvas.addSubview(footerButton)
@@ -239,6 +294,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
+        itemSelection.attach(to: canvas, itemLayer: itemLayer)
         if Platform.isMac {
             let pointer = UIPointerInteraction(delegate: self)
             addInteraction(pointer)
@@ -264,6 +320,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         if let eraser = toolPicker.selectedToolItem as? PKToolPickerEraserItem {
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
+        if itemSelectionActive { onItemSelectionEnded?() }   // picking a tool is picking drawing
         updateEraser()
         cursorInteraction?.invalidate()
     }
@@ -281,7 +338,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let editable = !isReadOnly && !isPreparing && !drawingSuspended
+        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
@@ -325,6 +382,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         super.layoutSubviews()
         canvas.frame = bounds
         fitWidth()
+        applyReveal()
         #if DEBUG
         if debugLaunchPending, bounds.width > 0 {
             debugLaunchPending = false
@@ -422,6 +480,12 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         paperView.configure(paper: paper, size: size, sheetHeight: PaperRenderer.sheetHeight(for: pageSize))
         paperView.setZoom(z)
         canvas.contentSize = CGSize(width: size.width * z, height: CGFloat(height) * z)
+        itemLayer.frame = CGRect(origin: .zero, size: canvas.contentSize)
+        itemLayer.setZoom(z)
+        textOverlay.frame = itemLayer.frame
+        textOverlay.setZoom(z)
+        if !textOverlay.isHidden { canvas.bringSubviewToFront(textOverlay) }
+        itemSelection.refresh()
         if footer != .none {
             footerButton.sizeToFit()
             let b = footerButton.bounds.size
@@ -429,6 +493,58 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
                                         y: CGFloat(pageSize.height) * z + (PageExtent.footerScreenHeight - b.height) / 2,
                                         width: b.width, height: b.height)
         }
+        layoutHighlights()
+        applyReveal()
+    }
+
+    /// Shows `boxes` (page points) as highlights; the current match stands out.
+    func setHighlights(_ boxes: [HighlightBox]) {
+        guard boxes != highlights else { return }
+        highlights = boxes
+        layoutHighlights()
+    }
+
+    /// Scrolls so the current highlight is on screen (centred unless it is already comfortably visible).
+    func revealHighlight() {
+        guard let current = highlights.first(where: \.isCurrent) else { return }
+        pendingReveal = current.box
+        applyReveal()
+    }
+
+    /// At most this many highlights are drawn on a page.
+    private static let maxHighlights = 500
+
+    private func layoutHighlights() {
+        let z = canvas.zoomScale
+        highlightView.frame = CGRect(origin: .zero, size: canvas.contentSize)
+        let shown = highlights.prefix(Self.maxHighlights)
+        var layers = highlightView.layer.sublayers ?? []
+        while layers.count > shown.count { layers.removeLast().removeFromSuperlayer() }
+        while layers.count < shown.count {
+            let layer = CALayer()
+            layer.cornerRadius = 3
+            highlightView.layer.addSublayer(layer)
+            layers.append(layer)
+        }
+        for (layer, h) in zip(layers, shown) {
+            layer.frame = CGRect(x: h.box.x * z, y: h.box.y * z, width: h.box.w * z, height: h.box.h * z).insetBy(dx: -2, dy: -2)
+            layer.backgroundColor = (h.isCurrent ? UIColor.systemOrange.withAlphaComponent(0.5)
+                                                 : UIColor.systemYellow.withAlphaComponent(0.4)).cgColor
+            layer.borderColor = UIColor.systemOrange.cgColor
+            layer.borderWidth = h.isCurrent ? 2 : 0
+        }
+    }
+
+    private func applyReveal() {
+        guard let box = pendingReveal, bounds.width > 0, canvas.contentSize.height > 0, canvas.zoomScale > 0 else { return }
+        pendingReveal = nil
+        let z = canvas.zoomScale
+        let rect = CGRect(x: box.x * z, y: box.y * z, width: box.w * z, height: box.h * z)
+        let comfortable = CGRect(origin: canvas.contentOffset, size: bounds.size).insetBy(dx: 0, dy: bounds.height * 0.15)
+        if comfortable.contains(rect) { return }
+        let maxX = max(canvas.contentSize.width - bounds.width, 0), maxY = max(canvas.contentSize.height - bounds.height, 0)
+        canvas.setContentOffset(CGPoint(x: min(max(rect.midX - bounds.width / 2, 0), maxX),
+                                        y: min(max(rect.midY - bounds.height / 2, 0), maxY)), animated: true)
     }
 }
 

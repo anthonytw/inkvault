@@ -15,6 +15,9 @@ enum SearchScope: String, CaseIterable, Identifiable, Sendable {
 struct PageJump: Equatable, Sendable {
     var note: UUID
     var page: UUID
+    /// The search the page was found with: its words are highlighted on the
+    /// canvas (`NoteEditor.highlightSearch`). Nil: just show the page.
+    var query: String? = nil
 }
 
 /// "Recognise All Notes" while it runs.
@@ -23,6 +26,26 @@ struct RecognitionProgress: Equatable, Sendable {
     var total: Int
     /// Notes that could not be read or written.
     var failed = 0
+}
+
+/// The notes a "Recognize All Notes" run changed, as it goes and after it ends.
+struct RecognitionResults: Equatable, Sendable {
+    /// In the order they were read.
+    var notes: [RecognizedNote] = []
+    /// Notes that could not be read or written.
+    var failed = 0
+    /// False while the run goes on.
+    var finished = false
+    /// The run was stopped before every note was read.
+    var stopped = false
+    /// The user closed the "Recognized N notes" bar; the list stays in the sidebar.
+    var dismissed = false
+
+    /// "Recognized 12 notes".
+    var headline: String { "Recognized \(notes.count) note\(notes.count == 1 ? "" : "s")" }
+
+    /// The entry for a note, for its row's "Read 2 of 5 pages".
+    func entry(for id: UUID) -> RecognizedNote? { notes.first { $0.id == id } }
 }
 
 extension AppModel {
@@ -75,7 +98,8 @@ extension AppModel {
 
     /// Opens the note of `hit` on the page that matched.
     func openSearchHit(_ hit: NoteSearchHit) {
-        pendingJump = hit.page.map { PageJump(note: hit.note, page: $0.pageId) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingJump = hit.page.map { PageJump(note: hit.note, page: $0.pageId, query: query.isEmpty ? nil : query) }
         selectedNoteID = hit.note
         applyPendingJump()
     }
@@ -90,6 +114,7 @@ extension AppModel {
         }
         pendingJump = nil
         editor.showPage(id: jump.page)
+        if let query = jump.query { editor.highlightSearch(query: query, page: jump.page) }
     }
 
     // MARK: - Recognition
@@ -121,9 +146,12 @@ extension AppModel {
         guard !ids.isEmpty else { return }
         let gen = generation
         recognitionProgress = RecognitionProgress(total: ids.count)
+        recognitionResults = RecognitionResults()   // the previous run's list is replaced now
         recognitionTask = Task { [weak self] in
             await self?.recognizeNotes(ids, with: recognizer, generation: gen)
             guard let self, gen == self.generation else { return }
+            self.recognitionResults?.finished = true
+            self.recognitionResults?.stopped = (self.recognitionProgress?.done ?? 0) < ids.count
             self.recognitionTask = nil
             self.recognitionProgress = nil
         }
@@ -137,11 +165,14 @@ extension AppModel {
         for id in ids {
             guard !Task.isCancelled, gen == generation else { return }
             do {
-                try await recognizeNote(id, with: recognizer)
+                if let done = try await recognizeNote(id, with: recognizer) {
+                    recognitionResults?.notes.append(done)
+                }
             } catch is CancellationError {
                 return
             } catch {
                 recognitionProgress?.failed += 1
+                recognitionResults?.failed += 1
             }
             recognitionProgress?.done += 1
         }
@@ -150,7 +181,9 @@ extension AppModel {
     /// Reads the pages of note `id` that need it and writes their text in one
     /// delta. Each page is written only if its strokes are still the ones
     /// that were read when the delta is made (another device may have edited the note).
-    func recognizeNote(_ id: UUID, with recognizer: any PageRecognizing) async throws {
+    /// Returns what was written (nil: nothing needed or still matched).
+    @discardableResult
+    func recognizeNote(_ id: UUID, with recognizer: any PageRecognizing) async throws -> RecognizedNote? {
         let gen = generation
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
         try await downloadNote(id)
@@ -165,7 +198,7 @@ extension AppModel {
             }
         }
         try ensureCurrent(gen)
-        guard let state else { return }
+        guard let state else { return nil }
         var jobs: [RecognitionJob] = []
         for page in state.pages where RecognitionPolicy.needsRecognition(page) {
             let digest = RecognitionBasis.digest(of: page)
@@ -179,23 +212,29 @@ extension AppModel {
             try ensureCurrent(gen)
             jobs.append(RecognitionJob(page: page.id, digest: digest, recognition: result))
         }
-        guard !jobs.isEmpty else { return }
+        guard !jobs.isEmpty else { return nil }
         let planned = jobs
+        let written = WrittenCount()
         try await commit(id) { current in
             // Deleted meanwhile (another device): no writes into Recently Deleted.
-            guard let current, !current.deleted else { return [] }
-            return planned.compactMap { job -> Op? in
-                guard let page = current.pages.first(where: { $0.id == job.page }),
-                      RecognitionBasis.digest(of: page) == job.digest else { return nil }
-                return .setPageRecognition(pageId: job.page, recognition: job.recognition)
-            }
+            let ops = RecognitionJob.ops(for: planned, in: current)
+            written.value = ops.count
+            return ops
         }
+        guard written.value > 0 else { return nil }
+        let summary = notes.first { $0.id == id }
+        return RecognizedNote(id: id, title: summary?.title ?? state.meta.title,
+                              pages: summary?.pages ?? state.pages.count, pagesRecognized: written.value)
     }
 }
 
-/// One page's recognition, valid for the strokes whose digest it carries.
-struct RecognitionJob: Sendable {
-    var page: UUID
-    var digest: String
-    var recognition: Recognition?
+/// How many ops a `commit` closure produced, read once the commit has finished.
+final class WrittenCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int {
+        get { lock.withLock { count } }
+        set { lock.withLock { count = newValue } }
+    }
 }
+

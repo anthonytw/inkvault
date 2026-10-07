@@ -856,7 +856,9 @@ A page may carry `"recognition"`, the text recognised in its handwriting:
 - `text`: the page's recognised text in reading order, lines separated by `\n`.
 - `words[].t`: one word of `text`; `words[].box`: its bounding box
   `[x, y, w, h]` in page coordinates (points, origin top-left, y down).
-  Writers round to at most 3 decimals. `words` may be empty.
+  Writers round to at most 3 decimals. `words` may be empty. Readers that
+  draw boxes skip one with a value that is not finite or exceeds 10⁹ in
+  magnitude, or a negative `w` or `h` (§9).
 - `basis` (optional): which strokes the text was read from, so a writer can
   tell current recognition from stale without reading the ink. The first 16
   bytes, as 32 lowercase hex digits, of the SHA-256 of the page's live stroke

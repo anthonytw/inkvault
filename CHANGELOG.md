@@ -9,6 +9,27 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
+  Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
+  narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed
+  (title, pages read) under "Recently Recognized" in the sidebar until the next run. A note opened from a
+  search result highlights the matching words on the page (from the recognition boxes) with previous and
+  next buttons across all pages and a "3 of 12 matches" count. Drag notes (several, in Select mode) onto
+  a notebook or All Notes in the sidebar to move them, drag a notebook onto another to nest it or onto
+  All Notes to un-nest it, or use "Move Notebook To…"; a notebook cannot go into itself or a notebook
+  inside it, the drop target highlights, and each drop is one commit with one undo step. CLI:
+  `sempere search --show-boxes` (match locations, numbered across the note), `sempere notebooks move NOTEBOOK PARENT`.
+  Word boxes that cannot be drawn (not finite, beyond 10⁹ points, negative size) are never
+  highlighted or listed (`format.md` §5.5).
+- CLI: `sempere items list|move|rotate|front|delete|duplicate|copy`, the app's item gestures (one
+  delta each, through the same `NoteOps` builders; `copy` copies attachments to the other note first).
+- Attachment plumbing in the app (task E0, `docs/attachments.md` §13–14): a note's images, text
+  boxes and PDF pages are drawn between the paper and the ink (a placeholder while a blob
+  downloads or when it is missing), and Select Items mode selects, moves, resizes, duplicates,
+  copies and pastes (between notes too), brings to front and deletes them, each gesture one
+  delta with undo. In iCloud Drive a note's attachments download on demand: images and PDF
+  pages when a page shows them, never with the note. The shared `NoteOps` item builders and
+  `ItemRaster` (one item drawn as the exports draw it) are in the library for the CLI too.
 - `sempere recognize [ID…|--all] [--missing-only|--force] [--dry-run]` reads handwriting with
   Vision on macOS and stores it as page recognition, one delta per note, with the app's code (page
   selection `RecognitionPolicy.pagesToRead`, image plan `RecognitionImage`, Vision mapping

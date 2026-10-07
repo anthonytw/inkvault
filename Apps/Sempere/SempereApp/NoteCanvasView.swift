@@ -137,6 +137,9 @@ struct NoteCanvasView: View {
 struct EditorView: View {
     let editor: NoteEditor
     @Environment(WindowUI.self) private var ui
+    @Environment(AppModel.self) private var model
+    /// Selection mode for placed items (images, text boxes, PDF pages).
+    @State private var selectingItems = false
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
     @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
@@ -154,6 +157,11 @@ struct EditorView: View {
             }
             if let error = editor.saveError {
                 Banner(text: error, systemImage: "exclamationmark.triangle", tint: .orange)
+            }
+            if let cursor = editor.searchCursor {
+                SearchMatchBar(position: cursor.position, count: cursor.count,
+                               previous: { editor.stepSearchMatch(-1) }, next: { editor.stepSearchMatch(1) },
+                               done: { editor.clearSearchHighlight() })
             }
             if undoBannerFor > 0, undoBannerFor == editor.deletedPages.count {
                 HStack {
@@ -174,7 +182,9 @@ struct EditorView: View {
                                paletteVisible: paletteVisible,
                                paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),
                                drawingSuspended: PhoneReading.drawingSuspended(isPhone: Platform.isPhone, annotating: annotating),
-                               generation: editor.canvasGeneration)
+                               generation: editor.canvasGeneration,
+                               itemSource: model.itemLayerSource, itemCommands: model.itemCommands,
+                               selectingItems: selectingItems, onSelectingItemsEnded: { selectingItems = false })
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
                 ContentUnavailableView {
@@ -212,7 +222,10 @@ struct EditorView: View {
                                 onChoose: { paper, choice in editor.setPaper(paper, allPages: choice == .allPages) })
             }
         }
-        .onChange(of: editor.noteID) { annotating = PhoneReading.annotatingAfterNoteChange() }
+        .onChange(of: editor.noteID) {
+            annotating = PhoneReading.annotatingAfterNoteChange()
+            selectingItems = false
+        }
         .toolbar {
             if Platform.isPhone { phoneToolbar } else { fullToolbar }
         }
@@ -236,6 +249,9 @@ struct EditorView: View {
             }
             if annotating {
                 ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
+                if showsItemSelection {
+                    ToolbarItem(placement: .secondaryAction) { itemSelectionToggle }
+                }
             }
         }
         if annotating, editor.pages.count > 1 || !editor.isReadOnly {
@@ -253,6 +269,19 @@ struct EditorView: View {
                     .disabled(editor.pageIndex + 1 >= editor.pages.count)
             }
         }
+    }
+
+    /// Whether the Select Items toggle is offered: the note can be edited and
+    /// the page has items (or there are copied items to paste).
+    private var showsItemSelection: Bool {
+        guard !editor.isReadOnly, let page = editor.currentPage else { return false }
+        return !page.items.isEmpty || model.itemClipboard.entry != nil || selectingItems
+    }
+
+    private var itemSelectionToggle: some View {
+        Toggle("Select Items", systemImage: "cursorarrow.rays", isOn: $selectingItems)
+            .toggleStyle(.button)
+            .help("Select, move, resize and delete images, text boxes and PDF pages")
     }
 
     private var pageCounter: some View {
@@ -319,6 +348,9 @@ struct EditorView: View {
                     }
                 }
             }
+            if showsItemSelection {
+                ToolbarItem(placement: .primaryAction) { itemSelectionToggle }
+            }
             if !editor.isReadOnly {
                 ToolbarItem(placement: .primaryAction) {
                     // PencilKit's object eraser has no size; the app's does (ObjectEraser.swift).
@@ -371,6 +403,43 @@ struct EditorView: View {
                     }
                 }
             }
+    }
+}
+
+/// Above the canvas while a search is highlighted: "3 of 12", previous and
+/// next (wrapping across the pages), and Done.
+struct SearchMatchBar: View {
+    let position: Int
+    let count: Int
+    let previous: () -> Void
+    let next: () -> Void
+    let done: () -> Void
+
+    /// "3 of 12 matches", "1 match".
+    static func label(position: Int, count: Int) -> String {
+        count == 1 ? "1 match" : "\(position) of \(count) matches"
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Label(Self.label(position: position, count: count), systemImage: "text.magnifyingglass")
+                .font(.callout.weight(.semibold))
+                .monospacedDigit()
+            Spacer()
+            Button("Previous Match", systemImage: "chevron.up", action: previous)
+                .labelStyle(.iconOnly)
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(count < 2)
+            Button("Next Match", systemImage: "chevron.down", action: next)
+                .labelStyle(.iconOnly)
+                .keyboardShortcut("g", modifiers: .command)
+                .disabled(count < 2)
+            Button("Done", action: done)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
     }
 }
 

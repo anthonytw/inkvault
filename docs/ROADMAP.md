@@ -66,9 +66,12 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | import notability: typed text and recordings (D3, D4) | 🔀 #73 | 🔀 #73 |
 | import notability: `.ntb` attachments, PDF text, language, highlighter flag, paper colour, new report counts; `--pdf-text` for `import notability\|pdf` and `attach pdf` (pdftotext or built in); `search` reports PDF hits (page, PDF page, item); `notes language`, `notes markers`; `recognize` reads in the note's language | 🔀 #79 | 🔀 #79 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
+| `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | 🔀 #72 | 🔀 #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
-| `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | 🔀 #78 |
-| `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | 🔀 #78 | 🔀 #78 |
+| Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
+| `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | 🔀 #72 | 🔀 #72 |
+| `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
+| `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
@@ -97,14 +100,18 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Visual paper picker (line width, spacing) | 🔀 #28 |
 | Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | 🔀 #52 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
-| Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
-| Search | Recognition in the note's language (`meta.lang`); PDF page text searched; PDFKit page text extractor ready for app PDF import | 🔀 #79 (the canvas draws no items yet, so `markersBehindText` matters only in exports there) |
+| Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
+| Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | 🔀 #72 |
+| Search | "Recognize All Notes" results: "Recognized N notes" bar and a "Recently Recognized" sidebar filter kept until the next run | 🔀 #72 |
+| Search | Recognition in the note's language (`meta.lang`); PDF page text searched; PDFKit page text extractor ready for app PDF import | 🔀 #79 |
+| Notes | Notebook combo box (new note, move note); drag notes and notebooks onto the sidebar (move, nest, un-nest), "Move Notebook To…", one commit and one undo step per drop | 🔀 #72 |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export 🔀 #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | 🔀 #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | 🔀 #74 (not yet tried on the iPad) |
 | App | Settings panel (E6) | 📋 (a minimal Settings sheet with the version-history setting exists, #74) |
 | App | Spanish localization (L) | 📋 |
-| Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E0–E5, E7) | 📋 |
+| Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | 🔀 #68 |
+| Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E1–E5, E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |

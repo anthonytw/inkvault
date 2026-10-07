@@ -93,7 +93,7 @@ struct RestorableSelection: Codable, Equatable, Sendable {
 
     static func name(of item: SidebarItem?) -> String {
         switch item ?? .allNotes {
-        case .allNotes: return "all"
+        case .allNotes, .recentlyRecognized: return "all"   // the results do not outlive the session
         case .deleted: return "deleted"
         case .notebook(let path): return "notebook:" + path
         case .tag(let tag): return "tag:" + tag
