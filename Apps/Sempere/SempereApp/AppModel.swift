@@ -149,6 +149,14 @@ final class AppModel {
     /// What the last "Recognize All Notes" run changed, kept (also after it
     /// ends) until the next run starts; the "Recently Recognized" filter lists it.
     var recognitionResults: RecognitionResults?
+    /// What this device remembers of the open vault between launches: notes
+    /// recognised in the last 7 days ("Recently Recognized") and recent
+    /// searches (`RecentActivity`, `AppModel+Activity`). Changing it re-derives the lists.
+    var activity = RecentActivity() { didSet { if activity.recognized != oldValue.recognized { listVersion &+= 1 } } }
+    /// Where `activity` is kept (a folder per vault secret inside it).
+    @ObservationIgnored var activityRoot: URL
+    /// The clock "Recently Recognized" is measured with (tests move it).
+    @ObservationIgnored var activityNow: () -> Date = { Date() }
     /// What is being dragged inside the app (set when a drag starts), so the
     /// sidebar can tell whether a row would accept it while the drag is still over it.
     var draggedPayload: DragPayload?
@@ -333,6 +341,7 @@ final class AppModel {
          automaticThinning: Bool = false,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
+        activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
         self.automaticThinning = automaticThinning
         self.summaryCacheDirectory = summaryCacheDirectory
         self.drawingCacheRoot = drawingCacheRoot
@@ -399,7 +408,7 @@ final class AppModel {
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
         case .recentlyRecognized:
-            let ids = Set(recognitionResults?.notes.map(\.id) ?? [])
+            let ids = Set(activity.recognized.recent(now: activityNow()).map(\.id))
             return notes.filter { !$0.deleted && ids.contains($0.id) }
         }
     }
@@ -499,6 +508,7 @@ final class AppModel {
             return
         }
         phase = .unlocked
+        loadActivity()
         startLoadingNotes(reportErrors: !awaitNotes)
         if awaitNotes { try await notesLoaded() }
     }
@@ -537,6 +547,7 @@ final class AppModel {
     func adoptRewrapped(_ next: Vault) {
         guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
         vault = next
+        saveActivity()   // under the new secret's key, if it changed
         keyEpoch += 1
     }
 
@@ -546,6 +557,7 @@ final class AppModel {
         unlockIdentities = identities
         migration = nil
         phase = .unlocked
+        loadActivity()
         try await reload()
     }
 
@@ -838,6 +850,7 @@ final class AppModel {
         recognitionTask = nil
         recognitionProgress = nil
         recognitionResults = nil
+        activity = RecentActivity()
         draggedPayload = nil
         dragProvider = nil
         dropTarget = nil

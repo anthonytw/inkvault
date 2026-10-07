@@ -68,14 +68,12 @@ struct PolishRound1Tests {
         model.startRecognizingNotes()   // nothing needs reading: the list stays until a run really starts
         #expect(model.recognitionResults == results)
 
-        // The next run replaces it, and a dismissed bar comes back for it.
-        model.recognitionResults?.dismissed = true
+        // The next run replaces it.
         try vault.apply([.addStroke(page: pages[0], stroke: TS.stroke(x: 70, y: 90))], to: Self.lecture,
                         deviceState: TS.deviceStateURL(), app: "test")
         try await model.reload()
         #expect(model.notesNeedingRecognition.map(\.id) == [Self.lecture])
         model.startRecognizingNotes()
-        #expect(model.recognitionResults?.dismissed == false)
         #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionTask == nil })
         #expect(model.recognitionResults?.notes.map(\.pagesRecognized) == [1], "only the edited page was read again")
         #expect(RecognitionResultsText.pagesRead(1, of: 2) == "Read 1 of 2 pages")
@@ -96,16 +94,113 @@ struct PolishRound1Tests {
         #expect(RecognitionResultsText.detail(results, running: false) == "Stopped early")
     }
 
-    @Test func resultsAreForgottenWhenTheVaultCloses() async throws {
+    /// TestFlight build 6: "Recently Recognized" is a sidebar section like
+    /// Recently Deleted, kept across launches for 7 days, gone when empty.
+    @Test func recentlyRecognizedOutlivesTheSessionForSevenDays() async throws {
         let (model, _, _) = try await SearchTests.model(recognizer: FakeRecognizer(), texts: nil)
+        let start = Date()
+        model.activityNow = { start }
+        #expect(model.recentlyRecognizedNotes.isEmpty, "no section before a run")
         model.startRecognizingNotes()
         #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionTask == nil })
+        #expect(model.recentlyRecognizedNotes.map(\.id) == [Self.lecture])
+        #expect(model.recognizedEntry(for: Self.lecture)?.pagesRecognized == 2)
         model.sidebarSelection = .recentlyRecognized
+        let url = try #require(model.vaultURL), identities = model.unlockIdentities
         model.close()
-        #expect(model.recognitionResults == nil)
+        #expect(model.recognitionResults == nil && model.recentlyRecognizedNotes.isEmpty)
         #expect(model.sidebarSelection == .allNotes)
-        // Not restored with a window's saved selection either.
-        #expect(RestorableSelection.name(of: .recentlyRecognized) == "all")
+
+        // Next launch (same device folder): still listed, and restorable as a window's selection.
+        let next = AppModel(deviceStateURL: model.deviceStateURL)
+        next.activityNow = { start.addingTimeInterval(6 * 86_400) }
+        try await next.openVault(at: url, identities: identities)
+        #expect(next.recognitionResults == nil, "the run itself belongs to the session")
+        #expect(next.recentlyRecognizedNotes.map(\.id) == [Self.lecture])
+        next.sidebarSelection = .recentlyRecognized
+        #expect(next.visibleNotes.map(\.id) == [Self.lecture])
+        #expect(RestorableSelection.name(of: .recentlyRecognized) == "recognized")
+        #expect(RestorableSelection(sidebar: .recentlyRecognized, note: nil, vault: nil).sidebarItem == .recentlyRecognized)
+
+        // After 7 days it is gone, and so is the selection of it.
+        next.activityNow = { start.addingTimeInterval(7 * 86_400 + 60) }
+        #expect(next.recentlyRecognizedNotes.isEmpty)
+        next.leaveEmptyRecognizedSection()
+        #expect(next.sidebarSelection == .allNotes)
+        next.close()
+
+        // Another device folder knows nothing of it.
+        let other = AppModel(deviceStateURL: TS.deviceStateURL())
+        other.activityNow = { start }
+        try await other.openVault(at: url, identities: identities)
+        #expect(other.recentlyRecognizedNotes.isEmpty)
+    }
+
+    @Test func recognitionHistoryKeepsOneEntryPerNoteForSevenDays() {
+        let a = UUID(), b = UUID(), t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        var h = RecognitionHistory()
+        h.record([RecognizedNote(id: a, title: "", pages: 3, pagesRecognized: 3)], at: t0)
+        h.record([RecognizedNote(id: b, title: "", pages: 1, pagesRecognized: 1),
+                  RecognizedNote(id: a, title: "", pages: 3, pagesRecognized: 1)], at: t0.addingTimeInterval(86_400))
+        #expect(h.entries.count == 2, "one entry per note")
+        #expect(h.entry(for: a, now: t0.addingTimeInterval(86_400))?.pagesRecognized == 1, "the newest run wins")
+        #expect(h.recent(now: t0.addingTimeInterval(8 * 86_400 - 1)).map(\.id).sorted { $0.uuidString < $1.uuidString }
+                == [a, b].sorted { $0.uuidString < $1.uuidString })
+        #expect(h.recent(now: t0.addingTimeInterval(8 * 86_400 + 1)).isEmpty)
+        // An entry far in the future (a wrong clock) is dropped.
+        var future = RecognitionHistory()
+        future.record([RecognizedNote(id: a, title: "", pages: 1, pagesRecognized: 1)], at: t0.addingTimeInterval(3 * 86_400))
+        #expect(future.recent(now: t0).isEmpty)
+    }
+
+    @Test func recentSearchesAreTrimmedDeduplicatedAndBounded() {
+        var r = RecentSearches()
+        r.record("  momentum ")
+        r.record("energy")
+        r.record("MOMENTUM")
+        r.record("   ")
+        r.record(String(repeating: "x", count: RecentSearches.maxLength + 1))
+        #expect(r.queries == ["MOMENTUM", "energy"])
+        for i in 0..<20 { r.record("q\(i)") }
+        #expect(r.queries.count == RecentSearches.limit)
+        #expect(r.queries.first == "q19")
+        r.clear()
+        #expect(r.queries.isEmpty)
+    }
+
+    @Test func recentSearchesArePersistedSealedAndClearable() async throws {
+        let (model, _, _) = try await SearchTests.model()
+        model.searchText = "momentum"
+        #expect(await TS.waitUntil { !model.searchResults.isEmpty })
+        model.openSearchHit(try #require(model.searchResults.first))   // opening a hit remembers its query
+        model.searchText = "eigen"
+        model.recordSearch()   // submitted
+        #expect(model.recentSearches == ["eigen", "momentum"])
+
+        // The file is sealed: the query is not in it as plain text.
+        let files = FileManager.default.enumerator(at: model.activityRoot, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }.filter { !$0.hasDirectoryPath } ?? []
+        #expect(files.count == 1)
+        let bytes = try Data(contentsOf: try #require(files.first))
+        #expect(bytes.range(of: Data("momentum".utf8)) == nil)
+
+        let url = try #require(model.vaultURL), identities = model.unlockIdentities
+        model.close()
+        #expect(model.recentSearches.isEmpty)
+        let next = AppModel(deviceStateURL: model.deviceStateURL)
+        next.searchDebounce = .milliseconds(10)
+        try await next.openVault(at: url, identities: identities)
+        #expect(next.recentSearches == ["eigen", "momentum"])
+        next.rerunSearch("momentum")
+        #expect(next.searchText == "momentum")
+        #expect(next.recentSearches == ["momentum", "eigen"])
+        #expect(await TS.waitUntil { !next.searchResults.isEmpty })
+        next.clearRecentSearches()
+        #expect(next.recentSearches.isEmpty)
+        next.close()
+        let third = AppModel(deviceStateURL: model.deviceStateURL)
+        try await third.openVault(at: url, identities: identities)
+        #expect(third.recentSearches.isEmpty, "cleared on disk too")
     }
 
     @Test func resultTextsReadWell() {
