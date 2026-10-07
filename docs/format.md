@@ -1780,11 +1780,16 @@ typesetter parses it, readers check it and treat a source that fails as one
 they cannot typeset (step 3): more than 4 096 tokens (a token is a control
 sequence, `\` plus letters or `\` plus one character, or any other
 character that is not white space); a group closed by the wrong kind or
-never closed (`{…}`, `\left…\right`, `\begin{…}…\end{…}`); or a nesting
-deeper than 64, where each open group counts one level and so does each
-control sequence, `^` or `_` in a run of them (the arguments a typesetter
-would parse recursively; `\sqrt\sqrt\frac` is three levels, any other
-token ends the run; a group opened after a run sits below it). Writers never store a `render` for such a source.
+never closed (`{…}`, `\left…\right`, `\begin{…}…\end{…}`, and `[…]`
+right after `\sqrt`, its degree, closed by the next `]` of the same level);
+or a nesting deeper than 64, where each open group counts one level and so
+does each control sequence, `^` or `_` in a run of them (the arguments a
+typesetter would parse recursively; `\sqrt\sqrt\frac` is three levels, any
+other token ends the run). A group opened after a run sits below it and was
+an argument: the run goes on after it closes (`\frac{a}\frac{b}\frac{c}d`
+nests each `\frac` in the one before). `\over`, `\atop`, `\choose`,
+`\brack` and `\brace` add one level for the rest of their group, the
+denominator (`a\over b\over c` is two). Writers never store a `render` for such a source.
 
 **Text, search and export.** `latex` is part of the page's searchable text,
 beside `recognition`, text boxes and `pageText` (§5.5); it is never copied

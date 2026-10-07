@@ -164,6 +164,30 @@ final class MathItemTests: VaultTestCase {
         XCTAssertNil(MathSource.check(String(repeating: "{x}", count: 1000)))
     }
 
+    /// Arguments a typesetter parses recursively but that hide behind a
+    /// closed group: each chain of about a thousand passed with depth 2,
+    /// though SwiftMath (like iosMath) recurses once per link.
+    func testNestingHiddenBehindArgumentsIsCounted() {
+        let n = MathSource.maxDepth
+        // The second argument of each \frac is the next \frac.
+        XCTAssertEqual(MathSource.check(String(repeating: "\\frac{x}", count: 1000) + "x"), .tooDeep)
+        XCTAssertNil(MathSource.check(String(repeating: "\\frac{x}", count: n - 1) + "x"))
+        // A \sqrt degree is parsed up to its ], and the radicand follows.
+        XCTAssertEqual(MathSource.check(String(repeating: "\\sqrt[", count: 1100) + "x" + String(repeating: "]", count: 1100)),
+                       .tooDeep)
+        XCTAssertEqual(MathSource.check(String(repeating: "\\sqrt[a]", count: 1000) + "x"), .tooDeep)
+        // Infix fractions: the rest of the group is the denominator.
+        XCTAssertEqual(MathSource.check(String(repeating: "a\\over ", count: 1100) + "b"), .tooDeep)
+        XCTAssertNil(MathSource.check(String(repeating: "a\\over ", count: n) + "b"))
+        XCTAssertNil(MathSource.check(String(repeating: "{a\\over b}", count: 500)))
+        // Brackets are plain characters elsewhere, and inside a group.
+        for s in ["[0, 1)", "\\sqrt[3]{x} + [a]", "\\sqrt{[}", "\\sqrt[{]}]{x}", "\\frac{a}{b} + \\frac{c}{d}"] {
+            XCTAssertNil(MathSource.check(s), s)
+        }
+        XCTAssertEqual(MathSource.check("\\sqrt[3 x"), .unbalanced("a \\sqrt[ has no ]"))
+        XCTAssertEqual(MathSource.check("\\sqrt[3}"), .unbalanced("} closes a different group"))
+    }
+
     func testTokenLimit() {
         let n = MathSource.maxTokens
         XCTAssertNil(MathSource.check(String(repeating: "x", count: n)))

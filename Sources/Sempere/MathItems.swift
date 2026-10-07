@@ -142,7 +142,11 @@ public enum MathSource {
         return nil
     }
 
-    private enum Group: Equatable { case brace, left, environment }
+    private enum Group: Equatable { case brace, left, environment, bracket }
+
+    /// Infix fractions: the rest of their group becomes the denominator, one
+    /// level down, and a typesetter parses it recursively (`a \over b \over c`).
+    private static let infixCommands: Set<String> = ["over", "atop", "choose", "brack", "brace"]
 
     /// Why `latex` may not be typeset, or nil when it may (format.md §8.2.7).
     /// Empty sources are refused too (`allowEmpty` lets a renderer draw
@@ -150,7 +154,7 @@ public enum MathSource {
     public static func check(_ latex: String, allowEmpty: Bool = false) -> Issue? {
         if let why = formatViolation(latex) { return .invalid(why) }
         let u = Array(latex.utf8)
-        var stack: [(group: Group, base: Int)] = []
+        var stack: [(group: Group, base: Int, run: Int)] = []
         var base = 0, run = 0, tokens = 0, maxSeen = 0
         var i = 0
         func isLetter(_ c: UInt8) -> Bool { (0x41...0x5A).contains(c) || (0x61...0x7A).contains(c) }
@@ -158,7 +162,7 @@ public enum MathSource {
         func open(_ g: Group) -> Issue? {
             let level = base + run + 1
             guard level <= maxDepth else { return .tooDeep }
-            stack.append((g, base))
+            stack.append((g, base, run))
             base = level
             run = 0
             maxSeen = max(maxSeen, level)
@@ -168,7 +172,9 @@ public enum MathSource {
             guard let top = stack.popLast() else { return .unbalanced("\(name) without an opening") }
             guard top.group == g else { return .unbalanced("\(name) closes a different group") }
             base = top.base
-            run = 0
+            // A group opened inside a run was an argument: the run goes on after
+            // it (`\frac{a}\frac{b}…` nests each `\frac` in the one before).
+            run = top.run
             return nil
         }
         while i < u.count {
@@ -194,16 +200,30 @@ public enum MathSource {
                 case "right": if let e = close(.left, "\\right") { return e }
                 case "begin": if let e = open(.environment) { return e }
                 case "end": if let e = close(.environment, "\\end") { return e }
+                case _ where infixCommands.contains(name):
+                    base += 1
+                    run = 0
+                    guard base <= maxDepth else { return .tooDeep }
+                    maxSeen = max(maxSeen, base)
                 default:
                     run += 1
                     guard base + run <= maxDepth else { return .tooDeep }
                     maxSeen = max(maxSeen, base + run)
+                    // `\sqrt[n]`: the degree is parsed recursively up to the next `]`.
+                    if name == "sqrt", i < u.count, u[i] == 0x5B {
+                        tokens += 1
+                        guard tokens <= maxTokens else { return .tooManyTokens }
+                        if let e = open(.bracket) { return e }
+                        i += 1
+                    }
                 }
                 continue
             }
             switch c {
             case 0x7B: if let e = open(.brace) { return e }   // {
             case 0x7D: if let e = close(.brace, "}") { return e }   // }
+            case 0x5D where stack.last?.group == .bracket:   // ] ending a \sqrt degree
+                if let e = close(.bracket, "]") { return e }
             case 0x5E, 0x5F:   // ^ _
                 run += 1
                 guard base + run <= maxDepth else { return .tooDeep }
@@ -218,6 +238,7 @@ public enum MathSource {
             case .brace: return .unbalanced("a { is never closed")
             case .left: return .unbalanced("a \\left has no \\right")
             case .environment: return .unbalanced("a \\begin has no \\end")
+            case .bracket: return .unbalanced("a \\sqrt[ has no ]")
             }
         }
         if tokens == 0, !allowEmpty { return .empty }
