@@ -133,7 +133,7 @@ struct NoteWindowView: View {
         context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: editor)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible) { command in
+                             paletteVisible: paletteVisible, windowID: ui.id, exportIDs: note.map { [$0.id] } ?? []) { command in
             guard !EditorCommands.perform(command, editor: editor, ui: ui) else { return }
             switch command {
             case .renameNote: ui.renameNoteID = value.noteID

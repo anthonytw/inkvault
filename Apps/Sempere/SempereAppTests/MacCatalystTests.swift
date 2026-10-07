@@ -162,3 +162,34 @@ struct MacDragOutTests {
         #expect(NoteFileDrag.suggestedName(title: "") == "Untitled")
     }
 }
+
+/// Re-check of the #46 menus against the code merged since: File > Export
+/// acts on the focused window's notes and its sheet opens in that window.
+@MainActor
+struct MacMenuRecheckTests {
+    @Test func anExportSheetShowsInTheWindowThatAskedForIt() {
+        let library = UUID(), note = UUID()
+        let fromNoteWindow = ExportRequest(noteIDs: [UUID()], format: .pdf, window: note)
+        #expect(ExportRequest.shown(fromNoteWindow, in: note, canvasWindow: library) == fromNoteWindow)
+        #expect(ExportRequest.shown(fromNoteWindow, in: library, canvasWindow: library) == nil)
+        let unattributed = ExportRequest(noteIDs: [UUID()], format: .png)
+        #expect(ExportRequest.shown(unattributed, in: library, canvasWindow: library) == unattributed)
+        #expect(ExportRequest.shown(unattributed, in: note, canvasWindow: library) == nil)
+        #expect(ExportRequest.shown(nil, in: library, canvasWindow: library) == nil)
+    }
+
+    @Test func theExportMenuUsesTheFocusedWindowsNotes() async throws {
+        let (model, _) = try await NoteWindowTests.unlockedModel()
+        let window = UUID()
+        model.requestExport(.pdf, ids: [AppModelTests.lecture], window: window)
+        #expect(model.exportRequest?.noteIDs == [AppModelTests.lecture])
+        #expect(model.exportRequest?.window == window)
+    }
+
+    /// The search bar's ⌘G / ⇧⌘G (find next / previous match) are not menu commands; no menu shortcut takes them.
+    @Test func searchMatchShortcutsAreFree() {
+        let taken = MenuCommand.allCases.compactMap(\.shortcut)
+        #expect(!taken.contains(MenuCommand.Shortcut("g")))
+        #expect(!taken.contains(MenuCommand.Shortcut("g", [.command, .shift])))
+    }
+}

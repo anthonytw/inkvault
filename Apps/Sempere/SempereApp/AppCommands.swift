@@ -13,6 +13,11 @@ struct CommandRouter {
     var context: MenuCommand.Context
     var recents: [RecentItem] = []
     var paletteVisible = true
+    /// The notes File > Export acts on: the list's selection in a library
+    /// window, the window's note in a note window.
+    var exportIDs: [UUID] = []
+    /// The window's `WindowUI.id` (the export sheet opens there).
+    var windowID: UUID?
     var perform: (MenuCommand) -> Void
     var openRecent: (UUID) -> Void = { _ in }
 }
