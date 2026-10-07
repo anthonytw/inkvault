@@ -650,7 +650,7 @@ has to transcode.
 
 ### Video (reserved, later)
 
-A `video` item kind is reserved (`format.md` §8.2.7) and needs no new
+A `video` item kind is reserved (`format.md` §8.2.8) and needs no new
 machinery: the clip is a blob of kind `video` in the note's `att/`
 (`video/mp4` or `video/quicktime`, within the 1 GiB blob cap), placed on the
 page like an image with a poster frame (an image blob) that every renderer
@@ -987,7 +987,7 @@ degraded rendering. So inside item and recording ops the format is open
 (`format.md` §7): unknown kinds and fields are kept, merged generically and
 re-emitted unchanged in snapshots; unknown setItem fields are registers;
 unknown layer numbers are ordered by value. This is what lets `math` and
-`video` (reserved, `format.md` §8.2.7), and later `shape` or `link` items,
+`video` (reserved, `format.md` §8.2.8), and later `shape` or `link` items,
 arrive without making every note that uses them unreadable on an older iPad.
 Costs:
 
@@ -1616,7 +1616,7 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
   source in the text editor with a live preview; store the rendered PDF
   blob for other renderers; exports embed that PDF as a Form XObject (C3's
   machinery). Later and separate: handwriting → LaTeX on device.
-- **G2 — `video` items.** Define `format.md` §8.2.7 `video` fully; record
+- **G2 — `video` items.** Define `format.md` §8.2.8 `video` fully; record
   or pick a clip, poster frame, `AVPlayer` playback, 1 GiB cap, "PDF +
   attachments" embeds the clip, SVG/PNG draw the poster.
 
