@@ -40,8 +40,8 @@ struct SettingsView: View {
 
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
-    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
-    @AppStorage(RecognitionPreference.key) private var recognize = true
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
+    @AppStorage(RecognitionPreference.key) private var recognize = RecognitionPreference.defaultValue
 
     var body: some View {
         Section {

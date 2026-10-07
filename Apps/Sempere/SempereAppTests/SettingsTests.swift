@@ -193,9 +193,14 @@ struct SettingsTests {
     @Test func generalSettingsKeepTheirKeysAndDefaults() {
         #expect(KeepScreenOn.key == "Sempere.keepScreenOn")
         #expect(RecognitionPreference.key == "Sempere.recognizeHandwriting")
+        // What the app reads when nothing is stored, then a stored choice.
         let d = scratch()
-        #expect(d.object(forKey: KeepScreenOn.key) == nil, "off unless set")
-        #expect(d.object(forKey: RecognitionPreference.key) == nil, "recognition defaults to on when unset")
+        #expect(!KeepScreenOn.defaultValue && !KeepScreenOn.isOn(d), "off unless set")
+        #expect(RecognitionPreference.defaultValue && RecognitionPreference.isEnabled(d), "on unless set")
+        d.set(true, forKey: KeepScreenOn.key)
+        d.set(false, forKey: RecognitionPreference.key)
+        #expect(KeepScreenOn.isOn(d))
+        #expect(!RecognitionPreference.isEnabled(d))
     }
 
     @Test func recognitionSwitchReachesTheModel() {
