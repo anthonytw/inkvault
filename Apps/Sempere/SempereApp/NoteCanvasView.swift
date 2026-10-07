@@ -172,7 +172,18 @@ struct EditorView: View {
                     undoBannerFor = 0
                 }
             }
-            if let page = editor.currentPage {
+            if !editor.isPageless, !editor.pages.isEmpty {
+                // Paged: every page in one scroll (lazy canvases), the current page follows it.
+                PageStackView(editor: editor, pageIDs: editor.pages.map(\.id), pageSize: editor.pageSize,
+                              pageJump: editor.pageJump,
+                              paletteVisible: paletteVisible,
+                              paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),
+                              drawingSuspended: PhoneReading.drawingSuspended(isPhone: Platform.isPhone, annotating: annotating),
+                              generation: editor.canvasGeneration,
+                              itemSource: model.itemLayerSource, itemCommands: model.itemCommands,
+                              selectingItems: selectingItems, onSelectingItemsEnded: { selectingItems = false })
+                    .ignoresSafeArea(.container, edges: .bottom)
+            } else if let page = editor.currentPage {
                 PageCanvasView(editor: editor, pageID: page.id, paper: editor.displayedPaper(of: page), pageSize: editor.pageSize,
                                paletteVisible: paletteVisible,
                                paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),

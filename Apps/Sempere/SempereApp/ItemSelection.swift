@@ -138,6 +138,9 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     var editor: NoteEditor?
     var pageID: UUID?
     var commands = ItemCommands()
+    /// The scroll view that pans the page: the canvas itself, or the paged
+    /// stack around it (`PageStackHost`), whose scroll a drag on an item stops.
+    weak var scroller: UIScrollView?
     /// Undo and redo of item gestures, on the canvas's undo manager.
     private(set) var actions: ItemActions?
 
@@ -250,7 +253,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             drag = (d, item)
             select(id)
             // A drag on an item moves the item, not the page: stop a scroll that started with it.
-            if let scroll = canvas?.panGestureRecognizer, scroll.state == .began || scroll.state == .changed {
+            if let scroll = (scroller ?? canvas)?.panGestureRecognizer, scroll.state == .began || scroll.state == .changed {
                 scroll.isEnabled = false
                 scroll.isEnabled = true
             }

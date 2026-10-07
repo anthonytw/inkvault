@@ -39,17 +39,7 @@ struct PageCanvasView: UIViewRepresentable {
 
     func updateUIView(_ host: PageCanvasHost, context: Context) {
         let c = context.coordinator
-        c.editor = editor
-        c.host = host
         editor.canvasTarget = host
-        if c.pageID != pageID || c.editorID != ObjectIdentifier(editor) || c.generation != generation {
-            let samePage = c.pageID == pageID && c.editorID == ObjectIdentifier(editor)
-            c.pageID = pageID
-            c.editorID = ObjectIdentifier(editor)
-            c.generation = generation
-            c.load(editor: editor, pageID: pageID, host: host, keepScroll: samePage)
-        }
-        host.isReadOnly = editor.isReadOnly
         let index = editor.pages.firstIndex { $0.id == pageID }
         let isLast = index == editor.pages.count - 1
         let footer = PhoneReading.footer(infinite: pageSize.infinite, isLast: isLast, readOnly: editor.isReadOnly,
@@ -65,14 +55,12 @@ struct PageCanvasView: UIViewRepresentable {
         }
         host.paletteCompact = paletteCompact
         host.paletteVisible = paletteVisible
-        host.drawingSuspended = drawingSuspended
-        host.apply(paper: paper, pageSize: pageSize)
-        host.itemLayer.show(editor.items(on: pageID), note: editor.noteID, paper: paper, source: itemSource)
-        host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
-        host.itemSelection.commands = itemCommands
-        host.onItemSelectionEnded = onSelectingItemsEnded
-        host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
-        host.itemSelection.refresh()
+        c.apply(editor: editor, pageID: pageID,
+                content: PageCanvasContent(paper: paper, pageSize: pageSize, generation: generation,
+                                           drawingSuspended: drawingSuspended, itemSource: itemSource,
+                                           itemCommands: itemCommands, selectingItems: selectingItems,
+                                           onSelectingItemsEnded: onSelectingItemsEnded),
+                to: host)
     }
 
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
@@ -94,6 +82,49 @@ struct PageCanvasView: UIViewRepresentable {
         var loadTask: Task<Void, Never>?
         /// Bumped per load, so a late partial drawing never lands over a newer one.
         private var loadToken = 0
+
+        /// Shows page `pageID` of `editor` on `host`: its ink (loaded when the
+        /// page, the editor or the generation changed), paper and items. The
+        /// one-page canvas and each page of the paged stack (`PageStackHost`)
+        /// configure their canvases through this.
+        func apply(editor: NoteEditor, pageID: UUID, content: PageCanvasContent, to host: PageCanvasHost) {
+            self.editor = editor
+            self.host = host
+            if self.pageID != pageID || editorID != ObjectIdentifier(editor) || generation != content.generation {
+                let samePage = self.pageID == pageID && editorID == ObjectIdentifier(editor)
+                self.pageID = pageID
+                editorID = ObjectIdentifier(editor)
+                generation = content.generation
+                load(editor: editor, pageID: pageID, host: host, keepScroll: samePage)
+            }
+            host.isReadOnly = editor.isReadOnly
+            host.drawingSuspended = content.drawingSuspended
+            host.apply(paper: content.paper, pageSize: content.pageSize)
+            host.itemLayer.show(editor.items(on: pageID), note: editor.noteID, paper: content.paper, source: content.itemSource)
+            host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
+            host.itemSelection.commands = content.itemCommands
+            host.onItemSelectionEnded = content.onSelectingItemsEnded
+            host.itemSelectionActive = content.selectingItems && !editor.isReadOnly && !content.drawingSuspended
+            host.itemSelection.refresh()
+        }
+
+        /// The canvas goes back to the stack's spares: no page, no ink, no
+        /// load in flight. The page is dropped before the drawing, so clearing
+        /// the canvas never reaches the editor as an erase.
+        func forget(host: PageCanvasHost) {
+            loadTask?.cancel()
+            loadTask = nil
+            loadToken &+= 1
+            pageID = nil
+            editorID = nil
+            generation = nil
+            host.cancelErasing()
+            host.itemSelectionActive = false
+            isLoading = true
+            host.canvas.drawing = PKDrawing()
+            host.canvas.undoManager?.removeAllActions()
+            isLoading = false
+        }
 
         /// Shows the page's ink: at once when the editor has its drawing
         /// ready, else prepared off the main actor (from the drawing cache, or
@@ -153,7 +184,27 @@ struct PageCanvasView: UIViewRepresentable {
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             host?.zoomChanged()
         }
+
+        /// A stroke starts on a page of the stack: that page's canvas takes
+        /// the focus, so undo and the palette act on it.
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            guard let host, host.isEmbedded, !canvasView.isFirstResponder else { return }
+            host.focus()
+        }
     }
+}
+
+/// What a page's canvas shows besides its ink (`PageCanvasView.Coordinator.apply`).
+struct PageCanvasContent {
+    var paper: Paper
+    var pageSize: PageSize
+    /// `NoteEditor.canvasGeneration`: a change reloads the ink.
+    var generation = 0
+    var drawingSuspended = false
+    var itemSource = ItemLayerSource()
+    var itemCommands = ItemCommands()
+    var selectingItems = false
+    var onSelectingItemsEnded: () -> Void = {}
 }
 
 /// UIKit side of `PageCanvasView`.
@@ -177,7 +228,14 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         }
     }
     /// Starts with the last-used eraser mode, the object eraser by default.
-    private(set) var toolPicker = ToolPalette.makePicker(compact: ToolPalette.isCompact())
+    /// A page of the paged stack shares the stack's picker (`init(frame:sharedPicker:)`).
+    private(set) var toolPicker: PKToolPicker
+    /// One page of a paged note's stack (`PageStackHost`): the stack scrolls
+    /// and zooms, this canvas shows the whole page at the stack's scale and
+    /// never scrolls itself; it has its own undo, and the stack's picker.
+    let isEmbedded: Bool
+    /// The page's undo steps (embedded only): pages of the stack never undo each other's ink.
+    private let pageUndo = UndoManager()
     private var pageSize = PageSize.letter
     private var paper = Paper.blank
     private var fittedWidth: CGFloat = 0
@@ -243,7 +301,21 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     }
 
     override init(frame: CGRect) {
+        toolPicker = ToolPalette.makePicker(compact: ToolPalette.isCompact())
+        isEmbedded = false
         super.init(frame: frame)
+        setUp()
+    }
+
+    /// A page of the paged stack, with the stack's tool picker.
+    init(frame: CGRect, sharedPicker: PKToolPicker) {
+        toolPicker = sharedPicker
+        isEmbedded = true
+        super.init(frame: frame)
+        setUp()
+    }
+
+    private func setUp() {
         backgroundColor = .secondarySystemBackground
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
@@ -276,8 +348,41 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
             addInteraction(pointer)
             cursorInteraction = pointer
         }
+        if isEmbedded {
+            // The stack scrolls and zooms; the page shows a sheet with a shadow on the stack's background.
+            backgroundColor = .clear
+            canvas.isScrollEnabled = false
+            canvas.alwaysBounceVertical = false
+            canvas.bouncesZoom = false
+            canvas.showsVerticalScrollIndicator = false
+            canvas.showsHorizontalScrollIndicator = false
+            layer.shadowColor = UIColor.black.cgColor
+            layer.shadowOpacity = 0.2
+            layer.shadowRadius = 4
+            layer.shadowOffset = CGSize(width: 0, height: 1)
+            #if DEBUG
+            debugLaunchPending = false   // the stack applies the debug zoom and scroll
+            #endif
+        }
     }
 
+    /// Embedded pages have their own undo manager; the canvas finds it up the responder chain.
+    override var undoManager: UndoManager? {
+        isEmbedded ? pageUndo : super.undoManager
+    }
+
+    /// Makes this canvas the first responder (its palette, its undo) when it can be drawn on.
+    func focus() {
+        guard window != nil, !isReadOnly, !drawingSuspended else { return }
+        canvas.becomeFirstResponder()
+    }
+
+    /// The selected tool changed outside the picker's own UI (a menu command):
+    /// the object eraser and the pointer follow it.
+    func toolDidChange() {
+        updateEraser()
+        cursorInteraction?.invalidate()
+    }
     /// A circle the size of the ink tool's stroke at the current zoom, so the
     /// pointer shows where a mouse stroke lands. The object eraser draws its
     /// own cursor, and the lasso and the pixel eraser keep the system arrow.
@@ -333,21 +438,34 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         defer { updateEraser() }
         let show = !isReadOnly && !drawingSuspended && paletteVisible
         toolPicker.setVisible(show, forFirstResponder: canvas)
-        if !isReadOnly && !drawingSuspended { canvas.becomeFirstResponder() }
+        // The stack decides which of its pages has the focus (`focus()`).
+        if !isReadOnly && !drawingSuspended && !isEmbedded { canvas.becomeFirstResponder() }
     }
 
     /// Swaps in a picker of the other size, keeping the selected tool when the
     /// new picker has it.
     private func rebuildToolPicker() {
-        let old = toolPicker
-        old.setVisible(false, forFirstResponder: canvas)
-        old.removeObserver(canvas)
-        old.removeObserver(self)
-        let new = ToolPalette.makePicker(compact: paletteCompact)
-        if new.toolItems.contains(where: { $0.identifier == old.selectedToolItemIdentifier }) {
+        guard !isEmbedded else { return }   // the stack swaps its picker for all its pages
+        adopt(Self.makePicker(compact: paletteCompact, replacing: toolPicker))
+    }
+
+    /// A picker of the given size that keeps `old`'s selected tool when it has it.
+    static func makePicker(compact: Bool, replacing old: PKToolPicker?) -> PKToolPicker {
+        let new = ToolPalette.makePicker(compact: compact)
+        if let old, new.toolItems.contains(where: { $0.identifier == old.selectedToolItemIdentifier }) {
             new.selectedToolItemIdentifier = old.selectedToolItemIdentifier
         }
         new.colorUserInterfaceStyle = .light
+        return new
+    }
+
+    /// Uses `new` as this canvas's tool picker (a rebuilt one, or the stack's).
+    func adopt(_ new: PKToolPicker) {
+        let old = toolPicker
+        guard new !== old else { return }
+        old.setVisible(false, forFirstResponder: canvas)
+        old.removeObserver(canvas)
+        old.removeObserver(self)
         new.addObserver(canvas)
         new.addObserver(self)
         toolPicker = new
@@ -357,6 +475,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     override func layoutSubviews() {
         super.layoutSubviews()
         canvas.frame = bounds
+        if isEmbedded { layer.shadowPath = UIBezierPath(rect: bounds).cgPath }
         fitWidth()
         #if DEBUG
         if debugLaunchPending, bounds.width > 0 {
@@ -426,7 +545,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.setContentOffset(.zero, animated: false)
     }
 
-    /// Zoom range: page width fills the view at minimum, 4x at maximum.
+    /// Zoom range: page width fills the view at minimum, 4x at maximum (a
+    /// page of the stack: its frame is the page at the stack's scale, so the
+    /// fit is that scale).
     private func fitWidth(force: Bool = false) {
         guard bounds.width > 0, pageSize.width > 0 else { return }
         let fit = bounds.width / CGFloat(pageSize.width)
@@ -434,7 +555,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
             let wasFitted = fittedWidth == 0 || abs(canvas.zoomScale - fittedWidth) < 0.001
             fittedWidth = fit
             canvas.minimumZoomScale = fit
-            canvas.maximumZoomScale = fit * 4
+            // A page of the stack is zoomed by the stack: its own scale is pinned to the fit.
+            canvas.maximumZoomScale = isEmbedded ? fit : fit * 4
             if wasFitted || canvas.zoomScale < fit { canvas.zoomScale = fit }
         }
         zoomChanged()
