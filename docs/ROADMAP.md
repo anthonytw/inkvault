@@ -79,6 +79,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | ✅ #60 | ✅ #60 |
 | Attachments: `notes show` lists items and recordings, `notes list --json` counts them, `search` finds typed text (A1) | ✅ #66 | ✅ #66 |
 | Attachments: `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over text boxes and (`--transcripts`) transcripts, typed text in Markdown/HTML exports (F) | ✅ #69 | ✅ #69 |
+| Text boxes: `attach text` stores the `breaks` of its layout (`--no-breaks` to leave wrapping to renderers), `items move` lays a text box out again at a new width (E2) | 🔀 #82 | 🔀 #82 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 
@@ -109,7 +110,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | App | Spanish localization (L) | 📋 |
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | ✅ #68 |
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | 🔀 #81 (not yet tried on the iPad) |
-| Attachments | Text boxes, audio recording + playback, on-device transcription, unused-attachment index (E2, E4, E5, E7) | 📋 |
+| Attachments | Text boxes (E2): text tool (tap to add or edit), selection's Edit Text, style bar (bold, italic, underline, strikethrough, size, colour, font, alignment, direction), any script incl. right to left, Scribble; `breaks` from TextKit stored with every edit and resize; CoreText layout on the canvas and in the app's PDF/SVG/PNG (`CoreTextShaper`, glyph outlines embedded); same lines as `sempere export` (shared fixtures) | 🔀 #82 (not yet tried on the iPad) |
+| Attachments | Audio recording + playback, on-device transcription, unused-attachment index (E4, E5, E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |
