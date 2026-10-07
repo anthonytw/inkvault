@@ -18,6 +18,9 @@ import { PreparedPage } from "../src/render/page.ts";
 import { resolveItems } from "../src/render/itemsvg.ts";
 import { ImageFormatError, imageInfo, stripMetadata } from "../src/render/images.ts";
 import { decodeTranscript } from "../src/format/transcript.ts";
+import { SummariesError, decodeSummaries, readSummaries } from "../src/vault/summaries.ts";
+import { ConfigError, parseConfig } from "../src/vault/config.ts";
+import { sealFor, unlockFixture } from "./support.ts";
 import { BlobError, verifyPlaintext } from "../src/vault/blobs.ts";
 import { createHash } from "node:crypto";
 
@@ -122,6 +125,36 @@ describe("fuzz", () => {
       }
       const xml = `<d:multistatus><d:href>${"/a/%zz&#x110000;&amp;<b>".slice(0, Math.floor(r() * 24))}</d:href></d:multistatus>`;
       expect(Array.isArray(propfindNames(xml))).toBe(true);
+    }
+  });
+
+  it("reads mutated published summaries and configs with typed errors only", async () => {
+    const r = rng(0x5a11);
+    const content = JSON.parse(readFileSync(join(golden, "render.summaries.json"), "utf8")) as { vaultId: string };
+    const config = { vault: "./vault/", listing: "webdav", allowOtherVaults: false };
+    const { vault } = await unlockFixture(join(golden, "..", "fixtures", "render.sempere"));
+    for (let i = 0; i < iterations; i++) {
+      const v = mutate(content, r);
+      try {
+        decodeSummaries(v, content.vaultId);
+      } catch (e) {
+        if (!(e instanceof SummariesError)) throw e;
+      }
+      try {
+        parseConfig(JSON.stringify(mutate(config, r)), "https://x/");
+      } catch (e) {
+        if (!(e instanceof ConfigError)) throw e;
+      }
+      // Sealed for real (so it authenticates) every so often, through the whole reader.
+      if (i % 20 === 0) {
+        const sealed = await sealFor(vault, v);
+        if (r() < 0.3) sealed[Math.floor(r() * sealed.length)] = Math.floor(r() * 256);
+        try {
+          await readSummaries(sealed, vault);
+        } catch (e) {
+          if (!(e instanceof SummariesError)) throw e;
+        }
+      }
     }
   });
 
