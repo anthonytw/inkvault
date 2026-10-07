@@ -194,7 +194,8 @@ jobs:
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
           restore-keys: ${{ steps.cachekey.outputs.key }}-
       - name: Test on an iPad simulator
-        run: scripts/app.sh test
+        shell: bash
+        run: mkdir -p build && scripts/app.sh test 2>&1 | tee build/app-test.log
       # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
       # so this adds a boot and a few seconds of tests.
       - name: Test the iPhone layouts on an iPhone simulator
@@ -203,6 +204,30 @@ jobs:
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'
         run: scripts/app.sh catalyst
+      # The Mac suites and UI tests on Mac Catalyst (ad-hoc signed, sandboxed like the
+      # shipped app): main and dispatch runs (`gh workflow run CI --ref <branch>`).
+      - name: Test on Mac Catalyst
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        timeout-minutes: 45
+        shell: bash
+        run: mkdir -p build && scripts/app.sh test-mac 2>&1 | tee build/app-test-mac.log
+      - name: UI tests on Mac Catalyst
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        timeout-minutes: 20
+        shell: bash
+        run: mkdir -p build && scripts/app.sh test-mac-ui 2>&1 | tee build/app-test-mac-ui.log
+      # The logs run to thousands of lines: the failures, at the end where they are easy to find.
+      - name: Summary of failures
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          for f in build/app-test*.log; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            grep -E "✘|↳|error:|Failing tests|SempereMenus|SempereMenuTree|PDF-SCALE|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
+            # UI test dumps of the windows (several lines each).
+            awk '/MACUIDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
+          done
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'
         with:

@@ -78,12 +78,13 @@ struct PageCanvasView: UIViewRepresentable {
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
         host.textEditor.endEditing()   // a box being typed in is written before the canvas goes
         coordinator.loadTask?.cancel()
+        coordinator.editor?.detachInkView(coordinator)
         coordinator.host = nil
         Task { await coordinator.editor?.flush() }
     }
 
     @MainActor
-    final class Coordinator: NSObject, PKCanvasViewDelegate {
+    final class Coordinator: NSObject, PKCanvasViewDelegate, RemoteInkView {
         var editor: NoteEditor?
         weak var host: PageCanvasHost?
         var pageID: UUID?
@@ -97,13 +98,23 @@ struct PageCanvasView: UIViewRepresentable {
         var loadTask: Task<Void, Never>?
         /// Bumped per load, so a late partial drawing never lands over a newer one.
         private var loadToken = 0
+        /// A stroke is being drawn (PencilKit's tool is in use).
+        private var usingTool = false
+
+        var shownPageID: UUID? { pageID }
+        var isUsingInk: Bool {
+            guard let host else { return false }   // a canvas that went away draws nothing
+            return usingTool || host.isErasingInk
+        }
 
         /// Shows page `pageID` of `editor` on `host`: its ink (loaded when the
         /// page, the editor or the generation changed), paper and items. The
         /// one-page canvas and each page of the paged stack (`PageStackHost`)
         /// configure their canvases through this.
         func apply(editor: NoteEditor, pageID: UUID, content: PageCanvasContent, to host: PageCanvasHost) {
+            if self.editor !== editor { self.editor?.detachInkView(self) }
             self.editor = editor
+            editor.attachInkView(self)
             self.host = host
             if self.pageID != pageID || editorID != ObjectIdentifier(editor) || generation != content.generation {
                 let samePage = self.pageID == pageID && editorID == ObjectIdentifier(editor)
@@ -149,6 +160,8 @@ struct PageCanvasView: UIViewRepresentable {
             loadTask = nil
             loadToken &+= 1
             pageID = nil
+            usingTool = false
+            editor?.detachInkView(self)
             editor = nil   // a spare canvas holds no note
             editorID = nil
             generation = nil
@@ -172,6 +185,7 @@ struct PageCanvasView: UIViewRepresentable {
             loadToken &+= 1
             let token = loadToken
             isLoading = true
+            usingTool = false      // a stroke under way belonged to the drawing being replaced
             host.cancelErasing()   // an erase in progress belongs to the old page
             if !keepScroll { host.scrollToTop() }
             if let ready = editor.readyDrawing(for: pageID) {
@@ -196,6 +210,20 @@ struct PageCanvasView: UIViewRepresentable {
             }
         }
 
+        /// Revisions written elsewhere changed this page's ink
+        /// (`NoteEditor.mergeRevisions`): shows the editor's drawing again,
+        /// at the same scroll and zoom. A page still being prepared is left to
+        /// its load, which checks the strokes it converted against the page.
+        func reloadInk(from editor: NoteEditor) {
+            guard let host, let pageID, self.editor === editor, !host.isPreparing,
+                  let drawing = editor.readyDrawing(for: pageID) else { return }
+            loadTask?.cancel()
+            loadTask = nil
+            loadToken &+= 1
+            host.cancelErasing()
+            show(drawing, host: host, editor: editor, partial: false)
+        }
+
         private func show(_ drawing: PKDrawing, host: PageCanvasHost, editor: NoteEditor, partial: Bool) {
             isLoading = true
             host.canvas.drawing = drawing
@@ -218,6 +246,10 @@ struct PageCanvasView: UIViewRepresentable {
             host?.inkDidChange()
         }
 
+        func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+            usingTool = false
+        }
+
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             host?.zoomChanged()
         }
@@ -225,6 +257,7 @@ struct PageCanvasView: UIViewRepresentable {
         /// A stroke starts on a page of the stack: that page's canvas takes
         /// the focus, so undo and the palette act on it.
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            usingTool = true
             guard let host, host.isEmbedded, !canvasView.isFirstResponder else { return }
             host.focus()
         }
@@ -524,6 +557,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         let p = g.location(in: canvas)
         inkTapHandler?(CGPoint(x: p.x / z, y: p.y / z))
     }
+
+    /// An object-eraser gesture is in progress.
+    var isErasingInk: Bool { objectEraser.isErasing }
 
     /// Drops an object-eraser gesture in progress (the drawing is being replaced).
     func cancelErasing() {

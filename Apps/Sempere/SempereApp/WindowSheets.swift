@@ -68,6 +68,14 @@ struct WindowSheets: ViewModifier {
             .sheet(isPresented: Binding(get: { ui.tagsNoteID != nil }, set: { if !$0 { ui.tagsNoteID = nil } })) {
                 if let id = ui.tagsNoteID { TagEditorView(noteID: id) }
             }
+            // The export sheet opens in the window that asked for it (a Mac may have several).
+            .sheet(item: Binding(get: { ExportRequest.shown(model.exportRequest, in: ui.id, canvasWindow: model.canvasWindow) },
+                                 set: { if $0 == nil, ExportRequest.shown(model.exportRequest, in: ui.id,
+                                                                            canvasWindow: model.canvasWindow) != nil {
+                                     model.exportRequest = nil
+                                 } })) { request in
+                ExportSheet(request: request)
+            }
     }
 }
 
