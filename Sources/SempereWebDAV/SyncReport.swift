@@ -38,6 +38,13 @@ public struct SyncReport: Codable, Hashable, Sendable {
     public var skipped: [Issue] = []
     /// Remote entries whose names are not vault files; never downloaded.
     public var ignored: [String] = []
+    /// Push-only runs: files the server holds that the local vault does not
+    /// and that no compaction explains (never synced before, e.g. injected by
+    /// the server). Listed whether or not `--delete-extraneous` removed them.
+    public var extraneous: [String] = []
+    /// Push-only runs: mutable files (`vault.json`, `rewrap-journal.json`)
+    /// whose different server copy was replaced by the local one. Also in `uploaded`.
+    public var overwritten: [String] = []
     /// Remote files that were not taken because they failed a check: a
     /// `vault.json` whose device list changed without a valid tag (format.md
     /// §2.1). The local copy stays; nothing is uploaded over the remote one.
@@ -62,5 +69,6 @@ public struct SyncReport: Codable, Hashable, Sendable {
     /// True when nothing was transferred, deleted or reported.
     public var isEmpty: Bool {
         uploaded.isEmpty && downloaded.isEmpty && deleted.isEmpty && conflicts.isEmpty && errors.isEmpty && rejected.isEmpty
+            && extraneous.isEmpty && overwritten.isEmpty
     }
 }

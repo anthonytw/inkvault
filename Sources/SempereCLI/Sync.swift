@@ -32,6 +32,13 @@ struct SyncWebDAVCommand: ParsableCommand {
             copied over the local one: it is reported as rejected and the exit code is 6 (checking a changed
             list needs the key: pass --identity or --passphrase-env).
 
+            --push-only makes it a one-way mirror for a server that is not trusted to write back:
+            it uploads what the server lacks, overwrites the server's vault.json and
+            rewrap-journal.json from the local copy, and deletes on the server what local compaction or
+            blob collection removed; it never downloads and never writes or deletes anything in the
+            vault, so nothing the server holds can change it. Files only the server has, which
+            no compaction explains, are listed as extraneous, and removed with --delete-extraneous.
+
             Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve, 6 a rejected vault.json.
             """
     )
@@ -57,12 +64,23 @@ struct SyncWebDAVCommand: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Only list what would be transferred or deleted.")
     var dryRun = false
 
+    @Flag(name: .customLong("push-only"),
+          help: "One-way mirror: only upload and delete on the server; never download or change the vault.")
+    var pushOnly = false
+
+    @Flag(name: .customLong("delete-extraneous"),
+          help: "With --push-only: remove from the server the files the vault does not have and compaction does not explain.")
+    var deleteExtraneous = false
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func run() throws {
         guard let remote = URL(string: url) else { throw CLIError.usage("not a URL: \(url)") }
         var options = WebDAVSyncOptions(dryRun: dryRun)
+        if deleteExtraneous && !pushOnly { throw CLIError.usage("--delete-extraneous needs --push-only") }
+        options.pushOnly = pushOnly
+        options.deleteExtraneous = deleteExtraneous
         if let maxBlobMiB {
             guard (1...(1 << 20)).contains(maxBlobMiB) else { throw CLIError.usage("--max-blob-mib must be 1 to 1048576") }
             options.maxBlobBytes = maxBlobMiB << 20
@@ -83,8 +101,9 @@ struct SyncWebDAVCommand: ParsableCommand {
         }
 
         let dir = try access.vaultURL()
-        OpenedVaults.shared.record(dir)   // a first pull creates the vault here
         let hasManifest = FileManager.default.fileExists(atPath: dir.appendingPathComponent("vault.json").path)
+        if pushOnly && !hasManifest { throw CLIError.usage("--push-only needs an existing vault (no vault.json in \(dir.path))") }
+        if !pushOnly { OpenedVaults.shared.record(dir) }   // a first pull creates the vault here
         let vault = hasManifest ? try access.openVault(.ifPossible) : nil
         options.deviceLabel = device ?? ProcessInfo.processInfo.hostName
         let sync = WebDAVSync(
@@ -110,6 +129,8 @@ struct SyncWebDAVCommand: ParsableCommand {
             for p in r.downloaded { print("\(verb)download  \(p)") }
             for d in r.deleted { print("\(verb)delete    \(d.path) (\(d.side))") }
             for s in r.skipped where output.verbose { print("skipped    \(s.path): \(s.message)") }
+            for p in r.overwritten { print("\(verb)overwrite \(p) (server copy replaced)") }
+            for p in r.extraneous { print("extraneous \(p)") }
             for p in r.ignored where output.verbose { print("ignored    \(p)") }
         }
         for c in r.conflicts {
@@ -119,6 +140,7 @@ struct SyncWebDAVCommand: ParsableCommand {
         for e in r.rejected { printStderr("rejected: \(e.path): \(e.message); the local copy is kept") }
         output.info("\(r.dryRun ? "dry run: " : "")\(r.uploaded.count) uploaded, \(r.downloaded.count) downloaded, "
                     + "\(r.deleted.count) deleted, \(r.conflicts.count) conflicts, \(r.errors.count) errors"
+                    + (r.extraneous.isEmpty ? "" : ", \(r.extraneous.count) extraneous")
                     + (r.skipped.isEmpty ? "" : ", \(r.skipped.count) skipped (-v)"))
     }
 }
