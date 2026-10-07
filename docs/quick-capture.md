@@ -53,7 +53,7 @@ vault, and the vault's integrity.
 | A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and no audio is on disk. |
 | Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox; they show up in the inbox notebook, attributed to a device id. They cannot read any capture, any note, or the caches, and cannot change existing notes. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
 | Someone using the unlocked device | They can record voice notes, which is the feature. They cannot listen to past ones without unlocking the vault. |
-| A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
+| A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted. The same holds for a device that is still authorized but has not unlocked the vault since the key change (its profile still has the old capture key): voice notes it records in that window stay in the inbox unadopted, readable only with the stock-CLI recipe (`format.md` §11.2). Open question: adopt them after a confirmation. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
 
 ### Plaintext audio
 
@@ -71,13 +71,16 @@ vault, and the vault's integrity.
 - If transcription is on, the transcript is made on device from that file
   (SpeechTranscriber, else SFSpeechRecognizer on device only; never a server)
   and sealed the same way.
-- The folder is deleted right after, and also when the system's background
-  time runs out. A crash leaves it until the next launch, when it is sealed
-  (from the finished 10-minute segments) and deleted.
+- The folder is deleted right after. If the system's background time runs
+  out first, the folder is kept rather than losing the voice note: a resumed
+  app finishes sealing and deletes it; a terminated one (or a crash) leaves
+  it until the next launch, when it is sealed (from the finished 10-minute
+  segments) and deleted.
 - The transcript's plaintext lives in memory only.
 
 So no plaintext audio stays on disk beyond the capture itself plus the
-seconds it takes to seal and transcribe it.
+seconds it takes to seal and transcribe it, except after a crash or a
+termination before sealing finished: then until the next launch.
 
 ## Delivery and queueing
 

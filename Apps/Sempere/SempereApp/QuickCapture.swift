@@ -230,8 +230,10 @@ final class QuickCapture {
     func seal(segments: [URL], folder: URL, id: UUID, started: Date, stored: StoredCaptureProfile) async -> Outcome {
         var outcome = Outcome(id: id)
         let background = BackgroundWork.begin(name: "Seal voice note") {
-            // Out of time: the plaintext goes; what was sealed so far stays.
-            try? FileManager.default.removeItem(at: folder)
+            // Out of time: the folder stays. If the app is resumed, this seal
+            // finishes and deletes it; if it is terminated, `sweep()` seals it
+            // at the next launch. Deleting it here lost a voice note whose
+            // merge or seal had not finished.
         }
         defer {
             try? FileManager.default.removeItem(at: folder)

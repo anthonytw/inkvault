@@ -471,11 +471,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   (concurrent adoption converges). Intents live in `Apps/Sempere/SempereShared/` (compiled by the app and the
   `SempereWidgets` extension, iOS only, `platformFilter = ios`) and run in the app's process; the profile is a
   Keychain item `AfterFirstUnlockThisDeviceOnly` (`KeychainCaptureProfileStore`, tests use
-  `MemoryCaptureProfileStore`). Plaintext audio lives only in `QuickCapture.root` (`completeUnlessOpen`) until
-  sealed and transcribed. A recipient change rewraps and re-tags `inbox/` too (`Vault.rewrapInbox`; in iCloud
-  `downloadEverything` fetches it first) and the app refreshes the profile after it. A note "exists" for
-  adoption once it has a revision (a folder holding only `att/` is still new), and a waiting transcript writes
-  nothing.
+  `MemoryCaptureProfileStore`). Plaintext audio lives only in `QuickCapture.root`
+  (`completeUntilFirstUserAuthentication`, `QuickCapture.protection`: Lock Screen notes are sealed from closed
+  files before any unlock, which `completeUnlessOpen` forbids) until sealed and transcribed; running out of
+  background time leaves it for `sweep()` rather than losing the note. A recipient change rewraps and re-tags
+  `inbox/` too (`Vault.rewrapInbox`; in iCloud `downloadEverything` fetches it first) and the app refreshes the
+  profile after it. A note "exists" for adoption once it has a revision (a folder holding only `att/` is still
+  new), and a waiting transcript writes nothing.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

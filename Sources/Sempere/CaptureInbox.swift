@@ -306,6 +306,12 @@ public enum CaptureFile {
 public struct SealedCapture: Hashable, Sendable {
     public var name: String
     public var data: Data
+
+    /// A sealed file as read back, e.g. from a device-local queue.
+    public init(name: String, data: Data) {
+        self.name = name
+        self.data = data
+    }
 }
 
 /// Seals captures with a `CaptureProfile` alone: no identity, no vault
