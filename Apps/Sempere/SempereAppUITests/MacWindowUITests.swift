@@ -40,6 +40,8 @@ final class MacWindowUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
+        // The library window has the focus (the menu acts on the focused window's selection).
+        app.cells.containing(NSPredicate(format: "label == %@", "Cellular Respiration")).firstMatch.click()
         app.typeKey("n", modifierFlags: [.command, .option])
         assertOneNoteWindow(app, "shortcut")
     }
