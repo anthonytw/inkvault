@@ -85,6 +85,11 @@ public struct AttachmentIndexEntry: Codable, Hashable, Sendable {
         public var size: Int64?
         public var duration: Double?
         public var title: String?
+
+        public init(revision: String, wall: Date?, type: String?, size: Int64?, duration: Double?, title: String?) {
+            self.revision = revision; self.wall = wall; self.type = type; self.size = size
+            self.duration = duration; self.title = title
+        }
     }
 
     /// One blob file of the note.
@@ -263,6 +268,12 @@ public struct AttachmentStorageReport: Hashable, Sendable {
         /// The newest revision that used it, if this device saw one.
         public var lastUse: AttachmentIndexEntry.LastUse?
 
+        public init(note: UUID, fileName: String, kind: BlobKind, bytes: Int64, firstSeen: Date, deletableFrom: Date,
+                    lastUse: AttachmentIndexEntry.LastUse?) {
+            self.note = note; self.fileName = fileName; self.kind = kind; self.bytes = bytes
+            self.firstSeen = firstSeen; self.deletableFrom = deletableFrom; self.lastUse = lastUse
+        }
+
         public var id: String { "\(note.uuidString.lowercased())/\(fileName)" }
 
         /// True from `deletableFrom` on (exactly the retention window after `firstSeen`).
@@ -279,6 +290,12 @@ public struct AttachmentStorageReport: Hashable, Sendable {
         /// The revisions that reference it, oldest first.
         public var revisions: [String]
         public var lastUse: AttachmentIndexEntry.LastUse?
+
+        public init(note: UUID, fileName: String, kind: BlobKind, bytes: Int64, sha256: String, revisions: [String],
+                    lastUse: AttachmentIndexEntry.LastUse?) {
+            self.note = note; self.fileName = fileName; self.kind = kind; self.bytes = bytes; self.sha256 = sha256
+            self.revisions = revisions; self.lastUse = lastUse
+        }
 
         public var id: String { "\(note.uuidString.lowercased())/\(fileName)" }
     }
