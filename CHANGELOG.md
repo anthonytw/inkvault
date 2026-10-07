@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- `sempere recognize [ID…|--all] [--missing-only|--force] [--dry-run]` reads handwriting with
+  Vision on macOS and stores it as page recognition, one delta per note, with the app's code (page
+  selection `RecognitionPolicy.pagesToRead`, image plan `RecognitionImage`, Vision mapping
+  `VisionText`, now shared by both). `import notability --recognize missing` does it right after
+  an import for pages Notability never indexed. Notability's recognition is replaced only with
+  `--force`. The Linux build refuses with a clear message (`--dry-run` works).
+- `sempere notes search QUERY`: the app's search (titles, tags, notebooks, recognised text; all
+  words; ranked) with `--notebook`, `--tag`, `--deleted` and `--json`.
+
 - Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
   the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
   original PDF, laid out from the PDF's own page boxes), and images become image items with

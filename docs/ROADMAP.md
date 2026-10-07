@@ -55,12 +55,13 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Feature | Linux | macOS |
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
-| `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | 🔀 #52 | 🔀 #52 |
+| `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | ✅ #52 | ✅ #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | 🔀 #70 | 🔀 #70 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
-| Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | 🔀 #52 | 🔀 #52 |
-| `recognize` (Vision on rendered pages) and `import notability --recognize missing`; Linux gives a clear error | — (error) | 📋 after #44 |
+| Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
+| `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | 🔀 #78 |
+| `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | 🔀 #78 | 🔀 #78 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | 🔀 #54 | 🔀 #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |

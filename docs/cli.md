@@ -503,6 +503,7 @@ sempere notes rename ID|TITLE NEW-TITLE
 sempere notes tag ID|TITLE [--add T]... [--remove T]... [--no-cache]
 sempere notes move ID|TITLE (NOTEBOOK | --none)
 sempere notes paper ID|TITLE [KIND] [--page N] [PAPER OPTIONS]
+sempere notes search QUERY [--notebook PATH] [--tag T] [--deleted] [--no-cache]
 sempere notes delete ID|TITLE
 sempere notes undelete ID|TITLE
 sempere notes history ID|TITLE
@@ -574,6 +575,19 @@ note with several pages, left by concurrent edits, is joined), or with
 `--dry-run`. A deleted note is refused (exit 1).
 The device id and clock are this machine's, as for `snapshot`. `--json` emits
 `note`, `layout`, `dryRun`, `changed`, `pagesBefore`, `pagesAfter` and `file`.
+
+`search` finds notes as the app's search box does (`NoteSearch`, shared with
+the app): the query is words, and a note matches when every word is found in
+its title, notebook, tags or a page's recognised text (case, accents and width
+ignored, substrings count); a word starting with `#` matches tags only. Notes
+are ranked as in the app (exact title and tag matches first, then the page
+holding most of the words) and printed best first with the matching fields,
+the best page and a snippet. `--notebook` (that notebook and below) and `--tag`
+narrow the search as selecting a notebook or tag in the sidebar does;
+`--deleted` searches Recently Deleted instead. `--json` gives `note`, `title`,
+`notebook`, `tags`, `fields` (`title`, `tag`, `notebook`, `text`), `page`
+(`number`, `id`), `snippet`, `matchedPages` and `score` per note. For every
+occurrence of a phrase, with word boxes, use `sempere search`.
 
 #### Editing notes
 
@@ -698,7 +712,7 @@ A deleted note is refused (exit 1), as is a page number out of range.
 ```
 sempere import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
                                    [--no-folder-tags] [--tag T ...] [--no-attachments]
-                                   [--keep-image-metadata]
+                                   [--keep-image-metadata] [--recognize missing]
 ```
 
 Each `PATH` is a `.note` or `.ntb` file, an unzipped `.note` package
@@ -743,6 +757,14 @@ to every imported note. Tags are written as a whole, so `--overwrite` of a
 note that moved folders drops the old folder's tags. The device id and clock
 come from `device.json` as for `snapshot`.
 
+`--recognize missing` reads the handwriting of every imported page that has
+ink but no recognised text (Notability never indexed it) right after the
+import, as `sempere recognize --missing-only` does (see "Handwriting
+recognition"); Notability's own recognition is never replaced. It needs
+macOS: elsewhere the import is refused before anything is written (exit 1).
+With `--dry-run` it lists the pages it would read. `--json` then adds
+`recognized`, one entry per imported note as in `recognize --json`.
+
 `--dry-run` imports into a throwaway copy of the vault with a throwaway device,
 so the report is exact but neither the vault nor `device.json` is touched.
 `--json` emits `summary` (`notes`, `imported`, `skipped`, `failed`,
@@ -786,6 +808,9 @@ others and the exit code is 1. `--dry-run` checks the files and writes nothing.
 sempere search TERM [--transcripts]
 ```
 
+(To find notes rather than every occurrence, ranked as in the app, use
+`notes search`.)
+
 Case-insensitive, accent-insensitive substring search over every page's
 recognised handwriting text (the Notability import, on-device recognition)
 **and the text of every text box**, in all notes except deleted ones. With
@@ -802,6 +827,44 @@ their `[x, y, w, h]` boxes) for handwriting; `page`, `pageId`, `itemId` and `box
 `end` (seconds), `engine` for a transcript (no `page`). No match prints `No
 matches.` (an empty list with `--json`) and exits 0. Notes are read in parallel
 and without stroke geometry, as for `notes list`.
+
+### Handwriting recognition
+
+```
+sempere recognize (ID|TITLE... | --all) [--missing-only | --force] [--dry-run]
+```
+
+Reads the handwriting of notes with Apple's Vision, on this machine (nothing
+leaves it), and stores the text and word boxes as each page's recognition
+(`format.md` §5.5) for `search`, `notes search` and exports. It is the app's
+recognition, with the same code: the pages chosen (`RecognitionPolicy`), the
+image read (`RecognitionImage`: the ink black on white, markers left out,
+cropped to the ink with a 24 pt margin, at 2x or less for large ink) and the
+mapping of Vision's lines and word boxes (`VisionText`). The CLI draws the
+image with its own renderer where the app uses PencilKit. Each note gets one
+delta of `setPageRecognition` ops, stamped with this machine's device id and
+clock, and each recognition a `basis` (the digest of the strokes read), so it
+is read again only when its ink changes.
+
+Which pages are read:
+
+| Mode | Pages |
+| --- | --- |
+| default | recognition missing or out of date (ink changed since); Notability's recognition, which cannot be checked, is kept |
+| `--missing-only` | only pages with ink and no recognition at all |
+| `--force` | every page with ink, replacing any recognition, Notability's included |
+
+A page whose ink is gone has its recognised text cleared (except
+Notability's, unless `--force`). A page with only marker strokes gets empty
+text. Deleted notes are skipped by `--all` and refused when named. `--dry-run`
+lists the pages without reading or writing anything, and works on every
+platform.
+
+**macOS only.** Vision is an Apple framework; the Linux build exits 1 with a
+message and changes nothing (`--dry-run` still works). Text and JSON output
+list per note the pages `read` and `cleared` and the `file` written; `--json`
+gives `{dryRun, notes: [{note, title, read, cleared, file, error}]}`. A note
+that cannot be read or written is reported and the exit code is 1.
 
 ### Export
 

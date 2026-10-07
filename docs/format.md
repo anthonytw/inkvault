@@ -798,7 +798,8 @@ A page may carry `"recognition"`, the text recognised in its handwriting:
 ```
 
 - `engine`: free-form name and version of whatever produced the text, e.g.
-  `vision-<iPadOS version>` (the app's on-device recogniser),
+  `vision-<OS version>` (Apple's Vision on device: the app on iPadOS, or
+  `sempere recognize` on macOS),
   `pencilkit-<iPadOS version>` or `notability-<version>` for an import.
 - `text`: the page's recognised text in reading order, lines separated by `\n`.
 - `words[].t`: one word of `text`; `words[].box`: its bounding box
