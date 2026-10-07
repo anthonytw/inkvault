@@ -6,6 +6,13 @@ import Foundation
 enum KeepScreenOn {
     /// `@AppStorage` key of the user's choice.
     static let key = "Sempere.keepScreenOn"
+    /// Off until the user turns it on (docs/attachments.md §15).
+    static let defaultValue = false
+
+    /// The stored choice, `defaultValue` when never set.
+    static func isOn(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key) as? Bool ?? defaultValue
+    }
 
     /// Whether `UIApplication.isIdleTimerDisabled` should be set.
     ///

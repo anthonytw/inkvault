@@ -448,7 +448,7 @@ Phase 1 task detail (historical, for reference):
 - App: thinning setting `Sempere.thinAfterDays` (per device; 0 = never),
   automatic run once a day per vault after the listing (`thinIfDue`, open
   notes and non-local iCloud notes skipped, off in tests and DEBUG scripted
-  runs), Settings sheet from the sidebar's gear button (E6 will absorb it).
+  runs), Settings sheet from the sidebar's gear button (now the E6 panel, below).
 - Performance round 3 (PR #88, TestFlight build 6 feedback; maintainer decisions 2026-10-07):
   - Imports are checkpoints (`format.md` §5.8.1): "Imported from Notability on <UTC time>
     (modified in Notability <date>)". An `--overwrite` is dated when it ran; a first import keeps
