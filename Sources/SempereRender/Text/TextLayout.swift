@@ -13,6 +13,10 @@ public struct PlacedGlyph: Sendable {
     /// The characters this glyph stands for, on the first glyph of its
     /// cluster ("" on the others): what copying the text yields.
     public var text: String
+
+    public init(glyph: Int, x: Double, y: Double, advance: Double, text: String) {
+        self.glyph = glyph; self.x = x; self.y = y; self.advance = advance; self.text = text
+    }
 }
 
 /// Consecutive glyphs of one font, size, colour and style on one line.
@@ -26,12 +30,21 @@ public struct GlyphRun: Sendable {
     /// The face lacks italic: slant by 12°.
     public var syntheticItalic: Bool
     public var glyphs: [PlacedGlyph]
+
+    public init(face: FontFace, size: Double, color: Color, syntheticBold: Bool, syntheticItalic: Bool, glyphs: [PlacedGlyph]) {
+        self.face = face; self.size = size; self.color = color
+        self.syntheticBold = syntheticBold; self.syntheticItalic = syntheticItalic; self.glyphs = glyphs
+    }
 }
 
 /// An underline or strikethrough: a filled rectangle (page coordinates).
 public struct TextDecoration: Sendable {
     public var x: Double, y: Double, width: Double, height: Double
     public var color: Color
+
+    public init(x: Double, y: Double, width: Double, height: Double, color: Color) {
+        self.x = x; self.y = y; self.width = width; self.height = height; self.color = color
+    }
 }
 
 /// One laid-out line.
@@ -53,6 +66,12 @@ public struct ShapedLine: Sendable {
     /// item's text (`TextContent.string`), trailing white space included:
     /// what `TextLineBreaks` turns into `breaks`.
     public var range: Range<Int> = 0..<0
+
+    public init(baseline: Double, size: Double, runs: [GlyphRun], text: String, rtl: Bool, x: Double, width: Double,
+                range: Range<Int> = 0..<0) {
+        self.baseline = baseline; self.size = size; self.runs = runs; self.text = text; self.rtl = rtl
+        self.x = x; self.width = width; self.range = range
+    }
 }
 
 /// Text laid out in a frame (format.md §8.5.3), ready for any writer.
@@ -64,6 +83,10 @@ public struct ShapedText: Sendable {
     public var missingScripts: [String: UInt32] = [:]
     /// Scripts the shaper draws approximately (they need a full shaping engine).
     public var approximateScripts: Set<String> = []
+    /// Scripts of characters whose glyphs have no outlines the exporters can
+    /// draw (colour or bitmap glyphs, e.g. Apple Color Emoji in the app), with
+    /// an example character each: left out of the export and reported.
+    public var bitmapScripts: [String: UInt32] = [:]
     /// Bottom of the last line.
     public var bottom: Double = 0
 

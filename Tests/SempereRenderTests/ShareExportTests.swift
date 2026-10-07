@@ -40,6 +40,20 @@ final class ShareExportTests: XCTestCase {
 
     // MARK: PDF
 
+    /// Text boxes need the shaper the app passes (its CoreText one): without
+    /// it they are placeholders, with it they are drawn.
+    func testTextBoxesUseTheGivenShaper() throws {
+        var n = note(3, title: "Typed")
+        n.1.pages[0].items = [Item(kind: .text, frame: Rect(x: 20, y: 20, w: 200, h: 20), z: "a",
+                                   text: TextContent(size: 12, color: .black, runs: [TextRun("Typed text")]))]
+        let without = try ShareExport.run([n], options: ShareOptions(format: .pdf), into: try scratch(), vaultSource: "s")
+        XCTAssertEqual(without.placeholders, 1)
+        let with = try ShareExport.run([n], options: ShareOptions(format: .pdf), into: try scratch(), vaultSource: "s",
+                                       shaper: TextLayoutTests.shaper)
+        XCTAssertEqual(with.placeholders, 0)
+        XCTAssertNotNil(try data(with.items[0]).range(of: Data("/Type0".utf8)), "an embedded font subset")
+    }
+
     func testSingleNotePDF() throws {
         let dir = try scratch()
         let n = note(1, title: "Physics week 3", pages: 2)

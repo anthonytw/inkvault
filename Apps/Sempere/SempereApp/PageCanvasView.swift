@@ -28,6 +28,10 @@ struct PageCanvasView: UIViewRepresentable {
     var selectingItems = false
     /// Called when selection mode ends from the canvas (a tool was picked).
     var onSelectingItemsEnded: () -> Void = {}
+    /// The text tool: taps edit text boxes or start new ones.
+    var addingText = false
+    /// Called when the text tool ends from the canvas (a tool was picked).
+    var onAddingTextEnded: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -73,9 +77,13 @@ struct PageCanvasView: UIViewRepresentable {
         host.onItemSelectionEnded = onSelectingItemsEnded
         host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
         host.itemSelection.refresh()
+        host.textEditor.reset(editor: editor, pageID: pageID)
+        host.onTextToolEnded = onAddingTextEnded
+        host.textToolActive = addingText && !editor.isReadOnly && !drawingSuspended
     }
 
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
+        host.textEditor.endEditing()   // a box being typed in is written before the canvas goes
         coordinator.loadTask?.cancel()
         coordinator.host = nil
         Task { await coordinator.editor?.flush() }
@@ -166,6 +174,19 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     let itemSelection = ItemSelectionController()
     /// Called when picking a tool ends selection mode.
     var onItemSelectionEnded: (() -> Void)?
+    /// Typing in text boxes (the text tool, and "Edit Text" in selection mode).
+    let textEditor = TextBoxEditorController()
+    /// Called when picking a tool ends the text tool.
+    var onTextToolEnded: (() -> Void)?
+
+    /// The text tool: PencilKit's drawing is off, taps edit or add text boxes.
+    var textToolActive = false {
+        didSet {
+            guard textToolActive != oldValue else { return }
+            textEditor.toolActive = textToolActive
+            updateEraser()
+        }
+    }
 
     /// Selection mode: PencilKit's drawing and the object eraser are off,
     /// touches select and move items (`ItemSelectionController`).
@@ -271,6 +292,10 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
         itemSelection.attach(to: canvas, itemLayer: itemLayer)
+        textEditor.attach(to: canvas, itemLayer: itemLayer)
+        textEditor.actions = { [weak self] in self?.itemSelection.actions }
+        textEditor.onEditingChanged = { [weak self] editing in self?.textEditingChanged(editing) }
+        itemSelection.onEditText = { [weak self] item in self?.textEditor.begin(item) }
         if Platform.isMac {
             let pointer = UIPointerInteraction(delegate: self)
             addInteraction(pointer)
@@ -297,6 +322,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
             EraserPreference.save(eraser.eraserTool.eraserType)
         }
         if itemSelectionActive { onItemSelectionEnded?() }   // picking a tool is picking drawing
+        if textToolActive { onTextToolEnded?() }
         updateEraser()
         cursorInteraction?.invalidate()
     }
@@ -314,10 +340,19 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive
+        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive && !textToolActive
+            && !textEditor.isEditing
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
+    }
+
+    /// Typing in a text box started or ended: nothing draws or selects
+    /// meanwhile; afterwards the palette comes back.
+    private func textEditingChanged(_ editing: Bool) {
+        itemSelection.setActive(itemSelectionActive && !editing)
+        updateEraser()
+        if !editing { updateToolPicker() }
     }
 
     @available(*, unavailable)
@@ -333,7 +368,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         defer { updateEraser() }
         let show = !isReadOnly && !drawingSuspended && paletteVisible
         toolPicker.setVisible(show, forFirstResponder: canvas)
-        if !isReadOnly && !drawingSuspended { canvas.becomeFirstResponder() }
+        // A text box being typed in keeps the keyboard.
+        if !isReadOnly && !drawingSuspended && !textEditor.isEditing { canvas.becomeFirstResponder() }
     }
 
     /// Swaps in a picker of the other size, keeping the selected tool when the
@@ -458,6 +494,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         itemLayer.frame = CGRect(origin: .zero, size: canvas.contentSize)
         itemLayer.setZoom(z)
         itemSelection.refresh()
+        textEditor.layoutTextView()
         if footer != .none {
             footerButton.sizeToFit()
             let b = footerButton.bounds.size

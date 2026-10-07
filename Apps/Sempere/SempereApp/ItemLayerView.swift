@@ -82,6 +82,17 @@ final class ItemLayerView: UIView {
         layout()
     }
 
+    /// The item being edited in place (a text box under its editor): not drawn.
+    var hiddenItem: UUID? {
+        didSet {
+            guard hiddenItem != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (id, sub) in sublayers { sub.isHidden = id == hiddenItem }
+            CATransaction.commit()
+        }
+    }
+
     /// The frame item `id` is shown with (a preview's while one is set).
     func shownFrame(of id: UUID) -> Rect? {
         previews[id] ?? items.first { $0.id == id }?.frame
@@ -107,6 +118,7 @@ final class ItemLayerView: UIView {
                 sublayers[item.id] = sub
             }
             sub.zPosition = CGFloat(index)
+            sub.isHidden = item.id == hiddenItem
             let key = ItemRenderKey(item, scale: step, paper: paper)
             wanted.insert(key)
             if let picture = pictures[key] {
@@ -173,11 +185,17 @@ final class ItemSublayer: CALayer {
     private(set) var picture: ItemPicture?
     private let outline = CAShapeLayer()
     private let symbol = CALayer()
+    /// The picture, placed over the page area it covers (a text box's lines
+    /// may reach beyond its frame: text is never clipped, format.md §8.2.4).
+    private let image = CALayer()
     /// The page area the picture covers, for placing it.
     private var pictureBounds: Rect?
 
     override init() {
         super.init()
+        image.contentsGravity = .resize
+        image.actions = ["contents": NSNull(), "position": NSNull(), "bounds": NSNull()]
+        addSublayer(image)
         outline.fillColor = nil
         outline.strokeColor = UIColor(red: 0x9A / 255, green: 0xA0 / 255, blue: 0xA6 / 255, alpha: 1).cgColor
         outline.lineWidth = 1
@@ -199,13 +217,13 @@ final class ItemSublayer: CALayer {
         self.item = item
         self.picture = picture
         switch picture {
-        case .image(let image, let bounds):
-            contents = image
+        case .image(let picture, let bounds):
+            image.contents = picture
             pictureBounds = bounds
             outline.isHidden = true
             symbol.isHidden = true
         case .placeholder(let reason):
-            contents = nil
+            image.contents = nil
             pictureBounds = nil
             outline.isHidden = false
             symbol.isHidden = false
@@ -233,6 +251,14 @@ final class ItemSublayer: CALayer {
         path.move(to: corners[1]); path.addLine(to: corners[3])
         outline.frame = self.bounds
         outline.path = path.cgPath
+        // The picture was drawn for `item`'s frame: it follows a moved or resized frame proportionally.
+        if let pb = pictureBounds, let drawn = item {
+            let base = ItemFrames.bounds(drawn.frame, rotation: drawn.rotation)
+            let sx = base.w > 0 ? bounds.w / base.w : 1, sy = base.h > 0 ? bounds.h / base.h : 1
+            image.frame = CGRect(x: (pb.x - base.x) * sx * z, y: (pb.y - base.y) * sy * z, width: pb.w * sx * z, height: pb.h * sy * z)
+        } else {
+            image.frame = self.bounds
+        }
         let side = min(28, self.bounds.width / 2, self.bounds.height / 2)
         symbol.frame = CGRect(x: self.bounds.midX - side / 2, y: self.bounds.midY - side / 2, width: side, height: side)
     }

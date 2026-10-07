@@ -57,6 +57,19 @@ final class ItemActions {
         register(name) { $0.setFrame(id, to: old, on: page, name: name) }
     }
 
+    /// Sets a text box's text and frame (an edit in its editor).
+    func setText(_ id: UUID, to content: TextContent, frame: Rect, on page: UUID) {
+        guard let old = editor.setItemText(id, to: content, frame: frame, on: page) else { return }
+        register("Typing") { $0.setText(id, to: old.content, frame: old.frame, on: page) }
+    }
+
+    /// Adds a new text box. Returns it (nil for an empty one).
+    @discardableResult
+    func addText(_ content: TextContent, frame: Rect, on page: UUID) -> Item? {
+        guard let item = editor.addTextBox(content, frame: frame, on: page) else { return nil }
+        return added([item], on: page, name: "Add Text").first
+    }
+
     /// Deletes items. Returns the ones deleted.
     @discardableResult
     func delete(_ ids: [UUID], on page: UUID) -> [Item] {

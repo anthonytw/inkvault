@@ -138,6 +138,8 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     var editor: NoteEditor?
     var pageID: UUID?
     var commands = ItemCommands()
+    /// Opens a text box in its editor ("Edit Text").
+    var onEditText: ((Item) -> Void)?
     /// Undo and redo of item gestures, on the canvas's undo manager.
     private(set) var actions: ItemActions?
 
@@ -300,6 +302,12 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             elements.append(UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
                 self?.commands.copy([item], editor.noteID)
             })
+            if editable, item.kind == .text, item.text != nil, let edit = onEditText {
+                elements.append(UIAction(title: "Edit Text", image: UIImage(systemName: "character.cursor.ibeam")) { [weak self] _ in
+                    self?.select(nil)
+                    edit(item)
+                })
+            }
             if editable {
                 elements.append(UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
