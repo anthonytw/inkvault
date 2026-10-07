@@ -58,6 +58,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 }
 .card h2 { margin: 0; font-size: 1.05em; }
 .card label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 0.9em; }
+.card label.check { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: 6px; }
 .card > button { align-self: flex-start; }
 .row { display: flex; gap: 8px; }
 .hint { color: var(--muted); font-size: 0.85em; margin: 0; }
