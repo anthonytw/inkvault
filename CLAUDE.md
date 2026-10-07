@@ -405,6 +405,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   canvas, above the paper and the items, below the ink; it follows `zoomChanged()`. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
+- Note `lang` and `markersBehindText` (`format.md` §5.4) are optional meta
+  registers: a snapshot without their value or clock never set them
+  (`ClockKey.isOptional`), and writers omit them when unset. Recognisers pass
+  `meta.lang` to Vision (`RecognitionLanguage.preferred`, `VisionText.lines(language:)`).
+  `markersBehindText` draws markers after background items and before content
+  items (`PreparedPage.underIndex`; the canvas instead multiplies a copy of the
+  text boxes over the ink, `MarkerOrder`). PDF page text is the pdfPage
+  item's `pageText` register, kept in `extra` (`Item.pageText`): fill it with a
+  `PDFTextExtracting` (`BuiltinPDFTextExtractor`, the CLI's `pdftotext`,
+  the app's `PDFKitTextExtractor`) through `PDFIngest.withText`.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

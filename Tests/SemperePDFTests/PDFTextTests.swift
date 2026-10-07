@@ -81,6 +81,22 @@ final class PDFTextTests: XCTestCase {
         XCTAssertEqual(try text(d), "B")
     }
 
+    func testManyRangesAndCodesStayLinear() throws {
+        // 20 000 ranges and 50 000 codes: a scan per code would be 10⁹ steps.
+        var cmap = "1 begincodespacerange <0000> <FFFF> endcodespacerange 20000 beginbfrange "
+        for i in 0..<20_000 { cmap += String(format: "<%04X> <%04X> <0041> ", i * 3, i * 3 + 1) }
+        cmap += "endbfrange"
+        let font = "<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H /ToUnicode 6 0 R >>"
+        let shown = "<" + String(repeating: "EA5E", count: 50_000) + ">"
+        let d = Self.pdf("BT /F1 9 Tf \(shown) Tj ET", font: font,
+                         extra: [(6, "<< /Length \(cmap.utf8.count) >>\nstream\n\(cmap)\nendstream")])
+        let start = Date()
+        let t = try text(d)
+        // 0xEA5E = 3 × 19 999 + 1: the last range's second code, A + 1.
+        XCTAssertEqual(t, String(repeating: "B", count: 50_000))
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
     func testOutputIsCapped() throws {
         let line = "(" + String(repeating: "abcdefgh", count: 100) + ") Tj "
         let d = Self.pdf("BT /F1 9 Tf " + String(repeating: line, count: 200) + "ET")

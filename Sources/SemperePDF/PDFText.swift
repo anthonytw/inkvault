@@ -55,6 +55,7 @@ struct Extraction {
     var outBytes = 0
     var operators = 0
     var fonts: [String: FontDecoder] = [:]   // by font object (ref or name in a resource dict)
+    var forms: [Int: [UInt8]] = [:]          // decoded form XObjects, by object number
     /// Line state: y of the current line in text space, and whether text was shown on it.
     var lineY: Double?
     var pendingSpace = false
@@ -221,7 +222,12 @@ struct Extraction {
         guard let res = resources, let xobjects = try file.value(res, "XObject")?.dictValue,
               let entry = xobjects[n], case .stream(let s) = try file.resolve(entry),
               s.dict["Subtype"]?.nameValue == "Form" else { return }
-        let data = try file.decodedData(of: s, allowed: PDFFilters.decodable)
+        // A form drawn many times is decoded once.
+        let data: [UInt8]
+        if case .ref(let r) = entry, let hit = forms[r.num] { data = hit } else {
+            data = try file.decodedData(of: s, allowed: PDFFilters.decodable)
+            if case .ref(let r) = entry { forms[r.num] = data }
+        }
         let own = try file.value(s.dict, "Resources")?.dictValue ?? resources
         try run(data, resources: own, depth: depth + 1)
     }
@@ -257,7 +263,7 @@ struct FontDecoder {
             cmap = ToUnicodeCMap(bytes)
         }
         if isType0 {
-            codeLengths = cmap?.codeLengths.isEmpty == false ? cmap!.codeLengths : [2]
+            if let lengths = cmap?.codeLengths, !lengths.isEmpty { codeLengths = lengths } else { codeLengths = [2] }
             return
         }
         codeLengths = [1]
@@ -389,11 +395,24 @@ struct ToUnicodeCMap {
         if codeLengths.isEmpty {
             codeLengths = Array(Set(chars.keys.map { Int($0 >> 32) } + ranges.map(\.length))).sorted()
         }
+        // Sorted by (length, lo), so a lookup is a binary search, not a scan of every range.
+        ranges.sort { ($0.length, $0.lo) < ($1.length, $1.lo) }
     }
+
+    /// Ranges overlapping one code are checked at most this many deep (real
+    /// CMaps do not overlap; a hostile one cannot make a lookup scan them all).
+    static let maxOverlap = 8
 
     func lookup(_ code: UInt32, length: Int) -> String? {
         if let s = chars[UInt64(length) << 32 | UInt64(code)] { return s }
-        for r in ranges where r.length == length && code >= r.lo && code <= r.hi {
+        // The last range starting at or before `code`, then a few before it.
+        var lo = 0, hi = ranges.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            let r = ranges[mid]
+            if (r.length, r.lo) <= (length, code) { lo = mid + 1 } else { hi = mid }
+        }
+        for r in ranges[max(0, lo - Self.maxOverlap)..<lo].reversed() where r.length == length && code >= r.lo && code <= r.hi {
             let off = Int(code - r.lo)
             if let list = r.list { return off < list.count ? list[off] : nil }
             if var units = r.start, !units.isEmpty {
@@ -500,7 +519,8 @@ enum GlyphNames {
                                            ("dieresis", 0x308), ("ring", 0x30A), ("cedilla", 0x327), ("caron", 0x30C)]
         for letter in "AEIOUYCNSZaeiouycnsz" {
             for (name, mark) in accents {
-                let composed = (String(letter) + String(Unicode.Scalar(mark)!)).precomposedStringWithCanonicalMapping
+                guard let scalar = Unicode.Scalar(mark) else { continue }
+                let composed = (String(letter) + String(scalar)).precomposedStringWithCanonicalMapping
                 if composed.unicodeScalars.count == 1 { t[String(letter) + name] = composed }
             }
         }

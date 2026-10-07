@@ -131,6 +131,44 @@ final class ImportFuzzTests: XCTestCase {
         })
     }
 
+    /// `.ntb` bundles with PDF and media records naming top-level files: the
+    /// mutated `noteBundle` next to real attachment files, through parsing,
+    /// attachment resolution (PDF pages, images, PDF text) and conversion.
+    func testFuzzNtbAttachments() throws {
+        let pkg = try NotePackage(data: CLIGapsFixtureTests.bundlePackage())
+        let files = try pkg.paths.filter { $0 != "noteBundle" }.map { ($0, try pkg.read($0)) }
+        let seeds = [try pkg.read("noteBundle")]
+        assertClean(Fuzz.run("ntbattach", seeds: seeds, quick: 300, maxSize: 64 << 10) { input in
+            Self.typed {
+                let zip = ZipWriter.write([.init(path: "noteBundle", data: input, deflate: false)]
+                                          + files.map { .init(path: $0.0, data: $0.1, deflate: false) })
+                let pkg = try NotePackage(data: zip)
+                let note = try NotabilityBundle.parse(package: pkg)
+                let a = NotabilityAttachments.resolve(note, package: pkg)
+                let state = NotabilityImporter.convert(note, key: "fuzz", attachments: a)
+                _ = try InkJSON.encoder().encode(NotabilityImporter.ops(for: state))
+            }
+        })
+    }
+
+    /// Notability's PDF indexes (`PDFIndex.zip` entries, `PDFIndex.fb`) through their readers.
+    func testFuzzPDFIndexes() throws {
+        let zipSeed = ZipWriter.write([.init(path: "PDFTextIndex.txt", data: Data("one\u{0C}two\u{0C}".utf8)),
+                                       .init(path: "PDFMetadataIndex.plist",
+                                             data: BPlist.encode(.dict([("o", .array([.int(0), .int(4)]))])))])
+        let fbSeed = SyntheticBundle.handwritingIndex([.init(index: 0, text: "first", boxes: []),
+                                                       .init(index: 1, text: "second", boxes: [])])
+        assertClean(Fuzz.run("pdfindex", seeds: [zipSeed, fbSeed], quick: 1500, maxSize: 64 << 10) { input in
+            var notes: [String] = []
+            _ = NotabilityPDFIndex.noteIndex(input, pageCount: 2, notes: &notes)
+            _ = NotabilityPDFIndex.bundleIndex(input, notes: &notes)
+            if let plist = try? PlistValue.parse(input, allowXML: true) {
+                _ = NotabilityPDFIndex.split("abcdefgh", offsetsIn: plist, pageCount: 2)
+            }
+            return nil
+        })
+    }
+
     /// `.ntb` handwriting indexes (`ios/HandwritingIndex.fb`) through the reader and the merge.
     func testFuzzNtbHandwritingIndexes() throws {
         let seeds = [SyntheticBundle.handwritingIndex([
