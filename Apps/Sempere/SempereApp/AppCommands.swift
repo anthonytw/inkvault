@@ -13,6 +13,11 @@ struct CommandRouter {
     var context: MenuCommand.Context
     var recents: [RecentItem] = []
     var paletteVisible = true
+    /// The notes File > Export acts on: the list's selection in a library
+    /// window, the window's note in a note window.
+    var exportIDs: [UUID] = []
+    /// The window's `WindowUI.id` (the export sheet opens there).
+    var windowID: UUID?
     var perform: (MenuCommand) -> Void
     var openRecent: (UUID) -> Void = { _ in }
 }
@@ -61,9 +66,7 @@ struct AppCommands: Commands {
             Divider()
             section(MenuLayout.file[2])
         }
-        CommandGroup(after: .textEditing) {
-            section(MenuLayout.edit[0])
-        }
+        // Edit > Find Notes (⌘F) is UIKit's own Find item, renamed (`MacMenus`).
         CommandMenu("Note") {
             sections(MenuLayout.note)
         }
@@ -89,7 +92,8 @@ struct AppCommands: Commands {
 
     @ViewBuilder
     private func section(_ commands: [MenuCommand]) -> some View {
-        ForEach(commands, id: \.self) { command in
+        // UIKit's own items stand for these (`MenuCommand.nativeOnMac`, `MacMenus`).
+        ForEach(commands.filter { !MenuCommand.nativeOnMac.contains($0) }, id: \.self) { command in
             item(command)
         }
     }

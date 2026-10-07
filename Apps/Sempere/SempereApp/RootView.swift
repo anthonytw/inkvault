@@ -40,9 +40,12 @@ struct RootView: View {
     /// Two properties, so the compiler checks two shorter modifier chains.
     var body: some View {
         content
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("libraryWindow")
             .environment(ui)
             .windowSheets(ui)
             .focusedSceneValue(\.commandRouter, router)
+            .menuRouter(router)
             .sheet(isPresented: $ui.creatingNote) {
                 NewNoteView(notebook: currentNotebook)
             }
@@ -113,9 +116,6 @@ struct RootView: View {
             if let progress = model.cloudProgress {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
             }
-        }
-        .sheet(item: $model.exportRequest) { request in
-            ExportSheet(request: request)
         }
         .sheet(isPresented: $creatingVault) {
             NewVaultView()
@@ -228,7 +228,7 @@ struct RootView: View {
             || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: shown)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible,
+                             paletteVisible: paletteVisible, exportIDs: model.exportTargetIDs, windowID: ui.id,
                              perform: { command in perform(command, editor: shown) },
                              openRecent: { id in
                                  if let entry = library.recents.first(where: { $0.id == id }) { Task { await reopen(entry) } }
