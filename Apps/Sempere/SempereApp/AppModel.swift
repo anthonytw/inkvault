@@ -134,6 +134,14 @@ final class AppModel {
             for window in windowEditors.values { window.recognizer = recognizer }
         }
     }
+    /// Transcribes recordings on device (`AppModel+Recordings`); tests inject a fake.
+    @ObservationIgnored var transcriber: (any RecordingTranscribing)? = SpeechRecordingTranscriber()
+    /// Recordings being transcribed now, by id.
+    var transcribing: Set<UUID> = []
+    /// Makes the players' audio backends; nil: AVFoundation's (tests pass fakes).
+    @ObservationIgnored var playbackBackend: (@MainActor () -> AudioPlaybackBackend)?
+    /// Where recordings in progress keep their files (tests pass their own).
+    @ObservationIgnored var recordingRoot = RecordingSession.root
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
     /// What the last "Recognize All Notes" run changed, kept (also after it
@@ -705,6 +713,7 @@ final class AppModel {
         }
         let stale = editor
         opened.prepareBlobWrite = blobWritePreparer(note: noteID)
+        configureRecordings(opened)
         opened.onRecognized = { [weak self] id in
             guard let self else { return }
             Task { try? await self.refresh([id]) }   // search sees the new text

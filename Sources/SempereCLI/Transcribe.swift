@@ -166,7 +166,7 @@ struct TranscribeCommand: ParsableCommand {
             }
             var written: [(UUID, BlobRef, Data)] = []
             let options = self.options
-            let noteLanguage = TranscriptionLanguage.noteLanguage(of: state)
+            let noteLanguage = TranscriptionLanguage.noteLanguage(of: state.meta)
             for r in targets {
                 var out = RecordingResult(id: r.id.uuidString.lowercased(), title: r.title)
                 do {

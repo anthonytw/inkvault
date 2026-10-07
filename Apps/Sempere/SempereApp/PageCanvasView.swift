@@ -121,6 +121,11 @@ struct PageCanvasView: UIViewRepresentable {
             }
             host.itemSelection.refresh()
             host.setHighlights(editor.highlightBoxes(onPage: pageID))
+            if editor.listeningToInk {
+                host.inkTapHandler = { [weak editor] p in editor?.inkTapped(pageID: pageID, x: Double(p.x), y: Double(p.y)) }
+            } else {
+                host.inkTapHandler = nil
+            }
         }
 
         /// The canvas goes back to the stack's spares: no page, no ink, no
@@ -136,6 +141,7 @@ struct PageCanvasView: UIViewRepresentable {
             generation = nil
             host.cancelErasing()
             host.itemSelectionActive = false
+            host.inkTapHandler = nil
             host.setHighlights([])
             isLoading = true
             host.canvas.drawing = PKDrawing()
@@ -246,6 +252,16 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
             updateEraser()
         }
     }
+    /// "Tap Ink to Play" (`NoteEditor+Recordings`): while set, PencilKit's
+    /// drawing is off and a tap is handed over in page points.
+    var inkTapHandler: ((CGPoint) -> Void)? {
+        didSet {
+            guard (inkTapHandler == nil) != (oldValue == nil) else { return }
+            inkTap.isEnabled = inkTapHandler != nil
+            updateEraser()
+        }
+    }
+    private lazy var inkTap = UITapGestureRecognizer(target: self, action: #selector(inkTapped(_:)))
     /// Search highlights (`NoteEditor+SearchHighlight.swift`), above the paper and the items, below the ink.
     private let highlightView = UIView()
     private(set) var highlights: [HighlightBox] = []
@@ -371,6 +387,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         objectEraser.attach(to: self, canvas: canvas)
         itemSelection.attach(to: canvas, itemLayer: itemLayer)
         canvas.addInteraction(UIDropInteraction(delegate: self))
+        inkTap.isEnabled = false
+        canvas.addGestureRecognizer(inkTap)
         if Platform.isMac {
             let pointer = UIPointerInteraction(delegate: self)
             addInteraction(pointer)
@@ -458,6 +476,12 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         cursorInteraction?.invalidate()
     }
 
+    @objc private func inkTapped(_ g: UITapGestureRecognizer) {
+        let z = max(canvas.zoomScale, 0.01)
+        let p = g.location(in: canvas)
+        inkTapHandler?(CGPoint(x: p.x / z, y: p.y / z))
+    }
+
     /// Drops an object-eraser gesture in progress (the drawing is being replaced).
     func cancelErasing() {
         objectEraser.cancelGesture()
@@ -471,7 +495,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive
+        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive && inkTapHandler == nil
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
@@ -675,8 +699,13 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         }
         for (layer, h) in zip(layers, shown) {
             layer.frame = CGRect(x: h.box.x * z, y: h.box.y * z, width: h.box.w * z, height: h.box.h * z).insetBy(dx: -2, dy: -2)
-            layer.backgroundColor = (h.isCurrent ? UIColor.systemOrange.withAlphaComponent(0.5)
-                                                 : UIColor.systemYellow.withAlphaComponent(0.4)).cgColor
+            switch h.style {
+            case .search:
+                layer.backgroundColor = (h.isCurrent ? UIColor.systemOrange.withAlphaComponent(0.5)
+                                                     : UIColor.systemYellow.withAlphaComponent(0.4)).cgColor
+            case .playback:
+                layer.backgroundColor = UIColor.systemTeal.withAlphaComponent(0.3).cgColor
+            }
             layer.borderColor = UIColor.systemOrange.cgColor
             layer.borderWidth = h.isCurrent ? 2 : 0
         }

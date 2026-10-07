@@ -40,6 +40,27 @@ final class ShareExportTests: XCTestCase {
 
     // MARK: PDF
 
+    /// "PDF + attachments" (the app's export sheet) embeds the recordings; plain PDF counts them as left out.
+    func testPDFWithAttachmentsEmbedsRecordings() throws {
+        let audio = Data(repeating: 0x5A, count: 300)
+        var (s, state) = note(1, title: "Talk")
+        state.recordings = [Recording(blob: BlobRef(content: audio, type: "audio/mp4"), started: Self.when, title: "Q&A")]
+        let blobs: @Sendable (UUID) -> (any BlobSource)? = { _ in MemoryBlobSource([audio]) }
+        let plain = try ShareExport.run([(s, state)], options: ShareOptions(format: .pdf), into: try scratch(),
+                                        vaultSource: "t", blobs: blobs)
+        XCTAssertEqual(plain.recordingsOmitted, 1)
+        XCTAssertEqual(plain.recordingsAttached, 0)
+        XCTAssertNil(try data(plain.items[0]).range(of: audio))
+        let attached = try ShareExport.run([(s, state)], options: ShareOptions(format: .pdf, pdfAttachments: true),
+                                           into: try scratch(), vaultSource: "t", blobs: blobs)
+        XCTAssertEqual(attached.recordingsAttached, 1)
+        XCTAssertEqual(attached.recordingsOmitted, 0)
+        XCTAssertNotNil(try data(attached.items[0]).range(of: audio))
+        let png = try ShareExport.run([(s, state)], options: ShareOptions(format: .png, pdfAttachments: true),
+                                      into: try scratch(), vaultSource: "t", blobs: blobs)
+        XCTAssertEqual(png.recordingsOmitted, 1, "only PDFs carry recordings")
+    }
+
     func testSingleNotePDF() throws {
         let dir = try scratch()
         let n = note(1, title: "Physics week 3", pages: 2)

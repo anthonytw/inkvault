@@ -504,7 +504,7 @@ public enum TranscriptionLanguage {
     /// The note's language (format.md §5.4 `lang`, added by the Notability
     /// import-gaps work). Until a reader keeps that field this is nil and the
     /// device language is used.
-    public static func noteLanguage(of state: NoteState) -> String? { nil }
+    public static func noteLanguage(of meta: NoteMeta) -> String? { nil }
 }
 
 /// Names of the transcription engines (format.md §8.3.2 `engine`).

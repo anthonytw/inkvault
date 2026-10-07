@@ -1,4 +1,5 @@
 import Sempere
+import SempereSpeech
 import SwiftUI
 
 /// The app's settings: photos (the privacy setting of docs/attachments.md
@@ -11,6 +12,10 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(ThinningPreference.key) private var days = ThinningPreference.defaultDays
     @AppStorage(PhotoPrivacy.key) private var photoPrivacy = PhotoPrivacy.defaultValue
+    @AppStorage(TranscriptionPreference.key) private var transcribe = TranscriptionPreference.defaultValue
+    @State private var recording = RecordingPreference.format()
+    /// Which speech engines can transcribe on this device (task E5's availability matrix).
+    @State private var engines: [SpeechTranscription.EngineStatus] = []
     @State private var preview: PreviewBox?
     @State private var working = false
     @State private var outcome: String?
@@ -18,6 +23,22 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                RecordingSettingsSection(format: $recording)
+                Section {
+                    Toggle("Transcribe Recordings on This Device", isOn: $transcribe)
+                    ForEach(engines, id: \.engine) { e in
+                        LabeledContent(e.engine) {
+                            Text((e.available ? "Available" : "Unavailable") + (e.language.map { " · \($0)" } ?? ""))
+                        }
+                        .help(e.detail)
+                    }
+                } header: {
+                    Text("Transcription")
+                } footer: {
+                    Text(transcribe
+                         ? "New recordings are transcribed on this device when you stop recording, in the note's language or else this device's. Audio never leaves the device: a language without an on-device model is not transcribed."
+                         : "Recordings are transcribed only when you choose Transcribe for one. Transcription runs on this device only.")
+                }
                 Section {
                     Toggle("Remove Location and Camera Data", isOn: $photoPrivacy)
                 } header: {
@@ -52,6 +73,8 @@ struct SettingsView: View {
                     Text("Shows what would be removed before anything is.")
                 }
             }
+            .onChange(of: recording) { _, f in RecordingPreference.save(f) }
+            .task { engines = await SpeechTranscription.availability() }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -154,6 +177,40 @@ struct ThinningPreviewView: View {
                     Button("Thin", role: .destructive, action: thin).disabled(report.isEmpty)
                 }
             }
+        }
+    }
+}
+
+/// Recording format (docs/attachments.md §9, §15): codec, quality, sample
+/// rate and channels, with the resulting size per hour.
+struct RecordingSettingsSection: View {
+    @Binding var format: RecordingFormat
+
+    var body: some View {
+        Section {
+            Picker("Format", selection: Binding(get: { format.codec }, set: { codec in
+                format = RecordingFormat(codec: codec, bitRate: codec.defaultBitRate, sampleRate: format.sampleRate,
+                                         channels: format.channels).normalized()
+            })) {
+                ForEach(RecordingFormat.Codec.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }
+            if !format.codec.bitRates.isEmpty {
+                Picker("Quality", selection: Binding(get: { format.bitRate ?? 0 }, set: { format.bitRate = $0 })) {
+                    ForEach(format.codec.bitRates, id: \.self) { Text("\($0 / 1000) kbit/s").tag($0) }
+                }
+            }
+            Picker("Sample Rate", selection: Binding(get: { format.sampleRate }, set: { format = RecordingFormat(
+                codec: format.codec, bitRate: format.bitRate, sampleRate: $0, channels: format.channels).normalized() })) {
+                ForEach(RecordingFormat.sampleRates, id: \.self) { Text(String(format: "%g kHz", Double($0) / 1000)).tag($0) }
+            }
+            Picker("Channels", selection: $format.channels) {
+                Text("Mono").tag(1)
+                Text("Stereo").tag(2)
+            }
+        } header: {
+            Text("Recording")
+        } footer: {
+            Text("\(format.sizePerHourText). AAC-LC plays everywhere; HE-AAC is smaller at low bit rates; Apple Lossless keeps every detail and is much larger. Stereo needs a stereo microphone. This setting is for this device only.")
         }
     }
 }

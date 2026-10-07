@@ -32,11 +32,15 @@ public struct ShareOptions: Sendable, Equatable {
     /// Markdown only: a PDF of the note next to its `.md`, embedded at the
     /// top. Off by default, so the file leads with the recognised text.
     public var markdownPDF: Bool
+    /// PDF only: "PDF + attachments": each note's recordings, and their
+    /// transcripts as text, embedded as PDF file attachments (the CLI's
+    /// `--recordings attach`, docs/attachments.md §10).
+    public var pdfAttachments: Bool
 
     public init(format: ShareFormat, paper: Bool = true, dpi: Double = 144, mergePDF: Bool = false,
-                markdownImages: ExportImages = .none, markdownPDF: Bool = false) {
+                markdownImages: ExportImages = .none, markdownPDF: Bool = false, pdfAttachments: Bool = false) {
         self.format = format; self.paper = paper; self.dpi = dpi; self.mergePDF = mergePDF
-        self.markdownImages = markdownImages; self.markdownPDF = markdownPDF
+        self.markdownImages = markdownImages; self.markdownPDF = markdownPDF; self.pdfAttachments = pdfAttachments
     }
 
     /// The largest `dpi` the exporters take (as the CLI's `--dpi`).
@@ -68,6 +72,10 @@ public struct ShareResult: Sendable {
     public var exported: Int
     /// Items drawn as placeholders (`RenderReport`), over every note.
     public var placeholders = 0
+    /// Recordings embedded in the PDFs ("PDF + attachments").
+    public var recordingsAttached = 0
+    /// Recordings the exported notes hold that the export left out.
+    public var recordingsOmitted = 0
 }
 
 /// Renders notes into a scratch directory for sharing. One engine for the app's
@@ -108,7 +116,8 @@ public enum ShareExport {
         if needsDPI && !options.isValid { throw ShareExportError.invalidResolution(options.dpi) }
         let fm = FileManager.default
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
-        let render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer)
+        var render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer)
+        render.embedRecordings = options.format == .pdf && options.pdfAttachments
         func renderOptions(for id: UUID) -> RenderOptions {
             var r = render
             r.blobs = blobs?(id)
@@ -234,7 +243,12 @@ public enum ShareExport {
             }
             progress(notes.count, notes.count)
         }
-        return ShareResult(items: items, failures: failures, exported: exported, placeholders: placeholders + report.placeholders.count)
+        var result = ShareResult(items: items, failures: failures, exported: exported,
+                                 placeholders: placeholders + report.placeholders.count)
+        result.recordingsAttached = report.recordingsAttached
+        result.recordingsOmitted = options.format == .pdf ? report.recordingsOmitted
+            : notes.reduce(0) { $0 + $1.1.recordings.count }
+        return result
     }
 
     static func info(_ s: NoteSummary, _ state: NoteState, source: String) -> ExportNoteInfo {

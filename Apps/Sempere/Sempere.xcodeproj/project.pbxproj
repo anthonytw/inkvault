@@ -10,6 +10,7 @@
 		A1000000000000000000B001 /* Sempere in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D001 /* Sempere */; };
 		A1000000000000000000B002 /* Age in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D002 /* Age */; };
 		A1000000000000000000B004 /* SempereRender in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D003 /* SempereRender */; };
+		A1000000000000000000B005 /* SempereSpeech in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D004 /* SempereSpeech */; };
 		A1000000000000000000B003 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F003 /* Fixtures */; };
 /* End PBXBuildFile section */
 
@@ -63,6 +64,7 @@
 				A1000000000000000000B001 /* Sempere in Frameworks */,
 				A1000000000000000000B002 /* Age in Frameworks */,
 				A1000000000000000000B004 /* SempereRender in Frameworks */,
+				A1000000000000000000B005 /* SempereSpeech in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +137,7 @@
 				A1000000000000000000D001 /* Sempere */,
 				A1000000000000000000D002 /* Age */,
 				A1000000000000000000D003 /* SempereRender */,
+				A1000000000000000000D004 /* SempereSpeech */,
 			);
 			productName = SempereApp;
 			productReference = A1000000000000000000F001 /* Sempere.app */;
@@ -355,6 +358,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sempere uses the camera to add photos to your notes.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Sempere uses Face ID to unlock vaults with keys saved in the Keychain.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Sempere uses the microphone to record audio into your notes. Recordings are encrypted in your vault.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Sempere transcribes your recordings on this device. Audio is never sent to a server.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsMultipleScenes[sdk=macosx*]" = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -389,6 +394,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sempere uses the camera to add photos to your notes.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Sempere uses Face ID to unlock vaults with keys saved in the Keychain.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Sempere uses the microphone to record audio into your notes. Recordings are encrypted in your vault.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Sempere transcribes your recordings on this device. Audio is never sent to a server.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsMultipleScenes[sdk=macosx*]" = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -532,6 +539,10 @@
 		A1000000000000000000D003 /* SempereRender */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SempereRender;
+		};
+		A1000000000000000000D004 /* SempereSpeech */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SempereSpeech;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

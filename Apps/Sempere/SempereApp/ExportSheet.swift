@@ -83,6 +83,14 @@ struct ExportSheet: View {
                     ForEach(Self.resolutions, id: \.self) { Text("\(Int($0)) dpi").tag($0) }
                 }
             }
+            if options.format == .pdf {
+                // "PDF" and "PDF + attachments" side by side (docs/attachments.md §13 "Export options").
+                Picker("PDF", selection: $options.pdfAttachments) {
+                    Text("PDF").tag(false)
+                    Text("PDF + attachments").tag(true)
+                }
+                .pickerStyle(.segmented)
+            }
             if options.format == .pdf && request.noteIDs.count > 1 {
                 Toggle("One PDF for All Notes", isOn: $options.mergePDF)
             }
@@ -94,7 +102,8 @@ struct ExportSheet: View {
         } header: {
             Text("Options")
         } footer: {
-            Text(Self.shape(of: options, count: request.noteIDs.count))
+            Text(Self.shape(of: options, count: request.noteIDs.count)
+                 + Self.recordingsNote(options, count: recordingCount))
         }
         Section {
             Button("Export", systemImage: ExportCommand.menuImage) {
@@ -111,6 +120,13 @@ struct ExportSheet: View {
         Section {
             Label(outcome.exported == 1 ? "1 note exported" : "\(outcome.exported) notes exported",
                   systemImage: "checkmark.circle").foregroundStyle(.green)
+            if outcome.recordingsAttached > 0 {
+                Label("\(outcome.recordingsAttached) recording\(outcome.recordingsAttached == 1 ? "" : "s") attached",
+                      systemImage: "waveform")
+            } else if outcome.recordingsOmitted > 0 {
+                Label("\(outcome.recordingsOmitted) recording\(outcome.recordingsOmitted == 1 ? "" : "s") not included",
+                      systemImage: "waveform.slash").foregroundStyle(.secondary)
+            }
             ForEach(outcome.items, id: \.self) { Text($0.lastPathComponent).font(.callout) }
         }
         if !outcome.failures.isEmpty {
@@ -124,6 +140,22 @@ struct ExportSheet: View {
         } footer: {
             Text("The files are deleted from the app when you close this sheet.")
         }
+    }
+
+    /// Recordings in the notes being exported (from their summaries).
+    private var recordingCount: Int {
+        let ids = Set(request.noteIDs)
+        return model.notes.filter { ids.contains($0.id) }.reduce(0) { $0 + $1.recordings }
+    }
+
+    /// " 2 recordings not included." for PDF, or what "PDF + attachments" adds.
+    static func recordingsNote(_ options: ShareOptions, count: Int) -> String {
+        guard count > 0 else { return "" }
+        let n = count == 1 ? "1 recording" : "\(count) recordings"
+        if options.format == .pdf && options.pdfAttachments {
+            return " \(n) and \(count == 1 ? "its transcript" : "their transcripts") attached to the PDF."
+        }
+        return " \(n) not included\(options.format == .pdf ? " (PDF + attachments includes them)" : "")."
     }
 
     /// One sentence on what the export will contain.
