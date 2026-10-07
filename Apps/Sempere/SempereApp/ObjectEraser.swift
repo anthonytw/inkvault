@@ -38,6 +38,8 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
 
     /// Whether the eraser takes touches (object eraser selected, note editable).
     private(set) var isActive = false
+    /// A gesture is erasing now (between its first touch and its end).
+    var isErasing: Bool { before != nil }
 
     func attach(to host: UIView, canvas: PKCanvasView) {
         self.host = host

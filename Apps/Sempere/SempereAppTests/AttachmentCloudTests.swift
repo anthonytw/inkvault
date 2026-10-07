@@ -42,7 +42,7 @@ final class FakeBlobCloud: @unchecked Sendable {
     func deliver(_ url: URL) {
         let key = url.standardizedFileURL
         guard let data = lock.withLock({ held.removeValue(forKey: key) }) else { return }
-        try? data.write(to: key)
+        try? data.write(to: key, options: .atomic)   // never a half-written file a concurrent read could see
         try? FileManager.default.removeItem(at: CloudPlaceholder.placeholderURL(for: key))
     }
 

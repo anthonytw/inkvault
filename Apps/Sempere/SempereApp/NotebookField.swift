@@ -39,6 +39,13 @@ struct NotebookField: View {
     var excluding: String?
     /// A notebook and everything below it never offered (where a notebook cannot move to).
     var excludingSubtree: String?
+    /// The form's scroll position: when the list opens, the field scrolls to
+    /// the top so the list under it is on screen. A Mac shows the sheet in a
+    /// small window without visible scroll bars, where the list otherwise
+    /// opened below the window's edge (TestFlight build 6).
+    var reveal: ScrollViewProxy?
+    /// The id the field is scrolled to by (`reveal`).
+    static let scrollID = "notebookField"
     @FocusState private var focused: Bool
     @State private var expanded = false
 
@@ -65,6 +72,7 @@ struct NotebookField: View {
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel(isOpen ? "Hide Notebooks" : "Show Notebooks")
+                .accessibilityIdentifier("notebookChoices")
                 .disabled(notebooks.isEmpty)
             }
             if isOpen {
@@ -87,6 +95,11 @@ struct NotebookField: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .id(Self.scrollID)
+        .onChange(of: isOpen) { _, open in
+            guard open, let reveal else { return }
+            withAnimation { reveal.scrollTo(Self.scrollID, anchor: .top) }
+        }
     }
 }
 
@@ -104,19 +117,21 @@ struct MoveNoteView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    NotebookField(title: "Notebook (School/Math for levels)", text: $notebook,
-                                  notebooks: model.notebooks, excluding: note.notebook)
-                } header: {
-                    Text(NoteTitle.display(note.title))
-                } footer: {
-                    if let current = NotebookPath.canonical(note.notebook) {
-                        Text("Now in \(NotebookChoices.display(current)).")
+            ScrollViewReader { proxy in
+                Form {
+                    Section {
+                        NotebookField(title: "Notebook (School/Math for levels)", text: $notebook,
+                                      notebooks: model.notebooks, excluding: note.notebook, reveal: proxy)
+                    } header: {
+                        Text(NoteTitle.display(note.title))
+                    } footer: {
+                        if let current = NotebookPath.canonical(note.notebook) {
+                            Text("Now in \(NotebookChoices.display(current)).")
+                        }
                     }
-                }
-                if note.notebook != nil {
-                    Button("No Notebook", role: .destructive) { move(to: nil) }
+                    if note.notebook != nil {
+                        Button("No Notebook", role: .destructive) { move(to: nil) }
+                    }
                 }
             }
             .navigationTitle("Move to Notebook")
@@ -156,23 +171,25 @@ struct MoveNotebookView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    NotebookField(title: "Into notebook (blank: top level)", text: $parent, notebooks: model.notebooks,
-                                  excludingSubtree: path)
-                } header: {
-                    Text(NotebookChoices.display(path))
-                } footer: {
-                    if let result = Self.result(of: path, into: parent) {
-                        Text("Becomes \(NotebookChoices.display(result)), with every notebook and note inside it.")
-                    } else if NotebookPath.moved(path, into: parent) == nil {
-                        Text("A notebook cannot go into itself or a notebook inside it.")
-                    } else {
-                        Text("It is there already.")
+            ScrollViewReader { proxy in
+                Form {
+                    Section {
+                        NotebookField(title: "Into notebook (blank: top level)", text: $parent, notebooks: model.notebooks,
+                                      excludingSubtree: path, reveal: proxy)
+                    } header: {
+                        Text(NotebookChoices.display(path))
+                    } footer: {
+                        if let result = Self.result(of: path, into: parent) {
+                            Text("Becomes \(NotebookChoices.display(result)), with every notebook and note inside it.")
+                        } else if NotebookPath.moved(path, into: parent) == nil {
+                            Text("A notebook cannot go into itself or a notebook inside it.")
+                        } else {
+                            Text("It is there already.")
+                        }
                     }
-                }
-                if NotebookPath.components(path).count > 1 {
-                    Button("Move to Top Level") { move(into: "") }
+                    if NotebookPath.components(path).count > 1 {
+                        Button("Move to Top Level") { move(into: "") }
+                    }
                 }
             }
             .navigationTitle("Move Notebook")

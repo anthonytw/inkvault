@@ -245,6 +245,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `merge` (an edit's own re-read, immediate), never by assigning `notes`
   wholesale. Tests that need "another device wrote a revision" use
   `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Remote changes reach an open note in place (`AppModel+RemoteMerge`,
+  `NoteEditor.mergeRevisions`, docs/io.md "Changes from other devices while a
+  note is open"): a listing names a revision the editor does not know
+  (`knownRevisionNames`), the note is downloaded, the editor saves, re-reads
+  and applies the result synchronously. Never replace a canvas's drawing for
+  a merge except through `RemoteInkView.reloadInk` in that same main-actor
+  turn, after `StrokeLedger.mergeStored`: a canvas reporting a drawing the
+  ledger does not know is taken as the user's edit (echo deltas). Every write
+  an editor starts bumps `writeEpoch`. Tests: `RemoteMergeTests`.
 - Thinning (`format.md` §5.8.4) is decided from revision metadata first
   (`RevisionMeta`, kept per entry in the `SummaryCache`; `CompactionPlanner.select` /
   `mayDelete` take hollow revisions): never add a rule to `select` that needs ops or
@@ -394,6 +403,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the Catalyst build runs on `main` only (or `gh workflow run CI --ref <branch>`).
   Only the `.commands` line and the entitlements/scene build settings are
   Catalyst-only.
+- The Mac menu bar starts from UIKit's own (New Window ⌘N, Open… ⌘O, Find…
+  ⌘F, document commands). UIKit drops a whole SwiftUI command group if one of
+  its shortcuts is taken (log: "Replacement elements conflict"), so a new
+  `MenuCommand` shortcut must not collide with UIKit's; ⌘O and ⌘F are UIKit's
+  items renamed by `MacMenus` (`MenuCommand.nativeOnMac`). Check menus on a
+  real Catalyst runtime: `scripts/app.sh test-mac` (every app suite, ad-hoc
+  signed and sandboxed) and `test-mac-ui` (`MacWindowUITests`), run by CI on
+  `main` and on dispatch. A test that needs pixels on a Mac puts its view in a
+  window of the host app's scene (a window without one is never drawn there).
 - The object eraser must list `indirectPointer` among its touch types on a Mac
   (`ObjectEraserController.pressTouchTypes`), or the default eraser ignores
   the mouse; PencilKit's own gesture is off while it is active.

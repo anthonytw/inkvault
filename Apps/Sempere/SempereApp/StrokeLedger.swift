@@ -233,6 +233,117 @@ struct StrokeLedger {
         written.formUnion(liveIDs)
     }
 
+    // MARK: - Revisions written elsewhere
+
+    /// What `mergeStored` did to the page.
+    struct RemoteMerge: Equatable {
+        /// Where each new entry's canvas stroke comes from, in canvas order.
+        enum Source: Equatable {
+            /// The canvas stroke the old entry at this index stood for, unchanged.
+            case kept(Int)
+            /// A new canvas stroke converted from this stored stroke.
+            case converted(Stroke)
+        }
+
+        var sources: [Source] = []
+        /// How many entries (canvas strokes) the ledger had before.
+        var previousCount = 0
+        /// Strokes another writer added that are now live.
+        var added: [Stroke] = []
+        /// Live strokes another writer removed.
+        var removed: [Stroke] = []
+
+        /// True when the canvas must show something else: strokes came or
+        /// went, or the order changed.
+        var changesCanvas: Bool {
+            sources != (0..<previousCount).map(Source.kept)
+        }
+    }
+
+    /// Takes `stored`, the page's strokes as now merged on disk (format.md
+    /// §5.3: revisions of other devices, and of this editor, which has saved
+    /// first), as what is committed, keeping what is pending here: strokes
+    /// added on this canvas and not written yet stay live (on top), strokes
+    /// erased here and not written yet stay removed, and their ops stay
+    /// pending. A stroke another writer removed leaves the canvas, one it
+    /// added appears; neither is ever reported as a change of this canvas
+    /// (no echo: `pendingOps` holds only what this canvas did).
+    ///
+    /// Canvas strokes are reused wherever every stored stroke they stand for
+    /// is still live, so only strokes that are new here are converted. The
+    /// new canvas order is the stored order, then the pending additions.
+    /// `info` fingerprints the canvas stroke a stored stroke is shown as
+    /// (`CanvasStrokeInfo.init(stored:)`).
+    mutating func mergeStored(_ stored: [Stroke], info: (Stroke) -> CanvasStrokeInfo) -> RemoteMerge {
+        let committedIDs = Set(committed.map(\.id))
+        let liveIDs = Set(live.map(\.id))
+        var storedByID: [UUID: Stroke] = [:]
+        for s in stored where storedByID[s.id] == nil { storedByID[s.id] = s }
+        // Live after the merge: a stored stroke that is live here or new from
+        // elsewhere (never committed nor written by this canvas, which would
+        // make its absence here a pending erase), and a pending addition.
+        func fromElsewhere(_ id: UUID) -> Bool { !committedIDs.contains(id) && !written.contains(id) && !liveIDs.contains(id) }
+        func pendingAdd(_ id: UUID) -> Bool { storedByID[id] == nil && !committedIDs.contains(id) }
+        func staysLive(_ id: UUID) -> Bool {
+            storedByID[id] != nil ? (liveIDs.contains(id) || fromElsewhere(id)) : pendingAdd(id)
+        }
+
+        var merge = RemoteMerge(previousCount: entries.count)
+        var entryOf: [UUID: Int] = [:]
+        for (i, e) in entries.enumerated() { for s in e.strokes { entryOf[s.id] = i } }
+        // A fully masked canvas stroke (no stored strokes) shows nothing and stays as it is.
+        let intact = Set(entries.indices.filter { i in entries[i].strokes.allSatisfy { staysLive($0.id) } })
+        for e in entries { merge.removed += e.strokes.filter { !staysLive($0.id) } }
+        let unchanged = intact.count == entries.count
+            && !stored.contains { fromElsewhere($0.id) }
+        if unchanged {
+            // Nothing came or went: the canvas stays exactly as it is.
+            entries = entries.map { e in
+                var e = e
+                e.strokes = e.strokes.map { storedByID[$0.id] ?? $0 }
+                return e
+            }
+            merge.sources = entries.indices.map(RemoteMerge.Source.kept)
+            committed = stored
+            written.formUnion(storedByID.keys)
+            return merge
+        }
+
+        var next: [Entry] = []
+        var placed = Set<Int>()
+        var seen = Set<UUID>()
+        for s in stored where seen.insert(s.id).inserted && staysLive(s.id) {
+            if let i = entryOf[s.id], intact.contains(i) {
+                guard placed.insert(i).inserted else { continue }
+                var e = entries[i]
+                e.strokes = e.strokes.map { storedByID[$0.id] ?? $0 }
+                next.append(e)
+                merge.sources.append(.kept(i))
+            } else {
+                // New from elsewhere, or a piece of a canvas stroke that lost another piece.
+                if fromElsewhere(s.id) { merge.added.append(s) }
+                next.append(Entry(info: info(s), strokes: [s]))
+                merge.sources.append(.converted(s))
+            }
+        }
+        for (i, e) in entries.enumerated() where !placed.contains(i) {
+            if intact.contains(i) {
+                next.append(e)
+                merge.sources.append(.kept(i))
+            } else {
+                // Pending additions that shared a canvas stroke with something now gone.
+                for s in e.strokes where pendingAdd(s.id) && staysLive(s.id) {
+                    next.append(Entry(info: info(s), strokes: [s]))
+                    merge.sources.append(.converted(s))
+                }
+            }
+        }
+        entries = next
+        committed = stored
+        written.formUnion(storedByID.keys)
+        return merge
+    }
+
     // MARK: - Parents
 
     private mutating func parentCandidates(for info: CanvasStrokeInfo, removed: [Entry]) -> [Stroke] {
