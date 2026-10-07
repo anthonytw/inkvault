@@ -93,6 +93,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Object eraser by default, eraser sizes and cursor | 🔀 #24 |
 | Canvas | Visual paper picker (line width, spacing) | 🔀 #28 |
 | Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | 🔀 #52 |
+| Canvas | Continuous page scrolling: paged notes scroll from one page to the next (gap and shadow between pages), lazy per-page canvases, zoom across pages, current page follows the scroll | 🚧 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export 🔀 #56 |
