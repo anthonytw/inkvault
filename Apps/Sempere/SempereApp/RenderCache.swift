@@ -305,7 +305,7 @@ final class RenderCache: @unchecked Sendable {
         var format = "rgba"
         if opaque {
             let out = NSMutableData()
-            if let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) {
+            if let dest = CGImageDestinationCreateWithData(out as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) {
                 CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
                 if CGImageDestinationFinalize(dest) { payload = out as Data; format = "jpeg" }
             }

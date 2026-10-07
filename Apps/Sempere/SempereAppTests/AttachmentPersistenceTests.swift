@@ -298,4 +298,72 @@ struct AttachmentPersistenceTests {
         guard case .image? = second.picture(of: image.id) else { Issue.record("not from the cache"); return }
         #expect(store.fetchLog.isEmpty, "the blob was not read")
     }
+
+    // MARK: timings
+
+    /// First open against reopen of a PDF note (the #56 signposts' phases
+    /// `pdf.open` and `pdf.preview`, measured here end to end): ten pages of
+    /// a 120-page PDF shown one after another, as paging through the note.
+    /// "First" decrypts the blob and draws each page; "reopen" is the next
+    /// launch: new caches on the same folders. Prints `PERF-REPORT` lines.
+    @Test func reopeningAPDFNoteIsFasterThanTheFirstOpen() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let data = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let ctx = try #require(CGContext(consumer: try #require(CGDataConsumer(data: data as CFMutableData)), mediaBox: &box, nil))
+        for n in 0..<120 {
+            ctx.beginPDFPage(nil)
+            ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            for k in 0..<400 {   // dense vector content, as a scanned or drawn page
+                let y = Double((k * 37 + n * 11) % 760) + 16
+                ctx.move(to: CGPoint(x: 20, y: y))
+                ctx.addCurve(to: CGPoint(x: 590, y: 792 - y), control1: CGPoint(x: 200, y: y + 40), control2: CGPoint(x: 400, y: y - 40))
+            }
+            ctx.strokePath()
+            ctx.endPDFPage()
+        }
+        ctx.closePDF()
+        let ref = try vault.writeBlob(note: Self.lecture, data as Data, type: "application/pdf")
+        let items = (0..<10).map {
+            Item.pdfPage(blob: ref, pageIndex: $0, pageSize: Size(w: 612, h: 792), frame: Rect(x: 0, y: 0, w: 612, h: 792), z: "a")
+        }
+        let blobs = Self.root(), renders = Self.root()
+        func blobCache() -> BlobCache {
+            BlobCache(root: blobs) { note, ref, dest in
+                try await AppModel.fetchBlob(ref, of: note, from: vault, to: dest, cloud: false, hooks: .live,
+                                             stallTimeout: .seconds(5), pollInterval: .milliseconds(10))
+            }
+        }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1061))
+        window.isHidden = false
+        defer { window.isHidden = true }
+
+        func seconds(_ d: Duration) -> Double { Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18 }
+        /// Seconds until the first page shows something real, and until every page did.
+        func run(reopen: Bool) async throws -> (first: Double, all: Double) {
+            let layer = ItemLayerView(frame: window.bounds)
+            window.addSubview(layer)
+            defer { layer.removeFromSuperview() }
+            layer.setZoom(820 / 612)
+            let source = ItemLayerSource(cache: blobCache(), renders: RenderCache(root: renders, vault: vault))
+            let clock = ContinuousClock(), start = clock.now
+            var first: Double?
+            for item in items {
+                layer.show([item], note: Self.lecture, paper: .blank, source: source)
+                // First open: the page is drawn once its document is open. Reopen: its preview is there.
+                let shown = await TS.waitUntil(timeout: .seconds(30)) {
+                    reopen ? layer.previewedItemIDs == [item.id] : layer.tiledItemIDs == [item.id]
+                }
+                #expect(shown)
+                if first == nil { first = seconds(clock.now - start) }
+                if !reopen { #expect(await TS.waitUntil(timeout: .seconds(30)) { layer.isSettled }) }   // previews stored
+            }
+            return (first ?? 0, seconds(clock.now - start))
+        }
+        let cold = try await run(reopen: false)
+        let warm = try await run(reopen: true)
+        print(String(format: "PERF-REPORT pdf-reopen first page: first open %.0f ms, reopen %.0f ms", cold.first * 1000, warm.first * 1000))
+        print(String(format: "PERF-REPORT pdf-reopen 10 pages: first open %.0f ms, reopen %.0f ms", cold.all * 1000, warm.all * 1000))
+        #expect(warm.first <= cold.first + 0.05, "a reopen shows the first page no later than the first open")
+    }
 }

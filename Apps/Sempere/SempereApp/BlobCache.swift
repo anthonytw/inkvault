@@ -144,8 +144,8 @@ actor BlobCache {
     nonisolated static func removeOthers(in folder: URL, keeping keep: String) {
         let fm = FileManager.default
         for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where name != keep && !name.hasPrefix(".closed-") {
-            let doomed = folder.appendingPathComponent(".closed-\(UUID().uuidString)")
-            if (try? fm.moveItem(at: folder.appendingPathComponent(name), to: doomed)) == nil { continue }
+            // A rename is instant; the files go in the background.
+            try? fm.moveItem(at: folder.appendingPathComponent(name), to: folder.appendingPathComponent(".closed-\(UUID().uuidString)"))
         }
         let leftovers = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(".closed-") }
         guard !leftovers.isEmpty else { return }
