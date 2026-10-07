@@ -154,3 +154,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   background: transparent; color: var(--accent); padding: 0 4px; font-variant-numeric: tabular-nums; flex: none;
 }
 .doubtful { text-decoration: underline dotted; text-decoration-color: var(--muted); }
+
+/* Video clips (format.md §8.2.7): one player under the list. */
+.video-player { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; }
+.video-player video { max-width: min(100%, 720px); max-height: 50vh; background: #000; }
