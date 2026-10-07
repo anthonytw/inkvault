@@ -78,6 +78,7 @@ struct PageCanvasView: UIViewRepresentable {
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
         host.textEditor.endEditing()   // a box being typed in is written before the canvas goes
         coordinator.loadTask?.cancel()
+        coordinator.editor?.detachInkView(coordinator)
         coordinator.host = nil
         Task { await coordinator.editor?.flush() }
     }
@@ -101,7 +102,10 @@ struct PageCanvasView: UIViewRepresentable {
         private var usingTool = false
 
         var shownPageID: UUID? { pageID }
-        var isUsingInk: Bool { usingTool || host?.isErasingInk == true }
+        var isUsingInk: Bool {
+            guard let host else { return false }   // a canvas that went away draws nothing
+            return usingTool || host.isErasingInk
+        }
 
         /// Shows page `pageID` of `editor` on `host`: its ink (loaded when the
         /// page, the editor or the generation changed), paper and items. The

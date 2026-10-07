@@ -2,6 +2,7 @@ import Foundation
 import Sempere
 import PencilKit
 import Testing
+import UIKit
 @testable import SempereApp
 
 /// Revisions another device writes while a note is open reach the editor in
@@ -244,5 +245,65 @@ struct RemoteMergeTests {
         model.close()
         await model.closingEditor?.value
         #expect(try vault.revisionNames(of: Self.lecture).filter { $0.device == device }.isEmpty, "no echo delta")
+    }
+}
+
+/// The canvases: a merge reaches the page canvases of the paged stack in the
+/// same main-actor turn, keeps the scroll, and waits for a stroke under way.
+@MainActor
+@Suite(.serialized)
+struct RemoteMergeCanvasTests {
+    /// A saved two-page note open on a stack, and a way to write as another device.
+    static func stackOnSavedNote() async throws
+        -> (Vault, NoteEditor, DeviceClock, UUID, UIWindow, PageStackHost) {
+        let (vault, _) = try TS.unlockedFixture()
+        let id = UUID()
+        var ops = NoteOps.newNote(title: "Stack")
+        let order = ops.compactMap { op -> String? in if case .addPage(let p) = op { return p.order }; return nil }.last
+        ops.append(.addPage(Page(id: UUID(), order: PageOrder.between(order, nil))))
+        try vault.apply(ops, to: id, deviceState: TS.deviceStateURL(), app: "test")
+        let (editor, clock) = try await NoteEditorTests.open(vault, note: id, debounce: .seconds(600))
+        let (window, stack) = StackTS.stack(editor)
+        return (vault, editor, clock, id, window, stack)
+    }
+
+    @Test func theShownCanvasTakesTheMergedInkAtOnceAndEchoesNothing() async throws {
+        let (vault, editor, clock, id, window, stack) = try await Self.stackOnSavedNote()
+        defer { window.isHidden = true }
+        let slot = try StackTS.slot(stack, editor, page: 0)
+        #expect(await StackTS.ready(slot))
+        let offset = stack.scroller.contentOffset
+        let page = editor.pages[0].id
+        try vault.apply([.addStroke(page: page, stroke: TS.stroke(x: 100, y: 200))], to: id,
+                        deviceState: TS.deviceStateURL(), app: "other-device/1")
+        let outcome = try await editor.mergeRevisions(vault: vault, clock: clock, coordinated: false, verify: nil)
+        #expect(outcome == .merged(fromOtherDevice: true))
+        #expect(slot.host.canvas.drawing.strokes.count == 1, "shown without waiting for SwiftUI")
+        #expect(slot.host.canvas.undoManager?.canUndo != true)
+        #expect(stack.scroller.contentOffset == offset)
+        // PencilKit reports the drawing it was given: nothing to save.
+        slot.coordinator.canvasViewDrawingDidChange(slot.host.canvas)
+        #expect(!editor.hasPendingChanges)
+        await editor.close()
+        #expect(try NoteEditorTests.myDeltas(vault, clock, note: id).isEmpty)
+    }
+
+    @Test func aMergeWaitsForTheStrokeUnderWay() async throws {
+        let (vault, editor, clock, id, window, stack) = try await Self.stackOnSavedNote()
+        defer { window.isHidden = true }
+        let slot = try StackTS.slot(stack, editor, page: 0)
+        #expect(await StackTS.ready(slot))
+        let page = editor.pages[0].id
+        try vault.apply([.addStroke(page: page, stroke: TS.stroke(x: 100, y: 200))], to: id,
+                        deviceState: TS.deviceStateURL(), app: "other-device/1")
+        slot.coordinator.canvasViewDidBeginUsingTool(slot.host.canvas)
+        #expect(editor.isInkInUse)
+        let merge = Task { try await editor.mergeRevisions(vault: vault, clock: clock, coordinated: false, verify: nil) }
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(slot.host.canvas.drawing.strokes.isEmpty, "not under the pencil")
+        slot.coordinator.canvasViewDidEndUsingTool(slot.host.canvas)
+        #expect(try await merge.value == .merged(fromOtherDevice: true))
+        #expect(slot.host.canvas.drawing.strokes.count == 1)
+        await editor.close()
     }
 }
