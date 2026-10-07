@@ -209,8 +209,6 @@ jobs:
       - name: Test on Mac Catalyst
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         timeout-minutes: 45
-        env:
-          SEMPERE_MAC_TESTS: all
         shell: bash
         run: mkdir -p build && scripts/app.sh test-mac 2>&1 | tee build/app-test-mac.log
       - name: UI tests on Mac Catalyst

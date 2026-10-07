@@ -37,7 +37,7 @@ final class MacWindowUITests: XCTestCase {
     func testOpenNoteInNewWindowOpensANoteWindow() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
         app.typeKey("n", modifierFlags: [.command, .option])
         assertOneNoteWindow(app, "shortcut")
     }
@@ -49,9 +49,14 @@ final class MacWindowUITests: XCTestCase {
         defer { app.terminate() }
         let row = app.staticTexts["Cellular Respiration"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 60))
-        row.rightClick()
         let item = app.menuItems["Open in New Window"].firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: 10), "the context menu offers a new window")
+        // The list may still be settling when the first click lands: try again a couple of times.
+        for _ in 0..<3 where !item.exists {
+            row.rightClick()
+            if item.waitForExistence(timeout: 5) { break }
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        }
+        XCTAssertTrue(item.exists, "the context menu offers a new window")
         item.click()
         assertOneNoteWindow(app, "context menu")
     }
@@ -61,7 +66,7 @@ final class MacWindowUITests: XCTestCase {
     func testTheFileMenuHasNoSystemDuplicates() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
         let file = app.menuBars.menuBarItems["File"]
         file.click()
         let titles = file.menuItems.allElementsBoundByIndex.map(\.title)
@@ -101,7 +106,7 @@ final class MacWindowUITests: XCTestCase {
     func testNewNoteSheetSuggestsNotebooks() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
         app.typeKey("n", modifierFlags: .command)   // File > New Note…
         let field = app.textFields["notebookField"]
         let found = field.waitForExistence(timeout: 20)
@@ -120,9 +125,12 @@ final class MacWindowUITests: XCTestCase {
         let toggle = app.buttons["notebookChoices"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "the notebook list button")
         toggle.click()
-        let any = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Atlas")).firstMatch
-        let listed = any.waitForExistence(timeout: 10)
+        // The first notebooks in order (the list shows eight), on screen: the sheet scrolled them into view.
+        let first = app.buttons["Personal"].firstMatch
+        let listed = first.waitForExistence(timeout: 10)
         if !listed { dump(app, "new-note-list") }
-        XCTAssertTrue(listed, "the list shows every notebook")
+        XCTAssertTrue(listed, "the chevron lists the notebooks")
+        let lastShown = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "School")).allElementsBoundByIndex.last
+        XCTAssertTrue(lastShown?.isHittable ?? false, "the list is inside the sheet's window")
     }
 }

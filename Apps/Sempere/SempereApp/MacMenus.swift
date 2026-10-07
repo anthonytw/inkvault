@@ -17,6 +17,8 @@ enum MacMenus {
     /// The UIKit menus whose own commands are dropped (the app's SwiftUI
     /// commands in them stay).
     static let pruned: [UIMenu.Identifier] = [.newScene, .document]
+    /// Edit > Find Notes when UIKit built no Find menu to turn into it.
+    static let findMenu = UIMenu.Identifier("io.github.anthonytw.sempere.find")
 
     /// Whether `element` is one of the app's own commands (SwiftUI's
     /// `Commands`, which UIKit sees as commands with SwiftUI's private
@@ -56,6 +58,11 @@ enum MacMenus {
             // Find…, Find & Replace, Find Next/Previous (⌘G is the search bar's), Use Selection.
             builder.replaceChildren(ofMenu: .find) { _ in [nativeItem(.find)] }
             built.append("find → Find Notes")
+        } else if builder.menu(for: .edit) != nil, builder.menu(for: findMenu) == nil {
+            // UIKit leaves Find out of some builds: the app's goes at the end of Edit.
+            let menu = UIMenu(title: "", identifier: findMenu, options: .displayInline, children: [nativeItem(.find)])
+            builder.insertChild(menu, atEndOfMenu: .edit)
+            built.append("Find Notes added")
         }
         for identifier in pruned {
             guard let menu = builder.menu(for: identifier) else { continue }

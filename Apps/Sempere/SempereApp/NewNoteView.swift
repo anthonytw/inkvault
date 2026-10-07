@@ -19,32 +19,34 @@ struct NewNoteView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                TextField("Title", text: $title)
-                Button { choosingPaper = true } label: {
-                    HStack(spacing: 12) {
-                        Image(uiImage: PaperImage.image(for: paper, size: CGSize(width: 44, height: 57), scale: displayScale))
-                            .resizable()
-                            .aspectRatio(612.0 / 792.0, contentMode: .fit)
-                            .frame(height: 57)
-                            .overlay(Rectangle().stroke(SwiftUI.Color.secondary.opacity(0.5), lineWidth: 1))
-                        VStack(alignment: .leading) {
-                            Text("Paper").foregroundStyle(.primary)
-                            Text(paper.kind.title).foregroundStyle(.secondary)
+            ScrollViewReader { proxy in
+                Form {
+                    TextField("Title", text: $title)
+                    Button { choosingPaper = true } label: {
+                        HStack(spacing: 12) {
+                            Image(uiImage: PaperImage.image(for: paper, size: CGSize(width: 44, height: 57), scale: displayScale))
+                                .resizable()
+                                .aspectRatio(612.0 / 792.0, contentMode: .fit)
+                                .frame(height: 57)
+                                .overlay(Rectangle().stroke(SwiftUI.Color.secondary.opacity(0.5), lineWidth: 1))
+                            VStack(alignment: .leading) {
+                                Text("Paper").foregroundStyle(.primary)
+                                Text(paper.kind.title).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                     }
+                    .sheet(isPresented: $choosingPaper) {
+                        PaperPickerView(paper: paper, purpose: .newNote) { chosen, _ in paper = chosen }
+                    }
+                    Picker("Layout", selection: $layout) {
+                        ForEach(NewNoteLayout.allCases) { Text($0.title).tag($0) }
+                    }
+                    NotebookField(title: "Notebook (optional; School/Math for levels)", text: $notebook,
+                                  notebooks: model.notebooks, reveal: proxy)
+                    if let failure { Text(failure).foregroundStyle(.red) }
                 }
-                .sheet(isPresented: $choosingPaper) {
-                    PaperPickerView(paper: paper, purpose: .newNote) { chosen, _ in paper = chosen }
-                }
-                Picker("Layout", selection: $layout) {
-                    ForEach(NewNoteLayout.allCases) { Text($0.title).tag($0) }
-                }
-                NotebookField(title: "Notebook (optional; School/Math for levels)", text: $notebook,
-                              notebooks: model.notebooks)
-                if let failure { Text(failure).foregroundStyle(.red) }
             }
             .navigationTitle("New Note")
             .toolbar {
