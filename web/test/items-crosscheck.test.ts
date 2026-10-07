@@ -7,7 +7,9 @@
 // direction (and its x where it does not depend on glyph widths), plus the
 // rotation of each text box. PDF pages are placeholders in the CLI export
 // without Poppler; the viewer draws them with pdf.js, so only their rotated
-// frames are compared here.
+// frames are compared here. Video items (§8.2.7) are their poster, placed
+// like an image (or a placeholder without one), under the play mark, which
+// is compared element for element.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -16,9 +18,9 @@ import { loadNote } from "../src/vault/library.ts";
 import { NoteBlobs } from "../src/vault/blobs.ts";
 import { UnlockedVault, parseManifest } from "../src/vault/vault.ts";
 import { PreparedPage } from "../src/render/page.ts";
-import { resolveItems, textTransform } from "../src/render/itemsvg.ts";
+import { playMarkNodes, resolveItems, textTransform } from "../src/render/itemsvg.ts";
 import { imageInfo } from "../src/render/images.ts";
-import { type Affine, identity, imageTransform, pointsAttr, svgMatrix } from "../src/render/items.ts";
+import { type Affine, identity, imageTransform, pointsAttr, posterTransform, svgMatrix } from "../src/render/items.ts";
 import { fmt, paint, paintHex } from "../src/render/primitives.ts";
 import { lineAnchor } from "../src/render/text.ts";
 import { pageExtent } from "../src/ui/noteview.ts";
@@ -30,6 +32,8 @@ interface Structure {
   images: { clip: string; matrix: number[] }[];
   lines: { y: string; size: string; text: string; rtl: boolean; x?: string }[];
   transforms: string[];
+  /** Play marks: the disc and triangle elements, as the SVG writes them. */
+  marks: string[];
 }
 
 function attr(line: string, name: string): string | undefined {
@@ -42,12 +46,24 @@ function unescape(s: string): string {
 
 /** The structure of the Swift export's `<g id="items">`, given the page's paper colour. */
 function parseGolden(svg: string, paper: string): Structure {
-  const out: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [] };
+  const out: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [], marks: [] };
   const m = /<g id="items">\n([\s\S]*?)<\/g>\n<g id="strokes">/.exec(svg);
   if (!m) return out;
   const clips = new Map<string, string>();
   for (const c of (m[1] ?? "").matchAll(/<clipPath id="([^"]+)"><polygon points="([^"]+)"\/><\/clipPath>/g)) clips.set(c[1] ?? "", c[2] ?? "");
+  let mark = false;
   for (const line of (m[1] ?? "").split("\n")) {
+    if (line.startsWith("<circle ")) {
+      out.marks.push(line);
+      mark = true;
+      continue;
+    }
+    if (mark && line.startsWith("<path ") && attr(line, "fill") === "#ffffff") {
+      out.marks.push(line);
+      mark = false;
+      continue;
+    }
+    mark = false;
     if (line.startsWith("<path ") && attr(line, "stroke") === "#9aa0a6") {
       const d = attr(line, "d") ?? "";
       out.placeholders.push(d.replace(/Z$/, "").split(/[ML]/).filter((p) => p).map((p) => p.replace(" ", ",")).join(" "));
@@ -92,7 +108,7 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
       for (const [i, page] of state.pages.entries()) {
         const prepared = new PreparedPage(page, state.meta);
         const want = parseGolden(readFileSync(join(golden, "render", id, files[i] ?? ""), "utf8"), paintHex(paint(prepared.drawnPaper.background)));
-        const got: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [] };
+        const got: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [], marks: [] };
         for (const r of resolveItems(prepared)) {
           if (r.fill) got.fills.push(r.fill.attrs.find(([k]) => k === "d")?.[1] ?? "");
           const d = r.draw;
@@ -114,6 +130,20 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
               }
               break;
             }
+            case "video": {
+              try {
+                if (!d.poster) throw new Error("no poster");
+                const bytes = new Uint8Array(await (await blobs.get(d.poster)).arrayBuffer());
+                const info = imageInfo(bytes);
+                const m = posterTransform(d.it, info.width, info.height);
+                if (typeof m === "string") throw new Error(m);
+                got.images.push({ clip: corners, matrix: matrixOf(m) });
+              } catch {
+                got.placeholders.push(corners);
+              }
+              for (const n of playMarkNodes(d.it)) got.marks.push(`<${n.tag} ${n.attrs.map(([k, v]) => `${k}="${v}"`).join(" ")}/>`);
+              break;
+            }
             case "text": {
               const m = textTransform(d.it);
               if (m !== identity) got.transforms.push(svgMatrix(m));
@@ -131,6 +161,7 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
         expect(got.fills).toEqual(want.fills);
         expect(got.placeholders).toEqual(want.placeholders);
         expect(got.transforms).toEqual(want.transforms);
+        expect(got.marks).toEqual(want.marks);
         expect(got.images.map((x) => x.clip)).toEqual(want.images.map((x) => x.clip));
         got.images.forEach((img, k) => {
           const w = want.images[k]?.matrix ?? [];

@@ -525,6 +525,18 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `inbox/` too (`Vault.rewrapInbox`; in iCloud `downloadEverything` fetches it first) and the app refreshes the
   profile after it. A note "exists" for adoption once it has a revision (a folder holding only `att/` is still
   new), and a waiting transcript writes nothing.
+- Video items (`format.md` §8.2.7, task G2): a container is read only by
+  `VideoProbe` (pure Swift, bounded reads, fuzzed); location metadata is
+  removed in place by `ByteEdit`s applied while the file streams into the blob
+  (`Vault.writeVideo`, `writeBlob(contentsOf:type:edits:)`), never by
+  rewriting or loading the file. A clip is never held in memory: blobs stream
+  (`BlobSource.stream`), PDFs with clips are written with `PDFWriter.write(…to:)`,
+  Markdown/HTML copies with `ExportVideos.write`. Renderers and the app's item
+  layer draw a video as its `poster` (an image blob, a register; `ItemRendering`
+  acquires the poster, never the clip) under the play mark; the clip is fetched
+  from iCloud only to play (`AppModel.acquireVideo`, `releaseVideo` after).
+  Posters come from `VideoPoster` (AVFoundation, shared by the app and the CLI
+  on macOS); the Linux CLI stores none without `--poster`.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in
