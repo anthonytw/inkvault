@@ -87,7 +87,9 @@ public enum HTMLExport {
     /// - Parameters:
     ///   - svgs: `SVGWriter.render(note:)` output, one per page of `state`.
     ///   - indexHref: relative link to the index page, nil for none.
-    public static func notePage(info: ExportNoteInfo, state: NoteState, svgs: [String], indexHref: String?) -> String {
+    ///   - videos: the note's clips written next to it (`ExportVideos`), with their paths relative to the page.
+    public static func notePage(info: ExportNoteInfo, state: NoteState, svgs: [String], indexHref: String?,
+                                videos: [(clip: ExportVideos.Clip, path: String)] = []) -> String {
         var h = head(info.displayTitle)
         if let indexHref { h += "<p class=\"crumb\"><a href=\"\(href(indexHref))\">All notes</a></p>\n" }
         h += "<h1>\(esc(info.displayTitle))</h1>\n<p class=\"meta\">"
@@ -104,6 +106,11 @@ public enum HTMLExport {
         for (i, page) in state.pages.enumerated() where i < svgs.count {
             h += "<section class=\"page\" id=\"page-\(i + 1)\">\n<h2>Page \(i + 1)</h2>\n"
             h += "<div class=\"sheet\">\n\(inlineSVG(svgs[i], page: page, number: i + 1))\n</div>\n"
+            for (clip, path) in videos where clip.page == i {
+                let length = ExportVideos.clock(clip.duration).map { " (\($0))" } ?? ""
+                h += "<p class=\"video\"><video controls preload=\"none\" src=\"\(href(path))\"></video><br>"
+                h += "<a href=\"\(href(path))\">\(esc(clip.label + length))</a></p>\n"
+            }
             if let r = page.recognition, !r.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 h += "<details><summary>Machine-recognized text (\(esc(r.engine)), may contain errors)</summary>\n"
                 h += "<pre>\(esc(r.text))</pre>\n</details>\n"

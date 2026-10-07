@@ -333,6 +333,10 @@ struct EditorView: View {
         commands.crop = { item, page, actions in
             state.cropping = CropRequest(item: item, page: page, note: note, actions: actions)
         }
+        let editor = self.editor
+        commands.play = { item, page in
+            state.playing = VideoPlayRequest(item: item, page: page, editor: editor)
+        }
         return commands
     }
 

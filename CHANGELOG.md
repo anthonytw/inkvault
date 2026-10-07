@@ -14,7 +14,7 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
   and snapshot elements are skipped, a later body version is left out, each reported) and never writes.
   CLI: reading commands report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every
-  write exits 6. App: a read-only banner, notes open read-only, no autosave, thinning, inbox adoption or
+  write exits 7. App: a read-only banner, notes open read-only, no autosave, thinning, inbox adoption or
   transcripts. The web viewer opens such vaults too.
 
 - A note open in the app picks up what another device writes to it (iCloud Drive, any sync, the CLI)

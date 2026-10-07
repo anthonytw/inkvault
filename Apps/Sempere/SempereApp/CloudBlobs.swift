@@ -13,10 +13,11 @@ enum BlobFetchPolicy {
     }
 
     /// The blobs to request when a page with `items` is shown: those of kinds
-    /// fetched with the page, each once, in drawing order.
+    /// fetched with the page (a video's poster, never its clip), each once,
+    /// in drawing order.
     static func prefetch(for items: [Item]) -> [BlobRef] {
         var seen: Set<String> = []
-        return items.sorted(by: Item.drawsBefore).compactMap(\.blob).filter {
+        return items.sorted(by: Item.drawsBefore).flatMap { [$0.blob, $0.poster].compactMap { $0 } }.filter {
             $0.isValid && fetchesWithPage($0.kind) && seen.insert($0.sha256).inserted
         }
     }

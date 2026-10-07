@@ -33,7 +33,7 @@ struct VaultIndex: ParsableCommand {
             FileHandle.standardOutput.write(data)
             return
         }
-        // Into the vault only if it may be written (format.md §7.3: exit 6).
+        // Into the vault only if it may be written (format.md §7.3: exit 7).
         if out == nil { try vault.requireWritable() }
         let url = out.map { URL(fileURLWithPath: $0) } ?? vault.webIndexURL
         try data.write(to: url, options: .atomic)

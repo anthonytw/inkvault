@@ -229,13 +229,17 @@ export function kindFields(kind: string): string[] {
     case "text": return ["text"];
     case "image": return ["blob", "pixelSize", "orientation", "crop"];
     case "pdfPage": return ["blob", "pageIndex", "pageSize", "crop"];
+    case "video": return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"];
     default: return [];
   }
 }
 
 /** Fields `setItem` may not name (§8.2.2): immutable fields of every kind, and `origin`, `clocks`. */
 export const immutableItemFields: ReadonlySet<string> = new Set(["id", "kind", "layer", "parent", "rec", "origin", "clocks",
-  "blob", "pixelSize", "orientation", "pageIndex", "pageSize"]);
+  "blob", "pixelSize", "orientation", "pageIndex", "pageSize", "duration", "videoRotation", "codec"]);
+
+/** The `videoRotation` values §8.2.7 allows. */
+const videoRotations: ReadonlySet<number> = new Set([0, 90, 180, 270]);
 
 /** Decodes and validates a placed item; returns it as parsed JSON. */
 export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject {
@@ -264,6 +268,11 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
   const crop = has("crop") ? optWith(o, "crop", path, rect) : undefined;
   const pageIndex = has("pageIndex") ? optWith(o, "pageIndex", path, int) : undefined;
   const pageSize = has("pageSize") ? optWith(o, "pageSize", path, size) : undefined;
+  const duration = has("duration") ? optWith(o, "duration", path, num) : undefined;
+  const videoRotation = has("videoRotation") ? optWith(o, "videoRotation", path, int) : undefined;
+  if (has("codec")) optWith(o, "codec", path, str);
+  // `poster: null` is the reset register (absent).
+  if (has("poster")) optWith(o, "poster", path, (b, p) => blobRef(b, p, fc));
   extra(o, new Set([...commonItemFields, ...mine]), path, c.depth, budget);
 
   // `Item.validationError` (§8.2.1, §8.2.4–§8.2.6).
@@ -282,6 +291,12 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
       if (!blob || pageIndex === undefined || !pageSize) fail(path, "pdfPage item without blob, pageIndex or pageSize");
       if (pageIndex < 0) fail(path, "pageIndex must not be negative");
       if (!positive(pageSize.w, pageSize.h)) fail(path, "pageSize must be positive");
+      break;
+    case "video":
+      if (!blob || !pixelSize || duration === undefined) fail(path, "video item without blob, pixelSize or duration");
+      if (!positive(pixelSize.w, pixelSize.h)) fail(path, "pixelSize must be positive");
+      if (!(Number.isFinite(duration) && duration >= 0)) fail(path, "duration must be finite and not negative");
+      if (videoRotation !== undefined && !videoRotations.has(videoRotation)) fail(path, "videoRotation must be 0, 90, 180 or 270");
       break;
   }
   return o;
@@ -327,6 +342,9 @@ export function checkItemChange(field: string, value: unknown, path: string, bud
       if (!positive(r.w, r.h)) fail(path, "invalid crop");
       return;
     }
+    case "poster":
+      if (value !== null) blobRef(value, path, c);
+      return;
     default:
       // Any other field is a register holding any value (§7).
       return;

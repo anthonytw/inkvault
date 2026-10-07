@@ -70,7 +70,7 @@ struct CompactCommand: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
-        try vault.requireWritable()   // format.md §7.3: exit 6
+        try vault.requireWritable()   // format.md §7.3: exit 7
         let ids = try note.map { [try vault.resolveNote($0)] } ?? vault.noteIDs()
         let mode: CompactionMode
         var rule: ThinningRule?

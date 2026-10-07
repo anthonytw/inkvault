@@ -52,6 +52,62 @@ public enum PDFWriter {
     ///   - report: receives one entry per placeholder.
     public static func render(notes: [NoteState], blobs: [(any BlobSource)?]? = nil,
                               options: RenderOptions = RenderOptions(), report: inout RenderReport) throws -> Data {
+        var out = Data()
+        try render(notes: notes, blobs: blobs, options: options, embedLimit: options.maxEmbeddedBytes, report: &report) {
+            out.append($0)
+        }
+        return out
+    }
+
+    /// Renders several notes into a new PDF file at `url`, like
+    /// `render(notes:blobs:options:report:)`, streaming embedded recordings
+    /// and videos from their blobs into the file: memory stays proportional
+    /// to the pages, never to the clips (up to
+    /// `RenderLimits.maxStreamedEmbeddedBytes` of attachments). The file is
+    /// written under a temporary name and moved into place (replacing one
+    /// there); nothing is left behind on failure.
+    public static func write(notes: [NoteState], blobs: [(any BlobSource)?]? = nil,
+                             options: RenderOptions = RenderOptions(), report: inout RenderReport, to url: URL) throws {
+        let fm = FileManager.default
+        let tmp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        guard fm.createFile(atPath: tmp.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+              let handle = try? FileHandle(forWritingTo: tmp) else {
+            throw RenderError.cannotWrite(url.path)
+        }
+        var ok = false
+        defer {
+            try? handle.close()
+            if !ok { try? fm.removeItem(at: tmp) }
+        }
+        var buffer = Data()
+        func flush() throws {
+            guard !buffer.isEmpty else { return }
+            do { try handle.write(contentsOf: buffer) } catch { throw RenderError.cannotWrite(url.path) }
+            buffer.removeAll(keepingCapacity: true)
+        }
+        try render(notes: notes, blobs: blobs, options: options,
+                   embedLimit: max(options.maxEmbeddedBytes, RenderLimits.maxStreamedEmbeddedBytes), report: &report) { piece in
+            buffer.append(piece)
+            if buffer.count >= 1 << 20 { try flush() }
+        }
+        try flush()
+        do { try handle.synchronize() } catch { throw RenderError.cannotWrite(url.path) }
+        if fm.fileExists(atPath: url.path) {
+            _ = try fm.replaceItemAt(url, withItemAt: tmp)
+        } else {
+            try fm.moveItem(at: tmp, to: url)
+        }
+        ok = true
+    }
+
+    /// One note to a file (see `write(notes:…)`).
+    public static func write(note: NoteState, options: RenderOptions = RenderOptions(), report: inout RenderReport,
+                             to url: URL) throws {
+        try write(notes: [note], options: options, report: &report, to: url)
+    }
+
+    static func render(notes: [NoteState], blobs: [(any BlobSource)?]?, options: RenderOptions, embedLimit: Int,
+                       report: inout RenderReport, sink: (Data) throws -> Void) throws {
         let doc = PDFObjects()
         let catalog = doc.allocate(), pagesNum = doc.allocate(), infoNum = doc.allocate()   // 1, 2, 3
         struct OutPage {
@@ -79,13 +135,18 @@ public enum PDFWriter {
                                  alphas: cs.alphas.sorted(), xobjects: xobjects, fonts: cs.usedFonts.sorted()))
         }
 
-        var embedded = EmbeddedFiles(limit: options.maxEmbeddedBytes)
+        var embedded = EmbeddedFiles(limit: embedLimit)
         for (n, note) in notes.enumerated() {
             let source: (any BlobSource)? = (blobs.flatMap { n < $0.count ? $0[n] : nil }) ?? options.blobs
             if options.embedRecordings {
                 embedded.add(recordingsOf: note, blobs: source, report: &report)
             } else {
                 report.recordingsOmitted += note.recordings.count
+            }
+            if options.embedVideos {
+                embedded.add(videosOf: note, blobs: source, report: &report)
+            } else {
+                report.videosOmitted += Set(note.pages.flatMap { $0.items.filter { $0.kind == .video }.compactMap(\.blob?.sha256) }).count
             }
             let backgrounds = PDFBackgrounds(blobs: source, rasterizer: options.pdfRasterizer)
             let images = ImageStore(options: options, blobs: source)
@@ -98,7 +159,7 @@ public enum PDFWriter {
                 for it in prepared.items {
                     let d: ItemDraw
                     switch it.item.kind {
-                    case .image: d = drawImage(it, images: images, objects: &imageObjects, doc: doc, options: options)
+                    case .image, .video: d = drawImage(it, images: images, objects: &imageObjects, doc: doc, options: options)
                     case .text:
                         switch TextItems.shape(it, shaper: options.shaper, report: &report) {
                         case .success(let (shaped, rotation)): d = .text(shaped, rotation)
@@ -136,6 +197,7 @@ public enum PDFWriter {
                         case .placeholder:
                             for c in it.placeholder { cs.emit(c.translated(dy: -chunk.yOffset)) }
                         }
+                        for c in it.overlay { cs.emit(c.translated(dy: -chunk.yOffset)) }
                     }
                     if under == chunkItems.count { for c in layers.under { cs.emit(c) } }
                     for c in layers.strokes { cs.emit(c) }
@@ -193,14 +255,22 @@ public enum PDFWriter {
             var entries: [String] = []
             for (i, f) in embedded.files.enumerated() {
                 let stream = doc.allocate(), spec = doc.allocate()
-                var body = f.data
-                var filter = ""
-                if options.compress && f.compress, let z = try? Zlib.compress(body) {
-                    body = z
-                    filter = " /Filter /FlateDecode"
+                switch f.content {
+                case .data(let data):
+                    var body = data
+                    var filter = ""
+                    if options.compress && f.compress, let z = try? Zlib.compress(body) {
+                        body = z
+                        filter = " /Filter /FlateDecode"
+                    }
+                    doc.set(stream, Array(("<< /Type /EmbeddedFile /Subtype /\(PDFNames.name(f.mimeType)) /Length \(body.count)\(filter) "
+                        + "/Params << /Size \(data.count) >> >>\nstream\n").utf8) + [UInt8](body) + Array("\nendstream".utf8))
+                case .blob(let ref, let source):
+                    doc.setStreamed(stream, prefix: Array(("<< /Type /EmbeddedFile /Subtype /\(PDFNames.name(f.mimeType)) "
+                        + "/Length \(ref.size) /Params << /Size \(ref.size) >> >>\nstream\n").utf8),
+                                    blob: ref, source: source, suffix: Array("\nendstream".utf8),
+                                    stripVideoMetadata: !options.keepImageMetadata && f.mimeType.hasPrefix("video/"))
                 }
-                doc.set(stream, Array(("<< /Type /EmbeddedFile /Subtype /\(PDFNames.name(f.mimeType)) /Length \(body.count)\(filter) "
-                    + "/Params << /Size \(f.data.count) >> >>\nstream\n").utf8) + [UInt8](body) + Array("\nendstream".utf8))
                 doc.set(spec, Array(("<< /Type /Filespec /F \(textString(f.asciiName)) /UF \(textString(f.name)) "
                     + "/Desc \(textString(f.description)) /EF << /F \(stream) 0 R /UF \(stream) 0 R >> >>").utf8))
                 // Name-tree keys sort byte-wise: zero-padded indexes keep the files in order.
@@ -216,7 +286,7 @@ public enum PDFWriter {
         if !title.isEmpty { info += "/Title \(textString(title)) " }
         info += "/Producer (Sempere) >>"
         doc.set(infoNum, Array(info.utf8))
-        return doc.serialize(version: embedsForms ? "1.7" : "1.4", root: catalog, info: infoNum)
+        try doc.serialize(version: embedsForms ? "1.7" : "1.4", root: catalog, info: infoNum, into: sink)
     }
 
     /// How an item is drawn in this export.
@@ -411,6 +481,8 @@ struct ContentStream {
 final class PDFObjects {
     private var next = 1
     private var bodies: [Int: [UInt8]] = [:]
+    /// Objects whose stream data is a blob, read only when the file is written.
+    private var streamed: [Int: (prefix: [UInt8], blob: BlobRef, source: any BlobSource, suffix: [UInt8], strip: Bool)] = [:]
 
     func allocate() -> Int {
         defer { next += 1 }
@@ -418,6 +490,16 @@ final class PDFObjects {
     }
 
     func set(_ num: Int, _ body: [UInt8]) { bodies[num] = body }
+
+    /// An object written as `prefix`, the blob's content (exactly
+    /// `blob.size` bytes, streamed from `source`), then `suffix`.
+    /// `stripVideoMetadata`: the blob is a clip whose location and device
+    /// metadata are blanked on the way (format.md §8.2.7: exporters strip what
+    /// they pass through unless asked to keep it), in place, so its length is unchanged.
+    func setStreamed(_ num: Int, prefix: [UInt8], blob: BlobRef, source: any BlobSource, suffix: [UInt8],
+                     stripVideoMetadata: Bool = false) {
+        streamed[num] = (prefix, blob, source, suffix, stripVideoMetadata)
+    }
 
     /// An RGB image XObject (Flate), with an `/SMask` when any pixel is not opaque.
     func addImage(_ img: RGBAImage) throws -> Int {
@@ -496,25 +578,57 @@ final class PDFObjects {
 
     /// The file: header, every object (`null` for numbers allocated but not
     /// used), a classic xref table and the trailer.
-    func serialize(version: String, root: Int, info: Int) -> Data {
-        var out = Array("%PDF-\(version)\n".utf8)
-        out += [0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]   // binary-marker comment
+    func serialize(version: String, root: Int, info: Int) throws -> Data {
+        var out = Data()
+        try serialize(version: version, root: root, info: info) { out.append($0) }
+        return out
+    }
+
+    /// The file, handed to `sink` in pieces: streamed objects are read from
+    /// their blobs here. Throws when a blob cannot be read or does not hold
+    /// exactly its referenced size (what the sink got is then unusable).
+    func serialize(version: String, root: Int, info: Int, into sink: (Data) throws -> Void) throws {
+        var written = 0
+        func emit(_ bytes: [UInt8]) throws {
+            written += bytes.count
+            try sink(Data(bytes))
+        }
+        try emit(Array("%PDF-\(version)\n".utf8) + [0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A])   // binary-marker comment
         var offsets: [Int] = []
         for num in 1..<next {
-            offsets.append(out.count)
-            out += Array("\(num) 0 obj\n".utf8)
-            out += bodies[num] ?? Array("null".utf8)
-            out += Array("\nendobj\n".utf8)
+            offsets.append(written)
+            if let s = streamed[num] {
+                try emit(Array("\(num) 0 obj\n".utf8) + s.prefix)
+                var count: Int64 = 0
+                func pass(_ piece: Data) throws {
+                    count += Int64(piece.count)
+                    guard count <= s.blob.size else { throw BlobError.referenceMismatch }
+                    written += piece.count
+                    try sink(piece)
+                }
+                if s.strip {
+                    // The probe needs the whole container (moov may follow the samples): the verified file, streamed with the edits.
+                    try s.source.withFile(for: s.blob) { url in
+                        let edits = (try? VideoProbe.probe(file: url)).map(VideoMetadata.strippingEdits) ?? []
+                        try Vault.readSourceFile(url, edits: edits, pass)
+                    }
+                } else {
+                    try s.source.stream(for: s.blob, pass)
+                }
+                guard count == s.blob.size else { throw BlobError.referenceMismatch }
+                try emit(s.suffix + Array("\nendobj\n".utf8))
+            } else {
+                try emit(Array("\(num) 0 obj\n".utf8) + (bodies[num] ?? Array("null".utf8)) + Array("\nendobj\n".utf8))
+            }
         }
-        let xrefPos = out.count
+        let xrefPos = written
         var xref = "xref\n0 \(next)\n0000000000 65535 f \n"
         for o in offsets {
             let digits = String(o)   // not printf: "%d" width is ABI-dependent for 64-bit Int
             xref += String(repeating: "0", count: max(10 - digits.count, 0)) + digits + " 00000 n \n"
         }
         xref += "trailer\n<< /Size \(next) /Root \(root) 0 R /Info \(info) 0 R >>\nstartxref\n\(xrefPos)\n%%EOF\n"
-        out += Array(xref.utf8)
-        return Data(out)
+        try emit(Array(xref.utf8))
     }
 }
 

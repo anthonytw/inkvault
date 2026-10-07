@@ -108,6 +108,7 @@ public enum SVGWriter {
                     report.placeholder(it, r)
                     for c in it.placeholder { body += element(c) + "\n" }
                 }
+                for c in it.overlay { body += element(c) + "\n" }
                 continue
             }
             switch draws[it.item.id] {
@@ -124,6 +125,7 @@ public enum SVGWriter {
             default:
                 for c in it.placeholder { body += element(c) + "\n" }
             }
+            for c in it.overlay { body += element(c) + "\n" }
         }
         if !fonts.subsets.isEmpty { defs += "<style>\n" + (try fonts.style()) + "</style>\n" }
         var g = "<g id=\"items\">\n"

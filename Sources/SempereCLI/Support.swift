@@ -20,7 +20,8 @@ enum ExitStatus {
     static let unhealthy: Int32 = 3
     static let cannotDecrypt: Int32 = 4
     static let legacyVault: Int32 = 5
-    static let readOnly: Int32 = 6
+    static let untrustedRecipients: Int32 = 6
+    static let readOnly: Int32 = 7
 }
 
 /// A failure with its exit code. Messages are one line.
@@ -35,14 +36,17 @@ enum CLIError: Error {
     case cannotDecrypt(String)
     /// Exit 5: a legacy vault (classic X25519 recipient): migrate first.
     case legacyVault(String)
-    /// Exit 6: the vault holds content of a newer format version, so this
+    /// Exit 6: vault.json's recipients list does not check (format.md §2.1):
+    /// nothing is written until it is repaired.
+    case untrustedRecipients(String)
+    /// Exit 7: the vault holds content of a newer format version, so this
     /// version may read it but not change it (format.md §7.3).
     case readOnly(String)
 
     var message: String {
         switch self {
         case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m), .legacyVault(let m),
-             .readOnly(let m): return m
+             .untrustedRecipients(let m), .readOnly(let m): return m
         }
     }
 
@@ -53,6 +57,7 @@ enum CLIError: Error {
         case .unhealthy: return ExitStatus.unhealthy
         case .cannotDecrypt: return ExitStatus.cannotDecrypt
         case .legacyVault: return ExitStatus.legacyVault
+        case .untrustedRecipients: return ExitStatus.untrustedRecipients
         case .readOnly: return ExitStatus.readOnly
         }
     }
@@ -70,6 +75,8 @@ enum CLIError: Error {
             return .usage(text)
         case VaultError.legacyVault:
             return .legacyVault(text)
+        case VaultError.untrustedRecipients:
+            return .untrustedRecipients(text)
         case VaultError.readOnly:
             return .readOnly(text)
         case VaultError.rewrapIncomplete:
@@ -336,7 +343,10 @@ extension AccessOptions {
         try openVault(at: try vaultURL(), unlock, migration: migration)
     }
 
-    func openVault(at url: URL, _ unlock: Unlock, migration: Bool = false) throws -> Vault {
+    /// - Parameter trust: this machine's trust records (format.md §2.1); a
+    ///   dry run passes a copy so that it keeps nothing.
+    func openVault(at url: URL, _ unlock: Unlock, migration: Bool = false,
+                   trust: (any RecipientsTrustStore)? = nil) throws -> Vault {
         let locked = try Vault.open(at: url)
         OpenedVaults.shared.record(url)
         if !migration { try locked.requireMigrated() }
@@ -352,7 +362,49 @@ extension AccessOptions {
                 ids = [try identityFromKeyFiles(of: locked)]
             }
         }
-        return try Vault.open(at: url, identities: ids)
+        let vault = try Vault.open(at: url, identities: ids, trust: trust ?? trustStore())
+        if case .untagged = vault.recipientsStatus { UntaggedVaults.shared.record(vault) }
+        return vault
+    }
+}
+
+/// This machine's trust records (format.md §2.1), next to `device.json`.
+func trustStore() -> FileRecipientsTrustStore {
+    FileRecipientsTrustStore(directory: FileRecipientsTrustStore.cliDirectory())
+}
+
+/// A copy in memory of this machine's record of `vault`, for dry runs: the
+/// same checks, and nothing kept.
+func scratchTrustStore(for vault: URL) -> MemoryRecipientsTrustStore {
+    let store = MemoryRecipientsTrustStore()
+    if let id = (try? Vault.open(at: vault))?.vaultId, let record = trustStore().record(for: id) { try? store.save(record) }
+    return store
+}
+
+/// Vaults opened untagged (format.md §2.1). The library tags such a vault
+/// at its first write; after the command, each one that is now tagged is
+/// reported once on stderr (the one-time upgrade).
+final class UntaggedVaults: @unchecked Sendable {
+    static let shared = UntaggedVaults()
+    private let lock = NSLock()
+    private var vaults: [URL: [VaultManifest.Recipient]] = [:]
+
+    func record(_ vault: Vault) {
+        lock.lock(); defer { lock.unlock() }
+        vaults[vault.url.standardizedFileURL] = vault.recipients
+    }
+
+    func reportUpgrades() {
+        lock.lock()
+        let all = vaults
+        vaults = [:]
+        lock.unlock()
+        for (url, recipients) in all.sorted(by: { $0.key.path < $1.key.path }) {
+            guard (try? Vault.open(at: url))?.manifest.recipientsTag != nil else { continue }
+            printStderr("sempere: vault.json's device list is now authenticated (format.md §2.1); it trusts these "
+                + "\(recipients.count) recipient(s), check them with `sempere vault info`: "
+                + recipients.map { abbreviateKey($0.key) + ($0.label.isEmpty ? "" : " (\($0.label))") }.joined(separator: ", "))
+        }
     }
 }
 
