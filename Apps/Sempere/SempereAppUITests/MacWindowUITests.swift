@@ -1,6 +1,4 @@
-#if canImport(UIKit)
-import UIKit
-#endif
+import ImageIO
 import XCTest
 
 /// Mac Catalyst behaviour that only a running app shows (TestFlight build 6
@@ -117,7 +115,7 @@ final class MacWindowUITests: XCTestCase {
         var red = 0
         for _ in 0..<10 {   // tiles are drawn asynchronously
             Thread.sleep(forTimeInterval: 2)
-            red = Self.redPixels(app.windows.firstMatch.screenshot().image)
+            red = Self.redPixels(app.windows.firstMatch.screenshot().pngRepresentation)
             if red > 2000 { break }
         }
         let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
@@ -129,8 +127,10 @@ final class MacWindowUITests: XCTestCase {
     }
 
     /// Pixels that are clearly red (the PDF's squares; nothing else in the demo is).
-    static func redPixels(_ image: UIImage) -> Int {
-        guard let cg = image.cgImage else { return 0 }
+    static func redPixels(_ png: Data) -> Int {
+        // From the PNG: on a Mac the screenshot's image is an NSImage behind a UIImage type.
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return 0 }
         let w = cg.width, h = cg.height
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                   space: CGColorSpaceCreateDeviceRGB(),
@@ -172,12 +172,12 @@ final class MacWindowUITests: XCTestCase {
         let listed = first.waitForExistence(timeout: 10)
         if !listed { dump(app, "new-note-list") }
         XCTAssertTrue(listed, "the chevron lists the notebooks")
-        let lastShown = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "School")).allElementsBoundByIndex.last
-        let visible = lastShown.map { row in
-            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: row)],
-                           timeout: 5) == .completed
-        } ?? false
-        if !visible { dump(app, "new-note-scroll") }
+        // Every row shown is inside the sheet's window (XCUI's isHittable is unreliable in Mac sheets).
+        let sheet = app.windows.containing(.textField, identifier: "notebookField").firstMatch.frame
+        let rows = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Personal", "School"))
+            .allElementsBoundByIndex
+        let visible = !rows.isEmpty && rows.allSatisfy { $0.frame.maxY <= sheet.maxY + 0.5 }
+        if !visible { print("MACUIDEBUG sheet \(sheet) rows \(rows.map(\.frame))") }
         XCTAssertTrue(visible, "the list is inside the sheet's window")
     }
 }
