@@ -227,3 +227,53 @@ extension Vault {
         return zip(ids, results).map { ($0, $1) }
     }
 }
+
+// MARK: - The two thinning rules users choose from
+
+/// What a thinning run applies (format.md §5.8.4), with the words the CLI and
+/// the app show for it, so a preview always states its rule and what it keeps.
+public enum ThinningRule: Hashable, Sendable {
+    /// The configured window: only versions older than this many days are thinned.
+    case olderThan(days: Int)
+    /// No window: every autosave goes except each editing session's newest
+    /// save; checkpoints stay.
+    case allButCheckpoints
+
+    /// The compaction mode: a cutoff of `days`, or of zero for `allButCheckpoints`
+    /// (every revision whose `wall` is not in the future is in the thinned range).
+    public var mode: CompactionMode {
+        switch self {
+        case .olderThan(let days): return .thin(olderThan: Double(max(days, 0)) * 86_400)
+        case .allButCheckpoints: return .thin(olderThan: 0)
+        }
+    }
+
+    /// "Thin versions older than 30 days" / "Thin everything except checkpoints".
+    public var title: String {
+        switch self {
+        case .olderThan(let days): return "Thin versions older than \(Self.days(days))"
+        case .allButCheckpoints: return "Thin everything except checkpoints"
+        }
+    }
+
+    /// The rule and what it keeps, in one sentence.
+    public var explanation: String {
+        switch self {
+        case .olderThan(let days):
+            return "Removes autosaves older than \(Self.days(days)). Keeps every checkpoint (saved and imported "
+                + "versions), the newest save of each editing session, the note's newest version and everything "
+                + "from the last \(Self.days(days))."
+        case .allButCheckpoints:
+            return "Removes every autosave, however recent, except the newest save of each editing session. Keeps "
+                + "every checkpoint (saved and imported versions) and the note's newest version."
+        }
+    }
+
+    static func days(_ n: Int) -> String {
+        switch n {
+        case 365: return "1 year"
+        case 1: return "1 day"
+        default: return "\(n) days"
+        }
+    }
+}

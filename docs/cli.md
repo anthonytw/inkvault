@@ -1209,7 +1209,7 @@ another vault` to stderr and exits 3 so scripts can tell. Wrong key: exit 4.
 ### Maintenance
 
 ```
-sempere compact (ID|TITLE | --all) [--retention DAYS | --thin-older-than AGE] [--dry-run]
+sempere compact (ID|TITLE | --all) [--retention DAYS | --thin-older-than AGE | --thin-all] [--dry-run] [--no-cache]
 sempere snapshot ID|TITLE
 ```
 
@@ -1242,7 +1242,22 @@ is a full copy of the note, so thinning can add bytes while it removes files:
 the output says how many it deletes and adds (`Would delete 12 file(s), 48.0 KB;
 would add 2 snapshot(s), 310.5 KB.`), with `would snapshot NOTE (as of
 REVISION)` lines. Thinning twice with the same age does nothing the second
-time. `--retention` and `--thin-older-than` are different modes; give one.
+time. Before the per-file lines it prints the rule it applies and what it keeps
+(`Thin versions older than 30 days (dry run). Removes autosaves older than 30
+days. Keeps every checkpoint …`).
+
+`--thin-all` is the same rule with no age window ("thin everything except
+checkpoints", `docs/format.md` §5.8.4 with a cutoff of zero): every autosave
+goes, however recent, except the newest save of each editing session; every
+checkpoint (saved versions and imports, §5.8.1) and the note's newest revision
+stay. It prints its own rule line. `--retention`, `--thin-older-than` and
+`--thin-all` are different modes; give one.
+
+Thinning and compaction decide from each revision's metadata (names, wall
+times, checkpoint and session fields, snapshot coverage) which notes have
+anything to delete, and read only those in full; that metadata comes from the
+summary cache (`docs/format.md` §10, filled by listings; `--no-cache` reads
+every note instead). Notes are read, planned and carried out in parallel.
 
 `--json` emits one object per note: `note`, `snapshotNeeded`, `snapshot` (the
 first snapshot written; null on a dry run), `snapshots` (each `{file, asOf}`;

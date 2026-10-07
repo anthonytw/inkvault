@@ -697,3 +697,82 @@ enum RandomHistory {
         return revs
     }
 }
+
+// MARK: - Mass re-import and the metadata-only stage (performance round 3)
+
+extension VersionHistoryTests {
+    /// The maintainer's report (TestFlight build 6): after a mass re-import with
+    /// `--overwrite`, thinning "deleted autosaves from all notes". The importer then
+    /// dated both imports by the note's creation date, without `session` or
+    /// `checkpoint`, so both fell in the thinned range as ONE editing session
+    /// (§5.8.2: same device, no session id, no wall gap), and the first import was
+    /// not that session's last point. Deleting it was correct by §5.8.4: the state
+    /// and the kept re-import are unchanged (G1, G2), the re-import (the session's
+    /// newest point) stays, and a positioned snapshot keeps it complete. Importers
+    /// now write checkpoints, which thinning never deletes.
+    func testLegacyReimportThinsOnlyTheFirstImportAndChangesNothing() throws {
+        var rng = SeededRNG(3)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for i in 0..<40 {
+            let legacy = SyntheticVault.reimportedNote(index: i, strokes: 6, points: 5, rng: &rng, baseMillis: 1_600_000_000_000,
+                                                       reimportMillis: 1_790_000_000_000, legacy: true)
+            var clock = HybridClock()
+            let plan = try CompactionPlanner.plan(legacy, mode: .thin(olderThan: 30 * 86_400), now: now, device: devC,
+                                                  clock: &clock, wall: now, app: "t")
+            XCTAssertEqual(plan.deletions, [legacy[0].name], "note \(i)")
+            XCTAssertEqual(plan.targets, [legacy[1].name])
+            XCTAssertEqual(plan.snapshots.map(\.asOf), [RevisionKey(legacy[1].name)])
+            let after = applied(legacy, plan)
+            XCTAssertEqual(try NoteReducer.reconstruct(after).comparable, try NoteReducer.reconstruct(legacy).comparable)
+            XCTAssertEqual(try NoteHistory.state(after, at: legacy[1].name).comparable,
+                           try NoteHistory.state(legacy, at: legacy[1].name).comparable)
+            var r2 = SplitMix64(seed: UInt64(i))
+            try checkGuarantees(legacy, mode: .thin(olderThan: 30 * 86_400), now: now, seed: UInt64(i), rng: &r2)
+
+            // As the importer writes them now: two checkpoints, nothing to thin, decided from metadata.
+            let current = SyntheticVault.reimportedNote(index: i, strokes: 6, points: 5, rng: &rng, baseMillis: 1_600_000_000_000,
+                                                        reimportMillis: 1_790_000_000_000, legacy: false)
+            var c2 = HybridClock()
+            for cutoff: TimeInterval in [0, 86_400, 30 * 86_400] {
+                XCTAssertTrue(try CompactionPlanner.plan(current, mode: .thin(olderThan: cutoff), now: now, device: devC,
+                                                         clock: &c2, wall: now, app: "t").isEmpty)
+                XCTAssertFalse(CompactionPlanner.mayDelete(current.map(RevisionMeta.init), noteId: current[0].noteId,
+                                                           mode: .thin(olderThan: cutoff), now: now))
+            }
+        }
+    }
+
+    /// The metadata-only stage decides exactly what the full stage does: `select` on
+    /// hollow revisions (no ops, empty snapshot states) equals `select` on the real
+    /// ones, and whenever it finds no candidate the full plan is empty. So skipping a
+    /// note on its metadata never changes what thinning or compaction does.
+    func testSelectionFromMetadataEqualsSelectionFromRevisions() throws {
+        var nonEmpty = 0
+        for seed in UInt64(1)...150 {
+            var rng = SplitMix64(seed: seed &* 31)
+            let revs = seed % 3 == 0 ? try RandomHistory.makeSkewed(using: &rng) : try RandomHistory.make(using: &rng)
+            let walls = revs.map(\.wall)
+            let end = walls.max()!
+            let span = max(end.timeIntervalSince(walls.min()!), 1)
+            let now = end.addingTimeInterval(Double.random(in: 0...(span / 2), using: &rng))
+            let age = Double.random(in: 0...span, using: &rng)
+            let mode: CompactionMode = seed % 4 == 0 ? .retention(age) : .thin(olderThan: age)
+            let metas = revs.map(RevisionMeta.init)
+            // The metadata survives the cache's encoding.
+            let decoded = try JSONDecoder().decode([RevisionMeta].self, from: JSONEncoder().encode(metas))
+            XCTAssertEqual(decoded, metas, "seed \(seed)")
+            let hollow = decoded.map { $0.hollow(noteId: revs[0].noteId) }
+            XCTAssertEqual(CompactionPlanner.select(hollow, mode: mode, now: now),
+                           CompactionPlanner.select(revs, mode: mode, now: now), "seed \(seed) \(mode)")
+            var clock = HybridClock()
+            let plan = try CompactionPlanner.plan(revs, mode: mode, now: now, device: devC, clock: &clock, wall: now, app: "t")
+            if !CompactionPlanner.mayDelete(decoded, noteId: revs[0].noteId, mode: mode, now: now) {
+                XCTAssertTrue(plan.isEmpty, "seed \(seed) \(mode)")
+            } else {
+                nonEmpty += 1
+            }
+            XCTAssertTrue(Set(plan.deletions).isSubset(of: CompactionPlanner.select(revs, mode: mode, now: now).candidates))
+        }
+        XCTAssertGreaterThan(nonEmpty, 20)   // the property is not vacuous
+    }
+}

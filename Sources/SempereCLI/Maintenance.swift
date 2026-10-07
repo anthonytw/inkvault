@@ -12,7 +12,9 @@ struct CompactCommand: ParsableCommand {
             Without --thin-older-than: deletes revisions past the retention window that a snapshot
             covers (format.md §5.3), writing a snapshot first when needed. With --thin-older-than:
             in revisions older than that, keeps every checkpoint and the newest autosave of each
-            editing session and deletes the rest (format.md §5.8.4). Either way checkpoints are never
+            editing session and deletes the rest (format.md §5.8.4). With --thin-all: the same with no
+            age window, so every autosave goes except each session's newest save (imports are
+            checkpoints and stay). Thinning prints the rule it applies first. Either way checkpoints are never
             deleted, and every checkpoint (and when thinning, every kept autosave and every newer
             revision) stays a restore point with the same content: positioned snapshots are written
             for them first. Device id and clock as for `sempere snapshot`. With --dry-run nothing is
@@ -32,6 +34,10 @@ struct CompactCommand: ParsableCommand {
     @Option(name: .customLong("thin-older-than"),
             help: ArgumentHelp("Thin revisions older than this: days, as `30d` or `30`, or `never`.", valueName: "age"))
     var thinOlderThan: String?
+
+    @Flag(name: .customLong("thin-all"),
+          help: "Thin everything except checkpoints: ignore the age window, keep every checkpoint and each editing session's newest save.")
+    var thinAll = false
 
     @Flag(name: .customLong("dry-run"), help: "Only list what would be written and deleted.")
     var dryRun = false
@@ -56,8 +62,8 @@ struct CompactCommand: ParsableCommand {
         if let retention, retention < 0 || !retention.isFinite {
             throw ValidationError("--retention must not be negative")
         }
-        if thinOlderThan != nil, retention != nil {
-            throw ValidationError("--retention and --thin-older-than are different modes; give one")
+        if [thinOlderThan != nil, retention != nil, thinAll].filter({ $0 }).count > 1 {
+            throw ValidationError("--retention, --thin-older-than and --thin-all are different modes; give one")
         }
         if let thinOlderThan { _ = try Self.parseAge(thinOlderThan) }
     }
@@ -66,11 +72,16 @@ struct CompactCommand: ParsableCommand {
         let vault = try access.openVault(.required)
         let ids = try note.map { [try vault.resolveNote($0)] } ?? vault.noteIDs()
         let mode: CompactionMode
-        if let thinOlderThan {
+        var rule: ThinningRule?
+        if thinAll {
+            rule = .allButCheckpoints
+            mode = ThinningRule.allButCheckpoints.mode
+        } else if let thinOlderThan {
             guard let days = try Self.parseAge(thinOlderThan) else {
                 if output.json { try output.emitJSON([Item]()) } else { output.info("Thinning is off (never); nothing to do.") }
                 return
             }
+            if days == days.rounded(), days >= 1, days < 1e6 { rule = .olderThan(days: Int(days)) }
             mode = .thin(olderThan: days * 86400)
         } else {
             mode = .retention((retention ?? CompactionPlanner.defaultRetention / 86400) * 86400)
@@ -110,6 +121,7 @@ struct CompactCommand: ParsableCommand {
                 printError("\(name): \(CLIError.from(error).message)")
             }
         }
+        if let rule, !output.json { output.info("\(rule.title)\(dryRun ? " (dry run)" : ""). \(rule.explanation)") }
         if output.json {
             try output.emitJSON(items)
         } else {
