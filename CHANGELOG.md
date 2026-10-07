@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- CLI: `sempere sync webdav --push-only [--delete-extraneous]`, a one-way mirror for a server that is not
+  trusted to write back. It uploads, overwrites the server's `vault.json` / `rewrap-journal.json` from the local
+  copy, and follows local compaction and blob collection with deletions on the server; it never downloads and
+  never changes the vault (a compromised server cannot feed an attacker's recipient back). Files only the server
+  has and nothing explains are reported as `extraneous` (new in `--json`, with `overwritten`) and removed with
+  `--delete-extraneous`.
 - The app's interface in Spanish (task L). Every interface string lives in String Catalogs
   (`Apps/Sempere/Localization/`), with plural forms, iPhone/iPad/Mac wording, the permission prompts, the
   Siri phrases and the Lock Screen widget, Control Center control and Live Activity text. Notes, notebook

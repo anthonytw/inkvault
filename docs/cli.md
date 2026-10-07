@@ -1539,6 +1539,7 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
                          [--max-blob-mib N] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
+                         [--push-only [--delete-extraneous]]
 ```
 
 Mirrors the vault folder with a WebDAV collection (`docs/io.md`, "WebDAV
@@ -1580,12 +1581,36 @@ taken. Anything else is reported as `rejected` (stderr line and `--json`
 lists `would upload`, `would download` and `would delete` lines. It cannot see
 files it would first download, so it may under-report deletions.
 
+**`--push-only`** makes the run a one-way mirror, for a server that is not
+trusted to write back (the web viewer's NAS share, fed from the Mac's iCloud
+vault every few minutes). It uploads what the server lacks (revisions, blobs,
+`vault.json`, `rewrap-journal.json`, even files the server lost), replaces a
+differing server copy of `vault.json` / `rewrap-journal.json` with the local
+one (listed in `overwritten` and `uploaded`; a server `vault.json` of another
+vault still aborts the run), and deletes on the server what local compaction
+or `blobs gc` explains (as above, which needs the vault unlocked). It never
+downloads, and never writes, restores or deletes anything in the vault folder
+(it needs an existing vault: no `vault.json` is exit 2). The reason: a
+two-way sync rejects a `vault.json` whose recipients changed without a valid
+tag (`format.md` §2.1), but still takes everything else a server holds; a
+push-only mirror can be corrupted but never feeds anything back. Files only the server has:
+if they were never synced and no compaction explains them (injected files,
+junk names, a stray `rewrap-journal.json`) they are `extraneous`: listed, and
+with `--delete-extraneous` removed from the server. One that was synced before
+but is missing locally without a compaction or collection to explain it (or
+with the vault locked) is kept and listed as skipped, never deleted, since the
+local copy may merely be evicted from iCloud. On the first sync to a server
+(no sync state for it yet) every server file looks never synced, so
+`--delete-extraneous` only lists them (as skipped) and removes them on a later
+run; use `--dry-run` first when the local vault may not be fully downloaded.
+`--delete-extraneous` needs `--push-only`, and `--push-only` an existing vault.
+
 Output: one line per action, then
 `N uploaded, N downloaded, N deleted, N conflicts, N errors` (`-q` hides the
 lines, `-v` adds skipped and ignored entries). `--json` prints the report:
 `dryRun`, `uploaded`, `downloaded`, `deleted` (`{side, path}`), `conflicts`
 (`{path, remoteCopy, detail}`), `errors` and `skipped` (`{path, message}`) and
-`ignored` (remote names that are not vault files), and `rejected`. One failing file does not stop the
+`ignored` (remote names that are not vault files), `rejected`, and with `--push-only` also `extraneous` and `overwritten` (both arrays are always present). One failing file does not stop the
 run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts, 6 a
 rejected `vault.json`.
 
