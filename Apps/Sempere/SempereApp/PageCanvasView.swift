@@ -644,11 +644,11 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         case .none:
             footerButton.isHidden = true
         case .addPage:
-            config.title = "Add Page"
+            config.title = String(localized: "Add Page")
             config.image = UIImage(systemName: "doc.badge.plus")
             footerButton.isHidden = false
         case .nextPage:
-            config.title = "Next Page"
+            config.title = String(localized: "Next Page")
             config.image = UIImage(systemName: "chevron.down")
             footerButton.isHidden = false
         }

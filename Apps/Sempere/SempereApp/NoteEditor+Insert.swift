@@ -81,6 +81,6 @@ extension ItemActions {
     /// Crops an item (one delta, one undo step that puts the old crop back).
     func setCrop(_ id: UUID, to crop: Rect?, on page: UUID) {
         guard let old = editor.setItemCrop(id, to: crop, on: page) else { return }
-        register("Crop") { $0.setCrop(id, to: old, on: page) }
+        register(String(localized: "Crop", comment: "Undo action name (Edit menu: Undo …)")) { $0.setCrop(id, to: old, on: page) }
     }
 }

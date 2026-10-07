@@ -90,10 +90,7 @@ struct HistoryEntry: Identifiable, Hashable, Sendable {
     /// points; said whenever a snapshot exists or a point is incomplete.
     static func compactionNotice(_ points: [RestorePoint]) -> String? {
         guard points.contains(where: { $0.kind == .snapshot || !$0.complete }) else { return nil }
-        return String(localized: """
-            Revisions removed by compaction are not restore points and are not listed. \
-            Versions that depend on them are greyed out and cannot be shown or restored.
-            """)
+        return String(localized: "Revisions removed by compaction are not restore points and are not listed. Versions that depend on them are greyed out and cannot be shown or restored.")
     }
 }
 
@@ -117,8 +114,8 @@ struct HistoryGroupRow: Identifiable, Hashable, Sendable {
 
     /// "This device · 12 saves" (the device and the number of autosaves).
     var summary: String {
-        let count = String(localized: "\(saves) saves", comment: "History: number of autosaves in an editing session")
-        return String(localized: "\(newest.deviceLabel) · \(count)", comment: "History: device and number of saves of a session")
+        let savesText = String(localized: "\(saves) saves", comment: "History: number of autosaves in an editing session")
+        return String(localized: "\(newest.deviceLabel) · \(savesText)", comment: "History: device and number of saves of a session")
     }
 
     /// "Oct 6, 2026, 2:02 PM – 2:31 PM": the date and time range of a session

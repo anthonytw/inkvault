@@ -110,7 +110,7 @@ final class ExportJob {
         task = nil
         if case .finished(let outcome) = next, outcome.items.isEmpty {
             if let scratch { try? FileManager.default.removeItem(at: scratch) }
-            let why = outcome.failures.first ?? "There was nothing to export."
+            let why = outcome.failures.first ?? String(localized: "There was nothing to export.")
             state = .failed(why)
         } else {
             state = next

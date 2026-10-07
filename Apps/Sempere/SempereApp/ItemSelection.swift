@@ -277,9 +277,9 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             drag = nil
             itemLayer?.preview(item.id, frame: nil)
             if case .resize = d {
-                actions?.setFrame(item.id, to: frame, on: pageID, name: "Resize")
+                actions?.setFrame(item.id, to: frame, on: pageID, name: String(localized: "Resize", comment: "Undo action name (Edit menu: Undo …)"))
             } else {
-                actions?.setFrame(item.id, to: frame, on: pageID, name: "Move")
+                actions?.setFrame(item.id, to: frame, on: pageID, name: String(localized: "Move", comment: "Undo action name (Edit menu: Undo …)"))
             }
             refresh()
         default:
@@ -304,38 +304,38 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         var elements: [UIMenuElement] = []
         let editable = editor?.canEditItems == true
         if let id = model.selected, let pageID, let editor, let item = editor.item(id, on: pageID) {
-            elements.append(UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+            elements.append(UIAction(title: String(localized: "Copy"), image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
                 self?.commands.copy([item], editor.noteID)
             })
             if editable, item.kind == .text, item.text != nil, let edit = onEditText {
-                elements.append(UIAction(title: "Edit Text", image: UIImage(systemName: "character.cursor.ibeam")) { [weak self] _ in
+                elements.append(UIAction(title: String(localized: "Edit Text"), image: UIImage(systemName: "character.cursor.ibeam")) { [weak self] _ in
                     self?.select(nil)
                     edit(item)
                 })
             }
             if editable {
-                elements.append(UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
+                elements.append(UIAction(title: String(localized: "Duplicate"), image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                     self.select(new.id)
                 })
                 if let crop = commands.crop, item.cropBounds != nil, let actions {
-                    elements.append(UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in
+                    elements.append(UIAction(title: String(localized: "Crop…"), image: UIImage(systemName: "crop")) { _ in
                         crop(item, pageID, actions)
                     })
                 }
-                elements.append(UIAction(title: "Bring to Front", image: UIImage(systemName: "square.3.layers.3d.top.filled")) {
+                elements.append(UIAction(title: String(localized: "Bring to Front"), image: UIImage(systemName: "square.3.layers.3d.top.filled")) {
                     [weak self] _ in
                     self?.actions?.bringToFront(id, on: pageID)
                     self?.refresh()
                 })
-                elements.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) {
+                elements.append(UIAction(title: String(localized: "Delete"), image: UIImage(systemName: "trash"), attributes: .destructive) {
                     [weak self] _ in
                     self?.deleteSelection()
                 })
             }
         }
         if editable, commands.canPaste() {
-            elements.append(UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
+            elements.append(UIAction(title: String(localized: "Paste"), image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
                 self?.pasteClipboard()
             })
         }

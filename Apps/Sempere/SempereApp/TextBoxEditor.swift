@@ -249,36 +249,48 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
             item.accessibilityLabel = title
             return item
         }
-        let sizes = UIMenu(title: "Size", children: TextBoxPlacement.sizes.map { s in
+        let sizes = UIMenu(title: String(localized: "Size", comment: "Text style bar: font size menu"), children: TextBoxPlacement.sizes.map { s in
             UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.apply(.size(s)) }
         })
-        let colours = UIMenu(title: "Colour", children: TextBoxPlacement.colours.map { c in
+        let colours = UIMenu(title: String(localized: "Colour", comment: "Text style bar: text colour menu"), children: TextBoxPlacement.colours.map { c in
             UIAction(title: c.name, image: UIImage(systemName: "circle.fill")?.withTintColor(c.color.uiColor, renderingMode: .alwaysOriginal)) {
                 [weak self] _ in self?.apply(.color(c.color))
             }
         })
-        let fonts = UIMenu(title: "Font", children: [("Sans Serif", TextContent.Font.sans), ("Serif", .serif), ("Monospaced", .mono)].map { name, f in
+        let fontChoices: [(String, TextContent.Font)] = [
+            (String(localized: "Sans Serif", comment: "Typeface"), .sans),
+            (String(localized: "Serif", comment: "Typeface"), .serif),
+            (String(localized: "Monospaced", comment: "Typeface"), .mono),
+        ]
+        let fonts = UIMenu(title: String(localized: "Font", comment: "Text style bar: typeface menu"), children: fontChoices.map { name, f in
             UIAction(title: name) { [weak self] _ in self?.restyle { $0.font = f } }
         })
-        let aligns = UIMenu(title: "Alignment", children: [
-            ("Start", "text.alignleft", TextContent.Alignment.start), ("Center", "text.aligncenter", .center),
-            ("End", "text.alignright", .end),
-        ].map { name, image, a in
+        let alignChoices: [(String, String, TextContent.Alignment)] = [
+            (String(localized: "Start", comment: "Text alignment"), "text.alignleft", .start),
+            (String(localized: "Center", comment: "Text alignment"), "text.aligncenter", .center),
+            (String(localized: "End", comment: "Text alignment"), "text.alignright", .end),
+        ]
+        let aligns = UIMenu(title: String(localized: "Alignment", comment: "Text style bar: paragraph alignment menu"), children: alignChoices.map { name, image, a in
             UIAction(title: name, image: UIImage(systemName: image)) { [weak self] _ in self?.restyle { $0.align = a == .start ? nil : a } }
         })
-        let directions = UIMenu(title: "Direction", children: [
-            ("Automatic", TextContent.Direction.auto), ("Left to Right", .ltr), ("Right to Left", .rtl),
-        ].map { name, d in
+        let directionChoices: [(String, TextContent.Direction)] = [
+            (String(localized: "Automatic", comment: "Writing direction"), .auto),
+            (String(localized: "Left to Right", comment: "Writing direction"), .ltr),
+            (String(localized: "Right to Left", comment: "Writing direction"), .rtl),
+        ]
+        let directions = UIMenu(title: String(localized: "Direction", comment: "Text style bar: writing direction menu"), children: directionChoices.map { name, d in
             UIAction(title: name) { [weak self] _ in self?.restyle { $0.dir = d == .auto ? nil : d } }
         })
         bar.items = [
-            toggle("bold", "Bold", .bold), toggle("italic", "Italic", .italic), toggle("underline", "Underline", .underline),
-            toggle("strikethrough", "Strikethrough", .strikethrough),
-            UIBarButtonItem(title: "Size", image: UIImage(systemName: "textformat.size"), menu: sizes),
-            UIBarButtonItem(title: "Colour", image: UIImage(systemName: "paintpalette"), menu: colours),
-            UIBarButtonItem(title: "Font", image: UIImage(systemName: "textformat"), menu: fonts),
-            UIBarButtonItem(title: "Alignment", image: UIImage(systemName: "text.alignleft"), menu: aligns),
-            UIBarButtonItem(title: "Direction", image: UIImage(systemName: "arrow.left.arrow.right"), menu: directions),
+            toggle("bold", String(localized: "Bold", comment: "Text style"), .bold),
+            toggle("italic", String(localized: "Italic", comment: "Text style"), .italic),
+            toggle("underline", String(localized: "Underline", comment: "Text style"), .underline),
+            toggle("strikethrough", String(localized: "Strikethrough", comment: "Text style"), .strikethrough),
+            UIBarButtonItem(title: sizes.title, image: UIImage(systemName: "textformat.size"), menu: sizes),
+            UIBarButtonItem(title: colours.title, image: UIImage(systemName: "paintpalette"), menu: colours),
+            UIBarButtonItem(title: fonts.title, image: UIImage(systemName: "textformat"), menu: fonts),
+            UIBarButtonItem(title: aligns.title, image: UIImage(systemName: "text.alignleft"), menu: aligns),
+            UIBarButtonItem(title: directions.title, image: UIImage(systemName: "arrow.left.arrow.right"), menu: directions),
             .flexibleSpace(),
             UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.endEditing() }),
         ]
@@ -330,10 +342,10 @@ enum TextBoxPlacement {
     static let sizes: [Double] = [10, 12, 14, 16, 18, 24, 32, 48, 72]
     /// Colours in the colour menu.
     static let colours: [(name: String, color: Sempere.Color)] = [
-        ("Black", Sempere.Color(r: 0x1A, g: 0x1A, b: 0x1A)), ("Grey", Sempere.Color(r: 0x80, g: 0x80, b: 0x80)),
-        ("Red", Sempere.Color(r: 0xD3, g: 0x2F, b: 0x2F)), ("Orange", Sempere.Color(r: 0xEF, g: 0x6C, b: 0x00)),
-        ("Green", Sempere.Color(r: 0x2E, g: 0x7D, b: 0x32)), ("Blue", Sempere.Color(r: 0x15, g: 0x65, b: 0xC0)),
-        ("Purple", Sempere.Color(r: 0x6A, g: 0x1B, b: 0x9A)),
+        (String(localized: "Black", comment: "Text colour"), Sempere.Color(r: 0x1A, g: 0x1A, b: 0x1A)), (String(localized: "Grey", comment: "Text colour"), Sempere.Color(r: 0x80, g: 0x80, b: 0x80)),
+        (String(localized: "Red", comment: "Text colour"), Sempere.Color(r: 0xD3, g: 0x2F, b: 0x2F)), (String(localized: "Orange", comment: "Text colour"), Sempere.Color(r: 0xEF, g: 0x6C, b: 0x00)),
+        (String(localized: "Green", comment: "Text colour"), Sempere.Color(r: 0x2E, g: 0x7D, b: 0x32)), (String(localized: "Blue", comment: "Text colour"), Sempere.Color(r: 0x15, g: 0x65, b: 0xC0)),
+        (String(localized: "Purple", comment: "Text colour"), Sempere.Color(r: 0x6A, g: 0x1B, b: 0x9A)),
     ]
     /// Room kept to the page's right edge.
     static let margin = 16.0
