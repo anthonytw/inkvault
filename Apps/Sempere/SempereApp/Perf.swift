@@ -57,6 +57,9 @@ enum Perf {
         /// From the start of the open until the canvas shows ink (the strokes
         /// on screen first, for a large page converted visible-first).
         case noteFirstRender = "note.firstRender"
+        /// Merging revisions written elsewhere into an open note (download,
+        /// save, read, apply; detail: the outcome).
+        case remoteMerge = "note.remoteMerge"
         /// Writing pages to the drawing cache.
         case cacheWrite = "cache.write"
         /// A note folder reported changed by the file presenter (an event).
