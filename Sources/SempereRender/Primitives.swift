@@ -122,8 +122,14 @@ public struct RenderOptions: Sendable {
     /// `.txt`) as file attachments ("PDF + attachments", docs/attachments.md
     /// §10). Off: recordings are left out and counted in the report.
     public var embedRecordings: Bool = false
-    /// Most bytes of recordings one PDF embeds; beyond it, the rest are left
-    /// out with a warning (the whole PDF is built in memory).
+    /// PDF only: embed each note's video clips as file attachments ("PDF +
+    /// attachments", format.md §8.2.7). Off: only their posters are drawn and
+    /// the clips are counted in the report.
+    public var embedVideos: Bool = false
+    /// Most bytes of recordings and videos one PDF embeds; beyond it, the rest
+    /// are left out with a warning. `PDFWriter.render` builds the PDF in
+    /// memory, so this is its budget; `PDFWriter.write(…to:)` streams videos
+    /// to the file and allows `max(maxEmbeddedBytes, RenderLimits.maxStreamedEmbeddedBytes)`.
     public var maxEmbeddedBytes: Int = 512 << 20
 
     /// Creates options; the defaults are paper on, compression on, 0.05 pt
@@ -155,6 +161,9 @@ public enum PageBreaks: String, Sendable, CaseIterable {
 
 /// Hard limits protecting the renderers from hostile or corrupt input.
 public enum RenderLimits {
+    /// Most bytes of recordings and videos a PDF written to a file
+    /// (`PDFWriter.write(…to:)`) embeds: they are streamed, not held.
+    public static let maxStreamedEmbeddedBytes = 8 << 30
     /// Largest page height / stroke extent accepted, in points (~2.8 km at 72 dpi).
     public static let maxExtent = 200_000.0
     /// Smallest ruling / grid / dot spacing drawn; tighter paper renders blank.
@@ -210,6 +219,8 @@ public enum RenderError: Error, Equatable {
     case tooComplex
     /// An image's size and pixel buffer disagree.
     case invalidImage
+    /// The output file at this path cannot be created or written.
+    case cannotWrite(String)
 }
 
 extension RenderError: LocalizedError {
@@ -224,6 +235,7 @@ extension RenderError: LocalizedError {
             return "image of \(fmt(pixels)) pixels exceeds the limit of \(limit); lower --dpi"
         case .tooComplex: return "the page has more ink geometry than the renderer accepts"
         case .invalidImage: return "an image's pixel data does not match its size"
+        case .cannotWrite(let path): return "cannot write \(path)"
         }
     }
 }

@@ -208,11 +208,11 @@ struct TranscribeCommand: ParsableCommand {
 }
 
 /// Runs `body` to completion from synchronous code (the command's `run`).
-private final class AsyncBox<T>: @unchecked Sendable {
+final class AsyncBox<T>: @unchecked Sendable {
     var result: Result<T, Error> = .failure(CancellationError())
 }
 
-private func blockingThrowing<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
+func blockingThrowing<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
     let box = AsyncBox<T>()
     let done = DispatchSemaphore(value: 0)
     Task {
@@ -223,6 +223,6 @@ private func blockingThrowing<T: Sendable>(_ body: @escaping @Sendable () async 
     return try box.result.get()
 }
 
-private func blocking<T: Sendable>(_ body: @escaping @Sendable () async -> T) -> T? {
+func blocking<T: Sendable>(_ body: @escaping @Sendable () async -> T) -> T? {
     try? blockingThrowing { await body() }
 }

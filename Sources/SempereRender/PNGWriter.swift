@@ -137,6 +137,7 @@ public enum PNGWriter {
             default:
                 for c in it.placeholder { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
             }
+            for c in it.overlay { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
         }
     }
 

@@ -199,10 +199,10 @@ actor NoteWriter {
     /// coordinated write on the note's folder, so iCloud uploads the blob.
     /// Picked files and recordings are copied into the app container first:
     /// security-scoped URLs expire (docs/attachments.md §13).
-    func addBlob(from file: URL, type: String) throws -> BlobRef {
+    func addBlob(from file: URL, type: String, edits: [ByteEdit] = []) throws -> BlobRef {
         let vault = self.vault, note = noteID
         return try CloudVault.coordinatedWrite(coordinationURL) {
-            try vault.writeBlob(note: note, contentsOf: file, type: type)
+            try vault.writeBlob(note: note, contentsOf: file, type: type, edits: edits)
         }
     }
 
