@@ -9,6 +9,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
+  names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
+  newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
+  and snapshot elements are skipped, a later body version is left out, each reported) and never writes.
+  CLI: reading commands report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every
+  write exits 6. App: a read-only banner, notes open read-only, no autosave, thinning, inbox adoption or
+  transcripts. The web viewer opens such vaults too.
+
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed
