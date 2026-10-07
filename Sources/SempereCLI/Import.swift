@@ -290,7 +290,9 @@ struct ImportPDFCommand: ParsableCommand {
             (effective size: crop box, rotation), paper is blank, later pages of another size are fitted and \
             centred. Everything is one delta. The title is --title (one file only) or the file name without \
             .pdf. Encrypted PDFs are refused, and so are more than 2000 pages; --pages imports a subset. \
-            Writing on the pages is the app's job: ink is stored as usual on top. Exit 1 if any file failed.
+            Each page's text is stored for search (--pdf-text: pdftotext when installed, else the built-in \
+            reader; format.md §8.2.6). Writing on the pages is the app's job: ink is stored as usual on top. \
+            Exit 1 if any file failed.
             """
     )
 
@@ -312,6 +314,7 @@ struct ImportPDFCommand: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Check the files and say what would be imported; write nothing.")
     var dryRun = false
 
+    @OptionGroup var pdfText: PDFTextOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
     @OptionGroup var cache: CacheOptions
@@ -330,10 +333,14 @@ struct ImportPDFCommand: ParsableCommand {
         var pages: Int?
         var blob: BlobRef?
         var file: String?
+        /// Pages stored with their text (`pageText`, format.md §8.2.6) and the extractor.
+        var pagesWithText: Int?
+        var textEngine: String?
     }
 
     func run() throws {
         let vault = try access.openVault(.required)
+        let extractor = try pdfText.extractor()
         let known = NoteOps.normalizedTags(tags).isEmpty
             ? [] : NoteOps.vaultTags(try vault.summaries(of: nil, cache: cache.cache(for: vault)))
         let spelled = tags.map { NoteOps.tagSpelling($0, among: known) }
@@ -346,8 +353,13 @@ struct ImportPDFCommand: ParsableCommand {
                     throw CLIError.failure("\(path) is larger than the 1 GiB limit")
                 }
                 let summary = try PDFIngest.inspect(data)
-                let selected = try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages
+                var selected = try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages
                 guard !selected.isEmpty else { throw CLIError.failure("no PDF pages selected") }
+                let texts = PDFIngest.withText(selected, pdf: data, extractor: extractor)
+                if texts.failed { printStderr("warning: \(extractor?.engine ?? "the extractor") could not read the text of \(path)") }
+                selected = texts.refs
+                r.pagesWithText = texts.withText
+                r.textEngine = extractor?.engine
                 let name = (title ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let ref = BlobRef(content: data, type: "application/pdf")

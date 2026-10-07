@@ -164,3 +164,48 @@ public enum PDFIngest {
         return PDFSummary(pages: pages, repaired: file.repaired)
     }
 }
+
+// MARK: - PDF page text (format.md §8.2.6)
+
+/// Something that extracts the text of PDF pages for `pageText`: the
+/// built-in `SemperePDF` reader everywhere, Poppler's `pdftotext` in the CLI
+/// when installed, PDFKit in the app.
+public protocol PDFTextExtracting: Sendable {
+    /// Written as `PDFPageText.engine`, e.g. `semperepdf-1`, `pdftotext-24.02.0`.
+    var engine: String { get }
+    /// Text by 0-based page index for the pages asked for; a page it cannot
+    /// read is missing from the result.
+    func pageTexts(_ data: Data, pages: [Int]) throws -> [Int: String]
+}
+
+/// `PDFText` (pure Swift, every platform).
+public struct BuiltinPDFTextExtractor: PDFTextExtracting {
+    public init() {}
+    public var engine: String { PDFText.engine }
+    public func pageTexts(_ data: Data, pages: [Int]) throws -> [Int: String] {
+        try PDFText.pageTexts(data, pages: pages)
+    }
+}
+
+extension PDFIngest {
+    /// `refs` with `text` filled from `extractor`: pages it reads with
+    /// nothing but white space get no text (an image-only scan stores
+    /// nothing). Never throws: a PDF the extractor cannot read leaves every
+    /// page without text, and `failed` says so.
+    public static func withText(_ refs: [PDFPageRef], pdf data: Data, extractor: (any PDFTextExtracting)?)
+        -> (refs: [PDFPageRef], withText: Int, failed: Bool) {
+        guard let extractor, !refs.isEmpty else { return (refs, 0, false) }
+        let texts: [Int: String]
+        do { texts = try extractor.pageTexts(data, pages: refs.map(\.index)) } catch { return (refs, 0, true) }
+        var out = refs
+        var n = 0
+        for i in out.indices {
+            guard let t = texts[out[i].index] else { continue }
+            let text = PDFPageText(text: t, engine: extractor.engine)
+            guard !text.text.isEmpty else { continue }
+            out[i].text = text
+            n += 1
+        }
+        return (out, n, false)
+    }
+}

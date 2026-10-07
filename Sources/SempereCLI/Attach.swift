@@ -149,6 +149,9 @@ struct AttachJSON: Encodable {
     var recording: Recording?
     /// Pages a PDF insert added.
     var pagesAdded: Int?
+    /// PDF pages stored with their text (`pageText`, format.md §8.2.6), and the extractor.
+    var pagesWithText: Int?
+    var textEngine: String?
 }
 
 /// The note as it is on disk now, live.
@@ -324,7 +327,8 @@ struct AttachPDF: ParsableCommand {
             that fills it (fitted and centred when the sizes differ). With --page (and optionally --frame, --at, \
             --width, --crop) ONE page is placed as a figure on an existing page instead, drawn above the paper in \
             the content layer. The note's page size is not changed. A pageless note takes figures only. Encrypted \
-            PDFs are refused: remove the password first (qpdf --decrypt). Prints the new item ids.
+            PDFs are refused: remove the password first (qpdf --decrypt). Each page's text is stored for \
+            search (--pdf-text: pdftotext when installed, else the built-in reader). Prints the new item ids.
             """
     )
 
@@ -348,6 +352,7 @@ struct AttachPDF: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Check the file and say what would be added; write nothing.")
     var dryRun = false
 
+    @OptionGroup var pdfText: PDFTextOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -365,9 +370,13 @@ struct AttachPDF: ParsableCommand {
         let id = try vault.resolveNote(note)
         let data = try readInput(file, limit: 1 << 30, what: "PDF")
         let summary = try translating { try PDFIngest.inspect(data) }
-        let selected = try translating { try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages }
+        var selected = try translating { try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages }
         guard !selected.isEmpty else { throw CLIError.failure("no PDF pages selected") }
         if isFigure && selected.count != 1 { throw CLIError.usage("a figure is one PDF page: select it with --pages N") }
+        let extractor = try pdfText.extractor()
+        let texts = PDFIngest.withText(selected, pdf: data, extractor: extractor)
+        if texts.failed { printStderr("warning: \(extractor?.engine ?? "the extractor") could not read the PDF's text; pages are added without it") }
+        selected = texts.refs
         let ref = BlobRef(content: data, type: "application/pdf")
         let before = try liveState(vault, id)
         // Preflight with the note as it is now; the delta is computed again from the note as it is when it is written.
@@ -409,6 +418,8 @@ struct AttachPDF: ParsableCommand {
         }
         out.items = planned.items
         if !isFigure { out.pagesAdded = planned.items.count }
+        out.pagesWithText = planned.items.filter { $0.item.pageText != nil }.count
+        out.textEngine = extractor?.engine
         try report(out, output: output, summary: isFigure ? "PDF page \(selected[0].index + 1) as a figure on page \(planned.items[0].page)"
                    : "\(planned.items.count) PDF page(s) as new page(s) \(planned.items.first?.page ?? 0)–\(planned.items.last?.page ?? 0)")
     }
