@@ -24,7 +24,7 @@ export_vault() {   # name vault-dir
     id="$(basename "$dir")"
     "$SEMPERE" export "$id" --vault "$vault" --identity "$key" --format json --out "$dest/$id.json" -q >/dev/null
     tmp="$(mktemp -d)"
-    "$SEMPERE" export "$id" --vault "$vault" --identity "$key" --format svg --out "$tmp" -q >/dev/null
+    "$SEMPERE" export "$id" --vault "$vault" --identity "$key" --format svg --pdf-renderer none --out "$tmp" -q >/dev/null
     mkdir -p "$dest/$id"
     # <name>-p001.svg -> p001.svg (the name depends on the title)
     for f in "$tmp"/*.svg; do mv "$f" "$dest/$id/${f##*-}"; done

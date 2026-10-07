@@ -9,6 +9,8 @@ import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional 
 import { UnlockedVault, VaultError, limits, parseIdentity, parseManifest, type VaultManifest } from "../vault/vault.ts";
 import { clear, formatDate, h } from "./dom.ts";
 import { NoteView, hasUnknownPaper } from "./noteview.ts";
+import { RecordingsPanel } from "./recordings.ts";
+import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
 
 type Filter =
@@ -30,6 +32,7 @@ export class App {
   private hits?: Map<string, SearchHit>;
   private selected?: string;
   private view?: NoteView;
+  private recordings?: RecordingsPanel;
   /** Recently opened notes; the list itself keeps summaries only. */
   private readonly cache = new Map<string, LoadedNote>();
   private generation = 0;
@@ -324,7 +327,6 @@ export class App {
       const badges: string[] = [];
       if (n.error !== undefined) badges.push("unreadable");
       else if (n.failures > 0) badges.push(`${n.failures} unreadable revision${n.failures === 1 ? "" : "s"}`);
-      if (n.hasAttachments) badges.push("attachments not shown");
       return h("li", {}, h("button", {
         class: n.id === this.selected ? "note active" : "note", attrs: { type: "button" },
         on: { click: () => void this.open(n.id, hit?.page?.number) },
@@ -360,6 +362,8 @@ export class App {
     const gen = this.generation;
     this.view?.destroy();
     this.view = undefined;
+    this.recordings?.destroy();
+    this.recordings = undefined;
     this.detail.replaceChildren(h("p", { class: "empty", text: "Decrypting…" }));
     let note = this.cache.get(id);
     if (!note) {
@@ -389,18 +393,19 @@ export class App {
       return;
     }
     if (state.deleted) warnings.push(h("p", { class: "warning", text: "This note is deleted (it stays in the vault until restored in the app)." }));
-    if (note.hasAttachments) warnings.push(h("p", { class: "warning", text: "This note has text boxes, images, PDFs or recordings, which this viewer does not show yet." }));
     if (hasUnknownPaper(state)) warnings.push(h("p", { class: "warning", text: "Some paper was made by a newer app; it is shown as blank paper." }));
     const m = state.meta;
     const notebook = canonicalNotebook(m.notebook);
     const meta = [notebook ? `Notebook: ${notebook.replaceAll("/", " › ")}` : "", `Created ${formatDate(m.created)}`,
       `${state.pages.length} page${state.pages.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
-    this.view = new NoteView(state);
+    const blobs = this.source && this.vault ? new NoteBlobs(this.source, this.vault, note.id) : undefined;
+    this.view = new NoteView(state, blobs);
+    this.recordings = new RecordingsPanel(state.recordings, blobs);
     this.detail.replaceChildren(
       h("div", { class: "note-header" },
         h("h2", { text: m.title || "Untitled" }), h("p", { class: "sub", text: meta }),
         m.tags.length ? h("p", { class: "tags" }, ...m.tags.map((t) => h("span", { class: "tag", text: `#${t}` }))) : null,
-        ...warnings),
+        ...warnings, this.view.problemsEl, this.recordings.root),
       this.view.root);
     if (page !== undefined) requestAnimationFrame(() => requestAnimationFrame(() => this.view?.showPage(page)));
   }

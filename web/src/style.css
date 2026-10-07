@@ -132,3 +132,25 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .sidebar { max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--line); }
   .list-column { border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* Attachments (format.md §8): placeholders report, recordings, transcripts. */
+.item-problems > summary { cursor: pointer; }
+.item-problems ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.9em; }
+.page text { white-space: pre; }
+.recordings { margin-top: 8px; }
+.recordings > summary { cursor: pointer; color: var(--muted); }
+.recordings ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.recording { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.rec-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.rec-head .title { font-weight: 600; }
+.rec-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.rec-player audio { max-width: 100%; height: 34px; }
+.rec-status:empty { display: none; }
+.rec-status { margin: 6px 0 0; color: var(--muted); font-size: 0.9em; }
+.transcript { max-height: 40vh; overflow: auto; }
+.transcript .segments { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.transcript .segments li { display: flex; gap: 8px; align-items: baseline; }
+.seg-time {
+  background: transparent; color: var(--accent); padding: 0 4px; font-variant-numeric: tabular-nums; flex: none;
+}
+.doubtful { text-decoration: underline dotted; text-decoration-color: var(--muted); }

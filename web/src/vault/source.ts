@@ -18,6 +18,11 @@ export interface VaultSource {
   readonly label: string;
   /** Reads `path` (relative to the vault root, `/`-separated); throws `SourceError` (notFound when absent). */
   read(path: string, maxBytes: number): Promise<Uint8Array>;
+  /**
+   * Reads `path` as a stream that fails once more than `maxBytes` arrive
+   * (blobs, format.md §8.1.4); optional, `openStream` falls back to `read`.
+   */
+  stream?(path: string, maxBytes: number): Promise<ReadableStream<Uint8Array>>;
   /** Lowercase-UUID note directory names. */
   listNotes(): Promise<string[]>;
   /** Canonical revision file names of one note (format.md §5); `att/` and unknown files skipped. */
@@ -32,6 +37,36 @@ export async function readOptional(src: VaultSource, path: string, maxBytes: num
     if (e instanceof SourceError && e.notFound) return undefined;
     throw e;
   }
+}
+
+/** Opens `path` as a bounded stream, through `stream` when the source has it. */
+export async function openStream(src: VaultSource, path: string, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
+  if (src.stream) return src.stream(path, maxBytes);
+  const bytes = await src.read(path, maxBytes);
+  return new ReadableStream({
+    start(c) {
+      c.enqueue(bytes);
+      c.close();
+    },
+  });
+}
+
+/** Passes a stream through, failing with `SourceError` once more than `maxBytes` have passed. */
+export function boundedStream(body: ReadableStream<Uint8Array>, maxBytes: number, what: string): ReadableStream<Uint8Array> {
+  let total = 0;
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, c) {
+      total += chunk.length;
+      if (total > maxBytes) throw new SourceError(`${what} is larger than ${maxBytes} bytes`);
+      c.enqueue(chunk);
+    },
+  }));
+}
+
+/** A `File` as a bounded stream. */
+function fileStream(file: File, path: string, maxBytes: number): ReadableStream<Uint8Array> {
+  if (file.size > maxBytes) throw new SourceError(`${path} is larger than ${maxBytes} bytes`);
+  return boundedStream(file.stream(), maxBytes, path);
 }
 
 export function isRevisionFile(name: string): boolean {
@@ -187,7 +222,7 @@ export class HTTPSource implements VaultSource {
     return new URL(path.split("/").map(encodeURIComponent).join("/"), this.base);
   }
 
-  async read(path: string, maxBytes: number): Promise<Uint8Array> {
+  private async get(path: string): Promise<Response> {
     let res: Response;
     try {
       res = await this.fetcher(this.url(path), { method: "GET", cache: "no-cache" });
@@ -196,7 +231,22 @@ export class HTTPSource implements VaultSource {
     }
     if (res.status === 404 || res.status === 410) throw new SourceError(`${path} not found`, true);
     if (!res.ok) throw new SourceError(`${path}: HTTP ${res.status}`);
-    return boundedBody(res, maxBytes, path);
+    return res;
+  }
+
+  async read(path: string, maxBytes: number): Promise<Uint8Array> {
+    return boundedBody(await this.get(path), maxBytes, path);
+  }
+
+  async stream(path: string, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
+    const res = await this.get(path);
+    const declared = Number(res.headers.get("content-length") ?? "NaN");
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await res.body?.cancel();
+      throw new SourceError(`${path} is larger than ${maxBytes} bytes`);
+    }
+    if (!res.body) return boundedStream(new Blob([await res.arrayBuffer()]).stream(), maxBytes, path);
+    return boundedStream(res.body, maxBytes, path);
   }
 
   private async loadIndex(): Promise<VaultIndex | null> {
@@ -272,6 +322,16 @@ export class FileListSource implements VaultSource {
     return f.arrayBuffer().then((b) => new Uint8Array(b));
   }
 
+  stream(path: string, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
+    const f = this.files.get(path);
+    if (!f) return Promise.reject(new SourceError(`${path} not found`, true));
+    try {
+      return Promise.resolve(fileStream(f, path, maxBytes));
+    } catch (e) {
+      return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+    }
+  }
+
   listNotes(): Promise<string[]> {
     const ids = [...this.files.keys()].map((p) => p.split("/")).filter((s) => s.length === 3 && s[0] === "notes")
       .map((s) => s[1] ?? "").filter(isLowercaseUUID);
@@ -313,17 +373,24 @@ export class DirectorySource implements VaultSource {
     return d;
   }
 
-  async read(path: string, maxBytes: number): Promise<Uint8Array> {
+  private async file(path: string): Promise<File> {
     const parts = path.split("/");
     const name = parts.pop() ?? "";
-    let file: File;
     try {
-      file = await (await (await this.dir(parts)).getFileHandle(name)).getFile();
+      return await (await (await this.dir(parts)).getFileHandle(name)).getFile();
     } catch (e) {
       throw new SourceError(`${path} not found`, isNotFound(e));
     }
+  }
+
+  async read(path: string, maxBytes: number): Promise<Uint8Array> {
+    const file = await this.file(path);
     if (file.size > maxBytes) throw new SourceError(`${path} is larger than ${maxBytes} bytes`);
     return new Uint8Array(await file.arrayBuffer());
+  }
+
+  async stream(path: string, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
+    return fileStream(await this.file(path), path, maxBytes);
   }
 
   private async names(parts: string[], kind: "file" | "directory"): Promise<string[]> {
