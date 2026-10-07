@@ -2,8 +2,8 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  // smoke*.mjs drive an untyped, globally installed Playwright (not a dependency).
-  { ignores: ["dist/", "node_modules/", "test/fixtures/", "test/golden/", "scripts/smoke.mjs", "scripts/smoke-attachments.mjs"] },
+  // smoke*.mjs drive Playwright untyped (smoke-cache.mjs through the pinned dev dependency, the others a global one).
+  { ignores: ["dist/", "node_modules/", "test/fixtures/", "test/golden/", "scripts/smoke.mjs", "scripts/smoke-attachments.mjs", "scripts/smoke-cache.mjs"] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {

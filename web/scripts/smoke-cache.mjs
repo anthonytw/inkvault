@@ -5,16 +5,15 @@
 //   - with config.json (allowOtherVaults false): straight to the key prompt, no
 //     URL field, folder picker or drop zone, and ?vault= ignored;
 //   - without it: the ad-hoc open screen;
-//   - a second visit (same browser profile) requests no revision or blob it
+//   - a second visit (same browser context) requests no revision or blob it
 //     fetched before, and lists the same notes;
 //   - with sempere-summaries.sealed, even a first visit lists without reading revisions
 //     (and, with sempere-index.json and "listing": "index", without PROPFIND).
 // Prints first- and second-visit timings (LATENCY_MS adds a delay to every request).
 // Usage: node scripts/smoke-cache.mjs VAULT_DIR KEY_FILE
 import { createServer } from "node:http";
-import { readFileSync, readdirSync, statSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname } from "node:path";
-import { tmpdir } from "node:os";
 const { chromium } = await import(process.env.PLAYWRIGHT ?? "playwright");
 
 const [vaultDir, keyFile] = process.argv.slice(2);
@@ -58,7 +57,6 @@ const isFileRead = (l) => /^GET \/vault\/notes\/[0-9a-f-]+\/(att\/)?[^/]+\.age$/
 
 const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); };
-const profile = mkdtempSync(join(tmpdir(), "sempere-smoke-"));
 const results = [];
 
 async function visit(context, label, { query = "", expectPrompt = false } = {}) {
@@ -114,31 +112,29 @@ try {
   check(JSON.stringify(first.titles) === JSON.stringify(second.titles), "second visit lists other notes");
   await context.close();
 
-  // 2. config.json mode, with summaries: a first visit lists without reading any revision.
+  // 2. config.json mode: straight to the key prompt for the configured vault, ?vault= ignored;
+  //    with summaries, even a first visit lists without reading revisions.
   config = JSON.stringify({ vault: "./vault/", listing: "webdav", allowOtherVaults: false }); withSummaries = true;
-  if (existsSync(join(vaultDir, "sempere-summaries.sealed"))) {
+  const hasSummaries = existsSync(join(vaultDir, "sempere-summaries.sealed"));
+  context = await browser.newContext({ viewport: { width: 1300, height: 850 } });
+  const s1 = await visit(context, `config.json${hasSummaries ? ", summaries" : ""}, first visit`,
+    { query: "?vault=https://elsewhere.example/", expectPrompt: true });
+  check(JSON.stringify(s1.titles) === JSON.stringify(first.titles), "config.json mode lists other notes");
+  if (hasSummaries) check(s1.fileReads.length === 0, `listing with summaries read revisions: ${s1.fileReads.slice(0, 5).join(", ")}`);
+  const s2 = await visit(context, `config.json${hasSummaries ? ", summaries" : ""}, second visit`, { expectPrompt: true });
+  check(s2.fileReads.length === 0, "second visit in config.json mode read revisions");
+  await context.close();
+  if (hasSummaries && existsSync(join(vaultDir, "sempere-index.json"))) {
+    config = JSON.stringify({ vault: "./vault/", listing: "index" });
     context = await browser.newContext({ viewport: { width: 1300, height: 850 } });
-    const s1 = await visit(context, "config.json, summaries, first visit", { query: "?vault=https://elsewhere.example/", expectPrompt: true });
-    check(s1.fileReads.length === 0, `listing with summaries read revisions: ${s1.fileReads.slice(0, 5).join(", ")}`);
-    check(JSON.stringify(s1.titles) === JSON.stringify(first.titles), "summaries list other notes than the revisions");
-    const s2 = await visit(context, "config.json, summaries, second visit", { expectPrompt: true });
-    check(s2.fileReads.length === 0, "second visit with summaries read revisions");
+    const i1 = await visit(context, "config.json, summaries + index, first visit", { expectPrompt: true });
+    check(i1.fileReads.length === 0, "index listing with summaries read revisions");
+    check(!log.some((l) => l.startsWith("PROPFIND")), "index listing sent PROPFIND");
     await context.close();
-    if (existsSync(join(vaultDir, "sempere-index.json"))) {
-      config = JSON.stringify({ vault: "./vault/", listing: "index" });
-      context = await browser.newContext({ viewport: { width: 1300, height: 850 } });
-      const i1 = await visit(context, "config.json, summaries + index, first visit", { expectPrompt: true });
-      check(i1.fileReads.length === 0, "index listing with summaries read revisions");
-      check(!log.some((l) => l.startsWith("PROPFIND")), "index listing sent PROPFIND");
-      await context.close();
-    }
-  } else {
-    console.log("(no sempere-summaries.sealed in the vault: summaries scenario skipped; run `sempere vault summaries`)");
   }
 } finally {
   await browser.close();
   server.close();
-  rmSync(profile, { recursive: true, force: true });
 }
 console.table(results.map(({ label, notes, unlockToFirstRowMs, unlockToListedMs, requests, revisionAndBlobGETs }) =>
   ({ label, notes, unlockToFirstRowMs, unlockToListedMs, requests, revisionAndBlobGETs })));
