@@ -279,6 +279,7 @@ function padme(n: number): number {
 
 function blobKind(type: string): string {
   return type.startsWith("image/") ? "image" : type === "application/pdf" ? "pdf" : type.startsWith("audio/") ? "audio"
+    : type.startsWith("video/") ? "video"
     : type === "application/vnd.sempere.transcript+json" ? "transcript" : "bin";
 }
 
@@ -417,6 +418,35 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
     { op: "addItem", page: pid, item: { id: id(0x882), kind: "image", layer: 0, frame: [100, 2400, 200, 120], z: "a0", blob: dot, pixelSize: [20, 12], rotation: 45 } },
     { op: "addItem", page: pid, item: { id: id(0x883), kind: "text", layer: 100, frame: [100, 1500, 400, 50], z: "a1",
       text: { font: "sans", size: 18, color: "#000000FF", runs: [{ t: "Far below the ink" }] } } },
+  ]));
+}
+
+// --- Note 7: video clips (format.md §8.2.7): posters, a rotated item, no poster, a poster set and
+// reset later by another device, and a clip whose blob is missing (its poster still draws).
+{
+  const note = "7b7b7b7b-7b7b-47b7-87b7-7b7b7b7b7b7b";
+  const pid = id(0x900);
+  const clip = await blob(note, readFileSync(join(media, "clip.mp4")), "video/mp4");
+  const photo = await blob(note, readFileSync(join(media, "photo.jpg")), "image/jpeg");
+  const dot = await blob(note, readFileSync(join(media, "dot.png")), "image/png");
+  const gone = await blob(note, enc.encode("a clip never written"), "video/quicktime", { skip: true });
+  const video = (n: number, frame: number[], z: string, extra: Json = {}) =>
+    ({ id: id(n), kind: "video", layer: 100, frame, z, blob: clip, pixelSize: [160, 90], duration: 1, codec: "h264", ...extra });
+  await write(note, delta(note, devA, 1, 50, [
+    { op: "setMeta", field: "title", value: "Video clips" },
+    { op: "setMeta", field: "paper", value: { kind: "ruled", spacing: 24, background: "#FFFDF5FF", lineColor: "#C8D4E8FF" } },
+    { op: "setMeta", field: "pageSize", value: letter },
+    { op: "addPage", page: { id: pid, order: "a0", strokes: [] } },
+    { op: "addItem", page: pid, item: video(0x901, [72, 72, 320, 180], "a0", { poster: photo }) },
+    { op: "addItem", page: pid, item: video(0x902, [400, 80, 160, 90], "a1", { rotation: 20, videoRotation: 90, pixelSize: [90, 160] }) },
+    { op: "addItem", page: pid, item: video(0x903, [72, 320, 200, 112.5], "a2") },
+    { op: "addItem", page: pid, item: video(0x904, [300, 320, 240, 135], "a3", { blob: gone, poster: dot, codec: "hevc", duration: 12.5 }) },
+    { op: "addItem", page: pid, item: video(0x905, [72, 480, 96, 54], "a4", { poster: dot }) },
+    { op: "addStroke", page: pid, stroke: stroke(0x906, "pen", "#1A1A1AFF", 2, wave(72, 600, 400)) },
+  ]));
+  await write(note, delta(note, devB, 1, 55, [
+    { op: "setItem", page: pid, itemId: id(0x902), field: "poster", value: dot },
+    { op: "setItem", page: pid, itemId: id(0x905), field: "poster", value: null },
   ]));
 }
 

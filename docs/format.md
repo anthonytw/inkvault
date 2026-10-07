@@ -1525,8 +1525,9 @@ Revisions name a blob with a *blob reference*:
   transcript file itself), 64 lowercase hex digits.
 - `size`: the content's length in bytes.
 - `type`: its media type. Defined: `image/jpeg`, `image/png`, `image/heic`
-  (§8.2.5), `application/pdf` (§8.2.6), `audio/mp4` (§8.3.1),
-  `application/vnd.sempere.transcript+json` (§8.3.2). Others are kept (§7.5).
+  (§8.2.5), `application/pdf` (§8.2.6), `video/mp4` and `video/quicktime`
+  (§8.2.7), `audio/mp4` (§8.3.1), `application/vnd.sempere.transcript+json`
+  (§8.3.2). Others are kept (§7.5).
 
 Every blob reference in a revision is a JSON object with these three keys
 (and possibly unknown ones, §7.5); no other object in a revision body has a
@@ -1567,7 +1568,7 @@ ignored:
 | `image/*` | `image` |
 | `application/pdf` | `pdf` |
 | `audio/*` | `audio` |
-| `video/*` | `video` (reserved, §8.2.7) |
+| `video/*` | `video` (§8.2.7) |
 | `application/vnd.sempere.transcript+json` | `transcript` |
 | anything else | `bin` |
 
@@ -1752,8 +1753,8 @@ is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
-A page's `items` (§5.5) are text boxes, images and PDF page backgrounds,
-placed in page coordinates (points, origin top-left, y down).
+A page's `items` (§5.5) are text boxes, images, PDF page backgrounds and
+video clips, placed in page coordinates (points, origin top-left, y down).
 
 #### 8.2.1 Common fields
 
@@ -1775,8 +1776,8 @@ placed in page coordinates (points, origin top-left, y down).
 plus the fields of its kind (§8.2.4–§8.2.7).
 
 - `id`: UUID.
-- `kind`: `text`, `image` or `pdfPage`; `math` and `video` are reserved
-  (§8.2.7); others per §7.5.
+- `kind`: `text`, `image`, `pdfPage` or `video`; `math` is reserved
+  (§8.2.8); others per §7.5.
 - `layer`: integer z-layer, 0 to 65 535 (§8.2.3). Defined: `0` background,
   `100` content. Absent means `100`. Writers write only defined values;
   readers order by any value in range and treat a value out of range or not
@@ -1794,12 +1795,13 @@ plus the fields of its kind (§8.2.4–§8.2.7).
 
 Numbers are rounded to at most 3 decimals by writers.
 
-The fields of a defined kind (§8.2.4–§8.2.6) are required unless that section
+The fields of a defined kind (§8.2.4–§8.2.7) are required unless that section
 says what their absence means (`rotation`, `crop`, `orientation`, `family`,
-`lang`, …). An item of a defined kind that lacks one, holds one of the wrong
+`lang`, `poster`, …). An item of a defined kind that lacks one, holds one of the wrong
 type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
 side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
-`size` outside its range) is invalid like a bad common field: the revision is
+`size` outside its range, a `duration` negative or not finite, a
+`videoRotation` other than 0, 90, 180 or 270) is invalid like a bad common field: the revision is
 rejected. A field of another kind on an item (an image with `pageIndex`) is
 an unknown field there and kept (§7.5); so are all fields beyond the common ones
 on an item of an unknown kind.
@@ -1816,13 +1818,14 @@ and never changed.
 | `text` | `text` | |
 | `image` | `crop` | `blob`, `pixelSize`, `orientation` |
 | `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
+| `video` | `poster` | `blob`, `pixelSize`, `duration`, `videoRotation`, `codec` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
 - `setItem` with `field` naming an immutable field of any kind, or the
   snapshot-only `origin` or `clocks`, is invalid (the revision is rejected),
   as is a value of the wrong type or out of range for a register in the table.
   `value: null` (or no `value`) resets an optional register (`rotation`,
-  `crop`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
+  `crop`, `poster`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
   the reader does not know is a register (§7.5), and `null` is a value of it
   like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
@@ -1831,8 +1834,8 @@ and never changed.
 - A field named like an immutable field of some kind (`blob` on a text item,
   an unknown field there, §8.2.1) is not a register either: `setItem` can
   never name it, so it keeps the value its `addItem` gave it. Snapshot
-  `clocks` list every register of the item, including `rotation` and `crop`
-  while absent (a reset is a value with a stamp, like `recognitionClock`,
+  `clocks` list every register of the item, including `rotation`, `crop` and
+  `poster` while absent (a reset is a value with a stamp, like `recognitionClock`,
   §5.5).
 - Items merge as sets like strokes (§5.3), with permanent tombstones (§5.4).
   An item belongs to one page; moving it to another page is `removeItem`
@@ -1994,22 +1997,100 @@ PDF before storing it. Within a note one PDF blob serves any number of
 `pdfPage` items. How a writer lays pages out (one note page per PDF page, or
 bands of an infinite page) is its choice (`docs/attachments.md`).
 
-#### 8.2.7 Reserved kinds
+#### 8.2.7 Video
 
-These kind names are reserved for planned features (`docs/attachments.md`
-§14, tasks G1 and G2) and are not defined yet. Writers must not write them
-until this section defines them; readers treat them as unknown kinds (§7.5),
-drawing a placeholder.
+*New: video clips (`docs/attachments.md` §14, task G2).*
+
+```json
+{ "kind": "video", "layer": 100, "frame": [72, 144, 320, 180], "z": "a2",
+  "blob": { "sha256": "…", "size": 48211330, "type": "video/mp4" },
+  "pixelSize": [1920, 1080], "duration": 42.517, "videoRotation": 90,
+  "codec": "hevc",
+  "poster": { "sha256": "…", "size": 81211, "type": "image/jpeg" } }
+```
+
+- `blob` (immutable): the clip, kind `video` (§8.1.2), at most 1 GiB (§8.4).
+  Writers store `video/mp4` (an ISO base media file, `.mp4`/`.m4v`) or
+  `video/quicktime` (a QuickTime movie, `.mov`): a file that starts with an
+  `ftyp` box (an older QuickTime movie may start with `moov`, `wide`, `free`,
+  `skip` or `mdat` instead), holds one
+  `moov` box with at least one video track (`hdlr` `vide`) whose first sample
+  entry is H.264/AVC (`avc1`, `avc3`) or HEVC/H.265 (`hvc1`, `hev1`), and
+  optionally sound tracks (AAC, `mp4a`, recommended) and others (timed
+  metadata, timecode). Writers convert anything else first (another codec,
+  WebM, AVI, fragmented MP4 without a `moov` sample table) or refuse it. They
+  should place `moov` before `mdat` ("fast start") so a reader can show the
+  clip's size before reading the samples; readers accept either order.
+- Metadata: unless the user chose to keep it, writers remove the location
+  and device metadata from the stored bytes: every `udta` and `meta` box
+  directly inside `moov` or a `trak` (`©xyz`, `com.apple.quicktime.location.ISO6709`,
+  make, model, software, creation date), every top-level `meta` box, and
+  every XMP `uuid` box (usertype `BE7ACFCB-97A9-42E8-9C71-999491E3AFAC`,
+  which may hold `exif:GPSLatitude` and the like) at the top level or
+  directly inside `moov` or a `trak` has its type changed to `free` and
+  its contents set to zero bytes. Positions recorded per frame in the
+  samples of a timed-metadata or text track (a drone's or action camera's
+  telemetry) are not removed this way. Nothing else moves, so every sample offset
+  (`stco`, `co64`) stays valid and the clip plays unchanged. Exporters do the
+  same to bytes they pass through into an export unless asked to keep them
+  (as for images, §8.2.5).
+- `pixelSize` (immutable): `[w, h]`, the clip's display size in pixels: the
+  video track's `tkhd` width and height, swapped when `videoRotation` is 90 or
+  270. For layout and the poster's aspect; players use the decoded size.
+- `videoRotation` (immutable, optional): `0`, `90`, `180` or `270`, the
+  clockwise rotation the video track's `tkhd` matrix applies for display
+  (an iPad held upright records 90); absent means 0. Informational: players
+  apply the track matrix themselves, and `pixelSize` and the poster are
+  already upright. It is independent of the item's `rotation` (§8.2.1).
+- `duration` (immutable): seconds, 3 decimals, finite and not negative: the
+  movie's `mvhd` duration (the video track's `mdhd` duration when `mvhd` has
+  none).
+- `codec` (immutable, optional, informational): `h264` or `hevc`, the video
+  track's codec; other names may come from importers.
+- `poster` (optional register): an image blob reference (§8.2.5 rules for
+  `image/jpeg` and `image/png`, metadata stripped), the frame shown before
+  the clip plays and the only part of the item that renderers draw. It is
+  stored upright: renderers ignore any orientation in its data. Its aspect
+  should match `pixelSize`; renderers scale the axes independently. Absent
+  (or `null`) means no poster: a writer that cannot decode the clip (the CLI
+  on Linux without `--poster`) leaves it absent, and a device that can (the
+  app) may set it later with `setItem`, as for `pageText` (§8.2.6). A value
+  that is not a blob reference is invalid (§8.2.2).
+
+Drawing (renderers, exports and readers that do not play the clip, or before
+it plays): the whole poster is mapped onto the frame (§8.5.1, with the crop
+`[0, 0, w, h]` of the poster's decoded size, orientation 1), clipped to the
+frame, then a *play mark* is drawn over it: with `d = min(48, 0.3 · min(fw, fh))`
+and the frame's centre `(mx, my)`, a disc of diameter `d` centred there,
+filled `#00000080`, and a triangle filled `#FFFFFFFF` with corners
+`(mx − 0.18 d, my − 0.25 d)`, `(mx − 0.18 d, my + 0.25 d)` and
+`(mx + 0.27 d, my)`; both are turned with the item's `rotation` about
+`(mx, my)`. An item whose poster is absent, missing, invalid or not
+decodable is drawn as a placeholder (§8.5.2) with the play mark over it, and
+counted in the export report like any placeholder (an absent poster is
+reported as "no poster", not as missing content). A video item counts toward
+an infinite page's extent and is cut across export pages like an image.
+
+Playing: a reader that plays video plays the verified clip (§8.1.4) from a
+private temporary file or memory (`docs/attachments.md` §2 "Large files"),
+applies the track matrix, and draws the frame's rectangle with the decoded
+picture fitted inside it (aspect kept). A reader that cannot play the clip
+(no decoder for its codec, a renderer, an exporter) shows the poster and play
+mark as above and may offer the clip as a file. A `pdf` export with
+attachments embeds the clip as an embedded file (`docs/attachments.md` §10).
+
+#### 8.2.8 Reserved kinds
+
+This kind name is reserved for a planned feature (`docs/attachments.md`
+§14, task G1) and is not defined yet. Writers must not write it until this
+section defines it; readers treat it as an unknown kind (§7.5), drawing a
+placeholder.
 
 - `math`: an equation, edited as LaTeX source and drawn typeset. Planned
   fields: `latex` (register, the source), `display` (register, display or
   inline style), `size` and `color` as for text, and `render` (register, a
   blob reference to a one-page PDF of the typeset result, so renderers
   without a math typesetter still draw it).
-- `video`: a video clip on the page. Planned fields: `blob` (`video/mp4` or
-  `video/quicktime`, kind `video`, within the blob limit of §8.4),
-  `poster` (an image blob reference drawn in the frame), `duration`, and
-  `rec`-style links as for audio.
 
 ### 8.3 Recordings
 
@@ -2120,7 +2201,7 @@ Writers must stay within, and readers may reject anything beyond:
 
 | What | Limit |
 | --- | --- |
-| blob content (any kind, including future video) | 1 GiB (2^30 bytes) |
+| blob content (any kind, including video) | 1 GiB (2^30 bytes) |
 | transcript content | 64 MiB |
 | text of one item | 65 536 UTF-8 bytes, 1 000 runs, 10 000 `breaks` |
 | items per page | 10 000 |
@@ -2167,7 +2248,7 @@ point `(a, b)` in PDF user space, with the visible box (CropBox ∩ MediaBox)
 
 An item whose blob is missing, unreadable, invalid (§8.1.4) or of a type the
 renderer cannot draw, and an item of an unknown or reserved kind (§7.5,
-§8.2.7), is drawn as a placeholder: its frame (rotated) outlined 1 pt in
+§8.2.8), is drawn as a placeholder: its frame (rotated) outlined 1 pt in
 `#9AA0A6FF` with both diagonals. A background placeholder still fills its
 frame (§8.2.3). The export goes on and reports each placeholder; it never
 fails because of one.

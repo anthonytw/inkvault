@@ -156,8 +156,9 @@ public enum MarkdownExport {
     ///   - pdfName: file name of the note's PDF, next to the `.md`; nil when
     ///     the export has no PDF (the file then leads with the recognised text).
     ///   - pageImages: per note page, the images (paths relative to the `.md`) of that page; may be empty.
+    ///   - videos: the note's clips written next to it (`ExportVideos`), with their paths relative to the `.md`.
     public static func note(info: ExportNoteInfo, state: NoteState, pdfName: String?,
-                            pageImages: [[String]] = []) -> String {
+                            pageImages: [[String]] = [], videos: [(clip: ExportVideos.Clip, path: String)] = []) -> String {
         var md = frontMatter(info) + "\n"
         md += "# \(oneLine(info.displayTitle))\n"
         if let pdfName {
@@ -168,16 +169,24 @@ public enum MarkdownExport {
             let images = i < pageImages.count ? pageImages[i] : []
             let text = page.recognition.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
             let typed = typedText(page)
-            if images.isEmpty && text.isEmpty && typed.isEmpty { continue }
+            let clips = videos.filter { $0.clip.page == i }
+            if images.isEmpty && text.isEmpty && typed.isEmpty && clips.isEmpty { continue }
             md += "\n## Page \(i + 1)\n\n"
             for img in images { md += "![Page \(i + 1)](\(linkPath(img)))\n" }
-            if !text.isEmpty {
+            if !clips.isEmpty {
                 if !images.isEmpty { md += "\n" }
+                for (clip, path) in clips {
+                    let length = ExportVideos.clock(clip.duration).map { " (\($0))" } ?? ""
+                    md += "![[\(path)]]\n[\(linkText(clip.label + length))](\(linkPath(path)))\n"
+                }
+            }
+            if !text.isEmpty {
+                if !images.isEmpty || !clips.isEmpty { md += "\n" }
                 md += "Machine-recognized text (engine `\(oneLine(page.recognition?.engine ?? "").replacingOccurrences(of: "`", with: "'"))`, may contain errors):\n\n"
                 md += fenced(text)
             }
             if !typed.isEmpty {
-                if !images.isEmpty || !text.isEmpty { md += "\n" }
+                if !images.isEmpty || !clips.isEmpty || !text.isEmpty { md += "\n" }
                 md += "Typed text:\n\n"
                 md += typed.map(fenced).joined(separator: "\n")
             }
