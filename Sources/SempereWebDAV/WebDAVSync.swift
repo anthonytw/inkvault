@@ -18,10 +18,11 @@ public struct WebDAVSyncOptions: Sendable {
     /// encryption overhead.
     public var maxBlobBytes = WebDAVSyncOptions.defaultMaxBlobBytes
 
-    /// Create the server's `sempere-summaries.sealed` (format.md §12) when it
-    /// has none; an existing one is kept current either way (needs the vault
-    /// unlocked).
-    public var publishSummaries = false
+    /// Create the server's `sempere-index.json` and `sempere-summaries.sealed`
+    /// (format.md §12), what the web viewer lists a vault from, when it has
+    /// none; existing ones are kept current either way (the summaries need the
+    /// vault unlocked).
+    public var publishForWebViewer = false
     /// Where notes are summarised for that file through the summary cache
     /// (format.md §10); nil reads every changed note.
     public var summaryCacheDirectory: URL?
@@ -135,7 +136,7 @@ public final class WebDAVSync {
                 report.errors.append(.init(path: "notes/\(id)", message: Self.describe(error)))
             }
         }
-        if !options.dryRun, let entry = remoteRoot[WebIndex.fileName], !entry.isCollection {
+        if !options.dryRun, options.publishForWebViewer || remoteRoot[WebIndex.fileName].map({ !$0.isCollection }) ?? false {
             do { try refreshRemoteWebIndex() } catch {
                 report.errors.append(.init(path: WebIndex.fileName, message: Self.describe(error)))
             }

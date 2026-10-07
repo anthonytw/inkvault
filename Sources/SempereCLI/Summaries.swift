@@ -17,7 +17,7 @@ struct VaultSummaries: ParsableCommand {
             only changed notes are read (and the summary cache, unless --no-cache).
 
             Once it exists it stays current: every sempere command that unlocks the vault rewrites it when a
-            note changed, and sync webdav keeps the server's copy current (or creates it with --summaries).
+            note changed, and sync webdav keeps the server's copy current (or creates it with --web-viewer).
             --out - prints the sealed file; --plaintext writes the JSON content instead (for checks; it holds
             note titles and text in the clear).
             """

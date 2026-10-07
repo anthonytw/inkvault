@@ -59,3 +59,13 @@ final class CLISummariesTests: CLITestCase {
         XCTAssertEqual((notes[Self.lecture]?["revisions"] as? [String])?.count, 6)
     }
 }
+
+/// `sync webdav --web-viewer` needs the key (the summaries are sealed under the vault secret).
+final class CLISyncWebViewerTests: CLITestCase {
+    func testWebViewerFlagNeedsTheVaultUnlocked() throws {
+        let vault = try copyFixtureVault()
+        let r = try cli(["sync", "webdav", "http://127.0.0.1:9/vault/", "--vault", vault, "--web-viewer"])
+        XCTAssertEqual(r.status, 2, r.err)
+        XCTAssertTrue(r.err.contains("--web-viewer needs the vault unlocked"), r.err)
+    }
+}

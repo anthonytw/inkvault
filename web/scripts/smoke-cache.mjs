@@ -1,0 +1,149 @@
+// Browser smoke test of opening fast (docs/web-viewer.md "Opening fast"), not
+// part of `npm test`: serves dist/ and a vault on one origin (/vault/, WebDAV
+// PROPFIND or sempere-index.json), with an optional config.json, and drives
+// the viewer in Chromium with Playwright. Checks:
+//   - with config.json (allowOtherVaults false): straight to the key prompt, no
+//     URL field, folder picker or drop zone, and ?vault= ignored;
+//   - without it: the ad-hoc open screen;
+//   - a second visit (same browser profile) requests no revision or blob it
+//     fetched before, and lists the same notes;
+//   - with sempere-summaries.sealed, even a first visit lists without reading revisions
+//     (and, with sempere-index.json and "listing": "index", without PROPFIND).
+// Prints first- and second-visit timings (LATENCY_MS adds a delay to every request).
+// Usage: node scripts/smoke-cache.mjs VAULT_DIR KEY_FILE
+import { createServer } from "node:http";
+import { readFileSync, readdirSync, statSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { join, extname } from "node:path";
+import { tmpdir } from "node:os";
+const { chromium } = await import(process.env.PLAYWRIGHT ?? "playwright");
+
+const [vaultDir, keyFile] = process.argv.slice(2);
+const latency = Number(process.env.LATENCY_MS ?? "0");
+const dist = join(import.meta.dirname, "..", "dist");
+const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json" };
+
+let config = null;          // config.json body, or null for none
+let withSummaries = true;   // serve sempere-summaries.sealed when the vault has one
+let log = [];
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url, "http://x");
+  const path = decodeURIComponent(url.pathname);
+  log.push(`${req.method} ${path}`);
+  const send = (status, body, type = "application/octet-stream") => setTimeout(() => {
+    res.writeHead(status, { "content-type": type }); res.end(body);
+  }, latency);
+  if (path.startsWith("/vault/")) {
+    const rel = path.slice("/vault/".length);
+    if (rel.includes("..")) return send(400, "");
+    const file = join(vaultDir, rel);
+    if (req.method === "PROPFIND") {
+      if (!existsSync(file) || !statSync(file).isDirectory()) return send(404, "");
+      const items = readdirSync(file).map((n) => `<d:response><d:href>/vault/${rel}${encodeURIComponent(n)}${statSync(join(file, n)).isDirectory() ? "/" : ""}</d:href></d:response>`);
+      return send(207, `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/vault/${rel}</d:href></d:response>${items.join("")}</d:multistatus>`, "application/xml");
+    }
+    if (rel === "sempere-summaries.sealed" && !withSummaries) return send(404, "");
+    if (!existsSync(file) || statSync(file).isDirectory()) return send(404, "");
+    return send(200, readFileSync(file));
+  }
+  if (path === "/config.json") return config ? send(200, config, "application/json") : send(404, "");
+  const f = join(dist, path === "/" ? "index.html" : path);
+  if (!existsSync(f)) return send(404, "");
+  send(200, readFileSync(f), types[extname(f)] ?? "application/octet-stream");
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const base = `http://127.0.0.1:${server.address().port}`;
+const key = readFileSync(keyFile, "utf8");
+const isFileRead = (l) => /^GET \/vault\/notes\/[0-9a-f-]+\/(att\/)?[^/]+\.age$/.test(l);
+
+const failures = [];
+const check = (ok, what) => { if (!ok) failures.push(what); };
+const profile = mkdtempSync(join(tmpdir(), "sempere-smoke-"));
+const results = [];
+
+async function visit(context, label, { query = "", expectPrompt = false } = {}) {
+  log = [];
+  const page = await context.newPage();
+  const problems = [];
+  page.on("pageerror", (e) => problems.push(String(e)));
+  const t0 = Date.now();
+  await page.goto(`${base}/${query}`);
+  if (expectPrompt) {
+    await page.waitForSelector("textarea", { timeout: 30000 });
+    check(await page.$("input[type=url]") === null, `${label}: URL field shown with config.json`);
+    check(await page.$(".drop") === null, `${label}: drop zone shown with config.json`);
+    check(!(await page.textContent("body")).includes("Open a vault folder"), `${label}: folder picker shown with config.json`);
+    check((await page.textContent(".lede")).includes(`${base}/vault/`), `${label}: not the configured vault`);
+  } else {
+    await page.waitForSelector("input[type=url]", { timeout: 30000 });
+    await page.fill("input[type=url]", `${base}/vault/`);
+    await page.click("form button[type=submit]");
+    await page.waitForSelector("textarea", { timeout: 30000 });
+  }
+  const tKey = Date.now();
+  await page.fill("textarea", key);
+  await page.click("form button[type=submit]");
+  await page.waitForSelector(".note-list .title", { timeout: 60000 });
+  const tFirstRow = Date.now();
+  await page.waitForFunction(() => /^\d+ notes?( ·|$)/.test(document.querySelector(".status")?.textContent ?? ""), null, { timeout: 120000 });
+  const tListed = Date.now();
+  const titles = await page.$$eval(".note-list .title", (els) => els.map((e) => e.textContent).sort());
+  const fileReads = log.filter(isFileRead);
+  const requests = log.length;
+  const status = await page.textContent(".status");
+  // Opening a note decrypts its body.
+  await page.click(".note-list button.note >> nth=0");
+  await page.waitForSelector(".page svg, .note-header h2", { timeout: 30000 });
+  await page.close();
+  check(problems.length === 0, `${label}: page errors ${problems.join("; ")}`);
+  const r = { label, status, notes: titles.length, unlockToFirstRowMs: tFirstRow - tKey, unlockToListedMs: tListed - tKey,
+    totalMs: tListed - t0, requests, revisionAndBlobGETs: fileReads.length };
+  results.push(r);
+  return { ...r, titles, fileReads };
+}
+
+const browser = await chromium.launch();
+try {
+  // 1. Ad-hoc mode (no config.json), no summaries: first and second visit in one profile.
+  config = null; withSummaries = false;
+  let context = await browser.newContext({ viewport: { width: 1300, height: 850 } });
+  const first = await visit(context, "ad hoc, no summaries, first visit");
+  const second = await visit(context, "ad hoc, no summaries, second visit (cache)");
+  check(first.fileReads.length > 0, "first visit read no revision");
+  check(second.fileReads.length === 0, `second visit re-fetched unchanged files: ${second.fileReads.join(", ")}`);
+  check(JSON.stringify(first.titles) === JSON.stringify(second.titles), "second visit lists other notes");
+  await context.close();
+
+  // 2. config.json mode, with summaries: a first visit lists without reading any revision.
+  config = JSON.stringify({ vault: "./vault/", listing: "webdav", allowOtherVaults: false }); withSummaries = true;
+  if (existsSync(join(vaultDir, "sempere-summaries.sealed"))) {
+    context = await browser.newContext({ viewport: { width: 1300, height: 850 } });
+    const s1 = await visit(context, "config.json, summaries, first visit", { query: "?vault=https://elsewhere.example/", expectPrompt: true });
+    check(s1.fileReads.length === 0, `listing with summaries read revisions: ${s1.fileReads.slice(0, 5).join(", ")}`);
+    check(JSON.stringify(s1.titles) === JSON.stringify(first.titles), "summaries list other notes than the revisions");
+    const s2 = await visit(context, "config.json, summaries, second visit", { expectPrompt: true });
+    check(s2.fileReads.length === 0, "second visit with summaries read revisions");
+    await context.close();
+    if (existsSync(join(vaultDir, "sempere-index.json"))) {
+      config = JSON.stringify({ vault: "./vault/", listing: "index" });
+      context = await browser.newContext({ viewport: { width: 1300, height: 850 } });
+      const i1 = await visit(context, "config.json, summaries + index, first visit", { expectPrompt: true });
+      check(i1.fileReads.length === 0, "index listing with summaries read revisions");
+      check(!log.some((l) => l.startsWith("PROPFIND")), "index listing sent PROPFIND");
+      await context.close();
+    }
+  } else {
+    console.log("(no sempere-summaries.sealed in the vault: summaries scenario skipped; run `sempere vault summaries`)");
+  }
+} finally {
+  await browser.close();
+  server.close();
+  rmSync(profile, { recursive: true, force: true });
+}
+console.table(results.map(({ label, notes, unlockToFirstRowMs, unlockToListedMs, requests, revisionAndBlobGETs }) =>
+  ({ label, notes, unlockToFirstRowMs, unlockToListedMs, requests, revisionAndBlobGETs })));
+if (failures.length) {
+  console.error("FAILED:\n" + failures.join("\n"));
+  process.exit(1);
+}
+console.log("ok");

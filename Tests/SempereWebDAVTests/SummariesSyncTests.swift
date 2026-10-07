@@ -10,7 +10,7 @@ final class SummariesSyncTests: SyncTestCase {
     @discardableResult
     func syncSummaries(_ name: String, _ server: MockDAV, publish: Bool = false, locked: Bool = false) throws -> SyncReport {
         var options = WebDAVSyncOptions(deviceLabel: name)
-        options.publishSummaries = publish
+        options.publishForWebViewer = publish
         let vault = locked ? try Vault.open(at: dir(name)) : try openVault(name)
         let s = WebDAVSync(directory: dir(name), vault: vault, client: try client(server),
                            stateURL: tmp.appendingPathComponent("state-\(name).json"), options: options)
@@ -36,10 +36,12 @@ final class SummariesSyncTests: SyncTestCase {
         let n1 = UUID(), n2 = UUID()
         _ = try newNote(a, n1, title: "Synthetic one", t: 0)
         try syncSummaries("A", server)
-        XCTAssertNil(server.file(PublishedSummaries.fileName), "never created without --summaries")
+        XCTAssertNil(server.file(PublishedSummaries.fileName), "never created without --web-viewer")
+        XCTAssertNil(server.file(WebIndex.fileName))
 
         let report = try syncSummaries("A", server, publish: true)
         XCTAssertTrue(report.uploaded.contains(PublishedSummaries.fileName))
+        XCTAssertTrue(report.uploaded.contains(WebIndex.fileName), "the index too")
         XCTAssertEqual(try remote(server, a)?[n1]?.title, "Synthetic one")
         XCTAssertNil(try a.readPublishedSummaries()[n1], "nothing written locally")
 
@@ -48,7 +50,7 @@ final class SummariesSyncTests: SyncTestCase {
         XCTAssertFalse(try syncSummaries("A", server).uploaded.contains(PublishedSummaries.fileName))
         XCTAssertFalse(server.requests[before...].contains { $0.path.hasSuffix(PublishedSummaries.fileName) })
 
-        // A new note: rewritten, without --summaries since it exists now.
+        // A new note: rewritten, without --web-viewer since it exists now.
         _ = try newNote(a, n2, title: "Synthetic two", t: 10)
         XCTAssertTrue(try syncSummaries("A", server).uploaded.contains(PublishedSummaries.fileName))
         XCTAssertEqual(Set(try remote(server, a)?.keys.map { $0 } ?? []), [n1, n2])

@@ -14,7 +14,7 @@ import Sempere
 extension WebDAVSync {
     func refreshRemoteSummaries(exists: Bool) {
         let name = PublishedSummaries.fileName
-        guard exists || options.publishSummaries else { return }
+        guard exists || options.publishForWebViewer else { return }
         guard let vault else {
             report.skipped.append(.init(path: name, message: "vault not unlocked (--identity): the server's summaries are not updated"))
             return
