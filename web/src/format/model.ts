@@ -666,6 +666,8 @@ export function encodeState(s: NoteState, formatDate: (ms: number) => string): J
     paper: encodePaper(m.paper), pageSize: { ...m.pageSize },
   };
   if (m.notebook !== undefined) meta.notebook = m.notebook;
+  if (m.lang !== undefined) meta.lang = m.lang;
+  if (m.markersBehindText === true) meta.markersBehindText = true;
   const o: JSONObject = { deleted: s.deleted, meta, pages: s.pages.map(encodePage) };
   if (s.clocks && Object.keys(s.clocks).length > 0) o.clocks = s.clocks;
   const t = s.tombstones;

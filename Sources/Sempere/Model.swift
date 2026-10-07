@@ -562,7 +562,7 @@ public struct NoteMeta: Hashable, Sendable, Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(title, forKey: .title)
         try c.encode(tags, forKey: .tags)
-        try c.encode(notebook, forKey: .notebook)
+        try c.encodeIfPresent(notebook, forKey: .notebook)
         try c.encode(favorite, forKey: .favorite)
         try c.encode(created, forKey: .created)
         try c.encode(paper, forKey: .paper)
