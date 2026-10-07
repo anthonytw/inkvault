@@ -33,7 +33,11 @@ struct SyncWebDAVCommand: ParsableCommand {
             entries changed. --web-viewer creates it, and sempere-index.json (the one-request listing), on a
             server that has none. Neither is ever copied between the two sides.
 
-            Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve.
+            A remote vault.json whose device list changed without a valid tag (format.md §2.1) is never
+            copied over the local one: it is reported as rejected and the exit code is 6 (checking a changed
+            list needs the key: pass --identity or --passphrase-env).
+
+            Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve, 6 a rejected vault.json.
             """
     )
 
@@ -109,6 +113,7 @@ struct SyncWebDAVCommand: ParsableCommand {
             printReport(report)
         }
         if !report.errors.isEmpty { throw ExitCode(ExitStatus.failure) }
+        if !report.rejected.isEmpty { throw ExitCode(ExitStatus.untrustedRecipients) }
         if !report.conflicts.isEmpty { throw ExitCode(ExitStatus.unhealthy) }
     }
 
@@ -125,6 +130,7 @@ struct SyncWebDAVCommand: ParsableCommand {
             printStderr("conflict: \(c.path): \(c.detail)" + (c.remoteCopy.map { "; server copy kept as \($0)" } ?? ""))
         }
         for e in r.errors { printStderr("error: \(e.path): \(e.message)") }
+        for e in r.rejected { printStderr("rejected: \(e.path): \(e.message); the local copy is kept") }
         output.info("\(r.dryRun ? "dry run: " : "")\(r.uploaded.count) uploaded, \(r.downloaded.count) downloaded, "
                     + "\(r.deleted.count) deleted, \(r.conflicts.count) conflicts, \(r.errors.count) errors"
                     + (r.skipped.isEmpty ? "" : ", \(r.skipped.count) skipped (-v)"))

@@ -9,7 +9,8 @@ import { CachingSource } from "../vault/cache.ts";
 import { type ViewerConfig, loadConfig } from "../vault/config.ts";
 import { type ListingProgress, listVault } from "../vault/listing.ts";
 import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional } from "../vault/source.ts";
-import { UnlockedVault, VaultError, limits, parseIdentity, parseManifest, type VaultManifest } from "../vault/vault.ts";
+import { type RecipientsStatus, UnlockedVault, VaultError, limits, parseIdentity, parseManifest, recipientsWarningText,
+  type VaultManifest } from "../vault/vault.ts";
 import { clear, formatDate, h } from "./dom.ts";
 import { NoteView, hasUnknownPaper } from "./noteview.ts";
 import { RecordingsPanel } from "./recordings.ts";
@@ -217,6 +218,7 @@ export class App {
         h("strong", { text: "Sempere" }), h("span", { class: "vault-label", text: src.label, title: src.label }), this.status,
         clearCacheButton(),
         h("button", { text: "Lock", class: "secondary", attrs: { type: "button" }, title: "Forget the key and close the vault", on: { click: () => this.lock() } })),
+      ...recipientsWarning(this.vault?.recipientsStatus),
       h("div", { class: "columns" }, this.sidebar,
         h("div", { class: "list-column" }, h("div", { class: "search" }, searchBox), this.list),
         this.detail)));
@@ -451,4 +453,10 @@ export class App {
       this.view.root);
     if (page !== undefined) requestAnimationFrame(() => requestAnimationFrame(() => this.view?.showPage(page)));
   }
+}
+
+/** A banner when vault.json's device list does not check (format.md §2.1). */
+function recipientsWarning(status: RecipientsStatus | undefined): HTMLElement[] {
+  const text = recipientsWarningText(status);
+  return text ? [h("p", { class: "warning", attrs: { role: "alert" }, text })] : [];
 }

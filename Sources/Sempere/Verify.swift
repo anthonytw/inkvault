@@ -52,6 +52,9 @@ public struct VerifyReport: Hashable, Sendable {
 
     /// Problems found in `vault.json`; empty when it is fine.
     public var manifestProblems: [String] = []
+    /// How the recipients list checked (format.md §2.1). A tampered list is
+    /// also a manifest problem; an untagged one is not (writers upgrade it).
+    public var recipients: RecipientsStatus = .notChecked
     /// Every entry examined, in walk order.
     public var files: [FileResult] = []
     /// True while a recipient change is unfinished.
@@ -102,6 +105,8 @@ extension Vault {
         report.rewrapPending = pendingRewrap
         report.journalProblem = pendingRewrap ? journalProblem : nil
         report.manifestProblems = manifestProblems()
+        report.recipients = recipientsStatus
+        if let problem = recipientsStatus.problem { report.manifestProblems.append(problem.description) }
 
         /// Lists `dir`, recording an `unlistable` entry instead of throwing.
         func list(_ dir: URL, as path: String) -> [String] {
