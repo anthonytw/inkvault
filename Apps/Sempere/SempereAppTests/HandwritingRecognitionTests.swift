@@ -12,6 +12,7 @@ import Vision
 final class FakeRecognizer: PageRecognizing, @unchecked Sendable {
     private let lock = NSLock()
     private var seen: [[UUID]] = []
+    private var seenLanguages: [String?] = []
     let gate: Gate?
     let fail: Bool
 
@@ -19,10 +20,15 @@ final class FakeRecognizer: PageRecognizing, @unchecked Sendable {
 
     var calls: [[UUID]] { lock.lock(); defer { lock.unlock() }; return seen }
 
-    private func record(_ ids: [UUID]) { lock.lock(); seen.append(ids); lock.unlock() }
+    /// The `language` of each call.
+    var languages: [String?] { lock.lock(); defer { lock.unlock() }; return seenLanguages }
 
-    func recognize(strokes: [Stroke]) async throws -> Recognition {
-        record(strokes.map(\.id))
+    private func record(_ ids: [UUID], _ language: String?) {
+        lock.lock(); seen.append(ids); seenLanguages.append(language); lock.unlock()
+    }
+
+    func recognize(strokes: [Stroke], language: String?) async throws -> Recognition {
+        record(strokes.map(\.id), language)
         await gate?.pass()
         if fail { throw CocoaError(.fileReadUnknown) }
         return Recognition(engine: "fake-1", text: "fake \(strokes.count)",
@@ -67,6 +73,23 @@ struct EditorRecognitionTests {
         await editor.recognizePending()
         #expect(editor.recognitionsWritten == 2)
         #expect(fake.calls.count == 2)
+    }
+
+    /// The note's handwriting language (format.md §5.4 `lang`) is what the recogniser is asked to read in.
+    @Test func readsInTheNotesLanguage() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        _ = try vault.apply([.setMeta(.lang("es-ES"))], to: Self.lecture, deviceState: TS.deviceStateURL(), app: "test/1")
+        let fake = FakeRecognizer()
+        let (editor, _) = try await Self.open(vault, recognizer: fake)
+        await editor.recognizePending()
+        #expect(fake.languages == ["es-ES", "es-ES"])
+
+        // Without one, the recogniser's default (nil).
+        let (plain, _) = try TS.unlockedFixture()
+        let other = FakeRecognizer()
+        let (editor2, _) = try await Self.open(plain, recognizer: other)
+        await editor2.recognizePending()
+        #expect(other.languages == [nil, nil])
     }
 
     @Test func aNewStrokeSavesFirstThenReplacesTheRecognition() async throws {

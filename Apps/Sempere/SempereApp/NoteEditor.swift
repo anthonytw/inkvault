@@ -880,7 +880,7 @@ extension NoteEditor {
             var result: Recognition?
             if !strokes.isEmpty {
                 do {
-                    var r = try await recognizer.recognize(strokes: strokes)
+                    var r = try await recognizer.recognize(strokes: strokes, language: meta.lang)
                     r.basis = digest
                     result = r
                 } catch {

@@ -28,6 +28,8 @@ enum RecognitionRun {
         var read: [Int] = []
         /// Pages whose recognised text was cleared: they have no ink left.
         var cleared: [Int] = []
+        /// The note's `meta.lang`, the language Vision was asked to read in (absent: automatic).
+        var language: String?
         /// The delta written, a file name in the note's folder.
         var file: String?
         var error: String?
@@ -36,10 +38,12 @@ enum RecognitionRun {
     /// The recognition of one page's strokes, `basis` set to their digest:
     /// empty text when no stroke is readable (only markers), nil when the
     /// page has no strokes (its recognition is cleared).
-    static func recognize(_ strokes: [Stroke]) throws -> Recognition? {
+    /// `language` is the note's `meta.lang` (format.md §5.4).
+    static func recognize(_ strokes: [Stroke], language: String? = nil) throws -> Recognition? {
         guard !strokes.isEmpty else { return nil }
         #if canImport(Vision)
-        var r = try VisionText.recognize(strokes: strokes) ?? Recognition(engine: VisionText.engine, text: "")
+        var r = try VisionText.recognize(strokes: strokes, language: language)
+            ?? Recognition(engine: VisionText.engine, text: "")
         r.basis = RecognitionBasis.digest(of: strokes.map(\.id))
         return r
         #else
@@ -64,13 +68,17 @@ enum RecognitionRun {
                 let state = try vault.reconstruct(try vault.loadNote(id, detail: .withoutStrokePoints))
                 guard !state.deleted else { throw CLIError.failure("the note is deleted") }
                 record(state, RecognitionPolicy.pagesToRead(state.pages, mode: mode))
+                result.language = state.meta.lang
                 return result
             }
             let r = try editNote(vault, id) { state in
                 guard !state.deleted else { throw CLIError.failure("the note is deleted") }
                 let pages = RecognitionPolicy.pagesToRead(state.pages, mode: mode)
                 record(state, pages)
-                return try pages.map { .setPageRecognition(pageId: $0.id, recognition: try recognize($0.strokes)) }
+                result.language = state.meta.lang
+                return try pages.map {
+                    .setPageRecognition(pageId: $0.id, recognition: try recognize($0.strokes, language: state.meta.lang))
+                }
             }
             result.file = r?.name.filename
         } catch {

@@ -157,3 +157,26 @@ public enum RecognitionLayout {
         return Recognition.Box(x: x, y: y, w: max(a.x + a.w, b.x + b.w) - x, h: max(a.y + a.h, b.y + b.h) - y)
     }
 }
+
+/// The recognition language of a note (format.md §5.4 `lang`, §5.5): which of
+/// a recogniser's languages to ask for. Shared by the app's Vision recogniser
+/// and `sempere recognize`; pure, so it is tested on Linux.
+public enum RecognitionLanguage {
+    /// The languages to request for a note whose `lang` is `lang`, from the
+    /// recogniser's `supported` identifiers (Vision's are like `en-US`,
+    /// `es-ES`, `zh-Hans`), best first: the exact tag (case-insensitive,
+    /// `_` read as `-`), else every supported tag of the same language
+    /// (`es` → `es-ES`, `es-MX`; `es-AR` → `es-ES` too), preferring the
+    /// region's own. Nil when `lang` is nil or invalid or no supported
+    /// language matches: the recogniser then uses its default (automatic
+    /// detection).
+    public static func preferred(for lang: String?, supported: [String]) -> [String]? {
+        guard let lang, let tag = NoteMeta.validLanguage(lang) else { return nil }
+        let want = tag.lowercased()
+        let wantLanguage = want.split(separator: "-").first.map(String.init) ?? want
+        func normalized(_ s: String) -> String { s.replacingOccurrences(of: "_", with: "-").lowercased() }
+        if let exact = supported.first(where: { normalized($0) == want }) { return [exact] }
+        let sameLanguage = supported.filter { (normalized($0).split(separator: "-").first.map(String.init) ?? "") == wantLanguage }
+        return sameLanguage.isEmpty ? nil : sameLanguage
+    }
+}

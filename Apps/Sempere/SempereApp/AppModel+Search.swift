@@ -171,7 +171,7 @@ extension AppModel {
             let digest = RecognitionBasis.digest(of: page)
             var result: Recognition?
             if !page.strokes.isEmpty {
-                var r = try await recognizer.recognize(strokes: page.strokes)
+                var r = try await recognizer.recognize(strokes: page.strokes, language: state.meta.lang)
                 r.basis = digest
                 result = r
             }
