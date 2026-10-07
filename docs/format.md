@@ -40,7 +40,9 @@ Unknown files and directories must be ignored, never deleted.
     { "key": "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
       "label": "Anthony's iPad", "added": "2026-10-04T16:20:00Z" }
   ],
-  "vaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n-----END AGE ENCRYPTED FILE-----\n"
+  "vaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n-----END AGE ENCRYPTED FILE-----\n",
+  "features": ["recipients-tag"],
+  "recipientsTag": "5b0e6f…(64 hex digits)…"
 }
 ```
 
@@ -58,7 +60,129 @@ Unknown files and directories must be ignored, never deleted.
   extensions the vault uses. A writer adds `"attachments"` before it writes
   the first blob or attachment op (§8). A writer that finds a feature it does
   not implement must not write to the vault (it may still read it, §7).
-  Absent means `[]`.
+  Absent means `[]`. `"recipients-tag"` (*new: authenticated recipients*)
+  says the vault carries `recipientsTag` (§2.1).
+- `recipientsTag`, `secretLink` (optional, *new: authenticated recipients*):
+  §2.1.
+
+### 2.1 Authenticated recipients
+
+*New: authenticated recipients.* `vault.json` is plaintext, and everything a
+writer encrypts goes to the keys in `recipients`. Without this section,
+anyone who can write the vault folder (a sync server, a shared folder, a
+stolen backup put back) could add their own recipient, and every writer would
+encrypt new revisions, blobs and captures to it. Revisions and blobs are
+authenticated by the vault secret (§4, §8.1.2), which such an attacker does
+not know; `recipientsTag` extends that to the recipients list, and
+`secretLink` to the secret itself.
+
+**Keys.** With `vaultSecret` (§2) as HKDF-SHA256 input key material
+(RFC 5869, empty salt), as for the other derived keys (§10, §11.1):
+
+```
+recipientsKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 recipients key", L = 32)
+linkKey       = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link key", L = 32)
+secretId      = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret id", L = 32)
+```
+
+**Tag.** `recipientsTag` is the lowercase hex (64 digits) of
+
+```
+HMAC-SHA256(key = recipientsKey,
+            message = "sempere/1" ‖ 0x00 ‖ "recipients" ‖ 0x00 ‖ vaultId
+                      ‖ 0x00 ‖ key₁ ‖ 0x00 ‖ key₂ … ‖ 0x00 ‖ keyₙ)
+```
+
+over `vaultId` and every `recipients[].key`, in list order, each exactly as
+written in `vault.json` (UTF-8; neither contains `0x00`). These are the fields
+that decide who can decrypt: adding, removing, replacing or reordering a key
+changes the tag. `label` and `added` are informational and not covered.
+The tag also covers `vaultSecret` implicitly: under another secret it does
+not verify.
+
+**Secret link.** Anyone can encrypt a secret of their own to public keys, so
+a forged `vault.json` could carry a fresh secret, the attacker's recipient and
+a tag that verifies under that secret. Whenever a writer rotates the secret
+(§3.3) it therefore writes `secretLink`, the lowercase hex (64 digits) of
+
+```
+HMAC-SHA256(key = linkKey(old secret),
+            message = "sempere/1" ‖ 0x00 ‖ "secret link" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ secretId(new secret))
+```
+
+which only a holder of the outgoing secret can compute. It is kept, unchanged,
+by changes that do not rotate the secret, and replaced by the next rotation.
+
+**Trust record.** A reader that writes keeps, per device and per vault,
+outside the vault and never in it (like §10): the vault id, `linkKey` of the
+last secret it verified, and the keys of the last recipients list it verified.
+The reference implementation keeps it in
+`$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI, mode 0600) and in the
+app's Application Support folder. It holds no secret: `linkKey` can only
+check a `secretLink`.
+
+**Writing.** Every write of `recipients` (creating a vault, adding, removing
+or replacing a recipient, a migration, finishing an interrupted change, a
+repair) writes `recipientsTag` under the secret written with it, in the same
+atomic write of `vault.json` (§3.3.1 step 2), adds `"recipients-tag"` to
+`features`, and, when the secret rotated, `secretLink`. Older writers do not
+know the feature and stop writing (§2), so they never encrypt to a list they
+cannot check nor drop the tag by rewriting `vault.json`.
+
+**Checking.** A reader holding the secret classifies the list:
+
+1. `recipientsTag` present: if it is not 64 lowercase hex digits or does not
+   verify, the list is **tampered**.
+2. `recipientsTag` absent: if `features` names `"recipients-tag"` or the
+   device has a trust record for the vault, the tag was removed
+   (a **downgrade**) and the list is tampered; otherwise the vault is
+   **untagged** (written before this section).
+3. The tag verifies and the device has a trust record: if `linkKey` of the
+   current secret equals the record's, the list is **verified**. Otherwise
+   the secret changed since the device last checked: if `secretLink` verifies
+   under the record's `linkKey`, the list is verified (a rotation by a key
+   holder). If it does not, the change is **unconfirmed**: the list is
+   tampered when it holds a key that is not in the record's list, and
+   verified otherwise (nobody this device did not already trust can read
+   what it writes). A device that missed two or more rotations, of which one
+   added a key, therefore sees a tampered list; it can confirm the list
+   explicitly (below).
+4. The tag verifies and the device has no trust record: verified (first use
+   on this device).
+
+A verified list updates the trust record. A tampered list is **refused for
+writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
+files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
+reports the keys that are not in the last verified list (the **unexpected**
+keys). Reading notes still works: revisions and blobs carry their own tags.
+The last verified list is the trust record's, or, when the current secret
+verifies a tag over the current list with up to three entries deleted (order
+kept), that shorter list: an attacker who only inserted keys is undone
+exactly, including keys another device added since this one last checked.
+
+An untagged vault is upgraded by the first writer that holds the secret:
+it writes the tag over the current list and the feature, and reports the
+list it now trusts. This trusts whatever the list is at that moment
+(trust on first use); a device that has a trust record never upgrades, it
+reports a downgrade.
+
+**Repair.** A key holder repairs a tampered list by writing the last verified
+list (keeping the labels the current entries have) as a recipient removal
+(§3.3): the secret rotates and every file is rewrapped, so no file stays
+encrypted to an unexpected key. A device that missed a legitimate change may
+instead confirm the current list explicitly, after the user has checked it;
+the tag must verify under the current secret. Rewriting a list whose tag does
+not verify is never done implicitly.
+
+**Limits.** The check is only as fresh as the trust record. A device that
+opens a vault for the first time trusts the list it finds; a removed device,
+which knew the outgoing secret, can still forge a `secretLink` for devices
+that have not seen its removal; and an attacker who removes keys from the
+list (without adding any) can stop those devices' keys from receiving new
+files, which is reported as tampering but cannot be prevented. An attacker
+who replaced the secret (step 3, no unexpected key) knows the new one and can
+plant revisions tagged under it; the vault's earlier revisions then fail
+their tags under it, which readers report (§4).
 
 ## 3. Keys
 
@@ -117,6 +241,8 @@ in a device Keychain or supplied externally.
 
 ### 3.3 Changing recipients
 
+Before any change a writer checks the current list (§2.1) and refuses
+a tampered one (a repair, §2.1, starts from the last verified list instead).
 Adding a recipient: append it to `recipients`, re-encrypt `vaultSecret`
 to the new set, then re-encrypt every revision under `notes/` to the new set
 (new file key and header), and rewrap every blob under `notes/<id>/att/`
@@ -151,7 +277,9 @@ change can be finished by any device holding an identity of the new set:
      (§8.1.5): `true` re-encrypts each under a new file key, `false` rewrites
      only its header. Absent means the default policy of §8.1.5. A device
      finishing an interrupted change uses the recorded value.
-2. Write `vault.json` with the new `recipients` and `vaultSecret`.
+2. Write `vault.json` with the new `recipients` and `vaultSecret`, and with
+   `recipientsTag` (and, when the secret rotates, `secretLink`) for them
+   (§2.1), in one atomic write.
 3. For every file under `notes/` (revisions and `att/` blobs), skip it if it is already
    complete (below); otherwise rewrite it as described above, verifying its
    tag under the current secret or, failing that, under
@@ -173,8 +301,8 @@ are the only header-level check; while a journal exists no other recipient
 change is started, so counts from two changes never mix.
 
 If `rewrap-journal.json` exists when a vault is opened, the change is
-unfinished: a writer finishes steps 3 and 4 before any other recipient
-change, and may verify tags under `previousVaultSecret` meanwhile. Readers
+unfinished: a writer whose list checks (§2.1) finishes steps 3 and 4 before
+any other recipient change, and may verify tags under `previousVaultSecret` meanwhile. Readers
 that do not implement this procedure treat the journal as an unknown file
 (§1).
 
@@ -1205,6 +1333,12 @@ so new item kinds and fields can be added without a version bump:
 - An item `layer` value without a defined meaning is ordered by its number
   (§8.2.3).
 
+*New: authenticated recipients.* `recipientsTag` and `secretLink` (§2.1)
+are a compatible extension: older readers ignore both fields and keep
+reading, and the `"recipients-tag"` feature keeps older writers from writing
+(§2). Nothing under `notes/` or `inbox/` changes, so the stock-CLI recovery
+(§4, §8.1.7, §11.2) works as before.
+
 A future change that older readers must not merge blindly (new merge
 semantics, not just a new kind of placed content) still needs a new op type,
 so that older readers fail closed, or a `features` entry (§2), so that older
@@ -1956,6 +2090,8 @@ where the table says how they degrade.
 | --- | --- | --- |
 | revision file, sync state | 256 MiB on disk, 256 MiB after gunzip | `BoundedRead`, `Gzip.defaultMaxOutput` |
 | `vault.json`, `rewrap-journal.json` | 16 MiB | `BoundedRead` |
+| `recipientsTag`, `secretLink` (§2.1) | a value that is not a string of 64 lowercase hex digits is a tag that does not verify (tampered), never a parse error | `VaultManifest` |
+| subsets tried to find the last verified list (§2.1) | up to 3 entries deleted, lists of at most 64 keys | `RecipientsAuth.maxSearchDeletions` |
 | blob collector state (device-local, §8.1.6) | 64 MiB | `BlobCollectorState` |
 | identity file, device state | 1 MiB | `BoundedRead` |
 | attachment blob file (§8) | 1 GiB of content plus 16 MiB of framing and age overhead | `BoundedRead` |
@@ -2127,7 +2263,11 @@ the recipient change re-tags each one that verifies under the outgoing
 capture key and re-encrypts it to the new recipients (§3.3.1 step 3), as it
 does when a recipient is added; a file sealed with a revoked key after that
 never verifies. A capturing device stores the key and the recipients list (a
-*capture profile*); how it stores them is up to the implementation.
+*capture profile*); how it stores them is up to the implementation. The list
+comes from a vault whose recipients checked (§2.1) when the profile was made
+or refreshed; a tampered list is never put in a profile, and a capturing
+device seals to its profile's list only, never to the `recipients` it may
+read from `vault.json` without the secret.
 
 ### 11.2 Inbox files
 
