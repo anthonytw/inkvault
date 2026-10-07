@@ -207,7 +207,7 @@ private struct AddDeviceKeyView: View {
             .navigationTitle("Add Device Key")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(generated == nil ? "Cancel" : "Done") { dismiss() }
+                    Button(LocalizedStringKey(generated == nil ? "Cancel" : "Done")) { dismiss() }
                 }
                 if generated == nil {
                     ToolbarItem(placement: .confirmationAction) {

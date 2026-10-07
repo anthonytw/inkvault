@@ -51,7 +51,7 @@ struct MigrationView: View {
                     Text(key.string)
                         .font(.callout.monospaced())
                         .textSelection(.enabled)
-                    Button(copied ? "Copied" : "Copy Key", systemImage: "doc.on.doc") {
+                    Button(LocalizedStringKey(copied ? "Copied" : "Copy Key"), systemImage: "doc.on.doc") {
                         UIPasteboard.general.setItems([[UTType.plainText.identifier: key.string]],
                                                       options: [.localOnly: true,
                                                                 .expirationDate: Date().addingTimeInterval(120)])

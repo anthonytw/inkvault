@@ -39,7 +39,7 @@ struct NoteCanvasView: View {
                 } else if let download = model.noteDownload, download.id == note.id {
                     VStack(spacing: 10) {
                         ProgressView(value: download.progress.fractionCompleted).frame(width: 240)
-                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of \(download.progress.total)")
+                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of \(String(localized: "\(download.progress.total) files"))")
                             .font(.callout).monospacedDigit().foregroundStyle(.secondary)
                     }
                 } else if model.pendingNoteIDs.contains(note.id) {
@@ -95,12 +95,12 @@ struct NoteCanvasView: View {
             if !Platform.isPhone {   // the stack's back button is the way to the list
                 ToolbarItem(placement: .topBarLeading) {
                     let full = ColumnLayout.visibility(from: storedColumns) == .detailOnly
-                    Button(full ? "Show Notes" : "Hide Notes",
+                    Button(LocalizedStringKey(full ? "Show Notes" : "Hide Notes"),
                            systemImage: full ? "list.bullet" : "arrow.up.left.and.arrow.down.right") {
                         withAnimation { storedColumns = ColumnLayout.toggled(storedColumns) }
                     }
                     .disabled(!full && model.selectedNote == nil)
-                    .help(full ? "Show the note list" : "Hide the note list for a full-width canvas")
+                    .help(LocalizedStringKey(full ? "Show the note list" : "Hide the note list for a full-width canvas"))
                 }
             }
         }
@@ -404,7 +404,7 @@ struct EditorView: View {
                     Menu {
                         Toggle("Compact Palette", systemImage: "rectangle.compress.vertical", isOn: $paletteCompact)
                     } label: {
-                        Label(paletteVisible ? "Hide Tools" : "Show Tools",
+                        Label(LocalizedStringKey(paletteVisible ? "Hide Tools" : "Show Tools"),
                               systemImage: paletteVisible ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
                     } primaryAction: {
                         paletteVisible.toggle()
@@ -468,7 +468,7 @@ struct EditorView: View {
                         }
                     }
                     if !editor.isPageless {
-                        Button(stripVisible ? "Hide Pages" : "Show Pages", systemImage: "sidebar.right") {
+                        Button(LocalizedStringKey(stripVisible ? "Hide Pages" : "Show Pages"), systemImage: "sidebar.right") {
                             stripVisible.toggle()
                         }
                         .help("Page thumbnails: tap to go to a page, drag to reorder")

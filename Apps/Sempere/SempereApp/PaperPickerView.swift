@@ -212,7 +212,7 @@ struct PaperPickerView: View {
             Button("Apply to All Pages") { choose(.allPages) }
                 .buttonStyle(.bordered)
         }
-        Button(savedAsDefault ? "Saved as Default" : "Use as Default for New Notes",
+        Button(LocalizedStringKey(savedAsDefault ? "Saved as Default" : "Use as Default for New Notes"),
                systemImage: savedAsDefault ? "checkmark" : "star") {
             PaperPreference.save(draft.paper)
             savedAsDefault = true

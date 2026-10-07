@@ -172,7 +172,7 @@ private struct TranscriptionSettingsSection: View {
                 .onChange(of: locale) { TranscriptionSettings.setLocaleIdentifier(locale) }
                 LabeledContent("Language Model", value: status.text)
                 if status == .notDownloaded, TranscriptionSettings.downloader != nil {
-                    Button(downloading ? "Downloading…" : "Download Language Model") { Task { await download() } }
+                    Button(LocalizedStringKey(downloading ? "Downloading…" : "Download Language Model")) { Task { await download() } }
                         .disabled(downloading)
                 }
             }
@@ -448,7 +448,7 @@ struct UnusedAttachmentsView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(NoteTitle.display(item.title)).lineLimit(1)
-                        Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary)
+                        Text(item.kind.localizedName).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
@@ -563,6 +563,18 @@ extension ThinningRule {
                           comment: "Thinning rule explanation; both values are the same age, “30 days”, “1 year”…")
         case .allButCheckpoints:
             return String(localized: "Removes every autosave, however recent, except the newest save of each editing session. Keeps every checkpoint (saved and imported versions) and the note's newest version.")
+        }
+    }
+}
+
+extension BlobKind {
+    /// The attachment kind as the Unused Attachments list shows it; other kinds keep their stored name.
+    var localizedName: String {
+        switch self {
+        case .image: return String(localized: "Image", comment: "Attachment kind in the unused attachments list")
+        case .pdf: return String(localized: "PDF", comment: "Attachment kind in the unused attachments list")
+        case .audio: return String(localized: "Audio", comment: "Attachment kind in the unused attachments list")
+        default: return rawValue
         }
     }
 }

@@ -1727,6 +1727,18 @@
         }
       }
     },
+    "Audio" : {
+      "comment" : "Attachment kind in the unused attachments list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio"
+          }
+        }
+      }
+    },
     "Authentication failed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2670,6 +2682,18 @@
         }
       }
     },
+    "Downloading this note from iCloud: %lld of %@" : {
+      "comment" : "Progress; %@ is “N files”",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargando esta nota de iCloud: %lld de %@"
+          }
+        }
+      }
+    },
     "Downloading this note from iCloud: %lld of %lld" : {
       "comment" : "Progress: files of the note downloaded so far, of the total",
       "extractionState" : "manual",
@@ -3223,6 +3247,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "He guardado esta clave"
+          }
+        }
+      }
+    },
+    "Image" : {
+      "comment" : "Attachment kind in the unused attachments list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagen"
           }
         }
       }
@@ -4297,16 +4333,8 @@
       }
     },
     "PDF" : {
-      "comment" : "Export format: PDF document",
       "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDF"
-          }
-        }
-      }
+      "shouldTranslate" : false
     },
     "PDF + attachments" : {
       "comment" : "Export option: a PDF with the recordings embedded",
