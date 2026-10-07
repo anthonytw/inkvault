@@ -44,10 +44,6 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     private(set) var session: Session?
     private(set) var textView: UITextView?
 
-    /// Width of a new box, at most (page points).
-    static let newBoxWidth = 320.0
-    /// Narrowest new box.
-    static let minimumWidth = 60.0
     /// The style of the last box edited: the next new box starts with it.
     static var lastStyle = TextBoxEditing.BoxStyle(TextContent(size: 16, color: .black, runs: []))
 
@@ -320,6 +316,10 @@ enum TextBoxPlacement {
     ]
     /// Room kept to the page's right edge.
     static let margin = 16.0
+    /// Width of a new box, at most (page points).
+    static let newBoxWidth = 320.0
+    /// Narrowest new box.
+    static let minimumWidth = 60.0
 
     /// A new box's frame for a tap at `p`: its first line there (the tap is
     /// on the line's middle), as wide as `newBoxWidth` or up to the page's
@@ -327,7 +327,7 @@ enum TextBoxPlacement {
     static func newFrame(at p: ItemFrames.Point, pageWidth: Double, size: Double) -> Rect {
         let lineHeight = 1.2 * size
         let room = pageWidth - margin - p.x
-        let w = max(TextBoxEditorController.minimumWidth, min(TextBoxEditorController.newBoxWidth, room.isFinite ? room : 0))
+        let w = max(minimumWidth, min(newBoxWidth, room.isFinite ? room : 0))
         let x = min(p.x, max(0, pageWidth - w))
         return Rect(x: InkJSON.round3(max(0, x)), y: InkJSON.round3(max(0, p.y - lineHeight / 2)), w: InkJSON.round3(w),
                     h: InkJSON.round3(lineHeight))

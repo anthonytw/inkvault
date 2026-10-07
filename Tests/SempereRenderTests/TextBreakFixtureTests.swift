@@ -31,14 +31,14 @@ final class TextBreakFixtureTests: XCTestCase {
         var baseline: Double
     }
 
-    static func load() throws -> [Case] {
+    static func loadCases() throws -> [Case] {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("SempereTests/Fixtures/text/line-breaks.json")
         return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url)).cases
     }
 
     func testFixturesAreValidStoredBreaks() throws {
-        let cases = try Self.load()
+        let cases = try Self.loadCases()
         XCTAssertEqual(cases.count, 4)
         for c in cases {
             XCTAssertNotNil(TextLineBreaks.usable(c.text), c.name)
@@ -48,7 +48,7 @@ final class TextBreakFixtureTests: XCTestCase {
 
     /// The CLI's shaper cuts exactly at the stored breaks, with the format's vertical metrics.
     func testCLIShaperProducesTheFixtureLines() throws {
-        for c in try Self.load() {
+        for c in try Self.loadCases() {
             let shaped = try TextLayoutTests.shaper.shape(c.text, frame: c.rect)
             XCTAssertEqual(shaped.lines.map { [$0.range.lowerBound, $0.range.upperBound] }, c.lines.map(\.range), c.name)
             XCTAssertEqual(shaped.lines.map(\.text), c.lines.map(\.text), c.name)
@@ -60,7 +60,7 @@ final class TextBreakFixtureTests: XCTestCase {
 
     /// The font-independent geometry every engine uses gives the same lines.
     func testLayoutTextGivesTheFixtureLines() throws {
-        for c in try Self.load() {
+        for c in try Self.loadCases() {
             let layout = LayoutText(c.text)
             let lines = layout.lines(layout.lineRanges(breaks: c.text.breaks ?? []), top: c.rect.y)
             let drawn = lines.filter { !$0.range.isEmpty }
@@ -73,7 +73,7 @@ final class TextBreakFixtureTests: XCTestCase {
 
     /// The Arabic case is right to left (automatic direction), the others left to right.
     func testParagraphDirection() throws {
-        for c in try Self.load() {
+        for c in try Self.loadCases() {
             let layout = LayoutText(c.text)
             XCTAssertEqual(layout.isRightToLeft(layout.paragraphs[0]), c.name == "arabic", c.name)
         }
@@ -82,7 +82,7 @@ final class TextBreakFixtureTests: XCTestCase {
     /// Breaks a renderer computes itself and stores are honoured as stored by
     /// the next layout: storing is idempotent.
     func testComputedBreaksRoundTrip() throws {
-        for c in try Self.load() {
+        for c in try Self.loadCases() {
             var free = c.text
             free.breaks = nil
             let first = try TextLayoutTests.shaper.shape(free, frame: c.rect)
