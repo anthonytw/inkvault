@@ -308,3 +308,56 @@ final class NotabilityGapsTests: XCTestCase {
         XCTAssertFalse(second.meta.markersBehindText)
     }
 }
+
+/// `Tests/CLITests/Fixtures/synthetic-gaps.note` and `synthetic-gaps.ntb`, the CLI
+/// tests' notes for the import gaps (PDF index text, language, highlighter
+/// flag, paper colour; `.ntb` PDF and image files). Generated here;
+/// `SEMPERE_UPDATE_FIXTURES=1 swift test --filter CLIGapsFixtureTests` rewrites them.
+final class CLIGapsFixtureTests: XCTestCase {
+    static var dir: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("CLITests/Fixtures")
+    }
+
+    static func notePackage() -> Data {
+        let session = SyntheticNote.session(typed: "", pdfPages: 2, rootExtra: { a in
+            [("NBNoteTakingSessionHandwritingLanguageKey", a.string("es_ES")),
+             ("NBNoteTakingSessionIsHighlighterBehindTextKey", .bool(true))]
+        }, attrsExtra: { a in
+            let color = a.object("UIColor", [("UIRed", .real(1)), ("UIGreen", .real(0.97)), ("UIBlue", .real(0.88)),
+                                             ("UIAlpha", .real(1))])
+            return [("paperStyle", a.object("Notability.NBPaperStyle", [("paperColor", color)]))]
+        })
+        let index = ZipWriter.write([.init(path: "PDFTextIndex.txt", data: Data("Teorema espectral\u{0C}Valores propios\u{0C}".utf8)),
+                                     .init(path: "PDFMetadataIndex.plist", data: BPlist.encode(.dict([("version", .int(1))])))])
+        return AttachmentFixtures.package(session: session,
+                                          pdf: AttachmentFixtures.pdf(pages: [(612, 792), (612, 792)]),
+                                          extra: [("NBPDFIndex/PDFIndex.zip", index)],
+                                          thumbnails: [("thumb.png", 48, 62)])
+    }
+
+    static func bundlePackage() -> Data {
+        let pdf = AttachmentFixtures.pdf(pages: [(612, 792), (612, 792)], texts: ["Kernel of a linear map", "Rank nullity"])
+        let png = AttachmentFixtures.png(width: 40, height: 20)
+        let pdfName = NotabilityGapsTests.hashName(pdf, "pdf"), pngName = NotabilityGapsTests.hashName(png, "png")
+        var strokes = SyntheticBundle.strokesMatchingSyntheticNote()
+        strokes[1].page = 1
+        let bundle = SyntheticBundle.noteBundle(title: "Synthetic PDF bundle", strokes: strokes,
+                                                extraRecords: [NotabilityGapsTests.pdfRecord(50, name: .string(pdfName)),
+                                                               NotabilityGapsTests.mediaRecord(60, name: pngName, page: 0,
+                                                                                               rect: (100, 400, 200, 100))],
+                                                createdMs: 1_700_000_500_000)
+        return SyntheticBundle.package(bundle, extra: [(pdfName, pdf), (pngName, png)])
+    }
+
+    func check(_ data: Data, _ name: String) throws {
+        let url = Self.dir.appendingPathComponent(name)
+        if ProcessInfo.processInfo.environment["SEMPERE_UPDATE_FIXTURES"] == "1" { try data.write(to: url) }
+        XCTAssertEqual(try Data(contentsOf: url), data, "run with SEMPERE_UPDATE_FIXTURES=1 to regenerate \(name)")
+    }
+
+    func testFixturesAreCurrent() throws {
+        try check(Self.notePackage(), "synthetic-gaps.note")
+        try check(Self.bundlePackage(), "synthetic-gaps.ntb")
+    }
+}

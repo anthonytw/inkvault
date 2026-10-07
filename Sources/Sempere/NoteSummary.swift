@@ -42,6 +42,10 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     /// `blob` and `transcript`), one per content hash, sorted by `sha256`.
     /// Older revisions may reference more (`Vault.blobInventory`).
     public var blobs: [BlobRef] = []
+    /// The note's handwriting language (format.md §5.4 `lang`).
+    public var lang: String?
+    /// Marker strokes drawn below content items (format.md §5.4).
+    public var markersBehindText = false
 
     public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
                 strokes: Int, modified: Date?, problem: String?) {
@@ -210,6 +214,8 @@ extension Vault {
             s.textItems = items.filter { $0.kind == .text }.count
             s.recordings = state.recordings.count
             s.blobs = state.blobReferences
+            s.lang = state.meta.lang
+            s.markersBehindText = state.meta.markersBehindText
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }

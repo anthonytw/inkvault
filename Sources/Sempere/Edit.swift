@@ -92,6 +92,27 @@ extension NoteOps {
         return state.meta.title == title ? [] : [.setMeta(.title(title))]
     }
 
+    /// The op that sets the note's handwriting language (format.md §5.4
+    /// `lang`; nil clears it), or none when it already has it.
+    ///
+    /// - Throws: `EditError.invalidLanguage` for a tag that is not BCP 47.
+    public static func setLanguage(_ lang: String?, state: NoteState) throws -> [Op] {
+        var tag: String?
+        if let lang {
+            guard let t = NoteMeta.validLanguage(lang.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw EditError.invalidLanguage(lang)
+            }
+            tag = t
+        }
+        return state.meta.lang == tag ? [] : [.setMeta(.lang(tag))]
+    }
+
+    /// The op that draws the note's marker strokes below (`true`) or above its
+    /// content items (format.md §5.4 `markersBehindText`), or none when it already does.
+    public static func setMarkersBehindText(_ on: Bool, state: NoteState) -> [Op] {
+        state.meta.markersBehindText == on ? [] : [.setMeta(.markersBehindText(on))]
+    }
+
     /// The op that puts a note in `state` into the notebook path `notebook`
     /// (canonicalised, format.md §5.4; nil or blank: no notebook), or none
     /// when it is already there.
@@ -228,6 +249,19 @@ extension NoteOps {
             if note.paper != paper { ops.append(.setMeta(.paper(paper))) }
             ops += pages.filter { $0.paper != nil }.map { .setPagePaper(pageId: $0.id, paper: nil) }
             return ops
+        }
+    }
+}
+
+/// Why a note edit cannot be made.
+public enum EditError: Error, Hashable, Sendable, CustomStringConvertible {
+    /// Not a BCP 47 language tag (format.md §5.4 `lang`).
+    case invalidLanguage(String)
+
+    public var description: String {
+        switch self {
+        case .invalidLanguage(let s):
+            return "\"\(s.prefix(80))\" is not a language tag (BCP 47, e.g. en-US, es, pt-BR)"
         }
     }
 }
