@@ -44,6 +44,9 @@ working state.
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds and images (D1, D2) | 🔀 #70 |
 | Import | Notability typed text, recordings and stroke links (D3, D4) | 🔀 #73 |
+| Import | Notability remaining gaps: `.ntb` PDF and image files, PDF page text from Notability's index, handwriting language (`meta.lang`), highlighter behind text (`meta.markersBehindText`), paper colour | 🔀 #79 |
+| Vault | PDF page text (`pageText` on pdfPage items, `format.md` §8.2.6) searched with recognition and text boxes; note `lang` and `markersBehindText` registers (§5.4) | 🔀 #79 |
+| Render | `markersBehindText`: markers drawn below content items (§8.2.3) in PDF/SVG/PNG and the web viewer; pure-Swift PDF text extraction (`SemperePDF.PDFText`) | 🔀 #79 |
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3): streamed, resumable, GC-safe deletes | 🔀 #67 |
 
@@ -61,6 +64,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | 🔀 #74 | 🔀 #74 |
 | import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | 🔀 #70 | 🔀 #70 |
 | import notability: typed text and recordings (D3, D4) | 🔀 #73 | 🔀 #73 |
+| import notability: `.ntb` attachments, PDF text, language, highlighter flag, paper colour, new report counts; `--pdf-text` for `import notability\|pdf` and `attach pdf` (pdftotext or built in); `search` reports PDF hits (page, PDF page, item); `notes language`, `notes markers`; `recognize` reads in the note's language | 🔀 #79 | 🔀 #79 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | 🔀 #78 |
@@ -94,6 +98,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | 🔀 #52 |
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad; no word highlight on the page yet) |
+| Search | Recognition in the note's language (`meta.lang`); PDF page text searched; PDFKit page text extractor ready for app PDF import | 🔀 #79 (the canvas draws no items yet, so `markersBehindText` matters only in exports there) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export 🔀 #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | 🔀 #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | 🔀 #74 (not yet tried on the iPad) |

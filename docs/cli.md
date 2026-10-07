@@ -277,7 +277,7 @@ another note's blobs. NOTE is an id or a title; without one, every note.
 sempere attach image NOTE FILE [--page N] [--frame X,Y,W,H | --at X,Y [--width W]] [--crop X,Y,W,H]
                                [--rotation DEG] [--layer content|background] [--keep-metadata]
                                [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
-sempere attach pdf NOTE FILE [--pages 1-3,5,7-] [--after N]
+sempere attach pdf NOTE FILE [--pages 1-3,5,7-] [--after N] [--pdf-text auto|builtin|poppler|none]
                              [--page N [--frame ... | --at ... --width ...] [--crop X,Y,W,H]] [--dry-run]
 sempere attach text NOTE (TEXT | --file FILE|-) [--page N] [--frame ... | --at ... --width ...]
                              [--font sans|serif|mono] [--size PT] [--color #RRGGBB[AA]]
@@ -646,6 +646,16 @@ absent).
   the note (or the page). A deleted note is refused (exit 1). `--json` prints
   `note` (the id), `changed`, `file`, `page` and `paper` (in the format's JSON
   form).
+- `language NOTE [TAG | --none]` sets the language the note is handwritten
+  in (`format.md` §5.4 `lang`), a BCP 47 tag (`en-US`, `es`, `pt-BR`;
+  `en_US` is read as `en-US`); `--none` clears it. `recognize` and the app ask
+  Vision for it when Vision supports it, else detect the language. Without a
+  tag it prints the note's language (`--json`: `{note, lang}`). A tag that is
+  not BCP 47 is a usage error (exit 2).
+- `markers NOTE behind|above` draws the note's marker (highlighter) strokes
+  below its text boxes and images and below other ink (`behind`), or with the
+  rest of the ink above every item (`above`, the default) (`format.md` §5.4
+  `markersBehindText`, §8.2.3). Imported Notability notes are `behind`.
 - `delete` moves the note to Recently Deleted; `undelete` brings it back.
   (`restore` is a different thing: it rolls a note back to an earlier
   revision.)
@@ -670,7 +680,12 @@ format's limits is a usage error (exit 2), not clamped:
 sempere notes new "Week 3" --notebook School/Physics --tag physics --paper grid --spacing 18
 sempere notes paper "Week 3" cornell --page 2
 sempere notes tag "Week 3" --add exam --remove draft
+sempere notes language "Week 3" es-ES
+sempere notes markers "Week 3" behind
 ```
+
+`notes list --json` (and the `note` of every edit's `--json`) includes `lang`
+(when set) and `markersBehindText`.
 
 ### Notebooks and tags
 
@@ -735,6 +750,7 @@ A deleted note is refused (exit 1), as is a page number out of range.
 sempere import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
                                    [--no-folder-tags] [--tag T ...] [--no-attachments]
                                    [--keep-image-metadata] [--recognize missing]
+                                   [--pdf-text auto|builtin|poppler|none]
 ```
 
 Each `PATH` is a `.note` or `.ntb` file, an unzipped `.note` package
@@ -782,6 +798,20 @@ to every imported note. Tags are written as a whole, so `--overwrite` of a
 note that moved folders drops the old folder's tags. The device id and clock
 come from `device.json` as for `snapshot`.
 
+Newer `.ntb` bundles keep their PDF and images as top-level `<sha256>.pdf` /
+`.jpeg` / `.png` files: they are imported as for a `.note` (PDF pages as
+backgrounds, one per Notability page; images at their record's rectangle),
+and the bundle's strokes are moved to the PDF's page tops. Each note's
+handwriting language (`NBNoteTakingSessionHandwritingLanguageKey`, `es_ES` →
+`meta.lang` `es-ES`), its highlighter-behind-text flag (`markersBehindText`)
+and a `paperColor` (the paper's background) are imported too.
+
+Every imported PDF page gets its text for search (`pageText`, `format.md`
+§8.2.6): from Notability's own index (`NBPDFIndex/PDFIndex.zip`,
+`ios/PDFIndex.fb`) where it maps to the pages, else extracted from the PDF
+with `--pdf-text` (default `auto`: Poppler's `pdftotext` when installed, else
+the built-in reader; `none` stores the index's text only).
+
 `--recognize missing` reads the handwriting of every imported page that has
 ink but no recognised text (Notability never indexed it) right after the
 import, as `sempere recognize --missing-only` does (see "Handwriting
@@ -795,13 +825,19 @@ so the report is exact but neither the vault nor `device.json` is touched.
 `--json` emits `summary` (`notes`, `imported`, `skipped`, `failed`,
 `strokes`, `ntb`, `extraVersions`, `dryRun`, and over the notes written
 `pdfPages`, `images`, `textItems`, `recordings`, `recLinkedStrokes`, `blobs`,
-`blobBytes`, `droppedPDFPages`, `droppedMedia`) and `notes` (with `status` `imported`, `skipped` or `failed`,
+`blobBytes`, `droppedPDFPages`, `droppedMedia`, `pdfs`, `ntbPDFPages`,
+`ntbImages`, `ntbDroppedPDFs`, `pdfTextPages`, `pdfTextFromIndex`,
+`pdfTextExtracted`, `pdfPagesWithoutText`, `languages` (tag → notes),
+`markersBehindText` and `paperColors` (notes)) and `notes` (with `status` `imported`, `skipped` or `failed`,
 `reason`, `id`, `format` `note`/`ntb`, `shapes`, `duplicateOf`,
 `extraVersion`, `selection`, `dropped` (`pdfs`, `pdfPages`, `media`,
 `pdfHighlights`, `templatePDFs`, `typedTextCharacters`, `recordings`,
-`recLinks`, …), `attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`,
+`recLinks`, `bundleRecordsWithoutFile`, `bundleFilesUnreferenced`,
+`pdfTextPages`, …), `attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`,
 `textItems`, `textCharacters`, `recordings`, `recLinkedStrokes`, `blobs`,
-`blobBytes`) and `warnings`, ...). A skipped note's `dropped` counts
+`blobBytes`, `pdfTextPages`, `pdfTextFromIndex`, `pdfTextExtracted`,
+`bundlePDFRecords`, `bundleMediaRecords`, `bundleFiles`, `bundleFilesImported`),
+`lang`, `markersBehindText`, `paperColor` and `warnings`, ...). A skipped note's `dropped` counts
 everything its source holds, since nothing of it was written. Exit 1
 if any note failed, a path does not exist, or no `.note` or `.ntb` file was
 found.
@@ -809,7 +845,8 @@ found.
 #### `import pdf`
 
 ```
-sempere import pdf FILE... [--title T] [--notebook N] [--tag T ...] [--pages 1-3,5,7-] [--dry-run]
+sempere import pdf FILE... [--title T] [--notebook N] [--tag T ...] [--pages 1-3,5,7-]
+                           [--pdf-text auto|builtin|poppler|none] [--dry-run]
 ```
 
 Makes a **new note from each PDF**: the PDF is stored as one blob of the note
@@ -825,8 +862,21 @@ each new note's id (`-q`: only the ids); a file that fails does not stop the
 others and the exit code is 1. `--dry-run` checks the files and writes nothing.
 `--json` emits `{dryRun, imported, failed, notes}`, one entry per file:
 `source`, `status` (`imported`, `would import`, `failed`), `reason`, `id`,
-`title`, `pages`, `blob`, `file`. Exports draw the pages as the originals (see
-"PDF page backgrounds").
+`title`, `pages`, `blob`, `file`, `pagesWithText`, `textEngine`. Exports draw
+the pages as the originals (see "PDF page backgrounds").
+
+**PDF text.** `import pdf` and `attach pdf` store each page's text as the
+item's `pageText` (`format.md` §8.2.6) so `search` and `notes search` find
+words on PDF pages. `--pdf-text auto` (the default) runs Poppler's
+`pdftotext` when it is installed (`SEMPERE_PDFTOTEXT` names another binary;
+it runs as `pdftoppm` does for exports: no shell, resource limits, a timeout,
+a private temporary directory), else the built-in pure-Swift reader
+(`semperepdf-1`: the strings each page shows, decoded through the fonts'
+`/ToUnicode` maps or standard encodings, in content order; no layout
+analysis, so multi-column text comes out in drawing order). `builtin` and
+`poppler` force one (`poppler` without `pdftotext` is an error); `none`
+stores no text. A page with no extractable text (a scan) stores nothing.
+`attach pdf --json` adds `pagesWithText` and `textEngine`.
 
 ### Search
 
@@ -838,18 +888,22 @@ sempere search TERM [--transcripts]
 `notes search`.)
 
 Case-insensitive, accent-insensitive substring search over every page's
-recognised handwriting text (the Notability import, on-device recognition)
-**and the text of every text box**, in all notes except deleted ones. With
+recognised handwriting text (the Notability import, on-device recognition),
+**the text of every text box and the stored text of every PDF page**
+(`pageText`, see `import pdf`), in all notes except deleted ones. With
 `--transcripts` it also searches the transcript of every recording, which means
 decrypting each transcript blob (a transcript that cannot be read is reported
 on stderr and makes the exit code 1). Human output is one row per hit: note
-title, where (`p3` handwriting on page 3, `p3 text` a text box, `rec 12:03
-Title` a transcript segment at that time) and a snippet. `--json` emits a list
+title, where (`p3` handwriting on page 3, `p3 text` a text box, `p3 pdf p7`
+page 7 of a PDF shown on note page 3, `rec 12:03 Title` a transcript segment
+at that time) and a snippet. `--json` emits a list
 of hits with `noteId`, `title`, `notebook`, `snippet`, `matches`, `source`
-(`handwriting`, `text` or `transcript`) and per source: `page` (1-based),
+(`handwriting`, `text`, `pdf` or `transcript`) and per source: `page` (1-based),
 `pageId`, `engine` and `words` (the recognised words containing the term with
 their `[x, y, w, h]` boxes) for handwriting; `page`, `pageId`, `itemId` and `box`
-(the text box's frame) for text; `recordingId`, `recordingTitle`, `start`,
+(the text box's frame) for text; `page`, `pageId`, `itemId`, `box` (the PDF
+page item's frame), `pdfPage` (1-based page of the PDF) and `engine` (what
+extracted the text) for pdf; `recordingId`, `recordingTitle`, `start`,
 `end` (seconds), `engine` for a transcript (no `page`). No match prints `No
 matches.` (an empty list with `--json`) and exits 0. Notes are read in parallel
 and without stroke geometry, as for `notes list`.
@@ -870,7 +924,10 @@ mapping of Vision's lines and word boxes (`VisionText`). The CLI draws the
 image with its own renderer where the app uses PencilKit. Each note gets one
 delta of `setPageRecognition` ops, stamped with this machine's device id and
 clock, and each recognition a `basis` (the digest of the strokes read), so it
-is read again only when its ink changes.
+is read again only when its ink changes. A note with a handwriting language
+(`notes language`, `format.md` §5.4 `lang`) is read in it when Vision
+supports it (the exact tag, else Vision's tags of the same language, e.g.
+`es-AR` → `es-ES`, `es-MX`); otherwise Vision detects the language.
 
 Which pages are read:
 
@@ -889,7 +946,8 @@ platform.
 **macOS only.** Vision is an Apple framework; the Linux build exits 1 with a
 message and changes nothing (`--dry-run` still works). Text and JSON output
 list per note the pages `read` and `cleared` and the `file` written; `--json`
-gives `{dryRun, notes: [{note, title, read, cleared, file, error}]}`. A note
+gives `{dryRun, notes: [{note, title, read, cleared, language, file, error}]}`
+(`language`: the note's `lang`, absent when Vision detects it). A note
 that cannot be read or written is reported and the exit code is 1.
 
 ### Export

@@ -366,10 +366,10 @@ number), field 1 an int64 ms time (the edit; the newest is the note's
 modification time), field 2 an unknown int64, field 4 the record type (u8),
 field 5 the payload table. Types seen (counts over the backup): 15 stroke
 (632 880), 3 (1 126) and 7 (630) structural, 1 document (604), 18 shape
-(273), 2 PDF reference (145: a 68-byte hash; the PDF itself is not in the
-`.ntb`), 25 (69, only in bundles without a `.note`), 12 (46), 13 (40), 22
-media (21), 8 (8). Unknown types are ignored; the PDF and media counts go to
-`dropped`.
+(273), 2 PDF reference (145: a 68-byte name, `<64 hex digits>.pdf`), 25 (69,
+only in bundles without a `.note`), 12 (46), 13 (40), 22 media (21), 8 (8).
+Unknown types are ignored. PDF and media records name top-level files of the
+bundle (".ntb attachments" below).
 
 **Document (1)**: field 0 → table, field 0 the title. Field 1 → table, field
 0 → layout table: field 0 → paper (field 0 pattern: 0 ruled, 1 dots, 2 grid,
@@ -433,6 +433,56 @@ them); bundles next to a `.note` are compacted. Erased records are skipped
 (`erasedRecords`); before this, one bundle-only note imported erased strokes
 on top of their rewrites, which the thumbnail comparison caught.
 
+## .ntb attachments
+
+Newer bundles keep each PDF they show, and sometimes JPEG or PNG images, as
+**top-level files named by their SHA-256**: `<64 hex>.pdf`, `<64 hex>.jpeg`,
+`<64 hex>.png` (found by the driver's structure survey of the reference
+backup: 4 of the 7 imported bundles lost their PDF before this). The PDF (2)
+and media (22) records name them. Their layout is decoded without a schema
+and without real content in hand, so the reader looks for what it can verify
+(`NotabilityBundle.attachment`):
+
+- **The file.** Any string or byte vector reachable from the record's payload
+  (three tables deep) holding a 64-hex-digit name (`<hash>.<ext>`, or a bare
+  hash, matched to the bundle file with that hash and the record's kind), or
+  32 raw bytes read as the SHA-256. A record naming no file of the bundle is
+  counted in `dropped.bundleRecordsWithoutFile`.
+- **Field sizes.** FlatBuffers stores fields inline; without a schema their
+  sizes come from the vtable (a field ends where the next one starts). That
+  tells a reference (4 bytes) from a 2 × float32 struct (8), a 12-byte page
+  header and a 4 × float32 rectangle (16). Each record's layout is listed in
+  its warning (`fields 0:12,2:4,3:16`: index and size only, no content), so a
+  run on the reference backup shows which fields are real.
+- **Page.** A 12-byte field 0 is the stroke header: its third word is the
+  0-based page.
+- **PDF pages.** The PDFs, in the order the records name them (a PDF no
+  record names is used when no record names any, in file-name order, with a
+  warning), become `pdfPage` backgrounds exactly as a `.note`'s (D1): **one
+  Notability page per PDF page, from the first page**, each at the document
+  width and `⌈W · H'/W'⌉` high, stacked from the top. This is the layout of
+  every `.note` made from a PDF in the samples (no inserted pages); a bundle
+  with inserted paper pages would be misplaced from the insert on (the
+  records' page numbers are not decoded yet; the warning says the layout is
+  unconfirmed).
+- **Ink on PDF pages.** Bundle strokes are page coordinates, placed `page ×`
+  the document record's page height down; on a PDF note the `.note` stride is
+  the PDF page's, which the bundle does not record. With the PDFs in hand the
+  importer now moves each stroke of page `n` to the top of PDF page `n`
+  (`⌈W · H'/W'⌉` stride), and the `ios/HandwritingIndex.fb` boxes with it.
+- **Images.** Placed as `image` items (D2) on the record's page, by the first
+  16-byte rectangle `(x, y, w, h)` (page coordinates, as strokes), else an
+  8-byte origin and the next 8-byte size, else the origin and the image's
+  pixel size (capped to the page width; a guess, said in the warning). The
+  bytes go through the same preparation as a `.note`'s (metadata stripped,
+  formats checked).
+- Bundle files no record names (and not used as the only PDFs) are counted
+  in `dropped.bundleFilesUnreferenced` and listed by hash prefix.
+
+Report: `attachments.bundlePDFRecords`, `bundleMediaRecords`, `bundleFiles`
+(top-level `<hash>.<ext>` files), `bundleFilesImported`; the CLI summary adds
+`ntbPDFPages`, `ntbImages` and `ntbDroppedPDFs` over the bundles imported.
+
 **What the import does.** A bundle takes the uuid of the `.note` created in
 the same millisecond and joins its group ("Duplicates and versions"); the
 `.note` is preferred (full-precision points, recognition, PDF layout,
@@ -441,8 +491,8 @@ whose strokes are all in it are reported as `superseded: .ntb copy of the
 note imported from …`. A bundle without such a `.note` (6: 3 of the 9 alone
 by path have their `.note` in another folder) is imported on its own (id
 derived from `ntb-created:<ms>`, title from the document record, notebook
-from its folder; recognition from `ios/HandwritingIndex.fb` when present; 4 of them
-sit on PDFs the bundle does not contain). Bundles are never silently
+from its folder; recognition from `ios/HandwritingIndex.fb` when present; its
+PDFs and images from the bundle's top-level files, ".ntb attachments"). Bundles are never silently
 ignored: each gets a report row.
 
 ## Attachments
@@ -499,7 +549,32 @@ one `pdfPage` item in the background layer (`0`):
 whose name holds the uuid, if there is one (where Notability keeps it is not
 known): page 1 of it as a background on every page down to the lowest ink;
 otherwise `dropped.templatePDFs` is 1 and the note keeps blank paper. `.ntb`
-bundles do not contain the PDF, so their PDF pages stay dropped.
+bundles keep their PDFs as top-level files (".ntb attachments").
+
+**PDF text.** Every placed PDF page (template paper aside, whose one page
+would match everywhere) gets its text as the item's `pageText`
+(`format.md` §8.2.6), so search finds words on PDF pages:
+
+- From **Notability's index** when it can be tied to pages. A `.note` may have
+  `NBPDFIndex/PDFIndex.zip` (107 in the reference backup) holding
+  `PDFTextIndex.txt`, `PDFLayoutIndex.nbpdflayout`, `PDFMetadataIndex.plist`
+  and `PDFImageIndex.plist`; an `.ntb` may have `ios/PDFIndex.fb`. Their
+  layouts are unknown (structure only was surveyed), so they are read by
+  rules that cannot attach text to the wrong page: `PDFTextIndex.txt` split
+  at form feeds when that gives exactly the PDF's page count; else at an
+  array of page-count (start) or page-count + 1 (boundary) ascending integers
+  found in `PDFMetadataIndex.plist`, as UTF-16 then UTF-8 offsets;
+  `PDFIndex.fb` read with `ios/HandwritingIndex.fb`'s layout (root field 2 →
+  field 0 page tables: field 0's third word the 0-based page, field 1 the
+  text). Only on a note that shows one PDF. Engine `notability-<version>`.
+  The warnings describe what was found (entry names and sizes, form-feed part
+  count, plist top-level keys, `PDFIndex.fb` root field sizes; never text), so
+  the reference run says which rule holds.
+- Otherwise **extracted from the PDF** (`Options.pdfText`, the CLI's
+  `--pdf-text`: `pdftotext` when installed, else `SemperePDF.PDFText`).
+- Counted: `attachments.pdfTextPages`, `pdfTextFromIndex`, `pdfTextExtracted`,
+  and `dropped.pdfTextPages` for pages left without text (scans, or no
+  extractor).
 
 **Images (D2).** Notability's field names for `mediaObjects` are not known
 (unknown 1 of `docs/attachments.md` §11), so `MediaObject.read` walks each
@@ -596,8 +671,17 @@ keep their sync elsewhere (not known); they import without `rec`.
 
 **Report.** Per note `attachments` (`pdfs`, `pdfPages`, `templatePages`,
 `images`, `textItems`, `textCharacters`, `recordings`, `recLinkedStrokes`,
-`blobs`, `blobBytes`), `dropped` and `warnings`; the CLI's `--json` summary
-adds the totals.
+`blobs`, `blobBytes`, `pdfTextPages`, `pdfTextFromIndex`, `pdfTextExtracted`,
+and for bundles `bundlePDFRecords`, `bundleMediaRecords`, `bundleFiles`,
+`bundleFilesImported`), `dropped` (adding `bundleRecordsWithoutFile`,
+`bundleFilesUnreferenced`, `pdfTextPages`), `lang`, `markersBehindText`,
+`paperColor` and `warnings`; the CLI's `--json` summary adds the totals and,
+to compare with a backup survey, `languages` (tag → notes),
+`markersBehindText` and `paperColors` (notes), `ntbPDFPages`, `ntbImages`,
+`ntbDroppedPDFs`, `pdfTextPages`, `pdfTextFromIndex`, `pdfTextExtracted` and
+`pdfPagesWithoutText`. On the reference backup the driver should see
+`languages` `{en-US: 876, es-ES: 52}` minus notes not imported, every note
+`markersBehindText`, `paperColors` 1, and `ntbDroppedPDFs` 0.
 
 ## Package layout
 
@@ -649,7 +733,19 @@ Root class `NoteTakingSession`:
   `kPageLayoutPDFFileKey`, `kPageLayoutPDFPageNumberKey`,
   `kPageLayoutPDFIsOriginalPageKey`, `kPageLayoutPageIsBookmarkedKey`; empty
   on paper notes), and `mediaObjects` (`ImageMediaObject`, …).
-- `NBNoteTakingSessionIsHighlighterBehindTextKey` (true in every sample).
+- `NBNoteTakingSessionIsHighlighterBehindTextKey` (true in every note of the
+  reference backup): Notability draws highlighter strokes beneath typed text.
+  Imported as `meta.markersBehindText` (`format.md` §5.4, §8.2.3).
+- `NBNoteTakingSessionHandwritingLanguageKey`: the handwriting language,
+  `en_US` (876 notes) or `es_ES` (52). Imported as `meta.lang` in BCP 47 form
+  (`en-US`, `es-ES`; a value that is not a language tag is left out);
+  recognition (`sempere recognize`, the app) reads the note in it.
+- `Notability.NBPaperStyle.paperColor` (1 note): the paper's colour. Read from
+  a `paperColor` field (of a `Notability.NBPaperStyle` object, or a key named
+  `….paperColor`) under the paper layout model or a root field whose name
+  holds `paper`, as any archived colour (`#RRGGBB[AA]`, `UIRed`…, `NSRGB`);
+  imported as the paper's `background` (opaque). The exact archive shape was
+  not seen; the report's `paperColor` says what was read.
 
 ### Ink: `InkedSpatialHash`
 
@@ -745,7 +841,8 @@ without a usable thumbnail falls back to 21/16 like paper, rounded up too
 Without `lineStyle2`, the integer `lineStyle` / `paperLineStyle` is used:
 0 blank, 1 ruled, 9 dot (pitch as `…:0.5`), matching how they co-occur
 with `lineStyle2`. The two boolean fields of the newer form are unknown.
-Paper colours are not stored per note; the defaults are used.
+A note's `paperColor` (one note in the reference backup) becomes the paper's
+`background`; otherwise the defaults are used.
 
 The imported `paper` (format.md §5.4.2) takes `kind` and `spacing` from this
 table and every other parameter from the kind's defaults (white page, default
@@ -822,6 +919,11 @@ note (2 of 603 `.ntb` files in the reference backup).
 | `mediaObjects` image | `image` item, layer 100 ("Attachments") |
 | `attributedString` | `text` items, layer 100 ("Attachments") |
 | `Recordings/` | note `recordings`; `eventTokens` → stroke `rec` ("Attachments") |
+| `NBPDFIndex/PDFIndex.zip`, `ios/PDFIndex.fb` (else the PDF) | `pdfPage` `pageText` ("PDF text") |
+| `NBNoteTakingSessionHandwritingLanguageKey` | `meta.lang` |
+| `NBNoteTakingSessionIsHighlighterBehindTextKey` | `meta.markersBehindText` |
+| `paperColor` | `paper.background` |
+| `.ntb` `<sha256>.pdf` / `.jpeg` / `.png` files | `pdfPage` and `image` items (".ntb attachments") |
 
 **Curves.** Each Bézier segment is sampled (one sample per 3 units of
 control-polygon length, 1–8 per segment), attributes interpolated linearly
@@ -841,12 +943,12 @@ PDF backgrounds, images, typed text and recordings are imported
 | What | Why |
 | --- | --- |
 | Pages of two heights (paper pages inserted into a note made from a PDF: 4 of the notes with a Notability PDF export) | the note has one `breakHeight`, so exports break where the PDF pages do throughout; ink positions are exact, page breaks after an inserted page and recognition boxes on later pages are not |
-| PDF pages whose PDF is missing, encrypted or unreadable; PDFs of `.ntb` bundles; template PDFs not found in the package; PDF highlights | counted (`dropped.pdfPages`, `pdfs`, `templatePDFs`, `pdfHighlights`) with a warning |
+| PDF pages whose PDF is missing, encrypted or unreadable; `.ntb` records naming no bundle file; template PDFs not found in the package; PDF highlights | counted (`dropped.pdfPages`, `pdfs`, `bundleRecordsWithoutFile`, `templatePDFs`, `pdfHighlights`) with a warning |
 | Media objects that are not images, or have no file or frame; GIF, TIFF, WebP images | counted in `dropped.media` with a warning naming the class and fields |
 | Typed text beyond the per-item limits | counted in `dropped.typedTextCharacters` |
 | Recordings without an audio file, or in an unknown container; `eventTokens` that do not read as times in the one recording | counted (`dropped.recordings`, `dropped.recLinks`) with a warning |
 | Dashed strokes | no dash attribute; imported solid and counted |
-| Paper colours | not stored per note; defaults used |
+| Highlighter behind the text of a PDF page | `markersBehindText` puts markers below text boxes and images, not below a PDF background (layer 0): over a PDF a highlighter still covers the page's text (drawn at 50 %, so it stays legible) |
 | Page structure | the note becomes one infinite page; its `breakHeight` makes exports break where Notability's pages did |
 | `options`, `groupsArrays`, `bezierPathsDataDictionary` | empty or unknown |
 
