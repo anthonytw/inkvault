@@ -324,6 +324,68 @@ final class VersionHistoryTests: XCTestCase {
         }
     }
 
+    /// Clocks that disagree (`RandomHistory.makeSkewed`). Seeds 64, 88 and 336
+    /// moved the note's `created` before compaction kept its first revision
+    /// (`CompactionPlanner.createdAnchor`).
+    func testThinningGuaranteesWithSkewedClocks() throws {
+        for seed in Array(UInt64(1)...60) + [64, 88, 336] {
+            var rng = SplitMix64(seed: seed &* 7919)
+            let revs = try RandomHistory.makeSkewed(using: &rng)
+            let walls = revs.map(\.wall)
+            let end = walls.max()!
+            let span = max(end.timeIntervalSince(walls.min()!), 1)
+            let now = end.addingTimeInterval(Double.random(in: 0...(span / 2), using: &rng))
+            let age = Double.random(in: 0...span, using: &rng)
+            let mode: CompactionMode = seed % 4 == 0 ? .retention(age) : .thin(olderThan: age)
+            try checkGuarantees(revs, mode: mode, now: now, seed: seed, rng: &rng)
+        }
+    }
+
+    /// The first revision has a later `wall` than one ordered after it (its
+    /// device's clock is behind; its HLC moved ahead when it synced). Deleting
+    /// the first revision would make that one first and move `created`.
+    func testCompactionKeepsTheRevisionThatSetsCreated() throws {
+        let hour: Int64 = 3_600_000
+        func rev(_ d: DeviceID, _ seq: Int, hlcMs: Int64, wallMs: Int64, _ ops: [Op], session: String? = nil) -> Revision {
+            var r = Revision(noteId: testNote, device: d, seq: seq, hlc: HLC(millis: baseMillis + hlcMs, counter: 0)!,
+                             wall: wallAt(baseMillis + wallMs), app: "t", body: .delta(ops: ops))
+            r.session = session
+            return r
+        }
+        func stroke(_ x: Double) -> Op {
+            .addStroke(page: p1, stroke: Stroke(id: UUID(), ink: Ink(tool: .pen, color: .black, width: 2),
+                                                points: [StrokePoint(x: x, y: 1, w: 2, h: 2)]))
+        }
+        let revs = [
+            rev(devA, 1, hlcMs: 2 * hour, wallMs: 2 * hour, [.addPage(Page(id: p1, order: "a0"))], session: "s1"),
+            rev(devA, 2, hlcMs: 2 * hour + 1000, wallMs: 2 * hour + 1000, [stroke(1)], session: "s1"),
+            // Device B's clock is two hours behind; it synced, so its HLC is ahead of A's.
+            rev(devB, 1, hlcMs: 2 * hour + 2000, wallMs: 2000, [stroke(2)], session: "s2"),
+            // A checkpoint is never deleted: once A's first revisions go, it would be first.
+            {
+                var r = rev(devB, 2, hlcMs: 2 * hour + 3000, wallMs: 3000, [], session: "s2")
+                r.checkpoint = Checkpoint(name: "v1")
+                return r
+            }(),
+            rev(devA, 3, hlcMs: 900 * hour, wallMs: 900 * hour, [stroke(4)], session: "s3"),
+        ]
+        let created = try NoteReducer.reconstruct(revs).meta.created
+        XCTAssertEqual(created, wallAt(baseMillis + 2 * hour))
+        XCTAssertEqual(CompactionPlanner.createdAnchor(revs), revs[0].name)
+        let now = wallAt(baseMillis + 901 * hour)
+        for mode in [CompactionMode.thin(olderThan: 86_400), .retention(86_400)] {
+            var clock = HybridClock()
+            let plan = try CompactionPlanner.plan(revs, mode: mode, now: now, device: devC, clock: &clock, wall: now, app: "t")
+            XCTAssertFalse(plan.deletions.contains(revs[0].name), "\(mode)")
+            let after = revs.filter { !plan.deletions.contains($0.name) } + plan.snapshots
+            XCTAssertEqual(try NoteReducer.reconstruct(after).meta.created, created, "\(mode)")
+            XCTAssertEqual(try NoteHistory.state(after, at: revs[3].name).meta.created, created, "\(mode)")
+            if case .retention = mode { XCTAssertFalse(plan.deletions.isEmpty) }   // the others still go
+        }
+        XCTAssertFalse(LoadedNote(revisions: revs, failures: [:]).compactionPlan(retention: 0, now: now, assumingSnapshot: true)
+            .contains(revs[0].name))
+    }
+
     private func checkGuarantees(_ revs: [Revision], mode: CompactionMode, now: Date, seed: UInt64,
                                  rng: inout SplitMix64) throws {
         let ctx = "seed \(seed) \(mode)"
@@ -343,6 +405,13 @@ final class VersionHistoryTests: XCTestCase {
             for case .session(let s) in NoteHistory.groups(before) where gone.contains(s.newest.name) {
                 XCTFail("\(ctx): session end \(s.newest.name) deleted")
             }
+            // Every kept version that was complete is a target: checkpoints, session ends, the newest
+            // revision and everything after the range.
+            var kept = Set(checkpoints)
+            if let newest = revs.map(\.name).max() { kept.insert(newest) }
+            for case .session(let s) in NoteHistory.groups(before) { kept.insert(s.newest.name) }
+            kept.formUnion(before.map(\.name).filter { !Set(range.map(\.name)).contains($0) })
+            XCTAssertTrue(kept.intersection(Set(before.filter(\.complete).map(\.name))).isSubset(of: Set(plan.targets)), ctx)
         }
         // Each deletion prefix: G1 (state) and G2 (targets complete, same as-of).
         let order = plan.deletions.shuffled(using: &rng)
@@ -457,6 +526,98 @@ enum RandomHistory {
             let gone = Set(LoadedNote(revisions: revs, failures: [:])
                 .compactionPlan(retention: Double.random(in: 0...(30 * 86_400), using: &rng), now: end,
                                 protectingCheckpoints: false))
+            revs.removeAll { gone.contains($0.name) }
+        }
+        return revs
+    }
+
+    /// Like `make`, with device clocks as they are: each device's wall clock
+    /// has its own offset (sometimes days), its HLC is the hybrid clock's
+    /// max(wall, last + 1, everything seen + 1 when it has synced), and a
+    /// device that has not synced edits only what it made itself. Walls are
+    /// then not in HLC order, and snapshots miss what their writer had not seen.
+    static func makeSkewed(using rng: inout SplitMix64) throws -> [Revision] {
+        let devices = [DeviceID("aaaaaaaa")!, DeviceID("bbbbbbbb")!, DeviceID("cccccccc")!]
+        // Each device's wall clock has an offset (sometimes days off). Its HLC is max(wall, last + 1,
+        // and, when it has synced, everything it has seen + 1), as a hybrid logical clock is.
+        var offset: [DeviceID: Int64] = [:]
+        for d in devices {
+            offset[d] = Int.random(in: 0..<3, using: &rng) == 0 ? Int64.random(in: -(4 * 86_400_000)...(4 * 86_400_000), using: &rng) : 0
+        }
+        var seqs: [DeviceID: Int] = [:]
+        var lastHLC: [DeviceID: Int64] = [:]
+        var known: [DeviceID: [DeviceID: Int]] = [:]       // per device: seen seq per other device
+        var ownPages: [DeviceID: [UUID]] = [:]
+        var revs: [Revision] = []
+        var t: Int64 = 10 * 86_400_000
+        var device = devices[0]
+        var sessions: [DeviceID: String?] = [:]
+        let base: Int64 = 1_700_000_000_000
+        let count = Int.random(in: 8...40, using: &rng)
+        for i in 0..<count {
+            switch Int.random(in: 0..<10, using: &rng) {
+            case 0: t += Int64.random(in: 1...20, using: &rng) * 86_400_000
+            case 1, 2: t += Int64.random(in: 10...120, using: &rng) * 60_000
+            default: t += Int64.random(in: 1...300, using: &rng) * 1000
+            }
+            if Int.random(in: 0..<4, using: &rng) == 0 { device = devices.randomElement(using: &rng)! }
+            if sessions[device] == nil || Int.random(in: 0..<6, using: &rng) == 0 {
+                sessions[device] = Bool.random(using: &rng) ? "s\(i)" : .some(nil)
+            }
+            let wallMs = base + t + offset[device]!
+            let wall = Date(timeIntervalSince1970: Double(wallMs) / 1000)
+            let synced = revs.isEmpty || Int.random(in: 0..<3, using: &rng) != 0
+            var ms = max(wallMs, (lastHLC[device] ?? 0) + 1)
+            if synced {
+                ms = max(ms, (revs.map { $0.hlc.millis }.max() ?? 0) + 1)
+                for d in devices where d != device { known[device, default: [:]][d] = seqs[d] ?? 0 }
+            }
+            lastHLC[device] = ms
+            seqs[device, default: 0] += 1
+            let seq = seqs[device]!
+            let hlc = HLC(millis: ms, counter: 0)!
+            // What this device has seen: its own revisions and the others' up to what it synced.
+            let seen = revs.filter { $0.device == device || $0.seq <= (known[device]?[$0.device] ?? 0) }
+            if i > 2, Int.random(in: 0..<10, using: &rng) == 0, !seen.isEmpty {
+                var c = HybridClock()
+                let snap = try SnapshotBuilder.makeSnapshot(from: seen, device: device, seq: seq, clock: &c, wall: wall, app: "t")
+                revs.append(Revision(noteId: snap.noteId, device: device, seq: seq, hlc: hlc, wall: wall, app: "t", body: snap.body))
+                continue
+            }
+            let state = seen.isEmpty ? nil : try? NoteReducer.reconstruct(seen)
+            let pages = synced ? (state?.pages.map(\.id) ?? []) : (ownPages[device] ?? [])
+            var ops: [Op] = []
+            var checkpoint: Checkpoint?
+            if pages.isEmpty {
+                let p = UUID.random(using: &rng); ownPages[device, default: []].append(p)
+                ops.append(.addPage(Page(id: p, order: "a\(i)")))
+            } else {
+                switch Int.random(in: 0..<10, using: &rng) {
+                case 0: checkpoint = Checkpoint(name: Bool.random(using: &rng) ? "v\(i)" : nil)
+                case 1:
+                    let p = UUID.random(using: &rng); ownPages[device, default: []].append(p)
+                    ops.append(.addPage(Page(id: p, order: "b\(i)")))
+                case 2:
+                    if synced, let s = state?.pages.flatMap({ p in p.strokes.map { (p.id, $0.id) } }).randomElement(using: &rng) {
+                        ops.append(.removeStroke(page: s.0, strokeId: s.1))
+                    }
+                case 3: ops.append(.setMeta(.title("t\(i)")))
+                case 4: ops.append(.addTag("tag\(i % 3)"))
+                case 5: if synced, let st = state, let op = NoteOps.removeTag("tag\(i % 3)", from: st) { ops.append(op) }
+                default:
+                    let p = pages.randomElement(using: &rng)!
+                    ops.append(.addStroke(page: p, stroke: Stroke(id: UUID.random(using: &rng), ink: Ink(tool: .pen, color: .black, width: 2),
+                                                                  points: [StrokePoint(x: Double(i), y: 2, w: 2, h: 2)])))
+                }
+            }
+            var r = Revision(noteId: testNote, device: device, seq: seq, hlc: hlc, wall: wall, app: "t", body: .delta(ops: ops))
+            r.session = sessions[device] ?? nil
+            r.checkpoint = checkpoint
+            revs.append(r)
+        }
+        if Int.random(in: 0..<3, using: &rng) == 0, let end = revs.map(\.wall).max() {
+            let gone = Set(LoadedNote(revisions: revs, failures: [:])
+                .compactionPlan(retention: Double.random(in: 0...(30 * 86_400), using: &rng), now: end, protectingCheckpoints: false))
             revs.removeAll { gone.contains($0.name) }
         }
         return revs

@@ -22,6 +22,9 @@ public enum CompactionError: Error, Hashable, Sendable {
     case cannotProtect(String)
     /// The plan failed its own check that the note's state is unchanged.
     case stateWouldChange
+    /// The plan failed its own check that this kept version (a target) is
+    /// unchanged; nothing is written.
+    case versionWouldChange(String)
 }
 
 /// What compacting one note writes and deletes (`CompactionPlanner.plan`).
@@ -91,6 +94,7 @@ extension CompactionPlanner {
             candidates = range.subtracting(kept)
             targets = kept.union(points.map(\.name).filter { !range.contains($0) }).intersection(completeBefore)
         }
+        if let anchor = createdAnchor(revs) { candidates.remove(anchor) }
 
         // Rule 3: witnesses. Per device, names in order.
         var lanes: [DeviceID: [RevisionName]] = [:]
@@ -175,15 +179,39 @@ extension CompactionPlanner {
             candidates.subtract(uncovered.map(\.name))
         }
 
-        // Safety net: the current state must not change.
-        if !candidates.isEmpty {
+        // Safety net: the current state must not change (G1), nor the note as
+        // of any target that a deletion or a planned snapshot is positioned at
+        // or before (G2). A target after every deletion sees all of them and
+        // all the snapshots, as the current state does.
+        if let lastGone = candidates.max() {
             let survivors = revs.filter { !candidates.contains($0.name) } + planned
             guard try NoteReducer.reconstruct(survivors).comparable == NoteReducer.reconstruct(revs).comparable else {
                 throw CompactionError.stateWouldChange
             }
+            for t in sortedTargets where t <= lastGone {
+                guard try NoteHistory.state(survivors, at: t).comparable == NoteHistory.state(revs, at: t).comparable else {
+                    throw CompactionError.versionWouldChange(t.filename)
+                }
+            }
         }
         return CompactionPlan(noteId: noteId, snapshots: planned, deletions: candidates.sorted(),
                               witnesses: witnesses.sorted(), targets: sortedTargets)
+    }
+}
+
+extension CompactionPlanner {
+    /// The revision compaction keeps so that the note's `created` cannot move
+    /// (format.md §5.3, §5.4): `created` is the earliest of the snapshots'
+    /// recorded `created` and the `wall` of the first revision by
+    /// `(hlc, device, seq)`. When another revision has an earlier `wall` (its
+    /// device's clock was behind, its HLC ahead from what it had seen),
+    /// deleting the first revision would make that one first and move
+    /// `created`, in the current state and in every version. Nil when no
+    /// revision has a `wall` earlier than the first's.
+    public static func createdAnchor(_ revisions: [Revision]) -> RevisionName? {
+        guard let first = revisions.min(by: { $0.name < $1.name }),
+              revisions.contains(where: { $0.wall < first.wall }) else { return nil }
+        return first.name
     }
 }
 

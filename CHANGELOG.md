@@ -17,7 +17,8 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   [--dry-run]`; in the app a setting, default 30 days or never, a daily automatic run and Thin
   Now with a preview): old autosaves go, every checkpoint and the newest autosave of each
   session stay restorable, the note's state never changes. `compact` never deletes a checkpoint
-  and keeps it restorable.
+  and keeps it restorable, and keeps a note's first revision while device clocks disagree (an
+  older revision with a later `wall`), so the note's creation date cannot move.
 - Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
   the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
   original PDF, laid out from the PDF's own page boxes), and images become image items with

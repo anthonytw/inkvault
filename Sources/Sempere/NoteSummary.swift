@@ -93,6 +93,8 @@ extension LoadedNote {
 
     /// Revisions `compact` would delete from this note.
     ///
+    /// The first revision is kept when another has an earlier `wall`, so
+    /// that `created` cannot move (`CompactionPlanner.createdAnchor`).
     /// Checkpoints (format.md §5.8.1) are never deleted. With
     /// `protectingCheckpoints`, nothing that a complete checkpoint depends on
     /// is deleted either, since this plan writes no positioned snapshot: no
@@ -106,7 +108,9 @@ extension LoadedNote {
     ///   is subsumed and every delta past retention is covered.
     public func compactionPlan(retention: TimeInterval = CompactionPlanner.defaultRetention, now: Date = Date(),
                                assumingSnapshot: Bool = false, protectingCheckpoints: Bool = true) -> [RevisionName] {
+        let anchor = CompactionPlanner.createdAnchor(revisions)
         let plan = unprotectedCompactionPlan(retention: retention, now: now, assumingSnapshot: assumingSnapshot)
+            .filter { $0 != anchor }
         let checkpoints = Set(revisions.filter { $0.kind == .delta && $0.checkpoint != nil }.map(\.name))
         guard !checkpoints.isEmpty else { return plan }
         var out = plan.filter { !checkpoints.contains($0) }
