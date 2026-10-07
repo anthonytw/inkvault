@@ -117,11 +117,17 @@ struct VaultInfo: ParsableCommand {
                     ? Info.Recipient.pqType : "x25519", label: $0.label, added: $0.added)
             },
             notes: noteCount, keyFiles: keyFiles, pendingRewrap: vault.pendingRewrap,
-            journalProblem: vault.journalProblem, unlocked: !vault.isLocked)
+            journalProblem: vault.journalProblem, unlocked: !vault.isLocked,
+            format: vault.manifest.format, features: vault.manifest.features, readOnly: vault.isReadOnly,
+            readOnlyReasons: vault.readOnlyReasons.descriptions)
         if output.json { try output.emitJSON(info); return }
         print("Vault:          \(info.path)")
         print("Vault id:       \(info.vaultId)")
         print("Created:        \(Format.local(info.created))")
+        print("Format:         \(info.format)" + (info.features.isEmpty ? "" : " (\(info.features.joined(separator: ", ")))"))
+        if info.readOnly {
+            print("Read-only:      YES: \(info.readOnlyReasons.joined(separator: "; ")); update Sempere to change it")
+        }
         print("Notes:          \(info.notes)")
         print("Recipients:     \(info.recipients.count)")
         for r in info.recipients {
@@ -164,6 +170,12 @@ struct VaultInfo: ParsableCommand {
         var pendingRewrap: Bool
         var journalProblem: String?
         var unlocked: Bool
+        /// `vault.json`'s `format` and `features` (format.md §2, §7.1).
+        var format: String
+        var features: [String]
+        /// True when this version may read but not change the vault (format.md §7.3).
+        var readOnly: Bool
+        var readOnlyReasons: [String]
     }
 }
 
@@ -413,7 +425,7 @@ struct VaultVerify: ParsableCommand {
         let vault = try access.openVault(.required)
         let report = vault.verify()
         if output.json {
-            try output.emitJSON(Out(report))
+            try output.emitJSON(Out(report, readOnly: vault.readOnlyReasons))
         } else {
             for p in report.manifestProblems { print("MANIFEST   vault.json: \(p)") }
             if let j = report.journalProblem { print("JOURNAL    rewrap-journal.json: \(j)") }
@@ -423,6 +435,9 @@ struct VaultVerify: ParsableCommand {
             if !rows.isEmpty { print(Format.table(rows)) }
             let counts = VerifyReport.Status.allCases.compactMap { s in
                 report.counts[s].map { "\(s.rawValue): \($0)" }
+            }
+            if vault.isReadOnly {
+                print("READ-ONLY  " + vault.readOnlyReasons.descriptions.joined(separator: "; "))
             }
             print("\(report.files.count) file(s)" + (counts.isEmpty ? "" : " (" + counts.joined(separator: ", ") + ")")
                 + (report.isHealthy ? ": healthy" : ": UNHEALTHY"))
@@ -438,8 +453,12 @@ struct VaultVerify: ParsableCommand {
         var journalProblem: String?
         var counts: [String: Int]
         var files: [File]
+        var readOnly: Bool
+        var readOnlyReasons: [String]
 
-        init(_ r: VerifyReport) {
+        init(_ r: VerifyReport, readOnly reasons: ReadOnlyReasons) {
+            readOnly = !reasons.isEmpty
+            readOnlyReasons = reasons.descriptions
             healthy = r.isHealthy
             manifestProblems = r.manifestProblems
             rewrapPending = r.rewrapPending

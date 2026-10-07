@@ -298,8 +298,13 @@ extension Vault {
         try Self.strictRevisions(of: try loadNote(noteId))
     }
 
+    /// The readable revisions, or the first failure. A revision unreadable
+    /// only because a newer version wrote it (`RevisionReadError.newer`) is
+    /// left out instead (format.md §7.4): it is reported in `loaded.newer`,
+    /// and the vault, having seen it, is read-only.
     static func strictRevisions(of loaded: LoadedNote) throws -> [Revision] {
-        if let (name, err) = loaded.failures.min(by: { $0.key < $1.key }) {
+        let failures = loaded.failures.filter { if case .newer = $0.value { return false } else { return true } }
+        if let (name, err) = failures.min(by: { $0.key < $1.key }) {
             throw VaultError.revision(name: name.filename, err)
         }
         return loaded.revisions
