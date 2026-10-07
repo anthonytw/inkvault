@@ -99,6 +99,7 @@ final class ImportFidelityEvalTests: XCTestCase {
 
     /// Writes one note's thumbnails, first-page renders, PDF and metadata.
     func export(note: NotabilityNote, package pkg: NotePackage, state: NoteState, id: UUID, to out: URL) throws {
+        let state = Self.inkOnly(state)
         let size = state.meta.pageSize
         let breakHeight = size.breakHeight ?? size.width * 21 / 16
         let strokes = state.pages.flatMap(\.strokes)
@@ -167,6 +168,15 @@ final class ImportFidelityEvalTests: XCTestCase {
         try json(meta).write(to: out.appendingPathComponent("meta.json"))
     }
 
+    /// The note without its items: the evaluation compares ink, and composites
+    /// the source PDF page itself (rendered without the note's blobs, a
+    /// background would be a placeholder with diagonals that reads as ink).
+    static func inkOnly(_ state: NoteState) -> NoteState {
+        var s = state
+        for i in s.pages.indices { s.pages[i].items = [] }
+        return s
+    }
+
     /// Pixels per point of the full-page renders compared with Notability's PDF export.
     static let evalScale = 1.5
 
@@ -175,6 +185,7 @@ final class ImportFidelityEvalTests: XCTestCase {
     /// PDFs and the PDF page under each Notability page.
     func exportPages(note: NotabilityNote, package pkg: NotePackage, state: NoteState, notabilityPDF: Data,
                      to out: URL) throws {
+        let state = Self.inkOnly(state)
         try notabilityPDF.write(to: out.appendingPathComponent("notability.pdf"))
         var count = 0
         for page in state.pages {

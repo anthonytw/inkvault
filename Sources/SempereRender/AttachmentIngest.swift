@@ -92,54 +92,9 @@ public enum ImageIngest {
         }
     }
 
-    /// The Exif orientation (1…8) of a JPEG, 1 when it has none or it is not valid.
-    static func exifOrientation(_ data: Data) -> Int {
-        let d = [UInt8](data)
-        var pos = 2
-        while pos + 4 <= d.count {
-            guard d[pos] == 0xFF else { return 1 }
-            let code = d[pos + 1]
-            if code == 0xFF { pos += 1; continue }
-            if code == 0xDA || code == 0xD9 { return 1 }   // image data begins: no Exif
-            if (0xD0...0xD8).contains(code) || code == 0x01 { pos += 2; continue }
-            let length = Int(d[pos + 2]) << 8 | Int(d[pos + 3])
-            guard length >= 2, pos + 2 + length <= d.count else { return 1 }
-            if code == 0xE1, length >= 2 + 6 + 8, Array(d[pos + 4..<pos + 10]) == Array("Exif\0\0".utf8) {
-                return tiffOrientation(d, tiff: pos + 10, end: pos + 2 + length)
-            }
-            pos += 2 + length
-        }
-        return 1
-    }
-
-    /// Tag 0x0112 of the first IFD of the TIFF structure at `tiff`.
-    private static func tiffOrientation(_ d: [UInt8], tiff: Int, end: Int) -> Int {
-        guard tiff + 8 <= end else { return 1 }
-        let little: Bool
-        switch (d[tiff], d[tiff + 1]) {
-        case (0x49, 0x49): little = true
-        case (0x4D, 0x4D): little = false
-        default: return 1
-        }
-        func u16(_ i: Int) -> Int { little ? Int(d[i]) | Int(d[i + 1]) << 8 : Int(d[i]) << 8 | Int(d[i + 1]) }
-        func u32(_ i: Int) -> Int {
-            little ? Int(d[i]) | Int(d[i + 1]) << 8 | Int(d[i + 2]) << 16 | Int(d[i + 3]) << 24
-                : Int(d[i]) << 24 | Int(d[i + 1]) << 16 | Int(d[i + 2]) << 8 | Int(d[i + 3])
-        }
-        guard u16(tiff + 2) == 42 else { return 1 }
-        let ifd = tiff + u32(tiff + 4)
-        guard ifd >= tiff + 8, ifd + 2 <= end else { return 1 }
-        let count = u16(ifd)
-        for i in 0..<min(count, 512) {
-            let e = ifd + 2 + 12 * i
-            guard e + 12 <= end else { return 1 }
-            if u16(e) == 0x0112 {
-                let value = u16(e + 8)
-                return (1...8).contains(value) && u16(e + 2) == 3 ? value : 1
-            }
-        }
-        return 1
-    }
+    /// The Exif orientation (1…8) of a JPEG, 1 when it has none or it is not
+    /// valid: `JPEG.exifOrientation`, the one EXIF reader (format.md §9).
+    static func exifOrientation(_ data: Data) -> Int { JPEG.exifOrientation(data) ?? 1 }
 }
 
 /// Why a PDF cannot become a background or figure.

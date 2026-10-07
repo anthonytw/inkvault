@@ -18,6 +18,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   delta with undo. In iCloud Drive a note's attachments download on demand: images and PDF
   pages when a page shows them, never with the note. The shared `NoteOps` item builders and
   `ItemRaster` (one item drawn as the exports draw it) are in the library for the CLI too.
+- Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
+  the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
+  original PDF, laid out from the PDF's own page boxes), and images become image items with
+  their frame, rotation and crop, metadata stripped. `sempere import notability` gains
+  `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
+  and why anything was left out (`warnings`).
 - Attachments from the command line (task F, `docs/cli.md` "Adding attachments"): `sempere attach
   image|pdf|text|recording|transcript` add an image, PDF pages (as new background pages or as a
   figure), a text box, an MPEG-4 recording or a transcript to a note, each as one delta with

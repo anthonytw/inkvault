@@ -387,14 +387,21 @@ final class CLIAttachTests: CLITestCase {
         let show = try cli(["notes", "show", physics] + args)
         XCTAssertTrue(show.out.contains("Recordings (1):") && show.out.contains("\"Lecture 3\"") && show.out.contains("audio/mp4"), show.out)
         // ALAC; overrides win over the header; without --started the file's time minus its length.
-        let alac = try ok(["attach", "recording", physics, audio("tone-alac.m4a"), "--codec", "alac-test", "--bit-rate", "123456", "--json"] + args)
+        // A copy with a known modification time: a checkout's own times are not under the test's control.
+        let copy = path("tone-alac.m4a")
+        try FileManager.default.copyItem(atPath: audio("tone-alac.m4a"), toPath: copy)
+        let modified = Date(timeIntervalSince1970: 1_790_000_000)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: copy)
+        let alac = try ok(["attach", "recording", physics, copy, "--codec", "alac-test", "--bit-rate", "123456", "--json"] + args)
         let r2 = try XCTUnwrap(alac["recording"] as? [String: Any])
         XCTAssertEqual(r2["codec"] as? String, "alac-test")
         XCTAssertEqual(r2["bitRate"] as? Int, 123456)
         XCTAssertEqual(r2["channels"] as? Int, 2)
         XCTAssertNil(r2["title"])
         let started = try XCTUnwrap(RFC3339.parse(try XCTUnwrap(r2["started"] as? String)))
-        XCTAssertLessThan(abs(started.timeIntervalSinceNow), 3600 + 5, "derived from the file's modification time")
+        let length = try XCTUnwrap(r2["duration"] as? Double)
+        XCTAssertEqual(started.timeIntervalSince1970, modified.timeIntervalSince1970 - length, accuracy: 1,
+                       "the file's modification time minus its length")
     }
 
     func testAttachRecordingRefusals() throws {

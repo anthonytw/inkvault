@@ -724,7 +724,8 @@ is refused (exit 1). `--json` as for the editing commands.
 
 ```
 sempere import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
-                                   [--no-folder-tags] [--tag T ...]
+                                   [--no-folder-tags] [--tag T ...] [--no-attachments]
+                                   [--keep-image-metadata]
 ```
 
 Each `PATH` is a `.note` or `.ntb` file, an unzipped `.note` package
@@ -742,12 +743,24 @@ bundle.
 
 One row is printed per input file (status, title, notebook, strokes written,
 pages with recognised text, source) plus a summary line; `-v` lists what was
-left behind (typed text, PDFs and their page count, media, recordings, dashed
-strokes, strokes with defaulted attributes, shapes or `.ntb` strokes not
-decoded, `.ntb` strokes placed at the page edge). A note with no ink whose
-pages are PDF pages (a PDF that was never written on) imports as an empty
-note and gets a `no ink in …` line, since PDF backgrounds are not imported
-yet. A note already in the vault is skipped unless `--overwrite`, which
+left behind (typed text, PDFs and their page count, media, recordings, PDF
+highlights, template PDF paper, dashed strokes, strokes with defaulted
+attributes, shapes or `.ntb` strokes not decoded, `.ntb` strokes placed at the
+page edge) and one `attachments …` line per attachment warning (a PDF that is
+missing, encrypted or unreadable, a page number beyond the PDF, a media object
+with no file or no frame together with its Notability field names, an image
+format the vault does not store, and how each image was placed).
+
+Attachments (`docs/import-notability.md` "Attachments"): the PDF pages of a
+note made from a PDF become `pdfPage` backgrounds at the bands where
+Notability showed them, backed by the original PDF as one blob of the note,
+and images become `image` items; blobs are written before the note's delta.
+JPEG and PNG metadata (camera, location) is stripped unless
+`--keep-image-metadata`; HEIC is stored as is; GIF, TIFF, WebP and other
+formats are reported and left out. `--no-attachments` imports ink, recognised
+text and metadata only and reports every attachment as dropped. A note with
+no ink and none of its PDF pages imported gets a `no ink in …` line. A note
+already in the vault is skipped unless `--overwrite`, which
 replaces its pages. `--notebook` files every note under one notebook;
 `--no-scale` keeps Notability's document units instead of scaling to 612 pt
 width. Notes are tagged with their Notability folder names (`Research/Daily
@@ -760,9 +773,15 @@ come from `device.json` as for `snapshot`.
 `--dry-run` imports into a throwaway copy of the vault with a throwaway device,
 so the report is exact but neither the vault nor `device.json` is touched.
 `--json` emits `summary` (`notes`, `imported`, `skipped`, `failed`,
-`strokes`, `ntb`, `extraVersions`, `dryRun`) and `notes` (with `status`
-`imported`, `skipped` or `failed`, `reason`, `id`, `format` `note`/`ntb`,
-`shapes`, `duplicateOf`, `extraVersion`, `selection`, `dropped`, ...). Exit 1
+`strokes`, `ntb`, `extraVersions`, `dryRun`, and over the notes written
+`pdfPages`, `images`, `blobs`, `blobBytes`, `droppedPDFPages`,
+`droppedMedia`) and `notes` (with `status` `imported`, `skipped` or `failed`,
+`reason`, `id`, `format` `note`/`ntb`, `shapes`, `duplicateOf`,
+`extraVersion`, `selection`, `dropped` (`pdfs`, `pdfPages`, `media`,
+`pdfHighlights`, `templatePDFs`, `typedTextCharacters`, `recordings`, …),
+`attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`, `blobs`,
+`blobBytes`) and `warnings`, ...). A skipped note's `dropped` counts
+everything its source holds, since nothing of it was written. Exit 1
 if any note failed, a path does not exist, or no `.note` or `.ntb` file was
 found.
 
