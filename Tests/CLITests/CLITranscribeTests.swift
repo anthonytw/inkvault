@@ -102,4 +102,35 @@ final class CLITranscribeTests: CLITestCase {
         XCTAssertEqual(try revisionCount(vault), before, "nothing written")
         #endif
     }
+
+    /// `export --recordings attach` ("PDF + attachments"): `pdfdetach -list`
+    /// shows the audio when Poppler is installed.
+    func testExportAttachesRecordings() throws {
+        let (_, args, _) = try setUp(recordings: ["Lecture"])
+        let plain = path("plain.pdf"), attached = path("attached.pdf")
+        let r1 = try cli(["export", physics, "--format", "pdf", "--out", plain] + args)
+        XCTAssertEqual(r1.status, 0, r1.err)
+        XCTAssertTrue(r1.err.contains("1 recording not exported"), r1.err)
+        let r2 = try cli(["export", physics, "--format", "pdf", "--out", attached, "--recordings", "attach", "--json"] + args)
+        XCTAssertEqual(r2.status, 0, r2.err)
+        XCTAssertEqual(((r2.json as? [[String: Any]])?.first?["recordings"] as? Int)
+                       ?? (((r2.json as? [String: Any])?["notes"] as? [[String: Any]])?.first?["recordings"] as? Int), 1, r2.out)
+        let pdf = try Data(contentsOf: URL(fileURLWithPath: attached))
+        let tone = try Data(contentsOf: URL(fileURLWithPath: Self.tone))
+        XCTAssertNotNil(pdf.range(of: tone), "the audio is embedded byte for byte")
+        XCTAssertNil(try Data(contentsOf: URL(fileURLWithPath: plain)).range(of: tone))
+        XCTAssertEqual(try cli(["export", physics, "--format", "svg", "--out", path("x"), "--recordings", "attach"] + args).status, 2)
+        if let detach = ["/usr/bin/pdfdetach", "/opt/homebrew/bin/pdfdetach", "/usr/local/bin/pdfdetach"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: detach)
+            p.arguments = ["-list", attached]
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            try p.run()
+            p.waitUntilExit()
+            let listing = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            XCTAssertTrue(listing.contains("Lecture.m4a"), listing)
+        }
+    }
 }
