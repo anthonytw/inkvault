@@ -265,6 +265,45 @@ final class NotabilityTests: XCTestCase {
         }
     }
 
+    /// The maintainer's mass re-import (TestFlight build 6): every note imported, then
+    /// re-imported with --overwrite. Both imports are checkpoints (format.md §5.8.1), the
+    /// re-import is dated when it ran, and thinning keeps both and changes nothing.
+    func testReimportIsACheckpointAndThinningKeepsIt() throws {
+        let notePath = tmp.appendingPathComponent("Synthetic.note")
+        try SyntheticNote.package().write(to: notePath)
+        let identity = try NativeIdentity.generate(.postQuantum)
+        let vault = try Vault.create(at: tmp.appendingPathComponent("R.sempere"), recipients: [identity.recipient],
+                                     identities: [identity])
+        let device = DeviceID("0a0b0c0d")!
+        var clock = HybridClock()
+        let t0 = Date()
+        let r = try NotabilityImporter.import(paths: [notePath], into: vault, device: device, clock: &clock, now: { t0 })
+        let id = try XCTUnwrap(r.notes.first?.noteId)
+        _ = try NotabilityImporter.import(paths: [notePath], into: vault, device: device, clock: &clock,
+                                          options: .init(overwrite: true), now: { t0.addingTimeInterval(86_400) })
+        let revs = try vault.loadNote(id).revisions.sorted { $0.name < $1.name }
+        XCTAssertEqual(revs.count, 2)
+        XCTAssertTrue(revs[0].checkpoint?.name?.hasPrefix("Imported from Notability on \(NotabilityImporter.utcMinute(t0))") ?? false)
+        XCTAssertTrue(revs[1].checkpoint?.name?.hasPrefix(
+            "Imported from Notability on \(NotabilityImporter.utcMinute(t0.addingTimeInterval(86_400)))") ?? false)
+        XCTAssertEqual(NotabilityImporter.checkpointName(importedAt: Date(timeIntervalSince1970: 1_791_390_180),
+                                                         modified: Date(timeIntervalSince1970: 1_709_284_320)),
+                       "Imported from Notability on 2026-10-07 16:23 UTC (modified in Notability 2024-03-01 09:12 UTC)")
+        XCTAssertEqual(NotabilityImporter.checkpointName(importedAt: Date(timeIntervalSince1970: 1_791_390_180), modified: nil),
+                       "Imported from Notability on 2026-10-07 16:23 UTC")
+        XCTAssertEqual(revs[0].wall, SyntheticNote.created)   // sets `created`
+        XCTAssertEqual(revs[1].wall.timeIntervalSince(t0.addingTimeInterval(86_400)), 0, accuracy: 0.001)   // stored in ms
+        XCTAssertEqual(try vault.reconstruct(noteId: id).meta.created, SyntheticNote.created)
+        // Years later, with the shortest cutoff: nothing to thin, and the metadata alone says so.
+        let later = t0.addingTimeInterval(5 * 365 * 86_400)
+        var c = HybridClock()
+        let plan = try vault.planCompaction(id, loaded: try vault.loadNote(id), mode: .thin(olderThan: 86_400), now: later,
+                                            device: device, clock: &c, app: "t")
+        XCTAssertTrue(plan.isEmpty)
+        let index = try vault.revisionIndex(of: id, cache: nil)
+        XCTAssertFalse(CompactionPlanner.mayDelete(index.revisions, noteId: id, mode: .thin(olderThan: 86_400), now: later))
+    }
+
     /// An overwrite re-sets tags and notebook even when they are now empty.
     func testOverwriteClearsTagsAndNotebook() throws {
         let identity = try NativeIdentity.generate(.postQuantum)

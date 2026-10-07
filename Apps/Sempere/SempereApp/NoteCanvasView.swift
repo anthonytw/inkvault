@@ -10,7 +10,7 @@ struct NoteCanvasView: View {
     @AppStorage(ColumnLayout.key) private var storedColumns = "all"
     @Environment(WindowUI.self) private var ui
     @State private var showingHistory = false
-    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
 
     var body: some View {
         Group {
@@ -152,6 +152,10 @@ struct EditorView: View {
     @State private var undoBannerFor = 0
     /// Photos, camera, PDF pages and crop (`EditorInsert`).
     @State private var insert = InsertState()
+    /// The recording whose transcript is shown (`TranscriptView`).
+    @State private var showingTranscript: Recording?
+    /// The recording being renamed.
+    @State private var renamingRecording: Recording?
 
     var body: some View {
         @Bindable var ui = ui
@@ -162,6 +166,7 @@ struct EditorView: View {
             if let error = editor.saveError {
                 Banner(text: error, systemImage: "exclamationmark.triangle", tint: .orange)
             }
+            RecordingBar(editor: editor, showingTranscript: $showingTranscript)
             if let cursor = editor.searchCursor {
                 SearchMatchBar(position: cursor.position, count: cursor.count,
                                previous: { editor.stepSearchMatch(-1) }, next: { editor.stepSearchMatch(1) },
@@ -250,9 +255,12 @@ struct EditorView: View {
             annotating = PhoneReading.annotatingAfterNoteChange()
             selectingItems = false
             addingText = false
+            showingTranscript = nil
         }
         .onChange(of: selectingItems) { if selectingItems { addingText = false } }
         .onChange(of: addingText) { if addingText { selectingItems = false } }
+        .sheet(item: $showingTranscript) { TranscriptView(editor: editor, recording: $0) }
+        .sheet(item: $renamingRecording) { RenameRecordingSheet(editor: editor, recording: $0) }
         .toolbar {
             if Platform.isPhone { phoneToolbar } else { fullToolbar }
         }
@@ -275,6 +283,7 @@ struct EditorView: View {
                     .disabled(editor.currentPage == nil)
             }
             ToolbarItem(placement: .secondaryAction) { insertMenu }
+            ToolbarItem(placement: .secondaryAction) { recordingsMenu }
             if annotating {
                 ToolbarItem(placement: .secondaryAction) { textToolToggle }
                 ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
@@ -308,6 +317,10 @@ struct EditorView: View {
             state.cropping = CropRequest(item: item, page: page, note: note, actions: actions)
         }
         return commands
+    }
+
+    private var recordingsMenu: some View {
+        RecordingsMenu(editor: editor, showingTranscript: $showingTranscript, renaming: $renamingRecording)
     }
 
     private var insertMenu: some View {
@@ -404,6 +417,9 @@ struct EditorView: View {
             }
             if !editor.isReadOnly {
                 ToolbarItem(placement: .primaryAction) { insertMenu }
+            }
+            if !editor.isReadOnly || !editor.recordings.isEmpty {
+                ToolbarItem(placement: .primaryAction) { recordingsMenu }
             }
             if showsItemSelection {
                 ToolbarItem(placement: .primaryAction) { itemSelectionToggle }

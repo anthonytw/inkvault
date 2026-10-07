@@ -502,7 +502,7 @@ encrypted files.
 ```
 sempere notes list [--tag T] [--notebook N] [--deleted] [--no-cache]
 sempere notes show ID|TITLE
-sempere notes new TITLE [--notebook PATH] [--tag T]... [--paper KIND] [PAPER OPTIONS] [--page-size letter|a4] [--no-cache]
+sempere notes new [TITLE] [--title-format PATTERN] [--notebook PATH] [--tag T]... [--paper KIND] [PAPER OPTIONS] [--page-size letter|a4] [--no-cache]
 sempere notes rename ID|TITLE NEW-TITLE
 sempere notes tag ID|TITLE [--add T]... [--remove T]... [--no-cache]
 sempere notes move ID|TITLE (NOTEBOOK | --none)
@@ -631,7 +631,11 @@ absent).
   be unique), notebook, paper (default `ruled`, with the paper options below),
   page size (`letter`, the default, or `a4`) and one `addTag` per `--tag`, in
   the spelling the vault already uses for that tag (as `tag --add` below).
-  Prints the new id (the `Created …` line goes to stderr).
+  Prints the new id (the `Created …` line goes to stderr). Without a TITLE
+  the note is named after the date and time, as the app names a new note
+  (`DefaultTitle`): `--title-format` takes a Unicode date pattern
+  (`"yyyy-MM-dd HH:mm"`, literal text in single quotes: `"'Lecture' EEE d MMM"`);
+  the default is the locale's medium date and short time. `""` is an empty title.
 - `rename` sets the title (trimmed).
 - `tag` adds and removes tags in one delta. Tags match case-insensitively and
   merge per tag (`format.md` §5.4.1): `--add` writes an `addTag` unless the
@@ -1008,6 +1012,48 @@ gives `{dryRun, notes: [{note, title, read, cleared, language, file, error}]}`
 (`language`: the note's `lang`, absent when Vision detects it). A note
 that cannot be read or written is reported and the exit code is 1.
 
+### Transcription
+
+```
+sempere transcribe (ID|TITLE [RECORDING...] | --all) [--language TAG] [--engine auto|speechtranscriber|sfspeech]
+                   [--force] [--dry-run] [--no-download]
+sempere transcribe --check [--language TAG]
+```
+
+Transcribes a note's recordings on this machine with Apple's Speech framework
+and stores each transcript (`format.md` §8.3.2: time-stamped segments, every
+word with its time and confidence, the language and the engine) as a blob of
+the note, then sets it on the recording: one delta of `setRecording` ops per
+note, stamped with this machine's device id and clock. It is the app's
+engine, with the same code (`SpeechTranscription`, `Sources/SempereSpeech`):
+
+| Engine | When | Notes |
+| --- | --- | --- |
+| `speechtranscriber` | macOS 26 and later | SpeechAnalyzer with SpeechTranscriber, long-form, word times and confidence; the on-device model for the language is installed on first use (Apple's asset service; `--no-download` refuses instead) |
+| `sfspeech` | fallback | `SFSpeechRecognizer` with `requiresOnDeviceRecognition`; needs the speech recognition permission, which a command-line program cannot ask for, so from the CLI it works only once that permission was granted |
+
+Nothing is ever sent to a server: a language without an on-device model is an
+error. The language is `--language`, else the note's language (`format.md`
+§5.4 `lang`, once notes carry it), else this machine's; it is matched to a
+supported one (the same tag, else the same language with this machine's
+region, else the first of that language). Each recording's audio is decrypted
+into a private temporary file (mode 0600) for the recogniser and deleted
+afterwards.
+
+By default only recordings without a transcript are read; recordings named on
+the command line (id, id prefix of 4+ characters, or exact title) are read
+whatever they have, and `--force` replaces every transcript. `--dry-run` lists
+what would be read and works on every platform. `--check` prints which engines
+can transcribe here, for which language, and needs no vault (it is the
+availability matrix of task E5; `--json` gives `{supported, engines: [{engine,
+available, language, detail}]}`).
+
+**macOS only.** The Linux build exits 1 with a message and changes nothing
+(`--dry-run` and `--check` still work). `--json` gives `{dryRun, notes: [{note,
+title, file, error, recordings: [{id, title, engine, language, segments, words,
+transcript, error}]}]}`; a recording that cannot be transcribed is reported
+and the exit code is 1.
+
 ### Export
 
 ```
@@ -1015,7 +1061,7 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION] [--breaks gaps|fixed]
                 [--notebook NAME] [--images none|png] [--clean]
                 [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
-                [--assets DIR] [--keep-image-metadata]
+                [--assets DIR] [--keep-image-metadata] [--recordings none|attach]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -1047,8 +1093,14 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
 
 Every item kind is drawn by `pdf`, `svg` and `png`: text boxes (bundled fonts and font packs, "Text in
 exports"), images ("Images in exports") and PDF pages ("PDF page backgrounds"), from the
-note's own blobs. Recordings are listed in `json` and `notes show`; drawing them into exports
-(`docs/attachments.md` task C4) is not done yet.
+note's own blobs. Pages never show recordings. `--recordings attach` (PDF only; the app's "PDF +
+attachments") embeds each note's recordings as PDF file attachments (`/Names /EmbeddedFiles`,
+PDF 1.4: the audio byte for byte, named after the recording's title, and its transcript as a
+`.txt` of time-stamped lines); viewers list them and play or save them (`pdfdetach -list`
+shows them). At most 512 MiB of recordings go into one PDF; the rest are left out with a
+warning. Without it (`none`, the default) a PDF export warns "N recordings not exported". The
+`--recordings list` page and `--format media` of task C4 are not done yet; `json` and `notes
+show` list recordings.
 
 - `markdown` and `html`: a folder tree, see "Markdown and HTML exports" below.
   `--notebook NAME` (with `--all`, any format) keeps only notes in that
@@ -1061,7 +1113,8 @@ except that a single note's pdf/json goes to the file when `--out` ends in
 named explicitly is exported with a warning. One note that fails to
 reconstruct does not stop the others; the exit code is then 1. Every file
 written is printed. With `--json`, each entry has `note`, `files` and, when
-some items were drawn as placeholders, `placeholders` (their number).
+some items were drawn as placeholders, `placeholders` (their number), and
+`recordings` (the number embedded) with `--recordings attach`.
 
 #### PDF page backgrounds
 
@@ -1273,7 +1326,7 @@ another vault` to stderr and exits 3 so scripts can tell. Wrong key: exit 4.
 ### Maintenance
 
 ```
-sempere compact (ID|TITLE | --all) [--retention DAYS | --thin-older-than AGE] [--dry-run]
+sempere compact (ID|TITLE | --all) [--retention DAYS | --thin-older-than AGE | --thin-all] [--dry-run] [--no-cache]
 sempere snapshot ID|TITLE
 ```
 
@@ -1306,7 +1359,22 @@ is a full copy of the note, so thinning can add bytes while it removes files:
 the output says how many it deletes and adds (`Would delete 12 file(s), 48.0 KB;
 would add 2 snapshot(s), 310.5 KB.`), with `would snapshot NOTE (as of
 REVISION)` lines. Thinning twice with the same age does nothing the second
-time. `--retention` and `--thin-older-than` are different modes; give one.
+time. Before the per-file lines it prints the rule it applies and what it keeps
+(`Thin versions older than 30 days (dry run). Removes autosaves older than 30
+days. Keeps every checkpoint …`).
+
+`--thin-all` is the same rule with no age window ("thin everything except
+checkpoints", `docs/format.md` §5.8.4 with a cutoff of zero): every autosave
+goes, however recent, except the newest save of each editing session; every
+checkpoint (saved versions and imports, §5.8.1) and the note's newest revision
+stay. It prints its own rule line. `--retention`, `--thin-older-than` and
+`--thin-all` are different modes; give one.
+
+Thinning and compaction decide from each revision's metadata (names, wall
+times, checkpoint and session fields, snapshot coverage) which notes have
+anything to delete, and read only those in full; that metadata comes from the
+summary cache (`docs/format.md` §10, filled by listings; `--no-cache` reads
+every note instead). Notes are read, planned and carried out in parallel.
 
 `--json` emits one object per note: `note`, `snapshotNeeded`, `snapshot` (the
 first snapshot written; null on a dry run), `snapshots` (each `{file, asOf}`;

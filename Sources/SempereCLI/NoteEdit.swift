@@ -47,12 +47,18 @@ struct NotesNew: ParsableCommand {
             Writes one delta that creates the note: one blank page, the title, the notebook (a
             /-separated path), the paper and page size, and one addTag per tag, in the spelling the
             vault already uses for it (as `notes tag --add`). Prints the new note's id. Titles need not
-            be unique.
+            be unique. Without a title the note is named after the date and time, as the app names a
+            new note: --title-format takes a Unicode date pattern (e.g. "yyyy-MM-dd HH:mm", literal
+            text in single quotes); the default is the locale's medium date and short time.
             """
     )
 
-    @Argument(help: ArgumentHelp("The title (may be empty).", valueName: "title"))
-    var title: String
+    @Argument(help: ArgumentHelp("The title (may be empty; omitted: the date and time).", valueName: "title"))
+    var title: String?
+
+    @Option(name: .customLong("title-format"),
+            help: ArgumentHelp("Date pattern of the default title, when no title is given.", valueName: "pattern"))
+    var titleFormat: String?
 
     @Option(name: .long, help: ArgumentHelp("Put the note in this notebook (School/Math for levels).",
                                             valueName: "path"))
@@ -81,6 +87,7 @@ struct NotesNew: ParsableCommand {
         let paper = try paperOptions.applied(to: Paper.template(self.paper))
         let known = NoteOps.normalizedTags(tag).isEmpty
             ? [] : NoteOps.vaultTags(try vault.summaries(of: nil, cache: cache.cache(for: vault)))
+        let title = self.title ?? DefaultTitle.title(at: Date(), format: titleFormat)
         let ops = NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines), paper: paper,
                                   pageSize: pageSize.size, notebook: NotebookPath.canonical(notebook),
                                   tags: tag.map { NoteOps.tagSpelling($0, among: known) })

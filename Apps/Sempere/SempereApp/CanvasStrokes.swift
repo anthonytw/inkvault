@@ -46,11 +46,22 @@ extension CanvasStrokeInfo {
 extension StrokeLedger {
     /// Ledger items for a canvas drawing. New strokes record the inking
     /// tool's width as `Ink.width` when the tool still has their ink type.
-    static func items(for drawing: PKDrawing, tool: PKTool?) -> [Item] {
+    /// `stamp` gives the `rec` link (format.md §8.3.3) of a stroke drawn at
+    /// a moment (its path's creation date) while a recording runs; new
+    /// strokes get it when they are converted. Pieces of a sliced stroke take
+    /// their parent's instead (`update`).
+    static func items(for drawing: PKDrawing, tool: PKTool?,
+                      stamp: (@Sendable (Date) -> RecordingLink?)? = nil) -> [Item] {
         let inking = tool as? PKInkingTool
         return drawing.strokes.map { pk in
             let width: Double? = inking.flatMap { $0.inkType == pk.ink.inkType ? Double($0.width) : nil }
-            return Item(info: CanvasStrokeInfo(pk), make: { StrokeConversion.strokes(from: pk, nominalWidth: width) })
+            return Item(info: CanvasStrokeInfo(pk), make: {
+                var strokes = StrokeConversion.strokes(from: pk, nominalWidth: width)
+                if let link = stamp?(pk.path.creationDate) {
+                    for i in strokes.indices { strokes[i].rec = link }
+                }
+                return strokes
+            })
         }
     }
 

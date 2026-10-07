@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "SempereImport", targets: ["SempereImport"]),
         .library(name: "SemperePDF", targets: ["SemperePDF"]),
         .library(name: "SempereWebDAV", targets: ["SempereWebDAV"]),
+        .library(name: "SempereSpeech", targets: ["SempereSpeech"]),
         .executable(name: "sempere", targets: ["SempereCLI"]),
     ],
     dependencies: [
@@ -58,12 +59,14 @@ let package = Package(
             name: "SempereWebDAV",
             dependencies: ["Sempere", .product(name: "Crypto", package: "swift-crypto")]
         ),
+        // On-device transcription (Speech framework where it exists; empty elsewhere).
+        .target(name: "SempereSpeech", dependencies: ["Sempere"]),
         // Noto fonts for text in CLI exports (OFL 1.1); the app does not link them.
         .target(name: "SempereFonts", resources: [.copy("Fonts")]),
         .executableTarget(
             name: "SempereCLI",
             dependencies: [
-                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts",
+                "Age", "Sempere", "SemperePDF", "SempereRender", "SempereImport", "SempereWebDAV", "SempereFonts", "SempereSpeech",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),

@@ -27,9 +27,16 @@ enum RecognitionFailure: Error, CustomStringConvertible {
 /// on-device only: Vision runs here and nothing leaves the device.
 enum RecognitionPreference {
     static let key = "Sempere.recognizeHandwriting"
+    /// On until the user turns it off (docs/attachments.md §15).
+    static let defaultValue = true
+
+    /// The stored choice, `defaultValue` when never set.
+    static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key) as? Bool ?? defaultValue
+    }
 
     static var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        get { isEnabled() }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }

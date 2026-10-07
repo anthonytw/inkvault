@@ -638,8 +638,8 @@ every reader can play, i.e. inside `audio/mp4` (`format.md` §8.3.1):
 | Setting | Choices | Default |
 | --- | --- | --- |
 | Codec | AAC-LC; HE-AAC (better at 24–48 kbit/s); Apple Lossless (ALAC, ~4–6× larger) | AAC-LC |
-| Quality (AAC bit rate) | 32, 48, 64, 96, 128 kbit/s (HE-AAC: 24, 32, 48) | 64 kbit/s |
-| Sample rate | 48 kHz, 44.1 kHz, 24 kHz, 16 kHz | 48 kHz |
+| Quality (AAC bit rate) | 24, 32, 48, 64, 96, 128 kbit/s (HE-AAC: 24 to 64) | 64 kbit/s |
+| Sample rate | 48 kHz, 44.1 kHz, 32 kHz, 22.05 kHz, 16 kHz (HE-AAC records at 48 kHz below 32 kHz) | 48 kHz |
 | Channels | mono, stereo (only with a stereo input) | mono |
 
 The panel shows the resulting size per hour. Each recording stores what was
@@ -1509,12 +1509,68 @@ synthetic `.note` fixture so CI covers the mapping.
   when:* recording survives a simulated interruption; `rec.at` within 0.1 s
   in a scripted test; each codec choice produces a playable `audio/mp4`;
   tested on the user's iPad (A12Z, 26.7.1).
+  *Status:* in review (#87), not yet tried on the iPad. Shared core
+  (`Sources/Sempere/RecordingSupport.swift`, Linux-tested): `RecordingFormat`
+  (the §9 choices, `normalized()`, size per hour), `RecordingTimeline` (wall
+  time → audio time across pauses: `rec.at` of a stroke is its path's
+  creation date mapped through it), `RecordingSync` (stroke hit test, seek
+  target with a 2 s lead-in, playback highlight window of 3 s, `rec` through a
+  restored recording's `parent`). App: `RecordingSession`
+  (`AudioRecorder.swift`: `AVAudioRecorder` with the settings' format,
+  `.playAndRecord`, 10-minute segments with a manifest, interruptions and
+  route changes pause it, "should resume" resumes it in the same file; one
+  recording app-wide), `RecordingAssembly` (segments joined by
+  `AVMutableComposition`, passthrough else AAC), `RecordingRecovery` (a
+  session left by a crash is saved into its note, titled "Recovered
+  recording", the next time the note opens), `NoteEditor+Recordings` (blob
+  first, then one `addRecording` delta; rename, delete; strokes stamped in
+  `StrokeLedger.items(for:tool:stamp:)`, pieces of a sliced stroke keep their
+  parent's `rec`; items placed while recording get `rec` too),
+  `RecordingPlayer` (from the `BlobCache`), the canvas's "Tap Ink to Play"
+  mode (drawing off, a tap on linked ink plays from it) and playback
+  highlights (teal boxes on the strokes written in the last 3 s, through the
+  search-highlight layer). UI: a Record/Recordings toolbar menu (tap records
+  or stops; hold for the list: play, transcribe, transcript, rename, delete),
+  a recording bar and a player bar above the canvas, Recording settings
+  (codec, quality, sample rate, channels, size per hour) in Settings.
+  Plaintext audio stays in Application Support/Sempere/Recordings (not backed
+  up, `completeUnlessOpen`) until its blob is written (and transcribed), then
+  is deleted. Export sheet: **PDF** / **PDF + attachments** (the recordings and
+  their transcripts embedded, `ShareOptions.pdfAttachments`, the CLI's
+  `export --recordings attach`) with a footnote of what happens to them. Not
+  done: a live transcript while recording (`AVAudioEngine`), the faded
+  "ink appears as it was written" playback mode (highlights instead), Mac
+  keyboard shortcuts for recording (`MenuCommand` cases).
 - **E5 — transcription:** SpeechTranscriber → DictationTranscriber →
   SFSpeechRecognizer on-device fallback, locale and asset checks, transcript
   view with read-back word highlighting and low-confidence marking, tap word
   to seek, search. *Done when:* availability matrix verified on the user's
   iPad and recorded in `docs/`; transcript JSON validates against
   `format.md` §8.3.2 (segments and, where the engine gives them, words).
+  *Status:* in review (#87). `SpeechTranscription` (`Sources/SempereSpeech`,
+  the app and `sempere transcribe` share it): SpeechAnalyzer +
+  SpeechTranscriber on 26 (`.audioTimeRange`, `.transcriptionConfidence`;
+  model via `AssetInventory`), else `SFSpeechRecognizer` with
+  `requiresOnDeviceRecognition` (delegate collects every utterance of a long
+  file); never a server. `TranscriptBuilder` (core, Linux-tested) turns
+  either engine's output into a valid transcript whatever it returns (sorted,
+  non-overlapping, words inside segments, confidences in 0…1; words grouped
+  at pauses of 0.8 s, sentence ends and 20 s). Language: the note's (`meta.lang`
+  from the import-gaps work; `TranscriptionLanguage.noteLanguage` returns nil
+  until a reader keeps it), else the device's, matched to a supported locale.
+  App: "Transcribe Recordings on This Device" (off by default) transcribes a
+  recording when it is stopped, from its plaintext file before that is
+  deleted; Transcribe / Transcribe Again per recording; the job writes the
+  blob then one `setRecording(transcript)` delta through the browser path
+  (`AppModel.storeTranscript`), so it finishes if the note is closed, and an
+  open editor takes the result. `TranscriptView`: segments with times, the
+  playing word highlighted, words under 0.5 confidence grey and dotted, tap a
+  word or time to play from it. Settings lists each engine's availability for
+  the device language (`SpeechTranscription.availability`; the CLI's
+  `transcribe --check`). DictationTranscriber (fallback 1 above) is not used.
+  Not done: the availability matrix on the user's iPad (run Settings or
+  `sempere transcribe --check` there and record it here); transcripts in the
+  app's search (the CLI has `search --transcripts`).
 - **E6 — Settings panel:** one Settings screen (sheet from the library) with
   the sections of §15: recording (codec, quality, sample rate, channels,
   size per hour), photos (privacy and HEIC), transcription (opt-in, locale),
@@ -1603,6 +1659,28 @@ live in one Settings panel (task E6). Defaults are the decided policy.
 | Device keys | When adding a device | rewrite headers only | alternative: re-encrypt everything (§3) |
 | | When removing a device or upgrading to post-quantum keys | re-encrypt everything | alternative: rewrite headers only, with a warning and a confirmation |
 | Storage | Unused attachments: N items, X MB | — | browsable list, delete after 30 days unreferenced (§4) |
+
+Settings added since (same panel, same rules):
+
+| Section | Setting | Default | Notes |
+| --- | --- | --- | --- |
+| Recording | Quality choices | 24, 32, 48, 64, 96, 128 kbit/s | HE-AAC offers up to 64; Apple Lossless has no rate (size is an estimate for speech); sample rates 16, 22.05, 32, 44.1, 48 kHz |
+| Transcription | Language | same as the device | model download status and a download button come from the transcription feature (`TranscriptionSettings.statusProvider`, `.downloader`); until then "Not available" |
+| New notes | Title when left empty | date and time | also "Date" and "Untitled" |
+| | Default paper | ruled | `PaperPreference` |
+| | Notebook for quick voice notes | Inbox | read by the voice-note feature via `NewNoteSettings.voiceNotebook()` |
+| General | Keep Screen On | off | |
+| | Recognize Handwriting | on | |
+| History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
+| Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |
+| | Unused attachments | — | a scan (`Vault.blobInventory`, every revision of each note) lists blob files no revision references; it never deletes (collection with the 30-day window is E7 / `sempere blobs gc`) |
+
+Per device means per install: the keys are `Sempere.*` in `UserDefaults`
+(`DeviceSettings.swift`). A stored value outside its choices reads as the
+nearest valid one or the default. The CLI never reads them; each has flags
+instead: `sempere compact --thin DAYS`, `sempere attach recording --codec …
+--sample-rate … --channels … --bit-rate …`, `sempere vault recipients …
+--rewrap header|reencrypt`, `sempere blobs unused|gc`.
 
 The device-key settings explain in the panel that *devices* here are the
 vault's keys (this iPad, that Mac, the paper backup), not people: sharing a

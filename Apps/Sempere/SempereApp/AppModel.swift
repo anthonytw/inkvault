@@ -112,12 +112,20 @@ final class AppModel {
     /// The newest summary-cache save (`saveSummaryCache`).
     @ObservationIgnored var summaryCacheSave: Task<Void, Never>?
 
-    var sidebarSelection: SidebarItem? = .allNotes { didSet { updateSearch() } }
+    /// The sidebar row shown. Choosing another one scopes a running search to
+    /// it (TestFlight build 6: the title changed but the results stayed those
+    /// of All Notes); the query is kept.
+    var sidebarSelection: SidebarItem? = .allNotes {
+        didSet {
+            if sidebarSelection != oldValue, searchScope != .list { searchScope = .list }
+            updateSearch()
+        }
+    }
     var selectedNoteID: UUID?
     /// The search field's text. `visibleNotes` filters by title with it; the
     /// note list shows `searchResults` (`AppModel+Search`) while it is not empty.
     var searchText = "" { didSet { updateSearch() } }
-    var searchScope = SearchScope.everywhere { didSet { updateSearch() } }
+    var searchScope = SearchScope.list { didSet { updateSearch() } }
     /// Notes matching `searchText` (title, notebook, tag, recognised handwriting), best first.
     var searchResults: [NoteSearchHit] = []
     /// True from a change of the query until its results are in.
@@ -125,6 +133,10 @@ final class AppModel {
     /// The page to show once the note is open (a tapped search hit).
     var pendingJump: PageJump?
     @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// The title of a note created at a date with no title typed, as Settings
+    /// → New Notes says (`NewNoteSettings`; "" for Blank: the note stays
+    /// untitled). Tests replace it.
+    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.title(NewNoteSettings.titleFormat(), now: $0) }
     /// Pause after typing before the search runs.
     @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
     /// Reads handwriting on pages as they change and when notes open; nil = off.
@@ -134,14 +146,34 @@ final class AppModel {
             for window in windowEditors.values { window.recognizer = recognizer }
         }
     }
+    /// Transcribes recordings on device (`AppModel+Recordings`); tests inject a fake.
+    @ObservationIgnored var transcriber: (any RecordingTranscribing)? = SpeechRecordingTranscriber()
+    /// Recordings being transcribed now, by id.
+    var transcribing: Set<UUID> = []
+    /// Makes the players' audio backends; nil: AVFoundation's (tests pass fakes).
+    @ObservationIgnored var playbackBackend: (@MainActor () -> AudioPlaybackBackend)?
+    /// Where recordings in progress keep their files (tests pass their own).
+    @ObservationIgnored var recordingRoot = RecordingSession.root
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
     /// What the last "Recognize All Notes" run changed, kept (also after it
     /// ends) until the next run starts; the "Recently Recognized" filter lists it.
     var recognitionResults: RecognitionResults?
+    /// What this device remembers of the open vault between launches: notes
+    /// recognised in the last 7 days ("Recently Recognized") and recent
+    /// searches (`RecentActivity`, `AppModel+Activity`). Changing it re-derives the lists.
+    var activity = RecentActivity() { didSet { if activity.recognized != oldValue.recognized { listVersion &+= 1 } } }
+    /// Where `activity` is kept (a folder per vault secret inside it).
+    @ObservationIgnored var activityRoot: URL
+    /// The clock "Recently Recognized" is measured with (tests move it).
+    @ObservationIgnored var activityNow: () -> Date = { Date() }
     /// What is being dragged inside the app (set when a drag starts), so the
     /// sidebar can tell whether a row would accept it while the drag is still over it.
     var draggedPayload: DragPayload?
+    /// The item provider of the drag in progress, kept until it is dropped or
+    /// another drag starts: iPadOS 26 releases a provider as soon as `onDrag`
+    /// returns it unless someone holds it (`beginDrag`).
+    @ObservationIgnored var dragProvider: NSItemProvider?
     /// The sidebar row a drag is over that would accept it (highlighted).
     var dropTarget: DropTarget?
     @ObservationIgnored var recognitionTask: Task<Void, Never>?
@@ -163,6 +195,11 @@ final class AppModel {
     /// (`thinIfDue`, format.md §5.8.4). The app turns it on; tests leave it
     /// off so nothing is written that they did not ask for.
     var automaticThinning = false
+    /// How far a thinning run (or its preview) has got, counted per note;
+    /// nil when none is running (`thinVault`).
+    var thinningProgress: ThinningProgress?
+    /// Notes thinning works on at once (`thinVault`).
+    var thinningConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
     var cloudProgress: CloudProgress?
     /// True when the open vault is in iCloud Drive: reads and writes are
@@ -219,6 +256,17 @@ final class AppModel {
     var cloudStallTimeout = Duration.seconds(90)
     /// How many pending notes have downloads requested at once (`ProgressiveLoad`).
     var cloudWindow = ProgressiveLoad.defaultWindow
+    /// How many notes already known to be arriving a pass re-checks with
+    /// iCloud (in rotation, `nextPendingChecks`).
+    var cloudCheckLimit = 64
+    /// Where the rotation of `nextPendingChecks` stopped (an id string).
+    @ObservationIgnored var pendingCheckCursor = ""
+    /// Notes the file presenter reported changed since the last pass: checked
+    /// with iCloud by the next pass even when already known to be arriving.
+    @ObservationIgnored var reportedNoteIDs: Set<UUID> = []
+    /// The shortest time between two summary-cache saves while notes arrive.
+    var summaryCacheSaveInterval = Duration.seconds(20)
+    @ObservationIgnored var lastSummaryCacheSave: ContinuousClock.Instant?
     /// Test seam: awaited before an editor opened from the drawing cache
     /// takes the note it read in the background.
     @ObservationIgnored var editorLoadHook: (@Sendable () async -> Void)?
@@ -226,6 +274,8 @@ final class AppModel {
     @ObservationIgnored var onSummaryRead: (@Sendable (Int) -> Void)?
     /// Notes read per published batch, and threads reading them (`AppModel+Loading`).
     var loadBatchSize = 24
+    /// The largest batch `readSummaries` makes when many notes changed.
+    var loadBatchLimit = 96
     var loadConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Where summaries are cached between launches (`SummaryCache`); nil (the
     /// default, for tests): no cache. The app passes `defaultSummaryCacheDirectory`.
@@ -264,8 +314,19 @@ final class AppModel {
     /// Decrypted attachments of the open vault (`AppModel+Attachments`),
     /// created on first use, deleted whenever `vault` changes or closes.
     @ObservationIgnored var blobCache: BlobCache?
-    /// Where this model's attachment caches go; tests pass their own.
-    @ObservationIgnored var blobCacheFolder = BlobCache.folder
+    /// Where this model's attachment caches go (a folder per vault secret
+    /// inside): the app's `BlobCache.folder`, kept across launches; without
+    /// one (tests) a folder of this model alone. Tests may set their own.
+    @ObservationIgnored var blobCacheFolder: URL
+    /// Whether decrypted attachments are reused by a later launch
+    /// (`BlobCache.keepsAcrossLaunches`: not on a Mac). Tests may set it.
+    @ObservationIgnored var blobCacheAcrossLaunches = BlobCache.keepsAcrossLaunches
+    /// Where drawn attachments (pictures, PDF page previews) are cached
+    /// between note opens and launches (`RenderCache`); nil (the default, for
+    /// tests): kept in memory only. The app passes `RenderCache.defaultRoot`.
+    let renderCacheRoot: URL?
+    /// The open vault's render cache, made on first use; closed with the vault.
+    @ObservationIgnored var renderCache: RenderCache?
     /// Items copied for pasting (`ItemClipboard`), within the open vault.
     let itemClipboard = ItemClipboard()
     /// Editors of note windows (Mac), by note id: one per note, each with its
@@ -316,12 +377,16 @@ final class AppModel {
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
          recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
          summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
+         blobCacheRoot: URL? = nil, renderCacheRoot: URL? = nil,
          automaticThinning: Bool = false,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
+        activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
         self.automaticThinning = automaticThinning
         self.summaryCacheDirectory = summaryCacheDirectory
         self.drawingCacheRoot = drawingCacheRoot
+        blobCacheFolder = blobCacheRoot ?? BlobCache.legacyFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        self.renderCacheRoot = renderCacheRoot
         self.editorDebounce = editorDebounce
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
@@ -385,7 +450,7 @@ final class AppModel {
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
         case .recentlyRecognized:
-            let ids = Set(recognitionResults?.notes.map(\.id) ?? [])
+            let ids = Set(activity.recognized.recent(now: activityNow()).map(\.id))
             return notes.filter { !$0.deleted && ids.contains($0.id) }
         }
     }
@@ -485,6 +550,7 @@ final class AppModel {
             return
         }
         phase = .unlocked
+        loadActivity()
         startLoadingNotes(reportErrors: !awaitNotes)
         if awaitNotes { try await notesLoaded() }
     }
@@ -523,6 +589,7 @@ final class AppModel {
     func adoptRewrapped(_ next: Vault) {
         guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
         vault = next
+        saveActivity()   // under the new secret's key, if it changed
         keyEpoch += 1
     }
 
@@ -532,6 +599,7 @@ final class AppModel {
         unlockIdentities = identities
         migration = nil
         phase = .unlocked
+        loadActivity()
         try await reload()
     }
 
@@ -705,6 +773,7 @@ final class AppModel {
         }
         let stale = editor
         opened.prepareBlobWrite = blobWritePreparer(note: noteID)
+        configureRecordings(opened)
         opened.onRecognized = { [weak self] id in
             guard let self else { return }
             Task { try? await self.refresh([id]) }   // search sees the new text
@@ -805,11 +874,17 @@ final class AppModel {
         dirtyNoteIDs = []
         dirtyAll = false
         lastValidation = nil
+        reportedNoteIDs = []
+        pendingCheckCursor = ""
+        // Saves are throttled while notes arrive: what the last passes read is kept.
+        saveSummaryCache()
+        lastSummaryCacheSave = nil
         summaryCache = nil
         summaryCacheOpening = nil
         // Drawings of this vault's notes do not outlive it on this device.
         drawingCache?.close()
         drawingCache = nil
+        // Nor do decrypted attachments and their pictures (`dropAttachments`, when `vault` goes).
         vault = nil
         migration = nil
         unlockIdentities = []
@@ -824,7 +899,9 @@ final class AppModel {
         recognitionTask = nil
         recognitionProgress = nil
         recognitionResults = nil
+        activity = RecentActivity()
         draggedPayload = nil
+        dragProvider = nil
         dropTarget = nil
         pendingJump = nil
         searchText = ""

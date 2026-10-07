@@ -266,7 +266,7 @@ struct VaultOpeningTests {
         await gate.releaseOne()
         await gate.waitForArrivals(start + 4)
         #expect(model.loading?.refreshing == true)
-        #expect(model.loading?.headline.hasPrefix("Updating notes") == true)
+        #expect(model.loading?.headline.hasPrefix("Updating ") == true)
         await gate.open()
         #expect(await TS.waitUntil { model.listLoaded })
         #expect(model.notes.first { $0.id == Self.lecture }?.title == "Renamed elsewhere")
@@ -428,7 +428,8 @@ struct VaultOpeningTests {
 
     @Test func loadingHeadlines() {
         #expect(NoteLoading(done: 3, total: 640).headline == "Opening vault: 3 of 640 notes")
-        #expect(NoteLoading(done: 1, total: 1, refreshing: true).headline == "Updating notes: 1 of 1 note")
+        #expect(NoteLoading(done: 1, total: 1, refreshing: true).headline == "Updating 1 changed note: 1 done")
+        #expect(NoteLoading(done: 120, total: 640, refreshing: true).headline == "Updating 640 changed notes: 120 done")
         #expect(NoteLoading(done: 0, total: 0).fractionCompleted == 1)
         #expect(NoteLoading(done: 5, total: 10).fractionCompleted == 0.5)
     }

@@ -13,10 +13,11 @@ struct NoteLoading: Equatable, Sendable {
 
     var fractionCompleted: Double { total == 0 ? 1 : min(1, Double(done) / Double(total)) }
 
-    /// "Opening vault: 120 of 640 notes", or "Updating notes: …" over a list already shown.
+    /// "Opening vault: 120 of 640 notes", or "Updating 640 changed notes: 120 done"
+    /// over a list already shown.
     var headline: String {
-        let what = refreshing ? "Updating notes" : "Opening vault"
-        return "\(what): \(done) of \(total) note\(total == 1 ? "" : "s")"
+        if refreshing { return "Updating \(total) changed note\(total == 1 ? "" : "s"): \(done) done" }
+        return "Opening vault: \(done) of \(total) note\(total == 1 ? "" : "s")"
     }
 }
 
@@ -155,7 +156,8 @@ extension AppModel {
         try await reconcile(full: true)
     }
 
-    /// Reads the summaries of `ids` in batches of `loadBatchSize` on
+    /// Reads the summaries of `ids` in batches of `loadBatchSize` (up to
+    /// `loadBatchLimit` when there are many: an eighth of them) on
     /// `loadConcurrency` threads, queueing each batch for the list as it
     /// finishes (`queueListUpdate`) and counting in `loading`. Cached
     /// summaries (unchanged revision files) cost no decryption. Records the
@@ -174,9 +176,12 @@ extension AppModel {
         let known = Set(notes.map(\.id)).subtracting(placeholderNoteIDs)
         loading = NoteLoading(done: 0, total: ids.count, refreshing: ids.allSatisfy(known.contains))
         defer { if gen == generation { loading = nil } }
+        // Many changed notes (a mass re-import seen by another device): bigger batches, so the
+        // threads wait less on each batch's slowest note and the list is updated fewer times.
+        let batchSize = max(1, loadBatchSize, min(ids.count / 8, loadBatchLimit))
         var start = 0
         while start < ids.count {
-            let batch = Array(ids[start..<min(ids.count, start + max(1, loadBatchSize))])
+            let batch = Array(ids[start..<min(ids.count, start + batchSize)])
             let epochs = summaryEpochs
             // The cache file is written once per listing (`saveSummaryCache`), not per batch.
             let entries = try await offMain {
@@ -224,6 +229,17 @@ extension AppModel {
     func verifySummary(_ id: UUID) async throws {
         guard !verifiedNoteIDs.contains(id), notes.contains(where: { $0.id == id }) else { return }
         try await refresh([id])
+    }
+
+    /// `saveSummaryCache` unless the last save was less than
+    /// `summaryCacheSaveInterval` ago (and not `force`): a pass that reads a
+    /// few of many arriving notes does not re-encrypt the whole index each time.
+    func saveSummaryCacheIfDue(force: Bool) {
+        let now = ContinuousClock.now
+        if !force, let last = lastSummaryCacheSave, now - last < summaryCacheSaveInterval { return }
+        guard summaryCache?.hasChanges == true else { return }
+        lastSummaryCacheSave = now
+        saveSummaryCache()
     }
 
     /// Writes the summary cache in the background; a failure only costs the

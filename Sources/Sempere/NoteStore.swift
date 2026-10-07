@@ -151,18 +151,31 @@ extension Vault {
         let secret = try requireSecret()
         try requireWritable()
         guard (1...RevisionName.maxSeq).contains(revision.seq) else { throw VaultError.seqOutOfRange(revision.seq) }
-        let dir = noteURL(revision.noteId)
+        try writeEncoded(try encodedRevision(revision, secret: secret), of: revision)
+    }
+
+    /// The checks of `write` before anything is encoded.
+    private func checkFree(_ revision: Revision) throws {
         let name = revision.name
-        let file = dir.appendingPathComponent(name.filename)
+        let file = noteURL(revision.noteId).appendingPathComponent(name.filename)
         guard !FileIO.exists(file) else { throw VaultError.alreadyExists(file.path) }
         if try revisionNames(of: revision.noteId).contains(where: { $0.device == name.device && $0.seq == name.seq }) {
             throw VaultError.seqInUse(device: name.device.rawValue, seq: name.seq)
         }
-        let encrypted = try encodedRevision(revision, secret: secret)
+    }
+
+    /// Stores `encrypted`, the output of `encodedRevision(revision)`, as
+    /// `write` does (same checks, write-once).
+    func writeEncoded(_ encrypted: Data, of revision: Revision) throws {
+        try requireMigrated()
+        try requireWritable()
+        guard (1...RevisionName.maxSeq).contains(revision.seq) else { throw VaultError.seqOutOfRange(revision.seq) }
+        try checkFree(revision)
+        let dir = noteURL(revision.noteId)
         // Attachment ops need every writer to know blobs (format.md §2).
         if revision.holdsAttachments { try ensureFeature(VaultManifest.attachmentsFeature) }
         try FileIO.createDirectory(dir)
-        try FileIO.writeAtomically(encrypted, to: file, replacing: false)
+        try FileIO.writeAtomically(encrypted, to: dir.appendingPathComponent(revision.name.filename), replacing: false)
     }
 
     /// A revision as `write` stores it: JSON, gzip, frame and tag, encrypted

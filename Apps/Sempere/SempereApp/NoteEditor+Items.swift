@@ -43,7 +43,10 @@ extension NoteEditor {
         var current = try page(pageID)
         var ops: [Op] = []
         var added: [Item] = []
-        for item in items {
+        let stamp = recordingStamp
+        for var item in items {
+            // Placed while recording: linked to the audio (format.md §8.3.3).
+            if item.rec == nil, let link = stamp?(Date()) { item.rec = link }
             let edit = onTop ? try NoteOps.placeOnTop(item, on: current) : try NoteOps.addItems([item], to: current)
             ops += edit.ops
             current = edit.page

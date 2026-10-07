@@ -245,6 +245,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `merge` (an edit's own re-read, immediate), never by assigning `notes`
   wholesale. Tests that need "another device wrote a revision" use
   `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Thinning (`format.md` §5.8.4) is decided from revision metadata first
+  (`RevisionMeta`, kept per entry in the `SummaryCache`; `CompactionPlanner.select` /
+  `mayDelete` take hollow revisions): never add a rule to `select` that needs ops or
+  states, or the metadata stage stops being exact. Imports are checkpoints (§5.8.1).
+  The app thins through `thinVault(rule:)` (`ThinningRule`: the window, or everything
+  except checkpoints), the CLI through `Vault.prepareCompactions`.
 - Drawing cache (`DrawingCache`, format.md §10.1): keyed by note id + revision
   file names; a note opened from it is `isPreparing` (read-only) until its
   revisions are read and every shown cached drawing passed
@@ -253,6 +259,23 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `drawing(for:)` (synchronous, tests). Bump `DrawingCache.schemaVersion` when
   `StrokeConversion` or the layout changes. Tests get no cache unless they pass
   `drawingCacheRoot`.
+- Attachment caches outlive note opens and launches (docs/io.md "Opening a note
+  fast"): `BlobCache` (plaintext verified blob files, keyed names, a file of an
+  earlier launch re-hashed before use; on a Mac, which has no data protection,
+  deleted at launch instead: `blobCacheAcrossLaunches`) and `RenderCache` (sealed image pictures
+  and PDF page previews, memory + disk). Both are per vault secret and go when
+  the vault closes (`dropAttachments`). Bump `RenderCache.schemaVersion` when
+  `ItemRaster`, `PDFItemDrawing` or the preview drawing changes. Tests get a
+  per-model blob folder and a memory-only render cache unless they pass
+  `blobCacheRoot` / `renderCacheRoot`.
+- Sidebar drops: a drag the app started is dropped from `AppModel.draggedPayload`
+  (`beginDrag` / `takeDrop`), never by loading the item provider, which iPadOS 26
+  releases as soon as `onDrag` returns (the model holds it anyway). `onDrag`
+  reports no end, so the payload of a cancelled drag lingers: only a drop that
+  carries the app's own types (`carriesAppTypes`) may use it, never a photo or
+  text dragged in from another app.
+- Per-vault device memory (`RecentActivity`, sealed, Application Support):
+  "Recently Recognized" (7 days) and recent searches; `activityNow` is the test clock.
 - Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log
   `Library/Logs/SemperePerf.log`), counts and 8-hex id prefixes only.
   `PerformanceReportTests` prints `PERF-REPORT` lines in the CI `app` log.
@@ -445,6 +468,17 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   item's `pageText` register, kept in `extra` (`Item.pageText`): fill it with a
   `PDFTextExtracting` (`BuiltinPDFTextExtractor`, the CLI's `pdftotext`,
   the app's `PDFKitTextExtractor`) through `PDFIngest.withText`.
+- Recordings (tasks E4, E5, `docs/attachments.md` §14): pure logic (format, `RecordingTimeline`,
+  `RecordingSync`, `TranscriptBuilder`, `TranscriptionLanguage`) in `Sources/Sempere/RecordingSupport.swift`;
+  the Speech framework only in `Sources/SempereSpeech` (behind `#if canImport(Speech)`, shared by the app and
+  `sempere transcribe`), never server recognition. Strokes get `rec` when the ledger converts them
+  (`StrokeLedger.items(for:tool:stamp:)`, from `PKStrokePath.creationDate` through the session's timeline,
+  never wall-clock minus start). One `RecordingSession` app-wide (`RecordingSession.active`); its plaintext
+  segments stay in Application Support/Sempere/Recordings until the blob (and the transcript) is written,
+  and a session left by a crash is saved by `RecordingRecovery` when its note opens. Transcripts are written
+  by the model (`storeTranscript`: blob, then one delta through `commit`), not by the editor, so a job
+  survives the note closing. App tests use `FakeCapture` / `FakePlayback` / `FakeTranscriber` and a
+  serialized suite.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

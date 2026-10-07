@@ -1021,6 +1021,17 @@ so the version is the note exactly as the user saw it. A checkpoint may carry
 ops; the version is then the note as of the delta, ops included. `checkpoint`
 on a snapshot means nothing and is ignored.
 
+**Imports are checkpoints.** A writer that imports a note from another
+application (the reference importer: `sempere import notability`, including
+`--overwrite`) writes the import's delta as a checkpoint: it is a deliberate
+full write of the note, not an autosave. The reference importer names it
+`Imported from Notability on <UTC minute>` plus ` (modified in Notability
+<UTC minute>)` when the source records a modification date. Its `wall` is the
+import time, except for a note's first import, whose `wall` is the source's
+creation date because it sets `created` (§5.4); the import time is then only in
+the name. Imports written before this rule carry no `checkpoint` and are
+autosaves (§5.8.4 may thin an older one).
+
 A checkpoint is never deleted by compaction or thinning (§5.3, §5.8.4).
 Checkpoints are not merged: two devices saving versions at the same time
 make two checkpoints, each a restore point.
@@ -1091,6 +1102,17 @@ deletes nothing) and the note's revisions ordered by `(hlc, device, seq)`:
   first revision while another has an earlier `wall` (§5.3).
 - Everything else in the range may be deleted, deltas and snapshots alike,
   subject to the rules below. Revisions after the range are never deleted.
+
+A cutoff of zero ("thin everything except checkpoints") puts every revision
+whose `wall` is not in the future in the range: what stays is every
+checkpoint, each session's last point and the newest revision. Writers offer
+it as its own, explicitly labelled action, never as the default, and say in
+the preview which rule applies and what it keeps.
+
+Whether a note has anything to delete is decided from its revisions' names,
+`wall`, `checkpoint`, `session`, `asOf` and snapshot `included` only, never
+their ops or states; a thinner may keep that metadata per revision file
+(§10) and read in full only notes that have a candidate.
 
 A thinner must not delete anything until it has written the snapshots its
 deletions rely on, and must keep these rules, which make every subset of its
@@ -1997,7 +2019,10 @@ again.
 nonce ‖ ciphertext ‖ 16-byte tag) under `key`, with associated data
 `SMPS` ‖ `0x01` ‖ the file name (UTF-8). The plaintext is `gzip(JSON)` of
 `{"schema": N, "notes": …}`: per note id, the sorted file names of the
-revisions the summary was made from and the summary. Its JSON shape is the
+revisions the summary was made from, the summary and, optionally, the metadata
+of each of those revisions that thinning needs (name, `wall`, `checkpoint`,
+`session`, `asOf`, snapshot `included`; §5.8.4), used only when it names
+exactly the entry's files. Its JSON shape is the
 implementation's own and changes with `schema`.
 
 **Validity.** Revision files are write-once and named by `(hlc, device,
@@ -2045,3 +2070,24 @@ Its contents are the implementation's own, change with its schema number, and
 are checked against the revisions read from the vault before they are drawn
 on. It is limited in size (least recently used entries go first) and deleted
 when the vault is closed on that device.
+
+It keeps three more, under the same derivation:
+
+- the **render cache** (purpose `render-cache`, magic `SMPI` ‖ `0x01`):
+  pictures of image items and previews of PDF page items as drawn on that
+  device, labelled by everything the pixels depend on (the item's drawing
+  fields, the blob reference, the scale), sealed as above; limited in size and
+  deleted when the vault is closed;
+- the **activity** file (purpose `activity`, magic `SMPA` ‖ `0x01`, one entry
+  named `activity`, not keyed by `entryName`): the notes "Recognize All" read in
+  the last seven days and the recent search queries, kept across launches;
+- the **blob cache** (purpose `blob-cache`): decrypted attachment content
+  (§8.1), which PDF and image readers need as plain files, so its entries are
+  **not** sealed: each file holds a blob's verified content, is named
+  `entryName("blob|<note id>|<sha256>|<size>")` plus a type extension, and is
+  protected only by the device's file protection. A file found there from an
+  earlier session is used only after its size and SHA-256 match the
+  reference again; the folder is deleted when the vault is closed. Where the
+  system does not encrypt files at rest (Mac Catalyst has no data protection
+  class), files are never kept across launches: a launch deletes what an
+  earlier one left before using the folder.

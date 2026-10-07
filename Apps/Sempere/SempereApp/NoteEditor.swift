@@ -125,6 +125,32 @@ final class NoteEditor {
     /// The last recognition failure; cleared by the next success.
     private(set) var recognitionError: String?
 
+    // Recordings (`NoteEditor+Recordings.swift`, format.md §8.3, docs/attachments.md §9).
+    /// The note's recordings in their order (format.md §5.4). Changed only by
+    /// `NoteEditor+Recordings` (one delta per change).
+    var recordings: [Recording] = []
+    /// The recording being made into this note, if one is.
+    var recordingSession: RecordingSession?
+    /// Plays the note's recordings; nil until one is played.
+    var player: RecordingPlayer?
+    /// "Tap Ink to Play": a tap on a stroke plays the recording from where it
+    /// was written; drawing is off meanwhile (like item selection).
+    var listeningToInk = false
+    /// Strokes highlighted because playback is at the moment they were written, per page.
+    var playbackHighlight: [UUID: Set<UUID>] = [:]
+    /// Recordings being transcribed now.
+    var transcribing: Set<UUID> = []
+    /// The last recording, playback or transcription failure.
+    var recordingError: String?
+    /// Saves of finished recordings still running (`close` waits for them).
+    @ObservationIgnored var recordingSaves: [Task<Void, Never>] = []
+    /// Called once a recording made here is saved, with its audio file and
+    /// the session folder holding it: the model transcribes it (when that
+    /// setting is on) and deletes the folder. Nil: the folder is deleted.
+    @ObservationIgnored var onRecordingSaved: ((Recording, URL, URL) -> Void)?
+    /// Called to play a recording from a time (a tap on linked ink).
+    @ObservationIgnored var onPlayRequest: ((Recording, Double) -> Void)?
+
     /// Ink closer than this to the bottom of an infinite page grows it.
     static let growMargin = 200.0
     /// How far below the ink an infinite page grows to.
@@ -139,6 +165,7 @@ final class NoteEditor {
          recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay) {
         self.noteID = noteID
         self.pages = state.pages
+        self.recordings = state.recordings.sorted(by: Recording.sortsBefore)
         self.meta = state.meta
         self.pageSize = state.meta.pageSize
         self.committedPageSize = state.meta.pageSize
@@ -155,6 +182,7 @@ final class NoteEditor {
                  recognizer: (any PageRecognizing)?, recognitionDelay: Duration) {
         self.noteID = noteID
         self.pages = layout.state.pages
+        self.recordings = layout.state.recordings.sorted(by: Recording.sortsBefore)
         self.meta = layout.state.meta
         self.pageSize = layout.state.meta.pageSize
         self.committedPageSize = layout.state.meta.pageSize
@@ -310,6 +338,7 @@ final class NoteEditor {
         let shown = currentPage?.id
         let shownNow = canvasDrawings   // what the canvas may show now (no hit is handed out after `finishing`)
         pages = loaded.state.pages
+        recordings = loaded.state.recordings.sorted(by: Recording.sortsBefore)
         meta = loaded.state.meta
         pageSize = loaded.state.meta.pageSize
         committedPageSize = loaded.state.meta.pageSize
@@ -764,7 +793,7 @@ final class NoteEditor {
     func drawingDidChange(pageID: UUID, drawing: PKDrawing, tool: PKTool?) -> StrokeLedger.Change {
         guard !isReadOnly else { return .init() }
         let bounds = drawing.bounds
-        let change = drawingDidChange(pageID: pageID, items: StrokeLedger.items(for: drawing, tool: tool),
+        let change = drawingDidChange(pageID: pageID, items: StrokeLedger.items(for: drawing, tool: tool, stamp: recordingStamp),
                                       inkMaxY: bounds.isNull ? nil : Double(bounds.maxY))
         canvasDrawings[pageID] = drawing   // the ledger's entries now fingerprint exactly these strokes
         return change
@@ -807,6 +836,9 @@ final class NoteEditor {
     /// no more changes and writes nothing (`isShutDown`). The pages' drawings
     /// are stored in the drawing cache for the next open (`storeForNextOpen`).
     func close() async {
+        // A recording in progress is saved into the note before the last save.
+        await finishRecording()
+        player?.stop()
         isClosed = true
         fullLoad?.cancel()
         recognitionTimer?.cancel()
@@ -855,6 +887,20 @@ final class NoteEditor {
                 cache.remove(old, pages: pageIDs)
             }
         }
+    }
+
+    /// Writes `ops` as one delta of their own, after any save in flight
+    /// (recording changes, which touch no page).
+    func writeDirect(_ ops: [Op], with writer: NoteWriter) async throws {
+        let previous = chain
+        let task = Task { () async throws -> RevisionName in
+            await previous?.value
+            return try await writer.write(ops)
+        }
+        chain = Task { _ = try? await task.value }
+        let name = try await task.value
+        writtenNames.append(name.filename)
+        deltasWritten += 1
     }
 
     private func writePending() async {

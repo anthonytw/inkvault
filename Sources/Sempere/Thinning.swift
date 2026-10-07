@@ -65,56 +65,34 @@ extension CompactionPlanner {
         let revs = revisions.sorted { $0.name < $1.name }
         guard let last = revs.last else { throw NoteLogError.noRevisions }
         let noteId = last.noteId
-        let names = revs.map(\.name)
-        let positioned = NoteHistory.positions(revs)
-        let points = NoteHistory.restorePoints(revs)
-        let completeBefore = Set(points.filter(\.complete).map(\.name))
-        let checkpoints = Set(points.filter(\.isCheckpoint).map(\.name))
         let newest = last.name
+        let selection = select(revs, mode: mode, now: now)
+        var candidates = selection.candidates
+        let witnesses = selection.witnesses
+        let positioned = selection.positioned
         func position(_ r: Revision) -> RevisionKey { positioned[r.name] ?? RevisionKey(r.name) }
-
-        var candidates: Set<RevisionName>
-        var targets: Set<RevisionName>
-        switch mode {
-        case .retention(let window):
-            let loaded = LoadedNote(revisions: revs, failures: [:])
-            let needs = loaded.needsSnapshotBeforeCompaction(retention: window, now: now)
-            candidates = Set(loaded.compactionPlan(retention: window, now: now, assumingSnapshot: needs,
-                                                    protectingCheckpoints: false))
-            targets = checkpoints.intersection(completeBefore)
-        case .thin(let age):
-            var range = Set<RevisionName>()
-            for r in revs {
-                guard now.timeIntervalSince(r.wall) > age else { break }
-                range.insert(r.name)
-            }
-            var kept = checkpoints
-            kept.insert(newest)
-            for case .session(let s) in NoteHistory.groups(points) { kept.insert(s.newest.name) }
-            candidates = range.subtracting(kept)
-            targets = kept.union(points.map(\.name).filter { !range.contains($0) }).intersection(completeBefore)
+        // Reconstructions are memoized by the set of revisions they merge: the
+        // snapshot built at the newest target, the current state and the state
+        // as of that target are often the same merge.
+        var memo: [Set<RevisionName>: NoteState] = [:]
+        func merged(_ source: [Revision]) throws -> NoteState {
+            let key = Set(source.map(\.name))
+            if let s = memo[key] { return s }
+            let s = try NoteReducer.reconstruct(source)
+            memo[key] = s
+            return s
         }
-        if let anchor = createdAnchor(revs) { candidates.remove(anchor) }
-
-        // Rule 3: witnesses. Per device, names in order.
-        var lanes: [DeviceID: [RevisionName]] = [:]
-        for n in names { lanes[n.device, default: []].append(n) }
-        var witnesses = Set<RevisionName>()
-        for t in targets {
-            for (device, lane) in lanes where device != t.device {
-                var lo = 0, hi = lane.count
-                while lo < hi {
-                    let mid = lo + (hi - lo) / 2
-                    if lane[mid] <= t { lo = mid + 1 } else { hi = mid }
-                }
-                if lo < lane.count, candidates.contains(lane[lo]) { witnesses.insert(lane[lo]) }
+        func state(_ source: [Revision], at point: RevisionName) throws -> NoteState {
+            let pos = NoteHistory.positions(source)
+            guard pos[point] == nil, source.contains(where: { $0.name == point }) else {
+                return try NoteHistory.state(source, at: point)   // throws as it would
             }
+            guard Completeness(source, unreadable: [], positions: pos).isComplete(at: [point]) == [true] else {
+                throw HistoryError.incompleteHistory(point)
+            }
+            let key = RevisionKey(point)
+            return try merged(source.filter { (pos[$0.name] ?? RevisionKey($0.name)) <= key })
         }
-        candidates.subtract(witnesses)
-        // A positioned snapshot of a revision that stays is kept (it is what makes it complete).
-        let staying = Set(names).subtracting(candidates)
-        let stayingKeys = Set(staying.map(RevisionKey.init))
-        for (name, asOf) in positioned where stayingKeys.contains(asOf) { candidates.remove(name) }
 
         var planned: [Revision] = []
         var seq = Vault.nextSeq(from: revs, device: device)
@@ -123,11 +101,12 @@ extension CompactionPlanner {
             let source = point.map { p in revs.filter { position($0) <= RevisionKey(p) } } ?? revs
             var snap = try SnapshotBuilder.makeSnapshot(from: source, device: device, seq: seq, clock: &clock,
                                                         wall: wall, app: app)
+            if case .snapshot(_, let st) = snap.body { memo[Set(source.map(\.name))] = memo[Set(source.map(\.name))] ?? st }
             snap.asOf = point.map(RevisionKey.init)
             seq += 1
             return snap
         }
-        let sortedTargets = targets.sorted()
+        let sortedTargets = selection.targets
         var coverPlanned = false
         // Each pass either finishes, plans one snapshot (at most one per target
         // plus one cover) or keeps at least one candidate, so the passes are
@@ -194,17 +173,102 @@ extension CompactionPlanner {
         // all the snapshots, as the current state does.
         if let lastGone = candidates.max() {
             let survivors = revs.filter { !candidates.contains($0.name) } + planned
-            guard try NoteReducer.reconstruct(survivors).comparable == NoteReducer.reconstruct(revs).comparable else {
+            guard try merged(survivors).comparable == merged(revs).comparable else {
                 throw CompactionError.stateWouldChange
             }
             for t in sortedTargets where t <= lastGone {
-                guard try NoteHistory.state(survivors, at: t).comparable == NoteHistory.state(revs, at: t).comparable else {
+                guard try state(survivors, at: t).comparable == state(revs, at: t).comparable else {
                     throw CompactionError.versionWouldChange(t.filename)
                 }
             }
         }
         return CompactionPlan(noteId: noteId, snapshots: planned, deletions: candidates.sorted(),
                               witnesses: witnesses.sorted(), targets: sortedTargets)
+    }
+}
+
+/// Which revisions a compaction may delete, decided from the revisions'
+/// names, `wall`s, checkpoint and session fields, snapshot coverage and
+/// `asOf` only: no ops or states are looked at, so it runs as well on
+/// metadata (`RevisionMeta.hollow`) as on decoded revisions.
+public struct CompactionSelection: Hashable, Sendable {
+    /// Revisions that may be deleted (the plan may still keep some).
+    public var candidates: Set<RevisionName>
+    /// The kept restore points that must stay complete (format.md §5.8.4 rule 2), sorted.
+    public var targets: [RevisionName]
+    /// Revisions kept only as ordering witnesses (rule 3).
+    public var witnesses: Set<RevisionName>
+    /// The snapshots with a valid `asOf` (format.md §5.8.3), mapped to it.
+    public var positioned: [RevisionName: RevisionKey]
+}
+
+extension CompactionPlanner {
+    /// The first stage of `plan`: candidates, targets and witnesses
+    /// (format.md §5.3, §5.8.4). `plan` never deletes a revision that is not
+    /// a candidate here, so an empty `candidates` means an empty plan.
+    ///
+    /// Cost: O(n log n) for n revisions, plus `NoteHistory.restorePoints`.
+    public static func select(_ revisions: [Revision], mode: CompactionMode, now: Date) -> CompactionSelection {
+        let revs = revisions.sorted { $0.name < $1.name }
+        guard let last = revs.last else { return CompactionSelection(candidates: [], targets: [], witnesses: [], positioned: [:]) }
+        let names = revs.map(\.name)
+        let positioned = NoteHistory.positions(revs)
+        let points = NoteHistory.restorePoints(revs)
+        let completeBefore = Set(points.filter(\.complete).map(\.name))
+        let checkpoints = Set(points.filter(\.isCheckpoint).map(\.name))
+        let newest = last.name
+
+        var candidates: Set<RevisionName>
+        var targets: Set<RevisionName>
+        switch mode {
+        case .retention(let window):
+            let loaded = LoadedNote(revisions: revs, failures: [:])
+            let needs = loaded.needsSnapshotBeforeCompaction(retention: window, now: now)
+            candidates = Set(loaded.compactionPlan(retention: window, now: now, assumingSnapshot: needs,
+                                                    protectingCheckpoints: false))
+            targets = checkpoints.intersection(completeBefore)
+        case .thin(let age):
+            var range = Set<RevisionName>()
+            for r in revs {
+                guard now.timeIntervalSince(r.wall) > age else { break }
+                range.insert(r.name)
+            }
+            var kept = checkpoints
+            kept.insert(newest)
+            for case .session(let s) in NoteHistory.groups(points) { kept.insert(s.newest.name) }
+            candidates = range.subtracting(kept)
+            targets = kept.union(points.map(\.name).filter { !range.contains($0) }).intersection(completeBefore)
+        }
+        if let anchor = createdAnchor(revs) { candidates.remove(anchor) }
+
+        // Rule 3: witnesses. Per device, names in order.
+        var lanes: [DeviceID: [RevisionName]] = [:]
+        for n in names { lanes[n.device, default: []].append(n) }
+        var witnesses = Set<RevisionName>()
+        for t in targets {
+            for (device, lane) in lanes where device != t.device {
+                var lo = 0, hi = lane.count
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2
+                    if lane[mid] <= t { lo = mid + 1 } else { hi = mid }
+                }
+                if lo < lane.count, candidates.contains(lane[lo]) { witnesses.insert(lane[lo]) }
+            }
+        }
+        candidates.subtract(witnesses)
+        // A positioned snapshot of a revision that stays is kept (it is what makes it complete).
+        let staying = Set(names).subtracting(candidates)
+        let stayingKeys = Set(staying.map(RevisionKey.init))
+        for (name, asOf) in positioned where stayingKeys.contains(asOf) { candidates.remove(name) }
+        return CompactionSelection(candidates: candidates, targets: targets.sorted(), witnesses: witnesses,
+                                   positioned: positioned)
+    }
+
+    /// True when compacting a note with these revisions' metadata in `mode`
+    /// may delete something; false means `plan` would return an empty plan,
+    /// so the note need not be read in full.
+    public static func mayDelete(_ index: [RevisionMeta], noteId: UUID, mode: CompactionMode, now: Date) -> Bool {
+        !select(index.map { $0.hollow(noteId: noteId) }, mode: mode, now: now).candidates.isEmpty
     }
 }
 

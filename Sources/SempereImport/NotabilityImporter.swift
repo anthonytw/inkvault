@@ -985,10 +985,16 @@ public enum NotabilityImporter {
                 imported.blobs += 1
                 imported.blobBytes += blob.ref.size
             }
-            let wall = note.metadata.created ?? now()
+            // A first import is dated by the note's creation (it sets `created`,
+            // format.md §5.4); an overwrite is dated now, so it is not taken for an
+            // old autosave of the same editing session as the first (§5.8.2).
+            let wall = exists ? now() : (note.metadata.created ?? now())
             let hlc = clock.tick(wall: now())
+            // An import is a deliberate full write: a checkpoint, never thinned (format.md §5.8.1).
             try vault.write(Revision(noteId: id, device: device, seq: seq, hlc: hlc, wall: wall,
-                                     app: options.app, body: .delta(ops: ops)))
+                                     app: options.app, body: .delta(ops: ops),
+                                     checkpoint: Checkpoint(name: Self.checkpointName(importedAt: now(),
+                                                                                      modified: note.metadata.modified))))
             existing.insert(id)
             result.strokes = state.pages.reduce(0) { $0 + $1.strokes.count }
             result.shapes = note.shapeCount
@@ -998,6 +1004,29 @@ public enum NotabilityImporter {
             result.status = .failed(describe(error))
         }
         return result
+    }
+
+    /// How the checkpoint every import writes is labelled (format.md §5.8.1).
+    public static let checkpointName = "Imported from Notability"
+
+    /// The checkpoint's full name: `checkpointName`, the import time and,
+    /// when the note has one, Notability's own modification date, in UTC:
+    /// "Imported from Notability on 2026-10-07 14:03 UTC (modified in
+    /// Notability 2024-03-01 09:12 UTC)". The import time is in the name
+    /// because a first import's `wall` is the note's creation date (it sets
+    /// `created`, format.md §5.4).
+    public static func checkpointName(importedAt: Date, modified: Date?) -> String {
+        var name = "\(checkpointName) on \(utcMinute(importedAt))"
+        if let modified { name += " (modified in Notability \(utcMinute(modified)))" }
+        return name
+    }
+
+    /// `yyyy-MM-dd HH:mm UTC`, from calendar components (no formatter, no locale).
+    static func utcMinute(_ date: Date) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
+        let c = cal.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        return String(format: "%04d-%02d-%02d %02d:%02d UTC", c.year ?? 0, c.month ?? 0, c.day ?? 0, c.hour ?? 0, c.minute ?? 0)
     }
 
     /// SHA-256 (hex) of a note's ink: per curve its style, colour, width
