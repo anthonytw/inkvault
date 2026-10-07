@@ -18,14 +18,47 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   a notebook or All Notes in the sidebar to move them, drag a notebook onto another to nest it or onto
   All Notes to un-nest it, or use "Move Notebook To…"; a notebook cannot go into itself or a notebook
   inside it, the drop target highlights, and each drop is one commit with one undo step. CLI:
-  `sempere recognize [NOTE...] [--dry-run]` (macOS; reports the notes it changed), `sempere search
-  --show-boxes` (match locations, numbered across the note), `sempere notebooks move NOTEBOOK PARENT`.
+  `sempere search --show-boxes` (match locations, numbered across the note), `sempere notebooks move NOTEBOOK PARENT`.
+  Word boxes that cannot be drawn (not finite, beyond 10⁹ points, negative size) are never
+  highlighted or listed (`format.md` §5.5).
+- `sempere recognize [ID…|--all] [--missing-only|--force] [--dry-run]` reads handwriting with
+  Vision on macOS and stores it as page recognition, one delta per note, with the app's code (page
+  selection `RecognitionPolicy.pagesToRead`, image plan `RecognitionImage`, Vision mapping
+  `VisionText`, now shared by both). `import notability --recognize missing` does it right after
+  an import for pages Notability never indexed. Notability's recognition is replaced only with
+  `--force`. The Linux build refuses with a clear message (`--dry-run` works).
+- `sempere notes search QUERY`: the app's search (titles, tags, notebooks, recognised text; all
+  words; ranked) with `--notebook`, `--tag`, `--deleted` and `--json`.
+- Version history round 2 (`docs/format.md` §5.8): **checkpoints** (named versions:
+  `sempere notes checkpoint NOTE [--name TEXT]`, the app's Save Version in the note toolbar and
+  the Mac Note menu), **editing sessions** (the app records one id per opening of a note;
+  `sempere notes history --sessions` and the app's history list group autosaves into sessions
+  under the checkpoints, collapsed), and **thinning** (`sempere compact --thin-older-than 30d
+  [--dry-run]`; in the app a setting, default 30 days or never, a daily automatic run and Thin
+  Now with a preview): old autosaves go, every checkpoint and the newest autosave of each
+  session stay restorable, the note's state never changes. `compact` never deletes a checkpoint
+  and keeps it restorable, and keeps a note's first revision while device clocks disagree (an
+  older revision with a later `wall`), so the note's creation date cannot move.
+- Web viewer: attachments (`docs/web-viewer.md`, `format.md` §8). Images (orientation, crop,
+  rotation, metadata stripped), text boxes laid out with their stored line breaks and the
+  format's line metrics, PDF pages drawn by a pinned pdf.js (worker and font data served by the
+  viewer itself; no font loading, scripts or annotations), placeholders for unknown kinds and for
+  missing, invalid or undrawable blobs (listed with the reason), and a note's recordings with
+  playback and transcripts. Blobs are read only when their item comes on screen (audio when
+  played), decrypted as a stream and checked before use: framing, zero padding, content hash and
+  the keyed name. The Content-Security-Policy gains `blob:` images and media, a same-origin
+  worker and one Trusted Types policy for it. Cross-checked against the CLI's SVG export of new
+  synthetic fixture notes.
 - Notability import of attachments (tasks D1, D2, `docs/import-notability.md` "Attachments"):
   the PDF pages of a note made from a PDF become page backgrounds (`pdfPage` items backed by the
   original PDF, laid out from the PDF's own page boxes), and images become image items with
   their frame, rotation and crop, metadata stripped. `sempere import notability` gains
   `--no-attachments` and `--keep-image-metadata`, and reports what it placed (`attachments`)
   and why anything was left out (`warnings`).
+- Notability import of typed text and recordings (tasks D3, D4): typed text becomes text items
+  with bold, italic, underline, strikethrough, colours and sizes as runs (and `lang` for CJK,
+  Arabic and Hebrew runs); `Recordings/` becomes the note's recordings with their audio, and
+  strokes link to the recording (`rec`) where `eventTokens` read as times in it.
 - Attachments from the command line (task F, `docs/cli.md` "Adding attachments"): `sempere attach
   image|pdf|text|recording|transcript` add an image, PDF pages (as new background pages or as a
   figure), a text box, an MPEG-4 recording or a transcript to a note, each as one delta with

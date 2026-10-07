@@ -712,7 +712,7 @@ struct PagesAdd: ParsableCommand {
         let id = try vault.resolveNote(note)
         let r = try editNote(vault, id) { state in
             try requireLive(state)
-            guard let after else { return NoteOps.appendPages(count, after: state.pages) }
+            let after = after ?? state.pages.count
             guard (0...state.pages.count).contains(after) else {
                 throw CLIError.failure("--after must be between 0 and \(state.pages.count)")
             }

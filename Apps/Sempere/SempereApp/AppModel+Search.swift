@@ -217,7 +217,7 @@ extension AppModel {
         let written = WrittenCount()
         try await commit(id) { current in
             // Deleted meanwhile (another device): no writes into Recently Deleted.
-            let ops = RecognitionRun.ops(for: planned, in: current)
+            let ops = RecognitionJob.ops(for: planned, in: current)
             written.value = ops.count
             return ops
         }

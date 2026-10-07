@@ -10,7 +10,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT ?? "playwright");
 
 const [vaultDir, keyFile, shots = ".", term] = process.argv.slice(2);
 const dist = join(import.meta.dirname, "..", "dist");
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json" };
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, "http://x");

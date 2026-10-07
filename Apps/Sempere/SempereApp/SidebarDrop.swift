@@ -126,6 +126,8 @@ struct NotebookMoveRecord: Equatable, Sendable {
 struct SidebarDropDelegate: DropDelegate {
     let model: AppModel
     let target: DropTarget
+    /// The undo manager of the window the row is in: the drop's undo goes there.
+    let undoManager: UndoManager?
 
     private static let types: [UTType] = [.sempereNotes, .sempereNotebook]
 
@@ -151,19 +153,26 @@ struct SidebarDropDelegate: DropDelegate {
         model.dropTarget = nil
         for type in Self.types {
             guard let provider = info.itemProviders(for: [type]).first else { continue }
-            let model = model, target = target
+            let model = model, target = target, undo = UndoBox(undoManager)
             provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
                 let payload = data.flatMap { DragPayload.decode($0, as: type) }
                 Task { @MainActor in
                     model.draggedPayload = nil
                     guard let payload else { return }
-                    await model.move(payload, to: target)
+                    await model.move(payload, to: target, undoManager: undo.manager)
                 }
             }
             return true
         }
         return false
     }
+}
+
+/// Carries a window's undo manager across an item provider's callback (it is
+/// only read on the main actor); weak, so a closed window's is not kept.
+private final class UndoBox: @unchecked Sendable {
+    weak var manager: UndoManager?
+    init(_ manager: UndoManager?) { self.manager = manager }
 }
 
 extension View {
@@ -188,8 +197,7 @@ private struct SidebarDropRow: ViewModifier {
                     if highlighted { RoundedRectangle(cornerRadius: 8).stroke(SwiftUI.Color.accentColor, lineWidth: 2) }
                 }
                 .onDrop(of: [.sempereNotes, .sempereNotebook],
-                        delegate: SidebarDropDelegate(model: model, target: target))
-                .onAppear { model.undoManager = undoManager }
+                        delegate: SidebarDropDelegate(model: model, target: target, undoManager: undoManager))
         } else {
             content
         }

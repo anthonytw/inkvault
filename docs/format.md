@@ -291,6 +291,23 @@ like any other unreadable file.
 
 `wall` is informational (history UI). `app` is informational.
 
+*New: version history.* Three optional fields, which readers that do not
+know them ignore (§7). A reader that knows them treats a value of the wrong
+JSON type or form as absent; it never rejects the revision for it.
+
+| field | on | value | meaning |
+| --- | --- | --- | --- |
+| `session` | delta | string, 1 to 64 characters from `[0-9a-z-]` | the editing session that wrote the delta (§5.8.2) |
+| `checkpoint` | delta | object, optionally with `name` (a string) | the note as of this delta is a version the user saved (§5.8.1) |
+| `asOf` | snapshot | `"<hlc>-<device>-<seq>"` | the snapshot holds the note as of that revision (§5.8.3) |
+
+```json
+{ "type": "delta", "noteId": "…", "device": "a1b2c3d4", "seq": 13,
+  "hlc": "17596320000000009", "wall": "2026-10-04T16:25:00.000Z",
+  "app": "sempere-ios/0.1", "session": "5f0c3e8a-2b7d-4c1e-9a3f-6d2b8e4f1a07",
+  "checkpoint": { "name": "Before the exam" }, "ops": [] }
+```
+
 ### 5.2 Delta
 
 Adds `"ops": [Op, ...]`, applied in order. Ops:
@@ -361,7 +378,16 @@ least one snapshot covers it and it is older than the retention window
 snapshot's `included` is a superset of its `included` and it is older than
 the window; of two snapshots with equal `included`, keep at least one.
 Compaction never deletes blobs; they have their own per-note collection rule
-(§8.1.6).
+(§8.1.6). *New: version history.* Compaction never deletes a checkpoint
+(§5.8.1), and keeps each checkpoint that was a complete restore point (§5.7)
+complete: it adds the positioned snapshots and keeps the witnesses that
+§5.8.4 rules 2 and 3 require, with the checkpoints as the targets. Thinning
+(§5.8.4) is compaction with a different choice of what to delete. A
+compactor also keeps the first revision by `(hlc, device, seq)` while any
+other revision has an earlier `wall`: `created` comes from the first
+revision's `wall` (§5.4), so deleting it would let a later-ordered revision
+whose device clock was behind move `created`, in the current state and in
+every version.
 
 ### 5.4 State and metadata
 
@@ -798,12 +824,15 @@ A page may carry `"recognition"`, the text recognised in its handwriting:
 ```
 
 - `engine`: free-form name and version of whatever produced the text, e.g.
-  `vision-<iPadOS version>` (the app's on-device recogniser),
+  `vision-<OS version>` (Apple's Vision on device: the app on iPadOS, or
+  `sempere recognize` on macOS),
   `pencilkit-<iPadOS version>` or `notability-<version>` for an import.
 - `text`: the page's recognised text in reading order, lines separated by `\n`.
 - `words[].t`: one word of `text`; `words[].box`: its bounding box
   `[x, y, w, h]` in page coordinates (points, origin top-left, y down).
-  Writers round to at most 3 decimals. `words` may be empty.
+  Writers round to at most 3 decimals. `words` may be empty. Readers that
+  draw boxes skip one with a value that is not finite or exceeds 10⁹ in
+  magnitude, or a negative `w` or `h` (§9).
 - `basis` (optional): which strokes the text was read from, so a writer can
   tell current recognition from stale without reading the ink. The first 16
   bytes, as 32 lowercase hex digits, of the SHA-256 of the page's live stroke
@@ -887,20 +916,27 @@ snapshot holding it, at op index equal to its position.
 ### 5.7 History and restore
 
 Every revision is a restore point, ordered by `(hlc, device, seq)`, and
-shows its `wall`, `device`, `app` and kind. The note **as of** revision R is
-the reconstruction (§5.3) of every revision ordered at or before R. For a
+shows its `wall`, `device`, `app` and kind, except a snapshot with a valid
+`asOf` (§5.8.3), which is history bookkeeping, not a version. A checkpoint
+(§5.8.1) is flagged as one, with its name. The note **as of** revision R is
+the reconstruction (§5.3) of every revision whose *position* is at or before
+R. A revision's position is its own `(hlc, device, seq)`, except for a
+snapshot with a valid `asOf`, whose position is its `asOf` (§5.8.3). For a
 delta this is not necessarily what R's writer saw (a concurrent revision with
 a smaller `hlc` is included, one with a larger is not); it is the only
 definition every reader can compute the same way.
 
 Compaction (§5.3) deletes revisions; they are no longer restore points. A
 surviving revision R can still be shown only if each deleted revision is
-covered by the `included` of a snapshot ordered at or before R, or is
+covered by the `included` of a snapshot positioned at or before R, or is
 provably ordered after R (R itself, or a surviving revision ordered after
 R, of the same device with a smaller `seq`, precedes it). Otherwise readers
 report R as incomplete and do not show or restore it. Likewise for an
 unreadable revision ordered at or before R, and for every R while any
 snapshot is unreadable (it may be the only record of compacted revisions).
+A reader that does not know `asOf` positions every snapshot at its own name;
+it may then report as incomplete a point that §5.8.3 makes complete, never
+the other way round.
 
 Restoring a note to R never rewrites or deletes history. A writer appends
 one delta whose ops turn the current state into the state as of R:
@@ -937,6 +973,144 @@ drawn above the strokes that stayed (they sort by their new `origin`).
 Concurrent revisions the restoring device has not seen merge with the
 restore as with any delta: strokes added to a surviving page stay, and
 anything on a page the restore removes is removed with it.
+
+### 5.8 Checkpoints, editing sessions and thinning
+
+*New: version history.* Three optional fields (§5.1) let a history view say
+which versions the user saved, group the autosaves between them, and let
+compaction drop most autosaves without losing a saved version. None of them
+changes how a note's state is merged (§5.3): a reader that ignores them
+reconstructs exactly the same note.
+
+#### 5.8.1 Checkpoints
+
+A **checkpoint** is a delta with a `checkpoint` object: the note as of that
+delta (§5.7) is a version the user saved on purpose ("Save Version"). `name`
+is the user's label for it; absent, empty or not a string means unnamed.
+Writers trim it, store at most 200 characters, and write the checkpoint as a
+delta of its own, normally with `"ops": []` after saving any pending edits,
+so the version is the note exactly as the user saw it. A checkpoint may carry
+ops; the version is then the note as of the delta, ops included. `checkpoint`
+on a snapshot means nothing and is ignored.
+
+A checkpoint is never deleted by compaction or thinning (§5.3, §5.8.4).
+Checkpoints are not merged: two devices saving versions at the same time
+make two checkpoints, each a restore point.
+
+#### 5.8.2 Editing sessions
+
+`session` is an opaque id an app chooses each time it opens a note for
+editing (writers use a fresh lowercase UUID) and writes on every delta it
+saves while that note stays open. Closing the note and opening it again, even
+a minute later, starts a new id. Readers compare ids only for equality.
+
+A history view groups restore points (§5.7) into **editing sessions**. Walk
+the restore points in order; a checkpoint stands alone, at the top level, and
+ends the session before it. Every other point joins the current session
+unless any of these holds, in which case it starts a new one:
+
+- (a) its `session` differs from the previous point's (absent counts as one
+  more value: two points without `session` do not differ by this rule);
+- (b) its `wall` is 10 minutes or more after the previous point's (a `wall`
+  earlier than the previous point's is no gap);
+- (c) its `device` differs from the previous point's.
+
+"Previous point" is the one just before it in the walk, which is always in
+the current session. A session is labelled by its first and last `wall`, its
+device and its number of points. The grouping is derived, never stored: any
+reader computes the same sessions from the same revisions.
+
+#### 5.8.3 Positioned snapshots (`asOf`)
+
+A snapshot with `asOf` = A holds the note as of the revision whose
+`(hlc, device, seq)` is A (§5.7): its `state` is that reconstruction and its
+`included` covers only revisions ordered at or before A (plus the snapshot
+itself, §5.3). Thinning writes them (§5.8.4) so that the revisions a kept
+version depends on can be deleted. For history (§5.7) such a snapshot is
+*positioned* at A instead of at its own name; it is not a restore point. For
+the note's current state (§5.3) it is an ordinary snapshot: it merges like
+any snapshot written by a device that had seen only the revisions up to A,
+which every reader already handles. Its writer records `clocks` for every
+register and `origin` for every page, stroke, item and recording, as for any
+snapshot, so its own `(hlc, device)` never stamps a value (§5.4).
+
+`asOf` is **valid** when it parses (`hlc` 17 digits, `device` 8 hex, `seq` a
+canonical decimal in 1 … 2^53 − 1, §5), is ordered strictly before the
+snapshot's own name, and the snapshot's `included` covers no surviving
+revision ordered after A other than the snapshot itself and other snapshots
+with a valid `asOf` at or before A (a snapshot built from those holds their
+content, which history places at or before A anyway). Readers decide
+validity in order of `(asOf, name)`, so a snapshot may rely only on ones
+decided before it. A reader that finds
+`asOf` invalid positions the snapshot at its own name and lists it as an
+ordinary restore point. A need not name a surviving revision.
+
+#### 5.8.4 Thinning
+
+Thinning removes old autosaves and keeps the versions a user is likely to
+want. With a cutoff of N days (writers default to 30; "never" is allowed and
+deletes nothing) and the note's revisions ordered by `(hlc, device, seq)`:
+
+- The **thinned range** is the longest prefix of the order in which every
+  revision's `wall` is more than N days old. A revision with a later `wall`
+  (a device with a wrong clock, say) ends the range early; thinning never
+  looks past it.
+- Kept in the range: every checkpoint; the last restore point of every
+  editing session (§5.8.2, sessions computed over all the note's restore
+  points, so a session that continues past the range keeps its last point
+  outside it); the note's newest revision; every snapshot whose valid
+  `asOf` names a revision that is kept; the *witnesses* below; and the
+  first revision while another has an earlier `wall` (§5.3).
+- Everything else in the range may be deleted, deltas and snapshots alike,
+  subject to the rules below. Revisions after the range are never deleted.
+
+A thinner must not delete anything until it has written the snapshots its
+deletions rely on, and must keep these rules, which make every subset of its
+deletions safe as well (a crash half-way leaves a correct vault):
+
+1. **State.** A delta is deleted only if a snapshot that is not deleted
+   covers it; a snapshot X only if a snapshot that is not deleted has an
+   `included` that is a superset of X's and is either a strict superset or
+   has a greater name (the order of §5.3, so two thinners or compactors
+   running at once never delete each other's last cover).
+2. **Kept versions.** Call *targets* the kept checkpoints and session ends,
+   the newest revision, and every revision after the range, each one that
+   was complete (§5.7) before thinning. Each target stays complete with the
+   same note as of it. For each target T that a deletion would make
+   incomplete, the thinner writes a snapshot with `asOf` = T, built from
+   every revision positioned at or before T (before deleting anything). Its
+   `included` then also covers the positioned snapshots among those, which
+   §5.8.3 allows.
+3. **Witnesses.** For a target T and a device X other than T's that has a
+   revision ordered after T in the range that is deleted, the first revision
+   of X ordered after T is kept. §5.7 can only tell that a deleted revision
+   of X is ordered after T from a surviving revision of X at or after T with
+   a smaller `seq`; the witness is that revision. A witness is not a target:
+   it may itself become incomplete.
+
+**Guarantees.** For any set of readable revisions (thinning refuses a note
+with an unreadable revision):
+
+- G1. The note's current state (§5.3) after thinning equals the state before.
+- G2. No checkpoint is deleted; each target that was complete stays complete
+  and the note as of it is unchanged.
+- G3. No revision after the thinned range is deleted, and every blob stays
+  (§8.1.6 collects blobs on its own terms).
+- G4. Thinning twice with the same cutoff and no new revisions deletes and
+  writes nothing the second time.
+- G5. Every deleted revision is covered by a surviving snapshot, so the
+  ordinary compaction rules (§5.3) hold, and every prefix of the deletion
+  sequence keeps G1 and G2.
+
+**Cost.** Each target that needs one gets a full snapshot of the note as of
+it, so thinning can add up to (targets in the range) × (size of the note)
+bytes while it deletes the autosaves between them; writers report both
+before thinning (a dry run). In practice that is one snapshot per editing
+session older than the cutoff that had more than one autosave. Readers that
+predate this section see the positioned snapshots as ordinary ones (a kept
+version may then show as incomplete, §5.7), and an older compactor may delete
+checkpoints or positioned snapshots as it would any revision; a vault shared
+with such a writer keeps its state but may lose saved versions.
 
 ## 6. Identifiers and encodings
 

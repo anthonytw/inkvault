@@ -209,3 +209,74 @@ struct SearchCommand: ParsableCommand {
         if transcriptProblems > 0 { throw CLIError.failure("\(transcriptProblems) transcript(s) could not be read") }
     }
 }
+
+struct NotesSearch: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "search",
+        abstract: "Find notes as the app's search box does: titles, tags, notebooks and recognised text, best first.",
+        discussion: """
+            The query is words; a note matches when every word is found somewhere in it (title,
+            notebook, tags or a page's recognised handwriting and typed text), ignoring case and accents,
+            substrings included. A word starting with # matches tags only. Notes are ranked as in the app
+            (title and tag matches first, then the page with most of the words) and printed with the page
+            and a snippet of the best match. --notebook and --tag search within one notebook (and below)
+            or tag; --deleted searches Recently Deleted instead. For every occurrence of a phrase on
+            every page, use `sempere search`.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Words to look for.", valueName: "query"))
+    var query: String
+
+    @Option(name: .long, help: ArgumentHelp("Only notes in this notebook or below it.", valueName: "path"))
+    var notebook: String?
+
+    @Option(name: .long, help: ArgumentHelp("Only notes with this tag.", valueName: "tag"))
+    var tag: String?
+
+    @Flag(name: .long, help: "Search deleted notes (Recently Deleted) instead.")
+    var deleted = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+    @OptionGroup var cache: CacheOptions
+
+    func validate() throws {
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw ValidationError("the query is empty") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let notes = try vault.summaries(of: nil, cache: cache.cache(for: vault)).filter { n in
+            n.deleted == deleted
+                && (notebook.map { NotebookPath.name(n.notebook, isWithin: $0) } ?? true)
+                && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true)
+        }
+        let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let hits = NoteSearch.search(query, in: notes)
+        let fieldNames: [NoteSearchHit.Field: String] = [.title: "title", .tag: "tag", .notebook: "notebook", .text: "text"]
+        if output.json {
+            struct Page: Encodable { var number: Int; var id: String }
+            struct Hit: Encodable {
+                var note: String; var title: String; var notebook: String?; var tags: [String]; var fields: [String]
+                var page: Page?; var snippet: String?; var matchedPages: Int; var score: Int
+            }
+            try output.emitJSON(hits.map { h in
+                let s = byID[h.note]
+                return Hit(note: h.note.uuidString.lowercased(), title: s?.title ?? "", notebook: s?.notebook,
+                           tags: s?.tags ?? [], fields: h.fields.compactMap { fieldNames[$0] },
+                           page: h.page.map { Page(number: $0.number, id: $0.pageId.uuidString.lowercased()) },
+                           snippet: h.snippet?.text, matchedPages: h.matchedPages, score: h.score)
+            })
+            return
+        }
+        if hits.isEmpty { output.info("No notes found."); return }
+        var rows = output.quiet ? [] : [["ID", "TITLE", "MATCH", "PAGE", "TEXT"]]
+        for h in hits {
+            let title = byID[h.note].map { $0.title.isEmpty ? "(untitled)" : $0.title } ?? ""
+            rows.append([h.note.uuidString.lowercased(), title, h.fields.compactMap { fieldNames[$0] }.joined(separator: ","),
+                         h.page.map { String($0.number) } ?? "-", h.snippet?.text ?? ""])
+        }
+        print(Format.table(rows))
+    }
+}

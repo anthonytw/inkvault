@@ -161,104 +161,51 @@ final class RecognitionSupportTests: VaultTestCase {
         XCTAssertEqual(r.text, "a b")
         XCTAssertEqual(RecognitionLayout.assemble(engine: "e", lines: [], basis: nil).text, "")
     }
+
+    // MARK: pages a pass reads (`sempere recognize` modes)
+
+    func testPagesToReadPerMode() {
+        func stroke(_ n: Int) -> Stroke {
+            Stroke(id: id(n), ink: Ink(tool: .pen, color: .black, width: 2), points: [StrokePoint(x: 1, y: 1, t: 0, w: 2, h: 2)])
+        }
+        func page(_ n: Int, strokes: [Stroke], _ rec: Recognition?) -> Page {
+            var p = Page(id: id(100 + n), order: "a\(n)", strokes: strokes)
+            p.recognition = rec
+            return p
+        }
+        let ink = [stroke(1), stroke(2)]
+        let ours = Recognition(engine: "vision-26.0", text: "x", basis: RecognitionBasis.digest(of: ink.map(\.id)))
+        let pages = [
+            page(1, strokes: ink, nil),                                                         // never read
+            page(2, strokes: ink, ours),                                                        // current
+            page(3, strokes: ink + [stroke(3)], ours),                                          // stale: ink added
+            page(4, strokes: ink, Recognition(engine: "notability-14", text: "Lecture")),       // Notability's
+            page(5, strokes: [], nil),                                                          // blank
+            page(6, strokes: [], ours),                                                         // our text, ink erased
+            page(7, strokes: [], Recognition(engine: "notability-14", text: "Old")),           // Notability's text, no ink
+        ]
+        func numbers(_ mode: RecognitionMode) -> [Int] {
+            RecognitionPolicy.pagesToRead(pages, mode: mode).compactMap { p in pages.firstIndex(of: p).map { $0 + 1 } }
+        }
+        XCTAssertEqual(numbers(.stale), [1, 3, 6], "Notability's recognition is never replaced by default")
+        XCTAssertEqual(numbers(.missing), [1])
+        XCTAssertEqual(numbers(.all), [1, 2, 3, 4, 6, 7])
+    }
 }
 
-final class RecognitionRunTests: VaultTestCase {
-    var stateURL: URL { tmp.appendingPathComponent("device.json") }
-
-    private func note(_ vault: Vault, title: String, strokes: Int, pages: Int = 1) throws -> UUID {
-        let id = UUID()
-        let first = UUID()
-        var ops = NoteOps.newNote(title: title, pageId: first)
-        for n in 1..<max(pages, 1) { ops.append(.addPage(Page(id: UUID(), order: PageOrder.between(PageOrder.between(nil, nil), nil)))); _ = n }
-        for _ in 0..<strokes { ops.append(.addStroke(page: first, stroke: stroke())) }
-        try vault.apply(ops, to: id, deviceState: stateURL, app: "test")
-        return id
-    }
-
-    private func fake(_ text: String) -> (Page) throws -> Recognition {
-        { page in
-            Recognition(engine: "fake-1", text: text,
-                        words: RecognitionLayout.distribute(text: text, in: .init(x: 0, y: 0, w: 100, h: 10)))
-        }
-    }
-
-    func testRecognizesPagesAndReportsTheNote() throws {
-        let vault = try makeVault(pqIdentity())
-        let id = try note(vault, title: "Lecture", strokes: 2, pages: 2)
-        let report = try XCTUnwrap(try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: fake("hello wombat")))
-        XCTAssertEqual(report.id, id)
-        XCTAssertEqual(report.title, "Lecture")
-        XCTAssertEqual(report.pages, 2)
-        XCTAssertEqual(report.pagesRecognized, 1, "the second page has no strokes and nothing to clear")
-        let state = try vault.reconstruct(noteId: id)
-        let recognition = try XCTUnwrap(state.pages[0].recognition)
-        XCTAssertEqual(recognition.text, "hello wombat")
-        XCTAssertEqual(recognition.basis, RecognitionBasis.digest(of: state.pages[0]))
-        XCTAssertEqual(try vault.summary(of: id).pagesNeedingRecognition, 0)
-    }
-
-    func testNothingToDoWritesNoDelta() throws {
-        let vault = try makeVault(pqIdentity())
-        let id = try note(vault, title: "T", strokes: 1)
-        try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: fake("a"))
-        let before = try vault.revisionNames(of: id).count
-        XCTAssertNil(try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: { _ in
-            XCTFail("a current page is not read again"); return Recognition(engine: "x", text: "")
-        }))
-        XCTAssertEqual(try vault.revisionNames(of: id).count, before)
-        // A note without ink needs nothing either.
-        let empty = try note(vault, title: "E", strokes: 0)
-        XCTAssertNil(try vault.recognizeNote(empty, deviceState: stateURL, app: "test", recognize: fake("x")))
-    }
-
-    func testDeletedNotesAreSkippedAndFailuresWriteNothing() throws {
-        let vault = try makeVault(pqIdentity())
-        let gone = try note(vault, title: "Gone", strokes: 1)
-        try vault.apply([.deleteNote], to: gone, deviceState: stateURL, app: "test")
-        XCTAssertNil(try vault.recognizeNote(gone, deviceState: stateURL, app: "test", recognize: fake("x")))
-
-        struct Boom: Error {}
-        let id = try note(vault, title: "T", strokes: 1)
-        let count = try vault.revisionNames(of: id).count
-        XCTAssertThrowsError(try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: { _ in throw Boom() }))
-        XCTAssertEqual(try vault.revisionNames(of: id).count, count)
-    }
-
-    /// Strokes added while the page was being read (another device): the text
-    /// no longer describes the page and is dropped.
-    func testPageEditedMeanwhileIsNotWritten() throws {
-        let vault = try makeVault(pqIdentity())
-        let id = try note(vault, title: "T", strokes: 1)
-        let page = try vault.reconstruct(noteId: id).pages[0].id
-        let report = try vault.recognizeNote(id, deviceState: stateURL, app: "test", recognize: { _ in
-            try! vault.apply([.addStroke(page: page, stroke: stroke())], to: id, deviceState: self.stateURL, app: "other")
-            return Recognition(engine: "fake", text: "stale")
-        })
-        XCTAssertNil(report)
-        XCTAssertNil(try vault.reconstruct(noteId: id).pages[0].recognition)
-    }
-
+final class RecognitionJobTests: XCTestCase {
     func testOpsGuardAgainstChangedAndMissingPages() {
         let page = Page(id: UUID(), order: PageOrder.between(nil, nil), strokes: [stroke()])
         let state = NoteState(meta: NoteMeta(title: "T", created: Date(timeIntervalSince1970: 0)), pages: [page])
         let digest = RecognitionBasis.digest(of: page)
         let r = Recognition(engine: "e", text: "t")
         let ok = RecognitionJob(page: page.id, digest: digest, recognition: r)
-        XCTAssertEqual(RecognitionRun.ops(for: [ok], in: state).count, 1)
-        XCTAssertTrue(RecognitionRun.ops(for: [RecognitionJob(page: page.id, digest: "0", recognition: r)], in: state).isEmpty)
-        XCTAssertTrue(RecognitionRun.ops(for: [RecognitionJob(page: UUID(), digest: digest, recognition: r)], in: state).isEmpty)
-        XCTAssertTrue(RecognitionRun.ops(for: [ok], in: nil).isEmpty)
+        XCTAssertEqual(RecognitionJob.ops(for: [ok], in: state).count, 1)
+        XCTAssertTrue(RecognitionJob.ops(for: [RecognitionJob(page: page.id, digest: "0", recognition: r)], in: state).isEmpty)
+        XCTAssertTrue(RecognitionJob.ops(for: [RecognitionJob(page: UUID(), digest: digest, recognition: r)], in: state).isEmpty)
+        XCTAssertTrue(RecognitionJob.ops(for: [ok], in: nil).isEmpty)
         var deleted = state; deleted.deleted = true
-        XCTAssertTrue(RecognitionRun.ops(for: [ok], in: deleted).isEmpty)
-    }
-
-    func testRecognizedNoteJSON() throws {
-        let id = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
-        let json = try JSONEncoder().encode(RecognizedNote(id: id, title: "T", pages: 3, pagesRecognized: 2))
-        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
-        XCTAssertEqual(obj["note"] as? String, id.uuidString)
-        XCTAssertEqual(obj["pagesRecognized"] as? Int, 2)
+        XCTAssertTrue(RecognitionJob.ops(for: [ok], in: deleted).isEmpty)
     }
 }
 
@@ -292,6 +239,23 @@ final class SearchMatchesTests: XCTestCase {
         var bare = page([])
         bare.recognition = Recognition(engine: "t", text: "red")
         XCTAssertEqual(SearchMatches.matches("red", in: [bare]), [])
+    }
+
+    /// A hostile vault's boxes (format.md §9): huge, negative-size or (via a
+    /// decoder that allows it) non-finite values are never offered for drawing.
+    func testBoxesThatCannotBeDrawnAreSkipped() throws {
+        let decoded = try JSONDecoder().decode([Recognition.Word].self, from: Data(
+            #"[{"t":"wombat","box":[1e308,0,10,5]},{"t":"wombat","box":[0,0,-1,5]},{"t":"wombat","box":[3,4,10,5]}]"#.utf8))
+        var p = Page(id: UUID(), order: PageOrder.between(nil, nil))
+        p.recognition = Recognition(engine: "t", text: "wombat wombat wombat", words: decoded + [
+            .init(text: "wombat", box: .init(x: .nan, y: 0, w: 1, h: 1)),
+            .init(text: "wombat", box: .init(x: 0, y: .infinity, w: 1, h: 1)),
+        ])
+        let m = SearchMatches.matches("wombat", in: [p])
+        XCTAssertEqual(m.map(\.box), [.init(x: 3, y: 4, w: 10, h: 5)])
+        XCTAssertNotNil(SearchMatchCursor(query: "wombat", pages: [p]))
+        XCTAssertTrue(SearchMatches.isDrawable(.init(x: -1e9, y: 1e9, w: 0, h: 0)))
+        XCTAssertFalse(SearchMatches.isDrawable(.init(x: 0, y: 1e9 + 1, w: 1, h: 1)))
     }
 
     func testMatchListIsCapped() {

@@ -44,6 +44,34 @@ public enum RecognitionPolicy {
     }
 }
 
+/// Which pages a recognition pass reads (`RecognitionPolicy.pagesToRead`).
+public enum RecognitionMode: String, Hashable, Sendable, CaseIterable {
+    /// Pages whose recognition is missing or stale (`needsRecognition`), as
+    /// the app reads them. Recognition that cannot be checked (a Notability
+    /// import, which has no `basis`) is kept.
+    case stale
+    /// Only pages with ink and no recognition at all.
+    case missing
+    /// Every page with ink, and every page whose recognised text has no ink
+    /// left (it is cleared), replacing whatever recognition is there,
+    /// Notability's included.
+    case all
+}
+
+extension RecognitionPolicy {
+    /// The pages of `pages` a pass in `mode` reads, in order. A page without
+    /// strokes is included only to clear recognised text it no longer has ink for.
+    public static func pagesToRead(_ pages: [Page], mode: RecognitionMode) -> [Page] {
+        pages.filter { page in
+            switch mode {
+            case .stale: return needsRecognition(page)
+            case .missing: return page.recognition == nil && !page.strokes.isEmpty
+            case .all: return !page.strokes.isEmpty || !(page.recognition?.text.isEmpty ?? true)
+            }
+        }
+    }
+}
+
 /// One line of text a recogniser found, with its words placed on the page.
 public struct RecognizedLine: Hashable, Sendable {
     public var text: String

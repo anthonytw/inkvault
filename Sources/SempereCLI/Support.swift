@@ -166,6 +166,15 @@ enum Format {
         return f.string(from: date)
     }
 
+    /// A byte count for people: `512 B`, `1.5 KB`, `2.0 MB` (powers of 1000).
+    static func bytes(_ n: Int) -> String {
+        if n < 1000 { return "\(n) B" }
+        let units = ["KB", "MB", "GB", "TB"]
+        var v = Double(n) / 1000, i = 0
+        while v >= 1000, i < units.count - 1 { v /= 1000; i += 1 }
+        return "\(String(format: "%.1f", v)) \(units[i])"
+    }
+
     /// Left-aligned columns separated by two spaces; the last column is not padded.
     static func table(_ rows: [[String]]) -> String {
         guard let first = rows.first else { return "" }

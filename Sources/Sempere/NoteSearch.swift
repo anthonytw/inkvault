@@ -201,7 +201,8 @@ public enum SearchMatches {
     public static let maxMatches = 10_000
 
     /// The recognised words of `pages` containing a word of `query` (case,
-    /// accents and width ignored, substrings count, `#tag` words skipped), in
+    /// accents and width ignored, substrings count, `#tag` words and boxes
+    /// that cannot be drawn (`isDrawable`) skipped), in
     /// page order and, within a page, in the order the words are stored
     /// (reading order). Pages without word boxes give none, so a page
     /// found by text alone has no match here. Cost: O(Σ words × query words).
@@ -210,12 +211,23 @@ public enum SearchMatches {
         return matches(words: words, in: pages)
     }
 
+    /// Largest coordinate or size of a box that is highlighted (points).
+    public static let maxBoxCoordinate = 1e9
+
+    /// Whether `box` can be drawn: every value finite and at most
+    /// `maxBoxCoordinate` in size, `w` and `h` not negative. Boxes come from
+    /// the vault (`format.md` §9): a box of `1e308` turns infinite once
+    /// scaled for the screen, and a canvas layer at a NaN position traps.
+    public static func isDrawable(_ box: Recognition.Box) -> Bool {
+        [box.x, box.y, box.w, box.h].allSatisfy { $0.isFinite && abs($0) <= maxBoxCoordinate } && box.w >= 0 && box.h >= 0
+    }
+
     /// `matches(_:in:)` for already split words (any of them matches).
     public static func matches(words: [String], in pages: [Page]) -> [SearchMatch] {
         guard !words.isEmpty else { return [] }
         var out: [SearchMatch] = []
         for (index, page) in pages.enumerated() {
-            for word in page.recognition?.words ?? [] {
+            for word in page.recognition?.words ?? [] where isDrawable(word.box) {
                 guard words.contains(where: { word.text.range(of: $0, options: NoteSearch.options) != nil }) else { continue }
                 out.append(SearchMatch(pageId: page.id, page: index + 1, text: word.text, box: word.box))
                 if out.count >= maxMatches { return out }

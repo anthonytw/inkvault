@@ -392,8 +392,10 @@ extension AppModel {
     }
 
     /// A drop (or "Move Notebook To…"): makes the move, reports a failure, and
-    /// registers one undo step with the window's undo manager (`undoManager`) that puts the notes back.
-    func move(_ payload: DragPayload, to target: DropTarget) async {
+    /// registers one undo step that puts the notes back with `undoManager`, the
+    /// undo manager of the window it happened in (the model is shared by every
+    /// window on a Mac, so it keeps none of its own).
+    func move(_ payload: DragPayload, to target: DropTarget, undoManager: UndoManager?) async {
         guard phase == .unlocked, SidebarDrop.accepts(payload, on: target, notes: notes) else { return }
         var record: NotebookMoveRecord?
         await report {

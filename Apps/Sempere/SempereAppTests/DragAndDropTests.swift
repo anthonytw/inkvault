@@ -169,11 +169,10 @@ struct DragAndDropTests {
         let lab = try #require(ids["Lab"])
         let undo = UndoManager()
         undo.groupsByEvent = false
-        model.undoManager = undo
         func notebook() -> String? { model.notes.first { $0.id == lab }?.notebook }
 
         undo.beginUndoGrouping()
-        await model.move(.notes([lab]), to: .notebook("School"))
+        await model.move(.notes([lab]), to: .notebook("School"), undoManager: undo)
         undo.endUndoGrouping()
         #expect(notebook() == "School")
         #expect(undo.canUndo)
@@ -183,18 +182,33 @@ struct DragAndDropTests {
 
         // A rejected drop (into itself) changes nothing and registers nothing.
         let steps = undo.canUndo
-        await model.move(.notebook("Research"), to: .notebook("Research/Lab"))
+        await model.move(.notebook("Research"), to: .notebook("Research/Lab"), undoManager: undo)
         #expect(model.errorMessage == nil)
         #expect(undo.canUndo == steps)
         #expect(model.notes.first { $0.id == lab }?.notebook == "Research/Lab")
 
         // A notebook drop, then undo.
         undo.beginUndoGrouping()
-        await model.move(.notebook("Research/Lab"), to: .topLevel)
+        await model.move(.notebook("Research/Lab"), to: .topLevel, undoManager: undo)
         undo.endUndoGrouping()
         #expect(notebook() == "Lab")
         undo.undo()
         #expect(await TS.waitUntil { notebook() == "Research/Lab" })
+    }
+
+    /// The model is shared by every window on a Mac: a drop's undo goes to the
+    /// window it happened in, never to another window's undo manager.
+    @Test func aDropsUndoGoesToItsOwnWindow() async throws {
+        let (model, ids) = try await NotebookTreeTests.model()
+        let lab = try #require(ids["Lab"])
+        let here = UndoManager(), other = UndoManager()
+        here.groupsByEvent = false
+        other.groupsByEvent = false
+        here.beginUndoGrouping()
+        await model.move(.notes([lab]), to: .notebook("School"), undoManager: here)
+        here.endUndoGrouping()
+        #expect(here.canUndo)
+        #expect(!other.canUndo)
     }
 
     @Test func theMoveNotebookSheetOnlyOffersLegalMoves() {

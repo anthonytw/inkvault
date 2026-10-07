@@ -262,16 +262,19 @@ enum SyntheticNote {
     ///   - shapes: a `shapes` plist for the spatial hash.
     ///   - numcurvesOverride: a `numcurves` / `numpoints` value that disagrees
     ///     with the arrays (for corrupt-input tests).
+    ///   - typed: the typed text (`attributedString.stringKey`).
     ///   - layout: replaces the `pageLayoutArray` built for `pdfPages`: per
     ///     Notability page its document page number, PDF file name (nil for a
     ///     paper page) and PDF page number.
     ///   - media: builds the `mediaObjects` entries.
     ///   - paperIdentifier: the `paperIdentifier` attribute (`TemplatePDF:<uuid>:#FFFFFF`, …).
-    static func session(curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter",
+    static func session(typed: String = "typed words", curves cs: [CurveSpec] = curves, pdfPages: Int = 0, paperSize: String = "letter",
                         styles: Data? = nil, shapes: Data? = nil, created: Date = created,
                         numcurvesOverride: Int? = nil, layout: [(Int, String?, Int)]? = nil,
                         media: ((inout KeyedArchiveBuilder) -> [BValue])? = nil,
-                        paperIdentifier: String = "Legacy:13") -> Data {
+                        paperIdentifier: String = "Legacy:13",
+                        attributed: ((inout KeyedArchiveBuilder) -> BValue)? = nil,
+                        eventTokens: [Int32]? = nil) -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
@@ -295,9 +298,11 @@ enum SyntheticNote {
             ("dashStyles", a.data(dash)),
             ("groupsArrays", a.array([])),
             ("bezierPathsDataDictionary", a.dict([])),
-        ] + (shapes.map { [("shapes", a.data($0))] } ?? []))
+        ] + (shapes.map { [("shapes", a.data($0))] } ?? [])
+          + (eventTokens.map { [("eventTokens", a.data(i32($0)))] } ?? []))
         let overlay = a.object("HandwritingObject", [("SpatialHash", hash)])
-        let attributed = a.dict([("stringKey", a.string("typed words")), ("subRangesKey", a.array([]))])
+        let attributed = attributed.map { $0(&a) }
+            ?? a.dict([("stringKey", a.string(typed)), ("subRangesKey", a.array([]))])
         let reflow = a.object("NBReflowStateLocked", [("pageWidthInDocumentCoordsKey", .real(width)),
                                                      ("nativeLayoutDeviceStringKey", a.string("iPad"))])
         var pdfFiles: [BValue] = [], pageLayout: [BValue] = []

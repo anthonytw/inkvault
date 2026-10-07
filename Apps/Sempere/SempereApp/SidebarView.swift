@@ -12,6 +12,7 @@ struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(RememberedKeys.self) private var keys
     @State private var forgettingKey = false
+    @State private var showingSettings = false
     @State private var renaming: String?
     /// The notebook a "Move Notebook To…" sheet is open for.
     @State private var movingNotebook: MovingNotebook?
@@ -64,6 +65,9 @@ struct SidebarView: View {
                 Button("Close Vault", systemImage: "xmark.circle") { model.close() }
             }
             ToolbarItem {
+                Button("Settings", systemImage: "gearshape") { showingSettings = true }
+            }
+            ToolbarItem {
                 Menu("Vault Key", systemImage: "key") {
                     if let storage = keys.storage(for: model) {
                         Text(storage == .iCloudKeychain ? "Saved in iCloud Keychain" : "Saved on \(RememberedKeys.deviceName)")
@@ -78,6 +82,7 @@ struct SidebarView: View {
         }
         .sheet(item: $movingNotebook) { MoveNotebookView(path: $0.path) }
         .task(id: model.vault?.vaultId) { await keys.refresh(model) }
+        .sheet(isPresented: $showingSettings) { SettingsView() }
         .confirmationDialog("Forget this vault's key?", isPresented: $forgettingKey, titleVisibility: .visible) {
             Button("Forget Key", role: .destructive) {
                 Task { await model.report { try await keys.forget(model) } }

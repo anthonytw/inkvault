@@ -503,10 +503,12 @@ sempere notes rename ID|TITLE NEW-TITLE
 sempere notes tag ID|TITLE [--add T]... [--remove T]... [--no-cache]
 sempere notes move ID|TITLE (NOTEBOOK | --none)
 sempere notes paper ID|TITLE [KIND] [--page N] [PAPER OPTIONS]
+sempere notes search QUERY [--notebook PATH] [--tag T] [--deleted] [--no-cache]
 sempere notes delete ID|TITLE
 sempere notes undelete ID|TITLE
-sempere notes history ID|TITLE
+sempere notes history ID|TITLE [--sessions]
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
+sempere notes checkpoint ID|TITLE [--name TEXT]
 sempere notes layout ID|TITLE paged|pageless [--dry-run]
 ```
 
@@ -531,8 +533,21 @@ full id, an id prefix of 4 or more characters, or its exact title
 
 `history` lists the note's restore points, one per readable revision, oldest
 first by `(hlc, device, seq)`: kind, wall time, device, app and revision name.
-`--json` gives `revision`, `kind`, `hlc`, `device`, `seq`, `wall`, `app` and
-`complete` per point. Revisions deleted by `compact` are not restore points. A
+`--json` gives `revision`, `kind`, `hlc`, `device`, `seq`, `wall`, `app`,
+`complete`, `checkpoint` (true for a saved version), `name` (the checkpoint's
+name, if any), `session` (the editing-session id the app wrote, if any) and
+`group` (the index of the point's group, below) per point. A checkpoint is
+marked `(checkpoint: NAME)` in the text output. `--sessions` groups the points
+as the app's history view does (`docs/format.md` §5.8.2): each checkpoint on
+its own, and the autosaves between checkpoints in editing sessions; a new
+session starts when the note was closed and reopened (another `session` id),
+after a gap of 10 minutes or more, or when another device wrote. The text
+output is one line per group (GROUP, FROM, TO, DEVICE, SAVES, NEWEST); `--json`
+gives an array of groups, oldest first, each with `type` (`checkpoint` or
+`session`), `device`, `session`, `name` (checkpoints), `start`, `end`, `saves`,
+`newest` (the revision thinning keeps) and `points` (as above). Snapshots that
+`compact` writes "as of" a kept version (`asOf`, `docs/format.md` §5.8.3) are
+bookkeeping and are not listed. Revisions deleted by `compact` are not restore points. A
 point is `complete: false` (shown as `(incomplete)`) when the note as of it can
 no longer be rebuilt: revisions before it were compacted away and no snapshot
 at or before it covers them, or one before it (or any snapshot) is unreadable. Unreadable
@@ -560,6 +575,14 @@ an incomplete restore point is refused. `--json` emits `note`, `to`, `dryRun`,
 `itemChanges`, `recordingsRemoved`, `recordingsRestored`, `recordingChanges`,
 `metaFields`, `deleted`).
 
+`checkpoint` saves the note as it is now as a version, optionally named
+(`--name`, trimmed, at most 200 characters): one delta with no ops marked as a
+checkpoint (`docs/format.md` §5.8.1), stamped with this machine's device id and
+clock as for `snapshot`. The app's Save Version writes the same. Checkpoints are
+restore points like any other (`notes restore --to`, `export --at`), and
+`compact` never deletes one. `--json` emits `note`, `file`, `name` and
+`device`.
+
 `layout` switches a note between paged (fixed-size pages) and pageless (one
 infinite page) by writing **one new delta** (`docs/format.md` §5.4.3).
 `pageless` joins the pages into the first one, each page's ink shifted down by
@@ -574,6 +597,19 @@ note with several pages, left by concurrent edits, is joined), or with
 `--dry-run`. A deleted note is refused (exit 1).
 The device id and clock are this machine's, as for `snapshot`. `--json` emits
 `note`, `layout`, `dryRun`, `changed`, `pagesBefore`, `pagesAfter` and `file`.
+
+`search` finds notes as the app's search box does (`NoteSearch`, shared with
+the app): the query is words, and a note matches when every word is found in
+its title, notebook, tags or a page's recognised text (case, accents and width
+ignored, substrings count); a word starting with `#` matches tags only. Notes
+are ranked as in the app (exact title and tag matches first, then the page
+holding most of the words) and printed best first with the matching fields,
+the best page and a snippet. `--notebook` (that notebook and below) and `--tag`
+narrow the search as selecting a notebook or tag in the sidebar does;
+`--deleted` searches Recently Deleted instead. `--json` gives `note`, `title`,
+`notebook`, `tags`, `fields` (`title`, `tag`, `notebook`, `text`), `page`
+(`number`, `id`), `snippet`, `matchedPages` and `score` per note. For every
+occurrence of a phrase, with word boxes, use `sempere search`.
 
 #### Editing notes
 
@@ -710,7 +746,7 @@ A deleted note is refused (exit 1), as is a page number out of range.
 ```
 sempere import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
                                    [--no-folder-tags] [--tag T ...] [--no-attachments]
-                                   [--keep-image-metadata]
+                                   [--keep-image-metadata] [--recognize missing]
 ```
 
 Each `PATH` is a `.note` or `.ntb` file, an unzipped `.note` package
@@ -739,11 +775,14 @@ format the vault does not store, and how each image was placed).
 Attachments (`docs/import-notability.md` "Attachments"): the PDF pages of a
 note made from a PDF become `pdfPage` backgrounds at the bands where
 Notability showed them, backed by the original PDF as one blob of the note,
-and images become `image` items; blobs are written before the note's delta.
+images become `image` items, typed text becomes `text` items (styles mapped
+to runs), and recordings become the note's recordings with their audio
+(strokes get `rec` where `eventTokens` read as times in the one recording);
+blobs are written before the note's delta.
 JPEG and PNG metadata (camera, location) is stripped unless
 `--keep-image-metadata`; HEIC is stored as is; GIF, TIFF, WebP and other
 formats are reported and left out. `--no-attachments` imports ink, recognised
-text and metadata only and reports every attachment as dropped. A note with
+handwriting and metadata only and reports every attachment as dropped. A note with
 no ink and none of its PDF pages imported gets a `no ink in …` line. A note
 already in the vault is skipped unless `--overwrite`, which
 replaces its pages. `--notebook` files every note under one notebook;
@@ -755,16 +794,25 @@ to every imported note. Tags are written as a whole, so `--overwrite` of a
 note that moved folders drops the old folder's tags. The device id and clock
 come from `device.json` as for `snapshot`.
 
+`--recognize missing` reads the handwriting of every imported page that has
+ink but no recognised text (Notability never indexed it) right after the
+import, as `sempere recognize --missing-only` does (see "Handwriting
+recognition"); Notability's own recognition is never replaced. It needs
+macOS: elsewhere the import is refused before anything is written (exit 1).
+With `--dry-run` it lists the pages it would read. `--json` then adds
+`recognized`, one entry per imported note as in `recognize --json`.
+
 `--dry-run` imports into a throwaway copy of the vault with a throwaway device,
 so the report is exact but neither the vault nor `device.json` is touched.
 `--json` emits `summary` (`notes`, `imported`, `skipped`, `failed`,
 `strokes`, `ntb`, `extraVersions`, `dryRun`, and over the notes written
-`pdfPages`, `images`, `blobs`, `blobBytes`, `droppedPDFPages`,
-`droppedMedia`) and `notes` (with `status` `imported`, `skipped` or `failed`,
+`pdfPages`, `images`, `textItems`, `recordings`, `recLinkedStrokes`, `blobs`,
+`blobBytes`, `droppedPDFPages`, `droppedMedia`) and `notes` (with `status` `imported`, `skipped` or `failed`,
 `reason`, `id`, `format` `note`/`ntb`, `shapes`, `duplicateOf`,
 `extraVersion`, `selection`, `dropped` (`pdfs`, `pdfPages`, `media`,
-`pdfHighlights`, `templatePDFs`, `typedTextCharacters`, `recordings`, …),
-`attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`, `blobs`,
+`pdfHighlights`, `templatePDFs`, `typedTextCharacters`, `recordings`,
+`recLinks`, …), `attachments` (`pdfs`, `pdfPages`, `templatePages`, `images`,
+`textItems`, `textCharacters`, `recordings`, `recLinkedStrokes`, `blobs`,
 `blobBytes`) and `warnings`, ...). A skipped note's `dropped` counts
 everything its source holds, since nothing of it was written. Exit 1
 if any note failed, a path does not exist, or no `.note` or `.ntb` file was
@@ -798,6 +846,9 @@ others and the exit code is 1. `--dry-run` checks the files and writes nothing.
 sempere search TERM [--transcripts]
 ```
 
+(To find notes rather than every occurrence, ranked as in the app, use
+`notes search`.)
+
 Case-insensitive, accent-insensitive substring search over every page's
 recognised handwriting text (the Notability import, on-device recognition)
 **and the text of every text box**, in all notes except deleted ones. With
@@ -822,25 +873,43 @@ match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
 `locations`, a list of `{n, of, text, box}` for the matches on that hit's page
 (`n` counts from 1 over the whole note, `of` is the note's total).
 
-### Recognize
+### Handwriting recognition
 
 ```
-sempere recognize [NOTE...] [--dry-run] [--json]
+sempere recognize (ID|TITLE... | --all) [--missing-only | --force] [--dry-run]
 ```
 
-Reads the handwriting of notes with Apple's Vision framework and stores the
-text and word boxes as page recognition (`format.md` §5.5), exactly as the
-app's "Recognize All Notes" does (`Vault.recognizeNote`): every page whose
-recognition is missing or out of date, one delta per note, a page edited by
-another device meanwhile left for the next run. Without `NOTE` (id, id prefix
-or exact title) it covers every note except deleted ones; notes with unreadable
-revisions are skipped with a warning. Human output is `Recognized N notes.` and
-a table of the notes it changed (id prefix, title, pages read of pages);
-`--json` gives `{recognized: [{note, title, pages, pagesRecognized}], failed:
-[{note, title, error}], dryRun, engine}`. `--dry-run` writes nothing and lists
-what a run would read; it works on every platform. Vision exists only on macOS:
-on Linux a real run stops with exit 1 and a message. Exit 1 also when a note
-could not be read or written (the others are still done).
+Reads the handwriting of notes with Apple's Vision, on this machine (nothing
+leaves it), and stores the text and word boxes as each page's recognition
+(`format.md` §5.5) for `search`, `notes search` and exports. It is the app's
+recognition, with the same code: the pages chosen (`RecognitionPolicy`), the
+image read (`RecognitionImage`: the ink black on white, markers left out,
+cropped to the ink with a 24 pt margin, at 2x or less for large ink) and the
+mapping of Vision's lines and word boxes (`VisionText`). The CLI draws the
+image with its own renderer where the app uses PencilKit. Each note gets one
+delta of `setPageRecognition` ops, stamped with this machine's device id and
+clock, and each recognition a `basis` (the digest of the strokes read), so it
+is read again only when its ink changes.
+
+Which pages are read:
+
+| Mode | Pages |
+| --- | --- |
+| default | recognition missing or out of date (ink changed since); Notability's recognition, which cannot be checked, is kept |
+| `--missing-only` | only pages with ink and no recognition at all |
+| `--force` | every page with ink, replacing any recognition, Notability's included |
+
+A page whose ink is gone has its recognised text cleared (except
+Notability's, unless `--force`). A page with only marker strokes gets empty
+text. Deleted notes are skipped by `--all` and refused when named. `--dry-run`
+lists the pages without reading or writing anything, and works on every
+platform.
+
+**macOS only.** Vision is an Apple framework; the Linux build exits 1 with a
+message and changes nothing (`--dry-run` still works). Text and JSON output
+list per note the pages `read` and `cleared` and the `file` written; `--json`
+gives `{dryRun, notes: [{note, title, read, cleared, file, error}]}`. A note
+that cannot be read or written is reported and the exit code is 1.
 
 ### Export
 
@@ -1107,7 +1176,7 @@ another vault` to stderr and exits 3 so scripts can tell. Wrong key: exit 4.
 ### Maintenance
 
 ```
-sempere compact (ID|TITLE | --all) [--retention DAYS] [--dry-run]
+sempere compact (ID|TITLE | --all) [--retention DAYS | --thin-older-than AGE] [--dry-run]
 sempere snapshot ID|TITLE
 ```
 
@@ -1119,7 +1188,36 @@ writes a snapshot first (device id and clock as for `snapshot`), then compacts.
 `--dry-run` writes and deletes nothing and lists `would snapshot` and
 `would delete` lines. With `--all` a note that cannot be compacted (an unreadable
 revision) is reported on stderr, the other notes are still processed, and the
-exit code is 1. `snapshot` writes a snapshot of the note. Both need a
+exit code is 1.
+
+Checkpoints (`notes checkpoint`) are never deleted, and each one stays a
+complete restore point with the same content: when the revisions a checkpoint
+depends on are deleted, `compact` first writes a snapshot *as of* the
+checkpoint (`asOf`, `docs/format.md` §5.8.3) and keeps one revision per other
+device just after it (a *witness*, §5.8.4 rule 3).
+
+`--thin-older-than AGE` thins instead (`docs/format.md` §5.8.4): `AGE` is days,
+as `30d` or `30` (more than 0), or `never` (do nothing). Among the revisions
+older than that (the longest run from the oldest revision whose wall times are
+all older), it keeps every checkpoint, the newest autosave of each editing
+session (the groups of `notes history --sessions`) and the note's newest
+revision, and deletes the rest, deltas and snapshots alike. Every kept version
+and every newer revision stays a complete restore point with the same content,
+and the note's current state is unchanged; to make that so it writes a snapshot
+as of each kept version that needs one, before deleting anything. Each of those
+is a full copy of the note, so thinning can add bytes while it removes files:
+the output says how many it deletes and adds (`Would delete 12 file(s), 48.0 KB;
+would add 2 snapshot(s), 310.5 KB.`), with `would snapshot NOTE (as of
+REVISION)` lines. Thinning twice with the same age does nothing the second
+time. `--retention` and `--thin-older-than` are different modes; give one.
+
+`--json` emits one object per note: `note`, `snapshotNeeded`, `snapshot` (the
+first snapshot written; null on a dry run), `snapshots` (each `{file, asOf}`;
+`file` null on a dry run, `asOf` set for a positioned snapshot), `files` (the
+revisions deleted, or that would be), `witnesses`, `bytesDeleted` and
+`bytesAdded`.
+
+`snapshot` writes a snapshot of the note. Both need a
 key. Snapshots stamp the file with this machine's
 device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 `~/.local/state/sempere/device.json`), created on first use:

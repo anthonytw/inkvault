@@ -12,7 +12,7 @@
 | 0.6 | Notability importer: `.note` packages (and Notability's Google Drive backup zip) to notes, including Notability's recognised handwriting as page recognition (`docs/import-notability.md`); CLI `import notability` (done, `docs/cli.md`) | `Sources/SempereImport`, `Sources/SempereCLI` | synthetic `.note` fixture tested in CI; whole personal backup imports; rendered output checked against Notability thumbnails |
 | 0.7 | CLI `search` over page recognition text (done, `docs/cli.md`; matching note title, notebook and tags is not implemented) | `Sources/SempereCLI` | end-to-end test: import fixture → search finds a recognised word |
 | 0.8 | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
-| 0.9 | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); still to do: page delete/move/duplicate and layout after #52, `recognize` after #44 | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
+| 0.9 | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); page add/move/delete/duplicate and `notes layout` (done in #52); `recognize`, `import notability --recognize missing`, `notes search` (#78) | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
 | 0.10 | CLI for attachments (done, `docs/cli.md`): `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over typed text and transcripts | `Sources/SempereCLI`, `Sources/Sempere` | end-to-end CLI tests in `Tests/CLITests/CLIAttachTests.swift` |
 
 ## Phase 1 — iPad app
@@ -86,8 +86,8 @@ goes first; after it, the rest run in parallel along the dependencies in
 | C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
 | D1 | Notability PDF backgrounds. **In review (#70)**: `NotabilityAttachments.swift`, `NotabilityMedia.swift`; CLI `--no-attachments` | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
 | D2 | Notability images. **In review (#70)**: media objects read without a schema (field names unconfirmed, reported); `SempereRender.ImageImport`; CLI `--keep-image-metadata` | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
-| D3 | Notability typed text | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
-| D4 | Notability recordings + ink sync | `Sources/SempereImport` | A0, B2 | recordings import; strokes carry `rec` |
+| D3 | Notability typed text. **In review (#73)**: `NotabilityText.swift` (both archive shapes, blocks, runs, `lang`) | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
+| D4 | Notability recordings + ink sync. **In review (#73)**: `NotabilityAudio.swift` (library entries, MP4/CAF info, `eventTokens` as ms, guarded) | `Sources/SempereImport` | A0, B2 | recordings import; strokes carry `rec` |
 | E0 | App plumbing: `NoteWriter.addBlob`/`copyBlob`, blob cache, lazy per-kind iCloud download, item layer + selection | `Apps/` | A1, B2 | one delta per gesture; app tests |
 | E1 | App images (Photos, camera, paste, privacy setting: HEIC→JPEG + metadata stripping on by default, crop) | `Apps/` | E0, C1 | GPS-free JPEG blobs by default; orientation correct |
 | E2 | App text boxes (system fonts, any script, RTL, `breaks` from TextKit, CoreText `TextShaper` for exports) | `Apps/` | E0, C2 | same line breaks app vs app export vs CLI export |

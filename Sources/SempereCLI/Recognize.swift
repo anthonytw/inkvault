@@ -3,131 +3,181 @@ import Foundation
 import Sempere
 import SempereRender
 
-/// Reads the handwriting of notes and stores the text with word boxes as page
-/// recognition (`format.md` §5.5), as the app's "Recognise All Notes" does:
-/// the same `Vault.recognizeNote`, one delta per note.
+/// Handwriting recognition from the command line: the app's pass
+/// (`RecognitionPolicy`, `RecognitionImage`, `VisionText`), one delta of
+/// `setPageRecognition` ops per note. Vision exists on Apple platforms only.
+enum RecognitionRun {
+    /// Whether this build can read handwriting.
+    static var available: Bool {
+        #if canImport(Vision)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    static let unavailable = CLIError.failure(
+        "handwriting recognition needs Apple's Vision framework, so it runs only in the macOS build of sempere "
+            + "(or in the app); nothing was changed")
+
+    /// What one note's pass did.
+    struct NoteResult: Encodable {
+        var note: String
+        var title: String
+        /// Pages read (1-based), with recognised text or none.
+        var read: [Int] = []
+        /// Pages whose recognised text was cleared: they have no ink left.
+        var cleared: [Int] = []
+        /// The delta written, a file name in the note's folder.
+        var file: String?
+        var error: String?
+    }
+
+    /// The recognition of one page's strokes, `basis` set to their digest:
+    /// empty text when no stroke is readable (only markers), nil when the
+    /// page has no strokes (its recognition is cleared).
+    static func recognize(_ strokes: [Stroke]) throws -> Recognition? {
+        guard !strokes.isEmpty else { return nil }
+        #if canImport(Vision)
+        var r = try VisionText.recognize(strokes: strokes) ?? Recognition(engine: VisionText.engine, text: "")
+        r.basis = RecognitionBasis.digest(of: strokes.map(\.id))
+        return r
+        #else
+        throw unavailable
+        #endif
+    }
+
+    /// Reads the pages of note `id` that `mode` selects and writes what it
+    /// read as one delta (nothing when no page needs it). With `dryRun` only
+    /// the selection is made: nothing is read or written, and Vision is not needed.
+    static func run(note id: UUID, vault: Vault, mode: RecognitionMode, dryRun: Bool) -> NoteResult {
+        var result = NoteResult(note: id.uuidString.lowercased(), title: "")
+        func record(_ state: NoteState, _ pages: [Page]) {
+            result.title = state.meta.title
+            for p in pages {
+                guard let n = state.pages.firstIndex(where: { $0.id == p.id }).map({ $0 + 1 }) else { continue }
+                if p.strokes.isEmpty { result.cleared.append(n) } else { result.read.append(n) }
+            }
+        }
+        do {
+            if dryRun {
+                let state = try vault.reconstruct(try vault.loadNote(id, detail: .withoutStrokePoints))
+                guard !state.deleted else { throw CLIError.failure("the note is deleted") }
+                record(state, RecognitionPolicy.pagesToRead(state.pages, mode: mode))
+                return result
+            }
+            let r = try editNote(vault, id) { state in
+                guard !state.deleted else { throw CLIError.failure("the note is deleted") }
+                let pages = RecognitionPolicy.pagesToRead(state.pages, mode: mode)
+                record(state, pages)
+                return try pages.map { .setPageRecognition(pageId: $0.id, recognition: try recognize($0.strokes)) }
+            }
+            result.file = r?.name.filename
+        } catch {
+            result.error = CLIError.from(error).message
+        }
+        return result
+    }
+}
+
 struct RecognizeCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "recognize",
-        abstract: "Read the handwriting of notes (Apple platforms) and store the text for search.",
+        abstract: "Read the handwriting of notes on this Mac (Vision) and store it for search and export.",
         discussion: """
-            Reads every page whose recognition is missing or out of date (new or edited ink; an
-            imported Notability text is kept) with Apple's Vision framework on an image of the page's
-            ink, and writes the text and word boxes as page recognition, one delta per note. Names
-            the notes it changed, with the number of pages read. Without NOTE it covers every note
-            except deleted ones. A page edited by another device while it was read is left for the
-            next run.
+            Each page is drawn black on white, cropped to its ink, and read with Apple's Vision on this
+            machine; nothing leaves it. The text and word boxes are stored as the page's recognition
+            (format.md §5.5), one delta per note, stamped with this machine's device id and clock.
+            The same selection, image and mapping as the app's recognition.
 
-            Vision exists only on macOS: elsewhere the command stops with an error, except with
-            --dry-run, which lists what a run would read and works everywhere. Exit 1 when a note
-            could not be read or written (the others are still done).
+            By default the pages read are those whose recognition is missing or out of date (ink
+            changed since it was read). Recognition Notability made cannot be checked against the ink
+            and is kept. --missing-only reads only pages with no recognition at all. --force reads
+            every page with ink, replacing any recognition (Notability's included). A page whose ink
+            is gone has its recognised text cleared. --dry-run lists the pages without reading them
+            (this works on Linux too). macOS only: elsewhere the command exits 1 and changes nothing.
             """
     )
 
-    @Argument(help: ArgumentHelp("Notes to read: id, id prefix or exact title. Default: all notes that need it.",
-                                 valueName: "note"))
+    @Argument(help: ArgumentHelp("Note ids or titles.", valueName: "id|title"))
     var notes: [String] = []
 
-    @Flag(name: .long, help: "List the notes (and pages) that need reading; change nothing.")
+    @Flag(name: .long, help: "Every note that is not deleted.")
+    var all = false
+
+    @Flag(name: .customLong("missing-only"), help: "Only pages with no recognition at all.")
+    var missingOnly = false
+
+    @Flag(name: .long, help: "Every page with ink, replacing existing recognition (Notability's included).")
+    var force = false
+
+    @Flag(name: .customLong("dry-run"), help: "Only list the pages that would be read.")
     var dryRun = false
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
-    struct Failure: Encodable { var note: String; var title: String; var error: String }
-
-    struct Report: Encodable {
-        /// Notes changed (with `--dry-run`: the notes that would be).
-        var recognized: [RecognizedNote]
-        var failed: [Failure]
-        var dryRun: Bool
-        /// The recogniser, e.g. `vision-26.0`; nil for a dry run.
-        var engine: String?
+    func validate() throws {
+        if all == !notes.isEmpty { throw ValidationError("give note ids or titles, or --all") }
+        if missingOnly && force { throw ValidationError("--missing-only and --force cannot be combined") }
     }
 
+    var mode: RecognitionMode { force ? .all : missingOnly ? .missing : .stale }
+
     func run() throws {
-        let recognizer = dryRun ? nil : try Recognizer.make()
+        if !dryRun && !RecognitionRun.available { throw RecognitionRun.unavailable }
         let vault = try access.openVault(.required)
-        var ids = try notes.isEmpty ? vault.noteIDs() : try notes.map { try vault.resolveNote($0) }
-        ids = Array(Set(ids)).sorted { $0.uuidString < $1.uuidString }
-        var targets: [NoteSummary] = []
-        for s in try vault.summaries(of: ids) where !s.deleted && s.pagesNeedingRecognition > 0 {
-            if s.problem != nil {
-                // Named on the command line it is an error; in a sweep it is skipped with a warning.
-                if !notes.isEmpty { throw CLIError.failure("note \(s.id.uuidString.lowercased()) has unreadable revisions") }
-                printStderr("warning: skipping note \(s.id.uuidString.lowercased()): \(s.problem ?? "")")
-                continue
-            }
-            targets.append(s)
-        }
-        var report = Report(recognized: [], failed: [], dryRun: dryRun, engine: recognizer?.engine)
-        for s in targets {
-            guard let recognizer else {
-                report.recognized.append(RecognizedNote(id: s.id, title: s.title, pages: s.pages,
-                                                        pagesRecognized: s.pagesNeedingRecognition))
-                continue
-            }
-            do {
-                if let done = try vault.recognizeNote(s.id, deviceState: DeviceState.defaultURL(), app: appName,
-                                                      recognize: recognizer.recognize) {
-                    report.recognized.append(done)
-                    if output.verbose { printStderr("recognized \(done.title) (\(done.pagesRecognized) of \(done.pages) pages)") }
-                }
-            } catch {
-                report.failed.append(Failure(note: s.id.uuidString.lowercased(), title: s.title,
-                                             error: CLIError.from(error).message))
-            }
-        }
-        report.recognized.sort { ($0.title.lowercased(), $0.id.uuidString) < ($1.title.lowercased(), $1.id.uuidString) }
-        if output.json {
-            try output.emitJSON(report)
+        let ids: [UUID]
+        if all {
+            ids = try vault.summaries(of: nil).filter { !$0.deleted }.map(\.id)
         } else {
-            let verb = dryRun ? "Would read" : "Recognized"
-            output.info("\(verb) \(report.recognized.count) note\(report.recognized.count == 1 ? "" : "s").")
-            if !report.recognized.isEmpty {
-                var rows = output.quiet ? [] : [["NOTE", "TITLE", "PAGES READ"]]
-                for n in report.recognized {
-                    rows.append([String(n.id.uuidString.lowercased().prefix(8)), n.title.isEmpty ? "(untitled)" : n.title,
-                                 "\(n.pagesRecognized) of \(n.pages)"])
-                }
-                print(Format.table(rows))
-            }
-            for f in report.failed { printStderr("error: \(f.title.isEmpty ? f.note : f.title): \(f.error)") }
+            var seen = Set<UUID>()
+            ids = try notes.map { try vault.resolveNote($0) }.filter { seen.insert($0).inserted }
         }
-        if !report.failed.isEmpty { throw CLIError.failure("\(report.failed.count) note(s) could not be read") }
+        let results = ids.map { RecognitionRun.run(note: $0, vault: vault, mode: mode, dryRun: dryRun) }
+        try report(results, output: output, dryRun: dryRun)
     }
 }
 
-/// Reads one page's ink.
-struct Recognizer {
-    var engine: String
-    var recognize: (Page) throws -> Recognition
+/// Prints recognition results (shared with `import notability --recognize`)
+/// and throws when any note failed.
+func report(_ results: [RecognitionRun.NoteResult], output: OutputOptions, dryRun: Bool) throws {
+    if output.json {
+        struct Out: Encodable { var dryRun: Bool; var notes: [RecognitionRun.NoteResult] }
+        try output.emitJSON(Out(dryRun: dryRun, notes: results))
+    } else {
+        for r in results {
+            let title = r.title.isEmpty ? "(untitled)" : r.title
+            if let error = r.error {
+                printStderr("failed \(r.note) \(title): \(error)")
+            } else if r.read.isEmpty && r.cleared.isEmpty {
+                if output.verbose { print("\(r.note) \(title): nothing to read") }
+            } else {
+                var parts: [String] = []
+                if !r.read.isEmpty { parts.append("\(dryRun ? "would read" : "read") page(s) \(Format.pageList(r.read))") }
+                if !r.cleared.isEmpty { parts.append("\(dryRun ? "would clear" : "cleared") page(s) \(Format.pageList(r.cleared))") }
+                output.info("\(r.note) \(title): " + parts.joined(separator: "; "))
+            }
+        }
+        let pages = results.reduce(0) { $0 + $1.read.count }
+        output.info("\(dryRun ? "Dry run: " : "")\(pages) page(s) \(dryRun ? "would be read" : "read") in "
+                    + "\(results.filter { !$0.read.isEmpty || !$0.cleared.isEmpty }.count) of \(results.count) note(s).")
+    }
+    let failed = results.filter { $0.error != nil }.count
+    if failed > 0 { throw CLIError.failure("\(failed) note(s) could not be recognised") }
+}
 
-    /// The recogniser of this platform; throws where there is none.
-    static func make() throws -> Recognizer {
-        #if DEBUG
-        // Tests stand in for Vision with a fixed text (never in release builds).
-        if let text = Env.vars["SEMPERE_FAKE_RECOGNIZER"] {
-            return Recognizer(engine: "fake-1") { page in
-                Recognition(engine: "fake-1", text: text,
-                            words: RecognitionLayout.distribute(text: text, in: .init(x: 10, y: 10, w: 200, h: 20)))
-            }
+extension Format {
+    /// `1-3, 5` for `[1, 2, 3, 5]` (sorted input).
+    static func pageList(_ pages: [Int]) -> String {
+        var parts: [String] = []
+        var i = 0
+        while i < pages.count {
+            var j = i
+            while j + 1 < pages.count, pages[j + 1] == pages[j] + 1 { j += 1 }
+            parts.append(j > i ? "\(pages[i])-\(pages[j])" : "\(pages[i])")
+            i = j + 1
         }
-        #endif
-        #if canImport(Vision)
-        return Recognizer(engine: VisionRecognition.engine) { page in
-            // A page that cannot be drawn throws (RenderError): an empty result would be stored
-            // as current and never read again. A page with nothing to read (only markers) is
-            // current with empty text, as in the app.
-            guard let image = try RecognitionImage.render(strokes: page.strokes) else {
-                return Recognition(engine: VisionRecognition.engine, text: "")
-            }
-            let lines = try VisionRecognition.lines(inPNG: image.png, region: image.region)
-            return RecognitionLayout.assemble(engine: VisionRecognition.engine, lines: lines, basis: nil)
-        }
-        #else
-        throw CLIError.failure("handwriting recognition needs Apple's Vision framework and runs on macOS only "
-                               + "(use --dry-run to list what would be read)")
-        #endif
+        return parts.joined(separator: ", ")
     }
 }

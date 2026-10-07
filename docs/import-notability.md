@@ -447,8 +447,8 @@ ignored: each gets a report row.
 
 ## Attachments
 
-PDF page backgrounds and images (tasks D1, D2 of `docs/attachments.md` §14)
-are read from the package when a note is written
+PDF page backgrounds, images, typed text and recordings (tasks D1–D4 of
+`docs/attachments.md` §14) are read from the package when a note is written
 (`NotabilityAttachments.resolve`) and placed as items of the note's one
 page; their bytes become blobs of the note (`format.md` §8.1), written before
 the delta. `--no-attachments` (`Options.attachments = false`) leaves them out
@@ -503,7 +503,10 @@ bundles do not contain the PDF, so their PDF pages stay dropped.
 
 **Images (D2).** Notability's field names for `mediaObjects` are not known
 (unknown 1 of `docs/attachments.md` §11), so `MediaObject.read` walks each
-object (6 levels, 4 096 values at most) and takes the shallowest field of each
+object (6 levels, 4 096 values at most; a dictionary costs its field count,
+and every walk of one note, media objects, typed text styles and recording
+entries together, shares a budget of 262 144 values, since an archive can
+list one shared object any number of times) and takes the shallowest field of each
 candidate name, case-insensitively:
 
 | Part | Candidate fields | Value |
@@ -522,17 +525,79 @@ item's `orientation`, `pixelSize` is after it) unless `--keep-image-metadata`;
 HEIC is stored as is (sized from its `ispe`, metadata not stripped, with a
 warning); GIF, TIFF, WebP, BMP and AVIF are left out, and so is an image over
 100 megapixels (`format.md` §8.4). At most 2 GiB of PDFs and images is held for
-one note while it is imported (a package entry may be 1 GiB, and a small zip
-can hold many): past that an attachment is left out with a warning. A media object with no
-file, no frame, a frame that is not a finite box of at least 1 × 1 unit, or
+one note while it is imported, recordings included (a package entry may be
+1 GiB, and a small zip can hold many): past that an attachment is left out with
+a warning. At most 1 000 media objects are read. A media object with no
+file, no frame, a frame that is not a finite box of at least 1 × 1 unit or
+that, rotated and scaled, would lie beyond the renderer's extent (or be over
+a quarter of it tall, `format.md` §8.4), or
 any class that is not an image is counted in `dropped.media`; its warning
 names its class and top-level field names, and every placed image's warning
 names the fields its geometry came from, so a run on the reference backup
 shows which names are real.
 
+**Typed text (D3).** `richText.attributedString` is read in either of two
+shapes: Notability's dictionary (`stringKey`, and `subRangesKey` entries
+walked for a range, `rangeKey` `{location, length}` or `location`/`length`
+in UTF-16 units, and the candidate style fields `fontName`/`font`,
+`fontSize`/`size`, a colour field (`#RRGGBBAA`, `NSRGB`, `UIRed`…), and
+`underline`/`strikethrough`), or a standard archived `NSAttributedString`
+(`NSString`, `NSAttributes` indexed by the `NSAttributeInfo` run lengths,
+`NSFont` → `NSName`/`NSSize`, `NSColor`, `NSUnderline`, `NSStrikethrough`).
+Only the samples' empty text was ever seen, so both mappings are unconfirmed;
+the report names the fields the styles came from. The text becomes one
+`text` item per block of lines (blocks are separated by a blank line),
+stacked from the top of the page at the ink's left edge (`W / 38.4`), `W − 2 ·
+W / 38.4` wide, without `breaks` (renderers break the lines). Heights are an
+estimate (1.2 × size per line, wrapping at half an em per character), since
+Notability's margins and line metrics are not known and Notability reflows
+the ink around its text; text is never clipped, so a wrong height only moves
+the next block. An estimate is capped at a quarter of the renderer's extent,
+and blocks stacked below 1 000 000 units are left out (counted in
+`dropped.typedTextCharacters`, with a warning). Per block, the style covering the most characters gives the
+box's font (`Helvetica*`, `SF*`, `Avenir*` and anything unknown → `sans`;
+`Times*`, `Georgia*`, `NewYork*`, `Palatino*`, … → `serif`; `Courier*`,
+`Menlo*`, `Monaco*`, `SFMono*` → `mono`), size (16 document units where
+none is stored) and colour (black); runs carry bold and italic from the font
+name (`-Bold`, `-Heavy`, `-Italic`, `-Oblique`, …), underline, strikethrough
+and a colour or size that differs from the box. A run in Chinese, Japanese,
+Korean, Arabic or Hebrew gets `lang` (`zh`, `ja` when it holds kana, `ko`,
+`ar`, `he`). Text is stored in NFC; `\r\n`, `\r`, U+2028 and U+2029 become
+`\n`; other control characters and U+FFFC (Notability's inline attachment
+marker) are removed. A block over the per-item limits (65 536 bytes, 1 000
+runs, `format.md` §8.4) is split at line breaks; what still does not fit is
+counted in `dropped.typedTextCharacters`. Sizes scale with the ink. A media
+object whose class name contains `Text` becomes a `text` item in its own
+frame (held to the extent like an image's), with its longest
+`string`/`text`/`NSString` value, in the default style.
+
+**Recordings (D4).** `Recordings/library.plist`'s `recordings` entries are
+read for candidate fields: a string naming a file in `Recordings/`, a title
+(`name`, `title`, `displayName`, …), a start date (a date in a field whose
+name holds `date`, `start` or `created`) and a duration (`duration`,
+`length`). Entries that name no file are paired with the unclaimed audio
+files in name order when the counts agree (with a warning); audio files
+without any library are imported without a title. The audio is stored as is
+(`format.md` §8.3.1 allows importers other types): `audio/mp4` (read by
+`AudioProbe`, as `sempere attach recording` does: duration, codec, channels and
+rate; a file it cannot read keeps its bytes without them), `audio/x-caf`
+(`desc`, `pakt`; a rate below 1 Hz or a duration over 10⁷ s is not believed),
+`audio/wav`, `audio/aiff`, `audio/mpeg`; anything else
+is dropped. Without a start date the note's creation date is used.
+`eventTokens` (4 bytes per curve, `ffffffff` none) are read as **milliseconds
+from the start of the recording** — a hypothesis (unknown 7 of
+`docs/attachments.md` §11) applied only when it is plausible: the note has
+exactly one recording with a duration, every token lies within it, and the
+tokens of successive curves ascend at least 90 % of the time. Then each such
+stroke gets `rec: {id, at: token / 1000}` and the report says so ("check by
+listening"); otherwise no `rec` is written, the strokes are counted in
+`dropped.recLinks` and the warning gives the tokens' range. Format 8–9 notes
+keep their sync elsewhere (not known); they import without `rec`.
+
 **Report.** Per note `attachments` (`pdfs`, `pdfPages`, `templatePages`,
-`images`, `blobs`, `blobBytes`), `dropped` and `warnings`; the CLI's
-`--json` summary adds the totals.
+`images`, `textItems`, `textCharacters`, `recordings`, `recLinkedStrokes`,
+`blobs`, `blobBytes`), `dropped` and `warnings`; the CLI's `--json` summary
+adds the totals.
 
 ## Package layout
 
@@ -755,6 +820,8 @@ note (2 of 603 `.ntb` files in the reference backup).
 | handwriting index | page `recognition` |
 | `pageLayoutArray` PDF page | `pdfPage` item, layer 0 ("Attachments") |
 | `mediaObjects` image | `image` item, layer 100 ("Attachments") |
+| `attributedString` | `text` items, layer 100 ("Attachments") |
+| `Recordings/` | note `recordings`; `eventTokens` → stroke `rec` ("Attachments") |
 
 **Curves.** Each Bézier segment is sampled (one sample per 3 units of
 control-polygon length, 1–8 per segment), attributes interpolated linearly
@@ -768,21 +835,20 @@ of the Bézier.
 
 ## Not imported
 
-PDF backgrounds and images are imported ("Attachments"); typed text and
-recordings are designed (`docs/attachments.md` §11) and dropped until tasks D3
-and D4 land.
+PDF backgrounds, images, typed text and recordings are imported
+("Attachments"); what remains is below.
 
 | What | Why |
 | --- | --- |
 | Pages of two heights (paper pages inserted into a note made from a PDF: 4 of the notes with a Notability PDF export) | the note has one `breakHeight`, so exports break where the PDF pages do throughout; ink positions are exact, page breaks after an inserted page and recognition boxes on later pages are not |
 | PDF pages whose PDF is missing, encrypted or unreadable; PDFs of `.ntb` bundles; template PDFs not found in the package; PDF highlights | counted (`dropped.pdfPages`, `pdfs`, `templatePDFs`, `pdfHighlights`) with a warning |
 | Media objects that are not images, or have no file or frame; GIF, TIFF, WebP images | counted in `dropped.media` with a warning naming the class and fields |
-| Typed text (`attributedString`) | the format has no typed text (`DESIGN.md` non-goals); counted in the report. In the samples it was only newlines. |
-| Audio recordings and playback events | non-goal |
+| Typed text beyond the per-item limits | counted in `dropped.typedTextCharacters` |
+| Recordings without an audio file, or in an unknown container; `eventTokens` that do not read as times in the one recording | counted (`dropped.recordings`, `dropped.recLinks`) with a warning |
 | Dashed strokes | no dash attribute; imported solid and counted |
 | Paper colours | not stored per note; defaults used |
 | Page structure | the note becomes one infinite page; its `breakHeight` makes exports break where Notability's pages did |
-| `options`, `groupsArrays`, `bezierPathsDataDictionary`, `eventTokens` | empty or unknown |
+| `options`, `groupsArrays`, `bezierPathsDataDictionary` | empty or unknown |
 
 **Notes that import with no strokes.** 17 of the 127 imported sample notes
 have none, and none of them has any ink to import: their `InkedSpatialHash`
