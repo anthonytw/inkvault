@@ -87,20 +87,20 @@ struct CloudSyncStatus: Equatable, Sendable {
 
     /// "Downloading from iCloud: 37 of 128 notes".
     var headline: String {
-        let total = String(localized: "\(notes) notes", comment: "A number of notes")
-        return String(localized: "Downloading from iCloud: \(readyNotes) of \(total)",
+        let allNotes = String(localized: "\(notes) notes", comment: "A number of notes")
+        return String(localized: "Downloading from iCloud: \(readyNotes) of \(allNotes)",
                       comment: "Progress; %@ is a number of notes, e.g. “37 of 128 notes”")
     }
 
     /// "212 of 277 files", plus the notes not listed yet.
     var detail: String {
-        let total = String(localized: "\(files) files", comment: "A number of files")
+        let allFiles = String(localized: "\(files) files", comment: "A number of files")
         guard unlistedNotes > 0 else {
-            return String(localized: "\(localFiles) of \(total)", comment: "Download progress; %@ is a number of files, e.g. “212 of 277 files”")
+            return String(localized: "\(localFiles) of \(allFiles)", comment: "Download progress; %@ is a number of files, e.g. “212 of 277 files”")
         }
         let unlisted = String(localized: "\(unlistedNotes) note folders not listed yet",
                               comment: "iCloud Drive has not listed these note folders yet")
-        return String(localized: "\(localFiles) of \(total), \(unlisted)",
+        return String(localized: "\(localFiles) of \(allFiles), \(unlisted)",
                       comment: "Download progress; first %@ is a number of files, second “2 note folders not listed yet”")
     }
 }

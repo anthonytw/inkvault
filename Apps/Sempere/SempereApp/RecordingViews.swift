@@ -48,7 +48,10 @@ struct RecordingBar: View {
             case .paused:
                 Text("Paused").font(.callout).foregroundStyle(.secondary)
             default:
-                Text("Recording").font(.callout).foregroundStyle(.secondary)
+                // Its own key: Settings' "Recording" header is the noun.
+                Text(String(localized: "Recording.status", defaultValue: "Recording",
+                            comment: "Status in the recording bar: a recording is in progress (verb, not the noun)"))
+                    .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             if session.state == .recording {

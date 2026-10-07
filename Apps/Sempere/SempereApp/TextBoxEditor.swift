@@ -250,7 +250,7 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
             return item
         }
         let sizes = UIMenu(title: String(localized: "Size", comment: "Text style bar: font size menu"), children: TextBoxPlacement.sizes.map { s in
-            UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.apply(.size(s)) }
+            UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.apply(.size(s)) } // l10n:ignore (number and unit)
         })
         let colours = UIMenu(title: String(localized: "Colour", comment: "Text style bar: text colour menu"), children: TextBoxPlacement.colours.map { c in
             UIAction(title: c.name, image: UIImage(systemName: "circle.fill")?.withTintColor(c.color.uiColor, renderingMode: .alwaysOriginal)) {

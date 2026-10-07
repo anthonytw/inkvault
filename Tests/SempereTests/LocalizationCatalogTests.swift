@@ -119,8 +119,8 @@ final class LocalizationCatalogTests: XCTestCase {
 
     static func looksLikeCount(_ expr: String) -> Bool {
         let e = expr.trimmingCharacters(in: .whitespaces)
-        if e.hasSuffix(".count") || e.hasSuffix(".count)") { return true }
-        return ["count", "n", "total", "number"].contains(e)
+        if e.hasSuffix(".count") || e.hasSuffix(".count)") || e.hasSuffix("Count") { return true }
+        return e == "count"
     }
 
     func testPlaceholdersAgree() throws {

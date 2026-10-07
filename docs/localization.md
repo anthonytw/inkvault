@@ -85,7 +85,7 @@ Marcador).
 | password | contraseña | |
 | recipient | destinatario | a public key that can read the vault |
 | device | dispositivo | |
-| Keychain | Llavero | Apple's term; Face ID, Touch ID, iCloud Drive, Files, Finder, Apple Pencil stay as they are |
+| Keychain | Llavero | Apple's term; Face ID, Touch ID, iCloud Drive, Finder, Apple Pencil stay as they are; Files is Apple’s Spanish name “Archivos” |
 | unlock / lock | desbloquear / bloquear | |
 | library | biblioteca | the list of vaults |
 | sidebar | barra lateral | |
