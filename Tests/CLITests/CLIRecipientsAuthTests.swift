@@ -45,6 +45,12 @@ final class CLIRecipientsAuthTests: CLITestCase {
         XCTAssertEqual(info.status, 0, info.err)
         XCTAssertEqual((info.json as? [String: Any]).flatMap { $0["recipientsAuth"] as? [String: Any] }?["status"] as? String,
                        "verified")
+        let trust = tmp.appendingPathComponent("state/sempere/trust/\(vault.vaultId.uuidString.lowercased()).json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: trust.path), "reading keeps no trust record")
+        // Only a writer keeps one (format.md §2.1).
+        let write = try cli(["notes", "new", "Setup", "--vault", vault.url.path, "--identity", key])
+        XCTAssertEqual(write.status, 0, write.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: trust.path))
         return (vault.url.path, key, other, second)
     }
 
@@ -142,9 +148,14 @@ final class CLIRecipientsAuthTests: CLITestCase {
     }
 
     func testUntaggedVaultIsUpgradedOnFirstUnlockAndReported() throws {
+        // The fixture as written before format.md §2.1 (the committed one is tagged).
         let vault = try copyFixtureVault()
         let manifest = URL(fileURLWithPath: vault).appendingPathComponent("vault.json")
-        XCTAssertNil(try VaultManifest.decode(Data(contentsOf: manifest)).recipientsTag)
+        var old = try VaultManifest.decode(Data(contentsOf: manifest))
+        XCTAssertNotNil(old.recipientsTag)
+        old.recipientsTag = nil
+        old.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        try old.encoded().write(to: manifest)
         let locked = try status(vault, nil)
         XCTAssertEqual(locked["status"] as? String, "not-checked")
         XCTAssertEqual(locked["tagged"] as? Bool, false)
@@ -174,7 +185,12 @@ final class CLIRecipientsAuthTests: CLITestCase {
         try m.encoded().write(to: manifest)
         let down = try cli(["notes", "new", "X", "--vault", vault, "--identity", Self.fixtureKey])
         XCTAssertEqual(down.status, 6, down.err)
-        XCTAssertNil(try VaultManifest.decode(Data(contentsOf: manifest)).recipientsTag, "never re-tagged")
+        XCTAssertNil(try VaultManifest.decode(Data(contentsOf: manifest)).recipientsTag, "never re-tagged implicitly")
+        // A copy older than the tag (a restored backup) is confirmed explicitly.
+        let confirm = try cli(["vault", "recipients", "confirm", "--vault", vault, "--identity", Self.fixtureKey])
+        XCTAssertEqual(confirm.status, 0, confirm.err)
+        XCTAssertNotNil(try VaultManifest.decode(Data(contentsOf: manifest)).recipientsTag)
+        XCTAssertEqual(try cli(["notes", "new", "X", "--vault", vault, "--identity", Self.fixtureKey]).status, 0)
     }
 
     func testInitTagsAndRemembers() throws {

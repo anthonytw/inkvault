@@ -56,6 +56,16 @@ final class RecipientsAuthTests: VaultTestCase {
         try Vault.open(at: url, identities: ids ?? [a], trust: store)
     }
 
+    /// Opens as a device that then writes: only writers keep a trust record
+    /// (format.md §2.1), and `requireWritable` is where they save it.
+    func touch(_ url: URL, _ store: MemoryRecipientsTrustStore, _ ids: [NativeIdentity]) throws {
+        let v = try open(url, store, ids)
+        XCTAssertEqual(v.recipientsStatus, .verified(.firstUse))
+        XCTAssertNil(store.record(for: v.vaultId), "reading keeps no record")
+        try v.requireWritable()
+        XCTAssertNotNil(store.record(for: v.vaultId))
+    }
+
     // MARK: - Tag
 
     func testTagIsHMACOverVaultIdAndKeysInOrder() throws {
@@ -124,15 +134,16 @@ final class RecipientsAuthTests: VaultTestCase {
         let deviceA = MemoryRecipientsTrustStore(), deviceB = MemoryRecipientsTrustStore()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a], trust: deviceA)
         _ = try populate(vault)
-        XCTAssertEqual(try open(vault.url, deviceB, [b]).recipientsStatus, .verified(.firstUse))
+        try touch(vault.url, deviceB, [b])
         let c = pqIdentity()
         try vault.replaceRecipient(a.recipient, with: c.recipient, label: "C")
         XCTAssertEqual(try open(vault.url, deviceB, [b]).recipientsStatus, .verified(.rotated))
+        try open(vault.url, deviceB, [b]).requireWritable()
         XCTAssertEqual(try open(vault.url, deviceB, [b]).recipientsStatus, .verified(.unchanged), "the record moved on")
 
         // Two rotations missed, the second adding a key: unconfirmed.
         let deviceStale = MemoryRecipientsTrustStore()
-        XCTAssertEqual(try open(vault.url, deviceStale, [b]).recipientsStatus, .verified(.firstUse))
+        try touch(vault.url, deviceStale, [b])
         let d = pqIdentity(), e = pqIdentity()
         var v2 = try open(vault.url, deviceB, [b])
         try v2.addRecipient(d.recipient, label: "D")
@@ -149,7 +160,7 @@ final class RecipientsAuthTests: VaultTestCase {
 
         // Missed rotations that only removed keys: nobody new can read.
         let deviceOld = MemoryRecipientsTrustStore()
-        XCTAssertEqual(try open(vault.url, deviceOld, [b]).recipientsStatus, .verified(.firstUse))
+        try touch(vault.url, deviceOld, [b])
         var v3 = try open(vault.url, deviceB, [b])
         let f = pqIdentity(), g = pqIdentity()
         try v3.addRecipient(f.recipient, label: "F")
@@ -246,7 +257,7 @@ final class RecipientsAuthTests: VaultTestCase {
             try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
             let store = MemoryRecipientsTrustStore(), deviceB = MemoryRecipientsTrustStore()
             let (made, revs, other) = try setUpVault(store: store)
-            XCTAssertEqual(try open(made.url, deviceB, [b]).recipientsStatus, .verified(.firstUse))
+            try touch(made.url, deviceB, [b])
             try kind.apply(to: made.url, attacker: x.recipient, other: other)
             var vault = try open(made.url, store)
             let old = try XCTUnwrap(vault.secret)
@@ -292,7 +303,9 @@ final class RecipientsAuthTests: VaultTestCase {
     func testUntaggedVaultIsUpgradedOnceAndDowngradeIsCaught() throws {
         let fixture = try FixtureVault.copySample(to: tmp)
         let id = try FixtureVault.sampleIdentity()
-        XCTAssertNil(try Vault.open(at: fixture).manifest.recipientsTag, "the committed fixture predates §2.1")
+        XCTAssertNotNil(try Vault.open(at: FixtureTests.bundled("sample.sempere")).manifest.recipientsTag,
+                        "the committed fixture is tagged")
+        XCTAssertNil(try Vault.open(at: fixture).manifest.recipientsTag)
         let store = MemoryRecipientsTrustStore()
         var vault = try Vault.open(at: fixture, identities: [id], trust: store)
         XCTAssertEqual(vault.recipientsStatus, .untagged)
@@ -475,11 +488,18 @@ final class RecipientsAuthTests: VaultTestCase {
     }
 }
 
-/// The committed sample vault (untagged: it predates format.md §2.1).
+/// The committed sample vault.
 enum FixtureVault {
+    /// A copy of the sample vault as written before format.md §2.1: the
+    /// committed one is tagged, so the tag and the feature are taken out.
     static func copySample(to dir: URL) throws -> URL {
         let dest = dir.appendingPathComponent("sample.sempere")
         try FileManager.default.copyItem(at: try FixtureTests.bundled("sample.sempere"), to: dest)
+        let url = dest.appendingPathComponent("vault.json")
+        var m = try VaultManifest.decode(Data(contentsOf: url))
+        m.recipientsTag = nil
+        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        try m.encoded().write(to: url)
         return dest
     }
 

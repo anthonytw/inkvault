@@ -145,6 +145,9 @@ public struct Vault: Sendable {
     /// none (tests): downgrades are then caught by `features` alone, and
     /// every secret is a first use.
     var trustStore: (any RecipientsTrustStore)?
+    /// The trust record this value (and its copies) last saved, so writes do
+    /// not read the store each time.
+    let trustMemo = TrustMemo()
 
     static let manifestName = "vault.json"
     static let keysName = "keys"
@@ -201,7 +204,11 @@ public struct Vault: Sendable {
     public func requireWritable() throws {
         try requireKnownFeatures()
         try requireTrustedRecipients()
-        if case .untagged = recipientsStatus { try tagOnDisk() }
+        switch recipientsStatus {
+        case .untagged: try tagOnDisk()
+        case .verified: rememberRecipients()   // a writer keeps a trust record (format.md §2.1)
+        case .notChecked, .tampered: break
+        }
     }
 
     func requireKnownFeatures() throws {
@@ -336,7 +343,6 @@ public struct Vault: Sendable {
         if let secret = vault.secret {
             vault.recipientsStatus = RecipientsAuth.evaluate(manifest, secret: secret,
                                                              record: trust?.record(for: manifest.vaultId))
-            if case .verified = vault.recipientsStatus { vault.rememberRecipients() }
         }
         if vault.pendingRewrap {
             // Recorded, not thrown: the vault stays usable, verify() and
@@ -667,7 +673,9 @@ public struct Vault: Sendable {
     func rememberRecipients() {
         guard let trustStore, let secret else { return }
         let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: manifest.recipients.map(\.key))
+        guard trustMemo.last != record else { return }
         if trustStore.record(for: vaultId) != record { try? trustStore.save(record) }
+        trustMemo.last = record
     }
 
     /// Tags an untagged vault (format.md §2.1: the one-time upgrade by the
@@ -714,7 +722,9 @@ public struct Vault: Sendable {
         if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
         let written = try Self.writeManifest(m, to: manifestURL, replacing: true)
         if let trustStore {
-            try? trustStore.save(RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: keys))
+            let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: keys)
+            try? trustStore.save(record)
+            trustMemo.last = record
         }
         return written
     }
@@ -767,16 +777,19 @@ public struct Vault: Sendable {
     }
 
     /// Confirms the current list on this device after the user checked it
-    /// (format.md §2.1: a device that missed a legitimate change). Only for a
-    /// secret change this device cannot confirm (`secretUnconfirmed`): the
-    /// tag must verify. Updates the trust record; nothing in the vault changes.
+    /// (format.md §2.1): a device that missed a legitimate change
+    /// (`secretUnconfirmed`: the tag verifies; nothing in the vault changes),
+    /// or a copy older than the tag, such as a restored backup (`tagRemoved`:
+    /// the list is tagged again). Never a tag that does not verify. Updates
+    /// the trust record.
     public mutating func confirmRecipients() throws {
         guard let problem = recipientsStatus.problem else {
             throw VaultError.recipientsNotRepairable("the recipients list checks; nothing to confirm")
         }
-        guard problem.reason == .secretUnconfirmed else {
+        guard problem.reason != .tagMismatch else {
             throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
         }
+        if manifest.recipientsTag == nil { manifest = try tagOnDisk() }   // a tag removed: written again for this list
         recipientsStatus = .verified(.unchanged)
         rememberRecipients()
     }
@@ -921,5 +934,16 @@ extension Vault {
     @discardableResult
     public mutating func removeRecipient(_ recipient: X25519Recipient) throws -> RewrapReport {
         try removeRecipient(.x25519(recipient))
+    }
+}
+
+/// What a `Vault` and its copies last saved to the trust store.
+final class TrustMemo: @unchecked Sendable {
+    private let lock = NSLock()
+    private var record: RecipientsTrustRecord?
+
+    var last: RecipientsTrustRecord? {
+        get { lock.lock(); defer { lock.unlock() }; return record }
+        set { lock.lock(); record = newValue; lock.unlock() }
     }
 }

@@ -362,6 +362,15 @@ final class AppModel {
     var libraryWindowCount = 0
     /// The migration of a legacy vault while `phase == .migrating`.
     var migration: VaultMigration?
+    /// This device's trust records of vault recipients lists (format.md
+    /// §2.1). The app keeps them in Application Support (`defaultTrustDirectory`);
+    /// without one (tests) a store of this model alone.
+    let recipientsTrust: any RecipientsTrustStore
+    /// The open vault's recipients list did not check at unlock: the blocking
+    /// alert (`RecipientsAlertView`). Nothing is written to the vault meanwhile.
+    var recipientsAlert: RecipientsAlert?
+    /// The one-time report of an untagged vault's upgrade (format.md §2.1).
+    var recipientsNotice: String?
     /// The identities the vault was unlocked with, for reopening it after a
     /// migration that kept its key (`AppModel+Migration`).
     var unlockIdentities: [any AgeIdentity] = []
@@ -386,7 +395,9 @@ final class AppModel {
          summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
          blobCacheRoot: URL? = nil, renderCacheRoot: URL? = nil,
          automaticThinning: Bool = false,
+         recipientsTrust: (any RecipientsTrustStore)? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
+        self.recipientsTrust = recipientsTrust ?? MemoryRecipientsTrustStore()
         self.deviceStateURL = deviceStateURL
         activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
         self.automaticThinning = automaticThinning
@@ -545,12 +556,30 @@ final class AppModel {
         guard let url = vaultURL else { throw ModelError.noVaultOpen }
         let gen = generation
         let coordinate = coordinationURL
-        let opened = try await offMain {
-            try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities) }
+        let trust = recipientsTrust
+        var opened = try await offMain {
+            try CloudVault.coordinatedRead(coordinate) { try Vault.open(at: url, identities: identities, trust: trust) }
         }
         try ensureCurrent(gen)
+        if !opened.isLegacy, !opened.pendingRewrap, case .untagged = opened.recipientsStatus {
+            // The one-time upgrade (format.md §2.1). Not through `offMain`: a
+            // vault that cannot be written now is tagged by its first write.
+            let start = opened
+            if let tagged = try? await Task.detached(priority: .userInitiated, operation: { () throws -> Vault in
+                try CloudVault.coordinatedWrite(coordinate) { () throws -> Vault in
+                    var v = start
+                    _ = try v.upgradeRecipientsTag()
+                    return v
+                }
+            }).value {
+                try ensureCurrent(gen)
+                opened = tagged
+                recipientsNotice = RecipientsAlert.upgradeNotice(opened.recipients)
+            }
+        }
         vault = opened
         unlockIdentities = identities
+        recipientsAlert = opened.recipientsStatus.problem.map { RecipientsAlert(problem: $0, entries: opened.recipients) }
         if opened.isLegacy || opened.pendingRewrap {
             // Migrate-only (format.md §3.3.2): no note is listed or read.
             beginMigration(identities: identities)
@@ -598,6 +627,7 @@ final class AppModel {
     func adoptRewrapped(_ next: Vault) {
         guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
         vault = next
+        recipientsAlert = next.recipientsStatus.problem.map { RecipientsAlert(problem: $0, entries: next.recipients) }
         saveActivity()   // under the new secret's key, if it changed
         // A removed key rotated the capture key: voice notes sealed with the
         // old one from now on would never be adopted (format.md §11.1).
@@ -877,6 +907,8 @@ final class AppModel {
         scopedURL = nil
         loadTask?.cancel()
         loadTask = nil
+        recipientsAlert = nil
+        recipientsNotice = nil
         loading = nil
         listLoaded = false
         loadFailure = nil
