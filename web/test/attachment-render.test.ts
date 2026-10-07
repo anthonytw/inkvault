@@ -216,6 +216,14 @@ describe("text layout (§8.5.3)", () => {
     expect(layoutText(content([["abc"]], { dir: "rtl" }), frame).lines[0]?.rtl).toBe(true);
   });
 
+  it("lays out many paragraphs and long words in linear time (§9)", () => {
+    const t0 = performance.now();
+    expect(layoutText(content([["a\n".repeat(32_768)]]), frame).lines.length).toBe(32_768);
+    expect(layoutText(content([["ab\n".repeat(21_845)]], { breaks: [1] }), frame).lines.length).toBe(21_846);
+    expect(layoutText(content([["x".repeat(60_000)]]), { ...frame, w: 5000 }).lines.length).toBe(60);
+    expect(performance.now() - t0).toBeLessThan(5_000);
+  });
+
   it("anchors lines by alignment and direction", () => {
     const f = { x: 10, y: 0, w: 100, h: 10 };
     expect(lineAnchor("start", false, f)).toEqual({ x: 10, anchor: "start" });

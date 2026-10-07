@@ -88,7 +88,8 @@ colour), then the ink. Each item is one of:
   and rotation are one matrix, as in the CLI's SVG.
 - **PDF page**: drawn by pdf.js (below) at the zoom's resolution (2 to 8
   pixels per point, at most 16 MP per item, sharpened again after zooming in),
-  only the cropped part of the effective page. pdf.js's effective page is
+  only the cropped part of the effective page (where a crop reaches beyond
+  the page, the paper shows, as in the exports). pdf.js's effective page is
   CropBox ∩ MediaBox turned by `/Rotate`, tested against the tables of
   §8.5.1 (`test/pdf.test.ts`). Annotations are not drawn (§8.2.6).
 - **Placeholder** (§8.5.2), for an unknown or reserved kind (`math`, `video`),
@@ -106,7 +107,9 @@ each 64 KiB chunk), and checked as a whole before anything is used: magic and
 version, the header's hash and length equal to the reference's (which binds
 the file to its keyed name), zero padding, and the SHA-256 of the content.
 Content is never handed out before that. Limits: images 64 MiB, PDFs 256 MiB,
-transcripts 64 MiB, audio 1 GiB (§8.4), and at most 1 MiB of padding beyond
+transcripts 64 MiB, audio 256 MiB (the format allows 1 GiB, §8.4, but a
+browser holds the whole verified file in memory; 256 MiB is over 8 hours at
+the app's default 64 kbit/s), and at most 1 MiB of padding beyond
 what a writer adds. Each blob is read once per open note however many items
 use it.
 
@@ -159,8 +162,9 @@ note id, file name and body, §4), and cannot make the viewer run code:
   stripped first and shown through `<image>` (no script runs in an image),
   audio goes to `<audio>`, and a PDF is parsed by pdf.js in its worker with
   scripting, XFA, annotations, font loading (glyphs are drawn as paths) and
-  WebAssembly off; it can only produce pixels. Its rendering is cancelled
-  after 30 s. Transcripts are JSON shown as text.
+  WebAssembly off; it can only produce pixels. Reading a PDF, reading a
+  page and drawing a page each stop after 30 s; a PDF that hangs while being
+  read gets the worker replaced, so later notes are not blocked by it. Transcripts are JSON shown as text.
 - **Bounded work** (§9): blobs within the limits of "Attachments" above,
   images within 100 MP before decoding, at most 10 000 items per page,
   revision files up to 256 MiB and 256 MiB after gunzip, `vault.json` 16 MiB, listings 16 MiB (PROPFIND) and 64 MiB (index),

@@ -108,6 +108,8 @@ export function paragraphIsRTL(scalars: number[]): boolean {
   return false;
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 /** The scalar offsets that start a grapheme cluster, the end included. */
 export function graphemeBoundaries(scalars: number[]): Set<number> {
   const text = String.fromCodePoint(...scalars);
@@ -119,8 +121,7 @@ export function graphemeBoundaries(scalars: number[]): Set<number> {
     toScalar.set(u, i);
     u += c > 0xffff ? 2 : 1;
   });
-  const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  for (const s of seg.segment(text)) out.add(toScalar.get(s.index) ?? scalars.length);
+  for (const s of graphemes.segment(text)) out.add(toScalar.get(s.index) ?? scalars.length);
   return out;
 }
 
@@ -211,6 +212,11 @@ export function layoutText(content: TextContent, frame: Rect, measure: Measure =
     }
     return w;
   };
+  // Shared by every paragraph (each fills only its own range), so the work is
+  // linear in the text, never paragraphs × text length (format.md §9).
+  const lastInk: number[] = new Array<number>(chars.length + 1).fill(0);
+  const prefix: number[] = new Array<number>(chars.length + 1).fill(0);
+  let nextBreak = 0;
   let start = 0;
   while (start <= chars.length) {
     let end = start;
@@ -228,21 +234,22 @@ export function layoutText(content: TextContent, frame: Rect, measure: Measure =
   function layoutParagraph(ps: number, pe: number): number {
     const para = scalars.slice(ps, pe);
     const rtl = content.dir === "rtl" || (content.dir === "auto" && paragraphIsRTL(para));
-    const lastInk: number[] = new Array<number>(chars.length + 1).fill(0);
     lastInk[ps] = ps;
     for (let i = ps; i < pe; i++) lastInk[i + 1] = isWhiteSpace(scalars[i] ?? 0) ? lastInk[i] ?? ps : i + 1;
     const ranges: [number, number][] = [];
     if (breaks) {
       let s = ps;
-      for (const b of breaks) {
-        if (b > ps && b < pe) {
-          ranges.push([s, b]);
-          s = b;
-        }
+      // `breaks` is strictly increasing: one cursor serves every paragraph.
+      while (nextBreak < breaks.length && (breaks[nextBreak] ?? 0) <= ps) nextBreak++;
+      while (nextBreak < breaks.length && (breaks[nextBreak] ?? 0) < pe) {
+        const b = breaks[nextBreak] ?? pe;
+        ranges.push([s, b]);
+        s = b;
+        nextBreak++;
       }
       ranges.push([s, pe]);
     } else {
-      const prefix: number[] = new Array<number>(chars.length + 1).fill(0);
+      prefix[ps] = 0;
       for (let i = ps; i < pe; i++) prefix[i + 1] = (prefix[i] ?? 0) + advance(i);
       const width = (s: number, e: number) => (prefix[Math.max(lastInk[e] ?? s, s)] ?? 0) - (prefix[s] ?? 0);
       const opps = breakOpportunities(para).map((o) => ({ index: ps + o.index, mandatory: o.mandatory }));
@@ -268,8 +275,15 @@ export function layoutText(content: TextContent, frame: Rect, measure: Measure =
         } else {
           // A word wider than the frame: break it between grapheme clusters.
           let cut = s;
-          for (const c of clusters) {
-            if (c <= s) continue;
+          // The first cluster boundary after `s` (binary search), then forward.
+          let lo = 0, hi = clusters.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if ((clusters[mid] ?? 0) <= s) lo = mid + 1;
+            else hi = mid;
+          }
+          for (let ci = lo; ci < clusters.length; ci++) {
+            const c = clusters[ci] ?? b;
             if (c >= b) break;
             if (width(s, c) <= frame.w + 1e-9 || cut === s) cut = c;
             else break;

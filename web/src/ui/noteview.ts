@@ -6,9 +6,10 @@
 import { type NoteState, type Page, type Paper, paperKind, pointStride } from "../format/model.ts";
 import { imageInfo, imageLimits, stripMetadata } from "../render/images.ts";
 import {
-  type PreparedItem, after, imageTransform, maxItemsPerPage, pdfCrop, placement, prepareItem, translate,
+  type PreparedItem, after, imageTransform, intersect, maxItemsPerPage, pdfCrop, placement, prepareItem, translate,
 } from "../render/items.ts";
 import { type ItemDraw, placeholderNodes, rasterNode, resolveItems, textNode } from "../render/itemsvg.ts";
+import { cmpItems } from "../format/registers.ts";
 import { PreparedPage, chunkHeight, defaultRenderOptions, elementSpec } from "../render/page.ts";
 import { RenderLimits } from "../render/primitives.ts";
 import { applyTransform, meanScale, transformOf } from "../render/stroke.ts";
@@ -23,25 +24,34 @@ const minZoom = 0.05, maxZoom = 12;
 /** A page's drawn height without outlining it (PreparedPage's extent rule). */
 export function pageExtent(page: Page, state: NoteState): number {
   const size = state.meta.pageSize;
-  if (!size.infinite) return size.height;
-  let low = 0;
+  // Each stroke's and item's lowest point and vertical centre (PreparedPage's spans).
+  const spans: { maxY: number; centreY: number }[] = [];
   for (const st of page.strokes) {
     const n = st.points.length / pointStride;
+    if (n === 0) continue;
     const xf = transformOf(st);
-    let radius = Math.abs(st.ink.width), hi = -Infinity;
+    let radius = Math.abs(st.ink.width), lo = Infinity, hi = -Infinity;
     for (let i = 0; i < n; i++) {
       const b = i * pointStride;
       const q = applyTransform(xf, st.points[b] ?? 0, st.points[b + 1] ?? 0);
+      lo = Math.min(lo, q.y);
       hi = Math.max(hi, q.y);
       radius = Math.max(radius, Math.abs(st.points[b + 3] ?? 0), Math.abs(st.points[b + 4] ?? 0));
     }
-    if (n > 0) low = Math.max(low, hi + Math.min(radius * meanScale(xf), RenderLimits.maxNibWidth) / 2 + 1);
+    spans.push({ maxY: hi + Math.min(radius * meanScale(xf), RenderLimits.maxNibWidth) / 2 + 1, centreY: lo / 2 + hi / 2 });
   }
-  for (const item of page.items.slice(0, maxItemsPerPage)) {
+  for (const item of [...page.items].sort(cmpItems).slice(0, maxItemsPerPage)) {
     const p = prepareItem(item);
-    if (typeof p !== "string") low = Math.max(low, p.maxY);
+    if (typeof p !== "string") spans.push({ maxY: p.maxY, centreY: p.minY / 2 + p.maxY / 2 });
   }
-  const e = Math.max(size.height, Math.ceil(low), chunkHeight(defaultRenderOptions, state.meta));
+  let low = 0, below = 0;
+  for (const x of spans) {
+    low = Math.max(low, x.maxY);
+    // Ink centred at or below a finite page adds to its extent (PageComposer.swift).
+    if (x.centreY >= size.height) below = Math.max(below, x.maxY);
+  }
+  const e = size.infinite ? Math.max(size.height, Math.ceil(low), chunkHeight(defaultRenderOptions, state.meta))
+    : Math.max(size.height, Math.ceil(Math.min(below, RenderLimits.maxExtent)));
   return Number.isFinite(e) ? Math.min(e, RenderLimits.maxExtent) : size.height;
 }
 
@@ -287,12 +297,17 @@ export class NoteView {
         url = this.url(new Blob([stripMetadata(bytes) as Uint8Array<ArrayBuffer>], { type: info.type }));
         const img = new Image();
         img.src = url;
+        let decoded = true;
         try {
           await img.decode();
         } catch {
-          throw new Error("the image cannot be decoded");
+          decoded = false;
         }
-        if (img.naturalWidth !== info.width || img.naturalHeight !== info.height) throw new Error("the image does not decode to its stated size");
+        if (!decoded || img.naturalWidth !== info.width || img.naturalHeight !== info.height) {
+          URL.revokeObjectURL(url);
+          this.urls.delete(url);
+          throw new Error(decoded ? "the image does not decode to its stated size" : "the image cannot be decoded");
+        }
         ({ width, height } = info);
         transform = m;
       } else {
@@ -301,14 +316,17 @@ export class NoteView {
         const page = await this.pdfs.page(doc, d.pageIndex);
         const eff = NotePDFs.effectiveSize(page);
         const crop = pdfCrop(d.it, eff.w, eff.h);
+        // Only the page is drawn: a crop reaching beyond it shows the paper there, as in the exports.
+        const shown = intersect(crop, { x: 0, y: 0, w: eff.w, h: eff.h });
+        if (!shown) throw new Error("the crop lies outside the PDF page");
         const scale = this.pdfScale(p);
-        const canvas = await this.pdfs.render(page, crop, scale);
+        const canvas = await this.pdfs.render(page, shown, scale);
         const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
         if (!png) throw new Error("the PDF page cannot be drawn");
         url = this.url(png);
-        width = crop.w;
-        height = crop.h;
-        transform = after(placement(crop, d.it.frame, d.it.rotation), translate(crop.x, crop.y));
+        width = shown.w;
+        height = shown.h;
+        transform = after(placement(crop, d.it.frame, d.it.rotation), translate(shown.x, shown.y));
         p.scale = scale;
       }
       if (this.destroyed) {
@@ -350,6 +368,7 @@ export class NoteView {
   }
 
   private apply(): void {
+    if (this.destroyed) return;
     this.content.style.transform = `translate(${this.x}px, ${this.y}px) scale(${this.z})`;
     this.zoomLabel.textContent = `${Math.round(this.z * 100)}%`;
     const vh = this.viewport.clientHeight;

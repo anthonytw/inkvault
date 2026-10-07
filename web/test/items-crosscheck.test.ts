@@ -21,7 +21,8 @@ import { imageInfo } from "../src/render/images.ts";
 import { type Affine, identity, imageTransform, pointsAttr, svgMatrix } from "../src/render/items.ts";
 import { fmt, paint, paintHex } from "../src/render/primitives.ts";
 import { lineAnchor } from "../src/render/text.ts";
-import { NodeDirSource, golden, sampleIdentity, webFixtures } from "./support.ts";
+import { pageExtent } from "../src/ui/noteview.ts";
+import { NodeDirSource, fixtures, golden, sampleIdentity, webFixtures } from "./support.ts";
 
 interface Structure {
   fills: string[];
@@ -139,4 +140,30 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
       }
     });
   }
+});
+
+describe("page layout without outlining", () => {
+  it("gives every fixture page the height PreparedPage draws", async () => {
+    for (const dir of [join(webFixtures, "render.sempere"), join(fixtures, "sample.sempere")]) {
+      const source = new NodeDirSource(dir);
+      const vault = await UnlockedVault.unlock(parseManifest(await source.read("vault.json", 1 << 24)), sampleIdentity());
+      for (const id of await source.listNotes()) {
+        const state = (await loadNote(source, vault, id)).state;
+        if (!state) continue;
+        for (const page of state.pages) expect(pageExtent(page, state)).toBe(new PreparedPage(page, state.meta).extent);
+      }
+    }
+  });
+
+  it("grows a finite page by ink and items centred below it, as PreparedPage does", async () => {
+    const source = new NodeDirSource(join(webFixtures, "render.sempere"));
+    const vault = await UnlockedVault.unlock(parseManifest(await source.read("vault.json", 1 << 24)), sampleIdentity());
+    const state = (await loadNote(source, vault, "77777777-7777-4777-8777-777777777777")).state;
+    if (!state) throw new Error("fixture");
+    const page = state.pages[0];
+    if (!page) throw new Error("fixture");
+    const low = { ...page, items: [...page.items, { id: "ffffffff-0000-4000-8000-000000000000", kind: "sticker", frame: [10, 900, 50, 50], z: "zz" }] };
+    expect(pageExtent(low, state)).toBe(950);
+    expect(new PreparedPage(low, state.meta).extent).toBe(950);
+  });
 });

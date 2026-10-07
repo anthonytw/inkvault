@@ -112,6 +112,7 @@ export async function verifyPlaintext(plain: ReadableStream<Uint8Array>, ref: Bl
   const hash = sha256.create();
   const parts: Uint8Array[] = [];
   const reader = plain.getReader();
+  let complete = false;
   try {
     for (;;) {
       let r: ReadableStreamReadResult<Uint8Array>;
@@ -153,7 +154,10 @@ export async function verifyPlaintext(plain: ReadableStream<Uint8Array>, ref: Bl
         if (chunk[i] !== 0) throw new BlobError("corrupt", "blob padding is not zero");
       }
     }
+    complete = true;
   } finally {
+    // Stop reading (and close the HTTP body) as soon as the blob fails.
+    if (!complete) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
   if (headerFill < blobHeaderSize || content < ref.size) throw new BlobError("corrupt", "blob is truncated");
@@ -197,8 +201,9 @@ export async function readBlob(source: VaultSource, vault: UnlockedVault, noteId
 }
 
 /**
- * The blobs of one open note, each read once however many items use it
- * (results, failures included, are kept until the note is closed).
+ * The blobs of one open note, each read once however many items use it,
+ * and kept until the note is closed. A failure is not kept, so a later
+ * request (another Play) tries again.
  */
 export class NoteBlobs {
   private readonly cache = new Map<string, Promise<Blob>>();
@@ -206,11 +211,15 @@ export class NoteBlobs {
   constructor(private readonly source: VaultSource, private readonly vault: UnlockedVault, readonly noteId: string) {}
 
   get(ref: BlobRef, maxBytes?: number): Promise<Blob> {
-    const key = `${ref.sha256}/${ref.size}/${blobKind(ref.type)}`;
+    const key = `${ref.sha256}/${ref.size}/${blobKind(ref.type)}/${maxBytes ?? maxBlobSize}`;
     let p = this.cache.get(key);
     if (!p) {
-      p = readBlob(this.source, this.vault, this.noteId, ref, maxBytes);
-      this.cache.set(key, p);
+      const read = readBlob(this.source, this.vault, this.noteId, ref, maxBytes);
+      p = read;
+      this.cache.set(key, read);
+      read.catch(() => {
+        if (this.cache.get(key) === read) this.cache.delete(key);
+      });
     }
     return p;
   }

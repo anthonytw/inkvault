@@ -112,6 +112,24 @@ describe("blob names and framing", () => {
     expect(await code(verifyPlaintext(stream(frame(content, { padding: new Uint8Array(2 << 20) }), 65536), r))).toBe("tooLarge");
   });
 
+  it("cancels the source as soon as a blob fails", async () => {
+    const content = enc.encode("hello, sempere!\n");
+    let cancelled = false;
+    const bytes = frame(content, { magic: "XXXX" });
+    let at = 0;
+    const src = new ReadableStream<Uint8Array>({
+      pull(c) {
+        c.enqueue(bytes.slice(at, at + 8));
+        at += 8;
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    expect(await code(verifyPlaintext(src, ref(content)))).toBe("corrupt");
+    expect(cancelled).toBe(true);
+  });
+
   it("bounds the file it reads by the content size", () => {
     expect(maxFileBytes(0)).toBeGreaterThan(45);
     expect(maxFileBytes(1 << 30)).toBeLessThan((1 << 30) * 1.2);
@@ -133,6 +151,18 @@ describe("reading blobs from a vault", async () => {
     const b = await blobs.get(r);
     expect(new Uint8Array(await b.arrayBuffer())).toEqual(photo);
     expect(blobs.get(r)).toBe(blobs.get(r));
+  });
+
+  it("does not keep a failure, so a later request tries again", async () => {
+    const blobs = new NoteBlobs(source, vault, note);
+    const r = ref(enc.encode("never written"), "image/png");
+    const first = blobs.get(r);
+    expect(await code(first)).toBe("missing");
+    expect(blobs.get(r)).not.toBe(first);
+    // A different size limit is a different request.
+    const ok = ref(photo, "image/jpeg");
+    expect(await code(blobs.get(ok, 100))).toBe("tooLarge");
+    expect(await code(blobs.get(ok))).toBe("ok");
   });
 
   it("reports a missing blob, one under another note, and a forged one", async () => {

@@ -33,25 +33,58 @@ export function pdfWorkerURL(): string {
   return new URL(workerURL, document.baseURI).href;
 }
 
+let policy: TrustedTypePolicyLike | undefined;
+let worker: Worker | undefined;
+
+/** Starts a pdf.js worker and makes it the one new documents use. */
+function startWorker(lib: PDFJS): void {
+  const url = pdfWorkerURL();
+  const tt = (globalThis as { trustedTypes?: TrustedTypesLike }).trustedTypes;
+  // The CSP allows this one policy (docs/web-viewer.md); it only ever admits the bundled worker.
+  policy ??= tt?.createPolicy("sempere-pdf-worker", {
+    createScriptURL: (u: string) => {
+      if (u !== url) throw new TypeError("unexpected worker URL");
+      return u;
+    },
+  });
+  const scriptURL = policy ? policy.createScriptURL(url) : url;
+  worker = new Worker(scriptURL as string, { type: "module", name: "pdf.js" });
+  lib.GlobalWorkerOptions.workerPort = worker;
+}
+
 /** Loads pdf.js once and starts its worker. */
 function pdfjs(): Promise<PDFJS> {
   library ??= import("pdfjs-dist/legacy/build/pdf.mjs").then((lib) => {
-    const url = pdfWorkerURL();
-    const tt = (globalThis as { trustedTypes?: TrustedTypesLike }).trustedTypes;
-    // The CSP allows this one policy (docs/web-viewer.md); it only ever admits the bundled worker.
-    const scriptURL = tt
-      ? tt.createPolicy("sempere-pdf-worker", {
-        createScriptURL: (u: string) => {
-          if (u !== url) throw new TypeError("unexpected worker URL");
-          return u;
-        },
-      }).createScriptURL(url)
-      : url;
-    const worker = new Worker(scriptURL as string, { type: "module", name: "pdf.js" });
-    lib.GlobalWorkerOptions.workerPort = worker;
+    startWorker(lib);
     return lib;
   });
   return library;
+}
+
+/**
+ * Stops a worker that a hostile or broken PDF keeps busy, so the PDFs of
+ * later notes get a fresh one (documents of the old worker then fail).
+ */
+function replaceWorker(): void {
+  worker?.terminate();
+  worker = undefined;
+  void library?.then(startWorker);
+}
+
+/** `p`, or a `PDFError` after `ms` (then `onTimeout` runs). */
+async function within<T>(p: Promise<T>, ms: number, what: string, onTimeout: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new PDFError(`${what} took longer than ${ms / 1000} s`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Where the bundled pdf.js data lives (copied into `dist/pdfjs/` by the build). */
@@ -87,6 +120,7 @@ export class NotePDFs {
   private destroyed = false;
 
   async document(key: string, bytes: () => Promise<Uint8Array>): Promise<PDFDocumentProxy> {
+    if (this.destroyed) throw new PDFError("the note was closed");
     let p = this.docs.get(key);
     if (!p) {
       p = (async () => {
@@ -108,11 +142,22 @@ export class NotePDFs {
         task.onPassword = () => {
           void task.destroy();
         };
+        let doc: PDFDocumentProxy;
         try {
-          return await task.promise;
+          doc = await within(task.promise, renderTimeout, "reading the PDF", () => {
+            void task.destroy();
+            replaceWorker();
+          });
         } catch (e) {
+          if (e instanceof PDFError) throw e;
           throw new PDFError(`the PDF cannot be read (${e instanceof Error ? e.message : String(e)})`);
         }
+        // Closed while loading: nothing may outlive the note.
+        if (this.destroyed) {
+          void task.destroy();
+          throw new PDFError("the note was closed");
+        }
+        return doc;
       })();
       this.docs.set(key, p);
     }
@@ -121,7 +166,7 @@ export class NotePDFs {
 
   async page(doc: PDFDocumentProxy, index: number): Promise<PDFPageProxy> {
     if (!(index >= 0 && index < doc.numPages)) throw new PDFError(`the PDF has no page ${index + 1}`);
-    return doc.getPage(index + 1);
+    return within(doc.getPage(index + 1), renderTimeout, "reading the PDF page", replaceWorker);
   }
 
   /** The effective page's size in points (§8.2.6: CropBox ∩ MediaBox, turned by `/Rotate`). */

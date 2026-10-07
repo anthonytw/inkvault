@@ -7,8 +7,15 @@
 import type { JSONObject } from "../format/json.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
 import { type Transcript, decodeTranscript, maxTranscriptBytes } from "../format/transcript.ts";
-import { BlobError, type NoteBlobs, asBlobRef, essence, maxBlobSize } from "../vault/blobs.ts";
+import { BlobError, type NoteBlobs, asBlobRef, essence } from "../vault/blobs.ts";
 import { formatDate, h } from "./dom.ts";
+
+/**
+ * Largest recording the viewer plays: a browser holds the whole verified
+ * file in memory (no temporary files), so the 1 GiB of §8.4 would risk the
+ * tab. 256 MiB is over 8 hours at the app's default 64 kbit/s.
+ */
+export const maxAudioBytes = 256 * 1024 * 1024;
 
 /** `m:ss` or `h:mm:ss`. */
 export function formatDuration(seconds: number): string {
@@ -27,6 +34,7 @@ function problem(e: unknown): string {
 export class RecordingsPanel {
   readonly root: HTMLElement;
   private readonly urls: string[] = [];
+  private destroyed = false;
 
   constructor(recordings: JSONObject[], private readonly blobs?: NoteBlobs) {
     this.root = h("details", { class: "recordings" },
@@ -36,6 +44,7 @@ export class RecordingsPanel {
   }
 
   destroy(): void {
+    this.destroyed = true;
     for (const u of this.urls) URL.revokeObjectURL(u);
     this.urls.length = 0;
   }
@@ -63,7 +72,9 @@ export class RecordingsPanel {
         }
         status.textContent = "Decrypting…";
         try {
-          const blob = await this.blobs.get(ref, maxBlobSize);
+          const blob = await this.blobs.get(ref, maxAudioBytes);
+          // The note may have been closed meanwhile: then nothing is kept.
+          if (this.destroyed) return undefined;
           const url = URL.createObjectURL(new Blob([blob], { type: essence(ref.type) }));
           this.urls.push(url);
           const a = h("audio", { attrs: { controls: "", preload: "auto" } });
