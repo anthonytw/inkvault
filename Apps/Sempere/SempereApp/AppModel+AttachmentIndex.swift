@@ -235,8 +235,8 @@ extension AppModel {
             let folder = cloud ? url.appendingPathComponent("notes/\(note.uuidString.lowercased())", isDirectory: true) : nil
             let outcome: (BlobCollectionReport, [String: Date])
             do {
-                outcome = try await offMain(priority: .userInitiated) {
-                    try CloudVault.coordinatedWrite(folder) {
+                outcome = try await offMain(priority: .userInitiated) { () throws -> (BlobCollectionReport, [String: Date]) in
+                    try CloudVault.coordinatedWrite(folder) { () throws -> (BlobCollectionReport, [String: Date]) in
                         if cloud { try CloudVault.requireLocal(note: note, vault: url, hooks: hooks) }
                         var r = records
                         let report = try vault.collectBlobs(note: note, records: &r, only: names, now: now)

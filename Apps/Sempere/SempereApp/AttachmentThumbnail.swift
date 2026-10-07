@@ -28,10 +28,13 @@ struct AttachmentThumbnail: View {
         .task(id: fileName) {
             guard let data = await model.attachmentPreviewData(note: note, fileName: fileName, kind: kind) else { return }
             let side = Self.side * 3
-            image = await Task.detached(priority: .utility) { Self.thumbnail(data, kind: kind, side: side) }.value
+            image = await Task.detached(priority: .utility) { Thumb(image: Self.thumbnail(data, kind: kind, side: side)) }.value.image
         }
         .accessibilityHidden(true)
     }
+
+    /// A finished thumbnail handed back from its background task (never touched there again).
+    private struct Thumb: @unchecked Sendable { let image: UIImage? }
 
     /// The SF Symbol of a kind with no picture.
     static func symbol(_ kind: BlobKind) -> String {
