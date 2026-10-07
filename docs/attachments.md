@@ -838,8 +838,15 @@ subset keeps the glyphs the export draws (plus `.notdef`), renumbered, with
 still copy as the original characters). Subset font names get the usual
 six-letter tag (`ABCDEF+NotoSans-Regular`). In the CLI the glyph ids and
 advances come from SempereRender's shaper (§6); in the app from CoreText through
-the `TextShaper` hook, which also hands over the font's tables
-(`CTFontCopyTable`) for subsetting. Bold and italic use the family's faces;
+the `TextShaper` hook (`CoreTextShaper`). *Implementation note (E2):* the app
+does not hand over the system fonts' tables: SF Pro and New York are variable
+fonts whose `glyf` holds only the default instance (bold would export with
+regular outlines), so the app builds a small TrueType font per text box and
+font instance from CoreText's own glyph outlines at the instance drawn
+(`CTFontCreatePathForGlyph`; `OutlineFont` in SempereRender, cubic outlines
+approximated by quadratics within 1 font unit), which the writers subset like
+any font. Colour and bitmap glyphs (Apple Color Emoji) have no outlines: they
+are left out of the export and reported. Bold and italic use the family's faces;
 synthesised ones (`format.md` §8.5.3) use an outline stroke or a `Tm` shear
 (12°).
 
@@ -1449,6 +1456,25 @@ synthetic `.note` fixture so CI covers the mapping.
   Latin, CJK and Arabic typed on iPad exports (app) with identical lines and
   correct glyphs, and the CLI export of the same note has the same line
   breaks (snapshot test of line ranges).
+  *Status:* in review (#82). Shared: `LayoutText` and `TextLineBreaks`
+  (`Sources/SempereRender/Text/LayoutText.swift`: line ranges from `breaks`,
+  the fixed vertical metrics, paragraph direction, alignment, tabs as four
+  spaces, UTF-16 ↔ scalar offsets; both shapers use them), `ShapedLine.range`,
+  `OutlineFont`, `NoteOps.setText` and `NoteOps.setFrame(…relayout:)`. App:
+  `TextBoxLayout.swift` (`TextKitBreaks`: TextKit 1 line fragments → `breaks`;
+  `TextBoxLayout`: CoreText lines cut at the breaks, drawn on the canvas;
+  `CoreTextShaper` for the share sheet and drag-out PDF), `TextBoxEditing`
+  (runs ↔ attributed string; unknown run fields and `lang` survive an edit),
+  `TextBoxEditor.swift` (text tool, `UITextView` overlay at the zoom, style bar,
+  commit on Done or a tap outside: one delta; emptied box deleted). A resize
+  lays the box out again in the same delta. Shared fixtures
+  `Tests/SempereTests/Fixtures/text/line-breaks.json` (Latin with styles,
+  Japanese, Arabic, tabs and an empty paragraph) are checked by the CLI shaper,
+  `sempere export` (SVG) and the app's canvas layout, PDF and SVG. The CLI's
+  `attach text` stores `breaks` from its own fonts. Not done: search hits
+  highlighted on the page; the style bar is an input accessory view, which Mac
+  Catalyst does not show (⌘B/⌘I/⌘U work there); emoji are left out of app
+  exports (reported).
 - **E3 — PDF import and backgrounds:** import as a new note or insert pages,
   unlock/decrypt, tiled display, PDFKit `PDFPageRasterizer`. *Done when:* a
   200-page PDF imports, scrolls and zooms without memory warnings on the
