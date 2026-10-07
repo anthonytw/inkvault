@@ -1017,3 +1017,54 @@ enum JPEG {
                 UInt8(clamping: yy + cbB[Int(cb)]))
     }
 }
+
+extension JPEG {
+    /// The EXIF orientation (1–8) in the first APP1 `Exif` segment's IFD0, or
+    /// nil when there is none or it is out of range. Every offset is checked
+    /// against the segment (format.md §9); a malformed EXIF block reads as nil.
+    static func exifOrientation(_ data: Data) -> Int? {
+        let d = [UInt8](data)
+        var found: Int?
+        struct Done: Error {}
+        do {
+            try walk(d) { part in
+                guard case let .marker(code, p, _) = part else { return }
+                if code == 0xDA { throw Done() }
+                guard code == 0xE1, p.count >= 14,
+                      Array(d[p.lowerBound..<p.lowerBound + 6]) == [0x45, 0x78, 0x69, 0x66, 0, 0] else { return }
+                found = tiffOrientation(Array(d[(p.lowerBound + 6)..<p.upperBound]))
+                throw Done()
+            }
+        } catch {}
+        return found
+    }
+
+    /// Tag 0x0112 of IFD0 of a TIFF structure (an EXIF payload).
+    static func tiffOrientation(_ t: [UInt8]) -> Int? {
+        guard t.count >= 8 else { return nil }
+        let little: Bool
+        switch (t[0], t[1]) {
+        case (0x49, 0x49): little = true
+        case (0x4D, 0x4D): little = false
+        default: return nil
+        }
+        func u16(_ i: Int) -> Int? {
+            guard i >= 0, i + 2 <= t.count else { return nil }
+            return little ? Int(t[i]) | Int(t[i + 1]) << 8 : Int(t[i]) << 8 | Int(t[i + 1])
+        }
+        func u32(_ i: Int) -> Int? {
+            guard i >= 0, i + 4 <= t.count else { return nil }
+            let b = (Int(t[i]), Int(t[i + 1]), Int(t[i + 2]), Int(t[i + 3]))
+            return little ? b.0 | b.1 << 8 | b.2 << 16 | b.3 << 24 : b.0 << 24 | b.1 << 16 | b.2 << 8 | b.3
+        }
+        guard u16(2) == 42, let ifd = u32(4), let count = u16(ifd) else { return nil }
+        for e in 0..<count {
+            let at = ifd + 2 + 12 * e
+            guard let tag = u16(at) else { return nil }
+            guard tag == 0x0112 else { continue }
+            guard u16(at + 2) == 3, let v = u16(at + 8), (1...8).contains(v) else { return nil }
+            return v
+        }
+        return nil
+    }
+}

@@ -78,7 +78,8 @@ extension AppModel {
         let id = UUID()
         let notebook = NotebookPath.canonical(notebook)
         try await commit([(id: id, ops: NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                        paper: paper, pageSize: pageSize, notebook: notebook))])
+                                                        paper: paper, pageSize: pageSize, notebook: notebook))],
+                         creating: [id])
         switch sidebarSelection ?? .allNotes {
         case .notebook(let n) where !NotebookPath.name(notebook, isWithin: n): sidebarSelection = .allNotes
         case .tag, .deleted: sidebarSelection = .allNotes
@@ -202,9 +203,9 @@ extension AppModel {
     /// written back over the real one; in iCloud Drive each append re-checks
     /// inside its coordinated read that the note is still all local
     /// (`CloudVault.requireLocal`) and refuses to write otherwise.
-    private func commit(_ edits: [(id: UUID, ops: [Op])]) async throws {
+    private func commit(_ edits: [(id: UUID, ops: [Op])], creating: Set<UUID> = []) async throws {
         let batch = edits
-        try await commit(ids: batch.map(\.id)) { vault, clock, cloud, verifier in
+        try await commit(ids: batch.map(\.id), creating: creating) { vault, clock, cloud, verifier in
             for edit in batch {
                 try await NoteWriter.append(edit.ops, to: edit.id, vault: vault, clock: clock, coordinated: cloud,
                                             verify: verifier(edit.id))
@@ -227,7 +228,11 @@ extension AppModel {
 
     /// `write` gets the vault, the clock, whether the vault is in iCloud Drive,
     /// and the check each note's append runs inside its coordinated read.
-    func commit(ids: [UUID],
+    /// Notes in `creating` are new: they have no files to be local yet, so
+    /// they get no check (requireLocal would refuse an empty, unlisted folder)
+    /// as long as their folder lists no revision; one that does (an id that
+    /// is not new after all) is checked like any other note.
+    func commit(ids: [UUID], creating: Set<UUID> = [],
                         write: (Vault, DeviceClock, Bool, @Sendable (UUID) -> (@Sendable () throws -> Void)?) async throws -> Void)
         async throws {
         await editGate.acquire()
@@ -245,6 +250,13 @@ extension AppModel {
         // `downloadNote`; a notebook rename does not download at all).
         let verifier: @Sendable (UUID) -> (@Sendable () throws -> Void)? = { id in
             guard cloud else { return nil }
+            if creating.contains(id) {
+                return {
+                    let listed = try CloudScan.noteItems(inVault: url, id: id)
+                    guard !listed.isEmpty else { return }
+                    try CloudVault.requireLocal(note: id, vault: url, hooks: hooks)
+                }
+            }
             return { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
         }
         do {

@@ -146,6 +146,15 @@ public struct NotabilityNote: Hashable, Sendable {
     public var pdfPageCount: Int
     /// `richText.mediaObjects` count (images and other media).
     public var mediaCount: Int
+    /// `richText.pdfFiles` names (files under `PDFs/`), in order.
+    public var pdfFileNames: [String] = []
+    /// `richText.pageLayoutArray`: one entry per Notability page of a note
+    /// made from a PDF, in stored order.
+    public var pdfLayout: [PDFLayoutEntry] = []
+    /// `PDFFile.highlights` entries over every PDF (always 0 in the samples).
+    public var pdfHighlights = 0
+    /// `richText.mediaObjects`, read without a schema.
+    public var mediaObjects: [MediaObject] = []
     /// Audio recordings listed in `Recordings/library.plist`.
     public var recordingCount: Int
     /// `NBNoteTakingSessionBundleVersionNumberKey`, e.g. `14.2.6`.
@@ -273,11 +282,12 @@ extension NotabilityNote {
         }
 
         let typed = try session.field(try session.field(richText, "attributedString"), "stringKey").string ?? ""
-        let pdfCount = try session.elements(session.field(richText, "pdfFiles")).count
-        let pdfPageCount = try session.elements(session.field(richText, "pageLayoutArray")).filter { page in
-            page.raw("kPageLayoutPDFFileNameKey") != nil || page.raw("kPageLayoutPDFFileKey") != nil
-        }.count
-        let mediaCount = try session.elements(session.field(richText, "mediaObjects")).count
+        let pdfFiles = try session.elements(session.field(richText, "pdfFiles"))
+        let layout = try session.elements(session.field(richText, "pageLayoutArray")).map { try pdfLayoutEntry(session, $0) }
+        let pdfCount = pdfFiles.count
+        let pdfPageCount = layout.filter(\.isPDF).count
+        let media = try session.elements(session.field(richText, "mediaObjects"))
+        let mediaCount = media.count
         let recordings = try parseRecordingCount(part("Recordings/library.plist"))
         let recognition = try parseRecognition(part("HandwritingIndex/index.plist"))
 
@@ -307,7 +317,36 @@ extension NotabilityNote {
         note.defaultedCurves = defaultedCurves
         note.shapeCount = shapes.curves.count
         note.unsupportedShapes = shapes.unsupported
+        note.pdfFileNames = pdfFiles.compactMap { try? session.field($0, "pdfFileName").string }
+        note.pdfHighlights = pdfFiles.reduce(0) { n, f in
+            n + ((try? session.elements(session.field(f, "highlights")))?.count ?? 0)
+        }
+        note.pdfLayout = layout
+        note.mediaObjects = media.map { MediaObject.read(session, $0) }
         return note
+    }
+
+    /// One `pageLayoutArray` entry. Numbers outside 0…`maxRecognizedPage`
+    /// read as absent.
+    static func pdfLayoutEntry(_ a: KeyedArchive, _ entry: KeyedArchive.Node) throws -> PDFLayoutEntry {
+        func number(_ key: String) throws -> Int? {
+            guard let v = try a.field(entry, key).int, (0...Int64(maxRecognizedPage)).contains(v) else { return nil }
+            return Int(v)
+        }
+        // A key holding `$null` names no PDF (an inserted paper page).
+        let file = try a.field(entry, "kPageLayoutPDFFileKey")
+        let nameNode = try a.field(entry, "kPageLayoutPDFFileNameKey")
+        var name = nameNode.string
+        if name == nil, !file.isNull { name = try? a.field(file, "pdfFileName").string }
+        let original: Bool?
+        switch try a.field(entry, "kPageLayoutPDFIsOriginalPageKey") {
+        case .bool(let b): original = b
+        case .int(let i): original = i != 0
+        default: original = nil
+        }
+        return PDFLayoutEntry(documentPage: try number("kPageLayoutDocumentPageNumberKey"), fileName: name,
+                              isPDF: name != nil || !file.isNull || !nameNode.isNull,
+                              pdfPage: try number("kPageLayoutPDFPageNumberKey"), isOriginal: original)
     }
 
     static func parseMetadata(_ data: Data?, session: KeyedArchive, root: KeyedArchive.Node,
