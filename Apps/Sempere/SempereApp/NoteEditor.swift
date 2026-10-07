@@ -203,6 +203,10 @@ final class NoteEditor {
         var readings: [HLC]
         /// Every revision file name read or failed, sorted.
         var names: [String]
+        /// What a newer version wrote in this note (format.md §7.4).
+        var newer: NewerContent?
+        /// Why the vault is read-only, as of this read (format.md §7.3).
+        var vaultReadOnly: ReadOnlyReasons
     }
 
     /// Loads and reconstructs a note off the main actor. A note with
@@ -302,12 +306,19 @@ final class NoteEditor {
             let names = (loaded.revisions.map(\.name.filename) + loaded.failures.keys.map(\.filename)).sorted()
             return Loaded(state: state, failures: loaded.failures.count,
                           nextSeq: Vault.nextSeq(from: loaded.revisions, device: device),
-                          readings: loaded.revisions.map(\.hlc), names: names)
+                          readings: loaded.revisions.map(\.hlc), names: names, newer: loaded.newer,
+                          vaultReadOnly: vault.readOnlyReasons)
         }.value
     }
 
     private static func readOnlyReason(_ loaded: Loaded) -> String? {
-        if loaded.failures > 0 {
+        // A newer version's content first: it is why other revisions may be unreadable (format.md §7.4).
+        if let newer = loaded.newer {
+            return "Parts of this note were written by a newer version of Sempere (\(newer.summary)). "
+                + "It is shown as far as this version understands it, read-only: update Sempere to edit it."
+        } else if !loaded.vaultReadOnly.isEmpty {
+            return AppModel.readOnlyText(loaded.vaultReadOnly)
+        } else if loaded.failures > 0 {
             return "\(loaded.failures) revision(s) of this note could not be read, so it opens read-only."
         } else if loaded.state.deleted {
             return "This note is in Recently Deleted."
