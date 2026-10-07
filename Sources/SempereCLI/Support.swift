@@ -20,6 +20,7 @@ enum ExitStatus {
     static let unhealthy: Int32 = 3
     static let cannotDecrypt: Int32 = 4
     static let legacyVault: Int32 = 5
+    static let untrustedRecipients: Int32 = 6
 }
 
 /// A failure with its exit code. Messages are one line.
@@ -34,10 +35,14 @@ enum CLIError: Error {
     case cannotDecrypt(String)
     /// Exit 5: a legacy vault (classic X25519 recipient): migrate first.
     case legacyVault(String)
+    /// Exit 6: vault.json's recipients list does not check (format.md §2.1):
+    /// nothing is written until it is repaired.
+    case untrustedRecipients(String)
 
     var message: String {
         switch self {
-        case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m), .legacyVault(let m): return m
+        case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m), .legacyVault(let m),
+             .untrustedRecipients(let m): return m
         }
     }
 
@@ -48,6 +53,7 @@ enum CLIError: Error {
         case .unhealthy: return ExitStatus.unhealthy
         case .cannotDecrypt: return ExitStatus.cannotDecrypt
         case .legacyVault: return ExitStatus.legacyVault
+        case .untrustedRecipients: return ExitStatus.untrustedRecipients
         }
     }
 
@@ -64,6 +70,8 @@ enum CLIError: Error {
             return .usage(text)
         case VaultError.legacyVault:
             return .legacyVault(text)
+        case VaultError.untrustedRecipients:
+            return .untrustedRecipients(text)
         case VaultError.rewrapIncomplete:
             return .unhealthy(text + "; run `sempere vault rewrap-resume`")
         case let e as NoteSummary.LookupError:
@@ -343,6 +351,28 @@ extension AccessOptions {
                 ids = [try identityFromKeyFiles(of: locked)]
             }
         }
-        return try Vault.open(at: url, identities: ids)
+        var vault = try Vault.open(at: url, identities: ids, trust: trustStore())
+        upgradeRecipientsTag(&vault)
+        return vault
+    }
+}
+
+/// This machine's trust records (format.md §2.1), next to `device.json`.
+func trustStore() -> FileRecipientsTrustStore {
+    FileRecipientsTrustStore(directory: FileRecipientsTrustStore.cliDirectory())
+}
+
+/// The one-time upgrade of an untagged vault (format.md §2.1), reported on
+/// stderr. A vault that cannot be written (read-only media, an unknown
+/// feature) stays untagged and is still read; the next writable unlock tags it.
+func upgradeRecipientsTag(_ vault: inout Vault) {
+    guard case .untagged = vault.recipientsStatus else { return }
+    do {
+        guard try vault.upgradeRecipientsTag() else { return }
+        printStderr("sempere: vault.json's device list is now authenticated (format.md §2.1); it trusts these "
+            + "\(vault.recipients.count) recipient(s), check them with `sempere vault info`: "
+            + vault.recipients.map { abbreviateKey($0.key) + ($0.label.isEmpty ? "" : " (\($0.label))") }.joined(separator: ", "))
+    } catch {
+        printError("could not authenticate vault.json's device list: \(CLIError.from(error).message)")
     }
 }

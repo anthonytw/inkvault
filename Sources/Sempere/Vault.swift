@@ -84,6 +84,14 @@ public enum VaultError: Error, Hashable, Sendable {
     /// know (`features`, format.md §2): it may read the vault but must not
     /// write to it.
     case unsupportedFeatures([String])
+    /// `vault.json`'s recipients list does not check (format.md §2.1): its
+    /// tag does not verify, was removed, or the secret changed in a way this
+    /// device cannot confirm. Nothing is encrypted to it; reading still works.
+    /// `Vault.repairRecipients` rewrites the last verified list.
+    case untrustedRecipients(RecipientsProblem)
+    /// `repairRecipients` or `confirmRecipients` on a list that checks, or a
+    /// repair that has no last verified list to write (pass `keeping:`).
+    case recipientsNotRepairable(String)
 }
 
 /// Why one revision file could not be read, by stage. (Vault-level
@@ -130,6 +138,13 @@ public struct Vault: Sendable {
     /// Test seam (internal): lets tests write and read note content in a
     /// legacy vault, to build migration inputs. Never set outside tests.
     var legacyContentAllowed = false
+    /// How `vault.json`'s recipients checked when the vault was unlocked or
+    /// last changed (format.md §2.1); `.notChecked` while locked.
+    public private(set) var recipientsStatus: RecipientsStatus = .notChecked
+    /// Where this device keeps its trust record (format.md §2.1); nil keeps
+    /// none (tests): downgrades are then caught by `features` alone, and
+    /// every secret is a first use.
+    var trustStore: (any RecipientsTrustStore)?
 
     static let manifestName = "vault.json"
     static let keysName = "keys"
@@ -177,9 +192,24 @@ public struct Vault: Sendable {
     /// Throws `VaultError.unsupportedFeatures` when `vault.json` names a
     /// format extension this implementation does not know (format.md §2):
     /// such a vault may be read but never written. Every write calls it.
+    ///
+    /// It also throws `VaultError.untrustedRecipients` when the recipients
+    /// list did not check (format.md §2.1): nothing is encrypted to it.
     public func requireWritable() throws {
+        try requireKnownFeatures()
+        try requireTrustedRecipients()
+    }
+
+    func requireKnownFeatures() throws {
         let unknown = manifest.unknownFeatures
         if !unknown.isEmpty { throw VaultError.unsupportedFeatures(unknown) }
+    }
+
+    /// Throws `VaultError.untrustedRecipients` when `recipientsStatus` is
+    /// tampered (format.md §2.1). Callers that encrypt to the recipients
+    /// outside `requireWritable` (capture profiles) call it.
+    public func requireTrustedRecipients() throws {
+        if let problem = recipientsStatus.problem { throw VaultError.untrustedRecipients(problem) }
     }
 
     /// Adds `feature` to `vault.json`'s `features` unless it is already
@@ -226,20 +256,23 @@ public struct Vault: Sendable {
     ///   - labels: empty, or one label per recipient.
     ///   - identities: kept for reading; may be empty (write-only use).
     ///   - vaultId, created: fixed values for reproducible fixtures.
+    ///   - trust: this device's trust records (format.md §2.1); the new
+    ///     vault's is saved there.
     public static func create(at url: URL, recipients: [NativeRecipient], labels: [String] = [],
                               identities: [any AgeIdentity] = [], vaultId: UUID = UUID(),
-                              created: Date = Date()) throws -> Vault {
+                              created: Date = Date(), trust: (any RecipientsTrustStore)? = nil) throws -> Vault {
         if let classic = recipients.first(where: { !$0.isPostQuantum }) {
             throw VaultError.classicRecipient(classic.string)
         }
         return try createUnchecked(at: url, recipients: recipients, labels: labels, identities: identities,
-                                   vaultId: vaultId, created: created)
+                                   vaultId: vaultId, created: created, trust: trust)
     }
 
     /// `create` without the post-quantum rule: legacy X25519 vaults for
     /// tests and fixtures.
     static func createUnchecked(at url: URL, recipients: [NativeRecipient], labels: [String],
-                                identities: [any AgeIdentity], vaultId: UUID, created: Date) throws -> Vault {
+                                identities: [any AgeIdentity], vaultId: UUID, created: Date,
+                                trust: (any RecipientsTrustStore)? = nil) throws -> Vault {
         guard url.lastPathComponent.hasSuffix(".sempere"), url.lastPathComponent.count > ".sempere".count else {
             throw VaultError.invalidVaultName(url.lastPathComponent)
         }
@@ -255,13 +288,17 @@ public struct Vault: Sendable {
             VaultManifest.Recipient(key: k, label: labels.isEmpty ? "" : labels[i], added: created)
         }
         let manifest = VaultManifest(vaultId: vaultId, created: created, recipients: entries,
-                                     vaultSecret: try encryptSecret(secret, to: recipients))
+                                     vaultSecret: try encryptSecret(secret, to: recipients),
+                                     features: [VaultManifest.recipientsTagFeature],
+                                     recipientsTag: RecipientsAuth.tag(vaultId: vaultId, keys: keys, secret: secret))
         try FileIO.createDirectory(url)
         try FileIO.createDirectory(url.appendingPathComponent(keysName))
         try FileIO.createDirectory(url.appendingPathComponent(notesName))
         let written = try writeManifest(manifest, to: manifestURL, replacing: false)
-        return Vault(url: url, manifest: written, identities: identities, secret: secret, previousSecret: nil,
-                     journalProblem: nil)
+        var vault = Vault(url: url, manifest: written, identities: identities, secret: secret, previousSecret: nil,
+                          journalProblem: nil, recipientsStatus: .verified(.firstUse), trustStore: trust)
+        vault.rememberRecipients()
+        return vault
     }
 
     /// Opens a vault. With identities, decrypts the vault secret using the
@@ -270,12 +307,18 @@ public struct Vault: Sendable {
     /// - Throws: `notAVault`, `manifestCorrupt`, `unsupportedFormat`,
     ///   `vaultSecretUndecryptable`, `invalidVaultSecret`; `classicIdentity`
     ///   when only X25519 identities are given to a post-quantum-only vault.
-    public static func open(at url: URL, identities: [any AgeIdentity] = []) throws -> Vault {
+    ///
+    /// With identities, the recipients list is checked (format.md §2.1,
+    /// `recipientsStatus`) against this device's trust record in `trust`,
+    /// which a verified list updates. A tampered list does not stop the open:
+    /// reading works, writing throws `VaultError.untrustedRecipients`.
+    public static func open(at url: URL, identities: [any AgeIdentity] = [],
+                            trust: (any RecipientsTrustStore)? = nil) throws -> Vault {
         let manifestURL = url.appendingPathComponent(manifestName)
         guard FileIO.exists(manifestURL) else { throw VaultError.notAVault(url.path) }
         let manifest = try readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
         var vault = Vault(url: url, manifest: manifest, identities: identities, secret: nil, previousSecret: nil,
-                          journalProblem: nil)
+                          journalProblem: nil, trustStore: trust)
         guard !identities.isEmpty else { return vault }
         do { vault.secret = try decryptSecret(manifest.vaultSecret, with: identities) } catch {
             // A classic key offered to a post-quantum vault: say so, rather
@@ -285,6 +328,11 @@ public struct Vault: Sendable {
                 throw VaultError.classicIdentity
             }
             throw error
+        }
+        if let secret = vault.secret {
+            vault.recipientsStatus = RecipientsAuth.evaluate(manifest, secret: secret,
+                                                             record: trust?.record(for: manifest.vaultId))
+            if case .verified = vault.recipientsStatus { vault.rememberRecipients() }
         }
         if vault.pendingRewrap {
             // Recorded, not thrown: the vault stays usable, verify() and
@@ -570,10 +618,14 @@ public struct Vault: Sendable {
     /// before vault.json changes, since the atomic write fsyncs the
     /// directory), then the manifest, then the files, then the journal is
     /// removed if every file is complete. See format.md §3.3.1, docs/io.md.
+    ///
+    /// The new list is tagged (format.md §2.1) in the same write, with a
+    /// `secretLink` when the secret rotates. `repairing` skips the check of
+    /// the current list: a repair writes the last verified one instead.
     mutating func changeRecipients(_ next: [VaultManifest.Recipient], rotate: Bool, policy: RewrapPolicy,
-                                   stopAfter: Int?) throws -> RewrapReport {
+                                   stopAfter: Int?, repairing: Bool = false) throws -> RewrapReport {
         let current = try requireReadable()
-        try requireWritable()
+        if repairing { try requireKnownFeatures() } else { try requireWritable() }
         let ageNext = try next.map { r in
             do { return try NativeRecipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
         }
@@ -589,10 +641,100 @@ public struct Vault: Sendable {
         var m = (try? Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))) ?? manifest
         m.recipients = next
         m.vaultSecret = try Self.encryptSecret(newSecret, to: ageNext)
+        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: next.map(\.key), secret: newSecret)
+        if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
+        if rotate { m.secretLink = RecipientsAuth.link(from: current, to: newSecret, vaultId: m.vaultId) }
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
         secret = newSecret
+        recipientsStatus = .verified(.unchanged)
+        rememberRecipients()
 
         return try finishRewrap(blobs: method, stopAfter: stopAfter)
+    }
+
+    // MARK: - Authenticated recipients (format.md §2.1)
+
+    /// Saves this device's trust record for the current (verified) list.
+    /// A record that cannot be saved weakens only later checks, so it is
+    /// not an error.
+    func rememberRecipients() {
+        guard let trustStore, let secret else { return }
+        let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: manifest.recipients.map(\.key))
+        if trustStore.record(for: vaultId) != record { try? trustStore.save(record) }
+    }
+
+    /// Tags an untagged vault (format.md §2.1: the one-time upgrade by the
+    /// first writer holding the secret): writes `recipientsTag` over the
+    /// current list and the `recipients-tag` feature, atomically, and
+    /// remembers the list. Returns false (and writes nothing) unless
+    /// `recipientsStatus` is `.untagged`.
+    ///
+    /// - Throws: `VaultError.io` style errors from the write, and
+    ///   `manifestCorrupt` when `vault.json` changed on disk since the vault
+    ///   was opened (open it again).
+    @discardableResult
+    public mutating func upgradeRecipientsTag() throws -> Bool {
+        guard case .untagged = recipientsStatus, let secret else { return false }
+        try requireKnownFeatures()
+        var m = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
+        guard m.recipients.map(\.key) == manifest.recipients.map(\.key), m.vaultSecret == manifest.vaultSecret,
+              m.recipientsTag == nil else {
+            throw VaultError.manifestCorrupt("vault.json changed since it was opened")
+        }
+        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: secret)
+        if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
+        manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
+        recipientsStatus = .verified(.firstUse)
+        rememberRecipients()
+        return true
+    }
+
+    /// Repairs a tampered list (format.md §2.1 "Repair"): writes the last
+    /// verified list (`keeping`, else the problem's `restore`), keeping the
+    /// labels the current entries have, as a recipient removal: the secret
+    /// rotates and every file is rewrapped, so no file stays encrypted to an
+    /// unexpected key.
+    ///
+    /// - Parameter keeping: the keys to keep, in order; each must be listed
+    ///   now. Needed when this device cannot tell the last verified list.
+    /// - Throws: `recipientsNotRepairable` when the list checks, when no list
+    ///   is known or given, or while a recipient change is unfinished (its
+    ///   journal holds a secret a second rotation would lose: restore
+    ///   `vault.json` from a backup instead).
+    @discardableResult
+    public mutating func repairRecipients(keeping: [String]? = nil, policy: RewrapPolicy = RewrapPolicy()) throws -> RewrapReport {
+        _ = try requireReadable()
+        guard let problem = recipientsStatus.problem else {
+            throw VaultError.recipientsNotRepairable("the recipients list checks; nothing to repair")
+        }
+        guard let keys = keeping ?? problem.restore, !keys.isEmpty else {
+            throw VaultError.recipientsNotRepairable("this device does not know the last verified list: name the keys to keep")
+        }
+        guard !pendingRewrap else {
+            throw VaultError.recipientsNotRepairable("a recipient change is unfinished; restore vault.json from a backup")
+        }
+        if let dup = Self.firstDuplicate(keys) { throw VaultError.duplicateRecipient(dup) }
+        var next: [VaultManifest.Recipient] = []
+        for k in keys {
+            guard let entry = manifest.recipients.first(where: { $0.key == k }) else { throw VaultError.unknownRecipient(k) }
+            next.append(entry)
+        }
+        return try changeRecipients(next, rotate: true, policy: policy, stopAfter: nil, repairing: true)
+    }
+
+    /// Confirms the current list on this device after the user checked it
+    /// (format.md §2.1: a device that missed a legitimate change). Only for a
+    /// secret change this device cannot confirm (`secretUnconfirmed`): the
+    /// tag must verify. Updates the trust record; nothing in the vault changes.
+    public mutating func confirmRecipients() throws {
+        guard let problem = recipientsStatus.problem else {
+            throw VaultError.recipientsNotRepairable("the recipients list checks; nothing to confirm")
+        }
+        guard problem.reason == .secretUnconfirmed else {
+            throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
+        }
+        recipientsStatus = .verified(.unchanged)
+        rememberRecipients()
     }
 
     struct RewrapJournal: Codable {
