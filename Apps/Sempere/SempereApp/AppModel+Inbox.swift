@@ -153,7 +153,7 @@ extension AppModel {
         do {
             let url = try await cache.acquire(note: note, ref: recording.blob)
             await transcribe(recording, note: note, file: url, meta: meta)
-            await cache.release(note: note, ref: recording.blob)
+            await cache.release(note: note, ref: recording.blob, discard: true)
         } catch {
             errorMessage = "Could not read the voice note to transcribe it: \(error)"
         }

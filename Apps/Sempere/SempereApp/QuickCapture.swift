@@ -150,6 +150,11 @@ final class QuickCapture {
     @ObservationIgnored private var activity: Activity<VoiceNoteAttributes>?
     #endif
 
+    /// The Data Protection class of recordings in progress. Not `completeUnlessOpen`: its files
+    /// cannot be reopened while the device is locked once closed, and a voice note started from
+    /// the Lock Screen is assembled, read and sealed from closed segment files before any unlock.
+    static let protection = FileProtectionType.completeUntilFirstUserAuthentication
+
     nonisolated static var defaultRoot: URL { appSupport.appendingPathComponent("Sempere/QuickCapture", isDirectory: true) }
     nonisolated static var defaultQueueRoot: URL { appSupport.appendingPathComponent("Sempere/CaptureQueue", isDirectory: true) }
     nonisolated private static var appSupport: URL {
@@ -172,8 +177,10 @@ final class QuickCapture {
         guard state == .idle else { throw QuickCaptureError.alreadyRecording }
         guard ((try? store.load()) ?? nil) != nil else { throw QuickCaptureError.notSetUp }
         guard await microphoneAllowed() else { throw QuickCaptureError.microphoneDenied }
-        let s = RecordingSession(noteID: UUID(), format: RecordingPreference.format(), root: root, backend: backend?(),
-                                 center: center)
+        // Read back and sealed on stop, often with the device still locked: `completeUnlessOpen`
+        // files cannot be reopened then once closed, so this class (readable after the first unlock).
+        let s = RecordingSession(noteID: UUID(), format: RecordingPreference.format(), root: root,
+                                 protection: Self.protection, backend: backend?(), center: center)
         // Ended by the system (media services reset, no new segment file): sealed as after Stop.
         s.onStoppedBySystem = { [weak self, weak s] in
             guard let self, let s, self.session === s else { return }
