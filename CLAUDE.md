@@ -377,6 +377,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   whenever `AppModel.vault` changes); never read blobs for display any other way.
   Copied items live in `ItemClipboard`, never the system pasteboard. Selection mode
   turns PencilKit's drawing gesture off like the object eraser does.
+- Adding images and PDFs (tasks E1, E3): bytes go through `ImagePreparation` /
+  `PDFPreparation` (app) into the shared `ImageIngest` / `PDFIngest` and the
+  `NoteOps` builders the CLI uses (`placeImage`, `viewFrame`, `newPDFNote`,
+  `insertPDFPages`, `setCrop`); never decide stored bytes, sizes or frames in
+  the app alone. The photo privacy setting (`PhotoPrivacy`, on by default)
+  strips metadata and turns HEIC into JPEG. Stored PDFs never carry `/Encrypt`
+  (encrypted ones are redrawn). Picked PDFs are copied to a work folder
+  (`PDFPreparation.copyPicked`, plaintext: `discard` it). PDF page items are
+  drawn by `PDFTileLayer` (a `CATiledLayer`, `draw(in:)` on Core Animation's
+  threads, so `nonisolated` and lock-protected), not as `ItemRaster` bitmaps.
 - Handwriting search (`PageRecognizer.swift`, `NoteEditor` extension, `AppModel+Search.swift`;
   pure logic in `Sources/Sempere/RecognitionSupport.swift` and `NoteSearch.swift`, tested on
   Linux). Recognition carries `basis` = `RecognitionBasis.digest` of the page's live stroke ids

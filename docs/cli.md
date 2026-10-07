@@ -735,6 +735,7 @@ A deleted note is refused (exit 1), as is a page number out of range.
 sempere items list ID|TITLE [--page N]
 sempere items move ID|TITLE ITEM --frame x,y,w,h
 sempere items rotate ID|TITLE ITEM --degrees D
+sempere items crop ID|TITLE ITEM (--crop x,y,w,h | --clear) [--keep-frame]
 sempere items front ID|TITLE ITEM
 sempere items delete ID|TITLE ITEM...
 sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
@@ -747,8 +748,13 @@ builders as the app's canvas and computed from the note as it is on disk when
 the delta is written. An item is named by its id or an id prefix of at least
 4 characters (an ambiguous prefix is refused); the items of one command must
 be on one page. `list` prints page, id prefix, kind, frame and attachment
-(`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`).
-`move` sets the frame (move and resize), `rotate` the rotation, `front`
+(`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`, `crop`).
+`move` sets the frame (move and resize), `rotate` the rotation, `crop` the
+part of an image or PDF page shown (`--crop` in the source's coordinates:
+pixels of the upright image, or points on the PDF page's visible box; clamped
+to the source; `--clear` shows all of it): the frame follows so the part that
+stays visible keeps its place and size on the page, as the app's Crop, unless
+`--keep-frame` (`NoteOps.setCrop`; a text box is refused), `front`
 draws the item above the others of its layer, `delete` removes items (their
 attachments stay until `blobs gc`), `duplicate` copies them on their page
 shifted by 20 points (or `--dx`, `--dy`), and `copy` copies them to a page of
