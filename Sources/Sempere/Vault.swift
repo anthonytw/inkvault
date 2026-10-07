@@ -343,6 +343,13 @@ public struct Vault: Sendable {
         if let secret = vault.secret {
             vault.recipientsStatus = RecipientsAuth.evaluate(manifest, secret: secret,
                                                              record: trust?.record(for: manifest.vaultId))
+            // An untagged list is trusted on first use (format.md §2.1), but
+            // not one that `vaultSecret` was not encrypted to: a key appended
+            // without the secret has no stanza of its own.
+            if case .untagged = vault.recipientsStatus, !vault.secretMatchesRecipients() {
+                let keys = manifest.recipients.map(\.key)
+                vault.recipientsStatus = .tampered(.init(reason: .tagMismatch, unexpected: keys, missing: [], restore: nil))
+            }
         }
         if vault.pendingRewrap {
             // Recorded, not thrown: the vault stays usable, verify() and
@@ -666,6 +673,14 @@ public struct Vault: Sendable {
     }
 
     // MARK: - Authenticated recipients (format.md §2.1)
+
+    /// True when `vaultSecret` has exactly one stanza of the matching type per
+    /// listed recipient (format.md §3.3.1 "complete"), as every writer makes it.
+    func secretMatchesRecipients() -> Bool {
+        guard let binary = try? Armor.decode(Data(manifest.vaultSecret.utf8)),
+              let counts = try? Self.stanzaCounts(binary), let recipients = try? ageRecipients() else { return false }
+        return counts == Self.expectedStanzas(recipients)
+    }
 
     /// Saves this device's trust record for the current (verified) list.
     /// A record that cannot be saved weakens only later checks, so it is

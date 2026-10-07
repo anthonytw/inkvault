@@ -397,6 +397,25 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertTrue(try Vault.open(at: fixture, identities: [id], trust: store).verify().isHealthy)
     }
 
+    /// An untagged list with a key that `vaultSecret` has no stanza for (one
+    /// appended without the secret) is never trusted on first use.
+    func testUntaggedListWithAnAppendedKeyIsNotUpgraded() throws {
+        let fixture = try FixtureVault.copySample(to: tmp)
+        let url = fixture.appendingPathComponent("vault.json")
+        var m = try VaultManifest.decode(Data(contentsOf: url))
+        m.recipients.append(.init(key: x.recipient.string, label: "x", added: Date()))
+        try m.encoded().write(to: url)
+        var vault = try Vault.open(at: fixture, identities: [try FixtureVault.sampleIdentity()],
+                                   trust: MemoryRecipientsTrustStore())
+        let problem = try XCTUnwrap(vault.recipientsStatus.problem)
+        XCTAssertEqual(problem.reason, .tagMismatch)
+        XCTAssertTrue(problem.unexpected.contains(x.recipient.string))
+        XCTAssertFalse(try vault.upgradeRecipientsTag())
+        var log = LogBuilder()
+        XCTAssertThrowsError(try vault.write(log.delta(devC, 1, [.setMeta(.title("x"))])))
+        XCTAssertNil(try VaultManifest.decode(Data(contentsOf: url)).recipientsTag)
+    }
+
     func testUpgradeRefusesAManifestChangedSinceOpen() throws {
         let fixture = try FixtureVault.copySample(to: tmp)
         var vault = try Vault.open(at: fixture, identities: [try FixtureVault.sampleIdentity()])

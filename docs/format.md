@@ -136,7 +136,10 @@ cannot check nor drop the tag by rewriting `vault.json`.
 2. `recipientsTag` absent: if `features` names `"recipients-tag"` or the
    device has a trust record for the vault, the tag was removed
    (a **downgrade**) and the list is tampered; otherwise the vault is
-   **untagged** (written before this section).
+   **untagged** (written before this section), unless `vaultSecret`'s
+   header does not have exactly one stanza of the matching type per listed
+   recipient (as every writer makes it, §3.3.1): a key appended without the
+   secret has no stanza, so such a list is tampered too.
 3. The tag verifies and the device has a trust record: if `linkKey` of the
    current secret equals the record's, the list is **verified**. Otherwise
    the secret changed since the device last checked: if `secretLink` verifies
