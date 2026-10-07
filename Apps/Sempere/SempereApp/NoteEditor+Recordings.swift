@@ -34,6 +34,11 @@ extension NoteEditor {
             throw RecordingError.cannotRecord("\(AttachmentOpsError.tooManyRecordings)")
         }
         let s = RecordingSession(noteID: noteID, format: format, root: root, backend: backend, center: center)
+        // Stopped without the user (media server reset, no new segment): saved like a Stop.
+        s.onStoppedBySystem = { [weak self, weak s] in
+            guard let self, let s else { return }
+            self.beginSave(s)
+        }
         do { try s.start() } catch {
             s.discardFiles()
             throw error
@@ -48,9 +53,15 @@ extension NoteEditor {
     func stopRecording() async -> Recording? {
         guard let s = recordingSession, s.isActive else { return nil }
         s.stop()
+        return await beginSave(s).value
+    }
+
+    /// Starts saving the stopped session `s`; `close` waits for it.
+    @discardableResult
+    private func beginSave(_ s: RecordingSession) -> Task<Recording?, Never> {
         let task = Task { await self.save(s) }
         recordingSaves.append(Task { _ = await task.value })
-        return await task.value
+        return task
     }
 
     /// Stops and saves a recording in progress, and waits for saves still

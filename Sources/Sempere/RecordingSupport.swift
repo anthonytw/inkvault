@@ -206,7 +206,7 @@ public enum RecordingSync {
         var best: (Recording, Double)?
         for s in strokes {
             guard let link = s.rec, link.at.isFinite, let r = state.recording(for: link) else { continue }
-            if best == nil || link.at < best!.1 { best = (r, link.at) }
+            if best.map({ link.at < $0.1 }) ?? true { best = (r, link.at) }
         }
         guard let (r, at) = best else { return nil }
         var t = max(0, at - leadIn)

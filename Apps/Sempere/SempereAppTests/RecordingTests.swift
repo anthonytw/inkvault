@@ -13,9 +13,11 @@ final class FakeCapture: AudioCaptureBackend {
     var log: [String] = []
     var files: [URL] = []
     var failResume = false
+    var failBegin = false
 
     func begin(file url: URL, format: RecordingFormat) throws {
         log.append("begin")
+        if failBegin { throw RecordingError.cannotRecord("test") }
         try FileManager.default.copyItem(at: RecordingTests.tone, to: url)
         files.append(url)
     }
@@ -229,6 +231,38 @@ struct RecordingTests {
         #expect(try vault.reconstruct(noteId: Self.lecture).recordings.count == 1)
     }
 
+    /// A recording that ends without the user (the media server was reset)
+    /// is saved as after Stop, and its plaintext audio is deleted; it is not
+    /// left on disk until the note is opened again.
+    @Test func aRecordingStoppedByTheSystemIsSaved() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, _) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
+        let root = Self.root(), center = NotificationCenter()
+        try editor.startRecording(root: root, backend: FakeCapture(), center: center)
+        let id = try #require(editor.recordingSession?.id)
+        center.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { editor.recording(id) != nil })
+        #expect(editor.recordingSession == nil)
+        #expect(try vault.reconstruct(noteId: Self.lecture).recordings.map(\.id) == [id])
+        #expect(await TS.waitUntil { !FileManager.default.fileExists(atPath: root.appendingPathComponent(id.uuidString.lowercased()).path) },
+                "no plaintext audio is left behind")
+    }
+
+    /// No new segment file could be started: what was recorded is saved.
+    @Test func aRecordingThatCannotStartANewSegmentIsSaved() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, _) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
+        let backend = FakeCapture()
+        try editor.startRecording(root: Self.root(), backend: backend)
+        let s = try #require(editor.recordingSession)
+        s.segmentSeconds = 0
+        backend.failBegin = true
+        s.tick()
+        #expect(s.state == .stopped)
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { editor.recording(s.id) != nil })
+        #expect(try vault.reconstruct(noteId: Self.lecture).recordings.map(\.id) == [s.id])
+    }
+
     @Test func renameAndRemoveAreOneDeltaEach() async throws {
         let (vault, _) = try TS.unlockedFixture()
         let (editor, clock) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
@@ -309,6 +343,26 @@ struct RecordingTests {
         let player = try #require(editor.player)
         #expect(await TS.waitUntil { player.transcript != nil })
         #expect(player.transcript?.position(at: player.position)?.word == 1)
+    }
+
+    /// iCloud: the note's revisions were evicted while the transcription ran.
+    /// The transcript is stored once they are downloaded again, rather than
+    /// being refused by the write's `requireLocal`.
+    @Test func aTranscriptIsStoredIntoANoteEvictedMeanwhile() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let identity = try IdentityFile.parse(try String(contentsOf: key, encoding: .utf8))
+        let direct = try Vault.open(at: url, identities: [identity])
+        let ref = try direct.writeBlob(note: Self.lecture, try Data(contentsOf: Self.tone), type: "audio/mp4")
+        let r = NoteOps.recording(blob: ref, started: Date(timeIntervalSince1970: 1_800_000_000))
+        try TS.writeAsAnotherDevice(try NoteOps.addRecording(r, to: []), to: Self.lecture, vault: url, key: key)
+        let cloud = FakeCloud(vault: url)
+        cloud.autoDeliver = true
+        let model = try await ProgressiveLoadTests.cloudModel(cloud, key: key)
+        try cloud.evictDataless(Self.lecture)
+        let transcript = try await FakeTranscriber().transcribe(file: Self.tone, recording: r.id, noteLanguage: nil)
+        let stored = try await model.storeTranscript(transcript, note: Self.lecture)
+        #expect(cloud.requestedNotes.contains(Self.lecture.uuidString.lowercased()))
+        #expect(try direct.reconstruct(noteId: Self.lecture).recordings.first { $0.id == r.id }?.transcript == stored)
     }
 
     @Test func savedRecordingsAreTranscribedWhenTheSettingIsOn() async throws {
