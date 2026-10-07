@@ -79,7 +79,7 @@ struct ReadOnlyVaultTests {
         await #expect(throws: VaultError.self) { try await model.addTag("x", to: Self.mixed) }
         await #expect(throws: VaultError.self) { try await model.deleteNote(Self.mixed) }
         await #expect(throws: VaultError.self) { _ = try await model.saveVersion(of: Self.mixed, name: "v") }
-        await #expect(throws: VaultError.self) { _ = try await model.thinVault(days: 0, dryRun: false) }
+        await #expect(throws: VaultError.self) { _ = try await model.thinVault(days: 1, dryRun: false) }
         #expect(await model.adoptInbox() == 0)
         model.thinIfDue(now: .distantFuture)
 
