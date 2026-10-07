@@ -16,8 +16,14 @@ struct NoteLoading: Equatable, Sendable {
     /// "Opening vault: 120 of 640 notes", or "Updating 640 changed notes: 120 done"
     /// over a list already shown.
     var headline: String {
-        if refreshing { return "Updating \(total) changed note\(total == 1 ? "" : "s"): \(done) done" }
-        return "Opening vault: \(done) of \(total) note\(total == 1 ? "" : "s")"
+        if refreshing {
+            let changed = String(localized: "\(total) changed notes", comment: "A number of notes that changed")
+            return String(localized: "Updating \(changed): \(done) done",
+                          comment: "Progress; %@ is a number of changed notes, the number is how many are done")
+        }
+        let notes = String(localized: "\(total) notes", comment: "A number of notes")
+        return String(localized: "Opening vault: \(done) of \(notes)",
+                      comment: "Progress; %@ is a number of notes, e.g. “120 of 640 notes”")
     }
 }
 

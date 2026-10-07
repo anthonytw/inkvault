@@ -169,7 +169,7 @@ struct EditorInsert: ViewModifier {
                     guard let data = try await item.loadTransferable(type: Data.self) else { continue }
                     await model.insertImage(data, into: editor, visible: visible)
                 } catch {
-                    model.errorMessage = "Could not load the photo: \(error.localizedDescription)"
+                    model.errorMessage = String(localized: "Could not load the photo: \(error.localizedDescription)")
                 }
             }
         }
@@ -184,7 +184,7 @@ struct EditorInsert: ViewModifier {
                 let data = try ImagePreparation.jpeg(from: image)
                 await model.insertImage(data, into: editor, visible: visible)
             } catch {
-                model.errorMessage = "Could not add the photo. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not add the photo. \(AppModel.describe(error))")
             }
         }
     }
@@ -221,7 +221,7 @@ extension EditorInsert {
                                             at: InsertOptions.cascade(point, index: images))
                     images += 1
                 case .failed(let why):
-                    model.errorMessage = "Could not add the image. \(why)"
+                    model.errorMessage = String(localized: "Could not add the image. \(why)")
                 case .pdf(let url):
                     let index = page.flatMap { id in editor.pages.firstIndex { $0.id == id } } ?? editor.pageIndex
                     if case .needsPassword(let request) = await model.importPDF(copy: url, to: .insert(editor, after: index + 1),

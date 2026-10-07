@@ -91,10 +91,10 @@ enum QuickCaptureError: Error, Equatable, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .notSetUp: return "Quick Voice Notes is not set up: open Sempere, unlock the vault and turn it on in Settings."
+        case .notSetUp: return String(localized: "Quick Voice Notes is not set up: open Sempere, unlock the vault and turn it on in Settings.")
         case .microphoneDenied: return RecordingError.microphoneDenied.description
-        case .alreadyRecording: return "A voice note is already being recorded."
-        case .notRecording: return "No voice note is being recorded."
+        case .alreadyRecording: return String(localized: "A voice note is already being recorded.")
+        case .notRecording: return String(localized: "No voice note is being recorded.")
         }
     }
 }

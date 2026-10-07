@@ -50,16 +50,13 @@ extension AppModel {
 
         var description: String {
             switch self {
-            case .notMigrating: return "No migration is in progress."
+            case .notMigrating: return String(localized: "No migration is in progress.")
             case .notPostQuantum:
-                return "That is not a post-quantum key (AGE-SECRET-KEY-PQ-1…). Create a new key instead."
+                return String(localized: "That is not a post-quantum key (AGE-SECRET-KEY-PQ-1…). Create a new key instead.")
             case .incomplete(let n):
-                return "\(n) file\(n == 1 ? "" : "s") could not be re-encrypted. If this vault is in iCloud Drive, "
-                    + "wait until it has downloaded and try again; otherwise unlock it with the key it was "
-                    + "encrypted to (the classic key while one is listed) and try again."
+                return String(localized: "\(n) files could not be re-encrypted. If this vault is in iCloud Drive, wait until it has downloaded and try again; otherwise unlock it with the key it was encrypted to (the classic key while one is listed) and try again.")
             case .notDownloaded(let n):
-                return "iCloud Drive has not delivered \(n) note\(n == 1 ? "" : "s") yet. Every note must be on this "
-                    + "device before the vault can be re-encrypted. Check that it is online and try again."
+                return String(localized: "iCloud Drive has not delivered \(n) notes yet. Every note must be on this device before the vault can be re-encrypted. Check that it is online and try again.")
             }
         }
     }
@@ -98,11 +95,11 @@ extension AppModel {
         }
         do {
             if isCloudVault {
-                show("Downloading every note from iCloud Drive…")
+                show(String(localized: "Downloading every note from iCloud Drive…"))
                 try await downloadEverything(url, gen: gen) { text in show(text) }
             }
             if let key = plan.key, let passphrase, !passphrase.isEmpty {
-                show("Storing your key under the passphrase…")
+                show(String(localized: "Storing your key under the passphrase…"))
                 let v = current
                 _ = try await offMain {
                     try CloudVault.coordinatedWrite(coordinate) {
@@ -112,24 +109,24 @@ extension AppModel {
                 try ensureCurrent(gen)
             }
             if current.pendingRewrap {
-                show("Finishing the interrupted key change…")
+                show(String(localized: "Finishing the interrupted key change…"))
                 current = try await rewrap(current, gen: gen) { try $0.resumeRewrap() }
             }
             if let key = plan.key, !current.recipients.contains(where: { $0.key == key.recipient.string }),
                 !current.classicRecipients.isEmpty {
-                show("Adding your post-quantum key: re-encrypting every note…")
+                show(String(localized: "Adding your post-quantum key: re-encrypting every note…"))
                 let policy = RewrapSettings.policy()
                 current = try await rewrap(current, gen: gen) {
                     try $0.addRecipient(key.recipient, label: "This device (post-quantum)", policy: policy)
                 }
             }
             for old in current.classicRecipients {
-                show("Removing the classic key: re-encrypting every note…")
+                show(String(localized: "Removing the classic key: re-encrypting every note…"))
                 let recipient = try NativeRecipient(string: old)
                 let policy = RewrapSettings.policy()
                 current = try await rewrap(current, gen: gen) { try $0.removeRecipient(recipient, policy: policy) }
             }
-            show("Opening the vault…")
+            show(String(localized: "Opening the vault…"))
             let identities: [any AgeIdentity]
             if let key = plan.key { identities = [key] } else { identities = unlockIdentities }
             let reopened = try await offMain {
@@ -194,7 +191,8 @@ extension AppModel {
                 }
                 return
             }
-            progress("Downloading from iCloud Drive: \(pass.ready.count) of \(pass.all.count) notes…")
+            progress(String(localized: "Downloading from iCloud Drive: \(pass.ready.count) of \(pass.all.count) notes…",
+                                    comment: "Progress: notes downloaded so far of all notes"))
             if pass.localFiles != lastLocal {
                 lastLocal = pass.localFiles
                 lastChange = clock.now
