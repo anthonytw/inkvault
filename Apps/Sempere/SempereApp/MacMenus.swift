@@ -1,16 +1,22 @@
+import SwiftUI
 import UIKit
 
-/// The system's own File and Edit items that duplicate the app's menu
-/// commands on a Mac (TestFlight build 6): UIKit adds "New Window", "Open…"
-/// (⌘O, from the vault document type), "Open Recent" and Edit > "Find…" (⌘F).
-/// Their shortcuts collide with Open Vault… and Find Notes ("Replacement
-/// elements conflict", undefined which one runs), and "New Window" opened a
-/// second library window instead of a note. The app's own entries are all in
-/// `MenuCommand`; these system ones are removed when the menu bar is built.
+/// The Mac menu bar's File and Edit menus (TestFlight build 6).
+///
+/// UIKit builds a default menu bar before SwiftUI adds the app's commands:
+/// File > New Window (⌘N), Open… (⌘O), Open Recent, the document commands
+/// (Duplicate, Move, Rename…, Export As…) and Edit > Find (⌘F, ⌘G…). UIKit
+/// refuses a SwiftUI group whose shortcut is taken ("Replacement elements
+/// conflict"), and with it the whole group, so ⌘O and ⌘F cost the app every
+/// File and Edit command and ⌘N opened UIKit's New Window: a second library
+/// window. So Open Vault… and Find Notes are not SwiftUI commands
+/// (`MenuCommand.nativeOnMac`): UIKit's ⌘O and ⌘F items become them here,
+/// acting on the focused window's `CommandRouter` (`MenuRouting`), and UIKit's
+/// commands that act on documents or text find are dropped.
 enum MacMenus {
-    /// The system menus whose UIKit commands are dropped (the app's own
-    /// SwiftUI commands in them stay).
-    static let pruned: [UIMenu.Identifier] = [.newScene, .open, .openRecent, .find]
+    /// The UIKit menus whose own commands are dropped (the app's SwiftUI
+    /// commands in them stay).
+    static let pruned: [UIMenu.Identifier] = [.newScene, .document]
 
     /// Whether `element` is one of the app's own commands (SwiftUI's
     /// `Commands`, which UIKit sees as commands with SwiftUI's private
@@ -22,9 +28,35 @@ enum MacMenus {
         return true   // UIAction and submenus: built by SwiftUI here (UIKit's own items are UICommands)
     }
 
-    /// Removes the system's duplicates from the menu bar being built.
+    /// The key command standing for `command` (⌘O or ⌘F), sent to the focused
+    /// window through the responder chain (`UIWindow.sempereMenuCommand`).
+    @MainActor
+    static func nativeItem(_ command: MenuCommand) -> UIKeyCommand {
+        let shortcut = command.shortcut ?? MenuCommand.Shortcut(" ")
+        var flags: UIKeyModifierFlags = []
+        if shortcut.modifiers.contains(.command) { flags.insert(.command) }
+        if shortcut.modifiers.contains(.shift) { flags.insert(.shift) }
+        if shortcut.modifiers.contains(.option) { flags.insert(.alternate) }
+        if shortcut.modifiers.contains(.control) { flags.insert(.control) }
+        return UIKeyCommand(title: command.title, action: #selector(UIWindow.sempereMenuCommand(_:)),
+                            input: String(shortcut.key), modifierFlags: flags, propertyList: command.rawValue)
+    }
+
+    /// Rebuilds the File and Edit menus being built: UIKit's Open… and Find
+    /// become Open Vault… and Find Notes, its document commands and New
+    /// Window go.
     @MainActor
     static func prune(_ builder: UIMenuBuilder) {
+        if builder.menu(for: .open) != nil {
+            // Open… and UIKit's Open Recent (recent documents; the app lists recent vaults itself).
+            builder.replaceChildren(ofMenu: .open) { _ in [nativeItem(.openVault)] }
+            built.append("open → Open Vault…")
+        }
+        if builder.menu(for: .find) != nil {
+            // Find…, Find & Replace, Find Next/Previous (⌘G is the search bar's), Use Selection.
+            builder.replaceChildren(ofMenu: .find) { _ in [nativeItem(.find)] }
+            built.append("find → Find Notes")
+        }
         for identifier in pruned {
             guard let menu = builder.menu(for: identifier) else { continue }
             let kept = menu.children.filter(isAppElement)
@@ -35,7 +67,7 @@ enum MacMenus {
         }
     }
 
-    /// The File and Edit menus as lines "depth|identifier|title|action|input" (debug log).
+    /// The File and Edit menus as lines "depth|kind|title|action|input" (debug log, tests).
     @MainActor
     static func tree(_ builder: UIMenuBuilder) -> [String] {
         func walk(_ element: UIMenuElement, _ depth: Int) -> [String] {
@@ -57,7 +89,7 @@ enum MacMenus {
     /// What `prune` did since launch (tests and the debug log).
     @MainActor static var built: [String] = []
 
-    /// Every key command left in the menu bar, as "input ⌘⇧⌥⌃" strings (tests:
+    /// Every key command left in the menu bar, as "input flags" strings (tests:
     /// no two may be equal).
     @MainActor
     static func shortcuts(in builder: UIMenuBuilder) -> [String] {
@@ -70,29 +102,104 @@ enum MacMenus {
     }
 }
 
+/// The routers of the open windows, by window scene: what a UIKit menu item
+/// (`MacMenus.nativeItem`) acts on. Each window publishes its router with
+/// `menuRouter(_:)`, as it does with `focusedSceneValue` for SwiftUI's commands.
+@MainActor
+final class MenuRouting {
+    static let shared = MenuRouting()
+
+    private var routers: [ObjectIdentifier: CommandRouter] = [:]
+
+    func set(_ router: CommandRouter?, for scene: UIWindowScene) {
+        routers[ObjectIdentifier(scene)] = router
+    }
+
+    func router(for scene: UIWindowScene?) -> CommandRouter? {
+        scene.flatMap { routers[ObjectIdentifier($0)] }
+    }
+
+    /// Runs `command` in `scene`'s window if it is enabled there; false when it is not.
+    @discardableResult
+    func perform(_ command: MenuCommand, in scene: UIWindowScene?) -> Bool {
+        guard let router = router(for: scene), command.isEnabled(in: router.context) else { return false }
+        router.perform(command)
+        return true
+    }
+}
+
+extension UIWindow {
+    /// A UIKit menu item of the app (`MacMenus.nativeItem`) chosen while this
+    /// window is focused: the command named by its property list, run by the
+    /// window's router. Every window is in the responder chain of what it shows.
+    @objc func sempereMenuCommand(_ sender: UICommand) {
+        guard let name = sender.propertyList as? String, let command = MenuCommand(rawValue: name) else { return }
+        MenuRouting.shared.perform(command, in: windowScene)
+    }
+}
+
+/// Publishes a window's `CommandRouter` to `MenuRouting` under the window's scene.
+private struct MenuRouterPublisher: UIViewRepresentable {
+    let router: CommandRouter
+
+    final class Probe: UIView {
+        var router: CommandRouter?
+        private weak var scene: UIWindowScene?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            publish()
+        }
+
+        func publish() {
+            if let scene, scene !== window?.windowScene { MenuRouting.shared.set(nil, for: scene) }
+            scene = window?.windowScene
+            if let scene { MenuRouting.shared.set(router, for: scene) }
+        }
+    }
+
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.isUserInteractionEnabled = false
+        probe.isHidden = true
+        return probe
+    }
+
+    func updateUIView(_ probe: Probe, context: Context) {
+        probe.router = router
+        probe.publish()
+    }
+}
+
+extension View {
+    /// Publishes `router` for the UIKit menu items of this window (Mac).
+    func menuRouter(_ router: CommandRouter) -> some View {
+        background(MenuRouterPublisher(router: router))
+    }
+}
+
 /// The app delegate (through `UIApplicationDelegateAdaptor`): only the Mac
 /// menu bar needs it.
 final class SempereAppDelegate: UIResponder, UIApplicationDelegate {
     /// Key commands of the menu bar as last built (tests).
     @MainActor static var lastShortcuts: [String] = []
+    /// The File and Edit menus as last built (tests).
+    @MainActor static var lastTree: [String] = []
     /// The menu tree is logged once per launch (DEBUG).
     @MainActor private static var dumped = false
 
     override func buildMenu(with builder: UIMenuBuilder) {
         super.buildMenu(with: builder)
         guard builder.system == .main, Platform.isMac else { return }
-        #if DEBUG
-        let dump = !Self.dumped
-        Self.dumped = true
-        if dump { for line in MacMenus.tree(builder) { print("SempereMenuTree before \(line)") } }
-        #endif
         MacMenus.prune(builder)
-        #if DEBUG
-        if dump { for line in MacMenus.tree(builder) { print("SempereMenuTree after \(line)") } }
-        #endif
         Self.lastShortcuts = MacMenus.shortcuts(in: builder)
+        Self.lastTree = MacMenus.tree(builder)
         #if DEBUG
-        if dump { print("SempereMenus \(MacMenus.built) shortcuts=\(Self.lastShortcuts.count)") }
+        if !Self.dumped {
+            Self.dumped = true
+            for line in Self.lastTree { print("SempereMenuTree \(line)") }
+            print("SempereMenus \(MacMenus.built) shortcuts=\(Self.lastShortcuts.count)")
+        }
         #endif
     }
 }

@@ -56,6 +56,7 @@ struct NoteWindowView: View {
         .environment(ui)
         .windowSheets(ui)
         .focusedSceneValue(\.commandRouter, router)
+        .menuRouter(router)
         .task(id: LoadKey(ready: ready, epoch: model.keyEpoch)) { await load() }
         .task {
             // Restored without the library window: bring it up to open and unlock the vault.

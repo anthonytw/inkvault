@@ -220,6 +220,49 @@ struct MacMenuBarTests {
         #expect(MacMenus.isAppElement(UIMenu(title: "Open Recent", children: [])))
     }
 
+    /// ⌘O and ⌘F are UIKit's own items, renamed, run by the focused window's router.
+    @Test func nativeItemsRunTheirWindowsRouterWhenEnabled() throws {
+        let open = MacMenus.nativeItem(.openVault)
+        #expect(open.title == "Open Vault…" && open.input == "o" && open.modifierFlags == .command)
+        #expect(open.propertyList as? String == MenuCommand.openVault.rawValue)
+        #expect(MacMenus.nativeItem(.find).input == "f")
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        #expect(window.target(forAction: #selector(UIWindow.sempereMenuCommand(_:)), withSender: open) != nil,
+                "the window takes the item")
+        var ran: [MenuCommand] = []
+        var context = MenuCommand.Context()
+        context.window = .library
+        let previous = MenuRouting.shared.router(for: scene)
+        defer { MenuRouting.shared.set(previous, for: scene) }
+        MenuRouting.shared.set(CommandRouter(context: context, perform: { ran.append($0) }), for: scene)
+        window.sempereMenuCommand(open)
+        #expect(ran == [.openVault], "Open Vault… runs in a library window")
+        window.sempereMenuCommand(MacMenus.nativeItem(.find))
+        #expect(ran == [.openVault], "Find Notes needs an unlocked vault")
+        context.window = .note
+        context.vault = .unlocked
+        MenuRouting.shared.set(CommandRouter(context: context, perform: { ran.append($0) }), for: scene)
+        window.sempereMenuCommand(open)
+        window.sempereMenuCommand(MacMenus.nativeItem(.find))
+        #expect(ran == [.openVault], "a note window has no vault picker or note list")
+    }
+
+    /// On a Mac, the File and Edit menus hold the app's commands, not UIKit's duplicates.
+    @Test func theFileAndEditMenusAreTheApps() async throws {
+        guard Platform.isMac else { return }
+        UIMenuSystem.main.setNeedsRebuild()
+        _ = await TS.waitUntil(timeout: .seconds(10)) { !SempereAppDelegate.lastTree.isEmpty }
+        let tree = SempereAppDelegate.lastTree.joined(separator: "\n")
+        for title in ["New Note…", "Open Note in New Window", "New Vault…", "Open Vault…", "Close Vault", "Reload Vault",
+                      "Find Notes"] {
+            #expect(tree.contains("|\(title)"), "\(title) is in the menu bar:\n\(tree)")
+        }
+        for action in ["requestNewScene:", "|open:", "|find:", "duplicate:", "export:"] {
+            #expect(!tree.contains(action), "UIKit's \(action) is gone")
+        }
+    }
+
     /// On a Mac, the menu bar as built has no shortcut twice.
     @Test func theBuiltMenuBarHasEveryShortcutOnce() async throws {
         guard Platform.isMac else { return }

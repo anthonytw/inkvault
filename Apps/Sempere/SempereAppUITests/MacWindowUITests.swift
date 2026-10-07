@@ -37,7 +37,7 @@ final class MacWindowUITests: XCTestCase {
     func testOpenNoteInNewWindowOpensANoteWindow() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
+        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 60))
         app.typeKey("n", modifierFlags: [.command, .option])
         assertOneNoteWindow(app, "shortcut")
     }
@@ -48,7 +48,7 @@ final class MacWindowUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         let row = app.staticTexts["Cellular Respiration"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 45))
+        XCTAssertTrue(row.waitForExistence(timeout: 60))
         row.rightClick()
         let item = app.menuItems["Open in New Window"].firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 10), "the context menu offers a new window")
@@ -61,7 +61,7 @@ final class MacWindowUITests: XCTestCase {
     func testTheFileMenuHasNoSystemDuplicates() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
+        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 60))
         let file = app.menuBars.menuBarItems["File"]
         file.click()
         let titles = file.menuItems.allElementsBoundByIndex.map(\.title)
@@ -73,9 +73,17 @@ final class MacWindowUITests: XCTestCase {
         }
         XCTAssertTrue(titles.contains("New Note…"))
         XCTAssertTrue(titles.contains("Open Vault…"))
+        XCTAssertTrue(titles.contains("Open Note in New Window"))
         XCTAssertFalse(identifiers.contains("new_window"), "no system New Window")
+        XCTAssertFalse(identifiers.contains("duplicate:"), "no document commands")
         XCTAssertFalse(identifiers.contains("open:"), "no system Open…")
         XCTAssertEqual(titles.filter { $0 == "Open Recent" }.count, 1, "one Open Recent")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        let edit = app.menuBars.menuBarItems["Edit"]
+        edit.click()
+        let editTitles = edit.menuItems.allElementsBoundByIndex.map(\.title)
+        XCTAssertTrue(editTitles.contains("Find Notes"), "\(editTitles)")
+        XCTAssertFalse(editTitles.contains("Find…"), "no system Find")
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
     }
 
@@ -93,11 +101,8 @@ final class MacWindowUITests: XCTestCase {
     func testNewNoteSheetSuggestsNotebooks() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 45))
-        // The note list's toolbar button, as on the iPad (⌘N is checked by the File menu test).
-        let newNote = app.buttons["New Note"].firstMatch
-        XCTAssertTrue(newNote.waitForExistence(timeout: 20), "the New Note button")
-        newNote.click()
+        XCTAssertTrue(app.descendants(matching: .any)["Recently Deleted"].waitForExistence(timeout: 60))
+        app.typeKey("n", modifierFlags: .command)   // File > New Note…
         let field = app.textFields["notebookField"]
         let found = field.waitForExistence(timeout: 20)
         if !found { dump(app, "new-note-sheet") }

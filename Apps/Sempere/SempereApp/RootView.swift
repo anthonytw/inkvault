@@ -45,6 +45,7 @@ struct RootView: View {
             .environment(ui)
             .windowSheets(ui)
             .focusedSceneValue(\.commandRouter, router)
+            .menuRouter(router)
             .sheet(isPresented: $ui.creatingNote) {
                 NewNoteView(notebook: currentNotebook)
             }
