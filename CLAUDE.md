@@ -446,6 +446,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   by the model (`storeTranscript`: blob, then one delta through `commit`), not by the editor, so a job
   survives the note closing. App tests use `FakeCapture` / `FakePlayback` / `FakeTranscriber` and a
   serialized suite.
+- Quick capture (`format.md` §11, `docs/quick-capture.md`): voice notes are sealed WITHOUT the identity or the
+  vault secret, with a capture profile (public recipients + `CaptureKey`, HKDF of the secret, which can only
+  authenticate inbox files) into `inbox/<id>.capture.age`; adoption (`Vault.readCapture`, `CaptureAdoption`,
+  `AppModel+Inbox`, `sempere inbox import`) turns them into ordinary revisions and blobs. Never store the vault
+  secret or an identity outside Face ID for capture. Note/page/recording ids derive from the capture id
+  (concurrent adoption converges). Intents live in `Apps/Sempere/SempereShared/` (compiled by the app and the
+  `SempereWidgets` extension, iOS only, `platformFilter = ios`) and run in the app's process; the profile is a
+  Keychain item `AfterFirstUnlockThisDeviceOnly` (`KeychainCaptureProfileStore`, tests use
+  `MemoryCaptureProfileStore`). Plaintext audio lives only in `QuickCapture.root` (`completeUnlessOpen`) until
+  sealed and transcribed.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

@@ -1,0 +1,88 @@
+import Foundation
+import Sempere
+import XCTest
+
+/// `sempere inbox`: quick capture without the key (format.md §11,
+/// docs/quick-capture.md), end to end through the binary.
+final class CLIInboxTests: CLITestCase {
+    static let tone = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("SempereTests/Fixtures/audio/tone-aac.m4a").path
+
+    func json(_ r: CLIResult, file: StaticString = #filePath, line: UInt = #line) throws -> [String: Any] {
+        XCTAssertEqual(r.status, 0, r.err, file: file, line: line)
+        return try XCTUnwrap(r.json as? [String: Any], r.out + r.err, file: file, line: line)
+    }
+
+    /// enable (with the key) → capture and transcript (no key at all) →
+    /// import (with the key): a note in the inbox notebook, the audio and the
+    /// transcript readable, the inbox empty.
+    func testCaptureWithoutTheKeyThenImport() throws {
+        let (vault, identity, keyPath) = try makeVault()
+        let unlocked = ["--vault", vault.url.path, "--identity", keyPath]
+        let locked = ["--vault", vault.url.path]
+        let enabled = try json(try cli(["inbox", "enable", "--notebook", "Voice", "--json"] + unlocked))
+        let profilePath = try XCTUnwrap(enabled["profile"] as? String)
+        let attrs = try FileManager.default.attributesOfItem(atPath: profilePath)
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertFalse(try String(contentsOfFile: profilePath, encoding: .utf8).contains("AGE-SECRET-KEY"))
+
+        // No identity and no passphrase anywhere: capture still works.
+        let captured = try json(try cli(["inbox", "capture", Self.tone, "--title", "Groceries",
+                                         "--started", "2026-10-07T14:32:00Z", "--json"] + locked))
+        let capture = try XCTUnwrap(captured["capture"] as? String)
+        let note = try XCTUnwrap(captured["note"] as? String)
+        let transcript = path("t.json")
+        try Transcript(recording: UUID(), engine: "test", language: "en", created: Date(),
+                       segments: [.init(start: 0, end: 1, text: "milk")]).encoded().write(to: URL(fileURLWithPath: transcript))
+        XCTAssertEqual(try cli(["inbox", "transcript", capture, transcript] + locked).status, 0)
+
+        let listedLocked = try XCTUnwrap(try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])
+        XCTAssertEqual(listedLocked.first?["kinds"] as? [String], ["capture", "transcript"])
+        XCTAssertNil(listedLocked.first?["title"], "no key: nothing about the content")
+        let listed = try XCTUnwrap(try cli(["inbox", "list", "--json"] + unlocked).json as? [[String: Any]])
+        XCTAssertEqual(listed.first?["title"] as? String, "Groceries")
+
+        XCTAssertNotEqual(try cli(["inbox", "import", "--json"] + locked).status, 0, "import needs the key")
+        let dry = try json(try cli(["inbox", "import", "--dry-run", "--json"] + unlocked))
+        XCTAssertEqual((dry["captures"] as? [[String: Any]])?.first?["created"] as? Bool, true)
+        XCTAssertEqual((try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])?.count, 1, "a dry run keeps it")
+
+        let imported = try json(try cli(["inbox", "import", "--json"] + unlocked))
+        let result = try XCTUnwrap((imported["captures"] as? [[String: Any]])?.first)
+        XCTAssertEqual(result["note"] as? String, note)
+        XCTAssertEqual(result["transcript"] as? Bool, true)
+        XCTAssertNil(result["error"])
+        let reader = try Vault.open(at: vault.url, identities: [identity])
+        let state = try reader.reconstruct(noteId: UUID(uuidString: note)!)
+        XCTAssertEqual(state.meta.title, "Groceries")
+        XCTAssertEqual(state.meta.notebook, "Voice")
+        let rec = try XCTUnwrap(state.recordings.first)
+        XCTAssertEqual(try reader.readBlob(note: UUID(uuidString: note)!, rec.blob, maxBytes: 1 << 24),
+                       try Data(contentsOf: URL(fileURLWithPath: Self.tone)))
+        XCTAssertNotNil(rec.transcript)
+        XCTAssertEqual((try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])?.count, 0)
+        // The note is an ordinary note now.
+        let shown = try cli(["notes", "show", note, "--json"] + unlocked)
+        XCTAssertEqual(shown.status, 0, shown.err)
+    }
+
+    func testCaptureNeedsAProfileAndForgeriesAreRefused() throws {
+        let (vault, _, keyPath) = try makeVault()
+        let locked = ["--vault", vault.url.path]
+        let none = try cli(["inbox", "capture", Self.tone] + locked)
+        XCTAssertEqual(none.status, 1)
+        XCTAssertTrue(none.err.contains("inbox enable"), none.err)
+
+        // A profile with the right recipients but a made-up capture key.
+        let profile = CaptureProfile(vaultId: vault.vaultId, recipients: vault.recipients.map(\.key),
+                                     key: Data(repeating: 1, count: 32), device: "0badf00d", notebook: "Inbox")
+        let forged = path("forged.json")
+        try JSONEncoder().encode(profile).write(to: URL(fileURLWithPath: forged))
+        XCTAssertEqual(try cli(["inbox", "capture", Self.tone, "--profile", forged] + locked).status, 0)
+        let r = try cli(["inbox", "import", "--json", "--identity", keyPath] + locked)
+        XCTAssertEqual(r.status, 1)
+        let first = try XCTUnwrap(((r.json as? [String: Any])?["captures"] as? [[String: Any]])?.first)
+        XCTAssertTrue((first["error"] as? String)?.contains("does not verify") == true, "\(first)")
+        XCTAssertEqual((try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])?.count, 1, "kept")
+    }
+}

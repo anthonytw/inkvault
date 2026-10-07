@@ -992,6 +992,36 @@ title, file, error, recordings: [{id, title, engine, language, segments, words,
 transcript, error}]}]}`; a recording that cannot be transcribed is reported
 and the exit code is 1.
 
+### Quick capture inbox
+
+```
+sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key once)
+sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
+sempere inbox transcript CAPTURE JSON [--profile PATH]
+sempere inbox list
+sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
+```
+
+Voice notes without the key (`format.md` §11, `docs/quick-capture.md`), the
+same path as the app's widgets, Control Center control and Siri. `enable`
+writes this machine's **capture profile** (the vault's public recipients and
+its capture key, which can only add captures and never reads anything) to
+`$XDG_STATE_HOME/sempere/capture/<vault id>.json`, mode 0600. Run it again after
+a key is removed from the vault: that rotates the capture key. `capture` reads
+only `vault.json` and the profile, no identity or passphrase. It seals the
+audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
+with the capture key) and prints the capture id. `--transcript` seals a
+`sempere-transcript/1` file with it, and `transcript` seals one later; either
+way its recording id is replaced by the capture's. `list` shows the inbox:
+ids and file kinds without a key, titles and whether each verifies with one.
+`import` adopts each capture as a note in the capture's notebook ("Inbox"),
+titled from its date: the audio and transcript as blobs, then one delta as this
+machine, then the inbox files are deleted. The note, page and recording ids
+derive from the capture id, so importing on two machines gives one note. A
+capture that does not verify is reported (exit 1) and kept. `--json`:
+`capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
+[{capture, note, title, created, transcript, file, removed, error}]}`.
+
 ### Export
 
 ```

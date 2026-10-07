@@ -71,6 +71,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
 | `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | 🔀 #87 | 🔀 #87 |
+| `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | 🔀 quick capture PR | 🔀 quick capture PR |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
@@ -114,6 +115,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | 🔀 #81 (not yet tried on the iPad) |
 | Attachments | Text boxes (E2): text tool (tap to add or edit), selection's Edit Text, style bar (bold, italic, underline, strikethrough, size, colour, font, alignment, direction), any script incl. right to left, Scribble; `breaks` from TextKit stored with every edit and resize; CoreText layout on the canvas and in the app's PDF/SVG/PNG (`CoreTextShaper`, glyph outlines embedded); same lines as `sempere export` (shared fixtures) | 🔀 #82 (not yet tried on the iPad) |
 | Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | 🔀 #87 (not yet tried on the iPad) |
+| Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | 🔀 quick capture PR (not yet tried on a device) |
 | Attachments | Unused-attachment index (E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
