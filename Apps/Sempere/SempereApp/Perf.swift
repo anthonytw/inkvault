@@ -61,6 +61,13 @@ enum Perf {
         case cacheWrite = "cache.write"
         /// A note folder reported changed by the file presenter (an event).
         case changeNotified = "change.notified"
+        /// Drawing one image item (detail: `hit` from the render cache, or `drawn`).
+        case itemPicture = "item.picture"
+        /// Getting a PDF blob's file from the blob cache and opening it (detail:
+        /// `fetched`, `adopted` from an earlier launch, or `cached`).
+        case pdfOpen = "pdf.open"
+        /// A PDF page's preview (detail: `hit`, or `drawn`).
+        case pdfPreview = "pdf.preview"
     }
 
     /// An interval in progress; pass it to `end`.
@@ -145,6 +152,9 @@ extension Perf.Phase {
         case .noteFirstRender: return "note.firstRender"
         case .cacheWrite: return "cache.write"
         case .changeNotified: return "change.notified"
+        case .itemPicture: return "item.picture"
+        case .pdfOpen: return "pdf.open"
+        case .pdfPreview: return "pdf.preview"
         }
     }
 }

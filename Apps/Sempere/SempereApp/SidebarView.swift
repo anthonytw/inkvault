@@ -23,11 +23,6 @@ struct SidebarView: View {
         List(selection: $model.sidebarSelection) {
             Label("All Notes", systemImage: "note.text").tag(SidebarItem.allNotes)
                 .sidebarDropTarget(.allNotes)
-            if let results = model.recognitionResults {
-                Label("Recently Recognized", systemImage: "text.viewfinder")
-                    .badge(results.notes.count)
-                    .tag(SidebarItem.recentlyRecognized)
-            }
             let tree = model.notebookTree
             if !tree.isEmpty {
                 Section("Notebooks") {
@@ -37,8 +32,7 @@ struct SidebarView: View {
                             .sidebarDropTarget(.notebook(node.path))
                             .onDrag {
                                 // Dropped on another notebook it nests there; on All Notes it goes to the top level.
-                                model.draggedPayload = .notebook(node.path)
-                                return DragPayload.notebook(node.path).provider()
+                                model.beginDrag(.notebook(node.path), provider: DragPayload.notebook(node.path).provider())
                             }
                             .contextMenu {
                                 Button("Rename or Move…", systemImage: "pencil") { newName = node.path; renaming = node.path }
@@ -57,8 +51,17 @@ struct SidebarView: View {
                     }
                 }
             }
+            // Like Recently Deleted: notes "Recognize All" read in the last 7 days
+            // (kept across launches); the row is gone while there are none.
+            let recognized = model.recentlyRecognizedNotes.count
+            if recognized > 0 {
+                Label("Recently Recognized", systemImage: "text.viewfinder")
+                    .badge(recognized)
+                    .tag(SidebarItem.recentlyRecognized)
+            }
             Label("Recently Deleted", systemImage: "trash").tag(SidebarItem.deleted)
         }
+        .onChange(of: model.recentlyRecognizedNotes.isEmpty) { model.leaveEmptyRecognizedSection() }
         .navigationTitle(model.vaultName ?? "Sempere")
         .toolbar {
             ToolbarItem {

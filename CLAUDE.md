@@ -253,6 +253,23 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `drawing(for:)` (synchronous, tests). Bump `DrawingCache.schemaVersion` when
   `StrokeConversion` or the layout changes. Tests get no cache unless they pass
   `drawingCacheRoot`.
+- Attachment caches outlive note opens and launches (docs/io.md "Opening a note
+  fast"): `BlobCache` (plaintext verified blob files, keyed names, a file of an
+  earlier launch re-hashed before use; on a Mac, which has no data protection,
+  deleted at launch instead: `blobCacheAcrossLaunches`) and `RenderCache` (sealed image pictures
+  and PDF page previews, memory + disk). Both are per vault secret and go when
+  the vault closes (`dropAttachments`). Bump `RenderCache.schemaVersion` when
+  `ItemRaster`, `PDFItemDrawing` or the preview drawing changes. Tests get a
+  per-model blob folder and a memory-only render cache unless they pass
+  `blobCacheRoot` / `renderCacheRoot`.
+- Sidebar drops: a drag the app started is dropped from `AppModel.draggedPayload`
+  (`beginDrag` / `takeDrop`), never by loading the item provider, which iPadOS 26
+  releases as soon as `onDrag` returns (the model holds it anyway). `onDrag`
+  reports no end, so the payload of a cancelled drag lingers: only a drop that
+  carries the app's own types (`carriesAppTypes`) may use it, never a photo or
+  text dragged in from another app.
+- Per-vault device memory (`RecentActivity`, sealed, Application Support):
+  "Recently Recognized" (7 days) and recent searches; `activityNow` is the test clock.
 - Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log
   `Library/Logs/SemperePerf.log`), counts and 8-hex id prefixes only.
   `PerformanceReportTests` prints `PERF-REPORT` lines in the CI `app` log.
