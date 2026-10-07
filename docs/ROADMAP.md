@@ -86,6 +86,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | ✅ #26 | ✅ #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | ✅ #60 | ✅ #60 |
+| `blobs unused` / `gc` report Settings' storage numbers (held by history, eligibility, `gc --file`) (E7) | 🔀 #95 | 🔀 #95 |
 | Attachments: `notes show` lists items and recordings, `notes list --json` counts them, `search` finds typed text (A1) | ✅ #66 | ✅ #66 |
 | Attachments: `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over text boxes and (`--transcripts`) transcripts, typed text in Markdown/HTML exports (F) | ✅ #69 | ✅ #69 |
 | Text boxes: `attach text` stores the `breaks` of its layout (`--no-breaks` to leave wrapping to renderers), `items move` lays a text box out again at a new width (E2) | 🔀 #82 | 🔀 #82 |
@@ -128,7 +129,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Text boxes (E2): text tool (tap to add or edit), selection's Edit Text, style bar (bold, italic, underline, strikethrough, size, colour, font, alignment, direction), any script incl. right to left, Scribble; `breaks` from TextKit stored with every edit and resize; CoreText layout on the canvas and in the app's PDF/SVG/PNG (`CoreTextShaper`, glyph outlines embedded); same lines as `sempere export` (shared fixtures) | 🔀 #82 (not yet tried on the iPad) |
 | Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | 🔀 #87 (not yet tried on the iPad) |
 | Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | 🔀 quick capture PR (not yet tried on a device) |
-| Attachments | Unused-attachment index (E7) | 📋 |
+| Attachments | Unused-attachment index (E7): per-note device-local index updated by every write and arrival, Settings → Storage list (previews, history links, 30-day Delete, Delete All Eligible, held by history); `blobs unused`/`gc` show the same numbers | 🔀 #95 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |

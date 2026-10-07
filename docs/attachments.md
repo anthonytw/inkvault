@@ -326,6 +326,43 @@ The CLI's `sempere blobs gc [--dry-run] [NOTE…]` applies the same rule per
 note from its own device-local state; collection is never a side effect of
 opening, syncing or compacting.
 
+**As built (E7, #95).** The core keeps the logic, so the app and the CLI
+show the same numbers:
+
+- `AttachmentIndexEntry` (`Sources/Sempere/AttachmentIndex.swift`), one per
+  note: the blob files of `att/` (kind, size, the hash a reference maps the
+  name to, the revisions that reference it, the newest revision that did:
+  `lastUse`, kept after that revision is gone), the references of each
+  readable revision by file name (write-once, so never decrypted again), the
+  hashes the current state shows, and the rule-4 records (`unusedSince`).
+- `AttachmentIndexer.update(note:previous:source:current:local:now:)`: one
+  listing of `att/`; only when it holds blobs, one listing of the revisions
+  and a decryption of each revision not read before. It reads through an
+  `AttachmentIndexSource` (`Vault`; tests count calls per note). A note with
+  an unreadable revision, an unfinished recipient change or (iCloud Drive) a
+  revision not on this device (`local: false`, the app's
+  `CloudVault.requireLocal`) decides nothing and loses its records, as
+  collection's rule 1 does.
+- `BlobRetention.observe` is the rule-4 bookkeeping both the index and
+  `Vault.collectBlobs` use; `collectBlobs(note:records:only:)` takes the
+  index's records and, for a per-item Delete, the file names that may go.
+- `AttachmentStorageReport` turns entries into the totals and lists:
+  unused (with `firstSeen`, `deletableFrom` = `firstSeen` + 30 days,
+  `isEligible(at:)` from that instant on), held by history, and notes that
+  could not be checked.
+- The app stores the entries sealed per note (`AttachmentIndexStore`,
+  format.md §10.1 purpose `attachment-index`) in
+  `Application Support/Sempere/AttachmentIndex`. Every `NoteWriter` write
+  (through the device clock) and every summary read because a note changed
+  (sync and iCloud arrivals, an edit's re-read) queues that one note; one
+  model-owned task works through the queue at utility priority after a 2 s
+  pause, so an editor's burst of autosaves is indexed once. Notes whose
+  summary came from the summary cache (an existing install) are indexed when
+  Settings → Storage asks ("Check N More Notes").
+- The CLI computes the entries afresh each run with its own
+  `BlobCollectorState` (`Vault.attachmentIndexEntry`), and takes the
+  current state from the notes' summaries.
+
 ### WebDAV
 
 Each note's `att/` becomes a synced collection with the same write-once table
@@ -1673,7 +1710,7 @@ Settings added since (same panel, same rules):
 | | Recognize Handwriting | on | |
 | History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
 | Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |
-| | Unused attachments | — | a scan (`Vault.blobInventory`, every revision of each note) lists blob files no revision references; it never deletes (collection with the 30-day window is E7 / `sempere blobs gc`) |
+| | Unused attachments | — | from the per-note index (E7, §4): count and size, a list by note with previews, the date each became unused, Delete from 30 days on and "Delete All Eligible" (through `collectBlobs`), and "Held by History"; `sempere blobs unused` shows the same |
 
 Per device means per install: the keys are `Sempere.*` in `UserDefaults`
 (`DeviceSettings.swift`). A stored value outside its choices reads as the
