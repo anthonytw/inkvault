@@ -2,6 +2,7 @@ import Foundation
 import Sempere
 import SempereRender
 import Testing
+import UniformTypeIdentifiers
 import UIKit
 @testable import SempereApp
 
@@ -88,5 +89,76 @@ struct MacCatalystPDFTests {
         }
         content.draw(in: ctx)
         return ctx.makeImage()
+    }
+}
+
+/// Dragging a note to the Finder (docs/mac.md "Drag a note out as PDF"): the
+/// drop's request for the file is a file promise on a Mac, which may arrive
+/// while the main thread waits for it, so it must be served without the main
+/// actor once the drag has begun.
+@MainActor
+struct MacDragOutTests {
+    static let lecture = AppModelTests.lecture
+
+    /// Holds what a file request delivered (the URL is valid only inside the callback).
+    final class Delivery: @unchecked Sendable {
+        let done = DispatchSemaphore(value: 0)
+        var data: Data?
+        var name: String?
+        var error: (any Error)?
+    }
+
+    @Test func theFileIsDeliveredWhileTheMainThreadWaits() async throws {
+        let (model, _) = try await NoteWindowTests.unlockedModel()
+        defer { try? FileManager.default.removeItem(at: model.exportFolder) }
+        let prepare = NoteFileDrag.prepare(Self.lecture, model: model)
+        _ = try await prepare.value   // the drag began a moment before the drop
+        let delivery = Delivery()
+        NoteFileDrag.load(prepare) { url, error in
+            delivery.data = url.flatMap { try? Data(contentsOf: $0) }
+            delivery.name = url?.lastPathComponent
+            delivery.error = error
+            delivery.done.signal()
+        }
+        // Block the main thread, as a file promise's writer may: the PDF still arrives.
+        #expect(delivery.done.wait(timeout: .now() + 60) == .success, "delivered without the main thread")
+        #expect(delivery.error == nil)
+        #expect(delivery.name == "Fixture lecture.pdf")
+        #expect(delivery.data?.starts(with: Data("%PDF-".utf8)) == true)
+    }
+
+    @Test func theProviderOffersThePDFFirstUnderTheNotesName() async throws {
+        let (model, _) = try await NoteWindowTests.unlockedModel()
+        defer { try? FileManager.default.removeItem(at: model.exportFolder) }
+        let prepare = NoteFileDrag.prepare(Self.lecture, model: model)
+        let provider = DragPayload.notes([Self.lecture]).provider { provider in
+            NoteFileDrag.register(on: provider, title: "Fixture lecture", prepare: prepare)
+        }
+        #expect(provider.registeredTypeIdentifiers.first == UTType.pdf.identifier, "other apps see the PDF first")
+        #expect(provider.suggestedName == "Fixture lecture")
+        let delivery = Delivery()
+        _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.pdf.identifier) { url, error in
+            delivery.data = url.flatMap { try? Data(contentsOf: $0) }
+            delivery.error = error
+            delivery.done.signal()
+        }
+        let delivered = await Task.detached { delivery.done.wait(timeout: .now() + 60) == .success }.value
+        #expect(delivered)
+        #expect(delivery.error == nil)
+        #expect(delivery.data?.starts(with: Data("%PDF-".utf8)) == true)
+    }
+
+    @Test func aDragFromAClosedVaultWritesNothing() async throws {
+        let (model, _) = try await NoteWindowTests.unlockedModel()
+        let prepared = try await model.prepareExport(noteID: Self.lecture)
+        model.close()
+        #expect(throws: CancellationError.self) { _ = try prepared.write() }
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: model.exportFolder.path)) ?? []
+        #expect(left.isEmpty, "no plaintext PDF after the vault closed")
+    }
+
+    @Test func droppedFilesAreNamedAfterTheTitle() {
+        #expect(NoteFileDrag.suggestedName(title: "Lab: week 3/4") == "Lab week 3 4")
+        #expect(NoteFileDrag.suggestedName(title: "") == "Untitled")
     }
 }

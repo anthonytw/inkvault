@@ -272,23 +272,9 @@ private struct NoteDragOut: ViewModifier {
         let ids = model.isSelectingNotes && model.multiSelection.contains(note.id) ? model.exportTargetIDs : [note.id]
         let payload = DragPayload.notes(ids)
         model.draggedPayload = note.deleted ? nil : payload   // notes in Recently Deleted are not moved by a drop
-        let id = note.id
-        let exporter = model
         return payload.provider { provider in
             guard Platform.isMac else { return }
-            provider.registerFileRepresentation(forTypeIdentifier: UTType.pdf.identifier, fileOptions: [],
-                                                visibility: .all) { completion in
-                let progress = Progress(totalUnitCount: 1)
-                Task { @MainActor in
-                    do {
-                        completion(try await exporter.exportPDF(noteID: id), false, nil)
-                    } catch {
-                        completion(nil, false, error)
-                    }
-                    progress.completedUnitCount = 1
-                }
-                return progress
-            }
+            NoteFileDrag.register(on: provider, title: note.title, prepare: NoteFileDrag.prepare(note.id, model: model))
         }
     }
 }

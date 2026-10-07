@@ -290,6 +290,8 @@ final class AppModel {
     var libraryWindowRequested: Date?
     /// Where this model's PDF exports (drag to Finder) are written; emptied when the vault closes.
     let exportFolder = NotePDFExport.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    /// Bumped when the vault closes: a drag-out export prepared before it writes nothing.
+    let exportEpoch = ExportEpoch()
     /// Library windows on screen (a note window restored alone opens one).
     var libraryWindowCount = 0
     /// The migration of a legacy vault while `phase == .migrating`.
@@ -778,6 +780,7 @@ final class AppModel {
         windowClaims = []
         let scoped = scopedURL
         self.editor = nil
+        exportEpoch.bump()
         NotePDFExport.purge(in: exportFolder, olderThan: 0)   // plaintext PDFs dragged out of this vault
         if editor != nil || scoped != nil || !windowed.isEmpty {
             let earlier = closingEditor
