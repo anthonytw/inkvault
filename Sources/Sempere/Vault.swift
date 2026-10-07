@@ -11,7 +11,9 @@ public enum VaultError: Error, Hashable, Sendable {
     case notAVault(String)
     /// `vault.json` does not parse or breaks a rule of format.md §2.
     case manifestCorrupt(String)
-    /// `vault.json` names a format other than `sempere/1`.
+    /// `vault.json`'s `format` is not a format identifier (`sempere/<major>`,
+    /// format.md §7.1), or the manifest of a later major cannot be decoded
+    /// well enough to open it read-only (§7.2).
     case unsupportedFormat(String)
     /// A vault needs at least one recipient.
     case noRecipients
@@ -80,10 +82,10 @@ public enum VaultError: Error, Hashable, Sendable {
     case fileTooLarge(String, limit: Int)
     /// A filesystem operation failed.
     case io(String)
-    /// `vault.json` lists format extensions this implementation does not
-    /// know (`features`, format.md §2): it may read the vault but must not
-    /// write to it.
-    case unsupportedFeatures([String])
+    /// The vault holds newer content (format.md §7.2): a later `format`,
+    /// unknown `features`, or newer revisions this vault value has read. It
+    /// may be read but never written (§7.3).
+    case readOnly(ReadOnlyReasons)
 }
 
 /// Why one revision file could not be read, by stage. (Vault-level
@@ -104,6 +106,10 @@ public enum RevisionReadError: Error, Hashable, Sendable {
     case corruptBody(String)
     /// The JSON does not decode as a revision, or names another note or file.
     case undecodable(String)
+    /// Written by a newer version and not readable by this one (format.md
+    /// §7.2, §7.4): a later body version, or a newer revision whose envelope
+    /// or state does not decode. The vault is read-only once it is seen.
+    case newer(String)
 }
 
 /// A vault directory (`*.sempere`, format.md §1) opened with zero or more
@@ -130,6 +136,9 @@ public struct Vault: Sendable {
     /// Test seam (internal): lets tests write and read note content in a
     /// legacy vault, to build migration inputs. Never set outside tests.
     var legacyContentAllowed = false
+    /// The notes whose newer revisions this vault (or a copy) has read
+    /// (format.md §7.3); shared by every copy.
+    let readOnlyLatch = ReadOnlyLatch()
 
     static let manifestName = "vault.json"
     static let keysName = "keys"
@@ -154,7 +163,9 @@ public struct Vault: Sendable {
     public var canRead: Bool { secret != nil && !identities.isEmpty }
     /// The classic X25519 recipients (`age1...`) the manifest still lists.
     public var classicRecipients: [String] {
-        manifest.recipients.map(\.key).filter { (try? NativeRecipient(string: $0))?.isPostQuantum != true }
+        // A key that does not parse is not classic: only a newer manifest
+        // may hold one (format.md §7.2); `readManifest` rejects it otherwise.
+        manifest.recipients.map(\.key).filter { (try? NativeRecipient(string: $0))?.isPostQuantum == false }
     }
 
     /// True for a legacy vault: one that still lists a classic X25519
@@ -174,13 +185,33 @@ public struct Vault: Sendable {
         if !classic.isEmpty { throw VaultError.legacyVault(recipients: classic) }
     }
 
-    /// Throws `VaultError.unsupportedFeatures` when `vault.json` names a
-    /// format extension this implementation does not know (format.md §2):
-    /// such a vault may be read but never written. Every write calls it.
-    public func requireWritable() throws {
-        let unknown = manifest.unknownFeatures
-        if !unknown.isEmpty { throw VaultError.unsupportedFeatures(unknown) }
+    /// Why this vault is read-only (format.md §7.3): its manifest's newer
+    /// `format` or unknown `features`, and the notes whose newer revisions
+    /// this vault value (or any copy of it) has read so far. Empty when
+    /// writable.
+    public var readOnlyReasons: ReadOnlyReasons {
+        Self.readOnlyReasons(manifest, newerNotes: readOnlyLatch.newerNotes)
     }
+
+    /// True when the vault must not be written (`readOnlyReasons` not empty).
+    public var isReadOnly: Bool { !readOnlyReasons.isEmpty }
+
+    static func readOnlyReasons(_ manifest: VaultManifest, newerNotes: [UUID] = []) -> ReadOnlyReasons {
+        ReadOnlyReasons(vaultFormat: SempereFormat.isNewer(manifest.format) ? manifest.format : nil,
+                        unknownFeatures: manifest.unknownFeatures, newerNotes: newerNotes)
+    }
+
+    /// Throws `VaultError.readOnly` when the vault holds newer content
+    /// (format.md §7.2, §7.3): such a vault may be read but never written.
+    /// Every write calls it.
+    public func requireWritable() throws {
+        let reasons = readOnlyReasons
+        if !reasons.isEmpty { throw VaultError.readOnly(reasons) }
+    }
+
+    /// Records that `note` holds newer content (format.md §7.3): from now on
+    /// every write through this vault, or any copy of it, is refused.
+    func noteNewerContent(in note: UUID) { readOnlyLatch.record(note) }
 
     /// Adds `feature` to `vault.json`'s `features` unless it is already
     /// there (format.md §2: `attachments` goes in before the first blob or
@@ -300,13 +331,19 @@ public struct Vault: Sendable {
     static func readManifest(_ data: Data) throws -> VaultManifest {
         let manifest: VaultManifest
         do { manifest = try VaultManifest.decode(data) } catch {
+            // A later major that does not decode cannot be opened even read-only (format.md §7.2).
+            if let format = VaultManifest.peekFormat(data), SempereFormat.isNewer(format) {
+                throw VaultError.unsupportedFormat(format)
+            }
             throw VaultError.manifestCorrupt("\(error)")
         }
-        guard manifest.format == SempereFormat.identifier else {
+        guard let major = SempereFormat.major(of: manifest.format) else {
             throw VaultError.unsupportedFormat(manifest.format)
         }
         guard !manifest.recipients.isEmpty else { throw VaultError.manifestCorrupt("no recipients") }
-        for r in manifest.recipients {
+        // A later major may list recipient types this version does not know;
+        // it is opened read-only (format.md §7.3) with whatever key matches.
+        for r in manifest.recipients where major <= SempereFormat.major {
             guard (try? NativeRecipient(string: r.key)) != nil else {
                 throw VaultError.manifestCorrupt("invalid recipient \(r.key)")
             }
@@ -574,6 +611,12 @@ public struct Vault: Sendable {
                                    stopAfter: Int?) throws -> RewrapReport {
         let current = try requireReadable()
         try requireWritable()
+        // `features` as on disk: a blob writer may have added one since open.
+        // A newer vault.json synced in since open makes the vault read-only
+        // (format.md §7.3): refuse before the journal is written.
+        let onDisk = (try? Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))) ?? manifest
+        let reasons = Self.readOnlyReasons(onDisk)
+        if !reasons.isEmpty { throw VaultError.readOnly(reasons) }
         let ageNext = try next.map { r in
             do { return try NativeRecipient(string: r.key) } catch { throw VaultError.invalidRecipient(r.key) }
         }
@@ -585,8 +628,7 @@ public struct Vault: Sendable {
         try FileIO.writeAtomically(try InkJSON.encoder().encode(journal), to: journalURL, replacing: true)
         previousSecret = rotate ? current : nil
 
-        // `features` as on disk: a blob writer may have added one since open.
-        var m = (try? Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))) ?? manifest
+        var m = onDisk
         m.recipients = next
         m.vaultSecret = try Self.encryptSecret(newSecret, to: ageNext)
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)

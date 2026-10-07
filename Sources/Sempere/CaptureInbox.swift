@@ -103,6 +103,8 @@ extension Vault {
     /// key. Needs the vault unlocked once; afterwards captures need nothing else.
     public func captureProfile(device: DeviceID, notebook: String = CaptureProfile.defaultNotebook) throws -> CaptureProfile {
         try requireMigrated()
+        // A profile lets captures be written into inbox/ (format.md §7.3).
+        try requireWritable()
         let nb = NoteOps.normalizedNotebook(notebook) ?? CaptureProfile.defaultNotebook
         return CaptureProfile(vaultId: vaultId, recipients: recipients.map(\.key), key: try captureKey().bytes,
                               device: device.rawValue, notebook: nb)
@@ -515,6 +517,7 @@ extension Vault {
 
     /// Deletes inbox files once what they hold is in the vault.
     public func removeInboxFiles(_ names: [String]) {
+        guard !isReadOnly else { return }   // format.md §7.3
         for n in names where CaptureFile.parse(name: n) != nil {
             try? FileManager.default.removeItem(at: inboxURL.appendingPathComponent(n))
         }
@@ -559,6 +562,7 @@ extension Vault {
                                                    if case .addRecording(let r) = $0 { return r.transcript != nil }
                                                    return false }
             if dryRun { return result }
+            try requireWritable()
             if !planned.isEmpty {
                 let refs = try writeCaptureBlobs(pending)
                 let revision: Revision?

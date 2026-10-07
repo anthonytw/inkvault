@@ -108,6 +108,7 @@ extension Vault {
     @discardableResult
     public func writeIdentityFile(_ identity: NativeIdentity, passphrase: String, workFactor: Int = 18,
                                   created: Date = Date(), replace: Bool = false) throws -> URL {
+        try requireWritable()
         guard IdentityFile.writerWorkFactors.contains(workFactor) else {
             throw VaultError.workFactorOutOfRange(workFactor)
         }

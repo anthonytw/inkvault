@@ -33,6 +33,16 @@ public struct LoadedNote: Hashable, Sendable {
     public var revisions: [Revision]
     /// Every listed revision that failed to read.
     public var failures: [RevisionName: RevisionReadError]
+
+    /// What this note holds that a newer version wrote (format.md §7.4):
+    /// newer revisions read leniently, and those not readable at all. Nil
+    /// when there is none; the vault is then read-only (§7.3).
+    public var newer: NewerContent? {
+        var out = NewerContent()
+        for r in revisions { if let n = r.newer { out.merge(n) } }
+        for e in failures.values { if case .newer = e { out.unreadable = NewerContent.add(out.unreadable, 1) } }
+        return out.isEmpty ? nil : out
+    }
 }
 
 // MARK: - Note store (format.md §5)
@@ -80,8 +90,16 @@ extension Vault {
 
     func decodeRevisionFile(_ data: Data, note: String, name: RevisionName, secret: VaultSecret,
                             detail: RevisionDetail = .full) throws -> Revision {
-        let json = try revisionJSON(data, note: note, name: name, secret: secret)
-        return try Self.decodeRevisionJSON(json, note: note, name: name, detail: detail)
+        do {
+            let json = try revisionJSON(data, note: note, name: name, secret: secret)
+            let rev = try Self.decodeRevisionJSON(json, note: note, name: name, detail: detail)
+            if rev.newer != nil { noteNewerContent(in: rev.noteId) }
+            return rev
+        } catch RevisionReadError.newer(let why) {
+            // Seen, if not read: the vault is read-only from now on (format.md §7.3).
+            if let id = UUID(uuidString: note) { noteNewerContent(in: id) }
+            throw RevisionReadError.newer(why)
+        }
     }
 
     /// Decrypts a revision file, verifies its tag (format.md §4, also under
@@ -97,6 +115,8 @@ extension Vault {
         do {
             unframed = try Self.unframe(plain, note: note, filename: name.filename, secret: secret,
                                         previous: previousSecret)
+        } catch BodyFramingError.unsupportedVersion(let v) where v > SempereFormat.bodyVersion {
+            throw RevisionReadError.newer("body version \(v)")
         } catch BodyFramingError.tagMismatch {
             if let journalProblem, pendingRewrap {
                 throw RevisionReadError.tagMismatchJournalUnreadable(
@@ -119,6 +139,8 @@ extension Vault {
             rev = detail == .full ? try FastRevisionDecoder.decode(json)
                 : try InkJSON.decoder().decode(Revision.self, from: StrokePointsFilter.strip(json))
         } catch {
+            // A newer revision that does not decode is newer, not corrupt (format.md §7.2).
+            if RevisionMarkers.peekNewer(json) { throw RevisionReadError.newer("\(error)") }
             throw RevisionReadError.undecodable("\(error)")
         }
         guard rev.noteId.uuidString.lowercased() == note, rev.name == name else {
@@ -150,6 +172,8 @@ extension Vault {
         try requireMigrated()
         let secret = try requireSecret()
         try requireWritable()
+        // A revision read leniently is approximate: never write it back (format.md §7.4).
+        if revision.newer != nil { throw VaultError.readOnly(ReadOnlyReasons(newerNotes: [revision.noteId])) }
         guard (1...RevisionName.maxSeq).contains(revision.seq) else { throw VaultError.seqOutOfRange(revision.seq) }
         try writeEncoded(try encodedRevision(revision, secret: secret), of: revision)
     }

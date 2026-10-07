@@ -234,10 +234,12 @@ extension Vault {
                     throw RevisionReadError.unreadable("\(error)")
                 }
                 let json = try revisionJSON(data, note: noteName, name: n, secret: secret)
+                if RevisionMarkers.peekNewer(json) { noteNewerContent(in: note) }
                 do { inv.references[n] = try BlobReferenceScan.references(in: json) } catch {
                     throw RevisionReadError.undecodable("\(error)")
                 }
             } catch let e as RevisionReadError {
+                if case .newer = e { noteNewerContent(in: note) }
                 inv.unreadable[n] = e
             }
         }
@@ -300,6 +302,8 @@ extension Vault {
             return report
         }
         let inv = try blobInventory(note: note)
+        // The inventory may have found newer revisions (format.md §7.3).
+        if !dryRun { try requireWritable() }
         guard inv.isComplete else {
             let names = inv.unreadable.keys.sorted().map(\.filename)
             report.blocked = inv.listingProblem.map { "cannot list the note (rule 1): \($0)" }

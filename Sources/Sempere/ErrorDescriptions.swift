@@ -48,9 +48,9 @@ extension VaultError: CustomStringConvertible {
         case .interrupted: return "interrupted (test hook)"
         case .fileTooLarge(let path, let limit): return "\(path) is larger than the \(limit)-byte limit"
         case .io(let why): return why
-        case .unsupportedFeatures(let f):
-            return "this vault uses format extensions this version does not implement (\(f.joined(separator: ", "))): "
-                + "it can be read but not changed; update Sempere"
+        case .readOnly(let reasons):
+            return "this vault is read-only for this version of Sempere: " + reasons.descriptions.joined(separator: "; ")
+                + "; update Sempere to change it"
         }
     }
 }
@@ -90,6 +90,7 @@ extension RevisionReadError: CustomStringConvertible {
         case .tagMismatchJournalUnreadable(let why): return "tag mismatch (\(why))"
         case .corruptBody(let why): return "damaged body: \(why)"
         case .undecodable(let why): return "cannot decode the revision: \(why)"
+        case .newer(let why): return "written by a newer version of Sempere (\(why)): update Sempere to read it"
         }
     }
 }
