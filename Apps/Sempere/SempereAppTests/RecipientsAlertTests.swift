@@ -40,6 +40,12 @@ struct RecipientsAlertTests {
     static func preparedVault(trust: MemoryRecipientsTrustStore) async throws -> (url: URL, keyText: String) {
         let (url, key) = try AppModelTests.fixtureVault()
         let keyText = try String(contentsOf: key, encoding: .utf8)
+        // As written before format.md §2.1 (the committed fixture is tagged).
+        let manifestURL = url.appendingPathComponent("vault.json")
+        var old = try VaultManifest.decode(Data(contentsOf: manifestURL))
+        old.recipientsTag = nil
+        old.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        try old.encoded().write(to: manifestURL)
         let model = AppModel(deviceStateURL: TS.deviceStateURL(), recipientsTrust: trust)
         try await model.openVault(at: url)
         try await model.unlock(identityText: keyText)
