@@ -7,6 +7,7 @@ import Testing
 /// ledger without losing what this canvas has not saved, and without ever
 /// becoming ops of this canvas (no echo). Pure (no PencilKit): canvas strokes
 /// are fingerprinted by the stored stroke's first point.
+@MainActor
 struct StrokeLedgerMergeTests {
     static let page = UUID()
 
@@ -39,7 +40,7 @@ struct StrokeLedgerMergeTests {
     }
 
     @Test func aStrokeAddedElsewhereAppearsAndIsNotPendingHere() {
-        let a = Self.stroke(10), b = Self.stroke(20)
+        let a = Self.stroke(10)
         var l = StrokeLedger(stored: [a], info: Self.info)
         let remote = Self.stroke(30)
         let merge = l.mergeStored([a, remote], info: Self.info)
@@ -52,7 +53,6 @@ struct StrokeLedgerMergeTests {
         // The canvas showing the merge reports nothing new.
         let shown = Self.canvas(after: merge, before: [a])
         #expect(l.update(Self.items(shown)).isEmpty)
-        _ = b
     }
 
     @Test func unsavedInkStaysLiveOnTopAndPending() {

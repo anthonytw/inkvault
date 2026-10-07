@@ -12,6 +12,7 @@ import Testing
 struct RemoteMergeTests {
     static let lecture = AppModelTests.lecture
 
+    @MainActor
     struct Fixture {
         var url: URL
         var key: URL
@@ -173,10 +174,12 @@ struct RemoteMergeTests {
         // Both devices move it, neither having seen the other's move.
         let here = Rect(x: 20, y: 20, w: placed.frame.w, h: placed.frame.h)
         let there = Rect(x: 500, y: 600, w: placed.frame.w, h: placed.frame.h)
-        let local = try #require(NoteOps.setFrame(placed.id, to: here, on: try #require(f.editor.pages.first { $0.id == page.id })))
+        let current = try #require(f.editor.pages.first { $0.id == page.id })
+        let local = try #require(NoteOps.setFrame(placed.id, to: here, on: current))
         #expect(f.editor.applyItemEdit(local))
         await f.editor.flush()
-        try f.elsewhere(try #require(NoteOps.setFrame(placed.id, to: there, on: base)).ops)
+        let remote = try #require(NoteOps.setFrame(placed.id, to: there, on: base))
+        try f.elsewhere(remote.ops)
         try await f.merge()
 
         let winner = try #require(try f.onDisk().pages.first { $0.id == page.id }?.items.first { $0.id == placed.id })

@@ -9,6 +9,11 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- A note open in the app picks up what another device writes to it (iCloud Drive, any sync, the CLI)
+  without being reopened: the new revisions are downloaded and merged into the open canvas, pages,
+  items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink
+  changed are redrawn, at the same scroll and zoom; nothing is written back for the merge. A small
+  "Updated from another device" notice shows for a few seconds.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed

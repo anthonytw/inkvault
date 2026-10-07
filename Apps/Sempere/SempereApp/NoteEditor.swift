@@ -211,7 +211,7 @@ final class NoteEditor {
     }
 
     /// What reading a note yields, off the main actor.
-    private struct Loaded: Sendable {
+    fileprivate struct Loaded: Sendable {
         var state: NoteState
         var failures: Int
         var nextSeq: Int
@@ -1095,7 +1095,7 @@ extension NoteEditor {
                 let merge = l.mergeStored(page.strokes, info: CanvasStrokeInfo.init(stored:))
                 if merge.changesCanvas {
                     if let previous, previous.strokes.count == merge.previousCount {
-                        canvasDrawings[page.id] = PKDrawing(strokes: merge.sources.map { source in
+                        canvasDrawings[page.id] = PKDrawing(strokes: merge.sources.map { source -> PKStroke in
                             switch source {
                             case .kept(let i): return previous.strokes[i]
                             case .converted(let s): return StrokeConversion.pkStroke(s)

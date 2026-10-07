@@ -284,6 +284,49 @@ SwiftUI `List`.
     are redrawn from the open PDF at whatever zoom the page is shown, which is
     why the preview, not the tiles, is what persists.
 
+## Changes from other devices while a note is open (app)
+
+A note open in an editor takes revisions written elsewhere (another device
+through iCloud Drive or any other sync, the CLI, this device's browser
+edits) in place, without being reopened (`AppModel+RemoteMerge`,
+`NoteEditor.mergeRevisions`).
+
+- **Detection** is the change-driven listing (above): each pass lists the
+  note folders by name, and an open editor whose folder holds a revision file
+  name it has neither read nor written (`NoteEditor.knownRevisionNames`) gets
+  a merge. In iCloud Drive the file presenter wakes the sync loop for that
+  note, so a delivered revision is merged within a poll interval. A local
+  vault is listed again on a reload. At most one merge runs per note.
+- **Before reading**, every revision of the note is made local
+  (`downloadNote`); the editor never writes while one is missing. The merge
+  waits while a canvas is mid-stroke or mid-erase, then saves what is pending
+  (one delta through the editor's `NoteWriter`, as autosave does) and reads
+  the note again. A save that starts during that read (autosave, a page
+  gesture) makes it read again (`writeEpoch`), since its strokes would
+  otherwise look removed elsewhere. A note with an unreadable revision is not
+  merged (tried again when its names change); a read-only editor (Recently
+  Deleted, unreadable revisions) is reopened instead.
+- **Applying** is synchronous on the main actor, so no canvas can report a
+  drawing in between. Per page, `StrokeLedger.mergeStored` takes the merged
+  strokes as what is on disk and keeps what is pending here (strokes drawn
+  since the save stay live on top, unsaved erasures stay erased): only that
+  is ever written afterwards, never the other device's adds or removals (no
+  echo). Canvas strokes are reused where every stored stroke they stand for
+  is still live; only new strokes are converted. Every canvas showing a page
+  whose ink changed (`RemoteInkView`) shows the merged drawing at once at the
+  same scroll and zoom, and drops that page's undo steps (an older undo could
+  put back a drawing without the other device's strokes and so erase them);
+  other pages keep theirs. Items, papers, page order and additions or
+  removals, recognition, meta and recordings are taken as merged; the item
+  layer, text boxes and the selection follow the editor's pages. An infinite
+  page that grew here and is not saved keeps its height. Concurrent edits are
+  decided by the format (`format.md` §5.3, §8.2.2): the editor shows what
+  every device reconstructs.
+- **Shown**: "Updated from another device" for a few seconds above the
+  canvas when a revision of another device changed what the note shows
+  (`NoteEditor.remoteUpdates`). Signpost `note.remoteMerge` (detail: the
+  outcome).
+
 ## Performance timing (app)
 
 Every phase above is an `os_signpost` interval (subsystem

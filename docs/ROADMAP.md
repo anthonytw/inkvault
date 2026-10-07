@@ -108,7 +108,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Visual paper picker (line width, spacing) | ✅ #28 |
 | Canvas | Pages vs pageless (switch without moving ink; add after current / at end, delete with undo, duplicate, drag to reorder in a thumbnail strip) | ✅ #52 |
 | Canvas | Continuous page scrolling: paged notes scroll from one page to the next (gap and shadow between pages), lazy per-page canvases, zoom across pages, current page follows the scroll | ✅ #80 (not yet tried on the iPad) |
-| Canvas | Remote changes merged into an open note | 🔀 (PR pending) |
+| Canvas | Remote changes merged into an open note: new revisions of the open note are downloaded and merged in place (unsaved ink kept, no echo deltas, only changed pages redrawn), "Updated from another device" notice | 🔀 #91 (not yet tried on the iPad) |
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
 | Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | ✅ #72 |
 | Search | "Recognize All Notes" results: a "Recently Recognized" sidebar section like Recently Deleted (notes read in the last 7 days, kept across launches, gone when empty); recent searches as the search field's suggestions, with Clear | ✅ #72, 🔀 #84 |
