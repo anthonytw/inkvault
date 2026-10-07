@@ -294,6 +294,7 @@ public enum NotabilityBundle {
         for f in fields {
             for n in BundleFileName.hashByteCounts where f.size >= n && f.size < n + 8 {
                 try fb.check(f.position, n)
+                try budget.spend(n)   // records can share a payload, as for the name walk above
                 let raw = Array(fb.bytes[f.position..<(f.position + n)])
                 if let name = BundleFileName.name(in: raw), !a.fileNames.contains(name) { a.fileNames.append(name) }
             }
