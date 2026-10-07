@@ -243,6 +243,12 @@ queued for up to 30 minutes.
 - **On demand:** `gh workflow run CI --ref <branch>` checks any branch.
 - **PRs skip what only matters for shipping.** The static Linux release build
   and the Mac Catalyst build run on `main` only. Tests run with `--parallel`.
+- **Mac Catalyst tests** (`scripts/app.sh test-mac`, `test-mac-ui`) run the app
+  suites and `MacWindowUITests` on the runner's macOS, ad-hoc signed and
+  sandboxed, on `main` and on dispatch only. A cloud session without a Mac
+  checks Mac behaviour with `gh workflow run CI --ref <branch>` (or the GitHub
+  MCP `run_workflow`). When the app job fails, its "Summary of failures" step
+  prints the failing tests and the UI-test window dumps at the end of the log.
 - **Age is compiled with `-O` even in debug builds** (`Package.swift`).
   Unoptimized scrypt made the passphrase tests take minutes: 37 s for one test
   on macOS CI, and 138 s for one app test. Keep that flag.

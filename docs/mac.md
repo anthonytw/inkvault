@@ -95,7 +95,12 @@ command does nothing there.
 * **Library window** (`WindowGroup` id `library`): the sidebar, the note list
   and one note on the canvas, as on the iPad.
 * **Note windows** (`WindowGroup(for: NoteWindowValue.self)`): one note each,
-  opened from the note's context menu or File > Open Note in New Window.
+  opened from the note's context menu or File > Open Note in New Window (⌥⌘N).
+  In build 6, File had none of the app's commands (see "UIKit's own items")
+  and File > New Window (⌘N) was UIKit's, which opens another library window,
+  never a note; UIKit's New Window is gone now. `MacWindowUITests` opens a note
+  window both ways on Catalyst and checks that no second library window
+  appears.
   `NoteWindowValue` is `Codable` (vault id and note id, no path), so SwiftUI
   restores the windows that were open. A note window restored without a library
   window brings the library window up (after a second, if none appeared) to
@@ -151,6 +156,35 @@ nothing (`ExportEpoch`). The file is plaintext, written under
 `$TMPDIR/SempereExport/<model id>/<random id>/<title>.pdf`; the folder is
 emptied when the vault closes and at launch, and files older than ten minutes
 are removed on the next export. Bulk export is the CLI's (`sempere export`).
+
+## PDF pages on the canvas
+
+PDF page items are `PDFTileLayer`s (a `CATiledLayer` drawn by Core Graphics,
+`docs/attachments.md` §13). In build 6 they stayed blank on the Mac. The
+canvas shows a page's items before its view is in a window, when its display
+scale may be 0 (or not the window's), and the tile layer only redrew for a
+content change: an iPad redraws tiles for a new `contentsScale` by itself, a
+Mac does not. Now a tile layer never takes a scale of 0, redraws whenever its
+scale changes, and the item layer lays out again when the display scale
+changes (a window moved to another display). `MacCatalystPDFTests` runs the
+whole path on Catalyst (blob cache with file protection, the sandboxed
+temporary folder, Core Graphics, the tile drawing in both context
+orientations, Core Animation asking for tiles, the pixels in the window),
+including items shown before the view is in a window. Not covered by tests:
+an iCloud Drive vault whose attachments are not downloaded yet on the Mac
+(the same `CloudVault` path as the iPad; the simulator and the runner have
+no iCloud).
+
+## Notebook combo box
+
+The notebook field of New Note, Move to Notebook and Move Notebook (#72) is
+the same view on the Mac. A Mac shows these sheets in a small window without
+visible scroll bars, where the list opened below the window's edge; the field
+now scrolls to the top of the form when its list opens (`NotebookField.reveal`).
+`MacWindowUITests` types into it and opens the list with the chevron on
+Catalyst. Typing suggestions and the chevron worked on Catalyst in CI before
+this change too, so if build 6 showed neither, check that it was built after
+#72.
 
 ## Key window
 
@@ -217,10 +251,16 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 1. Open a vault from the open panel, quit, relaunch: does it reopen (sandboxed
    build: `scripts/app.sh catalyst` with signing, or Xcode)? A DEBUG build logs
    `SempereDebug folderAccess scoped=… listable=…` for every open.
-2. Every menu entry and shortcut above, in the library window and a note window.
-3. Open two notes in two windows, draw in both, quit and relaunch: both windows
-   come back, the vault asks for its key (or Touch ID) once.
+2. Every menu entry and shortcut above, in the library window and a note window;
+   File and Edit hold no UIKit New Window, Open…, Duplicate or Find… items.
+3. Open two notes in two windows (⌥⌘N and the context menu), draw in both, quit
+   and relaunch: both windows come back, the vault asks for its key (or Touch
+   ID) once.
 4. Drag a note to the Desktop; open the PDF in Preview. Drag one that is open
-   with unsaved ink.
-5. Add a key (paste and generate), remove it, print the recovery kit.
-6. Draw with the mouse and trackpad, with each tool; erase with the object eraser.
+   with unsaved ink, and one from an iCloud vault that is not downloaded yet.
+5. Open a note with PDF pages from the iCloud test vault (attachments not yet
+   downloaded on the Mac): the pages appear after the download; zoom in, move
+   the window to another display.
+6. New Note: type part of a notebook name; open the list with the chevron.
+7. Add a key (paste and generate), remove it, print the recovery kit.
+8. Draw with the mouse and trackpad, with each tool; erase with the object eraser.

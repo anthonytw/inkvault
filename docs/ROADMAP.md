@@ -128,10 +128,12 @@ behaviour and testing on a real Mac.
 | Everything in the iPad table | same status as the iPad |
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
 | Saved folder access in a sandboxed Mac build | 🔀 access check, entitlements and a DEBUG probe done; the plain bookmark under the sandbox is unverified until a signed build is tried (`docs/io.md`) |
-| Menus and keyboard shortcuts | 🔀 `docs/mac.md` |
-| Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`) |
-| Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md` |
-| Drag a note to the Finder as PDF | 🔀 `docs/mac.md` |
+| Menus and keyboard shortcuts | 🔀 `docs/mac.md`; File/Edit commands restored after build 6 (UIKit shortcut clashes), checked on Catalyst in CI |
+| Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`); acts on the focused window's notes since build 6 |
+| PDF page attachments on the canvas | 🔀 blank in build 6; tile redraw on scale change fixed, checked on Catalyst in CI; iCloud vault needs a hand test |
+| App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
+| Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md`; note windows checked on Catalyst in CI; restoration needs a hand test |
+| Drag a note to the Finder as PDF | 🔀 `docs/mac.md`; file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | 📋 with the share/export work (the CLI has it) |
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
