@@ -183,7 +183,17 @@ extension AppModel {
         while true {
             let pass = try await offMain { try ProgressiveLoad.pass(vault: url, window: window, hooks: hooks) }
             try ensureCurrent(gen)
-            if pass.pending.isEmpty { return }
+            if pass.pending.isEmpty {
+                // The rewrap re-tags voice notes waiting in `inbox/` too (format.md
+                // §3.3.1): an evicted one it could not see would never be adopted.
+                let inbox = try await offMain { try CloudScan.inboxItems(inVault: url) }
+                if !inbox.isEmpty {
+                    try await CloudVault.download(items: inbox.map(\.item), hooks: hooks, stallTimeout: cloudStallTimeout,
+                                                  pollInterval: cloudPollInterval) { _ in }
+                    try ensureCurrent(gen)
+                }
+                return
+            }
             progress("Downloading from iCloud Drive: \(pass.ready.count) of \(pass.all.count) notes…")
             if pass.localFiles != lastLocal {
                 lastLocal = pass.localFiles

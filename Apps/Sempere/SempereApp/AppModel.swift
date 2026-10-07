@@ -154,6 +154,13 @@ final class AppModel {
     @ObservationIgnored var playbackBackend: (@MainActor () -> AudioPlaybackBackend)?
     /// Where recordings in progress keep their files (tests pass their own).
     @ObservationIgnored var recordingRoot = RecordingSession.root
+    /// Quick voice notes (`QuickCapture`, `AppModel+Inbox`); tests pass their own.
+    @ObservationIgnored var quickCapture = QuickCapture.shared
+    /// Voice notes adopted from the inbox in this session (for the UI).
+    var capturesAdopted = 0
+    /// Why the last inbox adoption failed, if it did.
+    var inboxProblem: String?
+    @ObservationIgnored var inboxAdoption: Task<Void, Never>?
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
     /// What the last "Recognize All Notes" run changed, kept (also after it
@@ -553,6 +560,8 @@ final class AppModel {
         loadActivity()
         startLoadingNotes(reportErrors: !awaitNotes)
         if awaitNotes { try await notesLoaded() }
+        refreshQuickCaptureProfile()
+        startInboxAdoption()
     }
 
     /// Enters the migration screen for the vault just unlocked with
@@ -590,6 +599,9 @@ final class AppModel {
         guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
         vault = next
         saveActivity()   // under the new secret's key, if it changed
+        // A removed key rotated the capture key: voice notes sealed with the
+        // old one from now on would never be adopted (format.md §11.1).
+        refreshQuickCaptureProfile()
         keyEpoch += 1
     }
 
@@ -600,6 +612,7 @@ final class AppModel {
         migration = nil
         phase = .unlocked
         loadActivity()
+        refreshQuickCaptureProfile()   // the migration rotated the secret, and with it the capture key
         try await reload()
     }
 

@@ -168,6 +168,12 @@ sempere vault index [--out PATH|-]
   file with the removed key. The method is recorded in the journal, so
   `rewrap-resume` (from any device) finishes with the same one. `--json`
   reports it as `blobs`.
+- Voice notes waiting in `inbox/` (`format.md` §11) are re-encrypted to the
+  new set and re-tagged under the new capture key, so they are still adopted
+  after a removal. One that verifies under neither the current nor the
+  outgoing capture key (forged, or sealed with a profile revoked earlier) is
+  left as it is, reported (`--json`: `inboxSkipped`) and does not make the
+  change incomplete. Run `inbox enable` again on machines that capture.
 - Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
   and the new key of `replace` refuse a classic `age1...` key with "create a
   new key" (exit 2), before asking for any passphrase. Legacy vaults that
@@ -995,6 +1001,36 @@ available, language, detail}]}`).
 title, file, error, recordings: [{id, title, engine, language, segments, words,
 transcript, error}]}]}`; a recording that cannot be transcribed is reported
 and the exit code is 1.
+
+### Quick capture inbox
+
+```
+sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key once)
+sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
+sempere inbox transcript CAPTURE JSON [--profile PATH]
+sempere inbox list
+sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
+```
+
+Voice notes without the key (`format.md` §11, `docs/quick-capture.md`), the
+same path as the app's widgets, Control Center control and Siri. `enable`
+writes this machine's **capture profile** (the vault's public recipients and
+its capture key, which can only add captures and never reads anything) to
+`$XDG_STATE_HOME/sempere/capture/<vault id>.json`, mode 0600. Run it again after
+a key is removed from the vault: that rotates the capture key. `capture` reads
+only `vault.json` and the profile, no identity or passphrase. It seals the
+audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
+with the capture key) and prints the capture id. `--transcript` seals a
+`sempere-transcript/1` file with it, and `transcript` seals one later; either
+way its recording id is replaced by the capture's. `list` shows the inbox:
+ids and file kinds without a key, titles and whether each verifies with one.
+`import` adopts each capture as a note in the capture's notebook ("Inbox"),
+titled from its date: the audio and transcript as blobs, then one delta as this
+machine, then the inbox files are deleted. The note, page and recording ids
+derive from the capture id, so importing on two machines gives one note. A
+capture that does not verify is reported (exit 1) and kept. `--json`:
+`capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
+[{capture, note, title, created, transcript, file, removed, error}]}`.
 
 ### Export
 

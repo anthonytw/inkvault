@@ -184,6 +184,8 @@ private struct RewrapOutput: Encodable {
     var failures: [String: String]
     /// `header` or `reencrypt` (attachment blobs); nil when nothing ran.
     var blobs: String? = nil
+    /// Inbox files left untouched: they verify under no capture key (format.md §3.3.1, §11).
+    var inboxSkipped: [String] = []
 }
 
 private func reportRewrap(_ report: Vault.RewrapReport, output: OutputOptions) throws {
@@ -191,10 +193,11 @@ private func reportRewrap(_ report: Vault.RewrapReport, output: OutputOptions) t
         try output.emitJSON(RewrapOutput(complete: report.isComplete, rewrapped: report.rewrapped.count,
                                          alreadyCurrent: report.alreadyCurrent.count,
                                          failures: report.failures.mapValues { "\($0)" },
-                                         blobs: report.blobMethod?.rawValue))
+                                         blobs: report.blobMethod?.rawValue, inboxSkipped: report.inboxSkipped))
     } else {
         output.info("Rewrapped \(report.rewrapped.count) file(s); \(report.alreadyCurrent.count) already current.")
         if output.verbose { for f in report.rewrapped { print("  rewrapped \(f)") } }
+        for f in report.inboxSkipped { printError("\(f): left as it is (cannot be decrypted or verified here: forged, or sealed with a revoked capture key)") }
     }
     guard report.isComplete else {
         for (file, why) in report.failures.sorted(by: { $0.key < $1.key }) {

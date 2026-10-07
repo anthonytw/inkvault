@@ -143,8 +143,10 @@ struct RecordingManifest: Codable, Equatable {
 /// the recording; when the interruption ends with "should resume" it goes on
 /// in the same file, otherwise it stays paused until Resume. A headset
 /// unplugged pauses it too. Plaintext audio lives in the app's own folder,
-/// protected until the device is first unlocked after boot while open
-/// (`completeUnlessOpen`), and is deleted once the encrypted blob is written.
+/// protected `completeUnlessOpen` by default (written while locked, unreadable
+/// once closed until the device is unlocked), and is deleted once the
+/// encrypted blob is written. Quick voice notes, which must also be read and
+/// sealed while the device stays locked, pass `completeUntilFirstUserAuthentication`.
 @MainActor
 @Observable
 final class RecordingSession {
@@ -195,9 +197,14 @@ final class RecordingSession {
         return base.appendingPathComponent("Sempere/Recordings", isDirectory: true)
     }
 
+    /// The Data Protection class of the session's files (iOS).
+    let protection: FileProtectionType
+
     init(noteID: UUID, format: RecordingFormat, root: URL = RecordingSession.root,
+         protection: FileProtectionType = .completeUnlessOpen,
          backend: AudioCaptureBackend? = nil, center: NotificationCenter = .default, now: @escaping () -> Date = { Date() }) {
         id = UUID()
+        self.protection = protection
         self.noteID = noteID
         self.format = format.normalized()
         folder = root.appendingPathComponent(id.uuidString.lowercased(), isDirectory: true)
@@ -220,7 +227,7 @@ final class RecordingSession {
     /// Starts recording. Throws `alreadyRecording` when another session runs.
     func start() throws {
         if let other = Self.active, other !== self, other.isActive { throw RecordingError.alreadyRecording }
-        try Self.makeFolder(folder)
+        try Self.makeFolder(folder, protection: protection)
         try beginSegment()
         timeline.resume(at: now())
         state = .recording
@@ -376,12 +383,21 @@ final class RecordingSession {
     private func writeManifest() throws {
         let data = try JSONEncoder().encode(manifest)
         try data.write(to: folder.appendingPathComponent(RecordingRecovery.manifestName),
-                       options: [.atomic, .completeFileProtectionUnlessOpen])
+                       options: [.atomic, Self.writingOption(protection)])
     }
 
-    nonisolated static func makeFolder(_ url: URL) throws {
+    /// The `Data.write` option of a protection class.
+    nonisolated static func writingOption(_ protection: FileProtectionType) -> Data.WritingOptions {
+        switch protection {
+        case .completeUnlessOpen: return .completeFileProtectionUnlessOpen
+        case .completeUntilFirstUserAuthentication: return .completeFileProtectionUntilFirstUserAuthentication
+        default: return .completeFileProtection
+        }
+    }
+
+    nonisolated static func makeFolder(_ url: URL, protection: FileProtectionType = .completeUnlessOpen) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true,
-                                                attributes: [.protectionKey: FileProtectionType.completeUnlessOpen])
+                                                attributes: [.protectionKey: protection])
         var root = url.deletingLastPathComponent()
         var values = URLResourceValues()
         values.isExcludedFromBackup = true

@@ -18,6 +18,9 @@ Notes.sempere/
       <hlc>-<device>-<seq>.snapshot.age   append-only snapshot  (§5)
       att/
         <blobName>.<kind>.age             the note's attachment bytes: images, PDFs, audio, transcripts (§8.1)
+  inbox/
+    <captureId>.capture.age               a voice note sealed without the vault's key (§11), until adopted
+    <captureId>.transcript.age            its transcript, sealed the same way (§11)
 ```
 
 Everything under `notes/` (revisions and `att/` blobs alike) is written once
@@ -153,7 +156,10 @@ change can be finished by any device holding an identity of the new set:
    complete (below); otherwise rewrite it as described above, verifying its
    tag under the current secret or, failing that, under
    `previousVaultSecret`, and replace it atomically (temporary file in the
-   same directory, then rename; blobs: §8.1.5).
+   same directory, then rename; blobs: §8.1.5). Files waiting in `inbox/`
+   (§11) are rewritten the same way, re-tagged under the current secret's
+   capture key (§11.1); one that cannot be decrypted or verified is left as
+   it is, reported, and does not keep the journal.
 4. Delete `rewrap-journal.json` once every file is complete. If any file
    could not be read or verified, keep the journal (it is the only copy of
    the outgoing secret), report those files, and retry step 3 later.
@@ -2036,7 +2042,116 @@ It keeps three more, under the same derivation:
   `entryName("blob|<note id>|<sha256>|<size>")` plus a type extension, and is
   protected only by the device's file protection. A file found there from an
   earlier session is used only after its size and SHA-256 match the
-  reference again; the folder is deleted when the vault is closed. Where the
+  reference again; the folder is deleted when the vault is closed. Audio and
+  transcripts are not kept: their files are deleted as soon as nothing plays
+  or reads them. Where the
   system does not encrypt files at rest (Mac Catalyst has no data protection
   class), files are never kept across launches: a launch deletes what an
   earlier one left before using the folder.
+
+## 11. Capture inbox
+
+*New: quick capture.* A device may add voice notes to a vault without its
+identity and without the vault secret: it keeps the vault's public
+recipients and a **capture key**, and seals each voice note into `inbox/`.
+Any device that can read the vault later **adopts** it: it becomes a note,
+written as ordinary revisions and blobs (§5, §8). Files under `inbox/` are
+not revisions and are not write-once: they are deleted once adopted. Readers
+that do not implement this section ignore `inbox/` (§1); no `features` entry
+is needed, since nothing under `notes/` changes. Rationale and threat model:
+`docs/quick-capture.md`.
+
+### 11.1 Capture key
+
+```
+captureKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 capture key", L = 32)
+```
+
+It authenticates inbox files and nothing else. It cannot decrypt anything,
+tag a revision (§4), name a blob (§8.1.2) or derive a per-device cache key
+(§10), and HKDF does not reveal the secret. It changes whenever the secret
+rotates (a recipient is removed, §3.3), which revokes every capture key handed
+out before. Inbox files already there when the secret rotates are not lost:
+the recipient change re-tags each one that verifies under the outgoing
+capture key and re-encrypts it to the new recipients (§3.3.1 step 3), as it
+does when a recipient is added; a file sealed with a revoked key after that
+never verifies. A capturing device stores the key and the recipients list (a
+*capture profile*); how it stores them is up to the implementation.
+
+### 11.2 Inbox files
+
+`inbox/<captureId>.<kind>.age`, with `<captureId>` a lowercase UUID and
+`<kind>` `capture` or `transcript`. Other names are unknown files. Each file is
+an age v1 file encrypted to the vault's recipients, like a revision. Its
+plaintext is:
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| 0 | 4 | ASCII `SMPC` |
+| 4 | 1 | version `0x01` |
+| 5 | 32 | tag = HMAC-SHA256(key = captureKey, message = `"sempere/1" ‖ 0x00 ‖ "capture" ‖ 0x00 ‖ filename ‖ 0x00 ‖ rest`) |
+| 37 | rest | one line of UTF-8 JSON (no `0x0A` inside), `0x0A`, then the payload |
+
+`filename` is the file's base name, so a file renamed to another capture id or
+kind does not verify. A reader verifies the tag (under the current secret's
+capture key, or the previous secret's during an unfinished rewrap, §3.3.1)
+before it parses anything after it, and treats a file that fails as
+untrusted input (§9): reported, kept, never adopted. The whole plaintext is at
+most 256 MiB.
+
+- **`capture`**: the JSON is the capture manifest and the payload is the
+  audio, as recorded:
+
+  ```json
+  { "format": "sempere-capture/1", "id": "<captureId>", "device": "a1b2c3d4",
+    "vault": "<vaultId>", "created": "2026-10-07T14:33:05.120Z",
+    "started": "2026-10-07T14:32:41.000Z", "title": "Voice note 7 Oct 2026, 14:32",
+    "notebook": "Inbox",
+    "audio": { "sha256": "…", "size": 196608, "type": "audio/mp4" },
+    "duration": 24.1, "codec": "aac", "sampleRate": 48000, "channels": 1, "bitRate": 64000 }
+  ```
+
+  `id` must equal `<captureId>` and `vault` the vault's `vaultId`. `audio` is
+  a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
+  `device` is the capturing device's id (§5). `title`, `notebook` (absent:
+  `Inbox`) and the informational fields become the note's.
+- **`transcript`**: the JSON is a transcript (§8.3.2) whose `recording` is the
+  capture's recording id (§11.3); the payload is empty.
+
+Recovery without the app (the audio of a capture):
+
+```
+age -d -i key.txt inbox/ID.capture.age | tail -c +38 | head -n 1 | jq .   # the manifest
+age -d -i key.txt inbox/ID.capture.age | tail -c +38 | tail -n +2 > note.m4a
+```
+
+### 11.3 Adoption
+
+The note, its page and its recording have ids derived from the capture id,
+`derived(name)` being the first 16 bytes of SHA-256 of the UTF-8 `name` with
+the UUID version set to 8 and the variant to `10` (RFC 9562):
+
+```
+note      = derived("sempere-capture/1 <captureId> note")
+page      = derived("sempere-capture/1 <captureId> page")
+recording = derived("sempere-capture/1 <captureId> recording")
+```
+
+so devices that adopt the same capture concurrently write the same note, and
+an adoption interrupted before the inbox file was deleted adds nothing when
+repeated. To adopt, a reader verifies the files (§11.2), writes the audio
+(and transcript) as blobs of the note (§8.1.4), then writes one delta as
+itself (its own device id and clock):
+
+- a note that does not exist yet gets `newNote` (title, notebook, one page
+  with the derived page id, the reader's default paper and page size) and
+  `addRecording` (the derived recording id, the blob, `started` and the
+  informational fields), with `transcript` set when a transcript file is
+  there;
+- a note that exists gets only `setRecording(transcript)`, and only when the
+  recording is there without a transcript.
+
+Afterwards the capture file is deleted once the note exists, and the
+transcript file once the recording has a transcript (or is gone). A
+transcript file whose capture has not arrived yet stays.
+
