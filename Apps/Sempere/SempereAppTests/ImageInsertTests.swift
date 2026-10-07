@@ -148,7 +148,8 @@ struct ImageInsertTests {
     }
 
     @Test func cameraPhotosKeepTheirOrientation() throws {
-        let cg = try #require(UIImage(data: try #require(Self.photo(.png, gps: false)))?.cgImage)
+        let png = try #require(Self.photo(.png, gps: false))
+        let cg = try #require(UIImage(data: png)?.cgImage)
         let shot = UIImage(cgImage: cg, scale: 1, orientation: .right)
         let stored = try ImagePreparation.prepare(try ImagePreparation.jpeg(from: shot), privacy: true)
         #expect(stored.mediaType == "image/jpeg")
