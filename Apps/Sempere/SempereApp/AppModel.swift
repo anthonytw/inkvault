@@ -581,6 +581,9 @@ final class AppModel {
         guard phase == .unlocked, next.vaultId == vault?.vaultId else { return }
         vault = next
         saveActivity()   // under the new secret's key, if it changed
+        // A removed key rotated the capture key: voice notes sealed with the
+        // old one from now on would never be adopted (format.md §11.1).
+        refreshQuickCaptureProfile()
         keyEpoch += 1
     }
 
@@ -591,6 +594,7 @@ final class AppModel {
         migration = nil
         phase = .unlocked
         loadActivity()
+        refreshQuickCaptureProfile()   // the migration rotated the secret, and with it the capture key
         try await reload()
     }
 

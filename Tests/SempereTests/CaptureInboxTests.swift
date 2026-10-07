@@ -44,7 +44,9 @@ final class CaptureInboxTests: VaultTestCase {
 
         // Stock age decrypts it with the identity, as every vault file.
         let plain = try AgeFile.decrypt(sealed.data, with: [identity])
-        let line = plain[plain.startIndex + 37..<plain.firstIndex(of: 0x0A)!]
+        // The newline is searched for after the 37-byte header: the random tag may hold a 0x0A byte.
+        let rest = plain[(plain.startIndex + 37)...]
+        let line = rest[..<(try XCTUnwrap(rest.firstIndex(of: 0x0A)))]
         XCTAssertNotNil(try? JSONSerialization.jsonObject(with: Data(line)))
         XCTAssertEqual(plain.suffix(audio.count), audio)
 
@@ -98,6 +100,8 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertNil(early.error)
         XCTAssertNil(early.file)
         XCTAssertEqual(try vault.inboxEntries().first?.kinds, [.transcript], "kept until its capture arrives")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vault.url.appendingPathComponent(
+            "notes/\(CaptureAdoption.ids(for: id).note.uuidString.lowercased())").path), "nothing written while it waits")
 
         try CaptureWriter.store(try writer.seal(audio: audio, started: started, title: "Groceries", id: id), in: locked.inboxURL)
         let r = vault.adoptCapture(id, deviceState: deviceState(), app: "test/1")
@@ -108,6 +112,31 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertEqual(state.meta.notebook, "Voice/Quick")
         XCTAssertNotNil(state.recordings.first?.transcript)
         XCTAssertEqual(try vault.loadNote(ids.note).revisions.count, 1)
+        XCTAssertTrue(try vault.inboxEntries().isEmpty)
+    }
+
+    /// An adoption interrupted after its blobs and before its delta leaves a
+    /// note folder holding only `att/`. That is still a new note: the retry
+    /// creates it, instead of failing on a note "with no revisions" forever.
+    func testAnAdoptionInterruptedAfterItsBlobsIsFinished() throws {
+        let (identity, profile, locked) = try setUp()
+        let writer = try CaptureWriter(profile: profile)
+        let id = UUID()
+        try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: id), in: locked.inboxURL)
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id), in: locked.inboxURL)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        _ = try vault.writeCaptureBlobs(try vault.readCapture(id))   // then the crash
+        let ids = CaptureAdoption.ids(for: id)
+        XCTAssertEqual(try vault.noteIDs(), [ids.note])
+        XCTAssertTrue(try vault.revisionNames(of: ids.note).isEmpty)
+
+        let r = vault.adoptCapture(id, deviceState: deviceState(), app: "t")
+        XCTAssertNil(r.error)
+        XCTAssertTrue(r.created)
+        XCTAssertTrue(r.transcript)
+        let state = try vault.reconstruct(noteId: ids.note)
+        XCTAssertEqual(state.recordings.map(\.id), [ids.recording])
+        XCTAssertNotNil(state.recordings.first?.transcript)
         XCTAssertTrue(try vault.inboxEntries().isEmpty)
     }
 
@@ -162,6 +191,83 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertNotEqual(try vault.captureKey().bytes, profile.key)
         let id = UUID()
         try CaptureWriter.store(try CaptureWriter(profile: profile).seal(audio: audio, started: started, id: id), in: vault.inboxURL)
+        XCTAssertEqual(vault.adoptCapture(id, deviceState: deviceState(), app: "t").error, CaptureError.badTag.description)
+    }
+
+    /// A capture waiting in the inbox when a key is removed was tagged under
+    /// the outgoing secret's capture key. The rewrap re-tags it (format.md
+    /// §3.3.1 step 3, §11.1), so it is still adopted after the journal, the
+    /// only copy of that secret, is gone.
+    func testRemovingAKeyKeepsWaitingCapturesAdoptable() throws {
+        let (identity, profile, _) = try setUp()
+        var vault = try Vault.open(at: vaultURL(), identities: [identity])
+        let second = pqIdentity()
+        _ = try vault.addRecipient(second.recipient, label: "second")
+        let id = UUID()
+        let writer = try CaptureWriter(profile: profile)
+        try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: id), in: vault.inboxURL)
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id), in: vault.inboxURL)
+
+        let report = try vault.removeRecipient(second.recipient)
+        XCTAssertTrue(report.isComplete)
+        XCTAssertFalse(vault.pendingRewrap, "the journal is gone")
+        XCTAssertEqual(Set(report.rewrapped.filter { $0.hasPrefix("inbox/") }),
+                       ["inbox/\(CaptureFile.name(id, .capture))", "inbox/\(CaptureFile.name(id, .transcript))"])
+        // The removed key opens neither file any more.
+        for kind in CaptureFile.Kind.allCases {
+            let sealed = try Data(contentsOf: vault.inboxURL.appendingPathComponent(CaptureFile.name(id, kind)))
+            XCTAssertThrowsError(try AgeFile.decrypt(sealed, with: [second]))
+        }
+
+        let reopened = try Vault.open(at: vault.url, identities: [identity])
+        let r = reopened.adoptCapture(id, deviceState: deviceState(), app: "t")
+        XCTAssertNil(r.error)
+        XCTAssertTrue(r.created)
+        XCTAssertTrue(r.transcript)
+        XCTAssertEqual(try reopened.inboxEntries().count, 0)
+        let rec = try XCTUnwrap(try reopened.reconstruct(noteId: CaptureAdoption.ids(for: id).note).recordings.first)
+        XCTAssertEqual(try reopened.readBlob(note: CaptureAdoption.ids(for: id).note, rec.blob), audio)
+
+        // A second run finds the inbox current.
+        let again = try reopened.rewrapNotes(stopAfter: nil)
+        XCTAssertTrue(again.rewrapped.filter { $0.hasPrefix("inbox/") }.isEmpty)
+    }
+
+    /// A device added while captures wait can adopt them: the rewrap
+    /// re-encrypts inbox files to the new recipients.
+    func testAnAddedDeviceCanAdoptWaitingCaptures() throws {
+        let (identity, profile, _) = try setUp()
+        var vault = try Vault.open(at: vaultURL(), identities: [identity])
+        let id = UUID()
+        try CaptureWriter.store(try CaptureWriter(profile: profile).seal(audio: audio, started: started, id: id), in: vault.inboxURL)
+        let added = pqIdentity()
+        _ = try vault.addRecipient(added.recipient, label: "new iPad")
+
+        let onNewDevice = try Vault.open(at: vault.url, identities: [added])
+        let r = onNewDevice.adoptCapture(id, deviceState: deviceState(), app: "t")
+        XCTAssertNil(r.error)
+        XCTAssertTrue(r.created)
+    }
+
+    /// An inbox file that verifies under neither capture key (forged, or
+    /// sealed with a profile revoked earlier) is left as it is and does not
+    /// keep the journal, which would otherwise hold the outgoing secret forever.
+    func testAForgedInboxFileDoesNotBlockARecipientChange() throws {
+        let (identity, _, _) = try setUp()
+        var vault = try Vault.open(at: vaultURL(), identities: [identity])
+        let second = pqIdentity()
+        _ = try vault.addRecipient(second.recipient, label: "second")
+        let forger = CaptureProfile(vaultId: vault.vaultId, recipients: vault.recipients.map(\.key),
+                                    key: Data(repeating: 7, count: 32), device: "0badf00d", notebook: "Inbox")
+        let id = UUID()
+        let forged = try CaptureWriter(profile: forger).seal(audio: audio, started: started, id: id)
+        try CaptureWriter.store(forged, in: vault.inboxURL)
+
+        let report = try vault.removeRecipient(second.recipient)
+        XCTAssertTrue(report.isComplete)
+        XCTAssertFalse(vault.pendingRewrap)
+        XCTAssertEqual(report.inboxSkipped, ["inbox/\(forged.name)"])
+        XCTAssertEqual(try Data(contentsOf: vault.inboxURL.appendingPathComponent(forged.name)), forged.data, "left untouched")
         XCTAssertEqual(vault.adoptCapture(id, deviceState: deviceState(), app: "t").error, CaptureError.badTag.description)
     }
 

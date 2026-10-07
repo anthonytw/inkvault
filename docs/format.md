@@ -156,7 +156,10 @@ change can be finished by any device holding an identity of the new set:
    complete (below); otherwise rewrite it as described above, verifying its
    tag under the current secret or, failing that, under
    `previousVaultSecret`, and replace it atomically (temporary file in the
-   same directory, then rename; blobs: §8.1.5).
+   same directory, then rename; blobs: §8.1.5). Files waiting in `inbox/`
+   (§11) are rewritten the same way, re-tagged under the current secret's
+   capture key (§11.1); one that cannot be decrypted or verified is left as
+   it is, reported, and does not keep the journal.
 4. Delete `rewrap-journal.json` once every file is complete. If any file
    could not be read or verified, keep the journal (it is the only copy of
    the outgoing secret), report those files, and retry step 3 later.
@@ -2041,7 +2044,11 @@ It authenticates inbox files and nothing else. It cannot decrypt anything,
 tag a revision (§4), name a blob (§8.1.2) or derive a per-device cache key
 (§10), and HKDF does not reveal the secret. It changes whenever the secret
 rotates (a recipient is removed, §3.3), which revokes every capture key handed
-out before. A capturing device stores the key and the recipients list (a
+out before. Inbox files already there when the secret rotates are not lost:
+the recipient change re-tags each one that verifies under the outgoing
+capture key and re-encrypts it to the new recipients (§3.3.1 step 3), as it
+does when a recipient is added; a file sealed with a revoked key after that
+never verifies. A capturing device stores the key and the recipients list (a
 *capture profile*); how it stores them is up to the implementation.
 
 ### 11.2 Inbox files

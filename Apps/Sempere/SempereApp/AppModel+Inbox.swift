@@ -97,6 +97,19 @@ extension AppModel {
             let pending = try await offMain {
                 try CloudVault.coordinatedRead(coordinate) { try vault.readCapture(id) }
             }
+            // The note exists once it has a revision (in iCloud Drive, once one
+            // is listed, local or not); a folder holding only blobs is still new.
+            let url = vault.url, cloud = isCloudVault
+            let exists = try await offMain { () throws -> Bool in
+                if cloud { return try CloudScan.noteItems(inVault: url, id: ids.note).isEmpty == false }
+                return try vault.revisionNames(of: ids.note).isEmpty == false
+            }
+            // A transcript whose capture has not arrived yet waits, and writes
+            // nothing: a blob alone would make a note folder without revisions.
+            guard pending.manifest != nil || exists else { return false }
+            // Adopted before (maybe on another device): every revision must be
+            // local before a delta is written to it.
+            if exists { try await downloadNote(ids.note) }
             let clock = try deviceClockForWriting()
             let writer = NoteWriter(vault: vault, noteID: ids.note, clock: clock, nextSeq: 1, coordinated: isCloudVault)
             let prepare = blobWritePreparer(note: ids.note)
@@ -110,7 +123,6 @@ extension AppModel {
                 try await prepare?(BlobRef(content: content, type: BlobRef.transcriptType))
                 transcriptRef = try await writer.addBlob(content, type: BlobRef.transcriptType)
             }
-            let exists = try await offMain { try vault.noteIDs().contains(ids.note) }
             let audio = audioRef, transcript = transcriptRef
             try await commit(ids: [ids.note], creating: exists ? [] : [ids.note]) { vault, clock, cloud, verifier in
                 try await NoteWriter.append(to: ids.note, vault: vault, clock: clock, coordinated: cloud,

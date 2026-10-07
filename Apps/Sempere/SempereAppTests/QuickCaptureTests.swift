@@ -1,3 +1,4 @@
+import Age
 import AVFoundation
 import Foundation
 import Sempere
@@ -151,6 +152,42 @@ struct QuickCaptureTests {
         #expect(model.inboxProblem == nil)
     }
 
+    /// iCloud Drive uploads files in any order, so a voice note's transcript
+    /// can reach a device before its capture. The transcript waits and nothing
+    /// is written: a transcript blob alone would make a note folder without
+    /// revisions, which `requireLocal` refuses in iCloud Drive, so the capture
+    /// could never be adopted there. Once the capture arrives, both are.
+    @Test func aTranscriptBeforeItsCaptureWritesNothingUntilTheCaptureArrives() async throws {
+        let (url, key, _, qc, _) = try Self.setUp(transcribe: false)
+        let writer = try CaptureWriter(profile: try #require(try qc.store.load()).profile)
+        let id = UUID()
+        let ids = CaptureAdoption.ids(for: id)
+        let inbox = url.appendingPathComponent(CaptureFile.folderName, isDirectory: true)
+        let transcript = Transcript(recording: ids.recording, engine: "test", language: "en", created: Date(),
+                                    segments: [.init(start: 0, end: 1, text: "Linear maps.")])
+        try CaptureWriter.store(try writer.seal(transcript: transcript, capture: id), in: inbox)
+
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .milliseconds(50))
+        model.blobCacheFolder = Self.temp("blobs")
+        model.quickCapture = qc
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { model.inboxAdoption == nil })
+        let folder = url.appendingPathComponent("notes/\(ids.note.uuidString.lowercased())")
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "nothing is written while the transcript waits")
+        #expect(Self.inbox(url) == [CaptureFile.name(id, .transcript)])
+        #expect(model.inboxProblem == nil)
+
+        let tone = try Data(contentsOf: RecordingTests.tone)
+        try CaptureWriter.store(try writer.seal(audio: tone, started: Date(), id: id), in: inbox)
+        #expect(await model.adoptInbox() == 1)
+        let state = try #require(model.vault).reconstruct(noteId: ids.note)
+        #expect(state.recordings.map(\.id) == [ids.recording])
+        #expect(state.recordings.first?.transcript != nil)
+        #expect(Self.inbox(url).isEmpty)
+        #expect(model.inboxProblem == nil)
+    }
+
     @Test func enablingStoresAProfileWithoutTheIdentityAndRefreshFollowsKeyChanges() async throws {
         let (url, key) = try AppModelTests.fixtureVault()
         let model = AppModel(deviceStateURL: TS.deviceStateURL())
@@ -176,6 +213,31 @@ struct QuickCaptureTests {
         #expect(try qc.store.load()?.profile.key == stored.profile.key)
         try model.disableQuickCapture()
         #expect(try qc.store.load() == nil)
+    }
+
+    /// Removing a device key in the key window rotates the capture key; the
+    /// stored profile follows at once, not at the next unlock, so a voice note
+    /// recorded in between is still adopted.
+    @Test func removingADeviceKeyRefreshesTheProfileAtOnce() async throws {
+        let (url, key) = try AppModelTests.fixtureVault()
+        let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        let qc = QuickCapture()
+        qc.store = MemoryCaptureProfileStore()
+        qc.showsActivity = false
+        model.quickCapture = qc
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
+        try model.enableQuickCapture()
+        let other = try NativeIdentity.generate(.postQuantum)
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad")
+        #expect(try qc.store.load()?.profile.recipients.contains(other.recipient.string) == true, "added: the new key reads captures too")
+        let before = try #require(try qc.store.load()).profile.key
+        try await model.removeDeviceKey(other.recipient.string)
+        let after = try #require(try qc.store.load()).profile
+        #expect(after.key != before)
+        let vault = try #require(model.vault)
+        #expect(after.key == (try vault.captureKey()).bytes)
+        #expect(!after.recipients.contains(other.recipient.string))
     }
 
     /// A voice note interrupted by a crash is sealed from its finished

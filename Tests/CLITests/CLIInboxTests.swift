@@ -1,3 +1,4 @@
+import Age
 import Foundation
 import Sempere
 import XCTest
@@ -84,5 +85,28 @@ final class CLIInboxTests: CLITestCase {
         let first = try XCTUnwrap(((r.json as? [String: Any])?["captures"] as? [[String: Any]])?.first)
         XCTAssertTrue((first["error"] as? String)?.contains("does not verify") == true, "\(first)")
         XCTAssertEqual((try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])?.count, 1, "kept")
+    }
+
+    /// A capture waiting in the inbox survives `vault recipients remove`: the
+    /// rewrap re-tags it under the new secret's capture key (format.md
+    /// §3.3.1), so `inbox import` still adopts it afterwards.
+    func testWaitingCapturesSurviveARecipientRemoval() throws {
+        let (vault, _, keyPath) = try makeVault()
+        let unlocked = ["--vault", vault.url.path, "--identity", keyPath]
+        let locked = ["--vault", vault.url.path]
+        XCTAssertEqual(try cli(["inbox", "enable"] + unlocked).status, 0)
+        let other = try NativeIdentity.generate(.postQuantum).recipient.string
+        let added = try cli(["vault", "recipients", "add", other, "--label", "old phone"] + unlocked)
+        XCTAssertEqual(added.status, 0, added.err)
+        let capture = try XCTUnwrap(try json(try cli(["inbox", "capture", Self.tone, "--json"] + locked))["capture"] as? String)
+
+        let removed = try json(try cli(["vault", "recipients", "remove", other, "--json"] + unlocked))
+        XCTAssertEqual(removed["complete"] as? Bool, true)
+        XCTAssertEqual(removed["inboxSkipped"] as? [String], [])
+        let imported = try json(try cli(["inbox", "import", "--json"] + unlocked))
+        let result = try XCTUnwrap((imported["captures"] as? [[String: Any]])?.first)
+        XCTAssertEqual(result["capture"] as? String, capture)
+        XCTAssertNil(result["error"])
+        XCTAssertEqual(result["created"] as? Bool, true)
     }
 }

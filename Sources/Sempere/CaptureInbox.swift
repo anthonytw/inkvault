@@ -238,11 +238,14 @@ public enum CaptureFile {
         return (id, kind)
     }
 
-    static func tag(_ key: CaptureKey, filename: String, rest: Data) -> Data {
+    /// Computed incrementally: `rest` (up to `maxBytes`) is never copied.
+    static func tag<D: DataProtocol>(_ key: CaptureKey, filename: String, rest: D) -> Data {
         var m = Data("sempere/1".utf8)
         m.append(0); m.append(contentsOf: "capture".utf8); m.append(0); m.append(contentsOf: filename.utf8); m.append(0)
-        m.append(rest)
-        return Data(HMAC<SHA256>.authenticationCode(for: m, using: SymmetricKey(data: key.bytes)))
+        var hmac = HMAC<SHA256>(key: SymmetricKey(data: key.bytes))
+        hmac.update(data: m)
+        hmac.update(data: rest)
+        return Data(hmac.finalize())
     }
 
     /// The plaintext of an inbox file named `filename`.
@@ -269,12 +272,26 @@ public enum CaptureFile {
         guard plaintext[b + 4] == version else { throw CaptureError.notCapture("unknown version \(plaintext[b + 4])") }
         let stored = plaintext[b + 5..<b + headerSize]
         let rest = plaintext[(b + headerSize)...]
-        let expected = tag(key, filename: filename, rest: Data(rest))
+        let expected = tag(key, filename: filename, rest: rest)
         guard constantTimeEqual(Data(stored), expected) else { throw CaptureError.badTag }
         guard let nl = rest.prefix(maxLineBytes + 1).firstIndex(of: 0x0A) else {
             throw CaptureError.notCapture("no JSON line")
         }
         return (Data(rest[rest.startIndex..<nl]), Data(rest[(nl + 1)...]))
+    }
+
+    /// The plaintext of inbox file `filename` tagged under `key` instead: the
+    /// same bytes after the tag, once the old tag verifies under one of
+    /// `keys` (format.md §11.1, a recipient change). Nil when it verifies
+    /// under none of them (forged, or sealed under a key revoked earlier).
+    static func retag(_ plaintext: Data, filename: String, verifiedBy keys: [CaptureKey], to key: CaptureKey) -> Data? {
+        guard keys.contains(where: { (try? unframe(plaintext, filename: filename, key: $0)) != nil }) else { return nil }
+        let rest = plaintext[(plaintext.startIndex + headerSize)...]
+        var out = Data(magic)
+        out.append(version)
+        out.append(tag(key, filename: filename, rest: rest))
+        out.append(rest)
+        return out
     }
 
     static func constantTimeEqual(_ a: Data, _ b: Data) -> Bool {
@@ -524,7 +541,9 @@ extension Vault {
         do {
             let pending = try readCapture(id)
             result.title = pending.manifest?.title
-            let exists = try noteIDs().contains(ids.note)
+            // A note exists once it has a revision: a folder holding only the
+            // blobs of an adoption interrupted before its delta is still new.
+            let exists = try !revisionNames(of: ids.note).isEmpty
             let current = exists ? try reconstruct(try loadNote(ids.note)) : nil
             let planned = CaptureAdoption.ops(pending, audio: pending.manifest?.audio,
                                               transcript: pending.transcriptContent.map { BlobRef(content: $0, type: BlobRef.transcriptType) },
@@ -547,7 +566,7 @@ extension Vault {
                 }
                 result.file = revision?.name.filename
             }
-            let after = try noteIDs().contains(ids.note) ? try reconstruct(try loadNote(ids.note)) : nil
+            let after = try revisionNames(of: ids.note).isEmpty ? nil : try reconstruct(try loadNote(ids.note))
             let done = CaptureAdoption.consumed(pending, after: after)
             removeInboxFiles(done)
             result.removed = done
@@ -555,5 +574,52 @@ extension Vault {
             result.error = (error as? CaptureError)?.description ?? "\(error)"
         }
         return result
+    }
+}
+
+extension Vault {
+    /// Step 3 of a recipient change (format.md §3.3.1) for `inbox/` (§11.1):
+    /// a capture still waiting there was sealed with the capture key of the
+    /// outgoing secret, so once the change finishes (and the journal with
+    /// that secret is gone) nothing could adopt it. Each inbox file that
+    /// verifies under the current or the outgoing capture key is re-tagged
+    /// under the current one and re-encrypted to the current recipients (a
+    /// new device can then adopt it too); one already current is skipped.
+    /// Files that verify under neither key, or that this device cannot
+    /// decrypt, are left untouched and listed in `inboxSkipped`: they are
+    /// never adopted anyway, and must not keep the journal (and the
+    /// outgoing secret) alive. Only a file that cannot be read keeps it.
+    func rewrapInbox(recipients: [NativeRecipient], report: inout RewrapReport, stopAfter: Int?) throws {
+        let dir = inboxURL
+        guard FileIO.isDirectory(dir) else { return }
+        let current = CaptureKey.derive(from: try requireSecret())
+        let keys = [current] + (previousSecret.map { [CaptureKey.derive(from: $0)] } ?? [])
+        let expected = Self.expectedStanzas(recipients)
+        for name in try FileIO.entries(dir) where CaptureFile.parse(name: name) != nil {
+            let path = "\(CaptureFile.folderName)/\(name)"
+            let file = dir.appendingPathComponent(name)
+            guard !FileIO.isDirectory(file) else { continue }
+            let data: Data
+            do { data = try FileIO.read(file, maxBytes: CaptureFile.maxBytes + (1 << 20)) } catch {
+                report.failures[path] = .unreadable("\(error)"); continue
+            }
+            let stanzas: [String: Int]
+            let plain: Data
+            do {
+                stanzas = try Self.stanzaCounts(data)
+                plain = try AgeFile.decrypt(data, with: identities)
+            } catch {
+                report.inboxSkipped.append(path); continue
+            }
+            if stanzas == expected, (try? CaptureFile.unframe(plain, filename: name, key: current)) != nil {
+                report.alreadyCurrent.append(path); continue
+            }
+            guard let retagged = CaptureFile.retag(plain, filename: name, verifiedBy: keys, to: current) else {
+                report.inboxSkipped.append(path); continue
+            }
+            if let stopAfter, report.rewrapped.count >= stopAfter { throw VaultError.interrupted }
+            try FileIO.writeAtomically(try Self.encrypt(retagged, to: recipients), to: file, replacing: true)
+            report.rewrapped.append(path)
+        }
     }
 }

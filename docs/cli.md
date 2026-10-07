@@ -168,6 +168,12 @@ sempere vault index [--out PATH|-]
   file with the removed key. The method is recorded in the journal, so
   `rewrap-resume` (from any device) finishes with the same one. `--json`
   reports it as `blobs`.
+- Voice notes waiting in `inbox/` (`format.md` §11) are re-encrypted to the
+  new set and re-tagged under the new capture key, so they are still adopted
+  after a removal. One that verifies under neither the current nor the
+  outgoing capture key (forged, or sealed with a profile revoked earlier) is
+  left as it is, reported (`--json`: `inboxSkipped`) and does not make the
+  change incomplete. Run `inbox enable` again on machines that capture.
 - Recipients must be post-quantum (`age1pq1...`): `init`, `recipients add`
   and the new key of `replace` refuse a classic `age1...` key with "create a
   new key" (exit 2), before asking for any passphrase. Legacy vaults that
