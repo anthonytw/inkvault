@@ -288,6 +288,17 @@ public enum NotabilityBundle {
             }
         }
         try names(in: payload, depth: 0)
+        // Notability 16 stores the file's hash inline: field 0 starts with the 64 raw
+        // bytes of the file's SHA-512 (files `assets/<128 hex>.<ext>`); its measured
+        // size includes trailing padding (68 bytes).
+        for f in fields {
+            for n in BundleFileName.hashByteCounts where f.size >= n && f.size < n + 8 {
+                try fb.check(f.position, n)
+                try budget.spend(n)   // records can share a payload, as for the name walk above
+                let raw = Array(fb.bytes[f.position..<(f.position + n)])
+                if let name = BundleFileName.name(in: raw), !a.fileNames.contains(name) { a.fileNames.append(name) }
+            }
+        }
         for f in fields {
             switch f.size {
             case 12 where f.index == 0:
@@ -452,10 +463,12 @@ extension NotabilityBundle {
 /// Attachment file names in a `.ntb` bundle: `<64 hex digits>.<ext>`
 /// (the file's SHA-256, then `pdf`, `jpeg`, `jpg`, `png`, `heic`, …).
 enum BundleFileName {
-    /// True for a top-level bundle file that looks like an attachment.
+    /// True for a bundle file name (no directory) that looks like an attachment:
+    /// `<64 or 128 hex digits>.<ext>`.
     static func isAttachment(_ name: String) -> Bool {
         let parts = name.split(separator: ".", maxSplits: 1)
-        guard parts.count == 2, parts[0].count == 64, parts[0].utf8.allSatisfy(isHex),
+        guard parts.count == 2, hashByteCounts.contains(parts[0].count / 2), parts[0].count % 2 == 0,
+              parts[0].utf8.allSatisfy(isHex),
               (1...5).contains(parts[1].count), parts[1].utf8.allSatisfy({ isHex($0) || ($0 | 0x20) >= 0x61 && ($0 | 0x20) <= 0x7A })
         else { return false }
         return true
@@ -463,17 +476,25 @@ enum BundleFileName {
 
     static func isHex(_ c: UInt8) -> Bool { (c >= 0x30 && c <= 0x39) || ((c | 0x20) >= 0x61 && (c | 0x20) <= 0x66) }
 
+    /// Hash lengths, in raw bytes, that name bundle files: 32 (SHA-256), and 64,
+    /// what Notability 16 writes (files `assets/<128 hex digits>.<ext>`).
+    static let hashByteCounts = [32, 64]
+
     /// A name found in a record's bytes: a whole `<hash>.<ext>` string, a
-    /// string starting with 64 hex digits (the hash; the extension is matched
-    /// against the bundle's files later), or 32 raw bytes (hex-encoded). Nil otherwise.
+    /// string starting with 64 or 128 hex digits (the hash; the extension is
+    /// matched against the bundle's files later), or 32 or 64 raw bytes
+    /// (hex-encoded). Nil otherwise.
     static func name(in bytes: [UInt8]) -> String? {
-        if bytes.count == 32, !bytes.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }) {
+        if hashByteCounts.contains(bytes.count), !bytes.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }) {
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
-        guard bytes.count >= 64, bytes.prefix(64).allSatisfy(isHex) else { return nil }
-        let text = String(decoding: bytes, as: UTF8.self)
-        if isAttachment(text) { return text }
-        return String(text.prefix(64)).lowercased()
+        for digits in hashByteCounts.map({ $0 * 2 }).reversed()
+        where bytes.count >= digits && bytes.prefix(digits).allSatisfy(isHex) {
+            let text = String(decoding: bytes, as: UTF8.self)
+            if isAttachment(text) { return text }
+            return String(text.prefix(digits)).lowercased()
+        }
+        return nil
     }
 }
 
