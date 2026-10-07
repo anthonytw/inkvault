@@ -69,7 +69,7 @@ simulator_shots() {
   # A shot that never showed its screen fails the test but still leaves a PNG: keep going to check them all.
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$dir" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination "platform=iOS Simulator,id=$sim" \
-    -only-testing:SempereAppUITests -parallel-testing-enabled NO -resultBundlePath "$out/$name.xcresult" \
+    -only-testing:SempereAppUITests/ScreenshotTests -parallel-testing-enabled NO -resultBundlePath "$out/$name.xcresult" \
     CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$out/$name.log" || status=${PIPESTATUS[0]}
   grep -E "error: |SHOTDEBUG" "$out/$name.log" > "$out/$name-summary.txt" || true
   ls "$dir"/*.png >/dev/null 2>&1 || { echo "error: no screenshots were written" >&2; exit 1; }
@@ -117,7 +117,7 @@ mac() {
   rm -rf "$dir" "$raw"; mkdir -p "$dir" "$raw"
   TEST_RUNNER_SEMPERE_SHOTS_DIR="$raw" xcodebuild test -project "$project" -scheme "$scheme" \
     -derivedDataPath "$derived" -destination 'platform=macOS,variant=Mac Catalyst' \
-    -only-testing:SempereAppUITests -resultBundlePath "$out/mac.xcresult" \
+    -only-testing:SempereAppUITests/ScreenshotTests -resultBundlePath "$out/mac.xcresult" \
     CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES 2>&1 | tee "$out/mac.log" || status=${PIPESTATUS[0]}
   grep -E "error: |SHOTDEBUG" "$out/mac.log" > "$out/mac-summary.txt" || true
   # The Mac test runner is sandboxed and cannot write into the checkout: take the shots

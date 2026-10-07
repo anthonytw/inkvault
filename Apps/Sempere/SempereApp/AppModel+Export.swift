@@ -7,6 +7,20 @@ struct ExportRequest: Identifiable, Equatable {
     let id = UUID()
     var noteIDs: [UUID]
     var format: ShareFormat
+    /// The window that asked (`WindowUI.id`): its sheet shows there. Nil: the
+    /// library window with the canvas.
+    var window: UUID?
+}
+
+extension ExportRequest {
+    /// `request` when window `window` shows it: the window that asked, or for
+    /// a request without one, the library window with the canvas (or any, when
+    /// none has it).
+    static func shown(_ request: ExportRequest?, in window: UUID, canvasWindow: UUID?) -> ExportRequest? {
+        guard let request else { return nil }
+        if let asker = request.window { return asker == window ? request : nil }
+        return canvasWindow == nil || canvasWindow == window ? request : nil
+    }
 }
 
 /// How far an export has come: notes read from the vault, then notes rendered.
@@ -49,10 +63,10 @@ extension AppModel {
     }
 
     /// Opens the export sheet for `ids` with the command's format.
-    func requestExport(_ command: ExportCommand, ids: [UUID]) {
+    func requestExport(_ command: ExportCommand, ids: [UUID], window: UUID? = nil) {
         // One export at a time: replacing the request would dismiss a running sheet.
         guard phase == .unlocked, canExport(command.format, ids: ids), exportRequest == nil else { return }
-        exportRequest = ExportRequest(noteIDs: ids, format: command.format)
+        exportRequest = ExportRequest(noteIDs: ids, format: command.format, window: window)
     }
 
     /// Reads `ids` from the vault and renders them into `scratch`.

@@ -361,6 +361,12 @@ final class AppModel {
     @ObservationIgnored var renderCache: RenderCache?
     /// Items copied for pasting (`ItemClipboard`), within the open vault.
     let itemClipboard = ItemClipboard()
+    /// Merges of revisions written elsewhere into open editors, by note id
+    /// (`AppModel+RemoteMerge`).
+    @ObservationIgnored var remoteMerges: [UUID: Task<Void, Never>] = [:]
+    /// Per note, the revision names a merge could not read: not tried again
+    /// until the names change.
+    @ObservationIgnored var unreadableMergeNames: [UUID: [String]] = [:]
     /// Editors of note windows (Mac), by note id: one per note, each with its
     /// own canvas (`AppModel+Windows`).
     var windowEditors: [UUID: NoteEditor] = [:]
@@ -383,6 +389,8 @@ final class AppModel {
     var libraryWindowRequested: Date?
     /// Where this model's PDF exports (drag to Finder) are written; emptied when the vault closes.
     let exportFolder = NotePDFExport.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    /// Bumped when the vault closes: a drag-out export prepared before it writes nothing.
+    let exportEpoch = ExportEpoch()
     /// Library windows on screen (a note window restored alone opens one).
     var libraryWindowCount = 0
     /// The migration of a legacy vault while `phase == .migrating`.
@@ -884,6 +892,7 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        cancelRemoteMerges()
         isCloudVault = false
         isBusy = false
         let editor = self.editor
@@ -892,6 +901,7 @@ final class AppModel {
         windowClaims = []
         let scoped = scopedURL
         self.editor = nil
+        exportEpoch.bump()
         NotePDFExport.purge(in: exportFolder, olderThan: 0)   // plaintext PDFs dragged out of this vault
         if editor != nil || scoped != nil || !windowed.isEmpty {
             let earlier = closingEditor
