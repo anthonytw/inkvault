@@ -40,7 +40,7 @@ working state.
 | Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | ✅ |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | ✅ #62 |
 | Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | ✅ #64 |
-| Render | Recordings in exports (C4) | 📋 |
+| Render | Recordings in exports (C4): embedded in PDFs with their transcripts ("PDF + attachments") | 🔀 #87 (the list page and `--format media` 📋) |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds and images (D1, D2) | ✅ #70 |
 | Import | Notability typed text, recordings and stroke links (D3, D4) | ✅ #73 |
@@ -69,6 +69,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items crop` (the app's Crop: the visible part stays in place) | 🔀 #81 | 🔀 #81 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
+| `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
+| `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | 🔀 #87 | 🔀 #87 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
@@ -109,7 +111,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | App | Spanish localization (L) | 📋 |
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | ✅ #68 |
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | 🔀 #81 (not yet tried on the iPad) |
-| Attachments | Text boxes, audio recording + playback, on-device transcription, unused-attachment index (E2, E4, E5, E7) | 📋 |
+| Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | 🔀 #87 (not yet tried on the iPad) |
+| Attachments | Text boxes, unused-attachment index (E2, E7) | 📋 (E2 🔀 #82) |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |

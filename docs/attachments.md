@@ -1483,12 +1483,68 @@ synthetic `.note` fixture so CI covers the mapping.
   when:* recording survives a simulated interruption; `rec.at` within 0.1 s
   in a scripted test; each codec choice produces a playable `audio/mp4`;
   tested on the user's iPad (A12Z, 26.7.1).
+  *Status:* in review (#87), not yet tried on the iPad. Shared core
+  (`Sources/Sempere/RecordingSupport.swift`, Linux-tested): `RecordingFormat`
+  (the §9 choices, `normalized()`, size per hour), `RecordingTimeline` (wall
+  time → audio time across pauses: `rec.at` of a stroke is its path's
+  creation date mapped through it), `RecordingSync` (stroke hit test, seek
+  target with a 2 s lead-in, playback highlight window of 3 s, `rec` through a
+  restored recording's `parent`). App: `RecordingSession`
+  (`AudioRecorder.swift`: `AVAudioRecorder` with the settings' format,
+  `.playAndRecord`, 10-minute segments with a manifest, interruptions and
+  route changes pause it, "should resume" resumes it in the same file; one
+  recording app-wide), `RecordingAssembly` (segments joined by
+  `AVMutableComposition`, passthrough else AAC), `RecordingRecovery` (a
+  session left by a crash is saved into its note, titled "Recovered
+  recording", the next time the note opens), `NoteEditor+Recordings` (blob
+  first, then one `addRecording` delta; rename, delete; strokes stamped in
+  `StrokeLedger.items(for:tool:stamp:)`, pieces of a sliced stroke keep their
+  parent's `rec`; items placed while recording get `rec` too),
+  `RecordingPlayer` (from the `BlobCache`), the canvas's "Tap Ink to Play"
+  mode (drawing off, a tap on linked ink plays from it) and playback
+  highlights (teal boxes on the strokes written in the last 3 s, through the
+  search-highlight layer). UI: a Record/Recordings toolbar menu (tap records
+  or stops; hold for the list: play, transcribe, transcript, rename, delete),
+  a recording bar and a player bar above the canvas, Recording settings
+  (codec, quality, sample rate, channels, size per hour) in Settings.
+  Plaintext audio stays in Application Support/Sempere/Recordings (not backed
+  up, `completeUnlessOpen`) until its blob is written (and transcribed), then
+  is deleted. Export sheet: **PDF** / **PDF + attachments** (the recordings and
+  their transcripts embedded, `ShareOptions.pdfAttachments`, the CLI's
+  `export --recordings attach`) with a footnote of what happens to them. Not
+  done: a live transcript while recording (`AVAudioEngine`), the faded
+  "ink appears as it was written" playback mode (highlights instead), Mac
+  keyboard shortcuts for recording (`MenuCommand` cases).
 - **E5 — transcription:** SpeechTranscriber → DictationTranscriber →
   SFSpeechRecognizer on-device fallback, locale and asset checks, transcript
   view with read-back word highlighting and low-confidence marking, tap word
   to seek, search. *Done when:* availability matrix verified on the user's
   iPad and recorded in `docs/`; transcript JSON validates against
   `format.md` §8.3.2 (segments and, where the engine gives them, words).
+  *Status:* in review (#87). `SpeechTranscription` (`Sources/SempereSpeech`,
+  the app and `sempere transcribe` share it): SpeechAnalyzer +
+  SpeechTranscriber on 26 (`.audioTimeRange`, `.transcriptionConfidence`;
+  model via `AssetInventory`), else `SFSpeechRecognizer` with
+  `requiresOnDeviceRecognition` (delegate collects every utterance of a long
+  file); never a server. `TranscriptBuilder` (core, Linux-tested) turns
+  either engine's output into a valid transcript whatever it returns (sorted,
+  non-overlapping, words inside segments, confidences in 0…1; words grouped
+  at pauses of 0.8 s, sentence ends and 20 s). Language: the note's (`meta.lang`
+  from the import-gaps work; `TranscriptionLanguage.noteLanguage` returns nil
+  until a reader keeps it), else the device's, matched to a supported locale.
+  App: "Transcribe Recordings on This Device" (off by default) transcribes a
+  recording when it is stopped, from its plaintext file before that is
+  deleted; Transcribe / Transcribe Again per recording; the job writes the
+  blob then one `setRecording(transcript)` delta through the browser path
+  (`AppModel.storeTranscript`), so it finishes if the note is closed, and an
+  open editor takes the result. `TranscriptView`: segments with times, the
+  playing word highlighted, words under 0.5 confidence grey and dotted, tap a
+  word or time to play from it. Settings lists each engine's availability for
+  the device language (`SpeechTranscription.availability`; the CLI's
+  `transcribe --check`). DictationTranscriber (fallback 1 above) is not used.
+  Not done: the availability matrix on the user's iPad (run Settings or
+  `sempere transcribe --check` there and record it here); transcripts in the
+  app's search (the CLI has `search --transcripts`).
 - **E6 — Settings panel:** one Settings screen (sheet from the library) with
   the sections of §15: recording (codec, quality, sample rate, channels,
   size per hour), photos (privacy and HEIC), transcription (opt-in, locale),
