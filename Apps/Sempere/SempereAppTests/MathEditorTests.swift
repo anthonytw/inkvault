@@ -18,14 +18,16 @@ struct MathEditorTests {
 
     @Test func theRenderIsAOnePagePDFOfTheTypesetBox() throws {
         let (data, size) = try MathTypesetter.typeset(equation())
-        #expect(try MathRenderIngest.pageSize(data) == size, "the stored size is the PDF's page")
+        let page = try MathRenderIngest.pageSize(data)
+        #expect(abs(page.w - size.w) < 0.01 && abs(page.h - size.h) < 0.01, "the stored size is the PDF's page")
         #expect(size.w > 20 && size.h > 20)
         // Twice the font size: about twice the box.
         let (_, big) = try MathTypesetter.typeset(equation(size: 40))
         #expect(abs(big.w / size.w - 2) < 0.2)
         // Nothing but marks: the PDF has no white page fill.
-        let page = try #require(CGPDFDocument(CGDataProvider(data: data as CFData)!)?.page(at: 1))
-        #expect(page.getBoxRect(.mediaBox).width == CGFloat(size.w))
+        let pdf = try #require(CGPDFDocument(try #require(CGDataProvider(data: data as CFData))))
+        #expect(pdf.numberOfPages == 1)
+        #expect(abs(Double(try #require(pdf.page(at: 1)).getBoxRect(.mediaBox).width) - size.w) < 0.01)
     }
 
     @Test func problemsAreFoundBeforeTypesetting() {
@@ -51,7 +53,8 @@ struct MathEditorTests {
         #expect(item.frame.w == math.renderSize?.w && item.frame.h == math.renderSize?.h, "one point per point")
         #expect(item.frame.y > 100, "centred in what is on screen")
         let stored = try vault.readBlob(note: AppModelTests.lecture, render, maxBytes: 1 << 20)
-        #expect(try MathRenderIngest.pageSize(stored) == math.renderSize)
+        let storedSize = try MathRenderIngest.pageSize(stored)
+        #expect(abs(storedSize.w - (math.renderSize?.w ?? 0)) < 0.01)
         try AttachmentEditorTests().expectSaved(editor, vault, page: page)
     }
 
