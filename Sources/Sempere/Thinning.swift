@@ -126,7 +126,8 @@ extension CompactionPlanner {
         let sortedTargets = targets.sorted()
         var coverPlanned = false
         // Each pass either finishes, plans one snapshot (at most one per target
-        // plus one cover) or keeps at least one candidate.
+        // plus one cover) or keeps at least one candidate, so the passes are
+        // bounded by targets + candidates + 2.
         for _ in 0...(sortedTargets.count + candidates.count + 2) {
             if candidates.isEmpty { planned = []; break }
             let survivors = revs.filter { !candidates.contains($0.name) } + planned
@@ -144,8 +145,16 @@ extension CompactionPlanner {
                                    wall: wall, app: app, body: .snapshot(included: goneSet, state: NoteState(meta: NoteMeta(created: wall))))
             let after = Completeness(survivors + [standIn], unreadable: []).isComplete(at: sortedTargets)
             if let bad = zip(sortedTargets, after).first(where: { !$0.1 })?.0 {
-                guard !planned.contains(where: { $0.asOf == RevisionKey(bad) }) else {
-                    throw CompactionError.cannotProtect(bad.filename)
+                if let snap = planned.first(where: { $0.asOf == RevisionKey(bad) }),
+                   case .snapshot(let inc, _) = snap.body {
+                    // Its snapshot cannot cover some revision before it (a delta not
+                    // applied in full there, §5.3): keep those instead.
+                    let keep = revs.filter { r in
+                        candidates.contains(r.name) && r.name <= bad && !inc.covers(device: r.device, seq: r.seq)
+                    }
+                    guard !keep.isEmpty else { throw CompactionError.cannotProtect(bad.filename) }
+                    candidates.subtract(keep.map(\.name))
+                    continue
                 }
                 planned.append(try build(at: bad))
                 continue

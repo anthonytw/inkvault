@@ -114,6 +114,10 @@ extension LoadedNote {
         let complete = restorePoints.filter { $0.complete && checkpoints.contains($0.name) }.map(\.name)
         guard let newest = complete.max() else { return out }
         out = out.filter { $0 > newest }
+        // A positioned snapshot (format.md §5.8.3) of a point at or before the
+        // newest complete checkpoint is ordered after it but may be what keeps it complete.
+        let positioned = NoteHistory.positions(revisions, unreadable: Array(failures.keys))
+        out.removeAll { name in positioned[name].map { $0 <= RevisionKey(newest) } ?? false }
         let names = (revisions.map(\.name) + failures.keys).sorted()
         for c in complete {
             var seen = Set<DeviceID>([c.device])

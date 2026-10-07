@@ -1029,7 +1029,11 @@ snapshot, so its own `(hlc, device)` never stamps a value (§5.4).
 `asOf` is **valid** when it parses (`hlc` 17 digits, `device` 8 hex, `seq` a
 canonical decimal in 1 … 2^53 − 1, §5), is ordered strictly before the
 snapshot's own name, and the snapshot's `included` covers no surviving
-revision ordered after A other than the snapshot itself. A reader that finds
+revision ordered after A other than the snapshot itself and other snapshots
+with a valid `asOf` at or before A (a snapshot built from those holds their
+content, which history places at or before A anyway). Readers decide
+validity in order of `(asOf, name)`, so a snapshot may rely only on ones
+decided before it. A reader that finds
 `asOf` invalid positions the snapshot at its own name and lists it as an
 ordinary restore point. A need not name a surviving revision.
 
@@ -1065,7 +1069,9 @@ deletions safe as well (a crash half-way leaves a correct vault):
    was complete (§5.7) before thinning. Each target stays complete with the
    same note as of it. For each target T that a deletion would make
    incomplete, the thinner writes a snapshot with `asOf` = T, built from
-   every revision positioned at or before T (before deleting anything).
+   every revision positioned at or before T (before deleting anything). Its
+   `included` then also covers the positioned snapshots among those, which
+   §5.8.3 allows.
 3. **Witnesses.** For a target T and a device X other than T's that has a
    revision ordered after T in the range that is deleted, the first revision
    of X ordered after T is kept. §5.7 can only tell that a deleted revision

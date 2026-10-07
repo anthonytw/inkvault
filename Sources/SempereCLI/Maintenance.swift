@@ -75,7 +75,9 @@ struct CompactCommand: ParsableCommand {
             mode = .retention((retention ?? CompactionPlanner.defaultRetention / 86400) * 86400)
         }
         let stateURL = DeviceState.defaultURL()
-        var state = try DeviceState.loadOrCreate(at: stateURL)
+        // A dry run writes nothing, not even a first device state file.
+        var state = dryRun && !FileManager.default.fileExists(atPath: stateURL.path)
+            ? DeviceState(device: .random()) : try DeviceState.loadOrCreate(at: stateURL)
         var items: [Item] = []
         var failures = 0
         let now = Date()

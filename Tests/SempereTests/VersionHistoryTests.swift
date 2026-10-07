@@ -324,6 +324,80 @@ final class VersionHistoryTests: XCTestCase {
         }
     }
 
+    /// Thinning again later, after new revisions, must work on the snapshots
+    /// the first run wrote (their own entries must not leak into new ones).
+    func testThinningAgainAfterNewRevisions() throws {
+        var log = LogBuilder()
+        var revs: [Revision] = []
+        func add(_ day: Double, _ minute: Double, _ ops: [Op], session: String) {
+            var r = log.delta(devA, Int64((day * 86_400 + minute * 60) * 1000), ops)
+            r.session = session
+            revs.append(r)
+        }
+        add(0, 0, [.addPage(Page(id: p1, order: "a0"))], session: "s1")
+        add(0, 1, [.addStroke(page: p1, stroke: stroke())], session: "s1")
+        add(0, 2, [.addStroke(page: p1, stroke: stroke())], session: "s1")
+        for i in 0..<3 { add(5, Double(i), [.addStroke(page: p1, stroke: stroke())], session: "s2") }
+        let day: Double = 86_400
+        let first = try thin(revs, olderThan: 30 * day, now: wallAt(baseMillis + Int64(31 * day * 1000)))
+        XCTAssertFalse(first.isEmpty)
+        var after = applied(revs, first)
+        for i in 0..<3 { add(20, Double(i), [.addStroke(page: p1, stroke: stroke())], session: "s3") }
+        after += revs.suffix(3)
+        var rng = SplitMix64(seed: 7)
+        try checkGuarantees(after, mode: .thin(olderThan: 30 * day), now: wallAt(baseMillis + Int64(36 * day * 1000)),
+                            seed: 0, rng: &rng)
+        try checkGuarantees(after, mode: .thin(olderThan: 30 * day), now: wallAt(baseMillis + Int64(60 * day * 1000)),
+                            seed: 0, rng: &rng)
+        try checkGuarantees(after, mode: .retention(30 * day), now: wallAt(baseMillis + Int64(60 * day * 1000)),
+                            seed: 0, rng: &rng)
+    }
+
+    /// Two rounds on random logs: thin a prefix, add the rest, thin again later.
+    func testThinningTwiceOnRandomLogs() throws {
+        for seed: UInt64 in Array(1...80) + [128] {   // 128: a delta orphaned at its target is kept
+            var rng = SplitMix64(seed: seed &* 7919)
+            let all = try RandomHistory.make(using: &rng).sorted { $0.name < $1.name }
+            guard all.count > 3 else { continue }
+            let k = Int.random(in: 2..<all.count, using: &rng)
+            let head = Array(all.prefix(k)), rest = all.dropFirst(k)
+            let span = all.last!.wall.timeIntervalSince(all[0].wall)
+            let age = Double.random(in: 0...max(span / 2, 1), using: &rng)
+            let mode1: CompactionMode = seed % 3 == 0 ? .retention(age) : .thin(olderThan: age)
+            var clock = HybridClock()
+            let now1 = head.last!.wall.addingTimeInterval(age + 1)
+            let plan = try CompactionPlanner.plan(head, mode: mode1, now: now1, device: DeviceID("dddddddd")!,
+                                                  clock: &clock, wall: now1, app: "t")
+            let gone = Set(plan.deletions)
+            let round2 = head.filter { !gone.contains($0.name) } + plan.snapshots + rest
+            let mode2: CompactionMode = seed % 2 == 0 ? .retention(age) : .thin(olderThan: age)
+            try checkGuarantees(round2, mode: mode2, now: all.last!.wall.addingTimeInterval(age + 1),
+                                seed: seed, rng: &rng)
+        }
+    }
+
+    /// Device-less compaction keeps a positioned snapshot a complete checkpoint needs.
+    func testDevicelessCompactionKeepsPositionedSnapshotOfCheckpoint() throws {
+        var log = LogBuilder()
+        var revs = [log.delta(devA, 0, [.addPage(Page(id: p1, order: "a0"))])]
+        for i in 1...3 { revs.append(log.delta(devA, minutes(Double(i)), [.addStroke(page: p1, stroke: stroke())])) }
+        var cp = log.delta(devA, minutes(4), [])
+        cp.checkpoint = Checkpoint(name: "v")
+        revs.append(cp)
+        let now = wallAt(baseMillis + minutes(60 * 24 * 60))
+        var clock = HybridClock()
+        let plan = try CompactionPlanner.plan(revs, mode: .retention(30 * 86_400), now: now, device: devA, clock: &clock,
+                                              wall: now, app: "t")
+        var after = applied(revs, plan)
+        XCTAssertTrue(after.contains { $0.asOf == RevisionKey(cp.name) })
+        after.append(log.delta(devB, minutes(60 * 24 * 61), [.addStroke(page: p1, stroke: stroke())]))
+        after.append(try log.snapshot(devB, minutes(60 * 24 * 62), from: after))
+        let doomed = Set(LoadedNote(revisions: after, failures: [:]).compactionPlan(retention: 0, now: now.addingTimeInterval(86_400 * 90)))
+        let left = after.filter { !doomed.contains($0.name) }
+        XCTAssertEqual(NoteHistory.restorePoints(left).first { $0.name == cp.name }?.complete, true)
+        XCTAssertEqual(try NoteHistory.state(left, at: cp.name).comparable, try NoteHistory.state(revs, at: cp.name).comparable)
+    }
+
     private func checkGuarantees(_ revs: [Revision], mode: CompactionMode, now: Date, seed: UInt64,
                                  rng: inout SplitMix64) throws {
         let ctx = "seed \(seed) \(mode)"

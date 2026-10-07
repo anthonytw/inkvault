@@ -163,75 +163,42 @@ public enum NoteHistory {
     /// The snapshots whose `asOf` is valid (format.md §5.8.3), mapped to
     /// that position: `asOf` is ordered before the snapshot's own name, and
     /// its `included` covers no listed revision (readable or not) ordered
-    /// after `asOf` other than itself. Other revisions are positioned at
-    /// their own names and are not in the result.
+    /// after `asOf` other than itself and other valid positioned snapshots
+    /// positioned at or before its `asOf` (decided first: candidates are
+    /// taken by `(asOf, name)`). Other revisions are positioned at their own
+    /// names and are not in the result.
     ///
-    /// Cost: O(n log n) to index the n listed names, then per positioned
-    /// snapshot O(devices × log n + extras), bounded by its own size.
+    /// Cost: O(n log n) to sort the n listed names, then per positioned
+    /// snapshot one pass over the names after its `asOf` (O(p × n) for p
+    /// positioned snapshots), each name checked with `Included.covers`.
     public static func positions(_ revisions: [Revision], unreadable: [RevisionName] = []) -> [RevisionName: RevisionKey] {
-        let candidates = revisions.filter { $0.kind == .snapshot && $0.asOf != nil }
+        let candidates = revisions.filter { r in
+            guard r.kind == .snapshot, let a = r.asOf else { return false }
+            return a < RevisionKey(r.name)
+        }.sorted { ($0.asOf!, $0.name) < ($1.asOf!, $1.name) }
         guard !candidates.isEmpty else { return [:] }
-        let index = DeviceIndex(revisions.map(\.name) + unreadable)
+        let listed = (revisions.map(\.name) + unreadable).sorted()
+        let keys = listed.map(RevisionKey.init)
         var out: [RevisionName: RevisionKey] = [:]
         for r in candidates {
-            guard let asOf = r.asOf, asOf < RevisionKey(r.name),
-                  case .snapshot(let included, _) = r.body else { continue }
-            let leaks = included.entries.contains { device, entry in
-                index.coversAfter(asOf, device: device, entry: entry, except: r.name)
+            guard let asOf = r.asOf, case .snapshot(let included, _) = r.body else { continue }
+            // First listed name ordered after `asOf`.
+            var lo = 0, hi = listed.count
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2
+                if keys[mid] <= asOf { lo = mid + 1 } else { hi = mid }
+            }
+            var leaks = false
+            for i in lo..<listed.count {
+                let n = listed[i]
+                guard n != r.name, included.covers(device: n.device, seq: n.seq) else { continue }
+                if let p = out[n], p <= asOf { continue }
+                leaks = true
+                break
             }
             if !leaks { out[r.name] = asOf }
         }
         return out
-    }
-
-    /// Per device, the listed names sorted by order, for `positions`.
-    struct DeviceIndex {
-        struct Lane {
-            var names: [RevisionName]
-            /// The smallest and second smallest index into `names` by seq, from each index on.
-            var min1: [Int]
-            var min2: [Int]
-            /// seq → indices into `names` (several only for malformed duplicates).
-            var bySeq: [Int: [Int]]
-        }
-        var lanes: [DeviceID: Lane] = [:]
-
-        init(_ names: [RevisionName]) {
-            var by: [DeviceID: [RevisionName]] = [:]
-            for n in names { by[n.device, default: []].append(n) }
-            for (d, list) in by {
-                let sorted = list.sorted()
-                var m1 = [Int](repeating: -1, count: sorted.count), m2 = m1
-                var a = -1, b = -1
-                for i in stride(from: sorted.count - 1, through: 0, by: -1) {
-                    if a < 0 || sorted[i].seq < sorted[a].seq { b = a; a = i }
-                    else if b < 0 || sorted[i].seq < sorted[b].seq { b = i }
-                    m1[i] = a; m2[i] = b
-                }
-                var bySeq: [Int: [Int]] = [:]
-                for (i, n) in sorted.enumerated() { bySeq[n.seq, default: []].append(i) }
-                lanes[d] = Lane(names: sorted, min1: m1, min2: m2, bySeq: bySeq)
-            }
-        }
-
-        /// Whether `entry` covers a name of `device` ordered after `key`, other than `except`.
-        func coversAfter(_ key: RevisionKey, device: DeviceID, entry: Included.Entry, except: RevisionName) -> Bool {
-            guard let lane = lanes[device] else { return false }
-            // First index ordered after `key`.
-            var lo = 0, hi = lane.names.count
-            while lo < hi {
-                let mid = lo + (hi - lo) / 2
-                if RevisionKey(lane.names[mid]) <= key { lo = mid + 1 } else { hi = mid }
-            }
-            guard lo < lane.names.count else { return false }
-            for i in [lane.min1[lo], lane.min2[lo]] where i >= 0 && lane.names[i] != except {
-                if lane.names[i].seq <= entry.upTo { return true }
-            }
-            for e in entry.extra {
-                for i in lane.bySeq[e] ?? [] where i >= lo && lane.names[i] != except { return true }
-            }
-            return false
-        }
     }
 
     /// The note as of restore point `point`: the merge of every revision

@@ -105,6 +105,8 @@ final class CLIVersionHistoryTests: CLITestCase {
         XCTAssertGreaterThan(item["bytesDeleted"] as? Int ?? 0, 0)
         XCTAssertGreaterThan(item["bytesAdded"] as? Int ?? 0, 0)
         XCTAssertEqual(try revisionFiles(v, id), all.sorted(), "a dry run touches nothing")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmp.appendingPathComponent("state/sempere/device.json").path),
+                       "not even the device state file")
 
         let text = try cli(["compact", id, "--thin-older-than", "30", "--dry-run"] + args)
         XCTAssertTrue(text.out.contains("would snapshot \(id) (as of"), text.out)

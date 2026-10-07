@@ -356,7 +356,15 @@ Phase 1 task detail (historical, for reference):
   complete checkpoint depends on instead (it cannot write snapshots).
 - Guarantees G1–G5 in §5.8.4 are property-tested on random multi-device
   logs (`VersionHistoryTests.testThinningGuaranteesOnRandomLogs`, 120 seeds per run;
-  3000 seeds were run once: 2 636 non-trivial plans, 0 failures).
+  3000 seeds were run once: 2 636 non-trivial plans, 0 failures), and over two
+  rounds (thin, add revisions, thin again later: `testThinningTwiceOnRandomLogs`,
+  81 seeds per run; 1500 run once, 0 failures).
+- A snapshot built for a target covers the older positioned snapshots it was
+  built from; §5.8.3 validity allows covering valid positioned snapshots at or
+  before its `asOf` (decided in `(asOf, name)` order). Stripping them instead
+  broke rule 1 or prefix safety (found by the independent review, 2026-10-07).
+  A candidate that the target's snapshot cannot cover (a delta orphaned there)
+  is kept rather than failing the plan.
 - Cost: one full snapshot per kept version that needs one; the dry run
   reports bytes deleted and added.
 - App: thinning setting `Sempere.thinAfterDays` (per device; 0 = never),
