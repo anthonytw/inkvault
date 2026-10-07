@@ -157,6 +157,7 @@ extension Perf.Phase {
         case .noteConvert: return "note.convert"
         case .noteCache: return "note.cache"
         case .noteFirstRender: return "note.firstRender"
+        case .remoteMerge: return "note.remoteMerge"
         case .cacheWrite: return "cache.write"
         case .changeNotified: return "change.notified"
         case .thin: return "thin"
