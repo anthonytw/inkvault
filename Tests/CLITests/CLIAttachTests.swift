@@ -523,7 +523,9 @@ final class CLIAttachTests: CLITestCase {
         // PDF: the original PDF page as a form, the images as image objects, the text drawn, no warnings.
         let pdfOut = try cli(["export", note, "--format", "pdf", "--out", path("o.pdf")] + args)
         XCTAssertEqual(pdfOut.status, 0, pdfOut.err)
-        XCTAssertEqual(pdfOut.err, "", "no placeholders or warnings")
+        // No placeholders; the one warning says the recording was left out (`--recordings attach` embeds it).
+        XCTAssertEqual(pdfOut.err.split(separator: "\n"),
+                       ["sempere: warning: bbbbbbbb: 1 recording not exported (--recordings attach embeds them)"])
         let pdfBytes = try Data(contentsOf: URL(fileURLWithPath: path("o.pdf")))
         XCTAssertNotNil(pdfBytes.range(of: Data("/Subtype /Form".utf8)))
         XCTAssertNotNil(pdfBytes.range(of: Data("/Subtype /Image".utf8)))
