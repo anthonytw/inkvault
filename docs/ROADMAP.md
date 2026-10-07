@@ -101,7 +101,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | App | Settings panel (E6) | 📋 (a minimal Settings sheet with the version-history setting exists, #74) |
 | App | Spanish localization (L) | 📋 |
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | 🔀 #68 |
-| Attachments | Images, text boxes, PDF import, audio recording + playback, on-device transcription, unused-attachment index (E1–E5, E7) | 📋 |
+| Attachments | Images (E1) and PDF import with tiled backgrounds (E3) | 🚧 in progress |
+| Attachments | Text boxes, audio recording + playback, on-device transcription, unused-attachment index (E2, E4, E5, E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |
