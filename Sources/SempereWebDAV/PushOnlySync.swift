@@ -4,11 +4,10 @@ import Sempere
 // MARK: - Push-only mirror (`sempere sync webdav --push-only`)
 //
 // The local vault is the only source of truth; the server is a copy that is
-// not trusted to write back. vault.json's `recipients` list is plaintext and
-// not authenticated, so a two-way sync with a compromised server could import
-// an attacker's recipient, after which every device would encrypt new
-// revisions to it. A push-only run can see a corrupted server but never takes
-// anything from it:
+// not trusted to write back. A two-way sync rejects a vault.json whose
+// recipients changed without a valid tag (format.md §2.1) but takes everything
+// else the server holds; a push-only run can see a corrupted server but never
+// takes anything from it:
 //
 // - nothing is downloaded, and nothing in the vault folder is written,
 //   replaced or deleted (`requireLocalWrite` backs this up in every local

@@ -252,6 +252,16 @@ public final class WebDAVSync {
 
     private func accept(_ name: String, _ data: Data, stamp: String?) throws {
         try requireLocalWrite("write \(name)")
+        if name == Self.manifestName {
+            // Never let a list nobody with the key wrote replace ours (format.md §2.1).
+            let localURL = root.appendingPathComponent(name)
+            let local = FileManager.default.fileExists(atPath: localURL.path)
+                ? try BoundedRead.contents(of: localURL, maxBytes: BoundedRead.maxManifestBytes) : nil
+            if let why = Vault.incomingManifestProblem(data, local: local, vault: vault) {
+                report.rejected.append(.init(path: name, message: SyncReport.printable(why)))
+                return
+            }
+        }
         report.downloaded.append(name)
         guard !options.dryRun else { return }
         try LocalFS.write(data, to: root.appendingPathComponent(name), replacing: true)

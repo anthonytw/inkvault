@@ -179,7 +179,7 @@ struct ImportNotability: ParsableCommand {
             } catch {
                 throw CLIError.failure("cannot prepare dry run: \(error.localizedDescription)")
             }
-            let vault = try access.openVault(at: copy, .required)
+            let vault = try access.openVault(at: copy, .required, trust: scratchTrustStore(for: source))
             var clock = HybridClock()
             report = try NotabilityImporter.import(paths: urls, into: vault, device: .random(), clock: &clock,
                                                    options: options)

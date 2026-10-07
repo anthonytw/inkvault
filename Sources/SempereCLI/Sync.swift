@@ -28,15 +28,18 @@ struct SyncWebDAVCommand: ParsableCommand {
             is never taken from the command line: --password-env names the variable (default
             SEMPERE_WEBDAV_PASSWORD). The vault folder may be new or empty for a first pull.
 
+            A remote vault.json whose device list changed without a valid tag (format.md §2.1) is never
+            copied over the local one: it is reported as rejected and the exit code is 6 (checking a changed
+            list needs the key: pass --identity or --passphrase-env).
+
             --push-only makes it a one-way mirror for a server that is not trusted to write back:
             it uploads what the server lacks, overwrites the server's vault.json and
             rewrap-journal.json from the local copy, and deletes on the server what local compaction or
             blob collection removed; it never downloads and never writes or deletes anything in the
-            vault. (vault.json's recipient list is plaintext and unauthenticated: a two-way sync with a
-            compromised server could import an attacker's recipient.) Files only the server has, which
+            vault, so nothing the server holds can change it. Files only the server has, which
             no compaction explains, are listed as extraneous, and removed with --delete-extraneous.
 
-            Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve.
+            Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve, 6 a rejected vault.json.
             """
     )
 
@@ -115,6 +118,7 @@ struct SyncWebDAVCommand: ParsableCommand {
             printReport(report)
         }
         if !report.errors.isEmpty { throw ExitCode(ExitStatus.failure) }
+        if !report.rejected.isEmpty { throw ExitCode(ExitStatus.untrustedRecipients) }
         if !report.conflicts.isEmpty { throw ExitCode(ExitStatus.unhealthy) }
     }
 
@@ -133,6 +137,7 @@ struct SyncWebDAVCommand: ParsableCommand {
             printStderr("conflict: \(c.path): \(c.detail)" + (c.remoteCopy.map { "; server copy kept as \($0)" } ?? ""))
         }
         for e in r.errors { printStderr("error: \(e.path): \(e.message)") }
+        for e in r.rejected { printStderr("rejected: \(e.path): \(e.message); the local copy is kept") }
         output.info("\(r.dryRun ? "dry run: " : "")\(r.uploaded.count) uploaded, \(r.downloaded.count) downloaded, "
                     + "\(r.deleted.count) deleted, \(r.conflicts.count) conflicts, \(r.errors.count) errors"
                     + (r.extraneous.isEmpty ? "" : ", \(r.extraneous.count) extraneous")

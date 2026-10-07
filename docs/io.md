@@ -543,7 +543,11 @@ The only in-place rewrite. The procedure is the recommended one of
    (recipient removed) it holds the **outgoing** vault secret, age-encrypted
    to the new recipient set.
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
-   removal).
+   removal), `recipientsTag` for them and, on removal, `secretLink` from the
+   outgoing secret (format.md §2.1), in the same atomic write; then save this
+   device's trust record. Before step 1 the current list must check
+   (`requireWritable`): a planted list, or a planted journal next to one, is
+   never resumed or rewrapped to.
 3. For every revision file: decrypt with our identities, then
    - **skip** it if its header has exactly one stanza of the matching type
      (`X25519` / `mlkem768x25519`) per current recipient (and no other stanzas)
@@ -739,13 +743,21 @@ saved as `<name>.conflict-<device>-<yyyymmddThhmmssZ>.json` in the vault root
 conflict is reported on every run until the files agree. A PUT rejected with
 412 is a conflict too. `rewrap-journal.json` deleted locally is not deleted
 remotely (deletions come only from compaction) and not restored locally.
+Before a remote `vault.json` replaces the local one, its device list is
+checked (`Vault.incomingManifestProblem`, format.md §2.1): the same keys
+(still tagged) pass without a key; a changed list passes only when the vault
+is unlocked and the list verifies (tag under the secret it carries, that
+secret the local one or confirmed by `secretLink`). Otherwise it is listed in
+`rejected`, the local file stays and the sync state is not updated, so the
+next run reports it again.
 
-**Push-only mirror** (`--push-only`, `WebDAVSyncOptions.pushOnly`). `vault.json`'s
-`recipients` list is plaintext and not authenticated. A two-way sync with a
-compromised server could import an attacker's recipient into the local vault,
-and every device would then encrypt new revisions to it. For a server that is
-only a copy (the web viewer's mirror), the run is therefore one-way, and the
-server can be corrupted but can never feed anything back:
+**Push-only mirror** (`--push-only`, `WebDAVSyncOptions.pushOnly`). A two-way
+sync rejects a `vault.json` whose recipients changed without a valid tag
+(format.md §2.1, above), but it still takes whatever else the server holds:
+new revisions and blobs, deletions it can explain, journals. For a server that
+is only a copy (the web viewer's mirror) and is not trusted to write back, the
+run is one-way, and the server can be corrupted but can never feed anything
+back:
 
 - nothing is downloaded, and nothing in the vault folder is written, restored
   or deleted (every local write path refuses in this mode; only the sync-state
