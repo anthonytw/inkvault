@@ -174,6 +174,11 @@ final class QuickCapture {
         guard await microphoneAllowed() else { throw QuickCaptureError.microphoneDenied }
         let s = RecordingSession(noteID: UUID(), format: RecordingPreference.format(), root: root, backend: backend?(),
                                  center: center)
+        // Ended by the system (media services reset, no new segment file): sealed as after Stop.
+        s.onStoppedBySystem = { [weak self, weak s] in
+            guard let self, let s, self.session === s else { return }
+            Task { _ = try? await self.finish(s) }
+        }
         try s.start()
         session = s
         state = .recording
@@ -185,6 +190,12 @@ final class QuickCapture {
     func stop() async throws -> Outcome {
         guard let s = session, s.isActive else { throw QuickCaptureError.notRecording }
         s.stop()
+        return try await finish(s)
+    }
+
+    /// Seals a stopped session (`stop`, or the system ended it).
+    private func finish(_ s: RecordingSession) async throws -> Outcome {
+        guard session === s, state == .recording else { throw QuickCaptureError.notRecording }
         state = .saving
         endActivity()
         defer {
