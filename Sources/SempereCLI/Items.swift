@@ -96,7 +96,11 @@ struct ItemsMove: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "move",
         abstract: "Move or resize an item (one setItem frame delta).",
-        discussion: "The frame is x,y,w,h in page points (origin top left); width and height must be positive."
+        discussion: """
+            The frame is x,y,w,h in page points (origin top left); width and height must be positive. A text \
+            box with stored line breaks that gets another width is laid out again with the CLI's fonts: new \
+            breaks, and the height its lines take, in the same delta (format.md §8.2.4).
+            """
     )
 
     @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
@@ -129,7 +133,15 @@ struct ItemsMove: ParsableCommand {
         let r = try editNote(vault, id) { state in
             try requireLive(state)
             let (page, found) = try findItem(item, in: state)
-            return NoteOps.setFrame(found.id, to: rect, on: page)?.ops ?? []
+            return NoteOps.setFrame(found.id, to: rect, on: page) { text, frame in
+                // Breaks belong to the wrapping width: lay out again what was laid out.
+                guard text.breaks != nil else { return (text, frame) }
+                var item = found
+                item.text = text
+                item.frame = frame
+                let laid = laidOutText(item, keepHeight: false)
+                return (laid.text ?? text, laid.frame)
+            }?.ops ?? []
         }
         try reportEdit(vault, id, r, output: output, done: "Moved", unchanged: "The item already has that frame.")
     }

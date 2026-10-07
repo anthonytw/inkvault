@@ -28,6 +28,9 @@ struct PageStackView: UIViewRepresentable {
     var itemCommands = ItemCommands()
     var selectingItems = false
     var onSelectingItemsEnded: () -> Void = {}
+    /// The text tool (`PageCanvasContent.addingText`).
+    var addingText = false
+    var onAddingTextEnded: () -> Void = {}
     /// Images and PDFs dropped on a page (`PageCanvasContent.onDrop`).
     var onDrop: ((_ providers: [NSItemProvider], _ pageID: UUID, _ point: CGPoint) -> Void)?
 
@@ -41,7 +44,8 @@ struct PageStackView: UIViewRepresentable {
             editor: editor, pageIDs: pageIDs, pageSize: pageSize, pageJump: pageJump, generation: generation,
             paletteVisible: paletteVisible, paletteCompact: paletteCompact, drawingSuspended: drawingSuspended,
             itemSource: itemSource, itemCommands: itemCommands, selectingItems: selectingItems,
-            onSelectingItemsEnded: onSelectingItemsEnded, onDrop: onDrop))
+            onSelectingItemsEnded: onSelectingItemsEnded, addingText: addingText, onAddingTextEnded: onAddingTextEnded,
+            onDrop: onDrop))
     }
 
     static func dismantleUIView(_ stack: PageStackHost, coordinator: ()) {
@@ -74,6 +78,8 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         var itemCommands = ItemCommands()
         var selectingItems = false
         var onSelectingItemsEnded: () -> Void = {}
+        var addingText = false
+        var onAddingTextEnded: () -> Void = {}
         var onDrop: ((_ providers: [NSItemProvider], _ pageID: UUID, _ point: CGPoint) -> Void)?
     }
 
@@ -322,7 +328,8 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
                                        itemSource: configuration.itemSource, itemCommands: configuration.itemCommands,
                                        selectingItems: configuration.selectingItems,
                                        onSelectingItemsEnded: configuration.onSelectingItemsEnded,
-                                       onDrop: configuration.onDrop),
+                                       onDrop: configuration.onDrop, addingText: configuration.addingText,
+                                       onAddingTextEnded: configuration.onAddingTextEnded),
             to: slot.host)
         slot.host.itemSelection.scroller = scroller
     }
@@ -345,6 +352,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
     /// the page's ledger and the drawing it showed) and it waits for reuse.
     private func recycle(_ id: UUID) {
         guard let slot = slots.removeValue(forKey: id) else { return }
+        slot.host.textEditor.endEditing()   // a box being typed in is written before its page goes
         slot.coordinator.forget(host: slot.host)
         slot.host.removeFromSuperview()
         if spares.count < Self.spareLimit { spares.append(slot) }
@@ -354,7 +362,8 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
     /// responder): the current page's, unless the user drew on another.
     private func ensureFocus() {
         guard window != nil else { return }
-        if slots.values.contains(where: { $0.host.canvas.isFirstResponder }) { return }
+        // A page being drawn on, or a text box being typed in, already has it.
+        if slots.values.contains(where: { $0.host.canvas.isFirstResponder || $0.host.textEditor.isEditing }) { return }
         guard let id = editor?.currentPage?.id, let slot = slots[id] else { return }
         slot.host.focus()
     }
@@ -365,6 +374,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
     private func updateGestures() {
         guard let editor, let configuration else { return }
         let drawing = !editor.isReadOnly && !configuration.drawingSuspended && !configuration.selectingItems
+            && !configuration.addingText
         let pan = scroller.panGestureRecognizer
         pan.allowedTouchTypes = Self.panTouchTypes(drawing: drawing, isMac: Platform.isMac)
         pan.minimumNumberOfTouches = Self.minimumPanTouches(drawing: drawing, fingersDraw: fingersDraw)

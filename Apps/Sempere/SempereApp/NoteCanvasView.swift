@@ -140,6 +140,8 @@ struct EditorView: View {
     @Environment(AppModel.self) private var model
     /// Selection mode for placed items (images, text boxes, PDF pages).
     @State private var selectingItems = false
+    /// The text tool: a tap edits a text box or starts a new one (`TextBoxEditorController`).
+    @State private var addingText = false
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
     @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
@@ -194,6 +196,7 @@ struct EditorView: View {
                               generation: editor.canvasGeneration,
                               itemSource: model.itemLayerSource, itemCommands: itemCommands,
                               selectingItems: selectingItems, onSelectingItemsEnded: { selectingItems = false },
+                              addingText: addingText, onAddingTextEnded: { addingText = false },
                               onDrop: editor.isReadOnly ? nil : { providers, page, point in
                                   EditorInsert.add(providers, to: editor, page: page, at: point, model: model, ui: ui, state: insert)
                               })
@@ -206,6 +209,7 @@ struct EditorView: View {
                                generation: editor.canvasGeneration,
                                itemSource: model.itemLayerSource, itemCommands: itemCommands,
                                selectingItems: selectingItems, onSelectingItemsEnded: { selectingItems = false },
+                               addingText: addingText, onAddingTextEnded: { addingText = false },
                                onDrop: editor.isReadOnly ? nil : { providers, page, point in
                                    EditorInsert.add(providers, to: editor, page: page, at: point, model: model, ui: ui, state: insert)
                                })
@@ -250,8 +254,11 @@ struct EditorView: View {
         .onChange(of: editor.noteID) {
             annotating = PhoneReading.annotatingAfterNoteChange()
             selectingItems = false
+            addingText = false
             showingTranscript = nil
         }
+        .onChange(of: selectingItems) { if selectingItems { addingText = false } }
+        .onChange(of: addingText) { if addingText { selectingItems = false } }
         .sheet(item: $showingTranscript) { TranscriptView(editor: editor, recording: $0) }
         .sheet(item: $renamingRecording) { RenameRecordingSheet(editor: editor, recording: $0) }
         .toolbar {
@@ -278,6 +285,7 @@ struct EditorView: View {
             ToolbarItem(placement: .secondaryAction) { insertMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsMenu }
             if annotating {
+                ToolbarItem(placement: .secondaryAction) { textToolToggle }
                 ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
                 if showsItemSelection {
                     ToolbarItem(placement: .secondaryAction) { itemSelectionToggle }
@@ -326,6 +334,12 @@ struct EditorView: View {
     private var showsItemSelection: Bool {
         guard !editor.isReadOnly, let page = editor.currentPage else { return false }
         return !page.items.isEmpty || model.itemClipboard.entry != nil || selectingItems
+    }
+
+    private var textToolToggle: some View {
+        Toggle("Text", systemImage: "character.textbox", isOn: $addingText)
+            .toggleStyle(.button)
+            .help("Type text: tap the page for a new text box, or a text box to edit it")
     }
 
     private var itemSelectionToggle: some View {
@@ -397,6 +411,9 @@ struct EditorView: View {
                         paletteVisible.toggle()
                     }
                 }
+            }
+            if !editor.isReadOnly, editor.currentPage != nil {
+                ToolbarItem(placement: .primaryAction) { textToolToggle }
             }
             if !editor.isReadOnly {
                 ToolbarItem(placement: .primaryAction) { insertMenu }
