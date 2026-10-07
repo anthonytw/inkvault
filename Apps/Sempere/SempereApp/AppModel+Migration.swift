@@ -118,14 +118,16 @@ extension AppModel {
             if let key = plan.key, !current.recipients.contains(where: { $0.key == key.recipient.string }),
                 !current.classicRecipients.isEmpty {
                 show("Adding your post-quantum key: re-encrypting every note…")
+                let policy = RewrapSettings.policy()
                 current = try await rewrap(current, gen: gen) {
-                    try $0.addRecipient(key.recipient, label: "This device (post-quantum)")
+                    try $0.addRecipient(key.recipient, label: "This device (post-quantum)", policy: policy)
                 }
             }
             for old in current.classicRecipients {
                 show("Removing the classic key: re-encrypting every note…")
                 let recipient = try NativeRecipient(string: old)
-                current = try await rewrap(current, gen: gen) { try $0.removeRecipient(recipient) }
+                let policy = RewrapSettings.policy()
+                current = try await rewrap(current, gen: gen) { try $0.removeRecipient(recipient, policy: policy) }
             }
             show("Opening the vault…")
             let identities: [any AgeIdentity]

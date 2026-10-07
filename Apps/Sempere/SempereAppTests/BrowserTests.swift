@@ -208,8 +208,8 @@ struct BrowserTests {
         #expect(model.notebooks == ["Uni"])
     }
 
-    /// A new note with no title typed is named after its date and time, in the
-    /// format stored in `UserDefaults` (TestFlight build 6).
+    /// A new note with no title typed is named after its date and time
+    /// (TestFlight build 6), in the format Settings → New Notes picks.
     @Test func aNewNoteWithoutATitleGetsTheDateAndTime() async throws {
         let model = try await Self.unlockedFixtureModel()
         var asked: [Date] = []
@@ -223,20 +223,16 @@ struct BrowserTests {
         #expect(asked.count == 1)
     }
 
-    @Test func theDefaultTitleFormatIsStoredInUserDefaults() throws {
-        let defaults = try #require(UserDefaults(suiteName: "DefaultTitle-\(UUID().uuidString)"))
-        let posix = Locale(identifier: "en_US_POSIX"), utc = try #require(TimeZone(identifier: "UTC"))
-        let date = Date(timeIntervalSince1970: 1_791_381_909)   // 2026-10-07 14:05:09 UTC
-        #expect(DefaultTitlePreference.format(in: defaults) == nil)
-        let localized = DefaultTitlePreference.title(at: date, defaults: defaults, locale: posix, timeZone: utc)
-        #expect(localized.contains("2026"))
-        DefaultTitlePreference.setFormat("'Lecture' yyyy-MM-dd HH:mm", in: defaults)
-        #expect(defaults.string(forKey: DefaultTitlePreference.defaultsKey) == "'Lecture' yyyy-MM-dd HH:mm")
-        #expect(DefaultTitlePreference.title(at: date, defaults: defaults, locale: posix, timeZone: utc)
-                == "Lecture 2026-10-07 14:05")
-        DefaultTitlePreference.setFormat("  ", in: defaults)
-        #expect(DefaultTitlePreference.format(in: defaults) == nil, "blank: back to the locale's default")
-        #expect(DefaultTitlePreference.title(at: date, defaults: defaults, locale: posix, timeZone: utc) == localized)
+    /// The Settings choice is the one the model uses: Blank leaves the note
+    /// untitled (`createNote` never puts a date over it).
+    @Test func theDefaultTitleFollowsTheNewNotesSetting() async throws {
+        let model = try await Self.unlockedFixtureModel()
+        model.defaultTitle = { NewNoteSettings.title(.blank, now: $0) }
+        let id = try await model.createNote(title: NewNoteSettings.title(.blank), paper: .ruled, notebook: nil)
+        #expect(model.notes.first { $0.id == id }?.title == "")
+        let d = try #require(UserDefaults(suiteName: "TitleFormat-\(UUID().uuidString)"))
+        NewNoteSettings.setTitleFormat(.dateOnly, in: d)
+        #expect(NewNoteSettings.resolvedTitle(typed: " ", defaults: d) == NewNoteSettings.title(.dateOnly))
     }
 
     @Test func tagsAddRemoveAndDeduplicate() async throws {

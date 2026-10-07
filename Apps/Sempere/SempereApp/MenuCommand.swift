@@ -21,7 +21,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
     // View
     case zoomIn, zoomOut, fitWidth, actualSize, toggleNoteList
     // Window
-    case showLibrary, showKeys
+    case showLibrary, showKeys, showSettings
 
     /// A key and its modifiers. `key` is the character the key types.
     struct Shortcut: Hashable, Sendable {
@@ -97,6 +97,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .toggleNoteList: return "Hide or Show Note List"
         case .showLibrary: return "Library"
         case .showKeys: return "Vault Keys"
+        case .showSettings: return "Settings…"
         }
     }
 
@@ -140,6 +141,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .toggleNoteList: return Shortcut("l", option)
         case .showLibrary: return Shortcut("0", option)
         case .showKeys: return Shortcut("k", option)
+        case .showSettings: return Shortcut(",", cmd)
         }
     }
 
@@ -196,6 +198,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .zoomIn, .zoomOut, .fitWidth, .actualSize: return context.hasPage
         case .showLibrary: return !context.libraryWindowOpen
         case .showKeys: return unlocked
+        // Device settings need no vault.
+        case .showSettings: return true
         }
     }
 }
@@ -222,7 +226,7 @@ enum MenuLayout {
         [.zoomIn, .zoomOut, .fitWidth, .actualSize],
         [.toggleNoteList],
     ]
-    static let window: [[MenuCommand]] = [[.showLibrary, .showKeys]]
+    static let window: [[MenuCommand]] = [[.showLibrary, .showKeys, .showSettings]]
     /// Edit > Find (the system's Undo and Redo stay where UIKit puts them).
     static let edit: [[MenuCommand]] = [[.find]]
 

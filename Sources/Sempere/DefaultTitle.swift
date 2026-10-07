@@ -1,8 +1,9 @@
 import Foundation
 
-/// The title a new note gets when none is typed: the date and time it was
-/// created, in a format the user can change (the app's
-/// `Sempere.defaultTitleFormat` setting, the CLI's `notes new --title-format`).
+/// The title a new note gets from the CLI when none is given: the date and
+/// time it was created, in a format the user can change (`notes new
+/// --title-format`). The app's Settings → New Notes offers the locale's date
+/// and time (this format's default), the date only, or no title (`NewNoteSettings`).
 ///
 /// A format is a Unicode date pattern (UTS #35, as `DateFormatter.dateFormat`:
 /// `yyyy-MM-dd HH:mm`, `'Lecture' EEE d MMM`); literal text goes in single

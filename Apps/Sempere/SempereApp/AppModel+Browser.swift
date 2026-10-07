@@ -77,7 +77,7 @@ extension AppModel {
     func createNote(title: String, paper: Paper, notebook: String?, pageSize: PageSize = .letter) async throws -> UUID {
         let id = UUID()
         let notebook = NotebookPath.canonical(notebook)
-        // No title typed: the date and time, in the user's format (`DefaultTitlePreference`).
+        // No title typed: the date (and time), or nothing, as Settings → New Notes says (`NewNoteSettings`).
         let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = typed.isEmpty ? defaultTitle(Date()) : typed
         try await commit([(id: id, ops: NoteOps.newNote(title: title,
