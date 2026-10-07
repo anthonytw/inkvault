@@ -96,7 +96,8 @@ struct AttachmentPersistenceTests {
         let first = try await launch()
         let cache = try #require(first.attachmentCache())
         let second = try await launch()
-        #expect(try #require(second.attachmentCache()).root == cache.root)
+        let secondCache = try #require(second.attachmentCache())
+        #expect(secondCache.root == cache.root)
         #expect(cache.root.deletingLastPathComponent().standardizedFileURL.path == blobs.standardizedFileURL.path)
         // Another vault's (or an old secret's) folder is removed; the legacy per-session one too.
         try FileManager.default.createDirectory(at: blobs.appendingPathComponent("someone-else"), withIntermediateDirectories: true)
@@ -310,7 +311,8 @@ struct AttachmentPersistenceTests {
         let (vault, _) = try TS.unlockedFixture()
         let data = NSMutableData()
         var box = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let ctx = try #require(CGContext(consumer: try #require(CGDataConsumer(data: data as CFMutableData)), mediaBox: &box, nil))
+        let consumer = try #require(CGDataConsumer(data: data as CFMutableData))
+        let ctx = try #require(CGContext(consumer: consumer, mediaBox: &box, nil))
         for n in 0..<120 {
             ctx.beginPDFPage(nil)
             ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
