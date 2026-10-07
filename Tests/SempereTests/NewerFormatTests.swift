@@ -31,8 +31,13 @@ enum NewerFixture {
     static func wall(_ offset: Int64) -> String { RFC3339.string(from: SampleFixture.at(offset))! }
 
     static func stroke(_ n: Int) -> [String: Any] {
-        let pts: [[Double]] = (0..<4).map { i in
-            [Double(50 + 20 * n + 10 * i), Double(100 + 15 * i), Double(i) * 0.016, 2.5, 2.5, 1, 0.5, 0.25, 1.25]
+        var pts: [[Double]] = []
+        for i in 0..<4 {
+            let x = Double(50 + 20 * n + 10 * i)
+            let y = Double(100 + 15 * i)
+            let t = Double(i) * 0.016
+            let rest: [Double] = [2.5, 2.5, 1, 0.5, 0.25, 1.25]
+            pts.append([x, y, t] + rest)
         }
         return ["id": id(100 + n), "ink": ["tool": "pen", "color": "#1A1A1AFF", "width": 2.5], "points": pts]
     }
