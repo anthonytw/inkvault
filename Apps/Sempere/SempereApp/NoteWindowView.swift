@@ -51,9 +51,12 @@ struct NoteWindowView: View {
                     }
                 }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("noteWindow")
         .environment(ui)
         .windowSheets(ui)
         .focusedSceneValue(\.commandRouter, router)
+        .menuRouter(router)
         .task(id: LoadKey(ready: ready, epoch: model.keyEpoch)) { await load() }
         .task {
             // Restored without the library window: bring it up to open and unlock the vault.
@@ -131,7 +134,7 @@ struct NoteWindowView: View {
         context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: editor)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible) { command in
+                             paletteVisible: paletteVisible, exportIDs: note.map { [$0.id] } ?? [], windowID: ui.id) { command in
             guard !EditorCommands.perform(command, editor: editor, ui: ui) else { return }
             switch command {
             case .renameNote: ui.renameNoteID = value.noteID

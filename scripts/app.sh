@@ -5,6 +5,8 @@
 #   scripts/app.sh test-phone # the iPhone suites (PhoneLayoutTests) on an iPhone simulator
 #   scripts/app.sh catalyst   # Mac Catalyst build, unsigned
 #   scripts/app.sh pseudo     # layout check in the double-length, right-to-left and Spanish languages
+#   scripts/app.sh test-mac   # every app suite on Mac Catalyst, ad-hoc signed and sandboxed
+#   scripts/app.sh test-mac-ui # the Mac UI tests (MacWindowUITests) on Mac Catalyst
 #   scripts/app.sh simulator  # print the simulator id `test` would use
 #
 # SEMPERE_SIM_ID overrides the simulator choice.
@@ -82,8 +84,20 @@ case "${1:-}" in
       -destination 'platform=macOS,variant=Mac Catalyst' \
       CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=-
     ;;
+  test-mac)
+    # Ad-hoc signed: a sandboxed Catalyst test host has to be signed to launch.
+    xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
+      -destination 'platform=macOS,variant=Mac Catalyst' -only-testing:SempereAppTests \
+      CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
+    ;;
+  test-mac-ui)
+    # The UI tests live in the SempereScreenshots scheme (never built by `test`).
+    xcodebuild test -project "$project" -scheme SempereScreenshots -derivedDataPath "$derived" \
+      -destination 'platform=macOS,variant=Mac Catalyst' -only-testing:SempereAppUITests/MacWindowUITests \
+      CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
+    ;;
   *)
-    echo "usage: $0 test|test-phone|pseudo|catalyst|simulator" >&2
+    echo "usage: $0 test|test-phone|pseudo|catalyst|test-mac|test-mac-ui|simulator" >&2
     exit 2
     ;;
 esac

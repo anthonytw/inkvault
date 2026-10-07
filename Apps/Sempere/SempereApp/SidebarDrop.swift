@@ -50,15 +50,17 @@ enum DragPayload: Equatable, Sendable {
         return nil
     }
 
-    /// An item provider for a drag: the payload for this app only, plus whatever `extra` registers.
+    /// An item provider for a drag: whatever `extra` registers (first: other
+    /// apps, such as the Finder, take the first type they can use), then the
+    /// payload for this app only.
     func provider(extra: (NSItemProvider) -> Void = { _ in }) -> NSItemProvider {
         let provider = NSItemProvider()
+        extra(provider)
         let bytes = data
         provider.registerDataRepresentation(forTypeIdentifier: type.identifier, visibility: .ownProcess) { completion in
             completion(bytes, nil)
             return nil
         }
-        extra(provider)
         return provider
     }
 }

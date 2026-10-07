@@ -9357,6 +9357,18 @@
         }
       }
     },
+    "Updated from another device" : {
+      "comment" : "Notice over the canvas after another device's changes were merged into the open note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualizado desde otro dispositivo"
+          }
+        }
+      }
+    },
     "Updating %@: %lld done" : {
       "comment" : "[not-plural] Progress; %@ is a number of changed notes, the number is how many are done",
       "extractionState" : "manual",

@@ -46,6 +46,18 @@ final class NoteEditor {
     private(set) var saveError: String?
     /// Deltas written by this editor (for tests and the UI).
     private(set) var deltasWritten = 0
+    /// Merges that brought another device's changes on screen
+    /// (`mergeRevisions`): the canvas shows "Updated from another device".
+    private(set) var remoteUpdates = 0
+    /// When the last of them happened.
+    private(set) var lastRemoteUpdate: Date?
+    /// Canvases showing this note's ink (`attachInkView`).
+    @ObservationIgnored fileprivate var inkViews: [WeakInkView] = []
+    /// How long a merge (`mergeRevisions`) waits for a stroke under way
+    /// before it gives up; the next listing tries again. Bounded so that a
+    /// canvas that never reports the end of a stroke cannot stall merges of
+    /// the note for as long as it stays open.
+    @ObservationIgnored var inkWaitLimit = Duration.seconds(30)
 
     var isReadOnly: Bool { readOnlyReason != nil || isPreparing }
     var currentPage: Page? { pages.indices.contains(pageIndex) ? pages[pageIndex] : nil }
@@ -77,6 +89,14 @@ final class NoteEditor {
     @ObservationIgnored private(set) var cacheKey: DrawingCache.Key?
     /// Revisions this editor wrote, by file name.
     @ObservationIgnored private var writtenNames: [String] = []
+    /// Bumped whenever this editor starts writing a revision (`mergeRevisions`
+    /// re-reads when one started during its read).
+    @ObservationIgnored private var writeEpoch = 0
+    /// Every revision file name the editor's state already holds: those read
+    /// (on open and by `mergeRevisions`) and those it wrote. A name listed in
+    /// the note's folder that is not here is a revision written elsewhere
+    /// (`hasUnmergedRevisions`).
+    @ObservationIgnored private(set) var knownRevisionNames: Set<String> = []
     /// The read that completes an editor opened from the cache.
     @ObservationIgnored private var fullLoad: Task<Void, Never>?
     /// Called when that read fails (`failLoading`), with the reason: the
@@ -196,7 +216,7 @@ final class NoteEditor {
     }
 
     /// What reading a note yields, off the main actor.
-    private struct Loaded: Sendable {
+    fileprivate struct Loaded: Sendable {
         var state: NoteState
         var failures: Int
         var nextSeq: Int
@@ -274,6 +294,7 @@ final class NoteEditor {
         let editor = NoteEditor(noteID: noteID, state: loaded.state, writer: writer, readOnlyReason: reason,
                                 debounce: debounce, recognizer: recognizer, recognitionDelay: recognitionDelay)
         editor.editingSession = session
+        editor.knownRevisionNames = Set(loaded.names)
         if let cache, loaded.failures == 0 {
             let key = DrawingCache.Key(note: noteID, revisions: loaded.names)
             editor.drawingCache = cache
@@ -306,12 +327,15 @@ final class NoteEditor {
         }.value
     }
 
+    /// Why a note in Recently Deleted cannot be edited.
+    static let deletedReason = String(localized: "This note is in Recently Deleted.") // compared by value, so one string for the process
+
     private static func readOnlyReason(_ loaded: Loaded) -> String? {
         if loaded.failures > 0 {
             let count = loaded.failures
             return String(localized: "\(count) revisions of this note could not be read, so it opens read-only.")
         } else if loaded.state.deleted {
-            return String(localized: "This note is in Recently Deleted.")
+            return deletedReason
         }
         return nil
     }
@@ -348,6 +372,7 @@ final class NoteEditor {
         writer = readOnlyReason == nil ? NoteWriter(vault: vault, noteID: noteID, clock: clock, nextSeq: loaded.nextSeq,
                                                     coordinated: coordinated, session: editingSession) : nil
         cacheKey = loaded.failures == 0 ? DrawingCache.Key(note: noteID, revisions: loaded.names) : nil
+        knownRevisionNames = Set(loaded.names)
         canvasDrawings = [:]
         ledgers = [:]
         for page in pages {
@@ -897,11 +922,13 @@ final class NoteEditor {
         let previous = chain
         let task = Task { () async throws -> RevisionName in
             await previous?.value
+            self.writeEpoch &+= 1
             return try await writer.write(ops)
         }
         chain = Task { _ = try? await task.value }
         let name = try await task.value
         writtenNames.append(name.filename)
+        knownRevisionNames.insert(name.filename)
         deltasWritten += 1
     }
 
@@ -921,9 +948,11 @@ final class NoteEditor {
         let size = pageSize
         if size != committedPageSize { ops.append(.setMeta(.pageSize(size))) }
         guard !ops.isEmpty else { return }
+        writeEpoch &+= 1
         do {
             let name = try await writer.write(ops)
             writtenNames.append(name.filename)
+            knownRevisionNames.insert(name.filename)
         } catch {
             for (id, save) in saves { ledgers[id]?.saveFailed(save) }
             let detail = "\(error)"
@@ -934,6 +963,225 @@ final class NoteEditor {
         committedPageSize = size
         deltasWritten += 1
         saveError = nil
+    }
+}
+
+// MARK: - Revisions written elsewhere
+
+extension NoteEditor {
+    /// What `mergeRevisions` did.
+    enum RemoteMergeOutcome: Equatable {
+        /// The note as read equals what the editor shows (its own revisions, or
+        /// changes that cancel out): nothing changed on screen.
+        case unchanged
+        /// The editor shows the merged note now; `fromOtherDevice` when a
+        /// revision of another device was among those taken.
+        case merged(fromOtherDevice: Bool)
+        /// Nothing was applied: the editor is closed, still being read, or
+        /// could not save what it has (`saveError`). The names stay unknown,
+        /// so the next listing tries again.
+        case skipped
+        /// Nothing was applied: a revision of the note could not be read (it
+        /// opens read-only when reopened). Tried again once the names change.
+        case unreadable
+    }
+
+    /// Whether `names` (the note folder's revision files, as just listed) hold
+    /// a revision the editor has not read or written.
+    func hasUnmergedRevisions(_ names: [String]) -> Bool {
+        !isPreparing && !loadFailed && !isShutDown && names.contains { !knownRevisionNames.contains($0) }
+    }
+
+    /// Whether the editor can take revisions written elsewhere in place
+    /// (`mergeRevisions`): it can save. A read-only editor (Recently Deleted,
+    /// unreadable revisions) is reopened instead, it has nothing unsaved.
+    var mergesInPlace: Bool { writer != nil && !loadFailed }
+
+    /// True while a canvas showing this note is in the middle of a stroke or
+    /// an object-eraser gesture: its drawing must not be replaced then.
+    var isInkInUse: Bool { inkViews.contains { $0.view?.isUsingInk == true } }
+
+    /// Brings revisions written elsewhere (another device, or this device's
+    /// browser edits) into the open editor without losing anything unsaved.
+    ///
+    /// Waits until no canvas is mid-stroke (at most `inkWaitLimit`, else
+    /// `.skipped`), saves what is pending (so the
+    /// read holds this canvas's ink too), reads the note again (the caller
+    /// has made every revision local: `downloadNote`), and applies the merged
+    /// state (format.md §5.3 decides concurrent edits) as a minimal diff:
+    /// per page only strokes that came or went (`StrokeLedger.mergeStored`;
+    /// kept canvas strokes are reused, never converted), items, papers,
+    /// recognition, page list, meta and recordings. Ink drawn while the note
+    /// was being read stays pending, on top. Canvases showing a page whose
+    /// ink changed are updated at once (`RemoteInkView`), keeping scroll and
+    /// zoom; their undo steps are dropped (an undo recorded before the merge
+    /// could put back a drawing without the other device's strokes and
+    /// erase them). Pages the merge left alone keep theirs. Nothing is
+    /// written for the merge itself.
+    func mergeRevisions(vault: Vault, clock: DeviceClock, coordinated: Bool,
+                        verify: (@Sendable () throws -> Void)?) async throws -> RemoteMergeOutcome {
+        for _ in 0..<4 {
+            guard !isShutDown, !isPreparing, !loadFailed, writer != nil else { return .skipped }
+            let waitStart = ContinuousClock.now
+            while isInkInUse {
+                guard ContinuousClock.now - waitStart < inkWaitLimit else { return .skipped }
+                try await Task.sleep(for: .milliseconds(100))
+                guard !isShutDown else { return .skipped }
+            }
+            await flush()
+            guard saveError == nil, !isShutDown else { return .skipped }   // never merge over ink that is not on disk
+            _ = await recognitionWrite?.result
+            // The read must hold every write of this editor: a save that starts
+            // meanwhile (autosave, a page gesture) is not in it, and its strokes
+            // would look removed elsewhere. Then it is read again.
+            let epoch = writeEpoch
+            let loaded = try await Self.read(vault: vault, noteID: noteID, device: clock.device,
+                                             coordinated: coordinated, verify: verify)
+            await clock.observe(loaded.readings)
+            guard !isShutDown else { return .skipped }
+            guard loaded.failures == 0 else { return .unreadable }
+            await writer?.raiseNextSeq(to: loaded.nextSeq)
+            guard !isShutDown else { return .skipped }
+            // A page or item gesture waiting to be saved, or a stroke under way: save, read again.
+            guard writeEpoch == epoch, pendingPageOps.isEmpty, !isInkInUse else { continue }
+            return applyMerged(loaded, device: clock.device)
+        }
+        return .skipped
+    }
+
+    /// What the merge compares to tell whether anything on screen changed.
+    private struct Shown: Equatable {
+        struct ShownPage: Equatable {
+            var id: UUID
+            var order: String
+            var paper: Paper?
+            var strokes: [UUID]
+            var items: [Item]
+        }
+
+        var pages: [ShownPage]
+        var meta: NoteMeta
+        var recordings: [Recording]
+        var deleted: Bool
+
+        /// Bookkeeping that is not shown (stamps, origins) is left out, so the
+        /// editor's own edits read back compare equal.
+        init(pages: [Page], meta: NoteMeta, recordings: [Recording], deleted: Bool) {
+            self.pages = pages.map { page in
+                ShownPage(id: page.id, order: page.order, paper: page.paper, strokes: page.strokes.map(\.id),
+                          items: page.items.map { item in
+                              var item = item
+                              item.origin = nil
+                              item.clocks = nil
+                              return item
+                          })
+            }
+            self.meta = meta
+            self.recordings = recordings.map { recording in
+                var recording = recording
+                recording.origin = nil
+                recording.clocks = nil
+                return recording
+            }
+            self.deleted = deleted
+        }
+    }
+
+    /// Takes the merged note `loaded` (synchronously: no canvas can report a
+    /// drawing in between).
+    private func applyMerged(_ loaded: Loaded, device: DeviceID) -> RemoteMergeOutcome {
+        let state = loaded.state
+        var committedMeta = meta
+        committedMeta.pageSize = committedPageSize
+        let before = Shown(pages: livePages(), meta: committedMeta, recordings: recordings,
+                           deleted: readOnlyReason == Self.deletedReason)
+        let oldPages = Dictionary(pages.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let shownID = currentPage?.id
+        let wasPageless = isPageless
+        var inkChanged: Set<UUID> = []
+        for page in state.pages {
+            let old = oldPages[page.id]
+            if var l = ledgers[page.id] {
+                let previous = canvasDrawings[page.id]
+                let merge = l.mergeStored(page.strokes, info: CanvasStrokeInfo.init(stored:))
+                if merge.changesCanvas {
+                    if let previous, previous.strokes.count == merge.previousCount {
+                        canvasDrawings[page.id] = PKDrawing(strokes: merge.sources.map { source -> PKStroke in
+                            switch source {
+                            case .kept(let i): return previous.strokes[i]
+                            case .converted(let s): return StrokeConversion.pkStroke(s)
+                            }
+                        })
+                    } else {
+                        // No canvas shows the page (each one hands its drawing over): it is
+                        // prepared from the merged strokes when one does (`prepareDrawing`).
+                        canvasDrawings[page.id] = nil
+                    }
+                    inkChanged.insert(page.id)
+                }
+                ledgers[page.id] = l
+            } else if let old, old.strokes.map(\.id) != page.strokes.map(\.id) {
+                inkChanged.insert(page.id)
+            }
+            if inkChanged.contains(page.id) || old == nil { inkRevisions[page.id, default: 0] &+= 1 }
+            if old?.items != page.items { itemRevisions[page.id, default: 0] &+= 1 }   // stamps too: cheap redraw
+        }
+        let keep = Set(state.pages.map(\.id))
+        ledgers = ledgers.filter { keep.contains($0.key) }
+        canvasDrawings = canvasDrawings.filter { keep.contains($0.key) }
+        for (id, task) in preparing where !keep.contains(id) { task.cancel() }
+        pages = state.pages
+        recordings = state.recordings.sorted(by: Recording.sortsBefore)
+        // An infinite page that grew here and is not saved yet keeps its height.
+        let grown = pageSize.infinite && state.meta.pageSize.infinite && pageSize != committedPageSize
+            && pageSize.height > state.meta.pageSize.height ? pageSize : nil
+        meta = state.meta
+        committedPageSize = state.meta.pageSize
+        pageSize = grown ?? state.meta.pageSize
+        if state.deleted {
+            readOnlyReason = readOnlyReason ?? Self.deletedReason
+        } else if readOnlyReason == Self.deletedReason {
+            readOnlyReason = nil
+        }
+        if let shownID, let i = pages.firstIndex(where: { $0.id == shownID }) {
+            pageIndex = i
+        } else {
+            pageIndex = min(pageIndex, max(pages.count - 1, 0))
+        }
+        if wasPageless != isPageless { canvasGeneration &+= 1 }
+        // The drawing cache's key names every revision the editor now holds.
+        let base = Set(cacheKey?.revisions ?? [])
+        writtenNames = Array(Set(writtenNames).union(loaded.names.filter { !base.contains($0) }))
+        let fromOtherDevice = loaded.names.contains { name in
+            !knownRevisionNames.contains(name) && RevisionName(name).map { $0.device != device } ?? false
+        }
+        knownRevisionNames.formUnion(loaded.names)
+        // Canvases showing a page whose ink changed show the merged drawing now.
+        for view in inkViews.compactMap(\.view) {
+            if let id = view.shownPageID, inkChanged.contains(id) { view.reloadInk(from: self) }
+        }
+        inkViews.removeAll { $0.view == nil }
+        var afterMeta = meta
+        afterMeta.pageSize = committedPageSize
+        let after = Shown(pages: livePages(), meta: afterMeta, recordings: recordings, deleted: state.deleted)
+        scheduleRecognition()   // pages changed elsewhere may need reading again
+        guard after != before else { return .unchanged }
+        if fromOtherDevice {
+            remoteUpdates &+= 1
+            lastRemoteUpdate = .now
+        }
+        return .merged(fromOtherDevice: fromOtherDevice)
+    }
+
+    /// Registers a canvas that shows this note's ink (`RemoteInkView`), so a
+    /// merge can update it; held weakly.
+    func attachInkView(_ view: any RemoteInkView) {
+        inkViews.removeAll { $0.view == nil || $0.view === view }
+        inkViews.append(WeakInkView(view: view))
+    }
+
+    func detachInkView(_ view: any RemoteInkView) {
+        inkViews.removeAll { $0.view == nil || $0.view === view }
     }
 }
 
@@ -1014,11 +1262,14 @@ extension NoteEditor {
         }
         guard !current.isEmpty else { return }
         let ops = current.map { Op.setPageRecognition(pageId: $0.pageID, recognition: $0.recognition) }
+        writeEpoch &+= 1
         let write = Task { try await writer.write(ops) }
         recognitionWrite = Task { _ = try await write.value }
         do {
             // The drawing cache's key names every revision this editor wrote.
-            writtenNames.append(try await write.value.filename)
+            let name = try await write.value.filename
+            writtenNames.append(name)
+            knownRevisionNames.insert(name)
         } catch {
             let detail = "\(error)"
             recognitionError = String(localized: "Could not save recognised text: \(detail)")

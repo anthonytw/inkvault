@@ -56,13 +56,15 @@ enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
 /// note has recognised handwriting.
 struct ExportMenu: View {
     @Environment(AppModel.self) private var model
+    /// The window's UI state: the export sheet opens in this window.
+    @Environment(WindowUI.self) private var ui: WindowUI?
     let ids: [UUID]
 
     var body: some View {
         Menu(ExportCommand.menuTitle, systemImage: ExportCommand.menuImage) {
             ForEach(ExportCommand.allCases) { command in
                 Button(command.title, systemImage: command.systemImage) {
-                    model.requestExport(command, ids: ids)
+                    model.requestExport(command, ids: ids, window: ui?.id)
                 }
                 .disabled(!model.canExport(command.format, ids: ids))
             }
@@ -71,17 +73,20 @@ struct ExportMenu: View {
     }
 }
 
-/// The same actions in the Mac menu bar (Catalyst), for the notes the list has
-/// selected (`AppModel.exportTargetIDs`).
+/// The same actions in the Mac menu bar (Catalyst), for the notes of the
+/// focused window (`CommandRouter.exportIDs`): the list's selection in a
+/// library window, its note in a note window.
 struct ExportMenuCommands: Commands {
     let model: AppModel
+    @FocusedValue(\.commandRouter) private var router
 
     var body: some Commands {
         CommandGroup(after: .importExport) {
+            let ids = router?.exportIDs ?? []
             Menu(ExportCommand.menuTitle) {
                 ForEach(ExportCommand.allCases) { command in
-                    Button(command.title) { model.requestExport(command, ids: model.exportTargetIDs) }
-                        .disabled(model.phase != .unlocked || !model.canExport(command.format, ids: model.exportTargetIDs))
+                    Button(command.title) { model.requestExport(command, ids: ids, window: router?.windowID) }
+                        .disabled(model.phase != .unlocked || !model.canExport(command.format, ids: ids))
                 }
             }
         }

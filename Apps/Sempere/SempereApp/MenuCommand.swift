@@ -45,6 +45,13 @@ enum MenuCommand: String, CaseIterable, Sendable {
         static let backspace: Character = "\u{7F}"
     }
 
+    /// Commands whose shortcut UIKit's own menu bar already uses on a Mac
+    /// (⌘O for "Open…", ⌘F for "Find…"). UIKit refuses a SwiftUI menu group
+    /// holding such a shortcut, and with it every other command of the group
+    /// (TestFlight build 6: the File and Edit commands were missing), so these
+    /// are not SwiftUI commands: `MacMenus` turns UIKit's own items into them.
+    static let nativeOnMac: [MenuCommand] = [.openVault, .find]
+
     /// Who handles the command.
     enum Provider: Sendable {
         /// The app, through `AppCommands`.
