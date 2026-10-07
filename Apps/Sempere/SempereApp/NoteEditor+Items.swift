@@ -81,13 +81,33 @@ extension NoteEditor {
         return try addItems([try make(ref)], on: pageID)[0]
     }
 
-    /// Moves or resizes an item (one `setItem(frame)`). Returns the frame it
-    /// had, for undo; nil when nothing changed.
+    /// Moves or resizes an item (one `setItem(frame)`). A text box that gets
+    /// another width is laid out again (TextKit breaks, the height of its
+    /// lines), in the same delta. Returns the frame it had, for undo; nil when
+    /// nothing changed.
     @discardableResult
     func setItemFrame(_ id: UUID, to frame: Rect, on pageID: UUID) -> Rect? {
         guard let page = try? page(pageID), let old = page.items.first(where: { $0.id == id })?.frame,
-              let edit = NoteOps.setFrame(id, to: frame, on: page), applyItemEdit(edit) else { return nil }
+              let edit = NoteOps.setFrame(id, to: frame, on: page, relayout: TextKitBreaks.relayout),
+              applyItemEdit(edit) else { return nil }
         return old
+    }
+
+    /// Sets a text box's text and frame (one delta: `setItem(text)` and, if
+    /// it changed, `setItem(frame)`). Returns what it had, for undo; nil when
+    /// nothing changed or the content is not valid.
+    @discardableResult
+    func setItemText(_ id: UUID, to content: TextContent, frame: Rect, on pageID: UUID) -> (content: TextContent, frame: Rect)? {
+        guard let page = try? page(pageID), let item = page.items.first(where: { $0.id == id }), let old = item.text,
+              let edit = try? NoteOps.setText(id, to: content, frame: frame, on: page), applyItemEdit(edit) else { return nil }
+        return (old, item.frame)
+    }
+
+    /// Adds a new text box on top of the page (one `addItem`). Nil when the
+    /// text is empty (an empty new box is not written) or not valid.
+    func addTextBox(_ content: TextContent, frame: Rect, on pageID: UUID) -> Item? {
+        guard !content.string.isEmpty, content.limitViolation == nil else { return nil }
+        return try? addItems([Item.text(content, frame: frame, z: "a")], on: pageID).first
     }
 
     /// Turns an item (degrees clockwise). Returns the rotation it had (nil
