@@ -8,9 +8,11 @@ import XCTest
 /// when its entries change, never copied back.
 final class SummariesSyncTests: SyncTestCase {
     @discardableResult
-    func syncSummaries(_ name: String, _ server: MockDAV, publish: Bool = false, locked: Bool = false) throws -> SyncReport {
+    func syncSummaries(_ name: String, _ server: MockDAV, publish: Bool = false, locked: Bool = false,
+                       pushOnly: Bool = false) throws -> SyncReport {
         var options = WebDAVSyncOptions(deviceLabel: name)
         options.publishForWebViewer = publish
+        options.pushOnly = pushOnly
         let vault = locked ? try Vault.open(at: dir(name)) : try openVault(name)
         let s = WebDAVSync(directory: dir(name), vault: vault, client: try client(server),
                            stateURL: tmp.appendingPathComponent("state-\(name).json"), options: options)
@@ -97,5 +99,18 @@ final class SummariesSyncTests: SyncTestCase {
         let rotated = try openVault("A")
         XCTAssertTrue(try syncSummaries("A", server).uploaded.contains(PublishedSummaries.fileName))
         XCTAssertEqual(try remote(server, rotated)?[n1]?.title, "Synthetic", "sealed under the new secret")
+    }
+
+    func testPushOnlyPublishesTheServerFilesAndWritesNothingLocally() throws {
+        let server = MockDAV()
+        let a = try makeVault()
+        let n1 = UUID()
+        _ = try newNote(a, n1, title: "Synthetic", t: 0)
+        let report = try syncSummaries("A", server, publish: true, pushOnly: true)
+        XCTAssertTrue(report.uploaded.contains(PublishedSummaries.fileName))
+        XCTAssertTrue(report.uploaded.contains(WebIndex.fileName))
+        XCTAssertEqual(try remote(server, a)?[n1]?.title, "Synthetic")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir("A").appendingPathComponent(PublishedSummaries.fileName).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir("A").appendingPathComponent(WebIndex.fileName).path))
     }
 }

@@ -30,6 +30,43 @@ final class CLIWebDAVTests: CLITestCase {
         }
     }
 
+    func testPushOnlyFlagRules() throws {
+        let vault = try copyFixtureVault()
+        let lone = try cli(["sync", "webdav", "https://dav.example.com/v/", "--vault", vault, "--delete-extraneous"])
+        XCTAssertEqual(lone.status, 2, lone.err)
+        XCTAssertTrue(lone.err.contains("--push-only"), lone.err)
+        // A mirror never creates the vault: no vault.json is a usage error before any request.
+        let empty = path("empty.sempere")
+        try FileManager.default.createDirectory(atPath: empty, withIntermediateDirectories: true)
+        let r = try cli(["sync", "webdav", "https://dav.example.com/v/", "--vault", empty, "--push-only"])
+        XCTAssertEqual(r.status, 2, r.err)
+        XCTAssertTrue(r.err.contains("--push-only needs an existing vault"), r.err)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: empty), [])
+    }
+
+    /// Needs a live server (scripts/test-webdav.sh): a mirror never changes the vault.
+    func testPushOnlyAgainstRealServer() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let base = env["SEMPERE_WEBDAV_TEST_URL"], let user = env["SEMPERE_WEBDAV_TEST_USER"],
+              let password = env["SEMPERE_WEBDAV_TEST_PASSWORD"] else { throw XCTSkip("no WebDAV test server") }
+        let url = base + "cli-push-\(UUID().uuidString.lowercased())/vault/"
+        let vault = try copyFixtureVault(as: "mirror.sempere")
+        let e = ["TEST_DAV_PW": password]
+        let common = ["--user", user, "--password-env", "TEST_DAV_PW", "--push-only"]
+        let manifest = URL(fileURLWithPath: vault).appendingPathComponent("vault.json")
+        let before = try Data(contentsOf: manifest)
+
+        let up = try cli(["sync", "webdav", url, "--vault", vault, "--json"] + common, env: e)
+        XCTAssertEqual(up.status, 0, up.err)
+        let json = try XCTUnwrap(up.json as? [String: Any])
+        XCTAssertGreaterThan((json["uploaded"] as? [String])?.count ?? 0, 1)
+        XCTAssertEqual(json["downloaded"] as? [String] ?? ["?"], [])
+        XCTAssertEqual(json["extraneous"] as? [String] ?? ["?"], [])
+        XCTAssertEqual(try Data(contentsOf: manifest), before)
+        let again = try cli(["sync", "webdav", url, "--vault", vault] + common, env: e)
+        XCTAssertTrue(again.out.contains("0 uploaded, 0 downloaded, 0 deleted, 0 conflicts, 0 errors"), again.out)
+    }
+
     /// Needs a live server: set by scripts/test-webdav.sh, skipped otherwise.
     func testSyncAgainstRealServer() throws {
         let env = ProcessInfo.processInfo.environment

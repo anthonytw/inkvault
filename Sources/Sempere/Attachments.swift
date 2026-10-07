@@ -71,7 +71,7 @@ public struct BlobKind: RawRepresentable, Hashable, Sendable, Codable, CustomStr
     public static let image = BlobKind(rawValue: "image")
     public static let pdf = BlobKind(rawValue: "pdf")
     public static let audio = BlobKind(rawValue: "audio")
-    /// Reserved (format.md §8.2.7).
+    /// Video clips (format.md §8.2.7).
     public static let video = BlobKind(rawValue: "video")
     public static let transcript = BlobKind(rawValue: "transcript")
     public static let bin = BlobKind(rawValue: "bin")
@@ -471,14 +471,14 @@ public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable, CustomStr
     public static let text = ItemKind(rawValue: "text")
     public static let image = ItemKind(rawValue: "image")
     public static let pdfPage = ItemKind(rawValue: "pdfPage")
-    /// Reserved (format.md §8.2.7): not written until the format defines it.
-    public static let math = ItemKind(rawValue: "math")
-    /// Reserved (format.md §8.2.7): not written until the format defines it.
+    /// A video clip with a poster frame (format.md §8.2.7).
     public static let video = ItemKind(rawValue: "video")
+    /// Reserved (format.md §8.2.8): not written until the format defines it.
+    public static let math = ItemKind(rawValue: "math")
 
-    /// The kinds the format defines; everything else (the reserved ones
+    /// The kinds the format defines; everything else (the reserved one
     /// included) is read as unknown.
-    public static let defined: [ItemKind] = [.text, .image, .pdfPage]
+    public static let defined: [ItemKind] = [.text, .image, .pdfPage, .video]
 
     /// True for a kind this reader can draw.
     public var isDefined: Bool { Self.defined.contains(self) }
@@ -529,7 +529,7 @@ public struct ItemLayer: RawRepresentable, Hashable, Sendable, Comparable, Codab
 }
 
 /// A placed item on a page (format.md §8.2): a text box, an image, a PDF page
-/// background, or a kind this reader does not know.
+/// background, a video clip, or a kind this reader does not know.
 ///
 /// The common fields are typed. Each defined kind's own fields are typed too,
 /// and read only for that kind: a field that is not one of the item's kind
@@ -557,9 +557,10 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
 
     /// `text`: the content (register).
     public var text: TextContent?
-    /// `image`, `pdfPage`: the bytes.
+    /// `image`, `pdfPage`, `video`: the bytes.
     public var blob: BlobRef?
-    /// `image`: `[w, h]` in pixels after orientation.
+    /// `image`: `[w, h]` in pixels after orientation; `video`: the display
+    /// size, after `videoRotation`.
     public var pixelSize: Size?
     /// `image`: EXIF orientation 1–8; nil (absent) is 1.
     public var orientation: Int?
@@ -569,6 +570,14 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
     public var pageIndex: Int?
     /// `pdfPage`: the effective page `[W', H']`, informational.
     public var pageSize: Size?
+    /// `video`: seconds, finite and not negative.
+    public var duration: Double?
+    /// `video`: 0, 90, 180 or 270, the track matrix's clockwise rotation; nil (absent) is 0. Informational.
+    public var videoRotation: Int?
+    /// `video`: `h264`, `hevc` or an importer's name; informational.
+    public var codec: String?
+    /// `video` (register): the poster frame, an upright image blob; nil (absent) is none.
+    public var poster: BlobRef?
 
     /// Fields this reader does not know, re-emitted unchanged.
     public var extra: [String: JSONValue]
@@ -577,11 +586,14 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
                 z: String, parent: UUID? = nil, rec: RecordingLink? = nil, origin: String? = nil,
                 clocks: [String: String]? = nil, text: TextContent? = nil, blob: BlobRef? = nil,
                 pixelSize: Size? = nil, orientation: Int? = nil, crop: Rect? = nil, pageIndex: Int? = nil,
-                pageSize: Size? = nil, extra: [String: JSONValue] = [:]) {
+                pageSize: Size? = nil, duration: Double? = nil, videoRotation: Int? = nil, codec: String? = nil,
+                poster: BlobRef? = nil, extra: [String: JSONValue] = [:]) {
         self.id = id; self.kind = kind; self.layer = layer; self.frame = frame; self.rotation = rotation; self.z = z
         self.parent = parent; self.rec = rec; self.origin = origin; self.clocks = clocks
         self.text = text; self.blob = blob; self.pixelSize = pixelSize; self.orientation = orientation
-        self.crop = crop; self.pageIndex = pageIndex; self.pageSize = pageSize; self.extra = extra
+        self.crop = crop; self.pageIndex = pageIndex; self.pageSize = pageSize
+        self.duration = duration; self.videoRotation = videoRotation; self.codec = codec; self.poster = poster
+        self.extra = extra
     }
 
     /// A text box.
@@ -605,6 +617,18 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
              pageSize: pageSize)
     }
 
+    /// A video clip (format.md §8.2.7). `pixelSize` is the display size;
+    /// `videoRotation` 0 is written as absent.
+    public static func video(id: UUID = UUID(), blob: BlobRef, pixelSize: Size, duration: Double,
+                             videoRotation: Int? = nil, codec: String? = nil, poster: BlobRef? = nil, frame: Rect,
+                             z: String, layer: ItemLayer = .content, rec: RecordingLink? = nil) -> Item {
+        Item(id: id, kind: .video, layer: layer, frame: frame, z: z, rec: rec, blob: blob, pixelSize: pixelSize,
+             duration: duration, videoRotation: videoRotation == 0 ? nil : videoRotation, codec: codec, poster: poster)
+    }
+
+    /// The `videoRotation` values format.md §8.2.7 allows.
+    public static let videoRotations: Set<Int> = [0, 90, 180, 270]
+
     /// Drawing order on a page (format.md §8.2.3): by `layer`, then `z`
     /// (byte-wise), then lowercase `id`. Snapshots list items in this order.
     public static func drawsBefore(_ l: Item, _ r: Item) -> Bool {
@@ -625,6 +649,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         case .text: return ["text"]
         case .image: return ["blob", "pixelSize", "orientation", "crop"]
         case .pdfPage: return ["blob", "pageIndex", "pageSize", "crop"]
+        case .video: return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"]
         default: return []
         }
     }
@@ -632,7 +657,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
     /// Fields `setItem` may not name (format.md §8.2.2): the immutable fields
     /// of every defined kind, plus the snapshot-only `origin` and `clocks`.
     public static let immutableFields: Set<String> = ["id", "kind", "layer", "parent", "rec", "origin", "clocks",
-                                                      "blob", "pixelSize", "orientation", "pageIndex", "pageSize"]
+                                                      "blob", "pixelSize", "orientation", "pageIndex", "pageSize",
+                                                      "duration", "videoRotation", "codec"]
 
     /// The reason the item is invalid (format.md §8.2), or nil: a common field
     /// out of range, a field of its kind missing or out of range, or a typed
@@ -643,7 +669,9 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         let mine = Self.kindFields(kind)
         let set: [(String, Bool)] = [("text", text != nil), ("blob", blob != nil), ("pixelSize", pixelSize != nil),
                                      ("orientation", orientation != nil), ("crop", crop != nil),
-                                     ("pageIndex", pageIndex != nil), ("pageSize", pageSize != nil)]
+                                     ("pageIndex", pageIndex != nil), ("pageSize", pageSize != nil),
+                                     ("duration", duration != nil), ("videoRotation", videoRotation != nil),
+                                     ("codec", codec != nil), ("poster", poster != nil)]
         for (field, isSet) in set where isSet && !mine.contains(field) {
             return "\(kind) item has no field \(field)"
         }
@@ -658,6 +686,11 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
             guard blob != nil, let pageIndex, let pageSize else { return "pdfPage item without blob, pageIndex or pageSize" }
             if pageIndex < 0 { return "pageIndex must not be negative" }
             if !pageSize.isPositive { return "pageSize must be positive" }
+        case .video:
+            guard blob != nil, let pixelSize, let duration else { return "video item without blob, pixelSize or duration" }
+            if !pixelSize.isPositive { return "pixelSize must be positive" }
+            if !(duration.isFinite && duration >= 0) { return "duration must be finite and not negative" }
+            if let videoRotation, !Self.videoRotations.contains(videoRotation) { return "videoRotation must be 0, 90, 180 or 270" }
         default: break
         }
         return nil
@@ -686,6 +719,15 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         crop = try field("crop", Rect.self)
         pageIndex = try field("pageIndex", Int.self)
         pageSize = try field("pageSize", Size.self)
+        duration = try field("duration", Double.self)
+        videoRotation = try field("videoRotation", Int.self)
+        codec = try field("codec", String.self)
+        // `poster: null` is a reset register (absent).
+        if mine.contains("poster"), c.contains(AnyKey("poster")), try !c.decodeNil(forKey: AnyKey("poster")) {
+            poster = try c.decode(BlobRef.self, "poster")
+        } else {
+            poster = nil
+        }
         extra = try c.extra(excluding: Self.commonFields.union(mine))
         if let why = validationError {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: why))
@@ -714,6 +756,10 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         try c.encodeIfPresent(crop, "crop")
         try c.encodeIfPresent(pageIndex, "pageIndex")
         try c.encodeIfPresent(pageSize, "pageSize")
+        try c.encodeIfPresent(duration.map(InkJSON.round3), "duration")
+        try c.encodeIfPresent(videoRotation, "videoRotation")
+        try c.encodeIfPresent(codec, "codec")
+        try c.encodeIfPresent(poster, "poster")
         try c.encodeExtra(extra, excluding: Self.commonFields.union(Self.kindFields(kind)))
     }
 }
@@ -729,6 +775,8 @@ public enum ItemChange: Hashable, Sendable {
     case text(TextContent)
     /// Nil resets it to absent (the whole source).
     case crop(Rect?)
+    /// A video's poster frame (format.md §8.2.7); nil resets it to absent (no poster).
+    case poster(BlobRef?)
     /// A field this reader does not know. Never a known or immutable field
     /// (use `init(field:value:)`, which routes those).
     case other(field: String, value: JSONValue)
@@ -741,12 +789,13 @@ public enum ItemChange: Hashable, Sendable {
         case .z: return "z"
         case .text: return "text"
         case .crop: return "crop"
+        case .poster: return "poster"
         case .other(let field, _): return field
         }
     }
 
     /// The registers with a typed case.
-    static let typedFields: Set<String> = ["frame", "rotation", "z", "text", "crop"]
+    static let typedFields: Set<String> = ["frame", "rotation", "z", "text", "crop", "poster"]
 
     /// Parses a `setItem` (format.md §8.2.2). Throws `ItemChangeError` for
     /// an immutable field, for `null` where a register is required (`frame`,
@@ -775,6 +824,8 @@ public enum ItemChange: Hashable, Sendable {
             let r = try typed(Rect.self)
             guard r.hasPositiveSize else { throw ItemChangeError.invalidValue(field) }
             self = .crop(r)
+        case "poster":
+            self = .poster(value.isNull ? nil : try typed(BlobRef.self))
         default:
             self = .other(field: field, value: value)
         }

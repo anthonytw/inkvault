@@ -152,14 +152,25 @@ colour), then the ink. Each item is one of:
   the page, the paper shows, as in the exports). pdf.js's effective page is
   CropBox ∩ MediaBox turned by `/Rotate`, tested against the tables of
   §8.5.1 (`test/pdf.test.ts`). Annotations are not drawn (§8.2.6).
-- **Placeholder** (§8.5.2), for an unknown or reserved kind (`math`, `video`),
+- **Video** (§8.2.7): its poster, placed like an image (the whole image,
+  upright, onto the frame), under the format's play mark (a dark disc with a
+  white triangle, turned with the item); without a poster, a placeholder
+  under the mark (not reported: nothing is missing). Tapping the clip on the
+  page, or Play in the "N videos" list above the pages, decrypts and verifies
+  the clip and plays it in a `<video>` under the list (H.264 plays in every
+  current browser except Chromium builds without proprietary codecs, HEVC in
+  Safari and in Chrome or Edge with hardware decoding; an unplayable clip says
+  so). One clip is held at a time: playing another, Close, or leaving the note
+  revokes its object URL so the browser frees it.
+- **Placeholder** (§8.5.2), for an unknown or reserved kind (`math`),
   a missing, unreadable or invalid blob, HEIC (no decoder in the viewer; the
   app converts photos to JPEG by default), an image or PDF it cannot draw, or
   a page index the PDF lacks. The note view lists every placeholder with its
   reason ("N items shown as placeholders").
 
 **Blobs** (§8.1) are read only when their item comes within half a screen of
-the viewport, and audio only when Play is pressed, transcripts when opened.
+the viewport (a video's poster with it), audio and video clips only when
+played, transcripts when opened.
 Each is looked up at `notes/<id>/att/<name>.<kind>.age`, with `name` keyed from
 the reference's hash under the vault secret (and under the previous secret
 while a rewrap is unfinished, §8.1.5), decrypted as a stream (typage checks
@@ -169,7 +180,8 @@ the file to its keyed name), zero padding, and the SHA-256 of the content.
 Content is never handed out before that. Limits: images 64 MiB, PDFs 256 MiB,
 transcripts 64 MiB, audio 256 MiB (the format allows 1 GiB, §8.4, but a
 browser holds the whole verified file in memory; 256 MiB is over 8 hours at
-the app's default 64 kbit/s), and at most 1 MiB of padding beyond
+the app's default 64 kbit/s), video clips 512 MiB (a longer clip shows its
+poster and says to extract it with the CLI), and at most 1 MiB of padding beyond
 what a writer adds. Each blob is read once per open note however many items
 use it.
 
@@ -342,7 +354,7 @@ its own origin.
 # the server's summaries current, --web-viewer creates them (and the index) the first time
 SEMPERE_WEBDAV_PASSWORD=… sempere sync webdav https://notes.example.org/vault/ \
   --vault ~/Library/Mobile\ Documents/com~apple~CloudDocs/Notes.sempere --user notes \
-  --identity ~/.config/sempere/identity.key --web-viewer
+  --identity ~/.config/sempere/identity.key --push-only --web-viewer
 ```
 
 The run keeps `sempere-summaries.sealed` and `sempere-index.json` on the server
@@ -462,6 +474,7 @@ scripts/golden.sh      # rewrite test/golden from the Swift CLI (builds it)
 # browser smoke tests, Playwright + Chromium (smoke.mjs needs sempere-index.json in the vault: `sempere vault index`):
 node scripts/smoke.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-attachments.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
+node scripts/smoke-video.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
 # config.json modes, the cache (second visit fetches no unchanged file) and the summaries, with timings
 # (run `sempere vault summaries` and `sempere vault index` on a copy of the vault first; LATENCY_MS=40 adds latency):
 node scripts/smoke-cache.mjs COPY_OF_VAULT KEY_FILE
@@ -482,16 +495,19 @@ Tests (`web/test/`, vitest, Node 22):
   so PDF pages are placeholders there and the goldens do not depend on a
   Poppler version) and fails on any difference, so the committed goldens are
   always the Swift output.
-- **Attachments against the CLI** (`items-crosscheck.test.ts`): two fixture
+- **Attachments against the CLI** (`items-crosscheck.test.ts`): three fixture
   notes with blobs (`test/fixtures/media/`: a synthetic JPEG with EXIF and a
   comment, a PNG with a text chunk, a hand-written two-page PDF with a
-  CropBox and `/Rotate`, a one-second tone, a transcript; plus a missing, a
-  forged and a HEIC blob, unknown and reserved kinds). The page outside the
+  CropBox and `/Rotate`, a one-second tone, a transcript, a one-second H.264
+  test-pattern clip; plus a missing, a forged and a HEIC blob, unknown and
+  reserved kinds, and video items with and without posters, rotated, with a
+  poster set and reset by another device and with a missing clip). The page outside the
   `items` group is compared byte for byte; the group itself structurally,
   since the CLI embeds its own font subsets: background fills, placeholders,
   each image's clip polygon and matrix (blobs read by the viewer's own
   reader), each text line's baseline, size, characters, direction (and x
-  where it does not depend on glyph widths), and each text box's rotation.
+  where it does not depend on glyph widths), each text box's rotation, and
+  each video's play mark element for element.
 - Blobs (`blobs.test.ts`: the §8.1.3 test vector, Padmé, every framing
   failure, missing, forged and cross-note blobs, the previous secret during a
   rewrap), images, placement, text layout and transcripts

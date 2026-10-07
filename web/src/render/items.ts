@@ -152,6 +152,24 @@ export function placeholderCommands(c: Point[]): DrawCommand[] {
   ];
 }
 
+/**
+ * The play mark over a video item (§8.2.7, Swift `ItemGeometry.playMark`):
+ * a disc of diameter `d = min(48, 0.3 · min(w, h))` filled `#00000080` at
+ * the frame's centre, and a white triangle pointing right, turned with the item.
+ */
+export function playMarkCommands(f: Rect, degrees: number): DrawCommand[] {
+  const d = Math.min(48, 0.3 * Math.min(f.w, f.h));
+  if (!(Number.isFinite(d) && d > 0)) return [];
+  const mx = f.x + f.w / 2, my = f.y + f.h / 2;
+  const r = rotate(f, degrees);
+  const triangle = [{ x: mx - 0.18 * d, y: my - 0.25 * d }, { x: mx - 0.18 * d, y: my + 0.25 * d }, { x: mx + 0.27 * d, y: my }]
+    .map((p) => apply(r, p));
+  return [
+    { primitive: { kind: "circle", center: { x: mx, y: my }, radius: d / 2 }, fill: { r: 0, g: 0, b: 0, alpha: 128 / 255 }, lineWidth: 1 },
+    { primitive: { kind: "path", subpaths: [{ points: triangle, closed: true }] }, fill: { r: 255, g: 255, b: 255, alpha: 1 }, lineWidth: 1 },
+  ];
+}
+
 /** A matrix coefficient as Swift's `coef`: `fmt`, with 6 decimals below 1. */
 export function coef(v: number): string {
   if (!Number.isFinite(v)) return "0";
@@ -242,6 +260,16 @@ export function imageTransform(it: PreparedItem, w: number, h: number): Affine |
   if (!crop) return "crop lies outside the image";
   const m = after(placement(crop, it.frame, it.rotation), orientation(o, w, h));
   if (!isFiniteAffine(m) || !isInvertible(m)) return "degenerate placement";
+  return m;
+}
+
+/**
+ * Stored pixel coordinates → page for a video's poster decoded at `w × h`:
+ * the whole image, upright, onto the frame (§8.2.7; Swift `ImageStore.place`).
+ */
+export function posterTransform(it: PreparedItem, w: number, h: number): Affine | string {
+  const m = placement({ x: 0, y: 0, w, h }, it.frame, it.rotation);
+  if (!(w > 0 && h > 0) || !isFiniteAffine(m) || !isInvertible(m)) return "degenerate placement";
   return m;
 }
 

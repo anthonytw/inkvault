@@ -61,6 +61,13 @@ struct ExportCommand: ParsableCommand {
             pixels: --pdf-renderer auto (the default) runs Poppler's pdftoppm (or SEMPERE_PDFTOPPM) in a
             separate, resource-limited process, at most --pdf-timeout seconds per page; without it, or
             when it fails, the page is drawn as a placeholder and a warning says why.
+
+            Video clips are drawn as their poster frame with a play mark (a crossed-out box with the
+            mark when there is no poster). --videos attach (or --attachments, which also embeds the
+            recordings) embeds each clip in the PDF as a file attachment, streamed from the vault:
+            a PDF of 1 GiB of video takes no more memory than one without. markdown and html write
+            each clip once next to the note (<name>-assets/video-N.mp4) and link it; the clip's
+            location metadata is removed on the way unless --keep-image-metadata.
             """
     )
 
@@ -120,6 +127,13 @@ struct ExportCommand: ParsableCommand {
                                             valueName: "none|attach"))
     var recordings: RecordingsMode = .none
 
+    @Option(name: .long, help: ArgumentHelp("pdf only: none (default) or attach: embed each note's video clips as PDF file attachments.",
+                                            valueName: "none|attach"))
+    var videos: RecordingsMode = .none
+
+    @Flag(name: .long, help: "pdf only: embed recordings (with transcripts) and video clips: the app's \"PDF + attachments\".")
+    var attachments = false
+
     @Option(name: .long, help: ArgumentHelp("svg only: write images into this directory and link them instead of embedding.",
                                             valueName: "dir"))
     var assets: String?
@@ -135,6 +149,8 @@ struct ExportCommand: ParsableCommand {
         if images != .none && format != .markdown { throw ValidationError("--images only applies to --format markdown") }
         if assets != nil && format != .svg { throw ValidationError("--assets only applies to --format svg") }
         if recordings == .attach && format != .pdf { throw ValidationError("--recordings attach only applies to --format pdf") }
+        if videos == .attach && format != .pdf { throw ValidationError("--videos attach only applies to --format pdf") }
+        if attachments && format != .pdf { throw ValidationError("--attachments only applies to --format pdf") }
         if clean && !tree { throw ValidationError("--clean only applies to --format markdown or html") }
         if clean && !all { throw ValidationError("--clean needs --all") }
         if notebook != nil && !all { throw ValidationError("--notebook needs --all") }
@@ -180,6 +196,10 @@ struct ExportCommand: ParsableCommand {
             let n = report.recordingsOmitted
             out.append("\(n) recording\(n == 1 ? "" : "s") not exported (--recordings attach embeds them)")
         }
+        if format == .pdf && report.videosOmitted > 0 && report.videosAttached == 0 {
+            let n = report.videosOmitted
+            out.append("\(n) video clip\(n == 1 ? "" : "s") shown as poster only (--videos attach embeds them)")
+        }
         return out + report.warnings
     }
 
@@ -195,6 +215,8 @@ struct ExportCommand: ParsableCommand {
         var placeholders: Int? = nil
         /// Recordings embedded (`--recordings attach`; omitted when none).
         var recordings: Int? = nil
+        /// Video clips embedded (`--videos attach`; omitted when none).
+        var videos: Int? = nil
     }
 
     func run() throws {
@@ -235,7 +257,8 @@ struct ExportCommand: ParsableCommand {
         }
         var options = RenderOptions(paper: !noPaper, breaks: breaks, pdfRasterizer: try rasterizer(),
                                     keepImageMetadata: keepImageMetadata, shaper: DefaultTextShaper(library: fonts))
-        options.embedRecordings = recordings == .attach
+        options.embedRecordings = recordings == .attach || attachments
+        options.embedVideos = videos == .attach || attachments
         var placeholders = 0
         func warn(_ report: RenderReport, note: String) {
             placeholders += report.placeholders.count
@@ -244,6 +267,11 @@ struct ExportCommand: ParsableCommand {
         let fm = FileManager.default
         func mkdir(_ path: String) throws {
             try fm.createDirectory(atPath: path, withIntermediateDirectories: true)
+        }
+        func writePDF(to path: String, _ body: (URL) throws -> Void) throws {
+            do { try body(URL(fileURLWithPath: path)) } catch let e as RenderError {
+                throw CLIError.failure("cannot write \(path): \(e.localizedDescription)")
+            }
         }
         func write(_ data: Data, to path: String) throws {
             do { try data.write(to: URL(fileURLWithPath: path), options: .atomic) } catch {
@@ -256,7 +284,8 @@ struct ExportCommand: ParsableCommand {
             warn(items, note: String(s.id.uuidString.lowercased().prefix(8)))
             written.append(Written(note: s.id.uuidString.lowercased(), files: files,
                                    placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count,
-                                   recordings: items.recordingsAttached > 0 ? items.recordingsAttached : nil))
+                                   recordings: items.recordingsAttached > 0 ? items.recordingsAttached : nil,
+                                   videos: items.videosAttached > 0 ? items.videosAttached : nil))
             if !output.json { for f in files { output.info("Wrote \(f)") } }
         }
 
@@ -292,11 +321,14 @@ struct ExportCommand: ParsableCommand {
         } else if merge {
             try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path)
             var items = RenderReport()
-            try write(try PDFWriter.render(notes: states.map(\.1), blobs: states.map { vault.blobSource(note: $0.0.id) },
-                                           options: options, report: &items), to: out)
+            try writePDF(to: out) { url in
+                try PDFWriter.write(notes: states.map(\.1), blobs: states.map { vault.blobSource(note: $0.0.id) },
+                                    options: options, report: &items, to: url)
+            }
             warn(items, note: "merged")
             written.append(Written(note: "*", files: [out], placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count,
-                                   recordings: items.recordingsAttached > 0 ? items.recordingsAttached : nil))
+                                   recordings: items.recordingsAttached > 0 ? items.recordingsAttached : nil,
+                                   videos: items.videosAttached > 0 ? items.videosAttached : nil))
             output.info("Wrote \(out) (\(states.count) note(s))")
         } else {
             if !singleFile { try mkdir(out) } else { try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path) }
@@ -310,7 +342,7 @@ struct ExportCommand: ParsableCommand {
                     switch format {
                     case .pdf:
                         let file = singleFile ? out : path(stem + ".pdf")
-                        try write(try PDFWriter.render(note: state, options: noteOptions, report: &items), to: file)
+                        try writePDF(to: file) { url in try PDFWriter.write(note: state, options: noteOptions, report: &items, to: url) }
                         report(s, [file], items)
                     case .json:
                         let file = singleFile ? out : path(stem + ".json")

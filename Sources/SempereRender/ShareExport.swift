@@ -76,6 +76,8 @@ public struct ShareResult: Sendable {
     public var recordingsAttached = 0
     /// Recordings the exported notes hold that the export left out.
     public var recordingsOmitted = 0
+    /// Video clips embedded in the PDFs ("PDF + attachments").
+    public var videosAttached = 0
 }
 
 /// Renders notes into a scratch directory for sharing. One engine for the app's
@@ -120,6 +122,7 @@ public enum ShareExport {
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
         var render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer, shaper: shaper)
         render.embedRecordings = options.format == .pdf && options.pdfAttachments
+        render.embedVideos = options.format == .pdf && options.pdfAttachments
         func renderOptions(for id: UUID) -> RenderOptions {
             var r = render
             r.blobs = blobs?(id)
@@ -136,6 +139,14 @@ public enum ShareExport {
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             do { try data.write(to: url, options: .atomic) } catch {
                 throw TreeExportError.cannotWrite(path: url.path, reason: error.localizedDescription)
+            }
+        }
+        /// A PDF streamed to `url` (embedded videos never held in memory).
+        func writePDF(_ url: URL, _ body: (URL) throws -> Void) throws {
+            try Task.checkCancellation()
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            do { try body(url) } catch let e as RenderError {
+                throw TreeExportError.cannotWrite(path: url.path, reason: e.localizedDescription)
             }
         }
         func name(_ s: NoteSummary, _ state: NoteState) -> String { ExportName.stem(title: state.meta.title, noteId: s.id) }
@@ -208,7 +219,7 @@ public enum ShareExport {
             try Task.checkCancellation()
             if !good.isEmpty {
                 let url = scratch.appendingPathComponent(mergedPDFName)
-                try write(try PDFWriter.render(notes: good, blobs: goodBlobs, options: render, report: &report), url)
+                try writePDF(url) { try PDFWriter.write(notes: good, blobs: goodBlobs, options: render, report: &report, to: $0) }
                 items = [url]
                 exported = good.count
             }
@@ -221,8 +232,9 @@ public enum ShareExport {
                 do {
                     var files: [(URL, Data)] = []
                     if options.format == .pdf {
-                        files = [(scratch.appendingPathComponent(stem + ".pdf"),
-                                  try PDFWriter.render(note: state, options: renderOptions(for: s.id), report: &report))]
+                        let url = scratch.appendingPathComponent(stem + ".pdf")
+                        try writePDF(url) { try PDFWriter.write(note: state, options: renderOptions(for: s.id), report: &report, to: $0) }
+                        items.append(url)
                     } else {
                         let pages = try PNGWriter.render(note: state, options: renderOptions(for: s.id), png: PNGOptions(dpi: options.dpi),
                                                          report: &report)
@@ -250,6 +262,7 @@ public enum ShareExport {
         result.recordingsAttached = report.recordingsAttached
         result.recordingsOmitted = options.format == .pdf ? report.recordingsOmitted
             : notes.reduce(0) { $0 + $1.1.recordings.count }
+        result.videosAttached = report.videosAttached
         return result
     }
 

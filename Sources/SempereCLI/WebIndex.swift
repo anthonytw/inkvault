@@ -64,6 +64,14 @@ final class OpenedVaults: @unchecked Sendable {
         unlocked[vault.url.standardizedFileURL] = vault
     }
 
+    /// Leaves `url` alone at exit (a push-only sync writes nothing in its vault).
+    func forget(_ url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        let u = url.standardizedFileURL
+        urls.removeAll { $0 == u }
+        unlocked[u] = nil
+    }
+
     func record(_ url: URL) {
         lock.lock(); defer { lock.unlock() }
         let u = url.standardizedFileURL

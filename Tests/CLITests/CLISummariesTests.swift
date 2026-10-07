@@ -78,3 +78,22 @@ final class CLISyncWebViewerTests: CLITestCase {
         XCTAssertTrue(r.err.contains("--web-viewer needs the vault unlocked"), r.err)
     }
 }
+
+/// A push-only sync is a mirror: it never refreshes the local index or summaries, even when it fails.
+final class CLIPushOnlyLeavesLocalFilesTests: CLITestCase {
+    func testPushOnlyDoesNotRefreshLocalFiles() throws {
+        let vault = try copyFixtureVault()
+        let junk = Data("stale".utf8)
+        for name in ["sempere-index.json", "sempere-summaries.sealed"] {
+            try junk.write(to: URL(fileURLWithPath: vault).appendingPathComponent(name))
+        }
+        let r = try cli(["sync", "webdav", "http://127.0.0.1:9/vault/", "--vault", vault, "--identity", Self.fixtureKey, "--push-only"])
+        XCTAssertNotEqual(r.status, 0, "nothing listens there")
+        for name in ["sempere-index.json", "sempere-summaries.sealed"] {
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: vault).appendingPathComponent(name)), junk, name)
+        }
+        // A command that does open it normally refreshes both.
+        XCTAssertEqual(try cli(["notes", "list", "--vault", vault, "--identity", Self.fixtureKey]).status, 0)
+        XCTAssertNotEqual(try Data(contentsOf: URL(fileURLWithPath: vault).appendingPathComponent("sempere-summaries.sealed")), junk)
+    }
+}

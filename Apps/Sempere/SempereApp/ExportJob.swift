@@ -25,6 +25,8 @@ final class ExportJob {
         var recordingsAttached = 0
         /// Recordings of the exported notes left out.
         var recordingsOmitted = 0
+        /// Video clips embedded ("PDF + attachments").
+        var videosAttached = 0
     }
 
     private(set) var state = State.idle
@@ -70,7 +72,8 @@ final class ExportJob {
                 }
                 next = .finished(Outcome(items: result.items, failures: result.failures, exported: result.exported,
                                          recordingsAttached: result.recordingsAttached,
-                                         recordingsOmitted: result.recordingsOmitted))
+                                         recordingsOmitted: result.recordingsOmitted,
+                                         videosAttached: result.videosAttached))
             } catch is CancellationError {
             } catch {
                 next = .failed("\(error)")
