@@ -458,6 +458,18 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `PageStackLayout.revealOffset`): embedded canvases never scroll. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
+- Newer format versions (`format.md` §7): a vault whose `format` is a later
+  `sempere/<major>` or whose `features` are unknown, and revisions marked newer
+  (their `format`/`features`), open read-only. Newer revisions decode
+  leniently (`NewerDecoding`, `LenientOp`, `decodeElements`) and say what was
+  skipped (`Revision.newer`, `LoadedNote.newer`, `NoteSummary.newer`); an
+  unmarked revision with an unknown op still fails closed. Reading one sets
+  the vault's shared `ReadOnlyLatch`, so every later write through that
+  `Vault` (or a copy) throws `VaultError.readOnly`: every write path calls
+  `requireWritable()` (add it to any new one). The tag label is
+  `SempereFormat.tagLabel`, never `identifier`. CLI: exit 6; app:
+  `AppModel.isVaultReadOnly` / `requireWritableVault()` gate model writes;
+  fixture `Fixtures/newer.sempere`. Mirror changes in `web/src/format/newer.ts`.
 - Note `lang` and `markersBehindText` (`format.md` §5.4) are optional meta
   registers: a snapshot without their value or clock never set them
   (`ClockKey.isOptional`), and writers omit them when unset. Recognisers pass
