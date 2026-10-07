@@ -73,6 +73,11 @@ struct PageCanvasView: UIViewRepresentable {
         host.onItemSelectionEnded = onSelectingItemsEnded
         host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
         host.itemSelection.refresh()
+        host.setHighlights(editor.highlightBoxes(onPage: pageID))
+        if c.revealToken != editor.revealToken {
+            c.revealToken = editor.revealToken
+            host.revealHighlight()
+        }
     }
 
     static func dismantleUIView(_ host: PageCanvasHost, coordinator: Coordinator) {
@@ -88,6 +93,8 @@ struct PageCanvasView: UIViewRepresentable {
         var pageID: UUID?
         var editorID: ObjectIdentifier?
         var generation: Int?
+        /// `NoteEditor.revealToken` last acted on (scroll to the current search match).
+        var revealToken = 0
         /// True while the canvas's drawing is being replaced: its changes are not the user's.
         var isLoading = false
         /// The page's drawing being prepared off the main actor.
@@ -176,6 +183,10 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
             updateEraser()
         }
     }
+    /// Search highlights (`NoteEditor+SearchHighlight.swift`), above the paper and the items, below the ink.
+    private let highlightView = UIView()
+    private var highlights: [HighlightBox] = []
+    private var pendingReveal: Recognition.Box?
     /// Starts with the last-used eraser mode, the object eraser by default.
     private(set) var toolPicker = ToolPalette.makePicker(compact: ToolPalette.isCompact())
     private var pageSize = PageSize.letter
@@ -257,6 +268,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.insertSubview(paperView, at: 0)
         canvas.insertSubview(itemLayer, aboveSubview: paperView)
+        highlightView.isUserInteractionEnabled = false
+        canvas.insertSubview(highlightView, aboveSubview: itemLayer)   // over the items, under the ink
         footerButton.isHidden = true
         footerButton.addAction(UIAction { [weak self] _ in self?.footerAction?() }, for: .primaryActionTriggered)
         canvas.addSubview(footerButton)
@@ -358,6 +371,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         super.layoutSubviews()
         canvas.frame = bounds
         fitWidth()
+        applyReveal()
         #if DEBUG
         if debugLaunchPending, bounds.width > 0 {
             debugLaunchPending = false
@@ -465,6 +479,58 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
                                         y: CGFloat(pageSize.height) * z + (PageExtent.footerScreenHeight - b.height) / 2,
                                         width: b.width, height: b.height)
         }
+        layoutHighlights()
+        applyReveal()
+    }
+
+    /// Shows `boxes` (page points) as highlights; the current match stands out.
+    func setHighlights(_ boxes: [HighlightBox]) {
+        guard boxes != highlights else { return }
+        highlights = boxes
+        layoutHighlights()
+    }
+
+    /// Scrolls so the current highlight is on screen (centred unless it is already comfortably visible).
+    func revealHighlight() {
+        guard let current = highlights.first(where: \.isCurrent) else { return }
+        pendingReveal = current.box
+        applyReveal()
+    }
+
+    /// At most this many highlights are drawn on a page.
+    private static let maxHighlights = 500
+
+    private func layoutHighlights() {
+        let z = canvas.zoomScale
+        highlightView.frame = CGRect(origin: .zero, size: canvas.contentSize)
+        let shown = highlights.prefix(Self.maxHighlights)
+        var layers = highlightView.layer.sublayers ?? []
+        while layers.count > shown.count { layers.removeLast().removeFromSuperlayer() }
+        while layers.count < shown.count {
+            let layer = CALayer()
+            layer.cornerRadius = 3
+            highlightView.layer.addSublayer(layer)
+            layers.append(layer)
+        }
+        for (layer, h) in zip(layers, shown) {
+            layer.frame = CGRect(x: h.box.x * z, y: h.box.y * z, width: h.box.w * z, height: h.box.h * z).insetBy(dx: -2, dy: -2)
+            layer.backgroundColor = (h.isCurrent ? UIColor.systemOrange.withAlphaComponent(0.5)
+                                                 : UIColor.systemYellow.withAlphaComponent(0.4)).cgColor
+            layer.borderColor = UIColor.systemOrange.cgColor
+            layer.borderWidth = h.isCurrent ? 2 : 0
+        }
+    }
+
+    private func applyReveal() {
+        guard let box = pendingReveal, bounds.width > 0, canvas.contentSize.height > 0, canvas.zoomScale > 0 else { return }
+        pendingReveal = nil
+        let z = canvas.zoomScale
+        let rect = CGRect(x: box.x * z, y: box.y * z, width: box.w * z, height: box.h * z)
+        let comfortable = CGRect(origin: canvas.contentOffset, size: bounds.size).insetBy(dx: 0, dy: bounds.height * 0.15)
+        if comfortable.contains(rect) { return }
+        let maxX = max(canvas.contentSize.width - bounds.width, 0), maxY = max(canvas.contentSize.height - bounds.height, 0)
+        canvas.setContentOffset(CGPoint(x: min(max(rect.midX - bounds.width / 2, 0), maxX),
+                                        y: min(max(rect.midY - bounds.height / 2, 0), maxY)), animated: true)
     }
 }
 

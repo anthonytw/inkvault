@@ -140,6 +140,49 @@ final class CLINoteEditTests: CLITestCase {
         XCTAssertEqual(out.status, 2, out.err)
     }
 
+    /// `notebooks move`: what dragging a notebook onto another does in the app.
+    func testNotebookMoveNestsUnnestsAndRefusesCycles() throws {
+        func new(_ title: String, _ notebook: String) throws -> String {
+            try XCTUnwrap(try note(try json(["notes", "new", title, "--notebook", notebook]))["id"] as? String)
+        }
+        func notebookOf(_ id: String) throws -> String? { try note(try json(["notes", "show", id]))["notebook"] as? String }
+        let a = try new("a", "School/Math"), b = try new("b", "School/Math/Algebra"), c = try new("c", "School/Mathematics")
+        let before = try revisions(c).count
+
+        // Nest School/Math into Archive: it keeps its last level, the subtree comes along.
+        let dry = try json(["notebooks", "move", "School/Math", "Archive", "--dry-run"])
+        XCTAssertEqual((dry["notes"] as? [[String: Any]])?.count, 2)
+        XCTAssertEqual(try notebookOf(a), "School/Math")
+        let done = try json(["notebooks", "move", "School/Math", " Archive ", "--json"])
+        XCTAssertEqual(done["from"] as? String, "School/Math")
+        XCTAssertEqual(done["to"] as? String, "Archive/Math")
+        XCTAssertEqual(try notebookOf(a), "Archive/Math")
+        XCTAssertEqual(try notebookOf(b), "Archive/Math/Algebra")
+        XCTAssertEqual(try notebookOf(c), "School/Mathematics")
+        XCTAssertEqual(try revisions(c).count, before, "a sibling with a longer name is untouched")
+
+        // Un-nest: to the top level, by "" or by the flag.
+        XCTAssertEqual(try json(["notebooks", "move", "Archive/Math", ""])["to"] as? String, "Math")
+        XCTAssertEqual(try notebookOf(b), "Math/Algebra")
+        XCTAssertEqual(try json(["notebooks", "move", "Math/Algebra", "--top-level"])["to"] as? String, "Algebra")
+        XCTAssertEqual(try notebookOf(b), "Algebra")
+
+        // Into itself or a descendant: usage error, nothing written.
+        let count = try revisions(a).count
+        for args in [["notebooks", "move", "Math", "Math"], ["notebooks", "move", "Math", "Math/Sub"]] {
+            let r = try cli(args + access)
+            XCTAssertEqual(r.status, 2, "\(args): \(r.err)")
+            XCTAssertTrue(r.err.contains("into itself"), r.err)
+        }
+        XCTAssertEqual(try revisions(a).count, count)
+        // Exactly one of a parent and --top-level.
+        XCTAssertEqual(try cli(["notebooks", "move", "Math"] + access).status, 2)
+        XCTAssertEqual(try cli(["notebooks", "move", "Math", "X", "--top-level"] + access).status, 2)
+        // Moving into the notebook it already is in changes nothing.
+        let same = try json(["notebooks", "move", "School/Mathematics", "School"])
+        XCTAssertEqual((same["notes"] as? [Any])?.count, 0)
+    }
+
     func testNotebookRenameRefusesWhenANoteIsUnreadable() throws {
         let junk = vault + "/notes/\(Self.lecture)/17000000000000000-deadbeef-1.delta.age"
         try Data("junk".utf8).write(to: URL(fileURLWithPath: junk))
@@ -241,7 +284,7 @@ final class CLINoteEditTests: CLITestCase {
     func testEditsAreRefusedOnALegacyVault() throws {
         let legacy = try copyLegacyVault()
         for args in [["notes", "rename", Self.lecture, "x"], ["notes", "new", "x"], ["notebooks", "list"],
-                     ["notebooks", "rename", "a", "b"], ["tags", "list"], ["pages", "list", Self.lecture]] {
+                     ["notebooks", "rename", "a", "b"], ["notebooks", "move", "a", "b"], ["tags", "list"], ["pages", "list", Self.lecture]] {
             let r = try cli(args + ["--vault", legacy, "--identity", Self.legacyKey])
             XCTAssertEqual(r.status, 5, "\(args): \(r.err)")
         }

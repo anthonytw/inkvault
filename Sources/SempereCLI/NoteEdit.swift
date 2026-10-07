@@ -435,7 +435,7 @@ struct NotebooksCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notebooks",
         abstract: "List notebooks and rename or move them with every note inside.",
-        subcommands: [NotebooksList.self, NotebooksRename.self]
+        subcommands: [NotebooksList.self, NotebooksRename.self, NotebooksMove.self]
     )
 }
 
@@ -505,6 +505,12 @@ struct NotebooksRename: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
+        try Self.perform(vault, old: old, to: NotebookPath.canonical(new), dryRun: dryRun, output: output)
+    }
+
+    /// Replaces the prefix `old` of every note's notebook by `target` (nil: none), one delta per
+    /// note; shared with `notebooks move`.
+    static func perform(_ vault: Vault, old: String, to target: String?, dryRun: Bool, output: OutputOptions) throws {
         // Read every note now (no cache): a note left out would be left behind.
         let notes = try vault.summaries(of: nil)
         let unreadable = notes.filter { $0.problem != nil }
@@ -512,7 +518,6 @@ struct NotebooksRename: ParsableCommand {
             throw CLIError.failure("\(unreadable.count) note(s) cannot be read, so their notebooks are unknown: "
                 + unreadable.map { $0.id.uuidString.lowercased() }.joined(separator: ", "))
         }
-        let target = NotebookPath.canonical(new)
         let planned = NoteOps.renameNotebook(old, to: target,
                                              notebooks: Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.notebook) }))
         struct Change: Encodable { var note: String; var title: String; var from: String?; var to: String?; var file: String? }
@@ -540,6 +545,51 @@ struct NotebooksRename: ParsableCommand {
             output.info("\(dryRun ? "would move" : "moved") \(c.note) \(c.title.isEmpty ? "(untitled)" : c.title): "
                         + "\(c.from ?? "-") -> \(c.to ?? "-")")
         }
+    }
+}
+
+struct NotebooksMove: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "move",
+        abstract: "Move a notebook, with everything below it, into another notebook or to the top level.",
+        discussion: """
+            What dragging a notebook onto another one does in the app: NOTEBOOK keeps its last level and
+            takes PARENT as its new parent, so `notebooks move School/Math Archive` makes School/Math
+            Archive/Math, notes below it included (every note's notebook gets the prefix replaced, deleted
+            ones too: one setMeta notebook delta per note, as `notebooks rename`). "" or --top-level moves
+            it to the top level. Moving into itself or a notebook inside it is refused, and a
+            notebook that already has that name at the destination is merged with it. Nothing is written
+            when any note cannot be read (exit 1). --dry-run lists the notes that would move.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("The notebook to move.", valueName: "notebook"))
+    var notebook: String
+
+    @Argument(help: ArgumentHelp("The new parent notebook; \"\" for the top level.", valueName: "parent"))
+    var parent: String?
+
+    @Flag(name: .customLong("top-level"), help: "Move the notebook to the top level.")
+    var topLevel = false
+
+    @Flag(name: .customLong("dry-run"), help: "Only list the notes that would change.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        if NotebookPath.canonical(notebook) == nil { throw ValidationError("the notebook name is empty") }
+        if topLevel == (parent != nil) { throw ValidationError("give a parent notebook (\"\" for none) or --top-level") }
+    }
+
+    func run() throws {
+        let from = NotebookPath.canonical(notebook) ?? notebook
+        guard let target = NotebookPath.moved(from, into: topLevel ? nil : parent) else {
+            throw CLIError.usage("cannot move \(from) into itself or into a notebook inside it")
+        }
+        let vault = try access.openVault(.required)
+        try NotebooksRename.perform(vault, old: from, to: target, dryRun: dryRun, output: output)
     }
 }
 

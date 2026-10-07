@@ -182,3 +182,115 @@ public enum NoteSearch {
         return .init(text: shown, matches: matches.sorted { $0.lowerBound < $1.lowerBound })
     }
 }
+
+/// One word of recognised handwriting that a search matched, with its box
+/// on the page (`format.md` §5.5): what the canvas highlights.
+public struct SearchMatch: Hashable, Sendable, Codable {
+    public var pageId: UUID
+    /// 1-based position of the page in the note.
+    public var page: Int
+    /// The recognised word.
+    public var text: String
+    public var box: Recognition.Box
+}
+
+/// Where a query's words are on a note's pages.
+public enum SearchMatches {
+    /// Caps the list: a page holds at most this many words in total, but a
+    /// hostile note may claim more, and the UI steps through them one by one.
+    public static let maxMatches = 10_000
+
+    /// The recognised words of `pages` containing a word of `query` (case,
+    /// accents and width ignored, substrings count, `#tag` words and boxes
+    /// that cannot be drawn (`isDrawable`) skipped), in
+    /// page order and, within a page, in the order the words are stored
+    /// (reading order). Pages without word boxes give none, so a page
+    /// found by text alone has no match here. Cost: O(Σ words × query words).
+    public static func matches(_ query: String, in pages: [Page]) -> [SearchMatch] {
+        let words = NoteSearch.words(query).filter { !$0.tagOnly }.map(\.text)
+        return matches(words: words, in: pages)
+    }
+
+    /// Largest coordinate or size of a box that is highlighted (points).
+    public static let maxBoxCoordinate = 1e9
+
+    /// Whether `box` can be drawn: every value finite and at most
+    /// `maxBoxCoordinate` in size, `w` and `h` not negative. Boxes come from
+    /// the vault (`format.md` §9): a box of `1e308` turns infinite once
+    /// scaled for the screen, and a canvas layer at a NaN position traps.
+    public static func isDrawable(_ box: Recognition.Box) -> Bool {
+        [box.x, box.y, box.w, box.h].allSatisfy { $0.isFinite && abs($0) <= maxBoxCoordinate } && box.w >= 0 && box.h >= 0
+    }
+
+    /// `matches(_:in:)` for already split words (any of them matches).
+    public static func matches(words: [String], in pages: [Page]) -> [SearchMatch] {
+        guard !words.isEmpty else { return [] }
+        var out: [SearchMatch] = []
+        for (index, page) in pages.enumerated() {
+            for word in page.recognition?.words ?? [] where isDrawable(word.box) {
+                guard words.contains(where: { word.text.range(of: $0, options: NoteSearch.options) != nil }) else { continue }
+                out.append(SearchMatch(pageId: page.id, page: index + 1, text: word.text, box: word.box))
+                if out.count >= maxMatches { return out }
+            }
+        }
+        return out
+    }
+}
+
+/// Steps through the matches of a search in one note (across its pages): the
+/// canvas highlights them and shows "3 of 12" with next and previous buttons.
+public struct SearchMatchCursor: Hashable, Sendable {
+    /// Page order, then reading order (`SearchMatches`).
+    public private(set) var matches: [SearchMatch]
+    /// Index of the current match in `matches`.
+    public private(set) var index: Int
+    /// The words being looked for, kept so the list can be rebuilt after the pages change.
+    public let words: [String]
+
+    /// The cursor for `query` over `pages`, on the first match of
+    /// `preferredPage` when it has one (the page a search result named), else
+    /// on the first match; nil when no word has a box.
+    public init?(query: String, pages: [Page], preferredPage: UUID? = nil) {
+        let words = NoteSearch.words(query).filter { !$0.tagOnly }.map(\.text)
+        let found = SearchMatches.matches(words: words, in: pages)
+        guard !found.isEmpty else { return nil }
+        self.words = words
+        matches = found
+        index = preferredPage.flatMap { p in found.firstIndex { $0.pageId == p } } ?? 0
+    }
+
+    public var count: Int { matches.count }
+    public var current: SearchMatch { matches[index] }
+    /// 1-based, as shown ("3 of 12").
+    public var position: Int { index + 1 }
+
+    /// Moves by `delta` matches, wrapping around the end of the note.
+    public mutating func step(_ delta: Int) {
+        let n = matches.count
+        index = ((index + delta) % n + n) % n
+    }
+
+    /// The matches on page `id` with their index in `matches`.
+    public func matches(onPage id: UUID) -> [(index: Int, match: SearchMatch)] {
+        matches.enumerated().filter { $0.element.pageId == id }.map { ($0.offset, $0.element) }
+    }
+
+    /// Rebuilds the list for `pages` (their recognition changed), staying on the
+    /// current match when it is still there, else the first one after it
+    /// (by page and position); nil when nothing matches any more.
+    public func refreshed(pages: [Page]) -> SearchMatchCursor? {
+        let found = SearchMatches.matches(words: words, in: pages)
+        guard !found.isEmpty else { return nil }
+        var copy = self
+        copy.matches = found
+        let now = current
+        if let same = found.firstIndex(of: now) {
+            copy.index = same
+        } else {
+            let order = pages.map(\.id)
+            let rank = { (m: SearchMatch) in order.firstIndex(of: m.pageId) ?? Int.max }
+            copy.index = found.firstIndex { rank($0) > rank(now) || (rank($0) == rank(now) && $0.box.y >= now.box.y) } ?? 0
+        }
+        return copy
+    }
+}
