@@ -8,6 +8,7 @@ struct WindowSheets: ViewModifier {
     let ui: WindowUI
     @State private var title = ""
     @State private var versionName = ""
+    @State private var pdfPassword = ""
 
     func body(content: Content) -> some View {
         content
@@ -40,6 +41,29 @@ struct WindowSheets: ViewModifier {
                 Button("Cancel", role: .cancel) { ui.saveVersionNoteID = nil }
             } message: {
                 Text("Saved versions are listed first in Version History and are never removed when old autosaves are thinned.")
+            }
+            .onChange(of: ui.pdfPassword?.id) { _, _ in pdfPassword = "" }
+            .alert(ui.pdfPassword?.wrongPassword == true ? "Wrong Password" : "PDF Password",
+                   isPresented: Binding(get: { ui.pdfPassword != nil }, set: { _ in })) {
+                SecureField("Password", text: $pdfPassword)
+                Button("Open") {
+                    guard let request = ui.pdfPassword else { return }
+                    let password = pdfPassword
+                    ui.pdfPassword = nil
+                    Task {
+                        if case .needsPassword(let again) = await model.continuePDFImport(request, password: password) {
+                            ui.pdfPassword = again
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    if let request = ui.pdfPassword { model.cancelPDFImport(request) }
+                    ui.pdfPassword = nil
+                }
+            } message: {
+                Text(ui.pdfPassword?.wrongPassword == true
+                     ? "That password does not open this PDF. Try again."
+                     : "This PDF is protected. Enter its password to add it; it is stored without the password, encrypted with the vault's key.")
             }
             .sheet(isPresented: Binding(get: { ui.tagsNoteID != nil }, set: { if !$0 { ui.tagsNoteID = nil } })) {
                 if let id = ui.tagsNoteID { TagEditorView(noteID: id) }

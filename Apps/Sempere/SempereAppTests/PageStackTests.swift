@@ -389,6 +389,35 @@ struct PageStackTests {
         #expect((stack.spares.map(\.host) + stack.slots.values.map(\.host)).allSatisfy { $0.highlights.isEmpty })
     }
 
+    /// Images and PDFs dropped on a page of the stack (#81): every page's
+    /// canvas takes drops for its own page, and the stack reports each page's
+    /// visible part (where a dropped or added image is fitted).
+    @Test func dropsReachThePageTheyLandOn() async throws {
+        let editor = try await StackTS.editor(pages: 3)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 1366))
+        let stack = PageStackHost(frame: window.bounds)
+        window.addSubview(stack)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        var dropped: [UUID] = []
+        var configuration = StackTS.configuration(editor)
+        configuration.onDrop = { _, page, _ in dropped.append(page) }
+        stack.update(configuration)
+        stack.layoutIfNeeded()
+        for index in StackTS.shownIndices(stack, editor) {
+            let slot = try StackTS.slot(stack, editor, page: index)
+            slot.host.dropHandler?([], CGPoint(x: 10, y: 10))
+        }
+        #expect(dropped == StackTS.shownIndices(stack, editor).map { editor.pages[$0].id })
+        let first = try #require(stack.visibleRect(ofPage: editor.pages[0].id))
+        #expect(first.minY == 0 && abs(Double(first.width) - editor.pageSize.width) < 0.01)
+        #expect(stack.visiblePageRect == first, "the current page is the first")
+        // Read-only (no handler): drops are refused.
+        configuration.onDrop = nil
+        stack.update(configuration)
+        #expect(try StackTS.slot(stack, editor, page: 0).host.dropHandler == nil)
+    }
+
     @Test func anotherNoteStartsFresh() async throws {
         let first = try await StackTS.editor(pages: 12)
         let (window, stack) = StackTS.stack(first)

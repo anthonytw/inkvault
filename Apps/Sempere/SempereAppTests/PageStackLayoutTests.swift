@@ -164,4 +164,26 @@ struct PageStackLayoutTests {
                                               offset: (.nan, 0), viewport: (.infinity, 100)))
         #expect(far.x.isFinite && far.y.isFinite)
     }
+
+    /// Where an image dropped on (or added to) a page of the stack goes
+    /// (`PageStackHost.visibleRect(ofPage:)`): the part of that page on screen,
+    /// in its own points.
+    @Test func theVisiblePartOfAPageIsInItsOwnPoints() throws {
+        let l = Self.letter
+        let s = 2.0
+        let top = l.pageFrame(5, scale: s)
+        // The screen starts 100 page points into page 5 and is 400 page points tall.
+        let screen = CGRect(x: 0, y: top.minY + 100 * s, width: 612 * s, height: 400 * s)
+        let part = try #require(l.visiblePart(ofPage: 5, visible: screen, scale: s))
+        #expect(abs(part.minY - 100) < 1e-9 && abs(part.height - 400) < 1e-9 && abs(part.width - 612) < 1e-9)
+        // Across a break: page 6 shows from its top.
+        let low = CGRect(x: 0, y: top.maxY - 50 * s, width: 612 * s, height: 400 * s)
+        let next = try #require(l.visiblePart(ofPage: 6, visible: low, scale: s))
+        #expect(next.minY == 0 && abs(next.height - (400 - 50 - PageStackLayout.gap)) < 1e-9)
+        // Off screen, out of range or not finite: nothing.
+        #expect(l.visiblePart(ofPage: 9, visible: screen, scale: s) == nil)
+        #expect(l.visiblePart(ofPage: 200, visible: screen, scale: s) == nil)
+        #expect(l.visiblePart(ofPage: -1, visible: screen, scale: s) == nil)
+        #expect(l.visiblePart(ofPage: 5, visible: CGRect(x: 0, y: CGFloat.nan, width: 1, height: 1), scale: s) == nil)
+    }
 }

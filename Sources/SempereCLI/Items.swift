@@ -10,13 +10,13 @@ import Sempere
 struct ItemsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "items",
-        abstract: "List, move, resize, rotate, reorder, delete, duplicate and copy a note's placed items.",
+        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items.",
         discussion: """
             Placed items are text boxes, images and PDF pages (format.md §8.2). An item is named by its
             id or an id prefix of at least 4 characters, as `items list` prints it. Each edit writes one
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
-        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsFront.self, ItemsDelete.self,
+        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsFront.self, ItemsDelete.self,
                       ItemsDuplicate.self, ItemsCopy.self]
     )
 }
@@ -68,14 +68,14 @@ struct ItemsList: ParsableCommand {
         if let page { _ = try pageNumbered(page, of: state) }
         struct Row: Encodable {
             var page: Int; var id: String; var kind: String; var layer: String; var frame: Rect
-            var rotation: Double?; var z: String; var blob: BlobRef?
+            var rotation: Double?; var z: String; var blob: BlobRef?; var crop: Rect?
         }
         var rows: [Row] = []
         for (i, p) in state.pages.enumerated() where page == nil || page == i + 1 {
             for item in p.items.sorted(by: Item.drawsBefore) {
                 rows.append(Row(page: i + 1, id: item.id.uuidString.lowercased(), kind: item.kind.rawValue,
                                 layer: "\(item.layer)", frame: item.frame, rotation: item.rotation, z: item.z,
-                                blob: item.blob))
+                                blob: item.blob, crop: item.crop))
             }
         }
         if output.json { try output.emitJSON(rows); return }
@@ -166,6 +166,57 @@ struct ItemsRotate: ParsableCommand {
             return NoteOps.setRotation(found.id, to: degrees, on: page)?.ops ?? []
         }
         try reportEdit(vault, id, r, output: output, done: "Rotated", unchanged: "The item already has that rotation.")
+    }
+}
+
+struct ItemsCrop: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "crop",
+        abstract: "Crop an image or PDF page (one delta: setItem crop, and frame), as the app's Crop.",
+        discussion: """
+            The crop is x,y,w,h in the source's coordinates: pixels of the upright image (after its EXIF \
+            orientation), or points on the PDF page's visible box; it is clamped to the source. The frame \
+            follows so the part that stays visible keeps its place and size on the page, unless \
+            --keep-frame (the crop is then stretched to the frame). --clear shows the whole source again.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("Item id or prefix.", valueName: "item"))
+    var item: String
+
+    @Option(name: .long, help: ArgumentHelp("The part to show, in source coordinates.", valueName: "x,y,w,h"))
+    var crop: RectArgument?
+
+    @Flag(name: .long, help: "Remove the crop: show the whole image or page.")
+    var clear = false
+
+    @Flag(name: .customLong("keep-frame"), help: "Leave the frame as it is.")
+    var keepFrame = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        if (crop == nil) == !clear { throw ValidationError("give --crop x,y,w,h or --clear") }
+        if let r = crop?.rect, !(r.w > 0 && r.h > 0) { throw ValidationError("--crop needs a positive width and height") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let r = try editNote(vault, id) { state in
+            try requireLive(state)
+            let (page, found) = try findItem(item, in: state)
+            do {
+                return try NoteOps.setCrop(found.id, to: clear ? nil : crop?.rect, on: page, keepFrame: keepFrame)?.ops ?? []
+            } catch let e as AttachmentOpsError {
+                throw CLIError.failure("\(e)")
+            }
+        }
+        try reportEdit(vault, id, r, output: output, done: clear ? "Uncropped" : "Cropped", unchanged: "The item already has that crop.")
     }
 }
 

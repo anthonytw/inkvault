@@ -128,6 +128,19 @@ struct PageStackLayout: Equatable, Sendable {
                 Self.clampedOffset(y + h / 2 - vh / 2, contentLength: Double(size.height), viewport: vh))
     }
 
+    /// The part of page `index` inside `visible` (screen points of the
+    /// content at `scale`), in that page's own points; nil when none of it is
+    /// on screen or the input is not finite.
+    func visiblePart(ofPage index: Int, visible: CGRect, scale: Double) -> CGRect? {
+        guard index >= 0, index < count, [visible.minX, visible.minY, visible.width, visible.height].allSatisfy(\.isFinite)
+        else { return nil }
+        let s = Self.validScale(scale)
+        let page = pageFrame(index, scale: s)
+        let r = page.intersection(visible)
+        guard !r.isNull, r.width > 0, r.height > 0 else { return nil }
+        return CGRect(x: (r.minX - page.minX) / s, y: (r.minY - page.minY) / s, width: r.width / s, height: r.height / s)
+    }
+
     /// The scale at which a page fills `viewWidth` (the smallest zoom), nil before layout.
     func fitScale(viewWidth: Double) -> Double? {
         guard viewWidth.isFinite, viewWidth > 0 else { return nil }
