@@ -63,9 +63,25 @@ struct NoteListView: View {
                     Text("Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it.")
                 }
             }
+            ToolbarItem(placement: secondary) {
+                Button("Import PDF…", systemImage: "doc.richtext") { ui.importingPDF = true }
+                    .disabled(model.phase != .unlocked)
+                    .help("Make a note from a PDF: one page per PDF page, to write on")
+            }
             ToolbarItem {
                 Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
                     .disabled(model.phase != .unlocked)
+            }
+        }
+        .fileImporter(isPresented: $ui.importingPDF, allowedContentTypes: [.pdf]) { result in
+            guard case .success(let url) = result else { return }
+            var notebook: String?
+            if case .notebook(let n)? = model.sidebarSelection { notebook = n }
+            let target = notebook
+            Task {
+                if case .needsPassword(let request) = await model.importPDF(picked: url, to: .newNote(notebook: target)) {
+                    ui.pdfPassword = request
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {

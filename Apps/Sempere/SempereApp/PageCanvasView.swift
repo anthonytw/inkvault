@@ -28,6 +28,8 @@ struct PageCanvasView: UIViewRepresentable {
     var selectingItems = false
     /// Called when selection mode ends from the canvas (a tool was picked).
     var onSelectingItemsEnded: () -> Void = {}
+    /// Images and PDFs dropped on the page (`CanvasDrop`), with the page point they were dropped at.
+    var onDrop: ((_ providers: [NSItemProvider], _ pageID: UUID, _ point: CGPoint) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -71,6 +73,7 @@ struct PageCanvasView: UIViewRepresentable {
         host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
         host.itemSelection.commands = itemCommands
         host.onItemSelectionEnded = onSelectingItemsEnded
+        host.dropHandler = onDrop.map { handler in { providers, point in handler(providers, pageID, point) } }
         host.itemSelectionActive = selectingItems && !editor.isReadOnly && !drawingSuspended
         host.itemSelection.refresh()
     }
@@ -157,7 +160,7 @@ struct PageCanvasView: UIViewRepresentable {
 }
 
 /// UIKit side of `PageCanvasView`.
-final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDelegate {
+final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDelegate, UIDropInteractionDelegate {
     let canvas = PKCanvasView()
     private let paperView = PaperView()
     /// The page's placed items, between the paper and the ink.
@@ -189,6 +192,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     let footerButton = UIButton(configuration: .bordered())
     /// The pointer's shape over the canvas (Mac, `pointerInteraction(_:styleFor:)`).
     private var cursorInteraction: UIPointerInteraction?
+    /// Takes images and PDFs dropped on the page; nil: drops are refused.
+    var dropHandler: ((_ providers: [NSItemProvider], _ point: CGPoint) -> Void)?
 
     /// What the button below a finite page does (`PageExtent`).
     var footer = PageExtent.Footer.none {
@@ -271,6 +276,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
         itemSelection.attach(to: canvas, itemLayer: itemLayer)
+        canvas.addInteraction(UIDropInteraction(delegate: self))
         if Platform.isMac {
             let pointer = UIPointerInteraction(delegate: self)
             addInteraction(pointer)
@@ -288,6 +294,30 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         let d = CGFloat(PointerCursor.diameter(toolWidth: Double(tool.width), zoom: Double(canvas.zoomScale)))
         return UIPointerStyle(shape: .path(UIBezierPath(ovalIn: CGRect(x: -d / 2, y: -d / 2, width: d, height: d))),
                               constrainedAxes: [])
+    }
+
+    // MARK: Drops (images and PDFs from other apps, the Finder or Files)
+
+    /// Whether a drop session can be taken: something to add, from another
+    /// app (a note dragged out of this app's list is not added to itself), on
+    /// a note that can be edited.
+    func canTakeDrop(_ session: UIDropSession) -> Bool {
+        dropHandler != nil && !isReadOnly && !isPreparing && session.localDragSession == nil
+            && session.hasItemsConforming(toTypeIdentifiers: CanvasDrop.typeIdentifiers)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+        canTakeDrop(session)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+        UIDropProposal(operation: canTakeDrop(session) ? .copy : .forbidden)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+        let z = max(canvas.zoomScale, 0.01)
+        let p = session.location(in: canvas)
+        dropHandler?(session.items.map(\.itemProvider), CGPoint(x: p.x / z, y: p.y / z))
     }
 
     /// Remembers the eraser mode the user picks, for the next canvas, and

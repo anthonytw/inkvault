@@ -1,0 +1,365 @@
+import PhotosUI
+import Sempere
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+/// Which ways of adding images and PDFs the editor offers (pure, tested on
+/// each platform): the camera only where there is one and never on a Mac,
+/// PDF pages only on a paged note (a pageless note has one infinite page:
+/// import the PDF as a new note instead).
+enum InsertOptions {
+    static func offersCamera(isMac: Bool, cameraAvailable: Bool) -> Bool { !isMac && cameraAvailable }
+
+    static func offersPDFPages(pageless: Bool) -> Bool { !pageless }
+
+    /// The camera on this device.
+    @MainActor static var camera: Bool {
+        offersCamera(isMac: Platform.isMac, cameraAvailable: UIImagePickerController.isSourceTypeAvailable(.camera))
+    }
+
+    /// Where the `index`-th of several images added at once goes: each a
+    /// little further down and right, so none hides another.
+    static func cascade(_ point: CGPoint?, index: Int) -> CGPoint? {
+        point.map { CGPoint(x: $0.x + CGFloat(index) * 20, y: $0.y + CGFloat(index) * 20) }
+    }
+}
+
+/// What a drop or a paste brings: image bytes, or a PDF copied into a work folder.
+enum CanvasDrop {
+    enum Content: Sendable {
+        case image(Data)
+        case pdf(URL)
+    }
+
+    /// The types the canvas takes.
+    static let typeIdentifiers = [UTType.pdf.identifier, UTType.image.identifier]
+
+    /// Loads what the providers hold, in order; anything else is skipped.
+    @MainActor
+    static func load(_ providers: [NSItemProvider]) async -> [Content] {
+        var out: [Content] = []
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
+                if let url = await pdfCopy(provider) { out.append(.pdf(url)) }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                if let data = await imageData(provider) { out.append(.image(data)) }
+            }
+        }
+        return out
+    }
+
+    @MainActor
+    private static func imageData(_ provider: NSItemProvider) async -> Data? {
+        await withCheckedContinuation { (done: CheckedContinuation<Data?, Never>) in
+            _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in done.resume(returning: data) }
+        }
+    }
+
+    /// The provider's file is only there during the callback: it is copied out at once.
+    @MainActor
+    private static func pdfCopy(_ provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { (done: CheckedContinuation<URL?, Never>) in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.pdf.identifier) { url, _ in
+                done.resume(returning: url.flatMap { try? PDFPreparation.copyPicked($0) })
+            }
+        }
+    }
+}
+
+/// The editor's Insert state: which picker is up, and the item being cropped.
+@MainActor
+@Observable
+final class InsertState {
+    var pickingPhotos = false
+    var photoSelection: [PhotosPickerItem] = []
+    var takingPhoto = false
+    var pickingPDF = false
+    var cropping: CropRequest?
+    /// Something is being added (a spinner in the menu's place).
+    var working = 0
+}
+
+/// An item to crop and how to write the result (one undo step).
+struct CropRequest: Identifiable {
+    let id = UUID()
+    let item: Item
+    let page: UUID
+    let note: UUID
+    let actions: ItemActions
+}
+
+/// The editor toolbar's Insert menu: Photos, the camera, paste, PDF pages.
+struct InsertMenu: View {
+    let editor: NoteEditor
+    let state: InsertState
+    let onPaste: ([NSItemProvider]) -> Void
+
+    var body: some View {
+        Menu {
+            Button("Photos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
+            if InsertOptions.camera {
+                Button("Take Photo…", systemImage: "camera") { state.takingPhoto = true }
+            }
+            PasteButton(supportedContentTypes: [.image], payloadAction: onPaste)
+            Button("PDF Pages…", systemImage: "doc.richtext") { state.pickingPDF = true }
+                .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
+        } label: {
+            Label("Insert", systemImage: state.working > 0 ? "hourglass" : "photo.badge.plus")
+        }
+        .help("Add photos, a picture from the clipboard, or pages of a PDF")
+        .disabled(editor.isReadOnly || editor.currentPage == nil)
+    }
+}
+
+/// The pickers, the camera and the crop sheet of the editor, and what each
+/// adds: every addition goes through `AppModel.insertImage` or `importPDF`.
+struct EditorInsert: ViewModifier {
+    let editor: NoteEditor
+    let state: InsertState
+    let ui: WindowUI
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        @Bindable var state = state
+        content
+            .photosPicker(isPresented: $state.pickingPhotos, selection: $state.photoSelection, maxSelectionCount: 20,
+                          selectionBehavior: .ordered, matching: .images, preferredItemEncoding: .current)
+            .onChange(of: state.photoSelection) { _, picked in
+                guard !picked.isEmpty else { return }
+                state.photoSelection = []
+                addPhotos(picked)
+            }
+            .fullScreenCover(isPresented: $state.takingPhoto) {
+                CameraPicker { image in
+                    state.takingPhoto = false
+                    if let image { addCameraPhoto(image) }
+                }
+                .ignoresSafeArea()
+            }
+            .fileImporter(isPresented: $state.pickingPDF, allowedContentTypes: [.pdf]) { result in
+                guard case .success(let url) = result else { return }
+                importPDF(url)
+            }
+            .sheet(item: $state.cropping) { request in
+                CropView(request: request, cache: model.attachmentCache())
+            }
+    }
+
+    private var visible: CGRect? { editor.canvasTarget?.visiblePageRect }
+
+    private func addPhotos(_ picked: [PhotosPickerItem]) {
+        let editor = self.editor, visible = self.visible
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            for item in picked {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                    await model.insertImage(data, into: editor, visible: visible)
+                } catch {
+                    model.errorMessage = "Could not load the photo: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func addCameraPhoto(_ image: UIImage) {
+        let editor = self.editor, visible = self.visible
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            do {
+                let data = try ImagePreparation.jpeg(from: image)
+                await model.insertImage(data, into: editor, visible: visible)
+            } catch {
+                model.errorMessage = "Could not add the photo. \(AppModel.describe(error))"
+            }
+        }
+    }
+
+    private func importPDF(_ url: URL) {
+        let editor = self.editor
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            let after = editor.pages.isEmpty ? 0 : editor.pageIndex + 1
+            if case .needsPassword(let request) = await model.importPDF(picked: url, to: .insert(editor, after: after)) {
+                ui.pdfPassword = request
+            }
+        }
+    }
+}
+
+extension EditorInsert {
+    /// Adds what was pasted or dropped: images at `point` (cascaded) or on
+    /// screen, PDFs as pages after `page`.
+    @MainActor
+    static func add(_ providers: [NSItemProvider], to editor: NoteEditor, page: UUID?, at point: CGPoint?,
+                    model: AppModel, ui: WindowUI, state: InsertState) {
+        let visible = editor.canvasTarget?.visiblePageRect
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            var images = 0
+            for content in await CanvasDrop.load(providers) {
+                switch content {
+                case .image(let data):
+                    await model.insertImage(data, into: editor, page: page, visible: visible,
+                                            at: InsertOptions.cascade(point, index: images))
+                    images += 1
+                case .pdf(let url):
+                    let index = page.flatMap { id in editor.pages.firstIndex { $0.id == id } } ?? editor.pageIndex
+                    if case .needsPassword(let request) = await model.importPDF(copy: url, to: .insert(editor, after: index + 1),
+                                                                               password: nil) {
+                        ui.pdfPassword = request
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The camera (`UIImagePickerController`), for one photo.
+struct CameraPicker: UIViewControllerRepresentable {
+    let done: (UIImage?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.mediaTypes = [UTType.image.identifier]
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
+
+    @MainActor
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (UIImage?) -> Void
+
+        init(done: @escaping (UIImage?) -> Void) { self.done = done }
+
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            done(info[.originalImage] as? UIImage)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
+    }
+}
+
+/// Crops an image or PDF page: the whole source with the crop rectangle on
+/// it; drag a corner to resize it, inside to move it. Done writes one delta
+/// (`ItemActions.setCrop`: the part that stays keeps its place on the page).
+struct CropView: View {
+    let request: CropRequest
+    let cache: BlobCache?
+    @Environment(\.dismiss) private var dismiss
+    @State private var crop: Rect
+    @State private var image: CGImage?
+    @State private var failed = false
+    @State private var drag: (start: Rect, handle: ItemCrop.Handle)?
+    private let bounds: Rect
+
+    init(request: CropRequest, cache: BlobCache?) {
+        self.request = request
+        self.cache = cache
+        let bounds = request.item.cropBounds ?? Rect(x: 0, y: 0, w: 1, h: 1)
+        self.bounds = bounds
+        _crop = State(initialValue: request.item.shownCrop ?? bounds)
+    }
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { geo in
+                let k = CropView.scale(bounds: bounds, in: geo.size)
+                let size = CGSize(width: bounds.w * k, height: bounds.h * k)
+                ZStack(alignment: .topLeading) {
+                    if let image {
+                        Image(decorative: image, scale: 1).resizable().frame(width: size.width, height: size.height)
+                    } else {
+                        Rectangle().fill(.quaternary).frame(width: size.width, height: size.height)
+                            .overlay { if failed { Image(systemName: "exclamationmark.triangle") } else { ProgressView() } }
+                    }
+                    CropShade(crop: crop, bounds: bounds, k: k)
+                }
+                .frame(width: size.width, height: size.height)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                    if drag == nil {
+                        let p = ItemFrames.Point(x: Double(v.startLocation.x) / k, y: Double(v.startLocation.y) / k)
+                        guard let handle = ItemCrop.handle(at: p, crop: crop, scale: k) else { return }
+                        drag = (crop, handle)
+                    }
+                    guard let d = drag else { return }
+                    crop = ItemCrop.dragged(d.start, d.handle, dx: Double(v.translation.width) / k,
+                                            dy: Double(v.translation.height) / k, bounds: bounds,
+                                            minSize: max(ItemCrop.minSide, 24 / k))
+                }.onEnded { _ in drag = nil })
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                .accessibilityIdentifier("cropArea")
+            }
+            .padding()
+            .navigationTitle("Crop")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        request.actions.setCrop(request.item.id, to: crop, on: request.page)
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Button("Reset") { crop = bounds }.disabled(crop == bounds)
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    /// View points per source unit: the source fitted into `size`.
+    static func scale(bounds: Rect, in size: CGSize) -> Double {
+        guard bounds.w > 0, bounds.h > 0, size.width > 0, size.height > 0 else { return 1 }
+        return min(Double(size.width) / bounds.w, Double(size.height) / bounds.h)
+    }
+
+    /// The whole source, upright and uncropped, drawn as the canvas draws items.
+    private func load() async {
+        var whole = request.item
+        whole.crop = nil
+        whole.rotation = nil
+        let fitted = NoteOps.fit(Size(w: bounds.w, h: bounds.h), into: Size(w: 1024, h: 1024), upscale: true)
+        whole.frame = Rect(x: 0, y: 0, w: fitted.w, h: fitted.h)
+        let key = ItemRenderKey(whole, scale: 2, paper: .blank)
+        switch await ItemRendering.render(key, note: request.note, cache: cache) {
+        case .image(let cg, _): image = cg
+        case .placeholder: failed = true
+        }
+    }
+}
+
+/// The crop rectangle over the source: the rest dimmed, an outline and corner handles.
+private struct CropShade: View {
+    let crop: Rect
+    let bounds: Rect
+    let k: Double
+
+    var body: some View {
+        let r = CGRect(x: crop.x * k, y: crop.y * k, width: crop.w * k, height: crop.h * k)
+        let all = CGRect(x: 0, y: 0, width: bounds.w * k, height: bounds.h * k)
+        ZStack(alignment: .topLeading) {
+            Path { p in p.addRect(all); p.addRect(r) }
+                .fill(SwiftUI.Color.black.opacity(0.45), style: FillStyle(eoFill: true))
+            Path { p in p.addRect(r) }.stroke(SwiftUI.Color.white, lineWidth: 2)
+            ForEach(0..<4, id: \.self) { i in
+                let x = i == 0 || i == 3 ? r.minX : r.maxX, y = i < 2 ? r.minY : r.maxY
+                Rectangle().fill(SwiftUI.Color.white).frame(width: 14, height: 14).position(x: x, y: y)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}

@@ -148,6 +148,8 @@ struct EditorView: View {
     @AppStorage(PageStrip.visibleKey) private var stripVisible = false
     /// Deleted pages the undo banner has already been shown for.
     @State private var undoBannerFor = 0
+    /// Photos, camera, PDF pages and crop (`EditorInsert`).
+    @State private var insert = InsertState()
 
     var body: some View {
         @Bindable var ui = ui
@@ -178,8 +180,11 @@ struct EditorView: View {
                                paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),
                                drawingSuspended: PhoneReading.drawingSuspended(isPhone: Platform.isPhone, annotating: annotating),
                                generation: editor.canvasGeneration,
-                               itemSource: model.itemLayerSource, itemCommands: model.itemCommands,
-                               selectingItems: selectingItems, onSelectingItemsEnded: { selectingItems = false })
+                               itemSource: model.itemLayerSource, itemCommands: itemCommands,
+                               selectingItems: selectingItems, onSelectingItemsEnded: { selectingItems = false },
+                               onDrop: editor.isReadOnly ? nil : { providers, page, point in
+                                   EditorInsert.add(providers, to: editor, page: page, at: point, model: model, ui: ui, state: insert)
+                               })
                     .ignoresSafeArea(.container, edges: .bottom)
             } else {
                 ContentUnavailableView {
@@ -197,6 +202,7 @@ struct EditorView: View {
             PageStripView(editor: editor)
                 .inspectorColumnWidth(min: 150, ideal: 180, max: 260)
         }
+        .modifier(EditorInsert(editor: editor, state: insert, ui: ui))
         .onChange(of: editor.deletedPages.count) { old, new in
             undoBannerFor = new > old ? new : 0
         }
@@ -242,6 +248,7 @@ struct EditorView: View {
                 Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
                     .disabled(editor.currentPage == nil)
             }
+            ToolbarItem(placement: .secondaryAction) { insertMenu }
             if annotating {
                 ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
                 if showsItemSelection {
@@ -263,6 +270,22 @@ struct EditorView: View {
                 Button("Next Page", systemImage: "chevron.right") { editor.selectPage(editor.pageIndex + 1) }
                     .disabled(editor.pageIndex + 1 >= editor.pages.count)
             }
+        }
+    }
+
+    /// The model's item commands, with Crop opening this editor's crop sheet.
+    private var itemCommands: ItemCommands {
+        var commands = model.itemCommands
+        let state = insert, note = editor.noteID
+        commands.crop = { item, page, actions in
+            state.cropping = CropRequest(item: item, page: page, note: note, actions: actions)
+        }
+        return commands
+    }
+
+    private var insertMenu: some View {
+        InsertMenu(editor: editor, state: insert) { providers in
+            EditorInsert.add(providers, to: editor, page: editor.currentPage?.id, at: nil, model: model, ui: ui, state: insert)
         }
     }
 
@@ -342,6 +365,9 @@ struct EditorView: View {
                         paletteVisible.toggle()
                     }
                 }
+            }
+            if !editor.isReadOnly {
+                ToolbarItem(placement: .primaryAction) { insertMenu }
             }
             if showsItemSelection {
                 ToolbarItem(placement: .primaryAction) { itemSelectionToggle }

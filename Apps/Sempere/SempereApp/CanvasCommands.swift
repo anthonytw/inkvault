@@ -1,3 +1,4 @@
+import CoreGraphics
 import PencilKit
 
 /// A tool the Tools menu selects.
@@ -43,4 +44,7 @@ protocol CanvasCommandTarget: AnyObject {
     func zoomToActualSize()
     /// Shows or hides PencilKit's ruler (straight lines with a mouse).
     func toggleRuler()
+    /// The part of the page on screen, in page points (nil before layout):
+    /// where inserted images go.
+    var visiblePageRect: CGRect? { get }
 }
