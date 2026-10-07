@@ -35,6 +35,23 @@ struct ItemLayerTests {
                 "backgrounds are filled with the paper")
     }
 
+    /// `markersBehindText`: only content-layer text boxes are drawn again above the ink, and only when set.
+    @Test func textOverlayFollowsMarkersBehindText() {
+        let text = AttachmentEditorTests.textItem()
+        var backgroundText = text
+        backgroundText.id = UUID()
+        backgroundText.layer = .background
+        let image = Item.image(blob: BlobRef(content: Data("i".utf8), type: "image/png"), pixelSize: Size(w: 2, h: 1),
+                               frame: Rect(x: 0, y: 0, w: 20, h: 10), z: "b")
+        var meta = NoteMeta(created: Date(timeIntervalSince1970: 0))
+        #expect(MarkerOrder.textOverlay([text, backgroundText, image], meta: meta).isEmpty)
+        meta.markersBehindText = true
+        #expect(MarkerOrder.textOverlay([text, backgroundText, image], meta: meta).map(\.id) == [text.id])
+        let host = PageCanvasHost(frame: CGRect(x: 0, y: 0, width: 400, height: 600))
+        #expect(host.textOverlay.isHidden)
+        #expect(host.textOverlay.layer.compositingFilter as? String == "multiplyBlendMode")
+    }
+
     @Test func selectionPicksHandlesThenItemsThenNothing() {
         let image = Item.image(blob: BlobRef(content: Data("i".utf8), type: "image/png"), pixelSize: Size(w: 2, h: 1),
                                frame: Rect(x: 100, y: 100, w: 200, h: 100), z: "a")

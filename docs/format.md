@@ -417,7 +417,9 @@ notes may share a title, in one notebook or several.
     "created": "2026-10-04T16:20:00Z",
     "paper": { "kind": "ruled", "spacing": 24,
                "background": "#FFFFFFFF", "lineColor": "#D0D8E8FF" },
-    "pageSize": { "width": 612, "height": 792, "infinite": false }
+    "pageSize": { "width": 612, "height": 792, "infinite": false },
+    "lang": "en-US",
+    "markersBehindText": true
   },
   "pages": [ Page, ... ],
   "recordings": [ Recording, ... ]
@@ -450,14 +452,38 @@ notes may share a title, in one notebook or several.
   §5.4.3 calls this the note's *sheet height* and says how exporters
   paginate.
 - In a snapshot, `pages` are sorted by `(order, id)`.
+- `lang` (optional): the language the note is handwritten in, a BCP 47 tag
+  (`en-US`, `es-ES`, `es`). Writers store 1 to 8 subtags of 1 to 8 ASCII
+  letters or digits joined by `-`, the first subtag letters only, at most 64
+  characters (Notability's `en_US` is stored `en-US`). Recognisers (§5.5) read
+  the note's handwriting in this language; absent means the recogniser's
+  default (the device language, or English). `setMeta` with `null` clears it.
+  A `setMeta` value that is not such a tag is invalid (the revision is
+  rejected); a snapshot `lang` that is not one reads as absent.
+- `markersBehindText` (optional, boolean, absent means `false`): marker
+  strokes (`ink.tool` `marker`) are drawn below the page's content items
+  instead of above them (§8.2.3), as a highlighter behind typed text.
+  Notability notes carry it (`NBNoteTakingSessionIsHighlighterBehindTextKey`).
+  Writers omit it when false; a snapshot value that is not a boolean reads as
+  `false`.
+
+`lang` and `markersBehindText` were added after the first snapshots were
+written (*new: Notability import*). Readers that predate them reject a
+revision with a `setMeta` naming them (§7; pre-1.0) and ignore them in a
+snapshot. A snapshot that holds neither a value nor a clock for one of them
+never had it set, and does not compete with a `setMeta` it does not cover
+(as `recognitionClock`, §5.5); a snapshot writes their clocks only once they
+have been set.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`
-(legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`) to the stamp of the
+(legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`,
+`lang`, `markersBehindText`) to the stamp of the
 op that last set it, encoded `"<hlc>-<device>"`, e.g.
 `{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
 cover wins a register only if its own `(hlc, device)` is greater than that
 stamp; between snapshots, the greater recorded stamp wins. A register with
-no clock is treated as stamped by the snapshot's own `(hlc, device)`.
+no clock is treated as stamped by the snapshot's own `(hlc, device)`, except
+the two optional ones above.
 
 `State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...],
 "items": [uuid, ...], "recordings": [uuid, ...]}`.
@@ -861,7 +887,9 @@ a `setPageRecognition` the snapshot does not cover. `addPage` ignores any
 `recognition` in its page object (the page is added empty, §5.2).
 
 Readers that index text for search use `text`; `words` lets a viewer
-highlight hits on the page.
+highlight hits on the page. A recogniser reads a note whose `meta.lang` is
+set (§5.4) in that language (with its own fallback when it does not support
+it), and otherwise in its default language.
 
 **When recognition is stale.** A page's recognition is *current* when it has
 a `basis` equal to the digest of the page's live stroke ids; one with a
@@ -1497,7 +1525,7 @@ and never changed.
 | every kind | `frame`, `rotation`, `z` | `id`, `kind`, `layer`, `parent`, `rec` |
 | `text` | `text` | |
 | `image` | `crop` | `blob`, `pixelSize`, `orientation` |
-| `pdfPage` | `crop` | `blob`, `pageIndex`, `pageSize` |
+| `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
 - `setItem` with `field` naming an immutable field of any kind, or the
@@ -1536,7 +1564,14 @@ A page is drawn, bottom to top:
    through it;
 4. strokes, by `origin` (§5.5).
 
-Ink is drawn above every item, whatever its layer. Layers other than 0 and
+On a note with `markersBehindText` (§5.4), the marker strokes (`ink.tool`
+`marker`) leave step 4 and are drawn, by `origin`, between the items of
+background layers (below 100) and the first item of a layer of 100 or more;
+on a page without such items, before the other strokes. Everything else is
+unchanged: a highlighter then sits above a PDF page background but below
+text boxes and images, and below pen ink.
+
+Otherwise ink is drawn above every item, whatever its layer. Layers other than 0 and
 100 have no defined meaning yet; a later format change may give some of them
 one (for example a layer above the ink) without changing how existing items
 are stored. `image` and `pdfPage` items are clipped to their frame; text is
@@ -1646,6 +1681,22 @@ aspect ratio equal to the crop's; renderers scale the axes independently.
 - `crop`: `[x, y, w, h]` on the effective page; absent means all of it.
 - `layer` is `0` (background) for a page being annotated; `100` (content)
   places a page as a figure.
+
+- `pageText` (optional register, *new: Notability import*): the page's text,
+  for search: `{ "text": "…", "engine": "pdftotext-24.02", "truncated": true }`.
+  `text` is the page's text in reading order, NFC, lines separated by `\n`
+  (no other control characters but `\t`), at most 65 536 UTF-8 bytes;
+  `engine` names what extracted it (`notability-<version>` for Notability's
+  PDF index, `semperepdf-<n>`, `pdftotext-<version>`, `pdfkit-<OS version>`);
+  `truncated` (absent means false) says the writer cut the text at the limit.
+  It is derived from the blob and its page, describes the whole effective
+  page whatever the `crop`, and a writer may set it with `setItem` at any time
+  (`null` removes it), for example when a device that can extract text
+  better reads an item another device added. Readers that index text for
+  search take `text` (beside `recognition` and text boxes, §5.5, §8.2.4);
+  a value that is not such an object (or whose `text` is longer than the
+  limit) is ignored as if absent, never rejected. Older readers keep it as
+  an unknown field and register (§7). It is never drawn.
 
 The crop rectangle is drawn onto the frame (§8.5.1). The PDF's annotations
 (`/Annots`) are not drawn; a writer that wants them flattens them into the

@@ -44,6 +44,9 @@ working state.
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds and images (D1, D2) | ✅ #70 |
 | Import | Notability typed text, recordings and stroke links (D3, D4) | ✅ #73 |
+| Import | Notability remaining gaps: `.ntb` PDF and image files, PDF page text from Notability's index, handwriting language (`meta.lang`), highlighter behind text (`meta.markersBehindText`), paper colour | 🔀 #79 |
+| Vault | PDF page text (`pageText` on pdfPage items, `format.md` §8.2.6) searched with recognition and text boxes; note `lang` and `markersBehindText` registers (§5.4) | 🔀 #79 |
+| Render | `markersBehindText`: markers drawn below content items (§8.2.3) in PDF/SVG/PNG and the web viewer; pure-Swift PDF text extraction (`SemperePDF.PDFText`) | 🔀 #79 |
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3): streamed, resumable, GC-safe deletes | ✅ #67 |
 
@@ -62,6 +65,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `compact --thin-all [--dry-run]` (thin everything except checkpoints), imports written as checkpoints, thinning from indexed revision metadata | ✅ #88 | ✅ #88 |
 | import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | ✅ #70 | ✅ #70 |
 | import notability: typed text and recordings (D3, D4) | ✅ #73 | ✅ #73 |
+| import notability: `.ntb` attachments, PDF text, language, highlighter flag, paper colour, new report counts; `--pdf-text` for `import notability\|pdf` and `attach pdf` (pdftotext or built in); `search` reports PDF hits (page, PDF page, item); `notes language`, `notes markers`; `recognize` reads in the note's language | 🔀 #79 | 🔀 #79 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | ✅ #72 | ✅ #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
@@ -115,6 +119,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | ✅ #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | ✅ #74 (not yet tried on the iPad) |
+| Search | Recognition in the note's language (`meta.lang`); PDF page text searched; the app's PDF import stores each page's text from PDFKit | 🔀 #79 |
 | App | Performance round 3: mass-changed vault reconcile without quadratic iCloud checks ("Updating N changed notes"), thinning with progress, "Thin Versions Older Than N Days" and "Thin Everything Except Checkpoints" | 🔀 #88 (not yet tried on the iPad) |
 | App | Settings panel (E6): one screen (sidebar gear on iPad and iPhone, Settings… ⌘, on the Mac) with General, New Notes, Recording, Transcription, Photos, Version History, Device Keys and Storage; the recording, transcription, voice-notebook and title-format settings are stored now and read by their features when those land | 🔀 draft (not yet tried on the iPad) |
 | App | Spanish localization (L) | 📋 |

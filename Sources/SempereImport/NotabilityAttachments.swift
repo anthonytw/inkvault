@@ -37,6 +37,8 @@ public struct NotabilityAttachments: Sendable {
         public var rotation: Double?
         /// Names the item's id (with the note's key): `pdf:<n>`, `template:<n>`, `image:<n>`.
         public var tag: String
+        /// A PDF page's text, stored as its `pageText` (format.md §8.2.6).
+        public var pageText: PDFPageText?
     }
 
     /// Bytes to write as blobs before the delta, by `BlobRef.sha256` (one per
@@ -115,21 +117,31 @@ public struct NotabilityAttachments: Sendable {
     /// - Parameter keepImageMetadata: store images as they are in the package;
     ///   by default JPEG and PNG metadata (EXIF, location, …) is stripped
     ///   (format.md §8.2.5).
+    ///
+    /// - Parameter pdfText: extracts the text of PDF pages that Notability's
+    ///   own PDF index does not cover (`NotabilityPDFIndex`); nil stores text
+    ///   from the index only.
     public static func resolve(_ note: NotabilityNote, package pkg: NotePackage,
-                               keepImageMetadata: Bool = false) -> NotabilityAttachments {
-        resolve(note, package: pkg, keepImageMetadata: keepImageMetadata, maxHeldBytes: maxHeldBytes)
+                               keepImageMetadata: Bool = false,
+                               pdfText: (any PDFTextExtracting)? = BuiltinPDFTextExtractor()) -> NotabilityAttachments {
+        resolve(note, package: pkg, keepImageMetadata: keepImageMetadata, maxHeldBytes: maxHeldBytes, pdfText: pdfText)
     }
 
     static func resolve(_ note: NotabilityNote, package pkg: NotePackage, keepImageMetadata: Bool,
-                        maxHeldBytes: Int) -> NotabilityAttachments {
+                        maxHeldBytes: Int, pdfText: (any PDFTextExtracting)? = BuiltinPDFTextExtractor()) -> NotabilityAttachments {
         var r = NotabilityAttachments()
         r.heldLimit = maxHeldBytes
-        guard note.sourceFormat == .note else { return r }
+        guard note.sourceFormat == .note else {
+            r.resolveBundle(note, pkg, keepMetadata: keepImageMetadata)
+            r.resolvePDFText(note, pkg, extractor: pdfText)
+            return r
+        }
         let prefix = NotabilityNote.packagePrefix(pkg) ?? ""
         r.resolvePDFs(note, pkg, prefix: prefix)
         r.resolveImages(note, pkg, prefix: prefix, keepMetadata: keepImageMetadata)
         r.resolveTypedText(note)
         r.resolveRecordings(note, pkg, prefix: prefix)
+        r.resolvePDFText(note, pkg, extractor: pdfText)
         return r
     }
 
@@ -137,19 +149,27 @@ public struct NotabilityAttachments: Sendable {
     struct LoadedPDF {
         var ref: BlobRef
         var pages: [Size?]
+        /// The bytes (for the page text when Notability's index has none).
+        var data: Data
     }
 
     /// Reads `PDFs/<name>`; nil (with a warning) when it is missing or unreadable.
     mutating func loadPDF(_ name: String, _ pkg: NotePackage, prefix: String,
                           cache: inout [String: LoadedPDF?]) -> LoadedPDF? {
+        guard !name.contains("/"), !name.hasPrefix("."), pkg.contains(prefix + "PDFs/" + name) else {
+            if cache[name] == nil { warnings.append("PDF \(name): not in the package") }
+            cache[name] = .some(nil)
+            return nil
+        }
+        return loadPDF(path: prefix + "PDFs/" + name, name: name, pkg, cache: &cache)
+    }
+
+    /// Reads the PDF at `path` (cached under `name`); nil (with a warning) when it is unreadable.
+    mutating func loadPDF(path: String, name: String, _ pkg: NotePackage,
+                          cache: inout [String: LoadedPDF?]) -> LoadedPDF? {
         if let hit = cache[name] { return hit }
         var loaded: LoadedPDF?
         defer { cache[name] = loaded }
-        let path = prefix + "PDFs/" + name
-        guard !name.contains("/"), !name.hasPrefix("."), pkg.contains(path) else {
-            warnings.append("PDF \(name): not in the package")
-            return nil
-        }
         let data: Data
         do { data = try pkg.read(path) } catch {
             warnings.append("PDF \(name): cannot be read (\(NotabilityImporter.describe(error)))")
@@ -171,7 +191,7 @@ public struct NotabilityAttachments: Sendable {
             }
             let ref = BlobRef(content: data, type: "application/pdf")
             if blobs[ref.sha256] == nil { blobs[ref.sha256] = (ref, data) } else { heldBytes -= data.count }   // same bytes held once
-            loaded = LoadedPDF(ref: ref, pages: pages)
+            loaded = LoadedPDF(ref: ref, pages: pages, data: data)
             return loaded
         } catch PDFError.encrypted {
             warnings.append("PDF \(name): encrypted (format.md §8.2.6 stores PDFs without encryption); remove the password and import again")

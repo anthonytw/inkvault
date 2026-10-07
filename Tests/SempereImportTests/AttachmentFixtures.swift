@@ -8,15 +8,17 @@ enum AttachmentFixtures {
     /// A minimal PDF with one page per size (points, `/MediaBox [0 0 w h]`),
     /// classic xref table. `rotate` sets `/Rotate` on every page; `encrypt`
     /// adds an `/Encrypt` entry to the trailer (refused by readers).
-    static func pdf(pages: [(Double, Double)], rotate: Int = 0, encrypt: Bool = false) -> Data {
+    static func pdf(pages: [(Double, Double)], rotate: Int = 0, encrypt: Bool = false, texts: [String] = []) -> Data {
         var objects: [String] = []
         let kids = (0..<pages.count).map { "\(3 + 2 * $0) 0 R" }.joined(separator: " ")
         objects.append("<< /Type /Catalog /Pages 2 0 R >>")
         objects.append("<< /Type /Pages /Kids [\(kids)] /Count \(pages.count) >>")
         for (i, (w, h)) in pages.enumerated() {
             let rot = rotate == 0 ? "" : " /Rotate \(rotate)"
-            objects.append("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \(w) \(h)]\(rot) /Contents \(4 + 2 * i) 0 R >>")
-            let content = "0 0 1 rg 10 10 50 50 re f"
+            let font = texts.isEmpty ? "" : " /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >>"
+            objects.append("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \(w) \(h)]\(rot)\(font) /Contents \(4 + 2 * i) 0 R >>")
+            var content = "0 0 1 rg 10 10 50 50 re f"
+            if i < texts.count { content += " BT /F1 12 Tf 72 700 Td (\(texts[i])) Tj ET" }
             objects.append("<< /Length \(content.utf8.count) >>\nstream\n\(content)\nendstream")
         }
         var out = "%PDF-1.7\n"

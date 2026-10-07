@@ -86,7 +86,14 @@ public enum PNGWriter {
             var raster = Raster(width: size.width, height: size.height)
             let sx = Double(size.width) / chunk.width, sy = Double(size.height) / chunk.height
             for c in layers.paper { paint(c, into: &raster, sx: sx, sy: sy) }
-            drawItems(prepared.items(for: chunk), draws: draws, paper: options.paper ? prepared.drawnPaper : nil,
+            // Background items, the strokes drawn behind content items (format.md §8.2.3), content items.
+            let chunkItems = prepared.items(for: chunk)
+            let under = PreparedPage.underIndex(chunkItems)
+            drawItems(Array(chunkItems[..<under]), draws: draws, paper: options.paper ? prepared.drawnPaper : nil,
+                      yOffset: chunk.yOffset, sx: sx, sy: sy, images: images, glyphs: &glyphs, into: &raster,
+                      report: &report)
+            for c in layers.under { paint(c, into: &raster, sx: sx, sy: sy) }
+            drawItems(Array(chunkItems[under...]), draws: draws, paper: options.paper ? prepared.drawnPaper : nil,
                       yOffset: chunk.yOffset, sx: sx, sy: sy, images: images, glyphs: &glyphs, into: &raster,
                       report: &report)
             for c in layers.strokes { paint(c, into: &raster, sx: sx, sy: sy) }

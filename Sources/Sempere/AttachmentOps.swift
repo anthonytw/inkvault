@@ -74,8 +74,10 @@ public struct ItemPlacement: Hashable, Sendable {
 public struct PDFPageRef: Hashable, Sendable {
     public var index: Int
     public var size: Size
+    /// The page's text, stored as the item's `pageText` (format.md §8.2.6); nil for none.
+    public var text: PDFPageText?
 
-    public init(index: Int, size: Size) { self.index = index; self.size = size }
+    public init(index: Int, size: Size, text: PDFPageText? = nil) { self.index = index; self.size = size; self.text = text }
 }
 
 extension NoteOps {
@@ -242,8 +244,9 @@ extension NoteOps {
                         w: natural.w, h: natural.h)
         }
         try validate(frame: rect)
-        let item = Item.pdfPage(id: id, blob: blob, pageIndex: pdfPage.index, pageSize: pdfPage.size, crop: crop, frame: rect,
+        var item = Item.pdfPage(id: id, blob: blob, pageIndex: pdfPage.index, pageSize: pdfPage.size, crop: crop, frame: rect,
                                 z: topZ(of: page, layer: layer, extra: extraZ), layer: layer)
+        item.pageText = pdfPage.text
         return ItemPlacement(page: page.id, item: item)
     }
 

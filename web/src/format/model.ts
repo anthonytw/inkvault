@@ -94,6 +94,23 @@ export interface NoteMeta {
   created: number;
   paper: Paper;
   pageSize: PageSize;
+  /** BCP 47 language of the handwriting (§5.4); absent when unknown. */
+  lang?: string;
+  /** Marker strokes drawn below content items (§5.4, §8.2.3); absent is false. */
+  markersBehindText?: boolean;
+}
+
+/**
+ * `tag` if it is a plausible BCP 47 tag (§5.4; Swift `NoteMeta.validLanguage`):
+ * 1–8 subtags of 1–8 ASCII letters or digits joined by `-`, the first letters
+ * only, at most 64 characters; `_` reads as `-`.
+ */
+export function validLanguage(tag: string): string | undefined {
+  const t = tag.replaceAll("_", "-");
+  if (t.length === 0 || t.length > 64) return undefined;
+  const parts = t.split("-");
+  if (parts.length > 8 || !/^[A-Za-z]+$/.test(parts[0] ?? "")) return undefined;
+  return parts.every((p) => /^[A-Za-z0-9]{1,8}$/.test(p)) ? t : undefined;
 }
 
 export interface Page {
@@ -151,7 +168,9 @@ export type MetaChange =
   | { field: "notebook"; value: string | undefined }
   | { field: "favorite"; value: boolean }
   | { field: "paper"; value: Paper }
-  | { field: "pageSize"; value: PageSize };
+  | { field: "pageSize"; value: PageSize }
+  | { field: "lang"; value: string | undefined }
+  | { field: "markersBehindText"; value: boolean };
 
 export type Op =
   | { op: "addStroke"; page: string; stroke: Stroke }
@@ -386,6 +405,10 @@ function decodeMeta(v: unknown, path: string): NoteMeta {
   };
   const notebook = optWith(o, "notebook", path, str);
   if (notebook !== undefined) m.notebook = notebook;
+  // Optional fields: a value of the wrong type reads as absent (§5.4).
+  const lang = typeof o.lang === "string" ? validLanguage(o.lang) : undefined;
+  if (lang !== undefined) m.lang = lang;
+  if (o.markersBehindText === true) m.markersBehindText = true;
   return m;
 }
 
@@ -477,6 +500,12 @@ function decodeMetaChange(o: JSONObject, path: string): MetaChange {
     case "favorite": return { field, value: reqWith(o, "value", path, bool) };
     case "paper": return { field, value: reqWith(o, "value", path, decodePaper) };
     case "pageSize": return { field, value: reqWith(o, "value", path, decodePageSize) };
+    case "lang": {
+      const value = optWith(o, "value", path, str);
+      if (value !== undefined && validLanguage(value) !== value) fail(`${path}.value`, "lang is not a BCP 47 tag");
+      return { field, value };
+    }
+    case "markersBehindText": return { field, value: reqWith(o, "value", path, bool) };
     default: fail(`${path}.field`, `unknown meta field ${field}`);
   }
 }
@@ -637,6 +666,8 @@ export function encodeState(s: NoteState, formatDate: (ms: number) => string): J
     paper: encodePaper(m.paper), pageSize: { ...m.pageSize },
   };
   if (m.notebook !== undefined) meta.notebook = m.notebook;
+  if (m.lang !== undefined) meta.lang = m.lang;
+  if (m.markersBehindText === true) meta.markersBehindText = true;
   const o: JSONObject = { deleted: s.deleted, meta, pages: s.pages.map(encodePage) };
   if (s.clocks && Object.keys(s.clocks).length > 0) o.clocks = s.clocks;
   const t = s.tombstones;

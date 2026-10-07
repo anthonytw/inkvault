@@ -1093,3 +1093,93 @@ extension String {
         String(decoding: utf8.map { (0x41...0x5A).contains($0) ? $0 + 0x20 : $0 }, as: UTF8.self)
     }
 }
+
+// MARK: - PDF page text (§8.2.6)
+
+/// The text of a `pdfPage` item's page, for search (format.md §8.2.6
+/// `pageText`): an optional register stored in the item's `extra`, so readers
+/// that predate it keep and re-emit it unchanged (§7).
+public struct PDFPageText: Hashable, Sendable {
+    /// The page's text in reading order, lines separated by `\n`.
+    public var text: String
+    /// What extracted it: `notability-<version>`, `semperepdf-<n>`,
+    /// `pdftotext-<version>`, `pdfkit-<OS version>`.
+    public var engine: String
+    /// The writer cut the text at `maxBytes`.
+    public var truncated: Bool
+
+    /// The field name on a `pdfPage` item and in `setItem`.
+    public static let field = "pageText"
+    /// Most UTF-8 bytes of `text` (format.md §8.4, as a text item's text).
+    public static let maxBytes = 65_536
+
+    /// `text` normalised as format.md §8.2.6 says (NFC, `\n` line breaks, no
+    /// other controls but `\t`, runs of blank lines collapsed, trimmed) and cut
+    /// at `maxBytes` on a character boundary.
+    public init(text: String, engine: String) {
+        var t = text.precomposedStringWithCanonicalMapping
+            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        t = String(String.UnicodeScalarView(t.unicodeScalars.compactMap { s -> Unicode.Scalar? in
+            switch s.value {
+            case 0x0A, 0x09: return s
+            case 0x0C, 0x2028, 0x2029: return "\n"
+            case 0..<0x20, 0x7F, 0xFFFE, 0xFFFF: return nil
+            default: return s
+            }
+        }))
+        var lines: [Substring] = []
+        var blank = 0
+        for line in t.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.drop { $0 == " " || $0 == "\t" }.reversed().drop { $0 == " " || $0 == "\t" }
+            if trimmed.isEmpty { blank += 1; continue }
+            if blank > 0, !lines.isEmpty { lines.append("") }
+            blank = 0
+            lines.append(Substring(String(trimmed.reversed())))
+        }
+        t = lines.joined(separator: "\n")
+        var cut = false
+        if t.utf8.count > Self.maxBytes {
+            var n = 0
+            var end = t.startIndex
+            for i in t.indices {
+                let len = t[i].utf8.count
+                if n + len > Self.maxBytes { break }
+                n += len
+                end = t.index(after: i)
+            }
+            t = String(t[..<end])
+            cut = true
+        }
+        self.text = t
+        self.engine = String(engine.prefix(64))
+        self.truncated = cut
+    }
+
+    /// Reads a stored value; nil for anything malformed (a reader ignores it, §8.2.6).
+    public init?(json: JSONValue) {
+        guard case .object(let o) = json, case .string(let text)? = o["text"],
+              text.utf8.count <= Self.maxBytes else { return nil }
+        self.text = text
+        if case .string(let e)? = o["engine"] { engine = e } else { engine = "" }
+        if case .bool(let b)? = o["truncated"] { truncated = b } else { truncated = false }
+    }
+
+    /// The stored value.
+    public var json: JSONValue {
+        var o: [String: JSONValue] = ["text": .string(text), "engine": .string(engine)]
+        if truncated { o["truncated"] = .bool(true) }
+        return .object(o)
+    }
+}
+
+extension Item {
+    /// A `pdfPage` item's page text (format.md §8.2.6); nil when absent,
+    /// malformed or on another kind.
+    public var pageText: PDFPageText? {
+        get {
+            guard kind == .pdfPage, let v = extra[PDFPageText.field] else { return nil }
+            return PDFPageText(json: v)
+        }
+        set { extra[PDFPageText.field] = newValue?.json }
+    }
+}

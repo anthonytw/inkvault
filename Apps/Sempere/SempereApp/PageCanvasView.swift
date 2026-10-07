@@ -115,7 +115,11 @@ struct PageCanvasView: UIViewRepresentable {
             host.isReadOnly = editor.isReadOnly
             host.drawingSuspended = content.drawingSuspended
             host.apply(paper: content.paper, pageSize: content.pageSize)
-            host.itemLayer.show(editor.items(on: pageID), note: editor.noteID, paper: content.paper, source: content.itemSource)
+            let pageItems = editor.items(on: pageID)
+            host.itemLayer.show(pageItems, note: editor.noteID, paper: content.paper, source: content.itemSource)
+            let overText = MarkerOrder.textOverlay(pageItems, meta: editor.meta)
+            host.textOverlay.isHidden = overText.isEmpty
+            host.textOverlay.show(overText, note: editor.noteID, paper: content.paper, source: content.itemSource)
             host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
             host.itemSelection.commands = content.itemCommands
             host.onItemSelectionEnded = content.onSelectingItemsEnded
@@ -152,6 +156,7 @@ struct PageCanvasView: UIViewRepresentable {
             host.itemSelectionActive = false
             host.inkTapHandler = nil
             host.setHighlights([])
+            host.textOverlay.isHidden = true   // a spare canvas shows no note's text
             isLoading = true
             host.canvas.drawing = PKDrawing()
             host.canvas.undoManager?.removeAllActions()
@@ -250,6 +255,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     private let paperView = PaperView()
     /// The page's placed items, between the paper and the ink.
     let itemLayer = ItemLayerView()
+    /// Text boxes drawn again above the ink, multiplied, on a note with
+    /// `markersBehindText` (`MarkerOrder`); hidden otherwise.
+    let textOverlay = ItemLayerView()
     /// Selecting, moving and resizing items (selection mode).
     let itemSelection = ItemSelectionController()
     /// Called when picking a tool ends selection mode.
@@ -397,6 +405,10 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.insertSubview(itemLayer, aboveSubview: paperView)
         highlightView.isUserInteractionEnabled = false
         canvas.insertSubview(highlightView, aboveSubview: itemLayer)   // over the items, under the ink
+        textOverlay.layer.compositingFilter = "multiplyBlendMode"
+        textOverlay.accessibilityIdentifier = "textOverlay"
+        textOverlay.isHidden = true
+        canvas.addSubview(textOverlay)   // above PencilKit's ink view
         footerButton.isHidden = true
         footerButton.addAction(UIAction { [weak self] _ in self?.footerAction?() }, for: .primaryActionTriggered)
         canvas.addSubview(footerButton)
@@ -698,6 +710,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.contentSize = CGSize(width: size.width * z, height: CGFloat(height) * z)
         itemLayer.frame = CGRect(origin: .zero, size: canvas.contentSize)
         itemLayer.setZoom(z)
+        textOverlay.frame = itemLayer.frame
+        textOverlay.setZoom(z)
+        if !textOverlay.isHidden { canvas.bringSubviewToFront(textOverlay) }
         itemSelection.refresh()
         textEditor.layoutTextView()
         if footer != .none {

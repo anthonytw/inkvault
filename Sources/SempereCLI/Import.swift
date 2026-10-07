@@ -31,17 +31,25 @@ struct ImportNoteJSON: Encodable {
     var selection: String?
     var attachments: Attachments
     var warnings: [String]
+    /// `meta.lang` (BCP 47), when the note has a handwriting language.
+    var lang: String?
+    var markersBehindText: Bool
+    /// `#RRGGBBAA` from `paperColor`, when the note has one.
+    var paperColor: String?
 
     struct Dropped: Encodable {
         var typedTextCharacters: Int, pdfs: Int, pdfPages: Int, media: Int, recordings: Int
         var pdfHighlights: Int, templatePDFs: Int, recLinks: Int
         var dashedStrokes: Int, unknownStyleStrokes: Int
         var defaultedAttributeStrokes: Int, unsupportedShapes: Int, unsupportedStrokes: Int, clampedStrokes: Int
+        var bundleRecordsWithoutFile: Int, bundleFilesUnreferenced: Int, pdfTextPages: Int
     }
 
     struct Attachments: Encodable {
         var pdfs: Int, pdfPages: Int, templatePages: Int, images: Int, textItems: Int, textCharacters: Int
         var recordings: Int, recLinkedStrokes: Int, blobs: Int, blobBytes: Int64
+        var pdfTextPages: Int, pdfTextFromIndex: Int, pdfTextExtracted: Int
+        var bundlePDFRecords: Int, bundleMediaRecords: Int, bundleFiles: Int, bundleFilesImported: Int
     }
 
     init(_ r: NotabilityImporter.NoteResult) {
@@ -53,8 +61,13 @@ struct ImportNoteJSON: Encodable {
         let a = r.attachments
         attachments = Attachments(pdfs: a.pdfs, pdfPages: a.pdfPages, templatePages: a.templatePages, images: a.images,
                                   textItems: a.textItems, textCharacters: a.textCharacters, recordings: a.recordings,
-                                  recLinkedStrokes: a.recLinkedStrokes, blobs: a.blobs, blobBytes: a.blobBytes)
+                                  recLinkedStrokes: a.recLinkedStrokes, blobs: a.blobs, blobBytes: a.blobBytes,
+                                  pdfTextPages: a.pdfTextPages, pdfTextFromIndex: a.pdfTextFromIndex,
+                                  pdfTextExtracted: a.pdfTextExtracted, bundlePDFRecords: a.bundlePDFRecords,
+                                  bundleMediaRecords: a.bundleMediaRecords, bundleFiles: a.bundleFiles,
+                                  bundleFilesImported: a.bundleFilesImported)
         warnings = r.warnings
+        lang = r.lang; markersBehindText = r.markersBehindText; paperColor = r.paperColor
         let d = r.dropped
         dropped = Dropped(typedTextCharacters: d.typedTextCharacters, pdfs: d.pdfs, pdfPages: d.pdfPages, media: d.media,
                           recordings: d.recordings, pdfHighlights: d.pdfHighlights, templatePDFs: d.templatePDFs,
@@ -63,7 +76,8 @@ struct ImportNoteJSON: Encodable {
                           unknownStyleStrokes: d.unknownStyleStrokes,
                           defaultedAttributeStrokes: d.defaultedAttributeStrokes,
                           unsupportedShapes: d.unsupportedShapes, unsupportedStrokes: d.unsupportedStrokes,
-                          clampedStrokes: d.clampedStrokes)
+                          clampedStrokes: d.clampedStrokes, bundleRecordsWithoutFile: d.bundleRecordsWithoutFile,
+                          bundleFilesUnreferenced: d.bundleFilesUnreferenced, pdfTextPages: d.pdfTextPages)
         switch r.status {
         case .ok: status = "imported"
         case .skipped(let why): status = "skipped"; reason = why
@@ -121,6 +135,8 @@ struct ImportNotability: ParsableCommand {
         "After importing, read the handwriting of pages Notability never indexed (macOS only).", valueName: "missing"))
     var recognize: RecognizeAfterImport?
 
+    @OptionGroup var pdfText: PDFTextOptions
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -137,7 +153,8 @@ struct ImportNotability: ParsableCommand {
         if recognize != nil && !dryRun && !RecognitionRun.available { throw RecognitionRun.unavailable }
         let options = NotabilityImporter.Options(overwrite: overwrite, notebook: notebook, scaleToLetterWidth: !noScale,
                                                  tagsFromFolders: !noFolderTags, extraTags: tags,
-                                                 attachments: !noAttachments, keepImageMetadata: keepImageMetadata)
+                                                 attachments: !noAttachments, keepImageMetadata: keepImageMetadata,
+                                                 pdfText: try pdfText.extractor())
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let report: NotabilityImporter.ImportReport
         var recognized: [RecognitionRun.NoteResult] = []
@@ -194,12 +211,17 @@ struct ImportNotability: ParsableCommand {
 
     private func emit(_ report: NotabilityImporter.ImportReport, recognized: [RecognitionRun.NoteResult]) throws {
         let written = report.notes.filter { $0.status == .ok }
+        let ntb = written.filter { $0.format == .ntb }
         if output.json {
             struct Summary: Encodable {
                 var dryRun: Bool, notes: Int, imported: Int, skipped: Int, failed: Int, strokes: Int
                 var ntb: Int, extraVersions: Int
                 var pdfPages: Int, images: Int, textItems: Int, recordings: Int, recLinkedStrokes: Int
                 var blobs: Int, blobBytes: Int64, droppedPDFPages: Int, droppedMedia: Int
+                /// Counts to compare with a backup (docs/import-notability.md "Report").
+                var pdfs: Int, ntbPDFPages: Int, ntbImages: Int, ntbDroppedPDFs: Int
+                var pdfTextPages: Int, pdfTextFromIndex: Int, pdfTextExtracted: Int, pdfPagesWithoutText: Int
+                var languages: [String: Int], markersBehindText: Int, paperColors: Int
             }
             struct Out: Encodable {
                 var summary: Summary; var notes: [ImportNoteJSON]; var recognized: [RecognitionRun.NoteResult]?
@@ -216,7 +238,18 @@ struct ImportNotability: ParsableCommand {
                                                      blobs: written.reduce(0) { $0 + $1.attachments.blobs },
                                                      blobBytes: written.reduce(0) { $0 + $1.attachments.blobBytes },
                                                      droppedPDFPages: written.reduce(0) { $0 + $1.dropped.pdfPages },
-                                                     droppedMedia: written.reduce(0) { $0 + $1.dropped.media }),
+                                                     droppedMedia: written.reduce(0) { $0 + $1.dropped.media },
+                                                     pdfs: written.reduce(0) { $0 + $1.attachments.pdfs },
+                                                     ntbPDFPages: ntb.reduce(0) { $0 + $1.attachments.pdfPages },
+                                                     ntbImages: ntb.reduce(0) { $0 + $1.attachments.images },
+                                                     ntbDroppedPDFs: ntb.reduce(0) { $0 + $1.dropped.pdfs },
+                                                     pdfTextPages: written.reduce(0) { $0 + $1.attachments.pdfTextPages },
+                                                     pdfTextFromIndex: written.reduce(0) { $0 + $1.attachments.pdfTextFromIndex },
+                                                     pdfTextExtracted: written.reduce(0) { $0 + $1.attachments.pdfTextExtracted },
+                                                     pdfPagesWithoutText: written.reduce(0) { $0 + $1.dropped.pdfTextPages },
+                                                     languages: written.reduce(into: [:]) { m, n in if let l = n.lang { m[l, default: 0] += 1 } },
+                                                     markersBehindText: written.filter(\.markersBehindText).count,
+                                                     paperColors: written.filter { $0.paperColor != nil }.count),
                                     notes: report.notes.map(ImportNoteJSON.init),
                                     recognized: recognize == nil ? nil : recognized))
             return
@@ -290,7 +323,9 @@ struct ImportPDFCommand: ParsableCommand {
             (effective size: crop box, rotation), paper is blank, later pages of another size are fitted and \
             centred. Everything is one delta. The title is --title (one file only) or the file name without \
             .pdf. Encrypted PDFs are refused, and so are more than 2000 pages; --pages imports a subset. \
-            Writing on the pages is the app's job: ink is stored as usual on top. Exit 1 if any file failed.
+            Each page's text is stored for search (--pdf-text: pdftotext when installed, else the built-in \
+            reader; format.md §8.2.6). Writing on the pages is the app's job: ink is stored as usual on top. \
+            Exit 1 if any file failed.
             """
     )
 
@@ -312,6 +347,7 @@ struct ImportPDFCommand: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Check the files and say what would be imported; write nothing.")
     var dryRun = false
 
+    @OptionGroup var pdfText: PDFTextOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
     @OptionGroup var cache: CacheOptions
@@ -330,10 +366,14 @@ struct ImportPDFCommand: ParsableCommand {
         var pages: Int?
         var blob: BlobRef?
         var file: String?
+        /// Pages stored with their text (`pageText`, format.md §8.2.6) and the extractor.
+        var pagesWithText: Int?
+        var textEngine: String?
     }
 
     func run() throws {
         let vault = try access.openVault(.required)
+        let extractor = try pdfText.extractor()
         let known = NoteOps.normalizedTags(tags).isEmpty
             ? [] : NoteOps.vaultTags(try vault.summaries(of: nil, cache: cache.cache(for: vault)))
         let spelled = tags.map { NoteOps.tagSpelling($0, among: known) }
@@ -346,8 +386,13 @@ struct ImportPDFCommand: ParsableCommand {
                     throw CLIError.failure("\(path) is larger than the 1 GiB limit")
                 }
                 let summary = try PDFIngest.inspect(data)
-                let selected = try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages
+                var selected = try pages.map { try summary.pages(numbered: try $0.resolve(total: summary.pages.count)) } ?? summary.pages
                 guard !selected.isEmpty else { throw CLIError.failure("no PDF pages selected") }
+                let texts = PDFIngest.withText(selected, pdf: data, extractor: extractor)
+                if texts.failed { printStderr("warning: \(extractor?.engine ?? "the extractor") could not read the text of \(path)") }
+                selected = texts.refs
+                r.pagesWithText = texts.withText
+                r.textEngine = extractor?.engine
                 let name = (title ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let ref = BlobRef(content: data, type: "application/pdf")

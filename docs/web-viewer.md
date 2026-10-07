@@ -320,8 +320,11 @@ are missing: download the vault first.
   time). Summaries are not cached between visits (the `format.md` §10 cache
   is per device and would need storage), and the decrypted notes are kept
   only for the notes opened most recently.
-- **Search** covers titles, tags, notebooks, recognised text and text boxes,
-  as in the app; words are not highlighted on the page yet.
+- **Search** covers titles, tags, notebooks, recognised text, text boxes and
+  PDF page text (`pageText`, format.md §8.2.6), as in the app; words are not
+  highlighted on the page yet. A note with `markersBehindText` (§5.4) draws
+  its marker strokes below its text boxes and images (§8.2.3), as the CLI's
+  exports do.
 - Integers in revisions are read up to ±2^53 (every value the format defines
   is below that); Swift accepts larger ones for a few informational fields and
   for origin indices.
