@@ -142,9 +142,15 @@ final class PDFTileLayer: CATiledLayer {
         if bounds.size != size { bounds = CGRect(origin: .zero, size: size) }
         position = CGPoint(x: (frame.x + frame.w / 2) * Double(zoom), y: (frame.y + frame.h / 2) * Double(zoom))
         setAffineTransform(CGAffineTransform(rotationAngle: CGFloat((item.rotation ?? 0) * .pi / 180)).scaledBy(x: zoom, y: zoom))
-        if contentsScale != screenScale { contentsScale = screenScale }
-        // Only what is drawn changes the tiles; a move or zoom only transforms them.
-        if previous.map({ $0.0 !== document || Self.drawsDifferently($0.1, item) }) ?? true { setNeedsDisplay() }
+        // A view not in a window yet may report a display scale of 0: tiles of no size.
+        let scale = screenScale > 0 ? screenScale : 1
+        let rescaled = contentsScale != scale
+        if rescaled { contentsScale = scale }
+        // Only what is drawn (or its pixel density) changes the tiles; a move or
+        // zoom only transforms them. A Mac does not redraw tiles for a new scale by itself.
+        if rescaled || (previous.map({ $0.0 !== document || Self.drawsDifferently($0.1, item) }) ?? true) {
+            setNeedsDisplay()
+        }
     }
 
     /// Whether the page drawn differs (not just where it is).
