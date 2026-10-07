@@ -99,7 +99,7 @@ goes first; after it, the rest run in parallel along the dependencies in
 | F | CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/SempereCLI` | A1, B2, C* | end-to-end CLI test |
 | G1 | *Future:* `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob); handwriting→LaTeX later, on device | `Apps/`, `Sources/` | C3, E2 | format §8.2.7 defined; exports embed the rendering |
 | G2 | *Future:* `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments") | `Apps/`, `Sources/` | E4 | format §8.2.7 defined |
-| L | *Future:* app UI localization with String Catalogs, Spanish first; contributions welcome | `Apps/` | — | Spanish catalog complete; contributor guide |
+| L | **In review (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
 
 ## Working agreements
 

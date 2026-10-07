@@ -170,7 +170,7 @@ final class NoteEditor {
         self.pageSize = state.meta.pageSize
         self.committedPageSize = state.meta.pageSize
         self.writer = writer
-        self.readOnlyReason = writer == nil ? (readOnlyReason ?? "This note is read-only.") : readOnlyReason
+        self.readOnlyReason = writer == nil ? (readOnlyReason ?? String(localized: "This note is read-only.")) : readOnlyReason
         self.debounce = debounce
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
@@ -308,9 +308,10 @@ final class NoteEditor {
 
     private static func readOnlyReason(_ loaded: Loaded) -> String? {
         if loaded.failures > 0 {
-            return "\(loaded.failures) revision(s) of this note could not be read, so it opens read-only."
+            let count = loaded.failures
+            return String(localized: "\(count) revisions of this note could not be read, so it opens read-only.")
         } else if loaded.state.deleted {
-            return "This note is in Recently Deleted."
+            return String(localized: "This note is in Recently Deleted.")
         }
         return nil
     }
@@ -368,7 +369,8 @@ final class NoteEditor {
     /// cached ink stays on screen, read-only, with the reason.
     private func failLoading(_ error: any Error) {
         guard isPreparing else { return }
-        readOnlyReason = "This note could not be read: \(error)"
+        let detail = "\(error)"
+        readOnlyReason = String(localized: "This note could not be read: \(detail)")
         loadFailed = true
         isPreparing = false
         onLoadFailed?("\(error)")
@@ -924,7 +926,8 @@ final class NoteEditor {
             writtenNames.append(name.filename)
         } catch {
             for (id, save) in saves { ledgers[id]?.saveFailed(save) }
-            saveError = "Could not save: \(error)"
+            let detail = "\(error)"
+            saveError = String(localized: "Could not save: \(detail)")
             return
         }
         pendingPageOps.removeFirst(pageOps.count)
@@ -995,7 +998,8 @@ extension NoteEditor {
                     r.basis = digest
                     result = r
                 } catch {
-                    recognitionError = "Could not read handwriting: \(error)"
+                    let detail = "\(error)"
+                    recognitionError = String(localized: "Could not read handwriting: \(detail)")
                     failed = true
                     continue
                 }
@@ -1016,7 +1020,8 @@ extension NoteEditor {
             // The drawing cache's key names every revision this editor wrote.
             writtenNames.append(try await write.value.filename)
         } catch {
-            recognitionError = "Could not save recognised text: \(error)"
+            let detail = "\(error)"
+            recognitionError = String(localized: "Could not save recognised text: \(detail)")
             return
         }
         for r in current {

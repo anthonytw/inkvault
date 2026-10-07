@@ -35,7 +35,7 @@ recordings with on-device transcripts, and the link between ink and audio
 
 Reserved for later, with names and blob machinery fixed now so that they need
 no format change (`format.md` §8.2.7): `math` items (LaTeX equations) and
-`video` items. Also later: localization of the app's interface (§14, task L).
+`video` items. Localization of the app's interface is task L (§14, `docs/localization.md`).
 
 Not in scope: typed-text *documents* (reflowing text with ink anchored to
 it), arbitrary file attachments, shapes, links, collaboration. The open item
@@ -1620,7 +1620,7 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
   or pick a clip, poster frame, `AVPlayer` playback, 1 GiB cap, "PDF +
   attachments" embeds the clip, SVG/PNG draw the poster.
 
-### L. Localization (future; contributions welcome)
+### L. Localization (contributions welcome; Spanish done in #92)
 
 Localize the app's interface with String Catalogs (`.xcstrings`): move every
 user-visible string into a catalog, add plural and device variants, check
@@ -1628,6 +1628,11 @@ layouts with the pseudo-languages (double length, right to left). **Spanish
 first**; other languages from contributors, with a short guide in
 `CONTRIBUTING` on adding one. The CLI's messages stay English. This is
 interface text only; note content was already full Unicode (§6).
+
+**Status:** the catalogs, the Spanish translation, the glossary and the
+checks are in `docs/localization.md` (rules, conventions, tooling). Data the
+app writes into a vault (default titles, the voice-note notebook) is not
+localized, so that devices with different languages agree.
 
 ### Dependencies
 
@@ -1706,7 +1711,7 @@ All decisions are final (maintainer review, 2026-10-05).
 7. **Changed:** full Unicode; system fonts in the app; font subsets embedded
    in exports; Noto in the CLI plus optional font packs with a clear
    missing-script report; consistent layout from fixed vertical metrics and
-   stored line breaks. Future: UI localization (Spanish first), reserved
+   stored line breaks. UI localization (Spanish first, task L), reserved
    `math` item.
 8. AAC-LC, mono, 48 kHz, 64 kbit/s by default; **changed:** configurable in
    Settings; reserved `video` item.

@@ -39,8 +39,7 @@ struct NoteCanvasView: View {
                 } else if let download = model.noteDownload, download.id == note.id {
                     VStack(spacing: 10) {
                         ProgressView(value: download.progress.fractionCompleted).frame(width: 240)
-                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of "
-                             + "\(download.progress.total) file\(download.progress.total == 1 ? "" : "s")")
+                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of \(download.progress.total)")
                             .font(.callout).monospacedDigit().foregroundStyle(.secondary)
                     }
                 } else if model.pendingNoteIDs.contains(note.id) {
@@ -349,7 +348,7 @@ struct EditorView: View {
     }
 
     private var pageCounter: some View {
-        Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+        Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
             .monospacedDigit()
     }
 
@@ -445,7 +444,7 @@ struct EditorView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
                         .disabled(editor.pageIndex == 0)
-                    Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+                    Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
                         .monospacedDigit()
                     Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
                         .disabled(editor.pageIndex + 1 >= editor.pages.count)
@@ -490,7 +489,8 @@ struct SearchMatchBar: View {
 
     /// "3 of 12 matches", "1 match".
     static func label(position: Int, count: Int) -> String {
-        count == 1 ? "1 match" : "\(position) of \(count) matches"
+        count == 1 ? String(localized: "1 match", comment: "Search highlights: the only match")
+            : String(localized: "\(position) of \(count) matches", comment: "Search highlights: current match of the count (never 1)")
     }
 
     var body: some View {
@@ -536,6 +536,6 @@ private struct Banner: View {
 enum NoteTitle {
     static func display(_ title: String) -> String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? "Untitled" : t
+        return t.isEmpty ? String(localized: "Untitled", comment: "Shown for a note without a title") : t
     }
 }

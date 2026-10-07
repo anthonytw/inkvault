@@ -9,6 +9,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- The app's interface in Spanish (task L). Every interface string lives in String Catalogs
+  (`Apps/Sempere/Localization/`), with plural forms, iPhone/iPad/Mac wording, the permission prompts, the
+  Siri phrases and the Lock Screen widget, Control Center control and Live Activity text. Notes, notebook
+  and tag names and the CLI's messages are not translated. Rules, the Spanish glossary and a guide to adding
+  a language: `docs/localization.md`, `CONTRIBUTING.md`. `scripts/app.sh pseudo` checks the layouts in the
+  double-length, right-to-left and Spanish languages; `LocalizationCatalogTests` keeps the catalogs
+  complete.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed

@@ -134,10 +134,10 @@ enum ObjectEraserSize {
     /// A short name for a preset, for the size menu.
     static func name(of radius: Double) -> String {
         switch radius {
-        case ..<6: return "Fine"
-        case ..<12: return "Small"
-        case ..<24: return "Medium"
-        default: return "Large"
+        case ..<6: return String(localized: "Fine", comment: "Object eraser size")
+        case ..<12: return String(localized: "Small", comment: "Object eraser size")
+        case ..<24: return String(localized: "Medium", comment: "Object eraser size")
+        default: return String(localized: "Large", comment: "Object eraser size")
         }
     }
 }
