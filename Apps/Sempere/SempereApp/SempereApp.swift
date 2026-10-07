@@ -18,7 +18,8 @@ struct SempereApp: App {
                                         drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
                                         blobCacheRoot: BlobCache.folder,
                                         renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
-                                        automaticThinning: true)
+                                        automaticThinning: true,
+                                        recipientsTrust: AppModel.defaultRecipientsTrust)
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 

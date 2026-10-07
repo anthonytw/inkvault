@@ -196,7 +196,7 @@ extension AppModel {
     ///
     /// `applied` is called once the change is on disk (the manifest names the
     /// new recipient set), before anything else can fail.
-    private func changeRecipients(_ change: @escaping @Sendable (inout Vault) throws -> Vault.RewrapReport,
+    func changeRecipients(_ change: @escaping @Sendable (inout Vault) throws -> Vault.RewrapReport,
                                   applied: () -> Void = {}) async throws {
         guard phase == .unlocked, let start = vault else { throw KeyError.notUnlocked }
         isChangingKeys = true

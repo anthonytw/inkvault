@@ -51,6 +51,8 @@ extension VaultError: CustomStringConvertible {
         case .unsupportedFeatures(let f):
             return "this vault uses format extensions this version does not implement (\(f.joined(separator: ", "))): "
                 + "it can be read but not changed; update Sempere"
+        case .untrustedRecipients(let p): return p.description
+        case .recipientsNotRepairable(let why): return why
         }
     }
 }
@@ -130,5 +132,30 @@ extension HistoryError: CustomStringConvertible {
         case .incompleteHistory(let n):
             return "the note as of \(n.filename) cannot be rebuilt: earlier revisions were compacted away or are unreadable"
         }
+    }
+}
+
+extension RecipientsProblem: CustomStringConvertible {
+    /// One line naming what changed and the keys that are not verified
+    /// (post-quantum keys abbreviated).
+    public var description: String {
+        let why: String
+        switch reason {
+        case .tagMismatch: why = "vault.json's device list was changed without the vault's key (its tag does not verify)"
+        case .tagRemoved: why = "vault.json's device list lost its authentication tag (downgrade)"
+        case .secretUnconfirmed: why = "the vault's secret changed in a way this device cannot confirm"
+        }
+        var parts = [why]
+        if !unexpected.isEmpty {
+            parts.append("unexpected recipient(s): " + unexpected.map(Self.abbreviate).joined(separator: ", "))
+        }
+        if !missing.isEmpty { parts.append("missing: " + missing.map(Self.abbreviate).joined(separator: ", ")) }
+        parts.append("nothing is encrypted to this list until it is repaired (sempere vault recipients repair)")
+        return parts.joined(separator: "; ")
+    }
+
+    /// `age1pq1abcdefgh…stuvwxyz` for long keys.
+    public static func abbreviate(_ key: String) -> String {
+        key.count > 80 ? "\(key.prefix(16))…\(key.suffix(8))" : key
     }
 }

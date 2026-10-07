@@ -359,6 +359,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   Interop tests need `age` ≥ 1.3 on PATH (the official release; Ubuntu ships
   1.1); CI sets `SEMPERE_REQUIRE_AGE_PQ` so they fail instead of skipping.
   See `docs/post-quantum.md`.
+- Authenticated recipients (`format.md` §2.1, `Sources/Sempere/RecipientsAuth.swift`):
+  `vault.json` carries `recipientsTag` (HMAC of vault id + keys under an HKDF
+  key of the secret) and, after a rotation, `secretLink`; `Vault.open(…, trust:)`
+  classifies the list (`recipientsStatus`) against the device's trust record
+  (CLI `$XDG_STATE_HOME/sempere/trust/`, app `AppModel.defaultTrustDirectory`,
+  tests `MemoryRecipientsTrustStore`). `requireWritable` refuses a tampered list
+  (`VaultError.untrustedRecipients`, CLI exit 6), tags an untagged vault and
+  saves the record: only writers keep records, reads never write. Anything
+  that encrypts to the recipients outside `requireWritable` (capture
+  profiles) calls `requireTrustedRecipients`. Never copy a `vault.json` from
+  elsewhere without `Vault.incomingManifestProblem`. The committed
+  `Fixtures/sample.sempere` is tagged; copies share its vault id, so an
+  untagged copy reads as a downgrade on a device that wrote to a tagged one.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are

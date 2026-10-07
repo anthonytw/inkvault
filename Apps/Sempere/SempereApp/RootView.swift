@@ -147,6 +147,24 @@ struct RootView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        // format.md §2.1: never write to a list nobody with the key wrote.
+        .alert(RecipientsAlert.title, isPresented: Binding(get: { model.recipientsAlert != nil },
+                                                           set: { if !$0 { model.dismissRecipientsAlert() } })) {
+            if model.recipientsAlert?.canRemove == true {
+                Button("Remove", role: .destructive) {
+                    Task { await model.report { try await model.repairRecipients() } }
+                }
+            }
+            Button("Cancel", role: .cancel) { model.dismissRecipientsAlert() }
+        } message: {
+            Text(model.recipientsAlert?.message ?? "")
+        }
+        .alert("Device List Protected", isPresented: Binding(get: { model.recipientsNotice != nil && model.recipientsAlert == nil },
+                                                             set: { if !$0 { model.recipientsNotice = nil } })) {
+            Button("OK", role: .cancel) { model.recipientsNotice = nil }
+        } message: {
+            Text(model.recipientsNotice ?? "")
+        }
         .task {
             // Reopen the last vault on launch; a failure leaves the welcome screen.
             guard !triedAutoOpen, model.phase == .noVault, let last = library.recents.first else { return }
