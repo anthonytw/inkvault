@@ -9,9 +9,13 @@ menu bar entries, one window, the same pointer behaviour.
 **Verification status.** The logic (command list, enabling, zoom steps,
 window editors, key changes, PDF export, selection restore, folder-access
 check) is covered by tests that run in the `app` CI job on the iPad simulator
-and, as plain Swift, on Linux. Nothing here has been run on a Mac yet: menus,
-drag to Finder, window restoration, the sandbox and pointer input need a
-hand test on a Mac (list at the end).
+and, as plain Swift, on Linux. Since TestFlight build 6 the app's tests also
+run **on Mac Catalyst** (ad-hoc signed and sandboxed like the shipped app):
+`scripts/app.sh test-mac` runs the app suites there and `scripts/app.sh
+test-mac-ui` runs `MacWindowUITests` (menus, note windows, the new-note sheet)
+against the synthetic demo vault. CI runs both on `main` and on a dispatch
+(`gh workflow run CI --ref <branch>`), not on pull requests. What still needs
+a hand test on a real Mac is listed at the end.
 
 ## Menus and shortcuts
 
@@ -25,7 +29,30 @@ from a text field) is used.
 
 Each window publishes a `CommandRouter` (its state for enabling, and what to
 do for a command) as a focused scene value; the menu bar acts on the focused
-window. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
+window.
+
+**UIKit's own items (fixed after build 6).** Before SwiftUI adds the app's
+commands, UIKit builds a default menu bar: File > New Window (⌘N), Open… (⌘O),
+Open Recent and the document commands (Duplicate, Move, Rename…, Export As…),
+and Edit > Find (⌘F, ⌘G, …). UIKit refuses a SwiftUI command group holding a
+shortcut it already has ("Replacement elements conflict" in the log), and with
+it the whole group: in build 6 the File and Edit menus had none of the app's
+commands, and ⌘N was UIKit's New Window, which opened a second library window.
+So the two commands whose shortcut UIKit takes, Open Vault… and Find Notes
+(`MenuCommand.nativeOnMac`), are not SwiftUI commands: `MacMenus`
+(`MacMenus.swift`, run by the app delegate's `buildMenu`) turns UIKit's ⌘O and
+⌘F items into them and drops UIKit's document and text-find commands and New
+Window. Those two items reach the focused window through the responder chain
+(`UIWindow.sempereMenuCommand`) and run its router, which each window also
+publishes to `MenuRouting` (`menuRouter(_:)`); they run only when the router
+enables them, but the menu shows them enabled. `MacMenuBarTests` checks the
+built menu bar on Catalyst (the app's File and Edit commands are there,
+UIKit's duplicates are not, no shortcut twice), and `MacWindowUITests` checks
+it in the running app.
+
+File > Export acts on the focused window's notes (`CommandRouter.exportIDs`:
+the list's selection in a library window, its note in a note window), and its
+sheet opens in that window (`ExportRequest.window`). With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
 
 | Menu | Command | Shortcut |
 | --- | --- | --- |
@@ -107,16 +134,23 @@ Recently Deleted (⌘⌫) is off while a search, rename or tag field may have fo
 Dragging a row of the note list to the Finder (or any app that takes files)
 gives a PDF named after the title (`ExportFileName.pdf`: no path separators,
 colons or control characters, at most 120 bytes, "Untitled" when empty). The
-PDF is rendered when the drop asks for it (`NSItemProvider.registerFileRepresentation`),
-after the open note's pending ink is saved and, in iCloud Drive, after the note
-is downloaded (`AppModel.exportPDF`), with `SempereRender.PDFWriter`, the same
-renderer as `sempere export`. A note with unreadable revisions is refused
-rather than exported with pages missing. The file is plaintext, written under
+item provider offers the PDF first, before the in-app note payload, with that
+name as its suggested name (`NoteFileDrag`).
+
+On a Mac the drop is a file promise, and the system may ask for the file while
+the main thread waits for it. In build 6 the request ran the whole export on
+the main actor, so the drop never got its file. Now the main-actor part (the
+open note's pending ink is saved and, in iCloud Drive, the note downloaded:
+`AppModel.prepareExport`) starts when the drag begins, and the request only
+waits for it, then renders and writes off the main actor
+(`PreparedExport.write`) with `SempereRender.PDFWriter`, the same renderer as
+`sempere export`. `MacDragOutTests` checks that the file arrives while the main
+thread is blocked. A note with unreadable revisions is refused rather than
+exported with pages missing; a drag prepared before the vault closed writes
+nothing (`ExportEpoch`). The file is plaintext, written under
 `$TMPDIR/SempereExport/<model id>/<random id>/<title>.pdf`; the folder is
 emptied when the vault closes and at launch, and files older than ten minutes
-are removed on the next export. Bulk
-export is the CLI's (`sempere export`); the share and export work in the app
-adds its own menu entries to `MenuCommand`.
+are removed on the next export. Bulk export is the CLI's (`sempere export`).
 
 ## Key window
 
