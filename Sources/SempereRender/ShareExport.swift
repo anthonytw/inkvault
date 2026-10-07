@@ -99,16 +99,18 @@ public enum ShareExport {
     ///   - blobs: each note's attachments (`Vault.blobSource(note:)`); without
     ///     it attachments are placeholders.
     ///   - pdfRasterizer: draws PDF page backgrounds for PNG (the app's PDFKit one).
+    ///   - shaper: lays out and shapes text boxes (the app's CoreText one);
+    ///     without it text boxes are placeholders.
     public static func run(_ notes: [(NoteSummary, NoteState)], options: ShareOptions, into scratch: URL,
                            vaultSource: String, blobs: (@Sendable (UUID) -> (any BlobSource)?)? = nil,
-                           pdfRasterizer: (any PDFPageRasterizer)? = nil,
+                           pdfRasterizer: (any PDFPageRasterizer)? = nil, shaper: (any TextShaper)? = nil,
                            progress: (Int, Int) -> Void = { _, _ in },
                            errorText: @escaping @Sendable (Error) -> String = { "\($0)" }) throws -> ShareResult {
         let needsDPI = options.format == .png || (options.format == .markdown && options.markdownImages == .png)
         if needsDPI && !options.isValid { throw ShareExportError.invalidResolution(options.dpi) }
         let fm = FileManager.default
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
-        let render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer)
+        let render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer, shaper: shaper)
         func renderOptions(for id: UUID) -> RenderOptions {
             var r = render
             r.blobs = blobs?(id)
