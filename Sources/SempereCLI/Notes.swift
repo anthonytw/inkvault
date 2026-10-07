@@ -7,7 +7,7 @@ struct NotesCommand: ParsableCommand {
         commandName: "notes",
         abstract: "List, find, create and edit notes, switch page layout, show their history and restore earlier revisions.",
         subcommands: [NotesList.self, NotesShow.self, NotesNew.self, NotesRename.self, NotesTag.self, NotesMove.self,
-                      NotesPaper.self, NotesLayout.self, NotesSearch.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
+                      NotesPaper.self, NotesLanguage.self, NotesMarkers.self, NotesLayout.self, NotesSearch.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
                       NotesRestore.self, NotesCheckpoint.self]
     )
 }
@@ -25,12 +25,16 @@ struct NoteJSON: Encodable {
     var recordings: Int
     var modified: Date?
     var problem: String?
+    /// The handwriting language (format.md §5.4), when set.
+    var lang: String?
+    var markersBehindText: Bool
 
     init(_ s: NoteSummary) {
         id = s.id.uuidString.lowercased(); title = s.title; tags = s.tags; notebook = s.notebook
         deleted = s.deleted; pages = s.pages; strokes = s.strokes
         recognizedPages = s.recognizedPages; items = s.items; recordings = s.recordings
         modified = s.modified; problem = s.problem
+        lang = s.lang; markersBehindText = s.markersBehindText
     }
 }
 

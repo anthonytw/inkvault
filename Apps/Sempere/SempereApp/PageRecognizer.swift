@@ -9,9 +9,10 @@ import Vision
 /// Reads the handwriting of one page. Implementations run off the main
 /// actor; tests substitute a fake.
 protocol PageRecognizing: Sendable {
-    /// The text of `strokes` (one page's live strokes). `basis` is left nil:
-    /// the caller sets it from the stroke ids it passed.
-    func recognize(strokes: [Stroke]) async throws -> Recognition
+    /// The text of `strokes` (one page's live strokes), read in `language`
+    /// (the note's `meta.lang`, format.md §5.4; nil: the recogniser's
+    /// default). `basis` is left nil: the caller sets it from the stroke ids it passed.
+    func recognize(strokes: [Stroke], language: String?) async throws -> Recognition
 }
 
 /// Why a page could not be read.
@@ -26,9 +27,16 @@ enum RecognitionFailure: Error, CustomStringConvertible {
 /// on-device only: Vision runs here and nothing leaves the device.
 enum RecognitionPreference {
     static let key = "Sempere.recognizeHandwriting"
+    /// On until the user turns it off (docs/attachments.md §15).
+    static let defaultValue = true
+
+    /// The stored choice, `defaultValue` when never set.
+    static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key) as? Bool ?? defaultValue
+    }
 
     static var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        get { isEnabled() }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
@@ -42,11 +50,11 @@ struct VisionPageRecognizer: PageRecognizing {
     /// `vision-<iPadOS major.minor>` (format.md §5.5 `engine`).
     static var engine: String { VisionText.engine }
 
-    func recognize(strokes: [Stroke]) async throws -> Recognition {
-        try await Task.detached(priority: .utility) { try Self.recognizeNow(strokes) }.value
+    func recognize(strokes: [Stroke], language: String?) async throws -> Recognition {
+        try await Task.detached(priority: .utility) { try Self.recognizeNow(strokes, language: language) }.value
     }
 
-    static func recognizeNow(_ strokes: [Stroke]) throws -> Recognition {
+    static func recognizeNow(_ strokes: [Stroke], language: String? = nil) throws -> Recognition {
         let empty = Recognition(engine: engine, text: "")
         let drawable = RecognitionImage.readableStrokes(strokes).map(StrokeConversion.pkStroke)
         let drawing = PKDrawing(strokes: drawable)
@@ -61,7 +69,8 @@ struct VisionPageRecognizer: PageRecognizing {
         guard let image = render(drawing, region: region, scale: CGFloat(plan.scale)) else {
             throw RecognitionFailure.cannotRender
         }
-        let lines = try VisionText.lines(VNImageRequestHandler(cgImage: image, options: [:]), region: plan.region)
+        let lines = try VisionText.lines(VNImageRequestHandler(cgImage: image, options: [:]), region: plan.region,
+                                         language: language)
         return RecognitionLayout.assemble(engine: engine, lines: lines, basis: nil)
     }
 

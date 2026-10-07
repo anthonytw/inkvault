@@ -74,7 +74,7 @@ enum MacMenus {
         }
     }
 
-    /// The File and Edit menus as lines "depth|kind|title|action|input" (debug log, tests).
+    /// The whole menu bar as lines "depth|kind|title|action|input" (debug log, tests).
     @MainActor
     static func tree(_ builder: UIMenuBuilder) -> [String] {
         func walk(_ element: UIMenuElement, _ depth: Int) -> [String] {
@@ -90,7 +90,7 @@ enum MacMenus {
             if let action = element as? UIAction { return ["\(depth)|action|\(action.title)"] }
             return ["\(depth)|\(type(of: element))"]
         }
-        return [UIMenu.Identifier.file, .edit].compactMap { builder.menu(for: $0) }.flatMap { walk($0, 0) }
+        return builder.menu(for: .root).map { walk($0, 0) } ?? []
     }
 
     /// What `prune` did since launch (tests and the debug log).
@@ -190,7 +190,7 @@ extension View {
 final class SempereAppDelegate: UIResponder, UIApplicationDelegate {
     /// Key commands of the menu bar as last built (tests).
     @MainActor static var lastShortcuts: [String] = []
-    /// The File and Edit menus as last built (tests).
+    /// The menu bar as last built (tests).
     @MainActor static var lastTree: [String] = []
     /// The menu tree is logged once per launch (DEBUG).
     @MainActor private static var dumped = false

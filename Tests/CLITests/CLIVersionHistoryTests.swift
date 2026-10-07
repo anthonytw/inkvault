@@ -56,7 +56,7 @@ final class CLIVersionHistoryTests: CLITestCase {
 
     /// One note with two old editing sessions and a checkpoint between them,
     /// written a year ago (wall times), on one device.
-    func writeOldSessions(_ vault: Vault) throws -> (note: UUID, keep: [String], all: [String]) {
+    func writeOldSessions(_ vault: Vault, baseMs: Int64 = 1_760_000_000_000) throws -> (note: UUID, keep: [String], all: [String]) {
         let note = UUID(uuidString: "cccccccc-3333-4333-8333-000000000003")!
         let device = DeviceID("0badcafe")!
         let page = UUID()
@@ -64,7 +64,7 @@ final class CLIVersionHistoryTests: CLITestCase {
         var names: [String] = []
         func write(_ minute: Int64, _ ops: [Op], session: String, checkpoint: Checkpoint? = nil) throws -> String {
             seq += 1
-            let ms = 1_760_000_000_000 + minute * 60_000
+            let ms = baseMs + minute * 60_000
             let r = Revision(noteId: note, device: device, seq: seq, hlc: HLC(millis: ms, counter: 0)!,
                              wall: Date(timeIntervalSince1970: Double(ms) / 1000), app: "cli-test/1",
                              body: .delta(ops: ops), session: session, checkpoint: checkpoint)
@@ -139,6 +139,40 @@ final class CLIVersionHistoryTests: CLITestCase {
         // Again: nothing to do.
         let again = try cli(["compact", id, "--thin-older-than", "30d", "--dry-run"] + args)
         XCTAssertTrue(again.out.contains("Would delete 0 file(s)") && !again.out.contains("would snapshot"), again.out)
+    }
+
+    /// `--thin-older-than` applies the window; `--thin-all` ignores it and keeps
+    /// checkpoints plus each session's newest save. Both say which rule they apply.
+    func testThinAllIgnoresTheWindowAndKeepsCheckpoints() throws {
+        let (vault, _, keyPath) = try makeVault()
+        let v = path("mine.sempere")
+        let args = ["--vault", v, "--identity", keyPath]
+        // Sessions from an hour ago: inside any window.
+        let base = Int64(Date().timeIntervalSince1970 * 1000) - 3_600_000
+        let (note, keep, all) = try writeOldSessions(vault, baseMs: base)
+        let id = note.uuidString.lowercased()
+        let windowed = try cli(["compact", id, "--thin-older-than", "30d", "--dry-run"] + args)
+        XCTAssertEqual(windowed.status, 0, windowed.err)
+        XCTAssertTrue(windowed.out.contains("Thin versions older than 30 days (dry run). Removes autosaves older than 30 days."),
+                      windowed.out)
+        XCTAssertTrue(windowed.out.contains("Would delete 0 file(s)"), windowed.out)
+        let dry = try cli(["compact", id, "--thin-all", "--dry-run"] + args)
+        XCTAssertTrue(dry.out.contains("Thin everything except checkpoints (dry run)."), dry.out)
+        XCTAssertTrue(dry.out.contains("Keeps every checkpoint"), dry.out)
+        let json = try cli(["compact", id, "--thin-all", "--dry-run", "--json"] + args)
+        let item = try XCTUnwrap((json.json as? [[String: Any]])?.first)
+        XCTAssertEqual(Set(try XCTUnwrap(item["files"] as? [String])), Set(all).subtracting(keep))
+        XCTAssertEqual(try revisionFiles(v, id), all.sorted())
+        let real = try cli(["compact", id, "--thin-all"] + args)
+        XCTAssertEqual(real.status, 0, real.err)
+        XCTAssertEqual(try revisionFiles(v, id).filter { $0.hasSuffix(".delta.age") }, keep.sorted())
+        let history = try cli(["notes", "history", id, "--json"] + args)
+        let points = try XCTUnwrap(history.json as? [[String: Any]])
+        XCTAssertTrue(points.allSatisfy { $0["complete"] as? Bool == true })
+        XCTAssertEqual(points.first { $0["checkpoint"] as? Bool == true }?["name"] as? String, "Week 1")
+        for bad in [["--thin-all", "--thin-older-than", "30d"], ["--thin-all", "--retention", "30"]] {
+            XCTAssertNotEqual(try cli(["compact", "--all"] + bad + args).status, 0, "\(bad)")
+        }
     }
 
     func testThinNeverAndBadArguments() throws {

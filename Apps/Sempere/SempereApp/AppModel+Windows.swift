@@ -64,6 +64,7 @@ extension AppModel {
             throw CancellationError()
         }
         opened.prepareBlobWrite = blobWritePreparer(note: noteID)
+        configureRecordings(opened)
         opened.onRecognized = { [weak self] id in
             guard let self else { return }
             Task { try? await self.refresh([id]) }   // search sees the new text
@@ -113,7 +114,9 @@ extension AppModel {
             if !notebooks.contains(where: { NotebookPath.canonical($0) == wanted }) { item = .allNotes }
         case .tag(let tag):
             if !tags.contains(where: { NoteOps.tagKey($0) == NoteOps.tagKey(tag) }) { item = .allNotes }
-        case .allNotes, .deleted, .recentlyRecognized:
+        case .recentlyRecognized:
+            if recentlyRecognizedNotes.isEmpty { item = .allNotes }
+        case .allNotes, .deleted:
             break
         }
         sidebarSelection = item
@@ -216,8 +219,10 @@ enum NotePDFExport {
         let loaded = try vault.loadNote(noteID)
         guard loaded.failures.isEmpty else { throw AppModel.ExportError.unreadableRevisions(loaded.failures.count) }
         let state = try NoteReducer.reconstruct(loaded.revisions)
-        // PDF page backgrounds are copied from the note's attachments (docs/attachments.md §10).
-        let options = RenderOptions(blobs: vault.blobSource(note: noteID), pdfRasterizer: PDFKitRasterizer())
+        // PDF page backgrounds are copied from the note's attachments (docs/attachments.md §10);
+        // text boxes are laid out as the canvas shows them.
+        let options = RenderOptions(blobs: vault.blobSource(note: noteID), pdfRasterizer: PDFKitRasterizer(),
+                                    shaper: CoreTextShaper())
         return Rendered(title: state.meta.title, pdf: try PDFWriter.render(note: state, options: options))
     }
 

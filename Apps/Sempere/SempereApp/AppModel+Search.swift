@@ -9,6 +9,19 @@ enum SearchScope: String, CaseIterable, Identifiable, Sendable {
     case list = "This List"
 
     var id: String { rawValue }
+
+    /// The scope bar's label: the list's is the sidebar row it searches
+    /// ("In “Math”", "In #todo"), so the bar says what the results cover.
+    func title(for selection: SidebarItem?) -> String {
+        guard self == .list else { return rawValue }
+        switch selection ?? .allNotes {
+        case .allNotes: return rawValue
+        case .notebook(let n): return "In “\(NotebookPath.components(n).last ?? n)”"
+        case .tag(let t): return "In #\(t)"
+        case .deleted: return "In Recently Deleted"
+        case .recentlyRecognized: return "In Recently Recognized"
+        }
+    }
 }
 
 /// A page to show once its note is open.
@@ -28,7 +41,8 @@ struct RecognitionProgress: Equatable, Sendable {
     var failed = 0
 }
 
-/// The notes a "Recognize All Notes" run changed, as it goes and after it ends.
+/// The notes a "Recognize All Notes" run changed, as it goes and after it
+/// ends (this session; "Recently Recognized" keeps them for 7 days, `RecentActivity`).
 struct RecognitionResults: Equatable, Sendable {
     /// In the order they were read.
     var notes: [RecognizedNote] = []
@@ -38,8 +52,6 @@ struct RecognitionResults: Equatable, Sendable {
     var finished = false
     /// The run was stopped before every note was read.
     var stopped = false
-    /// The user closed the "Recognized N notes" bar; the list stays in the sidebar.
-    var dismissed = false
 
     /// "Recognized 12 notes".
     var headline: String { "Recognized \(notes.count) note\(notes.count == 1 ? "" : "s")" }
@@ -98,6 +110,7 @@ extension AppModel {
 
     /// Opens the note of `hit` on the page that matched.
     func openSearchHit(_ hit: NoteSearchHit) {
+        recordSearch()
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingJump = hit.page.map { PageJump(note: hit.note, page: $0.pageId, query: query.isEmpty ? nil : query) }
         selectedNoteID = hit.note
@@ -167,6 +180,7 @@ extension AppModel {
             do {
                 if let done = try await recognizeNote(id, with: recognizer) {
                     recognitionResults?.notes.append(done)
+                    recordRecognized([done])   // "Recently Recognized", kept for 7 days
                 }
             } catch is CancellationError {
                 return
@@ -204,7 +218,7 @@ extension AppModel {
             let digest = RecognitionBasis.digest(of: page)
             var result: Recognition?
             if !page.strokes.isEmpty {
-                var r = try await recognizer.recognize(strokes: page.strokes)
+                var r = try await recognizer.recognize(strokes: page.strokes, language: state.meta.lang)
                 r.basis = digest
                 result = r
             }

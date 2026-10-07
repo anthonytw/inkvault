@@ -393,6 +393,11 @@ public struct Vault: Sendable {
         /// While any remain the journal is kept (`pendingRewrap` stays true)
         /// and `resumeRewrap()` retries them.
         public var failures: [String: RevisionReadError] = [:]
+        /// Inbox files (format.md §11) left as they are because they verify
+        /// under neither the current nor the outgoing capture key, or this
+        /// device cannot decrypt them: never adopted, so they do not keep
+        /// the journal.
+        public var inboxSkipped: [String] = []
 
         public init() {}
 
@@ -404,6 +409,7 @@ public struct Vault: Sendable {
             alreadyCurrent += o.alreadyCurrent
             blobMethod = o.blobMethod ?? blobMethod
             failures.merge(o.failures) { $1 }
+            inboxSkipped += o.inboxSkipped
         }
     }
 
@@ -660,6 +666,7 @@ public struct Vault: Sendable {
             }
             try rewrapBlobs(note: note, recipients: recips, method: blobs, report: &report, stopAfter: stopAfter)
         }
+        try rewrapInbox(recipients: recips, report: &report, stopAfter: stopAfter)
         return report
     }
 

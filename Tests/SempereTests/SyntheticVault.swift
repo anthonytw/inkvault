@@ -164,3 +164,31 @@ extension UUID {
         return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
     }
 }
+
+extension SyntheticVault {
+    /// A note as a mass re-import leaves it (`import notability --overwrite`):
+    /// the first import, then a second delta from the same device that removes
+    /// every page and adds the note again. Both carry the note's creation date
+    /// as `wall`, as the importer wrote them before imports became checkpoints
+    /// (`legacy`); otherwise both are checkpoints and the second has its own `wall`.
+    static func reimportedNote(index: Int, strokes: Int, points: Int, rng: inout SeededRNG, baseMillis: Int64,
+                               reimportMillis: Int64, legacy: Bool) -> [Revision] {
+        var first = importedNote(index: index, strokes: strokes, points: points, rng: &rng, baseMillis: baseMillis)
+        var again = importedNote(index: index, strokes: strokes, points: points, rng: &rng, baseMillis: baseMillis)
+        guard case .delta(let firstOps) = first.body, case .delta(let againOps) = again.body else { return [first] }
+        var ops: [Op] = []
+        for case .addPage(let p) in firstOps { ops.append(.removePage(pageId: p.id)) }
+        ops += againOps
+        again.noteId = first.noteId
+        again.device = first.device
+        again.seq = 2
+        again.hlc = HLC(millis: reimportMillis + Int64(index), counter: 0)!
+        again.body = .delta(ops: ops)
+        if !legacy {
+            first.checkpoint = Checkpoint(name: "Imported from Notability")
+            again.checkpoint = Checkpoint(name: "Imported from Notability")
+            again.wall = Date(timeIntervalSince1970: Double(reimportMillis) / 1000)
+        }
+        return [first, again]
+    }
+}

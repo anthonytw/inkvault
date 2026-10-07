@@ -16,11 +16,22 @@ public enum VisionText {
 
     /// Recognised lines of the image `handler` holds, with word boxes in page
     /// points. `region` is the page rectangle the image shows.
-    public static func lines(_ handler: VNImageRequestHandler, region: Recognition.Box) throws -> [RecognizedLine] {
+    ///
+    /// `language` is the note's `meta.lang` (format.md §5.4): Vision reads in
+    /// it when it supports it (`RecognitionLanguage.preferred`), else detects
+    /// the language itself.
+    public static func lines(_ handler: VNImageRequestHandler, region: Recognition.Box,
+                             language: String? = nil) throws -> [RecognizedLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
+        if let langs = RecognitionLanguage.preferred(for: language,
+                                                     supported: (try? request.supportedRecognitionLanguages()) ?? []) {
+            request.recognitionLanguages = langs
+            request.automaticallyDetectsLanguage = false
+        } else {
+            request.automaticallyDetectsLanguage = true
+        }
         try handler.perform([request])
         return (request.results ?? []).compactMap { observation -> RecognizedLine? in
             guard let candidate = observation.topCandidates(1).first else { return nil }
@@ -50,9 +61,9 @@ public enum VisionText {
     /// (pure Swift; the app draws with PencilKit instead). `basis` is left nil:
     /// the caller sets it from the stroke ids it read. Nil when no stroke is
     /// readable.
-    public static func recognize(strokes: [Stroke]) throws -> Recognition? {
+    public static func recognize(strokes: [Stroke], language: String? = nil) throws -> Recognition? {
         guard let (png, region) = try RecognitionImage.render(strokes: strokes) else { return nil }
-        let lines = try lines(VNImageRequestHandler(data: png, options: [:]), region: region)
+        let lines = try lines(VNImageRequestHandler(data: png, options: [:]), region: region, language: language)
         return RecognitionLayout.assemble(engine: engine, lines: lines, basis: nil)
     }
 

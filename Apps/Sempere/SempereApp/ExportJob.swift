@@ -21,6 +21,10 @@ final class ExportJob {
         var items: [URL]
         var failures: [String]
         var exported: Int
+        /// Recordings embedded ("PDF + attachments").
+        var recordingsAttached = 0
+        /// Recordings of the exported notes left out.
+        var recordingsOmitted = 0
     }
 
     private(set) var state = State.idle
@@ -64,7 +68,9 @@ final class ExportJob {
                 let result = try await model.exportNotes(ids, options: options, into: dir) { progress in
                     self?.advance(to: progress)
                 }
-                next = .finished(Outcome(items: result.items, failures: result.failures, exported: result.exported))
+                next = .finished(Outcome(items: result.items, failures: result.failures, exported: result.exported,
+                                         recordingsAttached: result.recordingsAttached,
+                                         recordingsOmitted: result.recordingsOmitted))
             } catch is CancellationError {
             } catch {
                 next = .failed("\(error)")

@@ -47,12 +47,18 @@ struct NotesNew: ParsableCommand {
             Writes one delta that creates the note: one blank page, the title, the notebook (a
             /-separated path), the paper and page size, and one addTag per tag, in the spelling the
             vault already uses for it (as `notes tag --add`). Prints the new note's id. Titles need not
-            be unique.
+            be unique. Without a title the note is named after the date and time, as the app names a
+            new note: --title-format takes a Unicode date pattern (e.g. "yyyy-MM-dd HH:mm", literal
+            text in single quotes); the default is the locale's medium date and short time.
             """
     )
 
-    @Argument(help: ArgumentHelp("The title (may be empty).", valueName: "title"))
-    var title: String
+    @Argument(help: ArgumentHelp("The title (may be empty; omitted: the date and time).", valueName: "title"))
+    var title: String?
+
+    @Option(name: .customLong("title-format"),
+            help: ArgumentHelp("Date pattern of the default title, when no title is given.", valueName: "pattern"))
+    var titleFormat: String?
 
     @Option(name: .long, help: ArgumentHelp("Put the note in this notebook (School/Math for levels).",
                                             valueName: "path"))
@@ -81,6 +87,7 @@ struct NotesNew: ParsableCommand {
         let paper = try paperOptions.applied(to: Paper.template(self.paper))
         let known = NoteOps.normalizedTags(tag).isEmpty
             ? [] : NoteOps.vaultTags(try vault.summaries(of: nil, cache: cache.cache(for: vault)))
+        let title = self.title ?? DefaultTitle.title(at: Date(), format: titleFormat)
         let ops = NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines), paper: paper,
                                   pageSize: pageSize.size, notebook: NotebookPath.canonical(notebook),
                                   tags: tag.map { NoteOps.tagSpelling($0, among: known) })
@@ -126,6 +133,88 @@ struct NotesRename: ParsableCommand {
         let id = try vault.resolveNote(note)
         let r = try editNote(vault, id) { NoteOps.rename(to: title, state: $0) }
         try reportEdit(vault, id, r, output: output, done: "Renamed", unchanged: "The note already has that title.")
+    }
+}
+
+struct NotesLanguage: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "language",
+        abstract: "Set the language a note is handwritten in (recognition reads it in that language).",
+        discussion: """
+            One setMeta lang delta (format.md §5.4): a BCP 47 tag such as en-US, es-ES or pt (en_US is \
+            read as en-US). `sempere recognize` and the app ask Vision for that language when it supports \
+            it, else detect the language themselves. --none clears it. Without a tag or --none, prints \
+            the note's language.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("A BCP 47 language tag.", valueName: "tag"))
+    var tag: String?
+
+    @Flag(name: .long, help: "Clear the language (recognisers use their default).")
+    var none = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        if none && tag != nil { throw ValidationError("give a tag or --none, not both") }
+        if let tag, NoteMeta.validLanguage(tag.trimmingCharacters(in: .whitespacesAndNewlines)) == nil {
+            throw ValidationError(EditError.invalidLanguage(tag).description)
+        }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        guard tag != nil || none else {
+            let s = try vault.summary(of: id)
+            if output.json {
+                struct Out: Encodable { var note: String; var lang: String? }
+                try output.emitJSON(Out(note: id.uuidString.lowercased(), lang: s.lang))
+            } else {
+                print(s.lang ?? "(none)")
+            }
+            return
+        }
+        let r = try editNote(vault, id) { try NoteOps.setLanguage(none ? nil : tag, state: $0) }
+        try reportEdit(vault, id, r, output: output, done: none ? "Language cleared" : "Language set",
+                       unchanged: "The note already has that language.")
+    }
+}
+
+struct NotesMarkers: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "markers",
+        abstract: "Draw a note's marker (highlighter) strokes behind or above its text boxes and images.",
+        discussion: """
+            One setMeta markersBehindText delta (format.md §5.4, §8.2.3). behind: markers are drawn \
+            below the page's content items (text boxes, images) and below other ink, as Notability draws a \
+            highlighter behind typed text; above: everything ink is above the items (the default). \
+            Imported Notability notes are behind.
+            """
+    )
+
+    enum Placement: String, ExpressibleByArgument, CaseIterable { case behind, above }
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("behind or above.", valueName: "placement"))
+    var placement: Placement
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let r = try editNote(vault, id) { NoteOps.setMarkersBehindText(placement == .behind, state: $0) }
+        try reportEdit(vault, id, r, output: output, done: "Markers drawn \(placement.rawValue) the items",
+                       unchanged: "The note's markers are already drawn that way.")
     }
 }
 

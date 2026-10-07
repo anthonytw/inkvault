@@ -214,7 +214,13 @@ export class NoteView {
         paper.append(s(e.tag, e.attrs));
       }
       for (const w of prepared.warnings) this.report(slot, undefined, w);
+      const under = prepared.underIndex();
+      const drawUnder = () => {
+        for (const c of prepared.strokeCommands(true)) { const e = elementSpec(c); items.append(s(e.tag, e.attrs)); }
+      };
+      let n = 0;
       for (const r of resolveItems(prepared, canvasMeasure)) {
+        if (n++ === under) drawUnder();
         if (r.fill) items.append(s(r.fill.tag, r.fill.attrs));
         const d = r.draw;
         switch (d.kind) {
@@ -233,7 +239,8 @@ export class NoteView {
           }
         }
       }
-      for (const c of prepared.allStrokeCommands()) {
+      if (under >= n) drawUnder();
+      for (const c of prepared.strokeCommands(false)) {
         const e = elementSpec(c);
         ink.append(s(e.tag, e.attrs));
       }

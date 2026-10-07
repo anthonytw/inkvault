@@ -9,8 +9,10 @@ import Foundation
 /// note opened later is not queued behind hundreds of others. The model keeps
 /// passing until nothing is pending (`AppModel.startCloudSync`).
 enum ProgressiveLoad {
-    /// How many pending notes have their downloads requested at once.
-    static let defaultWindow = 16
+    /// How many pending notes have their downloads requested at once. The
+    /// opened note is always requested first (`priority`, `downloadNote`), so
+    /// a wide window does not queue it behind the rest.
+    static let defaultWindow = 64
 
     struct Pass: Equatable, Sendable {
         /// Every note directory found, in listing order.

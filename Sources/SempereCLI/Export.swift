@@ -116,6 +116,10 @@ struct ExportCommand: ParsableCommand {
           help: "Keep images' EXIF/XMP/GPS metadata in the export (removed by default).")
     var keepImageMetadata = false
 
+    @Option(name: .long, help: ArgumentHelp("pdf only: none (default) or attach: embed each note's recordings, and their transcripts as .txt, as PDF file attachments.",
+                                            valueName: "none|attach"))
+    var recordings: RecordingsMode = .none
+
     @Option(name: .long, help: ArgumentHelp("svg only: write images into this directory and link them instead of embedding.",
                                             valueName: "dir"))
     var assets: String?
@@ -130,6 +134,7 @@ struct ExportCommand: ParsableCommand {
         let tree = format == .markdown || format == .html
         if images != .none && format != .markdown { throw ValidationError("--images only applies to --format markdown") }
         if assets != nil && format != .svg { throw ValidationError("--assets only applies to --format svg") }
+        if recordings == .attach && format != .pdf { throw ValidationError("--recordings attach only applies to --format pdf") }
         if clean && !tree { throw ValidationError("--clean only applies to --format markdown or html") }
         if clean && !all { throw ValidationError("--clean needs --all") }
         if notebook != nil && !all { throw ValidationError("--notebook needs --all") }
@@ -171,7 +176,15 @@ struct ExportCommand: ParsableCommand {
             if let i = groups.firstIndex(where: { $0.0 == key }) { groups[i].1 += 1 } else { groups.append((key, 1)) }
         }
         for (key, n) in groups { out.append(n == 1 ? key : "\(n) × \(key)") }
+        if format == .pdf && report.recordingsOmitted > 0 && report.recordingsAttached == 0 {
+            let n = report.recordingsOmitted
+            out.append("\(n) recording\(n == 1 ? "" : "s") not exported (--recordings attach embeds them)")
+        }
         return out + report.warnings
+    }
+
+    enum RecordingsMode: String, ExpressibleByArgument, CaseIterable {
+        case none, attach
     }
 
     private struct Written: Encodable {
@@ -180,6 +193,8 @@ struct ExportCommand: ParsableCommand {
         var changed: [String]? = nil
         /// Items drawn as placeholders (omitted when none).
         var placeholders: Int? = nil
+        /// Recordings embedded (`--recordings attach`; omitted when none).
+        var recordings: Int? = nil
     }
 
     func run() throws {
@@ -218,8 +233,9 @@ struct ExportCommand: ParsableCommand {
         if SempereFonts.directory == nil && !output.json {
             printStderr("sempere: warning: the bundled fonts were not found next to the program; text uses font packs only")
         }
-        let options = RenderOptions(paper: !noPaper, breaks: breaks, pdfRasterizer: try rasterizer(),
+        var options = RenderOptions(paper: !noPaper, breaks: breaks, pdfRasterizer: try rasterizer(),
                                     keepImageMetadata: keepImageMetadata, shaper: DefaultTextShaper(library: fonts))
+        options.embedRecordings = recordings == .attach
         var placeholders = 0
         func warn(_ report: RenderReport, note: String) {
             placeholders += report.placeholders.count
@@ -239,7 +255,8 @@ struct ExportCommand: ParsableCommand {
         func report(_ s: NoteSummary, _ files: [String], _ items: RenderReport) {
             warn(items, note: String(s.id.uuidString.lowercased().prefix(8)))
             written.append(Written(note: s.id.uuidString.lowercased(), files: files,
-                                   placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count))
+                                   placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count,
+                                   recordings: items.recordingsAttached > 0 ? items.recordingsAttached : nil))
             if !output.json { for f in files { output.info("Wrote \(f)") } }
         }
 
@@ -278,7 +295,8 @@ struct ExportCommand: ParsableCommand {
             try write(try PDFWriter.render(notes: states.map(\.1), blobs: states.map { vault.blobSource(note: $0.0.id) },
                                            options: options, report: &items), to: out)
             warn(items, note: "merged")
-            written.append(Written(note: "*", files: [out], placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count))
+            written.append(Written(note: "*", files: [out], placeholders: items.placeholders.isEmpty ? nil : items.placeholders.count,
+                                   recordings: items.recordingsAttached > 0 ? items.recordingsAttached : nil))
             output.info("Wrote \(out) (\(states.count) note(s))")
         } else {
             if !singleFile { try mkdir(out) } else { try mkdir(URL(fileURLWithPath: out).deletingLastPathComponent().path) }

@@ -16,7 +16,7 @@ struct RootView: View {
     @State private var pickAfterAlert = false
     @State private var triedAutoOpen = false
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(KeepScreenOn.key) private var keepScreenOn = false
+    @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @Environment(\.openWindow) private var openWindow
     @State private var ui = WindowUI()
@@ -101,6 +101,11 @@ struct RootView: View {
             // iCloud may have delivered files while the app was away; no
             // polling while it is in the background.
             if phase == .active, model.isCloudVault { model.startCloudSync() }
+            if phase == .active {
+                // Voice notes queued while the vault folder was out of reach, then adopted if it is unlocked.
+                model.quickCapture.flushStoredQueue()
+                if model.phase == .unlocked { model.startInboxAdoption() }
+            }
             if phase == .background { model.pauseCloudSync() }
             applyIdleTimer()
         }

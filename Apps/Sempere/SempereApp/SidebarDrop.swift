@@ -124,6 +124,13 @@ struct NotebookMoveRecord: Equatable, Sendable {
 
 /// The delegate of one sidebar row: validates and highlights while a drag is over it,
 /// and makes the move (one commit) when it is dropped.
+///
+/// A drag started in the app (every drag of these types: their providers are
+/// `.ownProcess`) is moved from the model's `draggedPayload`, never from the
+/// item provider: on iPadOS 26 the provider `onDrag` returns can be released
+/// before the drop (TestFlight build 6: releasing over a notebook did nothing).
+/// The model holds the provider too (`beginDrag`); decoding it is only the
+/// fallback for a drag the model does not know.
 @MainActor
 struct SidebarDropDelegate: DropDelegate {
     let model: AppModel
@@ -133,33 +140,39 @@ struct SidebarDropDelegate: DropDelegate {
 
     private static let types: [UTType] = [.sempereNotes, .sempereNotebook]
 
-    private var allowed: Bool {
-        // Without a known payload (a drag the model did not start) the drop itself decides.
-        model.draggedPayload.map { SidebarDrop.accepts($0, on: target, notes: model.notes) } ?? true
-    }
-
+    /// Only the app's own drags (their types; the providers are `.ownProcess`):
+    /// a left-over `draggedPayload` never answers a photo or text dragged in.
     func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: Self.types) }
 
-    func dropEntered(info: DropInfo) { model.dropTarget = allowed ? target : nil }
+    func dropEntered(info: DropInfo) {
+        model.setDropTarget(model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info)) ? target : nil)
+    }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        model.dropTarget = allowed ? target : nil
+        let allowed = model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info))
+        model.setDropTarget(allowed ? target : nil)
         return DropProposal(operation: allowed ? .move : .forbidden)
     }
 
     func dropExited(info: DropInfo) {
-        if model.dropTarget == target { model.dropTarget = nil }
+        if model.dropTarget == target { model.setDropTarget(nil) }
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        model.dropTarget = nil
+        model.setDropTarget(nil)
+        let model = model, target = target, undo = UndoBox(undoManager)
+        let ours = validateDrop(info: info)
+        if model.draggedPayload != nil || !ours {
+            guard let payload = model.takeDrop(on: target, carriesAppTypes: ours) else { return false }
+            Task { @MainActor in await model.move(payload, to: target, undoManager: undo.manager) }
+            return true
+        }
         for type in Self.types {
             guard let provider = info.itemProviders(for: [type]).first else { continue }
-            let model = model, target = target, undo = UndoBox(undoManager)
             provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
                 let payload = data.flatMap { DragPayload.decode($0, as: type) }
                 Task { @MainActor in
-                    model.draggedPayload = nil
+                    model.endDrag()
                     guard let payload else { return }
                     await model.move(payload, to: target, undoManager: undo.manager)
                 }

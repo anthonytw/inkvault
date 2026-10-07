@@ -40,10 +40,13 @@ working state.
 | Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | ✅ |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | ✅ #62 |
 | Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | ✅ #64 |
-| Render | Recordings in exports (C4) | 📋 |
+| Render | Recordings in exports (C4): embedded in PDFs with their transcripts ("PDF + attachments") | 🔀 #87 (the list page and `--format media` 📋) |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds and images (D1, D2) | ✅ #70 |
 | Import | Notability typed text, recordings and stroke links (D3, D4) | ✅ #73 |
+| Import | Notability remaining gaps: `.ntb` PDF and image files, PDF page text from Notability's index, handwriting language (`meta.lang`), highlighter behind text (`meta.markersBehindText`), paper colour | 🔀 #79 |
+| Vault | PDF page text (`pageText` on pdfPage items, `format.md` §8.2.6) searched with recognition and text boxes; note `lang` and `markersBehindText` registers (§5.4) | 🔀 #79 |
+| Render | `markersBehindText`: markers drawn below content items (§8.2.3) in PDF/SVG/PNG and the web viewer; pure-Swift PDF text extraction (`SemperePDF.PDFText`) | 🔀 #79 |
 | Sync | WebDAV | ✅ |
 | Sync | WebDAV for attachments (B3): streamed, resumable, GC-safe deletes | ✅ #67 |
 
@@ -59,8 +62,10 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | ✅ #52 | ✅ #52 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | ✅ #74 | ✅ #74 |
+| `compact --thin-all [--dry-run]` (thin everything except checkpoints), imports written as checkpoints, thinning from indexed revision metadata | ✅ #88 | ✅ #88 |
 | import notability: PDF backgrounds and images, `--no-attachments`, `--keep-image-metadata` (D1, D2) | ✅ #70 | ✅ #70 |
 | import notability: typed text and recordings (D3, D4) | ✅ #73 | ✅ #73 |
+| import notability: `.ntb` attachments, PDF text, language, highlighter flag, paper colour, new report counts; `--pdf-text` for `import notability\|pdf` and `attach pdf` (pdftotext or built in); `search` reports PDF hits (page, PDF page, item); `notes language`, `notes markers`; `recognize` reads in the note's language | 🔀 #79 | 🔀 #79 |
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | ✅ #72 | ✅ #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
@@ -69,6 +74,10 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items crop` (the app's Crop: the visible part stays in place) | 🔀 #81 | 🔀 #81 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
+| `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
+| `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | 🔀 #87 | 🔀 #87 |
+| `notes new` without a title: named after the date and time, `--title-format` (the app's default title) | 🔀 #84 | 🔀 #84 |
+| `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | 🔀 quick capture PR | 🔀 quick capture PR |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
 | sync webdav | ✅ | ✅ |
@@ -79,6 +88,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | ✅ #60 | ✅ #60 |
 | Attachments: `notes show` lists items and recordings, `notes list --json` counts them, `search` finds typed text (A1) | ✅ #66 | ✅ #66 |
 | Attachments: `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over text boxes and (`--transcripts`) transcripts, typed text in Markdown/HTML exports (F) | ✅ #69 | ✅ #69 |
+| Text boxes: `attach text` stores the `breaks` of its layout (`--no-breaks` to leave wrapping to renderers), `items move` lays a text box out again at a new width (E2) | 🔀 #82 | 🔀 #82 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | Math, video in exports | 💭 | 💭 |
 
@@ -91,6 +101,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Vaults | Fast opening: background listing with "Opening vault: n of m", list fills in as notes are read, encrypted summary cache for instant reopen, empty list always explained | ✅ #54 |
 | Vaults | Instant reopen from the local index; change-driven iCloud updates (names diff, file presenter), low-priority validation, throttled diff list updates; signposts + debug timing log | ✅ #56 |
 | Canvas | Fast note open: encrypted per-page drawing cache (LRU, 200 MB), off-main visible-first conversion, fast point decoding | ✅ #56 |
+| Canvas | Attachments cached across note opens and launches: decrypted blobs (re-verified), image pictures and PDF page previews (sealed), shown before the PDF is opened | 🔀 #84 (not yet tried on the iPad) |
 | Notes | Notebook tree, tags (with tag UI), rename, move, delete/restore, duplicate titles allowed | ✅ (title rename ✅ #24) |
 | Canvas | PencilKit drawing, tool palette (full / compact), scrolling past the end, Keep Screen On | ✅ |
 | Canvas | Object eraser by default, eraser sizes and cursor | ✅ #24 |
@@ -100,16 +111,24 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Canvas | Remote changes merged into an open note | 📋 round 2 |
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
 | Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | ✅ #72 |
-| Search | "Recognize All Notes" results: "Recognized N notes" bar and a "Recently Recognized" sidebar filter kept until the next run | ✅ #72 |
+| Search | "Recognize All Notes" results: a "Recently Recognized" sidebar section like Recently Deleted (notes read in the last 7 days, kept across launches, gone when empty); recent searches as the search field's suggestions, with Clear | ✅ #72, 🔀 #84 |
+| Search | A running search follows the sidebar: choosing a notebook or tag keeps the query and scopes it there (scope bar "In “Math”" / All Notes) | 🔀 #84 |
 | Notes | Notebook combo box (new note, move note); drag notes and notebooks onto the sidebar (move, nest, un-nest), "Move Notebook To…", one commit and one undo step per drop | ✅ #72 |
+| Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | 🔀 #84 (not yet tried on the iPad) |
+| Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | 🔀 #84 |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | ✅ #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | ✅ #74 (not yet tried on the iPad) |
-| App | Settings panel (E6) | 📋 (a minimal Settings sheet with the version-history setting exists, #74) |
+| Search | Recognition in the note's language (`meta.lang`); PDF page text searched; the app's PDF import stores each page's text from PDFKit | 🔀 #79 |
+| App | Performance round 3: mass-changed vault reconcile without quadratic iCloud checks ("Updating N changed notes"), thinning with progress, "Thin Versions Older Than N Days" and "Thin Everything Except Checkpoints" | 🔀 #88 (not yet tried on the iPad) |
+| App | Settings panel (E6): one screen (sidebar gear on iPad and iPhone, Settings… ⌘, on the Mac) with General, New Notes, Recording, Transcription, Photos, Version History, Device Keys and Storage; the recording, transcription, voice-notebook and title-format settings are stored now and read by their features when those land | 🔀 draft (not yet tried on the iPad) |
 | App | Spanish localization (L) | 📋 |
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | ✅ #68 |
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | 🔀 #81 (not yet tried on the iPad) |
-| Attachments | Text boxes, audio recording + playback, on-device transcription, unused-attachment index (E2, E4, E5, E7) | 📋 |
+| Attachments | Text boxes (E2): text tool (tap to add or edit), selection's Edit Text, style bar (bold, italic, underline, strikethrough, size, colour, font, alignment, direction), any script incl. right to left, Scribble; `breaks` from TextKit stored with every edit and resize; CoreText layout on the canvas and in the app's PDF/SVG/PNG (`CoreTextShaper`, glyph outlines embedded); same lines as `sempere export` (shared fixtures) | 🔀 #82 (not yet tried on the iPad) |
+| Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | 🔀 #87 (not yet tried on the iPad) |
+| Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | 🔀 quick capture PR (not yet tried on a device) |
+| Attachments | Unused-attachment index (E7) | 📋 |
 | Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Future | Video attachments (G2) | 💭 after E4 |
 | Release | TestFlight, then App Store | 📋 after the rename |
@@ -144,6 +163,7 @@ behaviour and testing on a real Mac.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
+| iPhone: "Don't see iCloud Drive?" help (iCloud Drive's per-device sync setting, Files' hidden locations; `docs/iphone.md`) | 🔀 #84 | The picker needs no entitlement; the cause is a device setting. |
 | iPhone app as a reader | ✅ #65 (`docs/iphone.md`) | Same SwiftUI target, device family 1,2. Compact stack (vault, notebooks and tags, list, note); read-first note view (pan, zoom, page bar, finger annotation behind a pencil button); search, export, history and Face ID unlock shared with the iPad; tests at iPhone sizes run on an iPhone simulator in the `app` job; 6.9" screenshots (`scripts/screenshots.sh iphone`). Not yet tried on a physical iPhone. |
 | Web viewer with in-browser decryption | ✅ #63; attachments ✅ #75 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Attachments (#75): images, text boxes (stored `breaks`), PDF pages (pinned pdf.js), placeholders, recordings with playback and transcripts; blobs fetched lazily and verified (hash and keyed name). Later: transcript search, passphrase-wrapped keys, a passkey. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
 | WebDAV mirror for the viewer | 📋 with the web viewer (#63 documents the Caddy + `sync webdav` setup; static hosts use `sempere vault index`) | A WebDAV share on the NAS, plus a macOS `launchd` agent running `sempere sync webdav` every few minutes from the iCloud vault. The CLI already does the sync; the setup lives in the sysadmin repo. Decided 2026-10-06: wait until the viewer exists. |

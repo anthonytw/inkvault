@@ -82,6 +82,7 @@ sheet opens in that window (`ExportRequest.window`). With no window, only View >
 | View | Hide or Show Note List | ⌥⌘L |
 | View | Library (opens a library window when none is open) | ⌥⌘0 |
 | View | Vault Keys (the key window) | ⌥⌘K |
+| View | Settings… (the settings window; at the end of the View menu, since Catalyst has no app-menu placement for it) | ⌘, |
 
 ⌘W closes a window as usual; it never closes the vault (⇧⌘W does). Zoom
 steps are 1, 1.25, 1.5, 2, 2.5, 3 and 4 times the fitted page width

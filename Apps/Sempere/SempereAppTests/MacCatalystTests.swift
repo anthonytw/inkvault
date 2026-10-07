@@ -283,14 +283,15 @@ struct MacMenuBarTests {
         #expect(ran == [.openVault], "a note window has no vault picker or note list")
     }
 
-    /// On a Mac, the File and Edit menus hold the app's commands, not UIKit's duplicates.
+    /// On a Mac, the menu bar holds every app command, and File and Edit no UIKit duplicates.
     @Test func theFileAndEditMenusAreTheApps() async throws {
         guard Platform.isMac else { return }
         UIMenuSystem.main.setNeedsRebuild()
         _ = await TS.waitUntil(timeout: .seconds(10)) { !SempereAppDelegate.lastTree.isEmpty }
         let tree = SempereAppDelegate.lastTree.joined(separator: "\n")
+        // Every app menu: a group refused for a taken shortcut would be missing as a whole.
         for title in ["New Note…", "Open Note in New Window", "New Vault…", "Open Vault…", "Close Vault", "Reload Vault",
-                      "Find Notes"] {
+                      "Find Notes", "Rename Note…", "Pen", "Zoom In", "Library", "Vault Keys", "Settings…"] {
             #expect(tree.contains("|\(title)"), "\(title) is in the menu bar:\n\(tree)")
         }
         for action in ["requestNewScene:", "|open:", "|find:", "duplicate:", "export:"] {

@@ -113,14 +113,27 @@ extension AppModel {
             }
         }
         try Task.checkCancellation()
+        if options.format == .pdf && options.pdfAttachments {
+            // "PDF + attachments": iCloud fetches audio only when it is used (docs/attachments.md §4).
+            // One that cannot be fetched is left out and reported by the export.
+            for (summary, state) in loaded {
+                for r in state.recordings {
+                    try? await ensureBlobLocal(r.blob, of: summary.id)
+                    if let t = r.transcript { try? await ensureBlobLocal(t, of: summary.id) }
+                }
+            }
+            try ensureCurrent(gen)
+        }
         let source = "sempere:\(vault.vaultId.uuidString.lowercased())"
         let total = ids.count
         let skipped = total - loaded.count
-        // PDF page backgrounds: the note's attachments and Core Graphics (docs/attachments.md §10).
+        // PDF page backgrounds: the note's attachments and Core Graphics (docs/attachments.md §10);
+        // text boxes laid out by CoreText exactly as the canvas shows them (`CoreTextShaper`).
         // An attachment that cannot be read is a placeholder in the export, never a failure.
         let render = Task.detached(priority: .userInitiated) { [loaded, vault] in
             try ShareExport.run(loaded, options: options, into: scratch, vaultSource: source,
                                 blobs: { vault.blobSource(note: $0) }, pdfRasterizer: PDFKitRasterizer(),
+                                shaper: CoreTextShaper(),
                                 progress: { done, _ in
                 let shown = done + skipped
                 Task { @MainActor in progress(ExportProgress(phase: .rendering, done: shown, total: total)) }

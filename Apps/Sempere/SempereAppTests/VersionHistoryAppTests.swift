@@ -169,6 +169,87 @@ struct VersionHistoryAppTests {
         #expect(again.notes.first { $0.id == Self.lecture } == nil, "nothing left to thin")
     }
 
+    /// "Thin versions older than 30 days" leaves today's autosaves; "Thin everything
+    /// except checkpoints" ignores the window and keeps checkpoints and session ends.
+    /// Both state their rule, count notes as they go and change no note's state.
+    @Test func thinEverythingExceptCheckpointsIgnoresTheWindow() async throws {
+        let model = try await HistoryTests.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        for y in stride(from: 300.0, through: 420, by: 40) { try await HistoryTests.draw(editor, y: y) }
+        let checkpoint = try await model.saveVersion(of: Self.lecture, name: "keep")
+        try await model.openEditor(for: nil)
+        let sessionEnd = try #require(try vault.revisionNames(of: Self.lecture).last { $0 < checkpoint && $0.kind == .delta })
+        let before = try vault.revisionNames(of: Self.lecture)
+        let current = try vault.reconstruct(noteId: Self.lecture)
+        let notes = try vault.noteIDs().count
+
+        let windowed = try await model.thinVault(rule: .olderThan(days: 30), dryRun: true)
+        #expect(windowed.rule == .olderThan(days: 30))
+        #expect(windowed.notes.first { $0.id == Self.lecture } == nil, "today's autosaves are inside the window")
+        #expect(windowed.checked == notes)
+        #expect(model.thinningProgress == nil)
+
+        let preview = try await model.thinVault(rule: .allButCheckpoints, dryRun: true)
+        #expect(preview.rule == .allButCheckpoints)
+        let lecture = try #require(preview.notes.first { $0.id == Self.lecture })
+        #expect(lecture.deletions > 0)
+        #expect(try vault.revisionNames(of: Self.lecture) == before)
+        #expect(ThinningRule.allButCheckpoints.title == "Thin everything except checkpoints")
+        #expect(ThinningRule.allButCheckpoints.explanation.contains("Keeps every checkpoint"))
+        #expect(ThinningRule.olderThan(days: 30).title == "Thin versions older than 30 days")
+
+        let done = try await model.thinVault(rule: .allButCheckpoints, dryRun: false)
+        #expect(done.notes.first { $0.id == Self.lecture }?.deletions == lecture.deletions)
+        let after = try vault.revisionNames(of: Self.lecture)
+        #expect(after.contains(checkpoint))
+        #expect(after.contains(sessionEnd))
+        #expect(try vault.reconstruct(noteId: Self.lecture).pages.map(\.strokes.count) == current.pages.map(\.strokes.count))
+        let points = try vault.restorePoints(noteId: Self.lecture)
+        #expect(points.first { $0.name == checkpoint }?.complete == true)
+        #expect(points.first { $0.name == sessionEnd }?.complete == true)
+        #expect(try await model.thinVault(rule: .allButCheckpoints, dryRun: true).notes.isEmpty, "nothing left")
+    }
+
+    /// Confirming a preview runs as of the preview's time (`ThinningReport.now`):
+    /// autosaves written after the preview are not in the range, even with the
+    /// zero cutoff of "Thin everything except checkpoints". Re-planning at the
+    /// confirmation's time would delete the older of two newer autosaves of the
+    /// same session, which the preview never listed.
+    @Test func confirmingAPreviewKeepsWhatWasWrittenSince() async throws {
+        let model = try await HistoryTests.unlockedModel()
+        let vault = try #require(model.vault)
+        model.selectedNoteID = Self.lecture
+        try await model.openEditor(for: Self.lecture)
+        let editor = try #require(model.editor)
+        // Three autosaves of one session: the first is the witness the fixture's other device needs
+        // (format.md §5.8.4 rule 3) and the last is the session's end, so the second is thinned.
+        for y in [220.0, 260, 300] { try await HistoryTests.draw(editor, y: y) }
+        let preview = try await model.thinVault(rule: .allButCheckpoints, dryRun: true)
+        #expect(preview.notes.first { $0.id == Self.lecture } != nil)
+        let at = try #require(preview.now)
+        try await Task.sleep(for: .milliseconds(50))
+        for y in [340.0, 380] { try await HistoryTests.draw(editor, y: y) }
+        let since = try vault.loadNote(Self.lecture).revisions.filter { $0.wall > at }.map(\.name)
+        #expect(since.count >= 2)
+        let current = try vault.reconstruct(noteId: Self.lecture)
+
+        let done = try await model.thinVault(rule: .allButCheckpoints, dryRun: false, now: at)
+        #expect(done.now == at)
+        #expect(done.notes.first { $0.id == Self.lecture } != nil)
+        let after = Set(try vault.revisionNames(of: Self.lecture))
+        for name in since { #expect(after.contains(name), "written after the preview: \(name.filename)") }
+        #expect(try vault.reconstruct(noteId: Self.lecture).pages.map(\.strokes.count) == current.pages.map(\.strokes.count))
+    }
+
+    @Test func thinningProgressHeadline() {
+        #expect(ThinningProgress(done: 120, total: 640, dryRun: true).headline == "Checking notes: 120 of 640")
+        #expect(ThinningProgress(done: 3, total: 12, dryRun: false).headline == "Thinning notes: 3 of 12")
+        #expect(ThinningProgress(done: 0, total: 0).fractionCompleted == 1)
+    }
+
     @Test func automaticThinningSkipsOpenNotesAndIsOffInTests() async throws {
         let model = try await HistoryTests.unlockedModel()
         #expect(!model.automaticThinning)

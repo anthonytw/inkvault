@@ -58,6 +58,31 @@ the iPad's recognition is searchable here), share/export sheets, the history bro
 restore, and key unlock. Status texts name "this device" where they meant the iPad. Remembered keys use the Keychain with Face ID exactly as on the iPad
 (`RememberedKeys`, "Remember on this iPhone"); the unlock screen is a sheet.
 
+## iCloud Drive in the folder picker
+
+TestFlight build 6: on the maintainer's iPhone the folder picker showed no iCloud Drive, though
+the iPad's did and iCloud was on. Findings (code and configuration, no device to try):
+
+- The picker is SwiftUI's `fileImporter` (`UIDocumentPickerViewController` in open mode) with the
+  content types `.sempere` and `.folder` (`UTType.vaultPickerTypes`; New Vault picks `.folder`).
+  Open mode lists every location Files shows; the types only filter items, never locations. It is
+  the same view at compact width.
+- Opening documents from iCloud Drive through the picker needs no entitlement: the iCloud container
+  entitlements (`com.apple.developer.icloud-container-identifiers`, ubiquity containers) are only for
+  an app's own container, which Sempere does not use (`docs/io.md` "iCloud Drive"). The iOS build has
+  no entitlements file; the Mac one has the sandbox's user-selected read-write.
+- `LSSupportsOpeningDocumentsInPlace` is YES (`SempereInfo.plist`), so picked items are opened in
+  place, not copied. `UIFileSharingEnabled` is not set: it would only show the app's own Documents
+  folder ("On My iPhone › Sempere") in Files, and has no effect on iCloud Drive.
+
+So the app cannot hide iCloud Drive; the device does: since iOS 18 iCloud Drive syncs per device
+(Settings › your name › iCloud › iCloud Drive › "Sync this iPhone", off on some devices even with
+iCloud on), and Files can hide a location (Browse › ⋯ › Edit). The welcome screen and New Vault show
+"Don't see iCloud Drive?" (`ICloudDriveHelp`, iPhone and iPad) with those steps. Detecting it in the
+app (`FileManager.ubiquityIdentityToken`) is not used: without an iCloud container entitlement its
+answer is not documented to reflect iCloud Drive. To confirm on the iPhone: Files › Browse must list
+iCloud Drive; if it does and the picker still does not, that is a new finding.
+
 ## Tests
 
 - `PhoneLayoutTests.swift` (app tests): `CompactNavigationTests`, `CompactBackTests` (a back swipe on

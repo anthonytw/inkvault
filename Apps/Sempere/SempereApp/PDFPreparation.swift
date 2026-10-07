@@ -119,7 +119,8 @@ enum PDFPreparation {
         }
     }
 
-    /// The pages of the PDF at `url`, read by `PDFIngest` (the CLI's reader).
+    /// The pages of the PDF at `url`, read by `PDFIngest` (the CLI's reader),
+    /// with their text from PDFKit (`PDFKitTextExtractor`).
     static func inspect(_ url: URL) throws -> [PDFPageRef] {
         // Mapped, not read: a work copy of up to 1 GiB, checked as a regular file above.
         let data: Data
@@ -127,7 +128,8 @@ enum PDFPreparation {
             throw Failure.unreadable("the file cannot be read")
         }
         do {
-            return try PDFIngest.inspect(data).pages
+            // Each page's text for search (format.md §8.2.6 `pageText`), read by PDFKit.
+            return PDFIngest.withText(try PDFIngest.inspect(data).pages, pdf: data, extractor: PDFKitTextExtractor()).refs
         } catch let error as PDFIngestError {
             switch error {
             case .unreadable: throw Failure.unreadable("\(error)")

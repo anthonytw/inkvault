@@ -172,7 +172,10 @@ struct StrokeLedger {
             for k in strokes.indices {
                 strokes[k].id = UUID()
                 strokes[k].origin = nil
-                strokes[k].parent = resolveParent(choose(parents, for: strokes[k], index: k))
+                let parent = choose(parents, for: strokes[k], index: k)
+                strokes[k].parent = resolveParent(parent)
+                // A piece of a sliced stroke keeps the stroke's link to the audio (format.md §8.3.3).
+                if let rec = parent?.rec { strokes[k].rec = rec }
             }
             change.added += strokes
             next.append(Entry(info: item.info, strokes: strokes))

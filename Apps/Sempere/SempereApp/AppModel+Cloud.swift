@@ -202,6 +202,7 @@ extension AppModel {
     /// reported changed plus those still downloading.
     func nextSyncScope(lastFullPass: ContinuousClock.Instant?) -> Set<UUID>? {
         defer {
+            reportedNoteIDs.formUnion(dirtyNoteIDs)
             dirtyNoteIDs = []
             dirtyAll = false
         }
@@ -263,6 +264,7 @@ extension AppModel {
     /// Stops the loop without forgetting what it found (the app went to the
     /// background); `startCloudSync` resumes it.
     func pauseCloudSync() {
+        saveSummaryCacheIfDue(force: true)   // the app may not come back
         cloudSyncTask?.cancel()
         cloudSyncTask = nil
         validationTask?.cancel()

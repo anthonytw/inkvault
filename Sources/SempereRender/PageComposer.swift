@@ -39,6 +39,9 @@ struct PreparedPage {
         var maxY: Double
         /// Midpoint of the transformed control points' y range (format.md §5.4.3).
         var centreY: Double
+        /// Drawn below the content items: a marker on a note with
+        /// `markersBehindText` (format.md §8.2.3).
+        var behindItems = false
     }
 
     let meta: NoteMeta
@@ -105,7 +108,8 @@ struct PreparedPage {
             let commands = StrokeOutline.commands(for: stroke, tolerance: options.tolerance)
             outlinePoints += commands.reduce(0) { $0 + $1.pointCount }
             guard outlinePoints <= maxOutlinePoints else { throw RenderError.tooComplex }
-            list.append(PreparedStroke(commands: commands, minY: lo - pad, maxY: hi + pad, centreY: lo / 2 + hi / 2))
+            list.append(PreparedStroke(commands: commands, minY: lo - pad, maxY: hi + pad, centreY: lo / 2 + hi / 2,
+                                       behindItems: meta.markersBehindText && stroke.ink.tool == .marker))
             low = max(low, hi + pad)
         }
         strokes = list
@@ -256,25 +260,32 @@ struct PreparedPage {
     /// Strokes that miss the chunk are skipped, and within the rest only the
     /// subpaths that can touch the chunk are kept (long open polylines are cut
     /// to the runs that do).
-    func layers(for chunk: PageChunk) -> (paper: [DrawCommand], strokes: [DrawCommand]) {
+    ///
+    /// `under` holds the strokes drawn below the content items (markers on a
+    /// note with `markersBehindText`, format.md §8.2.3), `strokes` the rest;
+    /// writers draw paper, background items, `under`, content items, `strokes`
+    /// (`underIndex`).
+    func layers(for chunk: PageChunk) -> (paper: [DrawCommand], strokes: [DrawCommand], under: [DrawCommand]) {
         var paperCommands: [DrawCommand] = []
         if options.paper {
             paperCommands = PaperRenderer.commands(paper: drawnPaper, width: chunk.width, height: chunk.height,
                                                    yOffset: chunk.yOffset, yEnd: chunk.yEnd,
                                                    sheetHeight: PaperRenderer.sheetHeight(for: meta.pageSize))
         }
-        var out: [DrawCommand] = []
+        var out: [DrawCommand] = [], under: [DrawCommand] = []
         for s in strokes where !(s.maxY < chunk.yOffset || s.minY > chunk.contentEnd) {
             if chunk.startsAtGap && s.maxY <= chunk.yOffset { continue }
             if chunk.endsAtGap && s.minY >= chunk.contentEnd { continue }
             if chunk.belowPage && s.centreY < meta.pageSize.height { continue }
             for c in s.commands {
                 if let clipped = Self.clip(c, to: chunk.yOffset, chunk.contentEnd) {
-                    out.append(clipped.translated(dy: -chunk.yOffset))
+                    if s.behindItems { under.append(clipped.translated(dy: -chunk.yOffset)) } else {
+                        out.append(clipped.translated(dy: -chunk.yOffset))
+                    }
                 }
             }
         }
-        return (paperCommands, out)
+        return (paperCommands, out, under)
     }
 
     /// Paper for the whole page in one coordinate space (the SVG layout). The
@@ -303,6 +314,18 @@ struct PreparedPage {
 
     /// Geometry of every stroke in page coordinates (no chunking).
     func allStrokeCommands() -> [DrawCommand] { strokes.flatMap(\.commands) }
+
+    /// Geometry of the strokes drawn below (`behind`) or above the content
+    /// items, in page coordinates (format.md §8.2.3).
+    func strokeCommands(behind: Bool) -> [DrawCommand] {
+        strokes.filter { $0.behindItems == behind }.flatMap(\.commands)
+    }
+
+    /// Where in `items` (a drawing-order list) the strokes drawn below the
+    /// content items go: before the first item of a content layer (≥ 100).
+    static func underIndex(_ items: [PreparedItem]) -> Int {
+        items.firstIndex { !$0.item.layer.isBackground } ?? items.count
+    }
 
     private static func clip(_ c: DrawCommand, to top: Double, _ bottom: Double) -> DrawCommand? {
         guard case let .path(subs) = c.primitive else { return c }

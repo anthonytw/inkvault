@@ -86,6 +86,7 @@ struct RestorableSelection: Codable, Equatable, Sendable {
 
     var sidebarItem: SidebarItem {
         if sidebar == "deleted" { return .deleted }
+        if sidebar == "recognized" { return .recentlyRecognized }
         if sidebar.hasPrefix("notebook:") { return .notebook(String(sidebar.dropFirst("notebook:".count))) }
         if sidebar.hasPrefix("tag:") { return .tag(String(sidebar.dropFirst("tag:".count))) }
         return .allNotes
@@ -93,7 +94,8 @@ struct RestorableSelection: Codable, Equatable, Sendable {
 
     static func name(of item: SidebarItem?) -> String {
         switch item ?? .allNotes {
-        case .allNotes, .recentlyRecognized: return "all"   // the results do not outlive the session
+        case .allNotes: return "all"
+        case .recentlyRecognized: return "recognized"
         case .deleted: return "deleted"
         case .notebook(let path): return "notebook:" + path
         case .tag(let tag): return "tag:" + tag

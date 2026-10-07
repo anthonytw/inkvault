@@ -245,6 +245,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `merge` (an edit's own re-read, immediate), never by assigning `notes`
   wholesale. Tests that need "another device wrote a revision" use
   `TS.writeAsAnotherDevice` (an eviction alone changes nothing now).
+- Thinning (`format.md` §5.8.4) is decided from revision metadata first
+  (`RevisionMeta`, kept per entry in the `SummaryCache`; `CompactionPlanner.select` /
+  `mayDelete` take hollow revisions): never add a rule to `select` that needs ops or
+  states, or the metadata stage stops being exact. Imports are checkpoints (§5.8.1).
+  The app thins through `thinVault(rule:)` (`ThinningRule`: the window, or everything
+  except checkpoints), the CLI through `Vault.prepareCompactions`.
 - Drawing cache (`DrawingCache`, format.md §10.1): keyed by note id + revision
   file names; a note opened from it is `isPreparing` (read-only) until its
   revisions are read and every shown cached drawing passed
@@ -253,6 +259,23 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `drawing(for:)` (synchronous, tests). Bump `DrawingCache.schemaVersion` when
   `StrokeConversion` or the layout changes. Tests get no cache unless they pass
   `drawingCacheRoot`.
+- Attachment caches outlive note opens and launches (docs/io.md "Opening a note
+  fast"): `BlobCache` (plaintext verified blob files, keyed names, a file of an
+  earlier launch re-hashed before use; on a Mac, which has no data protection,
+  deleted at launch instead: `blobCacheAcrossLaunches`) and `RenderCache` (sealed image pictures
+  and PDF page previews, memory + disk). Both are per vault secret and go when
+  the vault closes (`dropAttachments`). Bump `RenderCache.schemaVersion` when
+  `ItemRaster`, `PDFItemDrawing` or the preview drawing changes. Tests get a
+  per-model blob folder and a memory-only render cache unless they pass
+  `blobCacheRoot` / `renderCacheRoot`.
+- Sidebar drops: a drag the app started is dropped from `AppModel.draggedPayload`
+  (`beginDrag` / `takeDrop`), never by loading the item provider, which iPadOS 26
+  releases as soon as `onDrag` returns (the model holds it anyway). `onDrag`
+  reports no end, so the payload of a cancelled drag lingers: only a drop that
+  carries the app's own types (`carriesAppTypes`) may use it, never a photo or
+  text dragged in from another app.
+- Per-vault device memory (`RecentActivity`, sealed, Application Support):
+  "Recently Recognized" (7 days) and recent searches; `activityNow` is the test clock.
 - Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log
   `Library/Logs/SemperePerf.log`), counts and 8-hex id prefixes only.
   `PerformanceReportTests` prints `PERF-REPORT` lines in the CI `app` log.
@@ -282,7 +305,9 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   Whatever a page canvas needs goes through `PageCanvasContent` and
   `Coordinator.apply` (both paths), never set on the one-page host alone (drops,
   item commands, highlights). Insertions fit into `visibleRect(ofPage:)` of the
-  page they land on (the stack's `PageStackLayout.visiblePart`).
+  page they land on (the stack's `PageStackLayout.visiblePart`). The stack gives
+  a page canvas the focus only when no canvas has it and no text box is being
+  typed in (`ensureFocus`, `PageCanvasHost.focus`): the text view keeps the keyboard.
 - Paged vs pageless is only `pageSize.infinite` (`format.md` §5.4.3). Page
   gestures (add, move, delete, undo, duplicate) and the layout switch are built
   by `NoteOps` (`Sources/Sempere/PageLayout.swift`), which also predicts the
@@ -442,6 +467,42 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `PageStackLayout.revealOffset`): embedded canvases never scroll. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
+- Note `lang` and `markersBehindText` (`format.md` §5.4) are optional meta
+  registers: a snapshot without their value or clock never set them
+  (`ClockKey.isOptional`), and writers omit them when unset. Recognisers pass
+  `meta.lang` to Vision (`RecognitionLanguage.preferred`, `VisionText.lines(language:)`).
+  `markersBehindText` draws markers after background items and before content
+  items (`PreparedPage.underIndex`; the canvas instead multiplies a copy of the
+  text boxes over the ink, `MarkerOrder`). PDF page text is the pdfPage
+  item's `pageText` register, kept in `extra` (`Item.pageText`): fill it with a
+  `PDFTextExtracting` (`BuiltinPDFTextExtractor`, the CLI's `pdftotext`,
+  the app's `PDFKitTextExtractor`) through `PDFIngest.withText`.
+- Recordings (tasks E4, E5, `docs/attachments.md` §14): pure logic (format, `RecordingTimeline`,
+  `RecordingSync`, `TranscriptBuilder`, `TranscriptionLanguage`) in `Sources/Sempere/RecordingSupport.swift`;
+  the Speech framework only in `Sources/SempereSpeech` (behind `#if canImport(Speech)`, shared by the app and
+  `sempere transcribe`), never server recognition. Strokes get `rec` when the ledger converts them
+  (`StrokeLedger.items(for:tool:stamp:)`, from `PKStrokePath.creationDate` through the session's timeline,
+  never wall-clock minus start). One `RecordingSession` app-wide (`RecordingSession.active`); its plaintext
+  segments stay in Application Support/Sempere/Recordings until the blob (and the transcript) is written,
+  and a session left by a crash is saved by `RecordingRecovery` when its note opens. Transcripts are written
+  by the model (`storeTranscript`: blob, then one delta through `commit`), not by the editor, so a job
+  survives the note closing. App tests use `FakeCapture` / `FakePlayback` / `FakeTranscriber` and a
+  serialized suite.
+- Quick capture (`format.md` §11, `docs/quick-capture.md`): voice notes are sealed WITHOUT the identity or the
+  vault secret, with a capture profile (public recipients + `CaptureKey`, HKDF of the secret, which can only
+  authenticate inbox files) into `inbox/<id>.capture.age`; adoption (`Vault.readCapture`, `CaptureAdoption`,
+  `AppModel+Inbox`, `sempere inbox import`) turns them into ordinary revisions and blobs. Never store the vault
+  secret or an identity outside Face ID for capture. Note/page/recording ids derive from the capture id
+  (concurrent adoption converges). Intents live in `Apps/Sempere/SempereShared/` (compiled by the app and the
+  `SempereWidgets` extension, iOS only, `platformFilter = ios`) and run in the app's process; the profile is a
+  Keychain item `AfterFirstUnlockThisDeviceOnly` (`KeychainCaptureProfileStore`, tests use
+  `MemoryCaptureProfileStore`). Plaintext audio lives only in `QuickCapture.root`
+  (`completeUntilFirstUserAuthentication`, `QuickCapture.protection`: Lock Screen notes are sealed from closed
+  files before any unlock, which `completeUnlessOpen` forbids) until sealed and transcribed; running out of
+  background time leaves it for `sweep()` rather than losing the note. A recipient change rewraps and re-tags
+  `inbox/` too (`Vault.rewrapInbox`; in iCloud `downloadEverything` fetches it first) and the app refreshes the
+  profile after it. A note "exists" for adoption once it has a revision (a folder holding only `att/` is still
+  new), and a waiting transcript writes nothing.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

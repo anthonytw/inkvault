@@ -60,6 +60,8 @@ public struct NotabilityNote: Hashable, Sendable {
         public var lineStyle2: String?
         /// `lineStyle` / root `paperLineStyle` (older integer code) or nil.
         public var lineStyle: Int?
+        /// The page colour (`Notability.NBPaperStyle`'s `paperColor`), when the note records one.
+        public var color: Color?
 
         public init(width: Double, pageHeight: Double, kind: PaperKind, spacing: Double?, identifier: String? = nil,
                     size: String? = nil, sizingBehavior: String? = nil, lineStyle2: String? = nil, lineStyle: Int? = nil) {
@@ -186,10 +188,51 @@ public struct NotabilityNote: Hashable, Sendable {
     /// Strokes whose geometry could not be decoded (`.ntb` stroke kinds other
     /// than Bézier ink); 0 for `.note` packages.
     public var unsupportedStrokes = 0
+    /// `NBNoteTakingSessionHandwritingLanguageKey` as stored (`en_US`, `es_ES`).
+    public var handwritingLanguage: String?
+    /// `NBNoteTakingSessionIsHighlighterBehindTextKey`.
+    public var highlighterBehindText: Bool?
+    /// `.ntb` only: PDFs and images the bundle's records name (top-level
+    /// `<sha256>.<ext>` files, docs/import-notability.md ".ntb attachments").
+    public var bundleAttachments: [BundleAttachment] = []
+    /// `.ntb` only: the 0-based page of each curve (`curves` order), from its record.
+    public var bundleCurvePages: [Int] = []
+    /// `.ntb` only: top-level files of the bundle that look like attachments
+    /// (`<64 hex>.<ext>`), by name, whether or not a record names them.
+    public var bundleFiles: [String] = []
     /// Where the note was read from: a `.note` package or a newer `.ntb` bundle.
     public var sourceFormat: SourceFormat = .note
     /// Last edit time recorded in an `.ntb` bundle (its newest record); nil for `.note` packages.
     public var bundleModified: Date?
+
+    /// A PDF or media record of an `.ntb` bundle, read without a schema
+    /// (`NotabilityBundle.attachment`).
+    public struct BundleAttachment: Hashable, Sendable {
+        public enum Kind: String, Hashable, Sendable { case pdf, image }
+        public var kind: Kind
+        /// Position among the bundle's PDF and media records.
+        public var index: Int
+        /// Names found in the record: `<sha256>.<ext>`, or a bare 64-hex hash.
+        public var fileNames: [String] = []
+        /// 0-based page (12-byte field 0, as on strokes), when present.
+        public var page: Int?
+        /// A 16-byte float struct `(x, y, w, h)`, when present.
+        public var rect: (Double, Double, Double, Double)? {
+            get { rectValues.map { ($0[0], $0[1], $0[2], $0[3]) } }
+            set { rectValues = newValue.map { [$0.0, $0.1, $0.2, $0.3] } }
+        }
+        var rectValues: [Double]?
+        /// 8-byte float structs `(field, x, y)` in field order.
+        public var pairs: [(Int, Double, Double)] {
+            get { pairValues.map { (Int($0[0]), $0[1], $0[2]) } }
+            set { pairValues = newValue.map { [Double($0.0), $0.1, $0.2] } }
+        }
+        var pairValues: [[Double]] = []
+        /// The record's inline fields as `index:size`, for the report (no content).
+        public var layout = ""
+
+        public init(kind: Kind, index: Int) { self.kind = kind; self.index = index }
+    }
 
     /// The container a note was read from.
     public enum SourceFormat: String, Hashable, Sendable {
@@ -337,6 +380,13 @@ extension NotabilityNote {
             MediaObject.read(session, try session.node($0), total: &walk)
         }
         note.recordingEntries = recordingEntries
+        note.handwritingLanguage = try session.field(root, "NBNoteTakingSessionHandwritingLanguageKey").string
+        switch try session.field(root, "NBNoteTakingSessionIsHighlighterBehindTextKey") {
+        case .bool(let b): note.highlighterBehindText = b
+        case .int(let i): note.highlighterBehindText = i != 0
+        default: break
+        }
+        note.paper.color = paperColor(session, root: root, total: &walk)
         note.typed = typedText(session, try session.field(richText, "attributedString"), total: &walk)
         if note.typed.string.isEmpty { note.typed.string = typed }
         if note.typedText.isEmpty { note.typedText = note.typed.string }
@@ -675,6 +725,35 @@ extension NotabilityNote {
         return Paper(width: w, pageHeight: pageHeight, kind: kind, spacing: spacing,
                      identifier: try a.field(attrs, "paperIdentifier").string, size: size,
                      sizingBehavior: sizing, lineStyle2: lineStyle2, lineStyle: lineStyle)
+    }
+
+    /// The page colour: a `paperColor` field (of a `Notability.NBPaperStyle`
+    /// object, or a key named `….paperColor`) anywhere under the paper layout
+    /// model or a root field whose name holds `paper`, read as any colour
+    /// Notability archives (`#RRGGBB[AA]`, `UIRed`…, `NSRGB`). Nil when there is none.
+    static func paperColor(_ a: KeyedArchive, root: KeyedArchive.Node, total: inout Int) -> Color? {
+        var roots: [KeyedArchive.Node] = []
+        if let layout = try? a.field(root, "NBNoteTakingSessionDocumentPaperLayoutModelKey"), !layout.isNull {
+            roots.append(layout)
+        }
+        for key in MediaObject.topLevelKeys(root) where key.lowercased().contains("paper")
+            && key != "NBNoteTakingSessionDocumentPaperLayoutModelKey" {
+            if let n = try? a.field(root, key), !n.isNull { roots.append(n) }
+        }
+        for n in roots {
+            let leaves = MediaObject.leaves(a, n, total: &total)
+            func isColorKey(_ k: String) -> Bool {
+                let l = k.lowercased()
+                return l == "papercolor" || l.hasSuffix(".papercolor")
+            }
+            guard let at = leaves.lazy.compactMap({ l in l.path.firstIndex(where: isColorKey).map { (l.path, $0) } }).first
+            else { continue }
+            let prefix = Array(at.0[...at.1])
+            let under = leaves.filter { $0.path.starts(with: prefix) }
+                .map { (path: Array($0.path.dropFirst(prefix.count - 1)), node: $0.node) }
+            if let c = color(under) { return c }
+        }
+        return nil
     }
 
     /// Page height / width ratios outside this range are not Notability

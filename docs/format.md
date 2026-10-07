@@ -18,6 +18,9 @@ Notes.sempere/
       <hlc>-<device>-<seq>.snapshot.age   append-only snapshot  (§5)
       att/
         <blobName>.<kind>.age             the note's attachment bytes: images, PDFs, audio, transcripts (§8.1)
+  inbox/
+    <captureId>.capture.age               a voice note sealed without the vault's key (§11), until adopted
+    <captureId>.transcript.age            its transcript, sealed the same way (§11)
 ```
 
 Everything under `notes/` (revisions and `att/` blobs alike) is written once
@@ -153,7 +156,10 @@ change can be finished by any device holding an identity of the new set:
    complete (below); otherwise rewrite it as described above, verifying its
    tag under the current secret or, failing that, under
    `previousVaultSecret`, and replace it atomically (temporary file in the
-   same directory, then rename; blobs: §8.1.5).
+   same directory, then rename; blobs: §8.1.5). Files waiting in `inbox/`
+   (§11) are rewritten the same way, re-tagged under the current secret's
+   capture key (§11.1); one that cannot be decrypted or verified is left as
+   it is, reported, and does not keep the journal.
 4. Delete `rewrap-journal.json` once every file is complete. If any file
    could not be read or verified, keep the journal (it is the only copy of
    the outgoing secret), report those files, and retry step 3 later.
@@ -411,7 +417,9 @@ notes may share a title, in one notebook or several.
     "created": "2026-10-04T16:20:00Z",
     "paper": { "kind": "ruled", "spacing": 24,
                "background": "#FFFFFFFF", "lineColor": "#D0D8E8FF" },
-    "pageSize": { "width": 612, "height": 792, "infinite": false }
+    "pageSize": { "width": 612, "height": 792, "infinite": false },
+    "lang": "en-US",
+    "markersBehindText": true
   },
   "pages": [ Page, ... ],
   "recordings": [ Recording, ... ]
@@ -444,14 +452,38 @@ notes may share a title, in one notebook or several.
   §5.4.3 calls this the note's *sheet height* and says how exporters
   paginate.
 - In a snapshot, `pages` are sorted by `(order, id)`.
+- `lang` (optional): the language the note is handwritten in, a BCP 47 tag
+  (`en-US`, `es-ES`, `es`). Writers store 1 to 8 subtags of 1 to 8 ASCII
+  letters or digits joined by `-`, the first subtag letters only, at most 64
+  characters (Notability's `en_US` is stored `en-US`). Recognisers (§5.5) read
+  the note's handwriting in this language; absent means the recogniser's
+  default (the device language, or English). `setMeta` with `null` clears it.
+  A `setMeta` value that is not such a tag is invalid (the revision is
+  rejected); a snapshot `lang` that is not one reads as absent.
+- `markersBehindText` (optional, boolean, absent means `false`): marker
+  strokes (`ink.tool` `marker`) are drawn below the page's content items
+  instead of above them (§8.2.3), as a highlighter behind typed text.
+  Notability notes carry it (`NBNoteTakingSessionIsHighlighterBehindTextKey`).
+  Writers omit it when false; a snapshot value that is not a boolean reads as
+  `false`.
+
+`lang` and `markersBehindText` were added after the first snapshots were
+written (*new: Notability import*). Readers that predate them reject a
+revision with a `setMeta` naming them (§7; pre-1.0) and ignore them in a
+snapshot. A snapshot that holds neither a value nor a clock for one of them
+never had it set, and does not compete with a `setMeta` it does not cover
+(as `recognitionClock`, §5.5); a snapshot writes their clocks only once they
+have been set.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`
-(legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`) to the stamp of the
+(legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`,
+`lang`, `markersBehindText`) to the stamp of the
 op that last set it, encoded `"<hlc>-<device>"`, e.g.
 `{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
 cover wins a register only if its own `(hlc, device)` is greater than that
 stamp; between snapshots, the greater recorded stamp wins. A register with
-no clock is treated as stamped by the snapshot's own `(hlc, device)`.
+no clock is treated as stamped by the snapshot's own `(hlc, device)`, except
+the two optional ones above.
 
 `State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...],
 "items": [uuid, ...], "recordings": [uuid, ...]}`.
@@ -855,7 +887,9 @@ a `setPageRecognition` the snapshot does not cover. `addPage` ignores any
 `recognition` in its page object (the page is added empty, §5.2).
 
 Readers that index text for search use `text`; `words` lets a viewer
-highlight hits on the page.
+highlight hits on the page. A recogniser reads a note whose `meta.lang` is
+set (§5.4) in that language (with its own fallback when it does not support
+it), and otherwise in its default language.
 
 **When recognition is stale.** A page's recognition is *current* when it has
 a `basis` equal to the digest of the page's live stroke ids; one with a
@@ -993,6 +1027,17 @@ so the version is the note exactly as the user saw it. A checkpoint may carry
 ops; the version is then the note as of the delta, ops included. `checkpoint`
 on a snapshot means nothing and is ignored.
 
+**Imports are checkpoints.** A writer that imports a note from another
+application (the reference importer: `sempere import notability`, including
+`--overwrite`) writes the import's delta as a checkpoint: it is a deliberate
+full write of the note, not an autosave. The reference importer names it
+`Imported from Notability on <UTC minute>` plus ` (modified in Notability
+<UTC minute>)` when the source records a modification date. Its `wall` is the
+import time, except for a note's first import, whose `wall` is the source's
+creation date because it sets `created` (§5.4); the import time is then only in
+the name. Imports written before this rule carry no `checkpoint` and are
+autosaves (§5.8.4 may thin an older one).
+
 A checkpoint is never deleted by compaction or thinning (§5.3, §5.8.4).
 Checkpoints are not merged: two devices saving versions at the same time
 make two checkpoints, each a restore point.
@@ -1063,6 +1108,17 @@ deletes nothing) and the note's revisions ordered by `(hlc, device, seq)`:
   first revision while another has an earlier `wall` (§5.3).
 - Everything else in the range may be deleted, deltas and snapshots alike,
   subject to the rules below. Revisions after the range are never deleted.
+
+A cutoff of zero ("thin everything except checkpoints") puts every revision
+whose `wall` is not in the future in the range: what stays is every
+checkpoint, each session's last point and the newest revision. Writers offer
+it as its own, explicitly labelled action, never as the default, and say in
+the preview which rule applies and what it keeps.
+
+Whether a note has anything to delete is decided from its revisions' names,
+`wall`, `checkpoint`, `session`, `asOf` and snapshot `included` only, never
+their ops or states; a thinner may keep that metadata per revision file
+(§10) and read in full only notes that have a candidate.
 
 A thinner must not delete anything until it has written the snapshots its
 deletions rely on, and must keep these rules, which make every subset of its
@@ -1469,7 +1525,7 @@ and never changed.
 | every kind | `frame`, `rotation`, `z` | `id`, `kind`, `layer`, `parent`, `rec` |
 | `text` | `text` | |
 | `image` | `crop` | `blob`, `pixelSize`, `orientation` |
-| `pdfPage` | `crop` | `blob`, `pageIndex`, `pageSize` |
+| `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
 - `setItem` with `field` naming an immutable field of any kind, or the
@@ -1508,7 +1564,14 @@ A page is drawn, bottom to top:
    through it;
 4. strokes, by `origin` (§5.5).
 
-Ink is drawn above every item, whatever its layer. Layers other than 0 and
+On a note with `markersBehindText` (§5.4), the marker strokes (`ink.tool`
+`marker`) leave step 4 and are drawn, by `origin`, between the items of
+background layers (below 100) and the first item of a layer of 100 or more;
+on a page without such items, before the other strokes. Everything else is
+unchanged: a highlighter then sits above a PDF page background but below
+text boxes and images, and below pen ink.
+
+Otherwise ink is drawn above every item, whatever its layer. Layers other than 0 and
 100 have no defined meaning yet; a later format change may give some of them
 one (for example a layer above the ink) without changing how existing items
 are stored. `image` and `pdfPage` items are clipped to their frame; text is
@@ -1554,7 +1617,11 @@ across export pages like a stroke.
 - `breaks`: optional, the writer's soft line breaks: strictly increasing
   offsets, in Unicode scalar values from the start of the item's text, at
   which a new line starts that is not after a `\n`. Writers that lay text out
-  should store it; renderers use it (§8.5.3).
+  should store it; renderers use it (§8.5.3). `breaks` belong to the frame
+  width they were computed for: a writer that changes a text box's width
+  (a resize) writes the text again in the same delta, with new `breaks` (or
+  none). An empty array is valid: the writer laid the text out and no
+  paragraph wraps.
 - `frame` width is the wrapping width. `frame` height is the height the
   writer laid the text out to; renderers never clip text to it (§8.5.3).
 
@@ -1614,6 +1681,22 @@ aspect ratio equal to the crop's; renderers scale the axes independently.
 - `crop`: `[x, y, w, h]` on the effective page; absent means all of it.
 - `layer` is `0` (background) for a page being annotated; `100` (content)
   places a page as a figure.
+
+- `pageText` (optional register, *new: Notability import*): the page's text,
+  for search: `{ "text": "…", "engine": "pdftotext-24.02", "truncated": true }`.
+  `text` is the page's text in reading order, NFC, lines separated by `\n`
+  (no other control characters but `\t`), at most 65 536 UTF-8 bytes;
+  `engine` names what extracted it (`notability-<version>` for Notability's
+  PDF index, `semperepdf-<n>`, `pdftotext-<version>`, `pdfkit-<OS version>`);
+  `truncated` (absent means false) says the writer cut the text at the limit.
+  It is derived from the blob and its page, describes the whole effective
+  page whatever the `crop`, and a writer may set it with `setItem` at any time
+  (`null` removes it), for example when a device that can extract text
+  better reads an item another device added. Readers that index text for
+  search take `text` (beside `recognition` and text boxes, §5.5, §8.2.4);
+  a value that is not such an object (or whose `text` is longer than the
+  limit) is ignored as if absent, never rejected. Older readers keep it as
+  an unknown field and register (§7). It is never drawn.
 
 The crop rectangle is drawn onto the frame (§8.5.1). The PDF's annotations
 (`/Annots`) are not drawn; a writer that wants them flattens them into the
@@ -1942,7 +2025,10 @@ again.
 nonce ‖ ciphertext ‖ 16-byte tag) under `key`, with associated data
 `SMPS` ‖ `0x01` ‖ the file name (UTF-8). The plaintext is `gzip(JSON)` of
 `{"schema": N, "notes": …}`: per note id, the sorted file names of the
-revisions the summary was made from and the summary. Its JSON shape is the
+revisions the summary was made from, the summary and, optionally, the metadata
+of each of those revisions that thinning needs (name, `wall`, `checkpoint`,
+`session`, `asOf`, snapshot `included`; §5.8.4), used only when it names
+exactly the entry's files. Its JSON shape is the
 implementation's own and changes with `schema`.
 
 **Validity.** Revision files are write-once and named by `(hlc, device,
@@ -1990,3 +2076,133 @@ Its contents are the implementation's own, change with its schema number, and
 are checked against the revisions read from the vault before they are drawn
 on. It is limited in size (least recently used entries go first) and deleted
 when the vault is closed on that device.
+
+It keeps three more, under the same derivation:
+
+- the **render cache** (purpose `render-cache`, magic `SMPI` ‖ `0x01`):
+  pictures of image items and previews of PDF page items as drawn on that
+  device, labelled by everything the pixels depend on (the item's drawing
+  fields, the blob reference, the scale), sealed as above; limited in size and
+  deleted when the vault is closed;
+- the **activity** file (purpose `activity`, magic `SMPA` ‖ `0x01`, one entry
+  named `activity`, not keyed by `entryName`): the notes "Recognize All" read in
+  the last seven days and the recent search queries, kept across launches;
+- the **blob cache** (purpose `blob-cache`): decrypted attachment content
+  (§8.1), which PDF and image readers need as plain files, so its entries are
+  **not** sealed: each file holds a blob's verified content, is named
+  `entryName("blob|<note id>|<sha256>|<size>")` plus a type extension, and is
+  protected only by the device's file protection. A file found there from an
+  earlier session is used only after its size and SHA-256 match the
+  reference again; the folder is deleted when the vault is closed. Audio and
+  transcripts are not kept: their files are deleted as soon as nothing plays
+  or reads them. Where the
+  system does not encrypt files at rest (Mac Catalyst has no data protection
+  class), files are never kept across launches: a launch deletes what an
+  earlier one left before using the folder.
+
+## 11. Capture inbox
+
+*New: quick capture.* A device may add voice notes to a vault without its
+identity and without the vault secret: it keeps the vault's public
+recipients and a **capture key**, and seals each voice note into `inbox/`.
+Any device that can read the vault later **adopts** it: it becomes a note,
+written as ordinary revisions and blobs (§5, §8). Files under `inbox/` are
+not revisions and are not write-once: they are deleted once adopted. Readers
+that do not implement this section ignore `inbox/` (§1); no `features` entry
+is needed, since nothing under `notes/` changes. Rationale and threat model:
+`docs/quick-capture.md`.
+
+### 11.1 Capture key
+
+```
+captureKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 capture key", L = 32)
+```
+
+It authenticates inbox files and nothing else. It cannot decrypt anything,
+tag a revision (§4), name a blob (§8.1.2) or derive a per-device cache key
+(§10), and HKDF does not reveal the secret. It changes whenever the secret
+rotates (a recipient is removed, §3.3), which revokes every capture key handed
+out before. Inbox files already there when the secret rotates are not lost:
+the recipient change re-tags each one that verifies under the outgoing
+capture key and re-encrypts it to the new recipients (§3.3.1 step 3), as it
+does when a recipient is added; a file sealed with a revoked key after that
+never verifies. A capturing device stores the key and the recipients list (a
+*capture profile*); how it stores them is up to the implementation.
+
+### 11.2 Inbox files
+
+`inbox/<captureId>.<kind>.age`, with `<captureId>` a lowercase UUID and
+`<kind>` `capture` or `transcript`. Other names are unknown files. Each file is
+an age v1 file encrypted to the vault's recipients, like a revision. Its
+plaintext is:
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| 0 | 4 | ASCII `SMPC` |
+| 4 | 1 | version `0x01` |
+| 5 | 32 | tag = HMAC-SHA256(key = captureKey, message = `"sempere/1" ‖ 0x00 ‖ "capture" ‖ 0x00 ‖ filename ‖ 0x00 ‖ rest`) |
+| 37 | rest | one line of UTF-8 JSON (no `0x0A` inside), `0x0A`, then the payload |
+
+`filename` is the file's base name, so a file renamed to another capture id or
+kind does not verify. A reader verifies the tag (under the current secret's
+capture key, or the previous secret's during an unfinished rewrap, §3.3.1)
+before it parses anything after it, and treats a file that fails as
+untrusted input (§9): reported, kept, never adopted. The whole plaintext is at
+most 256 MiB.
+
+- **`capture`**: the JSON is the capture manifest and the payload is the
+  audio, as recorded:
+
+  ```json
+  { "format": "sempere-capture/1", "id": "<captureId>", "device": "a1b2c3d4",
+    "vault": "<vaultId>", "created": "2026-10-07T14:33:05.120Z",
+    "started": "2026-10-07T14:32:41.000Z", "title": "Voice note 7 Oct 2026, 14:32",
+    "notebook": "Inbox",
+    "audio": { "sha256": "…", "size": 196608, "type": "audio/mp4" },
+    "duration": 24.1, "codec": "aac", "sampleRate": 48000, "channels": 1, "bitRate": 64000 }
+  ```
+
+  `id` must equal `<captureId>` and `vault` the vault's `vaultId`. `audio` is
+  a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
+  `device` is the capturing device's id (§5). `title`, `notebook` (absent:
+  `Inbox`) and the informational fields become the note's.
+- **`transcript`**: the JSON is a transcript (§8.3.2) whose `recording` is the
+  capture's recording id (§11.3); the payload is empty.
+
+Recovery without the app (the audio of a capture):
+
+```
+age -d -i key.txt inbox/ID.capture.age | tail -c +38 | head -n 1 | jq .   # the manifest
+age -d -i key.txt inbox/ID.capture.age | tail -c +38 | tail -n +2 > note.m4a
+```
+
+### 11.3 Adoption
+
+The note, its page and its recording have ids derived from the capture id,
+`derived(name)` being the first 16 bytes of SHA-256 of the UTF-8 `name` with
+the UUID version set to 8 and the variant to `10` (RFC 9562):
+
+```
+note      = derived("sempere-capture/1 <captureId> note")
+page      = derived("sempere-capture/1 <captureId> page")
+recording = derived("sempere-capture/1 <captureId> recording")
+```
+
+so devices that adopt the same capture concurrently write the same note, and
+an adoption interrupted before the inbox file was deleted adds nothing when
+repeated. To adopt, a reader verifies the files (§11.2), writes the audio
+(and transcript) as blobs of the note (§8.1.4), then writes one delta as
+itself (its own device id and clock):
+
+- a note that does not exist yet gets `newNote` (title, notebook, one page
+  with the derived page id, the reader's default paper and page size) and
+  `addRecording` (the derived recording id, the blob, `started` and the
+  informational fields), with `transcript` set when a transcript file is
+  there;
+- a note that exists gets only `setRecording(transcript)`, and only when the
+  recording is there without a transcript.
+
+Afterwards the capture file is deleted once the note exists, and the
+transcript file once the recording has a transcript (or is gone). A
+transcript file whose capture has not arrived yet stays.
+

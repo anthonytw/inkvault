@@ -60,9 +60,11 @@ extension NoteEditor {
 
     /// What the canvas draws on page `id`: the matching boxes, the current one flagged.
     func highlightBoxes(onPage id: UUID) -> [HighlightBox] {
+        // Strokes written at the moment a recording is playing (NoteEditor+Recordings).
+        let playback = playbackBoxes(onPage: id)
         // A page edited since the cursor was made has stale boxes: none until the next step rebuilds the list.
-        guard let cursor = searchCursor, !dirtyPages.contains(id) else { return [] }
-        return cursor.matches(onPage: id).map { HighlightBox(box: $0.match.box, isCurrent: $0.index == cursor.index) }
+        guard let cursor = searchCursor, !dirtyPages.contains(id) else { return playback }
+        return cursor.matches(onPage: id).map { HighlightBox(box: $0.match.box, isCurrent: $0.index == cursor.index) } + playback
     }
 
     private func revealCurrentMatch() {
@@ -72,8 +74,16 @@ extension NoteEditor {
     }
 }
 
-/// One highlighted word: its box in page points.
+/// One highlighted word (or, during playback, a stroke): its box in page points.
 struct HighlightBox: Equatable, Sendable {
+    enum Style: Equatable, Sendable {
+        /// A word the search found.
+        case search
+        /// Ink written at the moment the recording is playing.
+        case playback
+    }
+
     var box: Recognition.Box
     var isCurrent: Bool
+    var style: Style = .search
 }

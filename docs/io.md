@@ -116,8 +116,13 @@ below): it lists the note folders by name, and only notes whose revision
 names differ from those their shown summary was made from are checked with
 iCloud (`ProgressiveLoad.pass(notes:)`, one state query per file), sorted
 into *ready* (all files local: read at once) and *pending* (some file not
-local), and pending ones requested at most 16 notes at a time, the note the
-user selected first. A note whose files iCloud evicted but whose names are
+local), and pending ones requested at most 64 notes at a time, the note the
+user selected first. A note first seen changed (or reported by the file
+presenter) is checked at once; notes already known to be arriving are
+re-checked at most 64 per pass, in rotation (`cloudCheckLimit`,
+`nextPendingChecks`), so N notes arriving over many passes cost
+O(N + passes × 64) state queries, not O(N × passes) (performance round 3: a
+mass re-import changed every note of a 640-note vault at once). A note whose files iCloud evicted but whose names are
 unchanged is not pending: its row comes from the index and it is downloaded
 only when opened (`downloadNote`). While locked, a device that already has an
 index of the vault fetches nothing (the index will show which notes changed);
@@ -144,13 +149,17 @@ Listing (any vault, `AppModel+Loading`): unlocking only checks the key; the
 note list is then read by a task the model owns (`startLoadingNotes`), so the
 unlock sheet closes at once and no view going away can cancel the listing.
 Summaries are read without stroke geometry, on up to four threads, in
-batches of 24 that are queued for the list as they finish (applied at most
-four times a second, `queueListUpdate`); the bar under the list shows
-"Opening vault: n of m notes" (or "Updating notes" when the list already
-shows every note) next to the iCloud progress. On a reopen the indexed
+batches of 24 (an eighth of the notes, at most 96, when many changed) that are
+queued for the list as they finish (applied at most four times a second,
+`queueListUpdate`); the bar under the list shows "Opening vault: n of m notes"
+(or "Updating 640 changed notes: n done" when the list already shows every
+note) next to the iCloud progress. On a reopen the indexed
 summaries are shown before anything is read, and only notes whose revision
 file names changed are read at all. Listings never overlap (`loadGate`), and
-the cache file is written once per listing, not per batch. The list is usable
+the cache file is written once per listing, not per batch, and while notes
+keep arriving from iCloud at most every 20 s (`summaryCacheSaveInterval`;
+also when they have all arrived, when the app goes to the background and when
+the vault closes): every save re-encrypts the whole index. The list is usable
 while it loads, so edits never decide from a summary not read in this session
 (`verifiedNoteIDs`: one shown from an earlier launch's cache is re-read
 first), a notebook rename waits until every note was read, a batch read
@@ -256,6 +265,24 @@ SwiftUI `List`.
   `Sempere.drawingCacheMegabytes`), least recently used files first. Opening
   it deletes every other vault's folder (and this vault's under an older
   secret); closing the vault deletes its folder.
+- **Attachments** (TestFlight build 6: a PDF note reopened as slowly as it
+  first opened). Three caches keep them across note opens and launches, each
+  per vault secret and deleted when the vault closes:
+  - `BlobCache` (`Library/Caches/Sempere/Blobs`, 512 MB, `Sempere.blobCacheMegabytes`):
+    the decrypted, verified blob files PDFKit and ImageIO read. File names are
+    keyed (`format.md` §10.1); a file left by an earlier launch is hashed again
+    before use (`adopted`), never decrypted again. Not on a Mac: there files
+    are not encrypted at rest, so a launch deletes what an earlier one left
+    and a reopened PDF is decrypted again (its preview still shows at once).
+  - `RenderCache` (`Library/Caches/Sempere/Renders`, 256 MB,
+    `Sempere.renderCacheMegabytes`, plus 96 MB of decoded images in memory):
+    image items as drawn (`ItemRendering`), and one preview bitmap per PDF page
+    item at the unzoomed screen scale. A PDF page shows its preview at once,
+    before its blob is opened, and the tile layer draws the sharp page over
+    it. Files are sealed like the drawing cache's.
+  - The page's tiles themselves are Core Animation's and are not kept: they
+    are redrawn from the open PDF at whatever zoom the page is shown, which is
+    why the preview, not the tiles, is what persists.
 
 ## Performance timing (app)
 
@@ -264,8 +291,13 @@ Every phase above is an `os_signpost` interval (subsystem
 `vault.open`, `index.load`, `reconcile` (`.enumerate`, `.coordinate`,
 `.download`, `.read`, `.validate`), `list.update`, `note.open`,
 `note.download`, `note.read`, `note.reconstruct`, `note.cache`,
-`note.convert`, `note.firstRender`, `cache.write`, and `change.notified`
-events. Debug builds also log each finished interval to the console
+`note.convert`, `note.firstRender`, `cache.write`, `item.picture` (`hit` or
+`drawn`), `pdf.open` (`fetched`, `adopted` or `cached`), `pdf.preview`
+(`hit`, `drawn` or `missing`), and `change.notified` events. Comparing a first
+open with a reopen: open a PDF note, close the app, launch it again, open the
+note: `pdf.open … adopted` and `pdf.preview … hit` lines replace `fetched` and
+`drawn`. `AttachmentPersistenceTests` prints `PERF-REPORT pdf-reopen` lines
+in the CI `app` log. Debug builds also log each finished interval to the console
 (`SemperePerf <phase> <ms> ms <detail>`) and to `Library/Logs/SemperePerf.log`
 in the app container (the previous run's as `.1`):
 
