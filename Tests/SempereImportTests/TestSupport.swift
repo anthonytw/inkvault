@@ -274,7 +274,9 @@ enum SyntheticNote {
                         media: ((inout KeyedArchiveBuilder) -> [BValue])? = nil,
                         paperIdentifier: String = "Legacy:13",
                         attributed: ((inout KeyedArchiveBuilder) -> BValue)? = nil,
-                        eventTokens: [Int32]? = nil) -> Data {
+                        eventTokens: [Int32]? = nil,
+                        rootExtra: ((inout KeyedArchiveBuilder) -> [(String, BValue)])? = nil,
+                        attrsExtra: ((inout KeyedArchiveBuilder) -> [(String, BValue)])? = nil) -> Data {
         var a = KeyedArchiveBuilder()
         let nodes = cs.map { $0.fw.count }.reduce(0, +)
         let totalPoints = cs.map { $0.points.count }.reduce(0, +)
@@ -333,7 +335,7 @@ enum SyntheticNote {
             ("paperOrientation", a.string("portrait")),
             ("paperSizingBehavior", a.string("lockedWidth:716.8:iPad")),
             ("lineStyle2", a.string("Dots:false:true:0.25")),
-        ])
+        ] + (attrsExtra.map { $0(&a) } ?? []))
         let layout = a.object("Notability.NoteDocumentPaperLayoutModel", [("documentPaperAttributes", attrs)])
         let root = a.object("NoteTakingSession", [
             ("name", a.object("NSMutableData", [("NS.data", .data(Data("Synthetic note".utf8)))])),
@@ -344,7 +346,7 @@ enum SyntheticNote {
             ("NBNoteTakingSessionBundleVersionNumberKey", a.string("14.2.6")),
             ("NBNoteTakingSessionDocumentPaperLayoutModelKey", layout),
             ("richText", rich),
-        ])
+        ] + (rootExtra.map { $0(&a) } ?? []))
         return a.archive(top: [("$0", root)])
     }
 
