@@ -343,6 +343,8 @@ extension AccessOptions {
                 ids = [try identityFromKeyFiles(of: locked)]
             }
         }
-        return try Vault.open(at: url, identities: ids)
+        let vault = try Vault.open(at: url, identities: ids)
+        OpenedVaults.shared.recordUnlocked(vault)
+        return vault
     }
 }

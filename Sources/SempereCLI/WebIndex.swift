@@ -56,6 +56,13 @@ final class OpenedVaults: @unchecked Sendable {
     static let shared = OpenedVaults()
     private let lock = NSLock()
     private var urls: [URL] = []
+    /// The vaults this run unlocked, so their published summaries (format.md §12) can be refreshed too.
+    private var unlocked: [URL: Vault] = [:]
+
+    func recordUnlocked(_ vault: Vault) {
+        lock.lock(); defer { lock.unlock() }
+        unlocked[vault.url.standardizedFileURL] = vault
+    }
 
     func record(_ url: URL) {
         lock.lock(); defer { lock.unlock() }
@@ -68,7 +75,9 @@ final class OpenedVaults: @unchecked Sendable {
     func refreshWebIndexes() {
         lock.lock()
         let all = urls
+        let keys = unlocked
         urls = []
+        unlocked = [:]
         lock.unlock()
         for url in all {
             do {
@@ -76,6 +85,14 @@ final class OpenedVaults: @unchecked Sendable {
                 try vault.refreshWebIndex()
             } catch {
                 printStderr("warning: cannot update \(url.appendingPathComponent(WebIndex.fileName).path): "
+                    + CLIError.from(error).message)
+            }
+            // Only where it exists and the vault was unlocked (it needs the key); unchanged notes are reused.
+            guard let unlockedVault = keys[url] else { continue }
+            do {
+                try unlockedVault.refreshPublishedSummaries(cacheDirectory: SummaryCache.cliDirectory())
+            } catch {
+                printStderr("warning: cannot update \(url.appendingPathComponent(PublishedSummaries.fileName).path): "
                     + CLIError.from(error).message)
             }
         }

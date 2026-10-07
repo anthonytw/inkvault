@@ -28,6 +28,11 @@ struct SyncWebDAVCommand: ParsableCommand {
             is never taken from the command line: --password-env names the variable (default
             SEMPERE_WEBDAV_PASSWORD). The vault folder may be new or empty for a first pull.
 
+            With the vault unlocked, the server's sempere-summaries.sealed (format.md §12, the note list
+            the web viewer reads first) is rewritten for what the server holds after the sync, when its
+            entries changed; --summaries creates it on a server that has none. It is never copied between
+            the two sides.
+
             Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve.
             """
     )
@@ -53,12 +58,17 @@ struct SyncWebDAVCommand: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Only list what would be transferred or deleted.")
     var dryRun = false
 
+    @Flag(name: .long, help: "Create the server's sempere-summaries.sealed for the web viewer (needs the vault unlocked).")
+    var summaries = false
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func run() throws {
         guard let remote = URL(string: url) else { throw CLIError.usage("not a URL: \(url)") }
         var options = WebDAVSyncOptions(dryRun: dryRun)
+        options.publishSummaries = summaries
+        options.summaryCacheDirectory = SummaryCache.cliDirectory(environment: Env.vars)
         if let maxBlobMiB {
             guard (1...(1 << 20)).contains(maxBlobMiB) else { throw CLIError.usage("--max-blob-mib must be 1 to 1048576") }
             options.maxBlobBytes = maxBlobMiB << 20
@@ -82,6 +92,9 @@ struct SyncWebDAVCommand: ParsableCommand {
         OpenedVaults.shared.record(dir)   // a first pull creates the vault here
         let hasManifest = FileManager.default.fileExists(atPath: dir.appendingPathComponent("vault.json").path)
         let vault = hasManifest ? try access.openVault(.ifPossible) : nil
+        if summaries && vault?.canRead != true {
+            throw CLIError.usage("--summaries needs the vault unlocked (--identity or a stored key's passphrase)")
+        }
         options.deviceLabel = device ?? ProcessInfo.processInfo.hostName
         let sync = WebDAVSync(
             directory: dir, vault: vault, client: client,

@@ -18,6 +18,14 @@ public struct WebDAVSyncOptions: Sendable {
     /// encryption overhead.
     public var maxBlobBytes = WebDAVSyncOptions.defaultMaxBlobBytes
 
+    /// Create the server's `sempere-summaries.sealed` (format.md §12) when it
+    /// has none; an existing one is kept current either way (needs the vault
+    /// unlocked).
+    public var publishSummaries = false
+    /// Where notes are summarised for that file through the summary cache
+    /// (format.md §10); nil reads every changed note.
+    public var summaryCacheDirectory: URL?
+
     /// Blob downloads are made of `Range` requests of this size, so memory
     /// stays bounded by one of them however fast the server is.
     public var blobSegmentBytes = WebDAVClient.defaultSegmentBytes
@@ -67,7 +75,7 @@ public final class WebDAVSync {
     private var madeCollections = Set<[String]>()
     /// What the server holds after this run, per note (revision file names):
     /// the listing a server-side `sempere-index.json` must show.
-    private var remoteRevisions: [String: [String]] = [:]
+    var remoteRevisions: [String: [String]] = [:]
     /// True when the server holds a `rewrap-journal.json` (format.md §8.1.6 rule 2).
     var remoteJournal = false
 
@@ -131,6 +139,9 @@ public final class WebDAVSync {
             do { try refreshRemoteWebIndex() } catch {
                 report.errors.append(.init(path: WebIndex.fileName, message: Self.describe(error)))
             }
+        }
+        if !options.dryRun {
+            refreshRemoteSummaries(exists: remoteRoot[PublishedSummaries.fileName].map { !$0.isCollection } ?? false)
         }
         if !options.dryRun {
             do { try state.save(stateURL) } catch {

@@ -260,9 +260,19 @@ extension Vault {
     /// Needs the vault unlocked; a locked or legacy vault is left alone.
     ///
     /// - Returns: true when the file was rewritten.
+    /// The vault is opened again first (a command may have changed its
+    /// manifest); with `cacheDirectory`, notes are summarised through the
+    /// summary cache there (format.md §10).
     @discardableResult
-    public func refreshPublishedSummaries(cache: SummaryCache? = nil) throws -> Bool {
-        guard FileIO.exists(publishedSummariesURL), canRead, (try? requireMigrated()) != nil else { return false }
+    public func refreshPublishedSummaries(cacheDirectory: URL? = nil) throws -> Bool {
+        guard FileIO.exists(publishedSummariesURL), canRead,
+              let vault = try? Vault.open(at: url, identities: identities) else { return false }
+        return try vault.refreshOpenedPublishedSummaries(
+            cache: cacheDirectory.flatMap { try? SummaryCache(directory: $0, vault: vault) })
+    }
+
+    private func refreshOpenedPublishedSummaries(cache: SummaryCache?) throws -> Bool {
+        guard canRead, (try? requireMigrated()) != nil else { return false }
         let data = try? FileIO.read(publishedSummariesURL, maxBytes: PublishedSummaries.maxFileBytes)
         let current = data.flatMap { try? openPublishedSummaries($0) }
         let (entries, _) = try publishedSummaryEntries(reuse: current ?? [:], cache: cache)
