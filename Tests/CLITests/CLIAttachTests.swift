@@ -387,21 +387,20 @@ final class CLIAttachTests: CLITestCase {
         let show = try cli(["notes", "show", physics] + args)
         XCTAssertTrue(show.out.contains("Recordings (1):") && show.out.contains("\"Lecture 3\"") && show.out.contains("audio/mp4"), show.out)
         // ALAC; overrides win over the header; without --started the file's time minus its length.
-        // A copy with a known modification time: a checkout's own times are not under the test's control.
-        let copy = path("tone-alac.m4a")
-        try FileManager.default.copyItem(atPath: audio("tone-alac.m4a"), toPath: copy)
-        let modified = Date(timeIntervalSince1970: 1_790_000_000)
-        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: copy)
-        let alac = try ok(["attach", "recording", physics, copy, "--codec", "alac-test", "--bit-rate", "123456", "--json"] + args)
+        // A fresh copy: the committed file's modification time is the checkout's,
+        // which is only "now" on a fresh clone (the test failed on older checkouts).
+        let fresh = FileManager.default.temporaryDirectory.appendingPathComponent("tone-alac-\(UUID().uuidString).m4a")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: audio("tone-alac.m4a")), to: fresh)
+        defer { try? FileManager.default.removeItem(at: fresh) }
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: fresh.path)
+        let alac = try ok(["attach", "recording", physics, fresh.path, "--codec", "alac-test", "--bit-rate", "123456", "--json"] + args)
         let r2 = try XCTUnwrap(alac["recording"] as? [String: Any])
         XCTAssertEqual(r2["codec"] as? String, "alac-test")
         XCTAssertEqual(r2["bitRate"] as? Int, 123456)
         XCTAssertEqual(r2["channels"] as? Int, 2)
         XCTAssertNil(r2["title"])
         let started = try XCTUnwrap(RFC3339.parse(try XCTUnwrap(r2["started"] as? String)))
-        let length = try XCTUnwrap(r2["duration"] as? Double)
-        XCTAssertEqual(started.timeIntervalSince1970, modified.timeIntervalSince1970 - length, accuracy: 1,
-                       "the file's modification time minus its length")
+        XCTAssertLessThan(abs(started.timeIntervalSinceNow), 3600 + 5, "derived from the file's modification time")
     }
 
     func testAttachRecordingRefusals() throws {

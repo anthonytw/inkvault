@@ -88,16 +88,23 @@ enum AttachmentFixtures {
     /// A GIF signature (a format the vault does not store).
     static let gif = Data("GIF89a\u{1}\0\u{1}\0\0\0\0;".utf8)
 
-    /// An image media object shaped the way Notability is believed to store
-    /// one (the field names are unconfirmed): `documentContentOrigin` and
-    /// `unscaledContentSize` as `NSStringFromCGPoint`/`Size` strings, a
-    /// `contentScale`, and the file under `figure → FigureBackgroundObjectKey →
-    /// kImageObjectSnapshotKey → relativePath`.
+    /// An image media object shaped as real Notability notes store one
+    /// (confirmed on the maintainer's backup, values here synthetic):
+    /// `documentContentOrigin` and `unscaledContentSize` as
+    /// `NSStringFromCGPoint`/`Size` strings, and the file under `figure →
+    /// FigureBackgroundObjectKey → kImageObjectSnapshotKey → relativePath`. The
+    /// background object also carries a placeholder `rect` of `{{0, 0}, {0, 0}}`
+    /// and the figure a pixel `FigureCropRectKey`; `realLayout: false` leaves
+    /// both out (the older synthetic shape).
     static func imageObject(_ a: inout KeyedArchiveBuilder, file: String, origin: (Double, Double),
-                            size: (Double, Double), scale: Double = 1, extra: [(String, BValue)] = []) -> BValue {
+                            size: (Double, Double), scale: Double = 1, realLayout: Bool = true,
+                            cropPixels: (Double, Double)? = nil, extra: [(String, BValue)] = []) -> BValue {
         let snapshot = a.object("ImageSnapshot", [("relativePath", a.string(file))])
-        let background = a.object("ImageObject", [("kImageObjectSnapshotKey", snapshot)])
-        let figure = a.object("Figure", [("FigureBackgroundObjectKey", background)])
+        let background = a.object("ImageObject", [("kImageObjectSnapshotKey", snapshot)]
+                                  + (realLayout ? [("rect", a.string("{{0, 0}, {0, 0}}"))] : []))
+        var figureFields: [(String, BValue)] = [("FigureBackgroundObjectKey", background)]
+        if realLayout, let c = cropPixels { figureFields.append(("FigureCropRectKey", a.string("{{0, 0}, {\(c.0), \(c.1)}}"))) }
+        let figure = a.object("Figure", figureFields)
         return a.object("ImageMediaObject", [
             ("documentContentOrigin", a.string("{\(origin.0), \(origin.1)}")),
             ("unscaledContentSize", a.string("{\(size.0), \(size.1)}")),
@@ -111,11 +118,61 @@ enum AttachmentFixtures {
     static func package(session: Data, pdf: Data? = nil, extra: [(String, Data)] = [],
                         thumbnails: [(String, Int, Int)] = [("thumb.png", 48, 63)], handwriting: Bool = true) -> Data {
         let dir = "Synthetic note/"
+        let replaced = Set(extra.map { dir + $0.0 })
         var files = SyntheticNote.files(thumbnails: thumbnails, handwriting: handwriting)
-            .filter { !$0.0.hasSuffix("Session.plist") }
+            .filter { !$0.0.hasSuffix("Session.plist") && !replaced.contains($0.0) }
         files.append((dir + "Session.plist", session))
         if let pdf { files.append((dir + "PDFs/" + SyntheticNote.pdfName, pdf)) }
         files += extra.map { (dir + $0.0, $0.1) }
         return ZipWriter.write(files.map { .init(path: $0.0, data: $0.1) })
+    }
+
+    // MARK: Recordings
+
+    static func box(_ type: String, _ body: [UInt8]) -> [UInt8] {
+        let n = body.count + 8
+        return [UInt8(n >> 24 & 0xFF), UInt8(n >> 16 & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n & 0xFF)] + Array(type.utf8) + body
+    }
+
+    static func be(_ v: UInt64, _ n: Int) -> [UInt8] { (0..<n).reversed().map { UInt8(v >> (8 * UInt64($0)) & 0xFF) } }
+
+    /// A minimal `.m4a`: `ftyp`, `moov` with `mvhd` (timescale 1000) and an
+    /// `mp4a` sample entry (mono, 48 kHz), and a few bytes of `mdat`.
+    static func m4a(seconds: Double) -> Data {
+        let mvhd = box("mvhd", [0, 0, 0, 0] + be(0, 4) + be(0, 4) + be(1000, 4) + be(UInt64(seconds * 1000), 4)
+            + [UInt8](repeating: 0, count: 80))
+        let mp4a = box("mp4a", [UInt8](repeating: 0, count: 6) + [0, 1] + [UInt8](repeating: 0, count: 8)
+            + be(1, 2) + be(16, 2) + [0, 0, 0, 0] + be(48000 << 16, 4))
+        let stsd = box("stsd", [0, 0, 0, 0] + be(1, 4) + mp4a)
+        // A sound track: `AudioProbe` reads the first trak whose handler is `soun`.
+        let hdlr = box("hdlr", [UInt8](repeating: 0, count: 8) + Array("soun".utf8) + [UInt8](repeating: 0, count: 13))
+        let trak = box("trak", box("mdia", hdlr + box("minf", box("stbl", stsd))))
+        return Data(box("ftyp", Array("M4A ".utf8) + [0, 0, 0, 0] + Array("M4A mp42isom".utf8))
+            + box("moov", mvhd + trak) + box("mdat", [1, 2, 3, 4]))
+    }
+
+    /// A minimal `.caf`: AAC at 48 kHz, mono, with a `pakt` giving the frames.
+    static func caf(seconds: Double) -> Data {
+        func chunk(_ type: String, _ body: [UInt8]) -> [UInt8] { Array(type.utf8) + be(UInt64(body.count), 8) + body }
+        let desc = be(Double(48000).bitPattern, 8) + Array("aac ".utf8) + be(0, 4) + be(0, 4) + be(1024, 4) + be(1, 4) + be(0, 4)
+        let pakt = be(10, 8) + be(UInt64(seconds * 48000), 8) + be(0, 4) + be(0, 4)
+        return Data(Array("caff".utf8) + [0, 1, 0, 0] + chunk("desc", desc) + chunk("pakt", pakt) + chunk("data", [0, 0, 0, 1, 9, 9]))
+    }
+
+    /// `Recordings/library.plist` with the given entries (key → XML body of its dictionary).
+    static func library(_ entries: [(String, String)]) -> Data {
+        let body = entries.map { "\t\t<key>\($0.0)</key>\n\t\t<dict>\($0.1)</dict>\n" }.joined()
+        return Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+            \t<key>recordings</key>
+            \t<dict>
+            \(body)\t</dict>
+            </dict>
+            </plist>
+
+            """.utf8)
     }
 }

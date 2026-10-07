@@ -86,8 +86,8 @@ goes first; after it, the rest run in parallel along the dependencies in
 | C4 | Recordings in exports (`--recordings list` / `attach`, `--format media`) | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
 | D1 | Notability PDF backgrounds. **In review (#70)**: `NotabilityAttachments.swift`, `NotabilityMedia.swift`; CLI `--no-attachments` | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
 | D2 | Notability images. **In review (#70)**: media objects read without a schema (field names unconfirmed, reported); `SempereRender.ImageImport`; CLI `--keep-image-metadata` | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
-| D3 | Notability typed text | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
-| D4 | Notability recordings + ink sync | `Sources/SempereImport` | A0, B2 | recordings import; strokes carry `rec` |
+| D3 | Notability typed text. **In review (#73)**: `NotabilityText.swift` (both archive shapes, blocks, runs, `lang`) | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
+| D4 | Notability recordings + ink sync. **In review (#73)**: `NotabilityAudio.swift` (library entries, MP4/CAF info, `eventTokens` as ms, guarded) | `Sources/SempereImport` | A0, B2 | recordings import; strokes carry `rec` |
 | E0 | App plumbing: `NoteWriter.addBlob`/`copyBlob`, blob cache, lazy per-kind iCloud download, item layer + selection. **In review (#68)**: shared `NoteOps` item builders + `ItemFrames` (`Sources/Sempere/ItemOps.swift`), `ItemRaster` (`Sources/SempereRender`), app `BlobCache`, `CloudBlobs`, `ItemLayerView`, `ItemSelection`, `ItemActions`, `NoteEditor+Items` | `Apps/` | A1, B2 | one delta per gesture; app tests |
 | E1 | App images (Photos, camera, paste, privacy setting: HEIC→JPEG + metadata stripping on by default, crop) | `Apps/` | E0, C1 | GPS-free JPEG blobs by default; orientation correct |
 | E2 | App text boxes (system fonts, any script, RTL, `breaks` from TextKit, CoreText `TextShaper` for exports) | `Apps/` | E0, C2 | same line breaks app vs app export vs CLI export |
