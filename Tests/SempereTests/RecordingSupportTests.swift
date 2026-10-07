@@ -15,12 +15,17 @@ final class RecordingFormatTests: XCTestCase {
     }
 
     func testNormalizedKeepsOnlyOfferedChoices() {
-        XCTAssertEqual(RecordingFormat(codec: .aac, bitRate: 70_000, sampleRate: 22_050, channels: 5).normalized(),
+        XCTAssertEqual(RecordingFormat(codec: .aac, bitRate: 70_000, sampleRate: 24_000, channels: 5).normalized(),
                        RecordingFormat(codec: .aac, bitRate: 64_000, sampleRate: 48_000, channels: 2))
+        // Every choice of the Settings panel (docs/attachments.md §15) is kept as it is.
+        XCTAssertEqual(RecordingFormat(codec: .aac, bitRate: 24_000, sampleRate: 22_050, channels: 1).normalized(),
+                       RecordingFormat(codec: .aac, bitRate: 24_000, sampleRate: 22_050, channels: 1))
+        XCTAssertEqual(RecordingFormat(codec: .heAAC, bitRate: 64_000, sampleRate: 32_000, channels: 1).normalized(),
+                       RecordingFormat(codec: .heAAC, bitRate: 64_000, sampleRate: 32_000, channels: 1))
         XCTAssertEqual(RecordingFormat(codec: .alac, bitRate: 64_000, sampleRate: 44_100, channels: 0).normalized(),
                        RecordingFormat(codec: .alac, bitRate: nil, sampleRate: 44_100, channels: 1))
         XCTAssertEqual(RecordingFormat(codec: .heAAC, bitRate: 128_000, sampleRate: 16_000, channels: 1).normalized(),
-                       RecordingFormat(codec: .heAAC, bitRate: 48_000, sampleRate: 48_000, channels: 1))
+                       RecordingFormat(codec: .heAAC, bitRate: 64_000, sampleRate: 48_000, channels: 1))
         XCTAssertEqual(RecordingFormat(codec: .heAAC, bitRate: nil, sampleRate: 48_000, channels: 1).normalized().bitRate, 32_000)
         XCTAssertEqual(RecordingFormat.Codec(rawValue: "he-aac"), .heAAC)
     }

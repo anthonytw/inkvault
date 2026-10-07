@@ -638,8 +638,8 @@ every reader can play, i.e. inside `audio/mp4` (`format.md` §8.3.1):
 | Setting | Choices | Default |
 | --- | --- | --- |
 | Codec | AAC-LC; HE-AAC (better at 24–48 kbit/s); Apple Lossless (ALAC, ~4–6× larger) | AAC-LC |
-| Quality (AAC bit rate) | 32, 48, 64, 96, 128 kbit/s (HE-AAC: 24, 32, 48) | 64 kbit/s |
-| Sample rate | 48 kHz, 44.1 kHz, 24 kHz, 16 kHz | 48 kHz |
+| Quality (AAC bit rate) | 24, 32, 48, 64, 96, 128 kbit/s (HE-AAC: 24 to 64) | 64 kbit/s |
+| Sample rate | 48 kHz, 44.1 kHz, 32 kHz, 22.05 kHz, 16 kHz (HE-AAC records at 48 kHz below 32 kHz) | 48 kHz |
 | Channels | mono, stereo (only with a stereo input) | mono |
 
 The panel shows the resulting size per hour. Each recording stores what was
@@ -1659,6 +1659,28 @@ live in one Settings panel (task E6). Defaults are the decided policy.
 | Device keys | When adding a device | rewrite headers only | alternative: re-encrypt everything (§3) |
 | | When removing a device or upgrading to post-quantum keys | re-encrypt everything | alternative: rewrite headers only, with a warning and a confirmation |
 | Storage | Unused attachments: N items, X MB | — | browsable list, delete after 30 days unreferenced (§4) |
+
+Settings added since (same panel, same rules):
+
+| Section | Setting | Default | Notes |
+| --- | --- | --- | --- |
+| Recording | Quality choices | 24, 32, 48, 64, 96, 128 kbit/s | HE-AAC offers up to 64; Apple Lossless has no rate (size is an estimate for speech); sample rates 16, 22.05, 32, 44.1, 48 kHz |
+| Transcription | Language | same as the device | model download status and a download button come from the transcription feature (`TranscriptionSettings.statusProvider`, `.downloader`); until then "Not available" |
+| New notes | Title when left empty | date and time | also "Date" and "Untitled" |
+| | Default paper | ruled | `PaperPreference` |
+| | Notebook for quick voice notes | Inbox | read by the voice-note feature via `NewNoteSettings.voiceNotebook()` |
+| General | Keep Screen On | off | |
+| | Recognize Handwriting | on | |
+| History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
+| Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |
+| | Unused attachments | — | a scan (`Vault.blobInventory`, every revision of each note) lists blob files no revision references; it never deletes (collection with the 30-day window is E7 / `sempere blobs gc`) |
+
+Per device means per install: the keys are `Sempere.*` in `UserDefaults`
+(`DeviceSettings.swift`). A stored value outside its choices reads as the
+nearest valid one or the default. The CLI never reads them; each has flags
+instead: `sempere compact --thin DAYS`, `sempere attach recording --codec …
+--sample-rate … --channels … --bit-rate …`, `sempere vault recipients …
+--rewrap header|reencrypt`, `sempere blobs unused|gc`.
 
 The device-key settings explain in the panel that *devices* here are the
 vault's keys (this iPad, that Mac, the paper backup), not people: sharing a

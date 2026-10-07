@@ -30,8 +30,8 @@ public struct RecordingFormat: Hashable, Sendable, Codable {
         /// The bit rates offered (bits per second); empty for ALAC.
         public var bitRates: [Int] {
             switch self {
-            case .aac: return [32_000, 48_000, 64_000, 96_000, 128_000]
-            case .heAAC: return [24_000, 32_000, 48_000]
+            case .aac: return [24_000, 32_000, 48_000, 64_000, 96_000, 128_000]
+            case .heAAC: return [24_000, 32_000, 48_000, 64_000]
             case .alac: return []
             }
         }
@@ -46,8 +46,8 @@ public struct RecordingFormat: Hashable, Sendable, Codable {
         }
     }
 
-    /// The sample rates offered, Hz.
-    public static let sampleRates = [48_000, 44_100, 24_000, 16_000]
+    /// The sample rates offered, Hz (the Settings panel's, docs/attachments.md §15).
+    public static let sampleRates = [48_000, 44_100, 32_000, 22_050, 16_000]
 
     public var codec: Codec
     /// Average bits per second; nil for ALAC (lossless).

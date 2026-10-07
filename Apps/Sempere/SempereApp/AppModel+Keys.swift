@@ -95,7 +95,8 @@ extension AppModel {
         if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         guard !vault.recipients.contains(where: { $0.key == recipient.string }) else { throw KeyError.alreadyListed }
         let name = Self.cleanLabel(label)
-        try await changeRecipients { try $0.addRecipient(recipient, label: name) }
+        let policy = RewrapSettings.policy()
+        try await changeRecipients { try $0.addRecipient(recipient, label: name, policy: policy) }
     }
 
     /// Generates a post-quantum key for another device, encrypts the vault to
@@ -114,8 +115,9 @@ extension AppModel {
         var applied = false
         let url = vault.url
         let identities = unlockIdentities
+        let policy = RewrapSettings.policy()
         do {
-            try await changeRecipients({ try $0.addRecipient(recipient, label: name) }, applied: { applied = true })
+            try await changeRecipients({ try $0.addRecipient(recipient, label: name, policy: policy) }, applied: { applied = true })
         } catch {
             // The rewrap can also throw after it wrote the manifest: look at it.
             let listed = applied || ((try? Vault.open(at: url, identities: identities))?.recipients
@@ -139,7 +141,8 @@ extension AppModel {
         guard vault.recipients.count > 1 else { throw KeyError.lastKey }
         guard !heldRecipients.contains(recipient) else { throw KeyError.inUse }
         let parsed = try NativeRecipient(string: recipient)
-        try await changeRecipients { try $0.removeRecipient(parsed) }
+        let policy = RewrapSettings.policy()
+        try await changeRecipients { try $0.removeRecipient(parsed, policy: policy) }
     }
 
     /// The recovery kit (docs/cli.md "Keys"): the key this vault was unlocked

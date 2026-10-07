@@ -69,6 +69,10 @@ public enum SpeechTranscription {
         /// The language it would use, when it supports one.
         public var language: String?
         public var detail: String
+
+        public init(engine: String, available: Bool, language: String?, detail: String) {
+            self.engine = engine; self.available = available; self.language = language; self.detail = detail
+        }
     }
 
     /// Whether this build can transcribe at all.
