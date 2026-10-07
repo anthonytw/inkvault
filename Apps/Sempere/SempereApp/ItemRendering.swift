@@ -63,14 +63,28 @@ enum ItemRendering {
 
     /// Draws one item. Pixels are made off the main actor; the text of a
     /// text box is drawn here (UIKit text drawing stays on the main actor).
+    ///
+    /// With `renders`, a picture drawn before (this session or an earlier
+    /// launch) comes from there without the blob being read or decoded, and a
+    /// new one is stored there.
     @MainActor
-    static func render(_ key: ItemRenderKey, note: UUID, cache: BlobCache?) async -> ItemPicture {
+    static func render(_ key: ItemRenderKey, note: UUID, cache: BlobCache?, renders: RenderCache? = nil) async -> ItemPicture {
         let item = key.item
         if item.kind == .text, let text = item.text {
             return TextItemImage.render(text, frame: item.frame, rotation: item.rotation, scale: key.scale)
                 .map { ItemPicture.image($0, bounds: ItemFrames.bounds(item.frame, rotation: item.rotation)) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
+        let interval = Perf.begin(.itemPicture)
+        let label = renders == nil ? nil : RenderCache.pictureLabel(key)
+        if let renders, let label {
+            let hit = await Task.detached(priority: .userInitiated) { renders.picture(label) }.value
+            if let hit {
+                Perf.end(interval, "hit")
+                return .image(hit.image, bounds: hit.bounds)
+            }
+        }
+        defer { Perf.end(interval, "drawn") }
         var files: [String: URL] = [:]
         let blobs = item.blob.map { [$0] } ?? []
         if let cache {
@@ -98,6 +112,10 @@ enum ItemRendering {
         switch outcome {
         case .pixels(let image, let bounds):
             guard let cg = cgImage(image) else { return .placeholder(.unavailable("cannot be drawn")) }
+            if let renders, let label {
+                let picture = RenderCache.Picture(image: cg, bounds: bounds)
+                Task.detached(priority: .utility) { renders.store(picture, label: label) }
+            }
             return .image(cg, bounds: bounds)
         case .failed(let why):
             return .placeholder(.unavailable(why))

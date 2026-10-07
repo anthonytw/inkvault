@@ -5,6 +5,8 @@ import UIKit
 struct ItemLayerSource {
     /// The decrypted blobs of the open vault; nil: every blob-backed item is a placeholder.
     var cache: BlobCache?
+    /// Pictures and PDF page previews drawn before, kept across note opens and launches.
+    var renders: RenderCache?
     /// Asks iCloud for the image and PDF blobs of the items shown (`AppModel.prefetchBlobs`).
     var prefetch: @MainActor (_ note: UUID, _ items: [Item]) -> Void = { _, _ in }
 }
@@ -18,7 +20,11 @@ struct ItemLayerSource {
 /// PDF pages are not pictures: each is a `PDFTileLayer` that Core Graphics
 /// draws in tiles at the zoom's detail, from the PDF blob held open in the
 /// cache while a page of it is shown (docs/attachments.md §13), so a long
-/// PDF never costs a full-page bitmap per page.
+/// PDF never costs a full-page bitmap per page. Under each page's tiles lies
+/// its preview (`RenderCache`: one bitmap at the unzoomed scale, kept across
+/// note opens and launches), so a PDF note opened before shows its pages at
+/// once, sharpening as the tiles are drawn; image pictures come from the
+/// same cache.
 /// Not interactive: selection is `ItemSelectionController`'s.
 final class ItemLayerView: UIView {
     private(set) var noteID: UUID?
@@ -39,6 +45,11 @@ final class ItemLayerView: UIView {
     private var documentTasks: [String: Task<Void, Never>] = [:]
     /// PDF blobs that cannot be drawn, and why (until the note changes).
     private var documentFailures: [String: String] = [:]
+    /// PDF page previews shown, by `RenderCache.previewLabel`.
+    private var pagePreviews: [String: RenderCache.Picture] = [:]
+    private var previewTasks: [String: Task<Void, Never>] = [:]
+    /// Previews not in the render cache: drawn once their document is open.
+    private var previewMisses: Set<String> = []
 
     private struct OpenDocument {
         var box: PDFDocumentBox
@@ -73,6 +84,10 @@ final class ItemLayerView: UIView {
             tasks = [:]
             pictures = [:]
             previews = [:]
+            for task in previewTasks.values { task.cancel() }
+            previewTasks = [:]
+            pagePreviews = [:]
+            previewMisses = []
             closeDocuments()
         }
         noteID = note
@@ -121,9 +136,11 @@ final class ItemLayerView: UIView {
         let step = scaleStep
         var wanted: Set<ItemRenderKey> = []
         var wantedDocuments: Set<String> = []
+        var wantedPreviews: Set<String> = []
         for (index, item) in items.enumerated() {
             if item.kind == .pdfPage, let ref = item.blob, source.cache != nil {
                 wantedDocuments.insert(ref.sha256)
+                if let label = previewLabel(item) { wantedPreviews.insert(label) }
                 layoutTiled(item, ref: ref, index: index)
                 continue
             }
@@ -139,6 +156,10 @@ final class ItemLayerView: UIView {
             sub.zPosition = CGFloat(index)
             let key = ItemRenderKey(item, scale: step, paper: paper)
             wanted.insert(key)
+            if pictures[key] == nil, let label = RenderCache.pictureLabel(key),
+               let hit = source.renders?.pictureInMemory(label) {
+                pictures[key] = .image(hit.image, bounds: hit.bounds)   // drawn before in this session
+            }
             if let picture = pictures[key] {
                 sub.show(picture, item: item)
             } else if sub.item?.id != item.id || sub.picture == nil {
@@ -153,6 +174,11 @@ final class ItemLayerView: UIView {
             tasks[key] = nil
         }
         closeDocuments(except: wantedDocuments)
+        for (label, task) in previewTasks where !wantedPreviews.contains(label) {
+            task.cancel()
+            previewTasks[label] = nil
+        }
+        pagePreviews = pagePreviews.filter { wantedPreviews.contains($0.key) }
         // Keep the current pictures and a few others (an undo brings one back).
         if pictures.count > wanted.count + 16 {
             for key in pictures.keys where !wanted.contains(key) { pictures[key] = nil }
@@ -161,9 +187,9 @@ final class ItemLayerView: UIView {
 
     private func draw(_ key: ItemRenderKey) {
         guard let note = noteID else { return }
-        let cache = source.cache
+        let cache = source.cache, renders = source.renders
         tasks[key] = Task { @MainActor [weak self] in
-            let picture = await ItemRendering.render(key, note: note, cache: cache)
+            let picture = await ItemRendering.render(key, note: note, cache: cache, renders: renders)
             guard let self, !Task.isCancelled, self.noteID == note else { return }
             self.tasks[key] = nil
             if case .placeholder(.loading) = picture {
@@ -191,7 +217,12 @@ final class ItemLayerView: UIView {
     }
 
     /// Whether every item shown has its final picture (tests).
-    var isSettled: Bool { tasks.isEmpty && documentTasks.isEmpty }
+    var isSettled: Bool { tasks.isEmpty && documentTasks.isEmpty && previewTasks.isEmpty }
+
+    /// PDF page items whose preview is shown (tests).
+    var previewedItemIDs: Set<UUID> {
+        Set(items.filter { item in previewLabel(item).map { pagePreviews[$0] != nil } ?? false }.map(\.id))
+    }
 
     /// Items drawn in tiles (PDF pages whose document is open), for tests.
     var tiledItemIDs: Set<UUID> { Set(tiles.keys) }
@@ -204,11 +235,23 @@ final class ItemLayerView: UIView {
 
     // MARK: PDF pages in tiles
 
-    /// A PDF page: its tile layer once the document is open, a placeholder until then.
+    /// A PDF page: its tile layer once the document is open, over its preview
+    /// (when there is one); the preview or a placeholder until then.
     private func layoutTiled(_ item: Item, ref: BlobRef, index: Int) {
         let frame = previews[item.id] ?? item.frame
+        let label = previewLabel(item)
+        var preview = label.flatMap { pagePreviews[$0] }
+        if preview == nil, let label, let hit = source.renders?.pictureInMemory(label) {
+            pagePreviews[label] = hit
+            preview = hit
+        }
+        if let label, preview == nil { requestPreview(item, label: label) }
         if let open = documents[ref.sha256] {
-            if let sub = sublayers.removeValue(forKey: item.id) { sub.removeFromSuperlayer() }
+            if let preview {
+                showPreview(preview, item: item, frame: frame, index: index)
+            } else if let sub = sublayers.removeValue(forKey: item.id) {
+                sub.removeFromSuperlayer()
+            }
             let tile: PDFTileLayer
             if let existing = tiles[item.id] {
                 tile = existing
@@ -222,6 +265,11 @@ final class ItemLayerView: UIView {
             return
         }
         if let tile = tiles.removeValue(forKey: item.id) { tile.removeFromSuperlayer() }
+        if documentFailures[ref.sha256] == nil { openDocument(ref) }
+        if let preview, documentFailures[ref.sha256] == nil {
+            showPreview(preview, item: item, frame: frame, index: index)
+            return
+        }
         let sub: ItemSublayer
         if let existing = sublayers[item.id] {
             sub = existing
@@ -236,7 +284,57 @@ final class ItemLayerView: UIView {
         if case .placeholder(let r)? = sub.picture { shown = r }
         if sub.item != item || shown != reason { sub.show(.placeholder(reason), item: item) }
         sub.place(frame: frame, rotation: item.rotation, zoom: zoom)
-        if documentFailures[ref.sha256] == nil { openDocument(ref) }
+    }
+
+    /// The preview label of PDF page `item` at this screen's scale.
+    private func previewLabel(_ item: Item) -> String? {
+        guard source.renders != nil else { return nil }
+        return RenderCache.previewLabel(item, scale: RenderCache.previewScale(for: item, screenScale: Double(traitCollection.displayScale)))
+    }
+
+    /// Shows `preview` as item `item`'s sublayer, just under its tiles.
+    private func showPreview(_ preview: RenderCache.Picture, item: Item, frame: Rect, index: Int) {
+        let sub: ItemSublayer
+        if let existing = sublayers[item.id] {
+            sub = existing
+        } else {
+            sub = ItemSublayer()
+            layer.addSublayer(sub)
+            sublayers[item.id] = sub
+        }
+        sub.zPosition = CGFloat(index) - 0.5
+        if sub.item != item || sub.shownImage !== preview.image { sub.show(.image(preview.image, bounds: preview.bounds), item: item) }
+        sub.place(frame: frame, rotation: item.rotation, zoom: zoom)
+    }
+
+    /// Looks the preview of `item` up in the render cache, off the main
+    /// actor; one not there is drawn from the open document (and stored), or,
+    /// before the document is open, once it is.
+    private func requestPreview(_ item: Item, label: String) {
+        guard let renders = source.renders, let note = noteID, pagePreviews[label] == nil, previewTasks[label] == nil else { return }
+        let box = item.blob.flatMap { documents[$0.sha256]?.box }
+        if previewMisses.contains(label), box == nil { return }   // waits for the document
+        let scale = RenderCache.previewScale(for: item, screenScale: Double(traitCollection.displayScale))
+        previewTasks[label] = Task { @MainActor [weak self] in
+            let interval = Perf.begin(.pdfPreview)
+            let (picture, hit) = await Task.detached(priority: .utility) { () -> (RenderCache.Picture?, Bool) in
+                if let found = renders.picture(label) { return (found, true) }
+                guard let box, !Task.isCancelled, let drawn = RenderCache.drawPreview(item, document: box, scale: scale)
+                else { return (nil, false) }
+                renders.store(drawn, label: label)
+                return (drawn, false)
+            }.value
+            Perf.end(interval, hit ? "hit" : picture == nil ? "missing" : "drawn")
+            guard let self, !Task.isCancelled, self.noteID == note else { return }
+            self.previewTasks[label] = nil
+            if let picture {
+                self.pagePreviews[label] = picture
+                self.layout()
+            } else {
+                self.previewMisses.insert(label)
+                if box == nil, self.documents[item.blob?.sha256 ?? ""] != nil { self.layout() }   // opened meanwhile
+            }
+        }
     }
 
     /// Acquires the PDF blob from the cache and opens it; a blob not there
@@ -247,8 +345,12 @@ final class ItemLayerView: UIView {
         let delay = retryDelay
         documentTasks[key] = Task { @MainActor [weak self] in
             do {
+                let interval = Perf.begin(.pdfOpen)
+                let (fetchedBefore, adoptedBefore) = (await cache.fetchCount, await cache.adoptedCount)
                 let url = try await cache.acquire(note: note, ref: ref)
                 let box = await Task.detached(priority: .userInitiated) { PDFDocumentBox(url: url) }.value
+                let fetched = await cache.fetchCount > fetchedBefore, adopted = await cache.adoptedCount > adoptedBefore
+                Perf.end(interval, "\(Perf.short(note)) " + (fetched ? "fetched" : adopted ? "adopted" : "cached"))
                 guard let self, !Task.isCancelled, self.noteID == note else {
                     await cache.release(note: note, ref: ref)
                     return
@@ -312,6 +414,12 @@ final class ItemLayerView: UIView {
 final class ItemSublayer: CALayer {
     private(set) var item: Item?
     private(set) var picture: ItemPicture?
+
+    /// The image shown, if the picture is one.
+    var shownImage: CGImage? {
+        if case .image(let image, _)? = picture { return image }
+        return nil
+    }
     private let outline = CAShapeLayer()
     private let symbol = CALayer()
     /// The page area the picture covers, for placing it.

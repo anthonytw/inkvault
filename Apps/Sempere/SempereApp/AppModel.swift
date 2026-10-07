@@ -286,8 +286,16 @@ final class AppModel {
     /// Decrypted attachments of the open vault (`AppModel+Attachments`),
     /// created on first use, deleted whenever `vault` changes or closes.
     @ObservationIgnored var blobCache: BlobCache?
-    /// Where this model's attachment caches go; tests pass their own.
-    @ObservationIgnored var blobCacheFolder = BlobCache.folder
+    /// Where this model's attachment caches go (a folder per vault secret
+    /// inside): the app's `BlobCache.folder`, kept across launches; without
+    /// one (tests) a folder of this model alone. Tests may set their own.
+    @ObservationIgnored var blobCacheFolder: URL
+    /// Where drawn attachments (pictures, PDF page previews) are cached
+    /// between note opens and launches (`RenderCache`); nil (the default, for
+    /// tests): kept in memory only. The app passes `RenderCache.defaultRoot`.
+    let renderCacheRoot: URL?
+    /// The open vault's render cache, made on first use; closed with the vault.
+    @ObservationIgnored var renderCache: RenderCache?
     /// Items copied for pasting (`ItemClipboard`), within the open vault.
     let itemClipboard = ItemClipboard()
     /// Editors of note windows (Mac), by note id: one per note, each with its
@@ -338,6 +346,7 @@ final class AppModel {
     init(deviceStateURL: URL = DeviceClock.defaultURL, editorDebounce: Duration = NoteEditor.defaultDebounce,
          recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
          summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
+         blobCacheRoot: URL? = nil, renderCacheRoot: URL? = nil,
          automaticThinning: Bool = false,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.deviceStateURL = deviceStateURL
@@ -345,6 +354,8 @@ final class AppModel {
         self.automaticThinning = automaticThinning
         self.summaryCacheDirectory = summaryCacheDirectory
         self.drawingCacheRoot = drawingCacheRoot
+        blobCacheFolder = blobCacheRoot ?? BlobCache.legacyFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        self.renderCacheRoot = renderCacheRoot
         self.editorDebounce = editorDebounce
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
@@ -836,6 +847,7 @@ final class AppModel {
         // Drawings of this vault's notes do not outlive it on this device.
         drawingCache?.close()
         drawingCache = nil
+        // Nor do decrypted attachments and their pictures (`dropAttachments`, when `vault` goes).
         vault = nil
         migration = nil
         unlockIdentities = []

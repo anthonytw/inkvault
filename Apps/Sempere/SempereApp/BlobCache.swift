@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Sempere
 import SempereRender
@@ -5,12 +6,22 @@ import SempereRender
 /// Decrypted, verified attachments of the open vault, as private files
 /// (docs/attachments.md §2 "Random access", §13): PDFKit and ImageIO need a
 /// file, and decrypting a 40 MB PDF again for every redraw is slow. Files
-/// live in the app's temporary directory (inside the container, encrypted by
-/// Data Protection on iOS), mode 0600, never in a shared or synced place.
+/// live in the app's container (`Library/Caches/Sempere/Blobs`, Data
+/// Protection "complete" on iOS, mode 0600, excluded from backups), never in a
+/// shared or synced place.
+///
+/// The files outlive a note being closed and the app being quit (TestFlight
+/// build 6: reopening a PDF note was as slow as the first open): the model
+/// keeps one folder per vault secret, named by `LocalCacheKey` (purpose
+/// `blob-cache`), with file names keyed the same way, so nothing in the
+/// folder names a note or a content hash without the vault secret. A file
+/// found there from an earlier launch is used only after its content is hashed
+/// again and matches the reference (`adopt`). The folder is deleted when the
+/// vault closes, locks or changes keys (`clear`), as the drawing cache's is.
 ///
 /// Least recently used files go once the cache holds more than `maxBytes` or
-/// `maxFiles`, except files in use (`acquire` without its `release`). The
-/// model clears it when the vault closes, locks or changes keys (`clear`).
+/// `maxFiles`, except files in use (`acquire` without its `release`); files of
+/// earlier launches count too, oldest use (modification date) first.
 ///
 /// A file is placed only once `fetch` returned: the fetch streams the blob
 /// through the vault's checks (`Vault.streamBlob`: framing, padding, hash,
@@ -20,6 +31,8 @@ actor BlobCache {
     /// Writes the verified content of `ref` (a blob of `note`) to
     /// `destination` (a new file), throwing on any failure.
     typealias Fetch = @Sendable (_ note: UUID, _ ref: BlobRef, _ destination: URL) async throws -> Void
+    /// The file name of `ref` in `note` (the same for every launch).
+    typealias Naming = @Sendable (_ note: UUID, _ ref: BlobRef) -> String
 
     enum CacheError: Error, Equatable {
         /// The reference is not usable (bad hash or size).
@@ -30,50 +43,92 @@ actor BlobCache {
         case cleared
     }
 
+    /// The default size limit.
+    static let defaultMaxBytes: Int64 = 512 << 20
+    /// The `UserDefaults` key of the size limit in megabytes (unset: 512).
+    static let capDefaultsKey = "Sempere.blobCacheMegabytes"
+
+    /// The configured size limit (`capDefaultsKey`).
+    static var configuredMaxBytes: Int64 {
+        let mb = UserDefaults.standard.integer(forKey: capDefaultsKey)
+        return mb > 0 ? Int64(min(mb, 1 << 16)) << 20 : defaultMaxBytes
+    }
+
     nonisolated let root: URL
     nonisolated let maxBytes: Int64
     nonisolated let maxFiles: Int
     private let fetch: Fetch
-
-    private struct Key: Hashable {
-        var note: UUID
-        var sha256: String
-    }
+    private let naming: Naming
 
     private struct Entry {
         var url: URL
         var size: Int64
         var lastUse: UInt64
         var pins: Int
+        /// Placed in this session, or hashed again since: its content is the reference's.
+        var verified: Bool
     }
 
-    private var entries: [Key: Entry] = [:]
-    private var inFlight: [Key: Task<URL, any Error>] = [:]
+    /// By file name.
+    private var entries: [String: Entry] = [:]
+    private var inFlight: [String: Task<Placed, any Error>] = [:]
     private var tick: UInt64 = 0
     /// Bumped by `clear`: a fetch that finishes afterwards is thrown away.
     private var epoch = 0
     /// Set by `clear`: the vault this cache decrypts for is gone, so nothing
     /// is fetched again (a view may still hold the cache for a moment).
     private var closed = false
+    /// Files of earlier launches have been listed (`indexFolder`).
+    private var indexed = false
     /// Fetches started (for tests).
     private(set) var fetchCount = 0
+    /// Files of an earlier launch used after their content checked out (for tests and timing).
+    private(set) var adoptedCount = 0
+
+    private struct Placed: Sendable {
+        var url: URL
+        /// True when the file was fetched, false when an earlier launch's file was adopted.
+        var fetched: Bool
+    }
 
     /// - Parameters:
     ///   - root: a folder of this cache alone; created on first use, deleted by `clear`.
-    init(root: URL, maxBytes: Int64 = 512 << 20, maxFiles: Int = 256, fetch: @escaping Fetch) {
+    ///   - naming: file names; by default the content hash and note id (tests). The
+    ///     model passes names keyed by the vault secret (`keyedNaming`).
+    init(root: URL, maxBytes: Int64 = BlobCache.defaultMaxBytes, maxFiles: Int = 1024,
+         naming: @escaping Naming = BlobCache.plainName, fetch: @escaping Fetch) {
         self.root = root
         self.maxBytes = maxBytes
         self.maxFiles = maxFiles
+        self.naming = naming
         self.fetch = fetch
     }
 
-    /// The default folder for the caches of every model: one subfolder per cache.
+    /// `<sha256>-<note><ext>`.
+    nonisolated static func plainName(_ note: UUID, _ ref: BlobRef) -> String {
+        ref.sha256 + "-" + note.uuidString.lowercased() + pathExtension(ref)
+    }
+
+    /// Names that say nothing about the note or the content without the vault
+    /// secret: `entryName(note|sha256|size)` of `key`, plus the type's extension.
+    nonisolated static func keyedNaming(_ key: LocalCacheKey) -> Naming {
+        { note, ref in key.entryName("blob|\(note.uuidString.lowercased())|\(ref.sha256)|\(ref.size)") + pathExtension(ref) }
+    }
+
+    /// `Library/Caches/Sempere/Blobs`: one folder per vault secret inside it.
     static var folder: URL {
+        (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Sempere/Blobs", isDirectory: true)
+    }
+
+    /// Where builds before TestFlight build 7 kept their per-session caches (deleted at launch).
+    static var legacyFolder: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("SempereBlobs", isDirectory: true)
     }
 
     /// Removes caches left by an earlier run (killed before it could clear).
-    nonisolated static func purgeStale(in folder: URL = BlobCache.folder, olderThan age: TimeInterval = 3600,
+    nonisolated static func purgeStale(in folder: URL = BlobCache.legacyFolder, olderThan age: TimeInterval = 3600,
                                        now: Date = Date()) {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])
@@ -84,30 +139,53 @@ actor BlobCache {
         }
     }
 
+    /// Deletes the folders in `folder` other than `keep` (other vaults, or
+    /// this vault under an earlier secret), in the background.
+    nonisolated static func removeOthers(in folder: URL, keeping keep: String) {
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where name != keep && !name.hasPrefix(".closed-") {
+            let doomed = folder.appendingPathComponent(".closed-\(UUID().uuidString)")
+            if (try? fm.moveItem(at: folder.appendingPathComponent(name), to: doomed)) == nil { continue }
+        }
+        let leftovers = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(".closed-") }
+        guard !leftovers.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for name in leftovers { try? FileManager.default.removeItem(at: folder.appendingPathComponent(name)) }
+        }
+    }
+
     /// The file holding `ref`'s verified content, fetched if needed. The file
     /// stays until `release` is called as many times as `acquire` returned.
     func acquire(note: UUID, ref: BlobRef) async throws -> URL {
         guard !closed else { throw CacheError.cleared }
         guard ref.isValid else { throw CacheError.invalidReference }
-        let key = Key(note: note, sha256: ref.sha256)
-        if var entry = entries[key], FileManager.default.fileExists(atPath: entry.url.path) {
+        indexFolder()
+        let name = naming(note, ref)
+        if var entry = entries[name], entry.verified, FileManager.default.fileExists(atPath: entry.url.path) {
             tick &+= 1
             entry.lastUse = tick
             entry.pins += 1
-            entries[key] = entry
+            entries[name] = entry
+            Self.touch(entry.url)
             return entry.url
         }
-        entries[key] = nil
-        let task: Task<URL, any Error>
-        if let running = inFlight[key] {
+        // An earlier launch's file (not verified yet) is checked by the task below.
+        let previous = entries.removeValue(forKey: name)
+        let task: Task<Placed, any Error>
+        var started = false
+        if let running = inFlight[name] {
             task = running
         } else {
             let root = self.root, fetch = self.fetch
-            fetchCount += 1
+            let candidate = previous.map(\.url)
+            started = true
             task = Task.detached(priority: .userInitiated) {
                 try Self.makeFolder(root)
-                let name = ref.sha256 + "-" + note.uuidString.lowercased() + Self.pathExtension(ref)
                 let final = root.appendingPathComponent(name)
+                if let candidate, await Self.matches(candidate, ref) {
+                    return Placed(url: candidate, fetched: false)
+                }
+                if let candidate { try? FileManager.default.removeItem(at: candidate) }
                 let tmp = root.appendingPathComponent(".tmp-" + UUID().uuidString)
                 do {
                     try await fetch(note, ref, tmp)
@@ -119,48 +197,103 @@ actor BlobCache {
                     try? FileManager.default.removeItem(at: tmp)
                     throw error
                 }
-                return final
+                return Placed(url: final, fetched: true)
             }
-            inFlight[key] = task
+            inFlight[name] = task
         }
-        let started = epoch
-        let url: URL
+        let startedEpoch = epoch
+        let placed: Placed
         do {
-            url = try await task.value
+            placed = try await task.value
         } catch {
-            if inFlight[key] == task { inFlight[key] = nil }
+            if inFlight[name] == task { inFlight[name] = nil }
+            if started { fetchCount += 1 }
             throw error
         }
-        if inFlight[key] == task { inFlight[key] = nil }
-        guard started == epoch, !closed else {
-            try? FileManager.default.removeItem(at: url)
+        if inFlight[name] == task { inFlight[name] = nil }
+        if started {
+            if placed.fetched { fetchCount += 1 } else { adoptedCount += 1 }
+        }
+        guard startedEpoch == epoch, !closed else {
+            try? FileManager.default.removeItem(at: placed.url)
             throw CacheError.cleared
         }
         tick &+= 1
-        if var entry = entries[key] {
+        if var entry = entries[name] {
             // Another waiter on the same fetch placed it first.
             entry.pins += 1
             entry.lastUse = tick
-            entries[key] = entry
+            entries[name] = entry
         } else {
-            entries[key] = Entry(url: url, size: ref.size, lastUse: tick, pins: 1)
+            entries[name] = Entry(url: placed.url, size: ref.size, lastUse: tick, pins: 1, verified: true)
+        }
+        Self.touch(placed.url)
+        evict()
+        return placed.url
+    }
+
+    /// Lists the files an earlier launch left (once): they count towards the
+    /// limits, oldest use first, and are hashed before use.
+    private func indexFolder() {
+        guard !indexed else { return }
+        indexed = true
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: keys)) ?? []
+        var found: [(name: String, entry: Entry, used: Date)] = []
+        for url in urls {
+            let name = url.lastPathComponent
+            guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
+            if name.hasPrefix(".") {   // an interrupted fetch
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            found.append((name, Entry(url: url, size: Int64(v.fileSize ?? 0), lastUse: 0, pins: 0, verified: false),
+                          v.contentModificationDate ?? .distantPast))
+        }
+        for item in found.sorted(by: { $0.used < $1.used }) {
+            tick &+= 1
+            var entry = item.entry
+            entry.lastUse = tick
+            entries[item.name] = entry
         }
         evict()
-        return url
+    }
+
+    /// Whether `url` holds exactly `ref`'s content (size and SHA-256).
+    nonisolated static func matches(_ url: URL, _ ref: BlobRef) async -> Bool {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value,
+              size == ref.size, let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            guard let chunk = try? handle.read(upToCount: 1 << 20) else { return false }
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+            await Task.yield()
+        }
+        let hex = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return hex == ref.sha256.lowercased()
+    }
+
+    /// Marks a use for the least-recently-used order of the next launch.
+    private nonisolated static func touch(_ url: URL) {
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
     }
 
     /// Ends one use of `ref`'s file (after `acquire`).
     func release(note: UUID, ref: BlobRef) {
-        let key = Key(note: note, sha256: ref.sha256)
-        guard var entry = entries[key] else { return }
+        let name = naming(note, ref)
+        guard var entry = entries[name] else { return }
         entry.pins = max(0, entry.pins - 1)
-        entries[key] = entry
+        entries[name] = entry
         evict()
     }
 
-    /// Whether `ref`'s file is in the cache now (no fetch).
+    /// Whether `ref`'s file is in the cache now (no fetch; an earlier
+    /// launch's file counts once listed, before it is checked).
     func contains(note: UUID, ref: BlobRef) -> Bool {
-        entries[Key(note: note, sha256: ref.sha256)] != nil
+        indexFolder()
+        return entries[naming(note, ref)] != nil
     }
 
     /// Bytes held.
@@ -200,6 +333,10 @@ actor BlobCache {
         attributes[.protectionKey] = FileProtectionType.complete
         #endif
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: attributes)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var folder = root
+        try? folder.setResourceValues(values)
     }
 
     /// A path extension readers may look at (PDF, images, audio).
