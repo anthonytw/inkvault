@@ -362,9 +362,14 @@ final class QuickCapture {
 
     private func endActivity() {
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        guard let a = activity else { return }
+        guard let id = activity?.id else { return }
         activity = nil
-        Task { await a.end(nil, dismissalPolicy: .immediate) }
+        // `Activity` is not Sendable: end it by id from a nonisolated task.
+        Task.detached {
+            for a in Activity<VoiceNoteAttributes>.activities where a.id == id {
+                await a.end(nil, dismissalPolicy: .immediate)
+            }
+        }
         #endif
     }
 }
