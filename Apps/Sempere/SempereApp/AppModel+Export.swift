@@ -107,6 +107,8 @@ extension AppModel {
                     try? await ensureBlobLocal(r.blob, of: summary.id)
                     if let t = r.transcript { try? await ensureBlobLocal(t, of: summary.id) }
                 }
+                // Video clips too (format.md §8.2.7): fetched only now, when they are embedded.
+                for clip in ExportVideos.clips(of: state) { try? await ensureBlobLocal(clip.ref, of: summary.id) }
             }
             try ensureCurrent(gen)
         }

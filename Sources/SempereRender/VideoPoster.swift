@@ -23,11 +23,13 @@ public enum VideoPoster {
     }
 
     /// The frame at `seconds` (default `defaultTime`) of the clip at `file`.
+    /// `mediaType` (`video/mp4`, `video/quicktime`) tells AVFoundation what a
+    /// file without a telling extension holds (a cached, verified blob).
     ///
     /// - Throws: AVFoundation's error when the clip cannot be decoded,
     ///   `VideoPosterError`, `ImageIngestError`.
-    public static func jpeg(file: URL, at seconds: Double? = nil) async throws -> PreparedImage {
-        let asset = AVURLAsset(url: file)
+    public static func jpeg(file: URL, at seconds: Double? = nil, mediaType: String? = nil) async throws -> PreparedImage {
+        let asset = AVURLAsset(url: file, options: mediaType.map { [AVURLAssetOverrideMIMETypeKey: $0] })
         let duration = try await asset.load(.duration).seconds
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
