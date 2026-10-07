@@ -98,7 +98,7 @@ struct PageStackTests {
         #expect(stack.scale == fit)
         for (id, slot) in stack.slots {
             let index = try #require(editor.pages.firstIndex { $0.id == id })
-            #expect(slot.host.frame == stack.layout.pageFrame(index, scale: Double(stack.scale)))
+            #expect(PageStackHost.sameFrame(slot.host.frame, stack.layout.pageFrame(index, scale: Double(stack.scale))))
             #expect(slot.host.isEmbedded)
             #expect(!slot.host.canvas.isScrollEnabled)
         }
@@ -157,7 +157,7 @@ struct PageStackTests {
         StackTS.refresh(stack, editor)
         for (id, slot) in stack.slots {
             let index = try #require(editor.pages.firstIndex { $0.id == id })
-            #expect(slot.host.frame == stack.layout.pageFrame(index, scale: Double(stack.scale)))
+            #expect(PageStackHost.sameFrame(slot.host.frame, stack.layout.pageFrame(index, scale: Double(stack.scale))))
         }
         // Duplicate, delete, undo: the page count and the layout follow.
         editor.duplicatePage(editor.pages[1].id)
@@ -258,7 +258,7 @@ struct PageStackTests {
         func expectPagesAtScale() throws {
             for (id, slot) in stack.slots {
                 let index = try #require(editor.pages.firstIndex { $0.id == id })
-                #expect(slot.host.frame == stack.layout.pageFrame(index, scale: Double(stack.scale)))
+                #expect(PageStackHost.sameFrame(slot.host.frame, stack.layout.pageFrame(index, scale: Double(stack.scale))))
                 #expect(abs(slot.host.canvas.zoomScale - stack.scale) < 0.0005)
             }
         }
@@ -346,6 +346,7 @@ struct PageStackTests {
         let second = try await StackTS.editor(pages: 3)
         StackTS.refresh(stack, second)
         #expect(stack.scroller.contentOffset.y == 0)
+        #expect(second.pageIndex == 0, "clamping the old offset is not a scroll to another page")
         #expect(stack.slots.keys.allSatisfy { id in second.pages.contains { $0.id == id } })
         #expect(stack.slots.values.allSatisfy { $0.coordinator.editor === second })
     }
