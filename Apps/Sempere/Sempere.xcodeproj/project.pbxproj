@@ -87,6 +87,11 @@
 			path = SempereShared;
 			sourceTree = "<group>";
 		};
+		A1000000000000000000E006 /* Localization */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Localization;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +138,7 @@
 				A1000000000000000000E003 /* SempereAppUITests */,
 				A1000000000000000000E004 /* SempereWidgets */,
 				A1000000000000000000E005 /* SempereShared */,
+				A1000000000000000000E006 /* Localization */,
 				A10000000000000000001003 /* Fixtures (shared with the package tests) */,
 				A10000000000000000001002 /* Products */,
 			);
@@ -177,6 +183,7 @@
 			fileSystemSynchronizedGroups = (
 				A1000000000000000000E001 /* SempereApp */,
 				A1000000000000000000E005 /* SempereShared */,
+				A1000000000000000000E006 /* Localization */,
 			);
 			name = SempereApp;
 			packageProductDependencies = (
@@ -246,6 +253,7 @@
 			fileSystemSynchronizedGroups = (
 				A1000000000000000000E004 /* SempereWidgets */,
 				A1000000000000000000E005 /* SempereShared */,
+				A1000000000000000000E006 /* Localization */,
 			);
 			name = SempereWidgets;
 			productName = SempereWidgets;
@@ -283,6 +291,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				es,
 				Base,
 			);
 			mainGroup = A10000000000000000001001;

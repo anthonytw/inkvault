@@ -1,0 +1,168 @@
+# Localization
+
+The app's interface is localized with String Catalogs (`.xcstrings`). English (`en`) is the
+development language; **Spanish (`es`) is complete**; other languages are welcome
+(see [Adding a language](#adding-a-language)). Task L in `docs/attachments.md` §14.
+
+Scope: interface text only.
+
+- **Note content is never translated or touched**, and neither is anything the app *writes into a
+  vault* (note titles, notebook and tag names, transcript text). A new note's default title and the
+  default voice-note notebook are stored data, so they stay English on every device: a notebook whose
+  name changed with the device language would split in two when a vault is shared between devices.
+  Only how the app *displays* an empty title (a placeholder) is localized.
+- **The CLI's messages stay English** (`Sources/` is Foundation + swift-crypto only and is shared with
+  Linux). The app shows its own localized sentence and, where it adds detail from a library error,
+  appends that error's English text after it (for example “Could not open the vault: …”).
+- Strings that must not be translated (the product name “Sempere”, file extensions, key prefixes such
+  as `age1pq1…`, keyboard-shortcut glyphs) are written with `Text(verbatim:)` or are not strings in a
+  localizing position.
+
+## Files
+
+| File | Holds |
+| --- | --- |
+| `Apps/Sempere/Localization/Localizable.xcstrings` | every interface string of the app, the quick-capture intents and the widget extension |
+| `Apps/Sempere/Localization/InfoPlist.xcstrings` | permission prompts (microphone, camera, Face ID, speech) and the exported document type names |
+
+`Localization/` is a folder-synchronized group of **both** the app and the `SempereWidgets` targets
+(the intents in `SempereShared` are compiled into both), so one catalog serves both bundles.
+`SempereInfo.plist` and `project.pbxproj` list `es` in `knownRegions`.
+
+## How strings get in
+
+| Where | What to write |
+| --- | --- |
+| SwiftUI views: `Text`, `Button`, `Label`, `Toggle`, `Section`, `Picker`, `TextField` prompt, `.navigationTitle`, `.alert`, `.confirmationDialog`, `.help`, `.accessibilityLabel`… | the English **literal**: it is a `LocalizedStringKey` and is looked up automatically |
+| A `String` that is built in code and shown later (`var title: String`, `errorMessage`, a menu title, an `NSItemProvider` name, a `UIAlertController`, a share-sheet subject…) | `String(localized: "…")` at the point where the text is *defined*. `Text(someString)` never localizes: the string must already be localized |
+| A parameter typed for display | prefer `LocalizedStringResource` (App Intents require it); convert with `String(localized: resource)` |
+| Stored or technical text (raw values, `UserDefaults` keys, file names, log lines, debug output, `systemImage:` names, vault data) | leave as is |
+
+Rules:
+
+1. **The key is the English text**, interpolations included (`"\(count) notes"` has the key
+   `%lld notes`). Use the same words in every place that means the same thing, so one catalog entry
+   serves all of them.
+2. **Never build a sentence from translated fragments** (`a + " " + b`): word order differs. Write the
+   whole sentence with interpolations, and interpolate *values* (a name, a number), not phrases.
+3. **Every count is a plural.** Any text whose wording depends on a number has `one` / `other`
+   variations in English and `one` / `many` / `other` in Spanish (CLDR: `many` is for millions, “1 000 000
+   **de** notas”). Interpolated integers are `%lld`. A sentence with two counts is reworded or split so
+   that each count is its own localized string.
+4. **Device variations** (`variations.device`: `iphone`, `ipad`, `mac`, `other`) where the wording
+   differs: “Tap” on an iPad, “Click” on a Mac; “Pencil” gestures; “Files app” vs “Finder”. Gate by
+   catalog, not by `Platform.isMac` in code.
+5. Add a **comment** for short or ambiguous strings (“Open”, “Paper”, “Pen”) saying where they
+   appear and which part of speech they are (`Text("Open", comment: "Button: open a vault")`,
+   `String(localized: "Open", comment: "…")`).
+6. Enum `rawValue`s that are stored never change; add a separate localized `title`.
+7. Multiple interpolations that Spanish reorders use positional specifiers in the translation
+   (`%2$@ … %1$lld`).
+8. Dates, numbers and sizes use `Date.FormatStyle`, `Measurement`, `ByteCountFormatter` and
+   `FormatStyle`s so the locale formats them; never a fixed `dateFormat`.
+
+`scripts/l10n.py check` lists every literal in `Apps/` that the catalog does not know and every entry
+without a Spanish value or plural variations; `LocalizationCatalogTests` (runs in `swift test`, on
+Linux too) does the same and fails the build.
+
+## Spanish glossary
+
+Variant: neutral Spanish following Apple's own Spanish (Spain) interface terms, addressing the reader
+as *tú* (infinitive or imperative for buttons: “Cancelar”, “Añadir una página”). A regional file
+(`es-419`) can later override only the words that differ (Ajustes / Configuración, Rotulador /
+Marcador).
+
+| English | Spanish | Notes |
+| --- | --- | --- |
+| note | nota | |
+| notebook | cuaderno | a `/` path of notes; not “libreta” |
+| tag | etiqueta | |
+| page | página | |
+| vault | bóveda | the encrypted folder of notes |
+| key (age identity) | clave | “clave de la bóveda”; never “llave” |
+| recovery kit | kit de recuperación | |
+| passphrase | frase de contraseña | |
+| password | contraseña | |
+| recipient | destinatario | a public key that can read the vault |
+| device | dispositivo | |
+| Keychain | Llavero | Apple's term; Face ID, Touch ID, iCloud Drive, Files, Finder, Apple Pencil stay as they are |
+| unlock / lock | desbloquear / bloquear | |
+| library | biblioteca | the list of vaults |
+| sidebar | barra lateral | |
+| Settings | Ajustes | |
+| Done / Cancel / OK | Listo / Cancelar / Aceptar | |
+| Delete / Remove | Eliminar / Quitar | Delete destroys data; Remove detaches |
+| Move to Recently Deleted | Mover a Eliminadas recientemente | |
+| Rename | Renombrar | |
+| Add / New | Añadir / Nueva (nota) / Nuevo (cuaderno) | agree in gender |
+| Open / Close | Abrir / Cerrar | |
+| Save / Restore | Guardar / Restaurar | |
+| Share / Export / Import | Compartir / Exportar / Importar | |
+| Search | Buscar | |
+| stroke / ink | trazo / tinta | |
+| pen / pencil / marker / highlighter | bolígrafo / lápiz / rotulador / resaltador | |
+| eraser (object, pixel) | borrador (de objetos, de píxeles) | |
+| lasso / ruler | lazo / regla | |
+| paper | papel | kinds: en blanco, rayado, cuadriculado, punteado… |
+| handwriting | escritura a mano | |
+| recognize / recognition | reconocer / reconocimiento | |
+| history | historial | |
+| version | versión | “Guardar versión” |
+| checkpoint | punto de control | |
+| session (editing) | sesión | |
+| recording | grabación | |
+| transcript / transcribe | transcripción / transcribir | |
+| voice note | nota de voz | |
+| attachment | adjunto | |
+| image / photo / PDF | imagen / foto / PDF | |
+| text box | cuadro de texto | |
+| inbox | bandeja de entrada | the vault's quick-capture folder |
+| sync | sincronización | “sincronizar” |
+| thin / thinning (history) | reducir / reducción (del historial) | |
+| zoom / fit width / actual size | zoom / ajustar al ancho / tamaño real | |
+| layout (paged / infinite) | disposición (paginada / infinita) | |
+
+Tone: short, plain, no exclamation marks except where English has them. Keep ellipses (`…`) and
+curly quotes (`“ ”` become `« »` only inside running Spanish text where English quotes a *name*; use
+`“ ”` again for values the user typed, as Apple does). Spanish needs roughly 1.3× the room of English:
+the pseudo-language check below uses 2×.
+
+## Checking layouts
+
+- `scripts/app.sh pseudo` runs the UI test `PseudoLanguageUITests` on the simulator three times: with
+  the **double-length** pseudo-language (`-NSDoubleLocalizedStrings YES`), with the **right-to-left**
+  pseudo-language (`-AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`) and in Spanish
+  (`-AppleLanguages (es)`), walking the main screens of the demo vault. It fails when a control or label
+  leaves the window or a single-line label is cut off, and attaches a screenshot of every screen.
+- `LocalizationCatalogTests` also fails if a Spanish string is more than twice as long as its English
+  source for short strings (under 40 characters) — the budget the double-length check proves the
+  layouts can take.
+- When a view clips in Spanish, fix the layout (`.fixedSize(horizontal: false, vertical: true)`,
+  `lineLimit(nil)`, `ViewThatFits`, a flexible `Spacer`), not the translation.
+
+## Adding a language
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-language) for the short version.
+
+1. Open `Apps/Sempere/Localization/Localizable.xcstrings` and `InfoPlist.xcstrings` in Xcode 26
+   (**Project ▸ Sempere ▸ Info ▸ Localizations ▸ +**), or add the language code by hand as below.
+2. Translate every entry. Plurals need the variations of your language's CLDR categories
+   (<https://www.unicode.org/cldr/charts/latest/supplemental/language_plural_rules.html>); keep
+   `%lld`, `%@` and `%1$@` specifiers, and do not translate “Sempere”.
+3. Add the language code to `knownRegions` in `Apps/Sempere/Sempere.xcodeproj/project.pbxproj`.
+4. Add a glossary section for the language to this file (fix the term for *vault*, *notebook*, *tag*
+   before translating, then use it everywhere).
+5. `scripts/l10n.py check --lang xx` must report nothing missing, `swift test --filter
+   LocalizationCatalogTests` must pass (set the language in the test's `supportedLanguages`), and
+   `scripts/app.sh pseudo` should show no clipping in a language of similar length.
+6. Open a pull request; the maintainer (or a native-speaking reviewer) checks the glossary.
+
+## Tooling
+
+`scripts/l10n.py` (Python 3, standard library only, development tool — not part of the build):
+
+| Command | What it does |
+| --- | --- |
+| `check [--lang es]` | scan `Apps/Sempere/{SempereApp,SempereShared,SempereWidgets}` for localized literals and compare with the catalog |
+| `merge FRAGMENT.json…` | merge hand-written fragments (key → `en`/`es` values, plural and device forms) into the catalog |
+| `stale` | catalog keys that no literal in the source uses |
