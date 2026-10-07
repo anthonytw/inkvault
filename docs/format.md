@@ -150,7 +150,8 @@ cannot check nor drop the tag by rewriting `vault.json`.
 4. The tag verifies and the device has no trust record: verified (first use
    on this device).
 
-A verified list updates the trust record. A tampered list is **refused for
+A writer that finds the list verified saves it as its trust record before it
+writes (a reader that only reads keeps none). A tampered list is **refused for
 writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
 files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
 reports the keys that are not in the last verified list (the **unexpected**
@@ -177,7 +178,9 @@ no longer holds, so the user restores `vault.json` from a backup or another
 device, or, when the device only missed a legitimate change, confirms the
 current list explicitly after checking it (the tag must verify under the
 current secret; the trust record is updated, nothing in the vault changes).
-Neither is ever done implicitly.
+An untagged copy older than the tag (a restored backup) may be confirmed the
+same way; it is then tagged again. A list whose tag does not verify is never
+confirmed, and nothing here is ever done implicitly.
 
 **Limits.** The check is only as fresh as the trust record. A device that
 opens a vault for the first time trusts the list it finds; a removed device,
