@@ -108,24 +108,25 @@ describe("recipients tag (format.md §2.1)", () => {
   }
 
   it("reports untagged, verified and tampered lists; reading is unaffected", async () => {
-    const plain = parseManifest(readFileSync(join(fixtures, "sample.sempere", "vault.json")));
-    expect((await UnlockedVault.unlock(plain, sampleIdentity())).recipientsStatus).toEqual({ status: "untagged" });
-    const secret = await secretOf(plain);
-    const tag = await recipientsTag(plain.vaultId, plain.recipients.map((r) => r.key), secret);
-    const tagged = withManifest((o) => { o.recipientsTag = tag; o.features = ["recipients-tag"]; });
-    const ok = await UnlockedVault.unlock(tagged, sampleIdentity());
+    // The committed fixture is tagged (by the Swift writer).
+    const committed = parseManifest(readFileSync(join(fixtures, "sample.sempere", "vault.json")));
+    const ok = await UnlockedVault.unlock(committed, sampleIdentity());
+    const secret = await secretOf(committed);
+    const tag = await recipientsTag(committed.vaultId, committed.recipients.map((r) => r.key), secret);
+    expect(committed.recipientsTag).toBe(tag);
+    const untagged = withManifest((o) => { delete o.recipientsTag; o.features = ["attachments"]; });
+    expect((await UnlockedVault.unlock(untagged, sampleIdentity())).recipientsStatus).toEqual({ status: "untagged" });
     expect(ok.recipientsStatus).toEqual({ status: "verified" });
     expect(recipientsWarningText(ok.recipientsStatus)).toBeUndefined();
 
     const cases: [string, (o: Record<string, unknown>) => void, string][] = [
       ["added recipient", (o) => {
-        o.recipientsTag = tag;
         (o.recipients as unknown[]).push({ key: "age1pq1" + "q".repeat(60), label: "x", added: "2026-10-07T00:00:00Z" });
       }, "tagMismatch"],
       ["tag from another vault", (o) => { o.recipientsTag = "ab".repeat(32); }, "tagMismatch"],
       ["tag of the wrong type", (o) => { o.recipientsTag = 42; }, "tagMismatch"],
       ["uppercase tag", (o) => { o.recipientsTag = tag.toUpperCase(); }, "tagMismatch"],
-      ["tag stripped", (o) => { o.features = ["recipients-tag"]; }, "tagRemoved"],
+      ["tag stripped", (o) => { delete o.recipientsTag; }, "tagRemoved"],
     ];
     for (const [name, edit, reason] of cases) {
       const m = withManifest(edit);

@@ -50,6 +50,7 @@ vault, and the vault's integrity.
 | Adversary | What they get |
 | --- | --- |
 | Storage (iCloud, a WebDAV host, a stolen backup) | Inbox files are age-encrypted to the recipients. Without the capture key they cannot add a capture that verifies. They see that captures exist, their sizes and times. |
+| Storage that rewrites `vault.json` (adds its own recipient) | A capture is sealed to the capture profile's recipients only, never to the list in `vault.json`, and a profile is only made or refreshed from a list that checks (`format.md` §2.1): a planted recipient never receives a voice note. The app refuses to enable or refresh quick capture while the list does not check. |
 | A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and no audio is on disk. |
 | Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox; they show up in the inbox notebook, attributed to a device id. They cannot read any capture, any note, or the caches, and cannot change existing notes. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
 | Someone using the unlocked device | They can record voice notes, which is the feature. They cannot listen to past ones without unlocking the vault. |
