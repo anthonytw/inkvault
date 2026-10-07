@@ -166,8 +166,9 @@ public enum PNGWriter {
         return q
     }
 
-    private static func paint(_ c: DrawCommand, into raster: inout Raster, sx: Double, sy: Double) {
-        func device(_ p: Point) -> Point { Point(x: p.x * sx, y: p.y * sy) }
+    /// Paints `c` with page point `p` at device pixel `((p.x + dx) * sx, (p.y + dy) * sy)`.
+    static func paint(_ c: DrawCommand, into raster: inout Raster, sx: Double, sy: Double, dx: Double = 0, dy: Double = 0) {
+        func device(_ p: Point) -> Point { Point(x: (p.x + dx) * sx, y: (p.y + dy) * sy) }
         func positive(_ points: [Point]) -> [Point] {
             Subpath(points: points, closed: true).signedArea < 0 ? points.reversed() : points
         }
