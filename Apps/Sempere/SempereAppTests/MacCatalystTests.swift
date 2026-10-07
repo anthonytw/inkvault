@@ -80,6 +80,41 @@ struct MacCatalystPDFTests {
         window.isHidden = true
     }
 
+    /// The canvas shows a page's items before its view is in a window (its
+    /// display scale is then 0 on a Mac, or not the window's): the tiles are
+    /// drawn again at the window's scale once it is (TestFlight build 6: PDF
+    /// pages stayed blank on the Mac).
+    @Test func aPDFPageShownBeforeItsWindowReachesTheScreen() async throws {
+        let (model, id, state) = try await Self.pdfNote()
+        let page = try #require(state.pages.first)
+        let item = try #require(page.items.first)
+        let layer = ItemLayerView(frame: CGRect(x: 0, y: 0, width: 612, height: 792))
+        layer.backgroundColor = .white
+        let scaleBefore = layer.traitCollection.displayScale
+        layer.setZoom(1)
+        layer.show(page.items, note: id, paper: .blank, source: model.itemLayerSource)
+        #expect(await TS.waitUntil(timeout: .seconds(20)) { layer.tiledItemIDs.contains(item.id) })
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let root = UIViewController()
+        window.rootViewController = root
+        root.view.addSubview(layer)
+        window.isHidden = false
+        let tile = try #require(layer.tileLayer(of: item.id))
+        print("PDF-SCALE before window \(scaleBefore), in window \(layer.traitCollection.displayScale), tile \(tile.contentsScale)")
+        #expect(tile.contentsScale == layer.traitCollection.displayScale, "tiles at the window's scale")
+        var shown: (r: Int, g: Int, b: Int)?
+        let drawn = await TS.waitUntil(timeout: .seconds(20)) {
+            let renderer = UIGraphicsImageRenderer(bounds: layer.bounds)
+            let image = renderer.image { _ in _ = layer.drawHierarchy(in: layer.bounds, afterScreenUpdates: true) }
+            shown = image.cgImage.flatMap { ImageInsertTests.pixel($0, x: Int(20 * image.scale), y: Int(20 * image.scale)) }
+            return shown.map { $0.r > 200 && $0.g < 80 } ?? false
+        }
+        #expect(drawn, "the page is drawn once in a window: \(String(describing: shown)), tiles drawn \(tile.content.drawCount)")
+        window.isHidden = true
+    }
+
     /// Draws `content` the way a tile thread does, into a bitmap whose user
     /// space is y down (`flipped`) or y up, and returns it top row first.
     static func draw(_ content: PDFTileContent, size: CGSize, flipped: Bool) -> CGImage? {
