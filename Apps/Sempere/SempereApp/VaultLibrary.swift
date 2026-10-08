@@ -26,9 +26,11 @@ enum VaultLocator {
         var description: String {
             switch self {
             case .severalVaults(let names):
-                return "That folder holds several vaults (\(names.joined(separator: ", "))). Choose one of them."
+                let list = names.joined(separator: ", ")
+                return String(localized: "That folder holds several vaults (\(list)). Choose one of them.",
+                              comment: "%@ is a list of vault folder names")
             case .insideVault(let name):
-                return "That is a folder inside the vault “\(name)”. Choose “\(name)” itself."
+                return String(localized: "That is a folder inside the vault “\(name)”. Choose “\(name)” itself.")
             }
         }
     }
@@ -93,9 +95,9 @@ enum FolderAccess {
         var description: String {
             switch self {
             case .noAccess(let name, let scoped):
-                return "Sempere has no access to “\(name)” any more"
-                    + (scoped ? "." : " (the saved permission did not come back).")
-                    + " The system only keeps access to folders you choose yourself."
+                return scoped
+                    ? String(localized: "Sempere has no access to “\(name)” any more. The system only keeps access to folders you choose yourself.")
+                    : String(localized: "Sempere has no access to “\(name)” any more (the saved permission did not come back). The system only keeps access to folders you choose yourself.")
             }
         }
     }
@@ -197,14 +199,13 @@ final class VaultLibrary {
 
         var description: String {
             switch self {
-            case .invalidName: return "Give the vault a name without slashes, leading dots or control characters."
-            case .invalidRecipient: return "That text is not an age1pq1… recipient."
+            case .invalidName: return String(localized: "Give the vault a name without slashes, leading dots or control characters.")
+            case .invalidRecipient: return String(localized: "That text is not an age1pq1… recipient.")
             case .classicRecipient:
-                return "That is a classic age1… key, which is not quantum-safe. Create a new key instead "
-                    + "(here, or with age-keygen -pq) and use its age1pq1… recipient."
-            case .passphraseNeedsGeneratedKey: return "A passphrase can only wrap a key generated on this device."
+                return String(localized: "That is a classic age1… key, which is not quantum-safe. Create a new key instead (here, or with age-keygen -pq) and use its age1pq1… recipient.")
+            case .passphraseNeedsGeneratedKey: return String(localized: "A passphrase can only wrap a key generated on this device.")
             case .cannotResolve(let name):
-                return "“\(name)” can't be found any more. It may have been moved or deleted, or access to it expired. Choose its folder again."
+                return String(localized: "“\(name)” can't be found any more. It may have been moved or deleted, or access to it expired. Choose its folder again.")
             }
         }
     }

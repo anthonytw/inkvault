@@ -22,10 +22,10 @@ enum InsertOptions {
     /// current page (`pageIndex`, 0-based) of a paged note; a pageless note
     /// is switched to pages first (its one page stays the first).
     static func pdfPagesTitle(pageless: Bool, pageIndex: Int, pageCount: Int) -> String {
-        if pageless { return "Switch to Pages and Insert PDF…" }
-        if pageCount <= 0 { return "Insert PDF Pages…" }
+        if pageless { return String(localized: "Switch to Pages and Insert PDF…") }
+        if pageCount <= 0 { return String(localized: "Insert PDF Pages…") }
         let n = min(max(pageIndex, 0), pageCount - 1) + 1
-        return n == pageCount ? "Insert PDF Pages at the End…" : "Insert PDF Pages After Page \(n)…"
+        return n == pageCount ? String(localized: "Insert PDF Pages at the End…") : String(localized: "Insert PDF Pages After Page \(n)…")
     }
 
     /// The camera on this device.
@@ -299,7 +299,7 @@ struct EditorInsert: ViewModifier {
                 guard let data = try await picked.loadTransferable(type: Data.self) else { return }
                 await replace(request, with: data)
             } catch {
-                model.errorMessage = "Could not load the photo: \(error.localizedDescription)"
+                model.errorMessage = String(localized: "Could not load the photo: \(error.localizedDescription)")
             }
         }
     }
@@ -319,7 +319,7 @@ struct EditorInsert: ViewModifier {
                 }.value
                 await replace(request, with: data)
             } catch {
-                model.errorMessage = "Could not read the picture. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not read the picture. \(AppModel.describe(error))")
             }
         }
     }
@@ -345,7 +345,7 @@ struct EditorInsert: ViewModifier {
                     guard let data = try await item.loadTransferable(type: Data.self) else { continue }
                     await model.insertImage(data, into: editor, visible: visible)
                 } catch {
-                    model.errorMessage = "Could not load the photo or video: \(error.localizedDescription)"
+                    model.errorMessage = String(localized: "Could not load the photo or video: \(error.localizedDescription)")
                 }
             }
         }
@@ -360,7 +360,7 @@ struct EditorInsert: ViewModifier {
                 let data = try ImagePreparation.jpeg(from: image)
                 await model.insertImage(data, into: editor, visible: visible)
             } catch {
-                model.errorMessage = "Could not add the photo. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not add the photo. \(AppModel.describe(error))")
             }
         }
     }
@@ -385,7 +385,7 @@ struct EditorInsert: ViewModifier {
                 let copy = try await Task.detached(priority: .userInitiated) { try VideoPreparation.copyPicked(url) }.value
                 await model.insertVideo(file: copy, into: editor, visible: visible)
             } catch {
-                model.errorMessage = "Could not add the video. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not add the video. \(AppModel.describe(error))", comment: "The value is a sentence saying why")
             }
         }
     }
@@ -397,7 +397,7 @@ struct EditorInsert: ViewModifier {
             defer { state.working -= 1 }
             if switchingToPages {
                 guard await Self.preparePages(editor) else {
-                    model.errorMessage = "Could not switch the note to pages, so the PDF was not inserted."
+                    model.errorMessage = String(localized: "Could not switch the note to pages, so the PDF was not inserted.")
                     return
                 }
             }
@@ -432,7 +432,7 @@ extension EditorInsert {
                                             at: InsertOptions.cascade(point, index: images))
                     images += 1
                 case .failed(let why):
-                    model.errorMessage = "Could not add the attachment. \(why)"
+                    model.errorMessage = String(localized: "Could not add the attachment. \(why)")
                 case .pdf(let url):
                     let index = page.flatMap { id in editor.pages.firstIndex { $0.id == id } } ?? editor.pageIndex
                     if case .needsPassword(let request) = await model.importPDF(copy: url, to: .insert(editor, after: index + 1),

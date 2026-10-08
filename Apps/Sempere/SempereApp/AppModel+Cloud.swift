@@ -87,14 +87,21 @@ struct CloudSyncStatus: Equatable, Sendable {
 
     /// "Downloading from iCloud: 37 of 128 notes".
     var headline: String {
-        "Downloading from iCloud: \(readyNotes) of \(notes) note\(notes == 1 ? "" : "s")"
+        let allNotes = String(localized: "\(notes) notes", comment: "A number of notes")
+        return String(localized: "Downloading from iCloud: \(readyNotes) of \(allNotes)",
+                      comment: "Progress; %@ is a number of notes, e.g. “37 of 128 notes”")
     }
 
     /// "212 of 277 files", plus the notes not listed yet.
     var detail: String {
-        var text = "\(localFiles) of \(files) file\(files == 1 ? "" : "s")"
-        if unlistedNotes > 0 { text += ", \(unlistedNotes) note folder\(unlistedNotes == 1 ? "" : "s") not listed yet" }
-        return text
+        let allFiles = String(localized: "\(files) files", comment: "A number of files")
+        guard unlistedNotes > 0 else {
+            return String(localized: "\(localFiles) of \(allFiles)", comment: "Download progress; %@ is a number of files, e.g. “212 of 277 files”")
+        }
+        let unlisted = String(localized: "\(unlistedNotes) note folders not listed yet",
+                              comment: "iCloud Drive has not listed these note folders yet")
+        return String(localized: "\(localFiles) of \(allFiles), \(unlisted)",
+                      comment: "Download progress; first %@ is a number of files, second “2 note folders not listed yet”")
     }
 }
 
@@ -175,9 +182,11 @@ extension AppModel {
                         idlePasses = 0
                     }
                     if pending > 0, clock.now - lastChange > self.cloudStallTimeout {
-                        self.cloudSync?.problem = "iCloud Drive has not delivered \(pending) note\(pending == 1 ? "" : "s") for "
-                            + "\(Int(self.cloudStallTimeout.components.seconds)) seconds. Check that this device is online and "
-                            + "signed in to iCloud Drive. Sempere keeps trying."
+                        let late = String(localized: "\(pending) notes", comment: "A number of notes")
+                        let wait = String(localized: "\(Int(self.cloudStallTimeout.components.seconds)) seconds",
+                                          comment: "A number of seconds")
+                        self.cloudSync?.problem = String(localized: "iCloud Drive has not delivered \(late) for \(wait). Check that this device is online and signed in to iCloud Drive. Sempere keeps trying.",
+                                                         comment: "First %@ is a number of notes, second a number of seconds")
                         interval = self.cloudIdleInterval
                     }
                 } catch is CancellationError {

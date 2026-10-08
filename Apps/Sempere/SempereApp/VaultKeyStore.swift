@@ -29,14 +29,14 @@ enum KeyStoreError: Error, Equatable, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .notFound: return "No key is saved for this vault."
-        case .cancelled: return "Authentication was cancelled."
-        case .authenticationFailed: return "Authentication failed."
-        case .noPasscode: return "Set a device passcode to let Sempere remember keys."
-        case .missingEntitlement: return "This build of Sempere cannot use the Keychain (missing entitlement)."
+        case .notFound: return String(localized: "No key is saved for this vault.")
+        case .cancelled: return String(localized: "Authentication was cancelled.")
+        case .authenticationFailed: return String(localized: "Authentication failed.")
+        case .noPasscode: return String(localized: "Set a device passcode to let Sempere remember keys.")
+        case .missingEntitlement: return String(localized: "This build of Sempere cannot use the Keychain (missing entitlement).")
         case .keychain(let status):
             let text = SecCopyErrorMessageString(status, nil) as String? ?? "error"
-            return "Keychain error \(status): \(text)"
+            return String(localized: "Keychain error \(status): \(text)", comment: "The values are the status code and the system's message")
         }
     }
 }
@@ -150,7 +150,7 @@ struct KeychainVaultKeyStore: VaultKeyStore {
         guard hasPasscode else { throw KeyStoreError.noPasscode }
         // Replacing a device-only item asks for Face ID (its access control).
         let context = LAContext()
-        context.localizedReason = "Replace the saved key for “\(vaultName)”"
+        context.localizedReason = String(localized: "Replace the saved key for “\(vaultName)”", comment: "Face ID prompt; the value is the vault name")
         let box = ContextBox(context)
         try await Task.detached(priority: .userInitiated) {
             var item = Self.baseQuery(vaultID)

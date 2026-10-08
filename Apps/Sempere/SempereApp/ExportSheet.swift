@@ -44,12 +44,14 @@ struct ExportSheet: View {
                     Section { Button("Try Again") { job.discard() } }
                 }
             }
-            .navigationTitle(request.noteIDs.count == 1 ? "Export Note" : "Export \(request.noteIDs.count) Notes")
+            .navigationTitle(Text("Export \(request.noteIDs.count) Notes"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(job.isRunning ? "Stop" : "Close") {
+                    Button {
                         if job.isRunning { job.cancel() } else { dismiss() }
+                    } label: {
+                        if job.isRunning { Text("Stop", comment: "Button: stop a running export") } else { Text("Close") }
                     }
                 }
             }
@@ -69,7 +71,7 @@ struct ExportSheet: View {
         Section("Format") {
             Picker("Format", selection: $options.format) {
                 ForEach(ExportCommand.formats) { format in
-                    Text(format.title).tag(format)
+                    Text(format.localizedTitle).tag(format)
                         .disabled(!model.canExport(format, ids: request.noteIDs))
                 }
             }
@@ -102,7 +104,7 @@ struct ExportSheet: View {
         } header: {
             Text("Options")
         } footer: {
-            Text(Self.shape(of: options, count: request.noteIDs.count)
+            Text(verbatim: Self.shape(of: options, count: request.noteIDs.count)
                  + Self.recordingsNote(options, count: recordingCount))
         }
         Section {
@@ -118,17 +120,15 @@ struct ExportSheet: View {
     @ViewBuilder
     private func result(_ outcome: ExportJob.Outcome) -> some View {
         Section {
-            Label(outcome.exported == 1 ? "1 note exported" : "\(outcome.exported) notes exported",
-                  systemImage: "checkmark.circle").foregroundStyle(.green)
+            Label("\(outcome.exported) notes exported", systemImage: "checkmark.circle").foregroundStyle(.green)
             if outcome.recordingsAttached > 0 {
-                Label("\(outcome.recordingsAttached) recording\(outcome.recordingsAttached == 1 ? "" : "s") attached",
-                      systemImage: "waveform")
+                Label("\(outcome.recordingsAttached) recordings attached", systemImage: "waveform")
             } else if outcome.recordingsOmitted > 0 {
-                Label("\(outcome.recordingsOmitted) recording\(outcome.recordingsOmitted == 1 ? "" : "s") not included",
-                      systemImage: "waveform.slash").foregroundStyle(.secondary)
+                Label("\(outcome.recordingsOmitted) recordings not included", systemImage: "waveform.slash")
+                    .foregroundStyle(.secondary)
             }
             if outcome.videosAttached > 0 {
-                Label("\(outcome.videosAttached) video\(outcome.videosAttached == 1 ? "" : "s") attached", systemImage: "film")
+                Label("\(outcome.videosAttached) videos attached", systemImage: "film")
             }
             ForEach(outcome.items, id: \.self) { Text($0.lastPathComponent).font(.callout) }
         }
@@ -154,27 +154,52 @@ struct ExportSheet: View {
     /// " 2 recordings not included." for PDF, or what "PDF + attachments" adds.
     static func recordingsNote(_ options: ShareOptions, count: Int) -> String {
         guard count > 0 else { return "" }
-        let n = count == 1 ? "1 recording" : "\(count) recordings"
+        // A leading space: the sentence follows `shape(of:)` in the same footer.
+        let sentence: String
         if options.format == .pdf && options.pdfAttachments {
-            return " \(n) and \(count == 1 ? "its transcript" : "their transcripts") attached to the PDF."
+            sentence = String(localized: "\(count) recordings and their transcripts attached to the PDF.")
+        } else if options.format == .pdf {
+            sentence = String(localized: "\(count) recordings not included (PDF + attachments includes them).")
+        } else {
+            sentence = String(localized: "\(count) recordings not included.", comment: "Export: recordings left out of the export")
         }
-        return " \(n) not included\(options.format == .pdf ? " (PDF + attachments includes them)" : "")."
+        return " " + sentence
     }
 
     /// One sentence on what the export will contain.
     static func shape(of options: ShareOptions, count: Int) -> String {
         let many = count > 1
         switch options.format {
-        case .pdf: return many && options.mergePDF ? "One PDF with every note." : many ? "One PDF per note." : "A PDF with one page per note page."
-        case .png: return many ? "A folder of PNG images per note." : "One PNG image per page."
+        case .pdf:
+            if many && options.mergePDF { return String(localized: "One PDF with every note.") }
+            return many ? String(localized: "One PDF per note.") : String(localized: "A PDF with one page per note page.")
+        case .png:
+            return many ? String(localized: "A folder of PNG images per note.") : String(localized: "One PNG image per page.")
         case .markdown:
-            let extra = options.markdownPDF ? " and PDF" : ""
-            if many { return "A folder tree like your notebooks, one Markdown file\(extra) per note, with the recognised text." }
-            return options.markdownPDF || options.markdownImages != .none
-                ? "A folder with a Markdown file of the recognised text\(extra)."
-                : "A Markdown file with the recognised handwriting, page by page."
-        case .html: return many ? "A folder with one self-contained HTML file per note and an index."
-            : "One self-contained HTML file."
+            if many {
+                return options.markdownPDF
+                    ? String(localized: "A folder tree like your notebooks, one Markdown file and PDF per note, with the recognised text.")
+                    : String(localized: "A folder tree like your notebooks, one Markdown file per note, with the recognised text.")
+            }
+            if options.markdownPDF { return String(localized: "A folder with a Markdown file of the recognised text and PDF.") }
+            return options.markdownImages != .none
+                ? String(localized: "A folder with a Markdown file of the recognised text.")
+                : String(localized: "A Markdown file with the recognised handwriting, page by page.")
+        case .html:
+            return many ? String(localized: "A folder with one self-contained HTML file per note and an index.")
+                : String(localized: "One self-contained HTML file.")
+        }
+    }
+}
+
+extension ShareFormat {
+    /// The format's name in the export sheet's picker (`title` is the library's English name).
+    var localizedTitle: String {
+        switch self {
+        case .pdf: return String(localized: "PDF", comment: "Export format: PDF document")
+        case .png: return String(localized: "PNG Pages", comment: "Export format: one PNG image per page")
+        case .markdown: return String(localized: "Text (Markdown)", comment: "Export format: Markdown text")
+        case .html: return String(localized: "HTML", comment: "Export format: HTML page")
         }
     }
 }
