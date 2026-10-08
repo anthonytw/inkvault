@@ -374,4 +374,68 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertNoThrow(try InkJSON.decoder().decode(JSONValue.self, from: Data("[\(fits)]".utf8)))
         XCTAssertNoThrow(try InkJSON.decoder().decode(JSONValue.self, from: Data("[\(fits)]".utf8)))
     }
+
+    // MARK: - App crash audit: item and highlight geometry the app draws
+
+    /// A frame decodes when its size is positive, so `[1.7e308, 0, 1.7e308, 10]`
+    /// gets through; its corners are NaN, and Core Animation raises on a layer
+    /// placed there. The app leaves such items out (`ItemFrames.isDrawable`).
+    func testItemGeometryThatOverflowsIsNotDrawable() throws {
+        let json = Data(#"[1.7e308, 0, 1.7e308, 10]"#.utf8)
+        let frame = try InkJSON.decoder().decode(Rect.self, from: json)
+        XCTAssertTrue(frame.hasPositiveSize, "the format accepts it")
+        XCTAssertTrue(ItemFrames.corners(frame, rotation: nil).contains { $0.x.isNaN })
+        XCTAssertFalse(ItemFrames.isDrawable(frame, rotation: nil))
+        XCTAssertFalse(ItemFrames.isDrawable(Rect(x: 0, y: 0, w: 1e20, h: 1), rotation: nil))
+        XCTAssertFalse(ItemFrames.isDrawable(Rect(x: 0, y: 0, w: 10, h: 10), rotation: .infinity))
+        XCTAssertFalse(ItemFrames.isDrawable(Rect(x: 0, y: 150_000, w: 190_000, h: 10), rotation: 90))
+        XCTAssertTrue(ItemFrames.isDrawable(Rect(x: 0, y: 150_000, w: 190_000, h: 10), rotation: nil))
+        XCTAssertTrue(ItemFrames.isDrawable(Rect(x: 10, y: 20, w: 300, h: 200), rotation: 1e308))
+        // What the canvas does not draw cannot be tapped and selected either.
+        let hidden = Item(kind: .text, frame: Rect(x: 0, y: 0, w: 1e20, h: 1e20), z: "b")
+        let shown = Item(kind: .text, frame: Rect(x: 0, y: 0, w: 100, h: 100), z: "a")
+        XCTAssertEqual(ItemFrames.item(at: .init(x: 50, y: 50), in: [hidden, shown])?.id, shown.id)
+        XCTAssertNil(ItemFrames.item(at: .init(x: 500, y: 500), in: [hidden, shown]))
+    }
+
+    /// `1e308 * .pi` is infinite and a rotation by it all NaN: angles are
+    /// reduced to one turn before they become radians.
+    func testHugeRotationsBecomeFiniteRadians() {
+        for d in [1e308, -1e308, Double.greatestFiniteMagnitude, 1e20] {
+            let r = ItemFrames.radians(d)
+            XCTAssertTrue(r.isFinite && abs(r) < 2 * .pi, "\(d)")
+        }
+        XCTAssertEqual(ItemFrames.radians(nil), 0)
+        XCTAssertEqual(ItemFrames.radians(.nan), 0)
+        XCTAssertEqual(ItemFrames.radians(90), .pi / 2, accuracy: 1e-12)
+        XCTAssertEqual(ItemFrames.radians(450), .pi / 2, accuracy: 1e-12)
+        XCTAssertEqual(ItemFrames.radians(-90), -.pi / 2, accuracy: 1e-12)
+    }
+
+    /// A recorded stroke with points at ±1.7e308 had an infinite box, and the
+    /// playback highlight's layer a NaN position.
+    func testARecordedStrokeTooWideToDrawHasNoPlaybackBox() {
+        func stroke(_ pts: [(Double, Double)], width: Double = 2) -> Stroke {
+            Stroke(ink: Ink(tool: .pen, color: .black, width: width),
+                   points: pts.map { StrokePoint(x: $0.0, y: $0.1, w: width, h: width) },
+                   rec: RecordingLink(id: UUID(), at: 1))
+        }
+        XCTAssertNil(RecordingSync.box(of: stroke([(-1.7e308, 0), (1.7e308, 10)])))
+        XCTAssertNil(RecordingSync.box(of: stroke([(0, 0), (10, 10)], width: 1e300)))
+        XCTAssertNotNil(RecordingSync.box(of: stroke([(0, 0), (10, 10)])))
+        XCTAssertTrue(RecordingSync.hit(x: 0, y: 0, in: [stroke([(-1.7e308, 0), (1.7e308, 10)])]).isEmpty)
+    }
+
+    /// An audio card turned by 1e308 degrees put its play badge at NaN
+    /// (`1e308 * .pi` is infinite), and the app's button with it.
+    func testAHugeRotationLeavesTheAudioBadgeFinite() {
+        let card = AudioCard(frame: Rect(x: 0, y: 0, w: 300, h: 96))
+        let plain = card.badge(rotation: nil), turned = card.badge(rotation: 1e308)
+        XCTAssertTrue(turned.center.x.isFinite && turned.center.y.isFinite)
+        XCTAssertEqual(turned.diameter, plain.diameter)
+        XCTAssertFalse(card.controlContains(x: .nan, y: 0, rotation: 1e308))
+        let c = card.badge(rotation: 360 * 1e10 + 90).center, q = card.badge(rotation: 90).center
+        XCTAssertEqual(c.x, q.x, accuracy: 1e-6)
+        XCTAssertEqual(c.y, q.y, accuracy: 1e-6)
+    }
 }

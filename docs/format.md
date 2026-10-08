@@ -594,7 +594,8 @@ notes may share a title, in one notebook or several.
                "background": "#FFFFFFFF", "lineColor": "#D0D8E8FF" },
     "pageSize": { "width": 612, "height": 792, "infinite": false },
     "lang": "en-US",
-    "markersBehindText": true
+    "markersBehindText": true,
+    "recognized": { "at": "2026-10-08T14:05:00Z", "pages": 5, "read": 2 }
   },
   "pages": [ Page, ... ],
   "recordings": [ Recording, ... ]
@@ -642,23 +643,39 @@ notes may share a title, in one notebook or several.
   Writers omit it when false; a snapshot value that is not a boolean reads as
   `false`.
 
+- `recognized` (optional, *new: shared Recently Recognized*): the last
+  deliberate handwriting reading of the note ("Recognize All Notes" in the
+  app, `sempere recognize` in the CLI), an object
+  `{"at": RFC 3339 time, "pages": n, "read": m}`: when it ran (§6), how many
+  pages the note had and how many of them it wrote recognition for (§5.5),
+  integers with `0 ≤ read ≤ pages ≤ 100000`. It is written in the same delta
+  as that run's `setPageRecognition` ops, only when the run wrote at least
+  one (a note found current is left as it is). Apps list the notes whose
+  `at` is within the last 7 days, and not more than a day ahead of the
+  device's clock ("Recently Recognized"), on every device,
+  since the register syncs like the rest of the note; the recognition a
+  page's own editor writes as the user draws does not set it. `setMeta` with
+  `null` clears it (the note leaves the list). A `setMeta` value that does
+  not decode or breaks the bounds is invalid (the revision is rejected); such
+  a snapshot value reads as absent.
+
 `lang` and `markersBehindText` were added after the first snapshots were
-written (*new: Notability import*). Readers that predate them reject a
-revision with a `setMeta` naming them (§7.4; pre-1.0) and ignore them in a
-snapshot. A snapshot that holds neither a value nor a clock for one of them
+written (*new: Notability import*), and `recognized` later still. Readers
+that predate them reject a revision with a `setMeta` naming them (§7.4;
+pre-1.0) and ignore them in a snapshot. A snapshot that holds neither a value nor a clock for one of them
 never had it set, and does not compete with a `setMeta` it does not cover
 (as `recognitionClock`, §5.5); a snapshot writes their clocks only once they
 have been set.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`
 (legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`,
-`lang`, `markersBehindText`) to the stamp of the
+`lang`, `markersBehindText`, `recognized`) to the stamp of the
 op that last set it, encoded `"<hlc>-<device>"`, e.g.
 `{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
 cover wins a register only if its own `(hlc, device)` is greater than that
 stamp; between snapshots, the greater recorded stamp wins. A register with
 no clock is treated as stamped by the snapshot's own `(hlc, device)`, except
-the two optional ones above.
+the three optional ones above.
 
 `State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...],
 "items": [uuid, ...], "recordings": [uuid, ...]}`.
@@ -1160,7 +1177,8 @@ one delta whose ops turn the current state into the state as of R:
 - `setPageOrder`, `setPageRecognition`, `setPagePaper`, `setItem`,
   `setRecording`, `setMeta` for every page order, recognition, page paper,
   item or recording register and metadata register that differs (except
-  `tags`), and `deleteNote` or `restoreNote` if `deleted` differs;
+  `tags`, and `recognized`, which records a reading rather than content and
+  is kept as it is), and `deleteNote` or `restoreNote` if `deleted` differs;
 - `removeTag` for every tag key present now but not as of R, `addTag` for
   every key present as of R but not now, and both for a key whose spelling
   differs (§5.4.1).
@@ -2537,6 +2555,7 @@ where the table says how they degrade.
 | shape objects (import) | 1 curve point per byte of the `shapes` plist + 65 536 | `NotabilityShapes.pointsPerByte` |
 | duplicate detection (import) | 256 stroke comparisons per stroke + 10⁶ per copy; beyond, the copy is imported as a separate version | `NotabilityImporter.PrintIndex` |
 | page size and stroke extent (render) | 200 000 pt | `RenderLimits.maxExtent` |
+| item frame (app canvas, hit testing) | every number finite, rotated corners within 200 000 pt; other items are not drawn or selectable | `ItemFrames.isDrawable` |
 | curve samples per stroke | 64 per control point + 1024 (sparser beyond) | `RenderLimits.samplesPerPoint` |
 | outline points per page | 40 M | `RenderLimits.maxOutlinePoints` |
 | nib width | 1 000 pt (drawn no wider) | `RenderLimits.maxNibWidth` |

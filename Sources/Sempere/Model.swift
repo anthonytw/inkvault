@@ -515,6 +515,38 @@ public struct PageSize: Hashable, Sendable, Codable {
     public static let a4 = PageSize(width: 595, height: 842)
 }
 
+/// The last vault-wide handwriting reading of a note (format.md §5.4,
+/// `meta.recognized`): when it ran, how many pages the note had and how many
+/// of them it wrote recognition for. Apps list the notes read in the last 7
+/// days as "Recently Recognized" on every device.
+public struct RecognitionRecord: Hashable, Sendable, Codable {
+    /// Most pages a run may claim (format.md §5.4).
+    public static let maxPages = 100_000
+
+    public var at: Date
+    public var pages: Int
+    /// Pages whose recognition the run wrote (`0 ≤ read ≤ pages`).
+    public var read: Int
+
+    /// Nil when the counts break the bounds of format.md §5.4.
+    public init?(at: Date, pages: Int, read: Int) {
+        guard (0...Self.maxPages).contains(pages), (0...pages).contains(read) else { return nil }
+        self.at = at; self.pages = pages; self.read = read
+    }
+
+    enum CodingKeys: String, CodingKey { case at, pages, read }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let at = try c.decode(Date.self, forKey: .at)
+        let pages = try c.decode(Int.self, forKey: .pages), read = try c.decode(Int.self, forKey: .read)
+        guard let run = RecognitionRecord(at: at, pages: pages, read: read) else {
+            throw DecodingError.dataCorruptedError(forKey: .read, in: c, debugDescription: "recognized counts out of range")
+        }
+        self = run
+    }
+}
+
 public struct NoteMeta: Hashable, Sendable, Codable {
     public var title: String
     public var tags: [String]
@@ -531,17 +563,20 @@ public struct NoteMeta: Hashable, Sendable, Codable {
     /// images) instead of above them, as a highlighter behind typed text
     /// (format.md §5.4, §8.2.3). False when absent.
     public var markersBehindText: Bool
+    /// The last vault-wide recognition run that read the note; nil when none
+    /// did or it was cleared (format.md §5.4).
+    public var recognized: RecognitionRecord?
 
     public init(title: String = "", tags: [String] = [], notebook: String? = nil, favorite: Bool = false,
                 created: Date, paper: Paper = .blank, pageSize: PageSize = .letter, lang: String? = nil,
-                markersBehindText: Bool = false) {
+                markersBehindText: Bool = false, recognized: RecognitionRecord? = nil) {
         self.title = title; self.tags = tags; self.notebook = notebook; self.favorite = favorite
         self.created = created; self.paper = paper; self.pageSize = pageSize
-        self.lang = lang; self.markersBehindText = markersBehindText
+        self.lang = lang; self.markersBehindText = markersBehindText; self.recognized = recognized
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, tags, notebook, favorite, created, paper, pageSize, lang, markersBehindText
+        case title, tags, notebook, favorite, created, paper, pageSize, lang, markersBehindText, recognized
     }
 
     public init(from decoder: Decoder) throws {
@@ -556,6 +591,7 @@ public struct NoteMeta: Hashable, Sendable, Codable {
         // Optional fields (format.md §5.4): a value of the wrong type reads as absent.
         lang = (try? c.decodeIfPresent(String.self, forKey: .lang)).flatMap { $0 }.flatMap(NoteMeta.validLanguage)
         markersBehindText = (try? c.decodeIfPresent(Bool.self, forKey: .markersBehindText)).flatMap { $0 } ?? false
+        recognized = (try? c.decodeIfPresent(RecognitionRecord.self, forKey: .recognized)).flatMap { $0 }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -569,6 +605,7 @@ public struct NoteMeta: Hashable, Sendable, Codable {
         try c.encode(pageSize, forKey: .pageSize)
         if let lang { try c.encode(lang, forKey: .lang) }
         if markersBehindText { try c.encode(true, forKey: .markersBehindText) }
+        if let recognized { try c.encode(recognized, forKey: .recognized) }
     }
 
     /// `tag` if it is a plausible BCP 47 language tag (format.md §5.4): 1 to
@@ -594,12 +631,12 @@ public struct NoteMeta: Hashable, Sendable, Codable {
 public struct NoteState: Hashable, Sendable, Codable {
     /// The LWW registers, named as they appear in `clocks` (format.md §5.4).
     public enum ClockKey: String, Hashable, Sendable, CaseIterable {
-        case title, tags, notebook, favorite, paper, pageSize, deleted, lang, markersBehindText
+        case title, tags, notebook, favorite, paper, pageSize, deleted, lang, markersBehindText, recognized
 
         /// Registers added after the first snapshots were written: a snapshot
         /// holding neither a value nor a clock for one never had it set and
         /// does not compete with a delta it does not cover (format.md §5.4).
-        public var isOptional: Bool { self == .lang || self == .markersBehindText }
+        public var isOptional: Bool { self == .lang || self == .markersBehindText || self == .recognized }
     }
 
     public var deleted: Bool
@@ -829,6 +866,8 @@ public enum MetaChange: Hashable, Sendable {
     case lang(String?)
     /// Draw marker strokes below content items (format.md §5.4, §8.2.3).
     case markersBehindText(Bool)
+    /// The last vault-wide recognition run; nil clears it (format.md §5.4).
+    case recognized(RecognitionRecord?)
 
     public var field: String {
         switch self {
@@ -840,6 +879,7 @@ public enum MetaChange: Hashable, Sendable {
         case .pageSize: return "pageSize"
         case .lang: return "lang"
         case .markersBehindText: return "markersBehindText"
+        case .recognized: return "recognized"
         }
     }
 
@@ -854,6 +894,7 @@ public enum MetaChange: Hashable, Sendable {
         case .pageSize(let v): meta.pageSize = v
         case .lang(let v): meta.lang = v
         case .markersBehindText(let v): meta.markersBehindText = v
+        case .recognized(let v): meta.recognized = v
         }
     }
 }
@@ -948,6 +989,7 @@ extension Op: Codable {
                 }
                 self = .setMeta(.lang(v))
             case "markersBehindText": self = .setMeta(.markersBehindText(try c.decode(Bool.self, forKey: .value)))
+            case "recognized": self = .setMeta(.recognized(try c.decodeIfPresent(RecognitionRecord.self, forKey: .value)))
             default:
                 throw DecodingError.dataCorruptedError(forKey: .field, in: c, debugDescription: "unknown meta field \(field)")
             }
@@ -1033,6 +1075,7 @@ extension Op: Codable {
             case .pageSize(let v): try c.encode(v, forKey: .value)
             case .lang(let v): try c.encode(v, forKey: .value)   // null when nil
             case .markersBehindText(let v): try c.encode(v, forKey: .value)
+            case .recognized(let v): try c.encode(v, forKey: .value)   // null when nil
             }
         case .addTag(let tag):
             try c.encode("addTag", forKey: .op)

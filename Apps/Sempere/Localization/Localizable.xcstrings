@@ -1971,6 +1971,18 @@
         }
       }
     },
+    "A quote (') opens text that is never closed. Put literal text in single quotes, and write '' for a quote." : {
+      "comment" : "Title pattern field: unbalanced single quote",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una comilla (') abre un texto que nunca se cierra. Pon el texto literal entre comillas simples y escribe '' para una comilla."
+          }
+        }
+      }
+    },
     "A recording interrupted by the app closing could not be recovered: %@" : {
       "comment" : "The value is the error, in English",
       "extractionState" : "manual",
@@ -4011,6 +4023,18 @@
         }
       }
     },
+    "Custom" : {
+      "comment" : "Settings ▸ New Notes ▸ Title: the user's own date pattern",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalizado"
+          }
+        }
+      }
+    },
     "Custom page colour" : {
       "comment" : "Colour picker",
       "extractionState" : "manual",
@@ -4067,6 +4091,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fecha y hora"
+          }
+        }
+      }
+    },
+    "Day" : {
+      "comment" : "Title pattern Insert menu: the day of the month",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Día"
           }
         }
       }
@@ -5826,6 +5862,18 @@
         }
       }
     },
+    "Insert a date field into the pattern" : {
+      "comment" : "Tooltip of the Insert menu next to the custom title pattern (Settings ▸ New Notes)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar un campo de fecha en el patrón"
+          }
+        }
+      }
+    },
     "Into notebook (blank: top level)" : {
       "comment" : "Notebook field placeholder when moving a notebook",
       "extractionState" : "manual",
@@ -6154,6 +6202,18 @@
         }
       }
     },
+    "Letters are date fields (yyyy year, MM month, d day, EEEE weekday, HH:mm time); put other text in single quotes, e.g. 'Lecture' d MMM. strftime works too: %%Y-%%m-%%d %%H:%%M." : {
+      "comment" : "Settings ▸ New Notes: help under the custom title pattern field; keep the pattern letters as they are",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las letras son campos de fecha (yyyy año, MM mes, d día, EEEE día de la semana, HH:mm hora); pon el resto del texto entre comillas simples, p. ej. 'Clase' d MMM. También vale strftime: %%Y-%%m-%%d %%H:%%M."
+          }
+        }
+      }
+    },
     "Library" : {
       "comment" : "View menu: show the library window",
       "extractionState" : "manual",
@@ -6318,6 +6378,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Monoespaciada"
+          }
+        }
+      }
+    },
+    "Month" : {
+      "comment" : "Title pattern Insert menu: the month name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mes"
+          }
+        }
+      }
+    },
+    "Month (number)" : {
+      "comment" : "Title pattern Insert menu: the month as a number",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mes (número)"
           }
         }
       }
@@ -8205,6 +8289,18 @@
         }
       }
     },
+    "Pattern" : {
+      "comment" : "Settings ▸ New Notes: the custom title pattern field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patrón"
+          }
+        }
+      }
+    },
     "Pause" : {
       "comment" : "Button: pause playback or recording",
       "extractionState" : "manual",
@@ -8474,6 +8570,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vista previa de una versión anterior. Aquí no se puede editar nada."
+          }
+        }
+      }
+    },
+    "Preview: %@" : {
+      "comment" : "Accessibility label: the title the custom pattern gives now",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vista previa: %@"
           }
         }
       }
@@ -11821,6 +11929,30 @@
         }
       }
     },
+    "The format gives no text." : {
+      "comment" : "Title pattern field: the pattern produces only spaces",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El formato no da ningún texto."
+          }
+        }
+      }
+    },
+    "The format is too long: at most %@ characters." : {
+      "comment" : "Title pattern field: the pattern is too long; the limit is always 200 [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El formato es demasiado largo: como máximo %@ caracteres."
+          }
+        }
+      }
+    },
     "The key could not be prepared for sharing: %@" : {
       "comment" : "Error; %@ is the reason",
       "extractionState" : "manual",
@@ -11968,6 +12100,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La nota vuelve a estar como el %@. Los cambios más recientes se quedan en el historial, así que puedes deshacerlo restaurando una versión más reciente."
+          }
+        }
+      }
+    },
+    "The note took too long to get ready to export. Try dragging it again." : {
+      "comment" : "Error when a note dragged out of the app as a PDF could not be prepared in time",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La nota ha tardado demasiado en prepararse para exportarla. Vuelve a arrastrarla."
           }
         }
       }
@@ -12790,6 +12934,30 @@
         }
       }
     },
+    "Time" : {
+      "comment" : "Title pattern Insert menu: 24-hour time",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hora"
+          }
+        }
+      }
+    },
+    "Time (12-hour)" : {
+      "comment" : "Title pattern Insert menu: 12-hour time",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hora (12 horas)"
+          }
+        }
+      }
+    },
     "Title" : {
       "comment" : "Text field: a recording's title",
       "extractionState" : "manual",
@@ -12798,6 +12966,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Título"
+          }
+        }
+      }
+    },
+    "Title pattern" : {
+      "comment" : "Accessibility label of the custom title pattern field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patrón del título"
           }
         }
       }
@@ -13091,6 +13271,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Actívalas en Sempere"
+          }
+        }
+      }
+    },
+    "Type a pattern, e.g. %@." : {
+      "comment" : "Title pattern field: the field is empty",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe un patrón, p. ej. %@."
           }
         }
       }
@@ -13770,6 +13962,30 @@
         }
       }
     },
+    "Weekday" : {
+      "comment" : "Title pattern Insert menu: the weekday name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Día de la semana"
+          }
+        }
+      }
+    },
+    "Weekday and Date" : {
+      "comment" : "Settings ▸ New Notes ▸ Title: Wednesday 7 October",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Día de la semana y fecha"
+          }
+        }
+      }
+    },
     "When Adding a Device" : {
       "comment" : "Settings ▸ Device Keys picker",
       "extractionState" : "manual",
@@ -13826,6 +14042,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Contraseña incorrecta"
+          }
+        }
+      }
+    },
+    "Year" : {
+      "comment" : "Title pattern Insert menu: the year field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Año"
+          }
+        }
+      }
+    },
+    "Year-Month-Day Time" : {
+      "comment" : "Settings ▸ New Notes ▸ Title: 2026-10-07 14:30",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Año-mes-día y hora"
           }
         }
       }
@@ -14324,6 +14564,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "«%@» es una bóveda. Elige una carpeta fuera de ella (un disco externo, otra carpeta en la nube)."
+          }
+        }
+      }
+    },
+    "“%@” is not a date field. Put literal text in single quotes, e.g. 'Lecture' d MMM." : {
+      "comment" : "Title pattern field: a letter outside quotes that is no date field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» no es un campo de fecha. Pon el texto literal entre comillas simples, p. ej. 'Clase' d MMM."
+          }
+        }
+      }
+    },
+    "“%@” is not a strftime directive." : {
+      "comment" : "Title pattern field: an unknown % directive",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» no es una directiva de strftime."
           }
         }
       }

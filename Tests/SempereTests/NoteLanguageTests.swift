@@ -155,3 +155,89 @@ final class NoteLanguageTests: XCTestCase {
         XCTAssertEqual(change, .other(field: PDFPageText.field, value: .null))
     }
 }
+
+/// `meta.recognized` (format.md §5.4): the shared "Recently Recognized".
+final class RecentlyRecognizedTests: XCTestCase {
+    let p1 = UUID(uuidString: "00000000-0000-4000-8000-0000000000b1")!
+    let t0 = Date(timeIntervalSince1970: 1_791_000_000)
+
+    func decodeOp(_ json: String) throws -> Op { try JSONDecoder().decode(Op.self, from: Data(json.utf8)) }
+
+    func testRecordBoundsAndOpRoundTrip() throws {
+        XCTAssertNotNil(RecognitionRecord(at: t0, pages: 0, read: 0))
+        XCTAssertNil(RecognitionRecord(at: t0, pages: 2, read: 3))
+        XCTAssertNil(RecognitionRecord(at: t0, pages: -1, read: 0))
+        XCTAssertNil(RecognitionRecord(at: t0, pages: RecognitionRecord.maxPages + 1, read: 0))
+        let record = try XCTUnwrap(RecognitionRecord(at: t0, pages: 5, read: 2))
+        for op in [Op.setMeta(.recognized(record)), .setMeta(.recognized(nil))] {
+            XCTAssertEqual(try JSONDecoder().decode(Op.self, from: try JSONEncoder().encode(op)), op)
+        }
+        // Counts out of range, or a missing field: the revision is rejected.
+        XCTAssertThrowsError(try decodeOp(#"{"op":"setMeta","field":"recognized","value":{"at":0,"pages":1,"read":2}}"#))
+        XCTAssertThrowsError(try decodeOp(#"{"op":"setMeta","field":"recognized","value":{"at":0,"pages":1}}"#))
+        XCTAssertThrowsError(try decodeOp(#"{"op":"setMeta","field":"recognized","value":true}"#))
+        XCTAssertEqual(try decodeOp(#"{"op":"setMeta","field":"recognized","value":null}"#), .setMeta(.recognized(nil)))
+    }
+
+    func testSnapshotMetaOmitsItAndToleratesABadValue() throws {
+        let meta = NoteMeta(created: t0)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(meta), as: UTF8.self).contains("recognized"))
+        var set = meta
+        set.recognized = RecognitionRecord(at: t0, pages: 3, read: 1)
+        XCTAssertEqual(try JSONDecoder().decode(NoteMeta.self, from: try JSONEncoder().encode(set)), set)
+        var obj = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(meta)) as! [String: Any]
+        obj["recognized"] = ["at": 0, "pages": 1, "read": 9]
+        XCTAssertNil(try JSONDecoder().decode(NoteMeta.self, from: try JSONSerialization.data(withJSONObject: obj)).recognized)
+    }
+
+    /// Two devices' runs merge by LWW, a snapshot that predates the register
+    /// does not compete, and a restore keeps it.
+    func testMergesLikeTheOtherRegisters() throws {
+        var log = LogBuilder()
+        let base = log.delta(devA, 0, [.addPage(Page(id: p1, order: "V"))])
+        let snap = try log.snapshot(devC, 50, from: [base])
+        let a = RecognitionRecord(at: t0, pages: 1, read: 1)!, b = RecognitionRecord(at: t0 + 60, pages: 1, read: 0)!
+        let onA = log.delta(devA, 100, [.setMeta(.recognized(a))])
+        let onB = log.delta(devB, 200, [.setMeta(.recognized(b))])
+        XCTAssertEqual(try NoteReducer.reconstruct([onB, onA, base]).meta.recognized, b)
+        XCTAssertEqual(try NoteReducer.reconstruct([snap, onA]).meta.recognized, a,
+                       "a snapshot without the register does not beat a later run")
+        let cleared = log.delta(devA, 300, [.setMeta(.recognized(nil))])
+        let state = try NoteReducer.reconstruct([base, onA, onB, cleared])
+        XCTAssertNil(state.meta.recognized)
+
+        var target = state
+        target.meta.recognized = a
+        XCTAssertTrue(NoteHistory.restoreOps(current: state, target: target).isEmpty, "a restore keeps it")
+    }
+
+    func testRecognitionJobOpsRecordTheRun() throws {
+        let page = Page(id: p1, order: "V")
+        let state = NoteState(meta: NoteMeta(created: t0), pages: [page])
+        let job = RecognitionJob(page: p1, digest: RecognitionBasis.digest(of: page),
+                                 recognition: Recognition(engine: "test", text: "hi"))
+        let ops = RecognitionJob.ops(for: [job], in: state, recordedAt: t0)
+        XCTAssertEqual(ops.count, 2)
+        XCTAssertEqual(ops.last, .setMeta(.recognized(RecognitionRecord(at: t0, pages: 1, read: 1))))
+        // Nothing still matches (strokes changed): nothing at all is written.
+        let stale = RecognitionJob(page: p1, digest: "other", recognition: nil)
+        XCTAssertEqual(RecognitionJob.ops(for: [stale], in: state, recordedAt: t0), [])
+        var deleted = state
+        deleted.deleted = true
+        XCTAssertEqual(RecognitionJob.ops(for: [job], in: deleted, recordedAt: t0), [])
+    }
+
+    func testListingWindowOrderAndClockSkew() {
+        func note(_ n: Int, _ at: Date?, deleted: Bool = false) -> NoteSummary {
+            var s = NoteSummary(id: UUID(uuidString: "00000000-0000-4000-8000-00000000000\(n)")!, title: "\(n)", tags: [],
+                                notebook: nil, deleted: deleted, pages: 1, strokes: 0, modified: nil, problem: nil)
+            s.recognized = at.flatMap { RecognitionRecord(at: $0, pages: 1, read: 1) }
+            return s
+        }
+        let now = t0
+        let notes = [note(1, now - 3600), note(2, now - 8 * 86_400), note(3, now - 60), note(4, nil),
+                     note(5, now - 60, deleted: true), note(6, now + 3 * 86_400), note(7, now + 3600)]
+        XCTAssertEqual(RecentlyRecognized.notes(notes, now: now).map(\.title), ["7", "3", "1"])
+        XCTAssertEqual(RecentlyRecognized.notes(notes, now: now, window: 10 * 86_400).map(\.title), ["7", "3", "1", "2"])
+    }
+}

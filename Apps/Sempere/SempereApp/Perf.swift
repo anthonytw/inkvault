@@ -64,6 +64,8 @@ enum Perf {
         case cacheWrite = "cache.write"
         /// A note folder reported changed by the file presenter (an event).
         case changeNotified = "change.notified"
+        /// Background time and scheduled tasks of the iCloud sync (an event; detail: what happened).
+        case backgroundSync = "sync.background"
         /// A thinning run or preview over the vault (`thinVault`).
         case thin = "thin"
         /// Thinning one note: metadata, then (when something may go) read, plan, encode, write.
@@ -162,6 +164,7 @@ extension Perf.Phase {
         case .remoteMerge: return "note.remoteMerge"
         case .cacheWrite: return "cache.write"
         case .changeNotified: return "change.notified"
+        case .backgroundSync: return "sync.background"
         case .thin: return "thin"
         case .thinNote: return "thin.note"
         case .itemPicture: return "item.picture"

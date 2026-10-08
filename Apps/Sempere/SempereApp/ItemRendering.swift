@@ -243,7 +243,7 @@ enum TextItemImage {
         // The extent turned about the frame's centre, as the item is.
         let c = (x: frame.x + frame.w / 2, y: frame.y + frame.h / 2)
         let rotated = ItemFrames.corners(extent, rotation: nil).map { p -> ItemFrames.Point in
-            let r = (rotation ?? 0) * .pi / 180
+            let r = ItemFrames.radians(rotation)
             let dx = p.x - c.x, dy = p.y - c.y
             return ItemFrames.Point(x: c.x + cos(r) * dx - sin(r) * dy, y: c.y + sin(r) * dx + cos(r) * dy)
         }
@@ -262,7 +262,7 @@ enum TextItemImage {
             let cg = ctx.cgContext
             // Page coordinates: the item's centre, turned, then the frame's own axes.
             cg.translateBy(x: CGFloat(c.x - bounds.x), y: CGFloat(c.y - bounds.y))
-            cg.rotate(by: CGFloat((rotation ?? 0) * .pi / 180))
+            cg.rotate(by: CGFloat(ItemFrames.radians(rotation)))
             cg.translateBy(x: CGFloat(-c.x), y: CGFloat(-c.y))
             layout.draw(in: cg)
         }

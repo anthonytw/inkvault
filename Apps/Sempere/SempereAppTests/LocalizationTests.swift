@@ -48,6 +48,16 @@ struct LocalizationTests {
         #expect(untranslated.isEmpty, "no Spanish for: \(untranslated)")
     }
 
+    /// A notebook row's menu is built by UIKit as well as SwiftUI (`NotebookRowAction`): its titles are
+    /// catalog lookups, not plain `String`s that would stay English.
+    @Test func notebookMenuTitlesAreTranslated() throws {
+        let es = try #require(Self.spanish)
+        let missing = "\u{1}missing"
+        let menu = NotebookRowAction.notebookMenu(rename: {}, move: {}, export: {})
+        #expect(menu.map { es.localizedString(forKey: $0.title.key, value: missing, table: nil) }
+                == ["Renombrar o mover…", "Mover cuaderno a…", "Exportar cuaderno…"])
+    }
+
     @Test func permissionPromptsAreTranslated() throws {
         let es = try #require(Self.spanish)
         let missing = "\u{1}missing"

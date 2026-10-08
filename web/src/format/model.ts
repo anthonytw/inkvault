@@ -99,6 +99,25 @@ export interface NoteMeta {
   lang?: string;
   /** Marker strokes drawn below content items (§5.4, §8.2.3); absent is false. */
   markersBehindText?: boolean;
+  /** The last deliberate recognition run that read the note (§5.4); absent when none. */
+  recognized?: RecognitionRecord;
+}
+
+/** `meta.recognized` (§5.4; Swift `RecognitionRecord`): `at` in Unix milliseconds. */
+export interface RecognitionRecord {
+  at: number;
+  pages: number;
+  read: number;
+}
+
+/** Most pages a recognition record may claim (§5.4). */
+export const maxRecognizedPages = 100_000;
+
+function recognitionRecord(v: unknown, path: string): RecognitionRecord {
+  const o = obj(v, path);
+  const r = { at: reqWith(o, "at", path, date), pages: reqWith(o, "pages", path, int), read: reqWith(o, "read", path, int) };
+  if (r.pages < 0 || r.pages > maxRecognizedPages || r.read < 0 || r.read > r.pages) fail(path, "recognized counts out of range");
+  return r;
 }
 
 /**
@@ -171,7 +190,8 @@ export type MetaChange =
   | { field: "paper"; value: Paper }
   | { field: "pageSize"; value: PageSize }
   | { field: "lang"; value: string | undefined }
-  | { field: "markersBehindText"; value: boolean };
+  | { field: "markersBehindText"; value: boolean }
+  | { field: "recognized"; value: RecognitionRecord | undefined };
 
 export type Op =
   | { op: "addStroke"; page: string; stroke: Stroke }
@@ -435,6 +455,13 @@ function decodeMeta(v: unknown, path: string): NoteMeta {
   const lang = typeof o.lang === "string" ? validLanguage(o.lang) : undefined;
   if (lang !== undefined) m.lang = lang;
   if (o.markersBehindText === true) m.markersBehindText = true;
+  if (o.recognized !== undefined && o.recognized !== null) {
+    try {
+      m.recognized = recognitionRecord(o.recognized, `${path}.recognized`);
+    } catch (e) {
+      if (!(e instanceof DecodeError)) throw e;
+    }
+  }
   return m;
 }
 
@@ -533,6 +560,7 @@ function decodeMetaChange(o: JSONObject, path: string): MetaChange {
       return { field, value };
     }
     case "markersBehindText": return { field, value: reqWith(o, "value", path, bool) };
+    case "recognized": return { field, value: optWith(o, "value", path, recognitionRecord) };
     default: fail(`${path}.field`, `unknown meta field ${field}`);
   }
 }
@@ -739,6 +767,9 @@ export function encodeState(s: NoteState, formatDate: (ms: number) => string): J
   if (m.notebook !== undefined) meta.notebook = m.notebook;
   if (m.lang !== undefined) meta.lang = m.lang;
   if (m.markersBehindText === true) meta.markersBehindText = true;
+  if (m.recognized !== undefined) {
+    meta.recognized = { at: formatDate(m.recognized.at), pages: m.recognized.pages, read: m.recognized.read };
+  }
   const o: JSONObject = { deleted: s.deleted, meta, pages: s.pages.map(encodePage) };
   if (s.clocks && Object.keys(s.clocks).length > 0) o.clocks = s.clocks;
   const t = s.tombstones;

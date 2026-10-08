@@ -19,6 +19,18 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `sempere restore DIR --to NEW --dry-run` (what a restore would bring back, and whether `NEW` can take it).
   `restore` refuses a target that is, holds or lies inside the vault named by `--vault` / `$SEMPERE_VAULT`.
 
+- "Recently Recognized" is shared by every device, like the trash: a recognition run ("Recognize All
+  Notes", `sempere recognize`) marks each note it writes recognition for with the time of the run
+  (`meta.recognized`, `format.md` §5.4), which syncs with the note. The sidebar lists it under All Notes
+  with the smart lists. CLI: `sempere recognize --recent [--days N] [--json]`; `notes show --json` gives
+  `recognized`. Builds before this one reject a revision carrying the new register (pre-1.0).
+- New-note titles: presets (Date and Time, Date, Year-Month-Day Time, Weekday and Date) and a custom
+  pattern, a Unicode date pattern or a strftime format, checked as it is typed with a live preview, the
+  reason it is refused and an Insert menu of fields. CLI: `notes new --title-format` takes strftime too
+  and refuses a format it cannot use (exit 2) with the same reason; `SEMPERE_TITLE_FORMAT` sets the default.
+- iPhone and iPad: an iCloud sync in flight when the device locks or the app leaves the screen finishes
+  in the background time iOS gives, and scheduled background tasks continue it when iOS allows
+  (`docs/io.md` "Background sync" lists the limits).
 - Unused attachments (E7): the app keeps a per-note index of each note's attachment files on the device,
   updated only for the note that changed (an edit, or a revision arriving by sync or iCloud). Settings →
   Storage shows "Unused Attachments: N items, X MB" and "Held by History" (files only older versions
@@ -299,9 +311,22 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Fixed
 
+- Dragging notes onto a notebook in the sidebar, and a notebook onto another, works on the iPad and the
+  Mac. The sidebar asked the drag for a "move" operation, which drags started from a list do not allow,
+  so the system cancelled every drop when it was released (the row still lit up while hovering). A
+  notebook dragged within the sidebar never reached the other rows at all (a list keeps its own drags):
+  notebook rows now start their drag, and show their context menu, from a view of their own.
 - Exporting a note with a recording no longer crashes on the Mac: Share… and Save… are presented
   by UIKit from the export sheet, and their callbacks are safe on any thread. Long recordings are
   streamed into "PDF + attachments" instead of being read into memory.
+
+- App crash audit (no new features): a hostile or corrupt revision can no longer crash the app when a note
+  is shown. Items whose frame overflows to NaN, or lies past 200 000 pt, are not drawn or selectable (Core
+  Animation raised on a NaN layer position); huge video durations no longer trap in the player title and the
+  Markdown/HTML exports; recorded strokes too wide to draw get no playback highlight; huge rotations are
+  reduced to one turn; PDF page previews and page-strip thumbnails have pixel budgets; a NaN audio duration
+  gives a valid scrubber. Opening a note in iCloud asks file states off the main thread, and a Mac drag-out
+  whose preparation never ends fails after 20 s instead of freezing.
 
 ## [0.5.0] - TODO(user): date of the first release
 

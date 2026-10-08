@@ -61,10 +61,10 @@ class Register<V> {
   }
 }
 
-const clockKeys = ["title", "tags", "notebook", "favorite", "paper", "pageSize", "deleted", "lang", "markersBehindText"] as const;
+const clockKeys = ["title", "tags", "notebook", "favorite", "paper", "pageSize", "deleted", "lang", "markersBehindText", "recognized"] as const;
 type ClockKey = (typeof clockKeys)[number];
 /** Registers added after the first snapshots: unset without a value or a clock (§5.4). */
-const optionalKeys: ReadonlySet<ClockKey> = new Set(["lang", "markersBehindText"]);
+const optionalKeys: ReadonlySet<ClockKey> = new Set(["lang", "markersBehindText", "recognized"]);
 
 type RegisterValue = { key: "meta"; change: MetaChange } | { key: "deleted"; value: boolean };
 
@@ -79,6 +79,7 @@ function registerValue(k: ClockKey, s: NoteState): RegisterValue {
     case "pageSize": return { key: "meta", change: { field: "pageSize", value: m.pageSize } };
     case "lang": return { key: "meta", change: { field: "lang", value: m.lang } };
     case "markersBehindText": return { key: "meta", change: { field: "markersBehindText", value: m.markersBehindText === true } };
+    case "recognized": return { key: "meta", change: { field: "recognized", value: m.recognized } };
     case "deleted": return { key: "deleted", value: s.deleted };
   }
 }
@@ -110,6 +111,10 @@ function applyRegister(v: RegisterValue, s: NoteState): void {
     case "markersBehindText":
       if (c.value) s.meta.markersBehindText = true;
       else delete s.meta.markersBehindText;
+      break;
+    case "recognized":
+      if (c.value === undefined) delete s.meta.recognized;
+      else s.meta.recognized = c.value;
       break;
   }
 }

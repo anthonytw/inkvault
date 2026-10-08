@@ -13,19 +13,23 @@ import SwiftUI
 struct SempereApp: App {
     /// Builds the Mac menu bar without the system's duplicates (`MacMenus`).
     @UIApplicationDelegateAdaptor(SempereAppDelegate.self) private var appDelegate
-    @State private var model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
-                                        summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
-                                        drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
-                                        blobCacheRoot: BlobCache.folder,
-                                        renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
-                                        attachmentIndexRoot: AppModel.defaultAttachmentIndexRoot,
-                                        automaticThinning: true,
-                                        recipientsTrust: AppModel.defaultRecipientsTrust,
-                                        backupNotifier: UserNotificationBackupNotifier())
+    @State private var model: AppModel
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 
     init() {
+        let model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
+                             summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
+                             drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
+                             blobCacheRoot: BlobCache.folder,
+                             renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
+                             attachmentIndexRoot: AppModel.defaultAttachmentIndexRoot,
+                             automaticThinning: true,
+                             recipientsTrust: AppModel.defaultRecipientsTrust,
+                             backupNotifier: UserNotificationBackupNotifier())
+        _model = State(initialValue: model)
+        // Background sync (iOS): the launch handlers of the scheduled tasks, registered before launch ends.
+        BackgroundSync.register(model: model)
         // Staged exports are plaintext copies of notes: none survives a launch.
         ExportJob.purgeStale()
         BulkExportRun.purgeStale()

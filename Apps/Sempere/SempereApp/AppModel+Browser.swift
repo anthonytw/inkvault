@@ -435,6 +435,9 @@ extension AppModel {
     /// drop: iPadOS 26 releases the provider `onDrag` returns as soon as the
     /// closure ends unless someone keeps it, and a drop then loads nothing.
     func beginDrag(_ payload: DragPayload?, provider: NSItemProvider) -> NSItemProvider {
+        #if DEBUG
+        DropTrace.note("begin \(payload.map { "\($0)" } ?? "nil")")
+        #endif
         draggedPayload = payload
         dragProvider = provider
         return provider
