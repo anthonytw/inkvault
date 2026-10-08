@@ -5236,6 +5236,18 @@
         }
       }
     },
+    "Not on a page" : {
+      "comment" : "Recordings list: no card shows the recording",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En ninguna página"
+          }
+        }
+      }
+    },
     "Note" : {
       "comment" : "Mac menu bar: the Note menu",
       "extractionState" : "manual",
@@ -5466,6 +5478,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En este dispositivo"
+          }
+        }
+      }
+    },
+    "On page %@" : {
+      "comment" : "Recordings list: the page with its card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En la página %@"
+          }
+        }
+      }
+    },
+    "On pages %@" : {
+      "comment" : "Recordings list: the pages with its cards, e.g. 1, 3",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En las páginas %@"
           }
         }
       }

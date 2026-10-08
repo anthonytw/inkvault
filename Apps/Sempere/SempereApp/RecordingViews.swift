@@ -396,8 +396,10 @@ struct RecordingsListView: View {
     private func placement(_ r: Recording) -> String {
         let pages = editor.audioItems(showing: r.id).compactMap { hit in editor.pages.firstIndex { $0.id == hit.page } }
         let numbers = Array(Set(pages)).sorted().map { String($0 + 1) }
-        if numbers.isEmpty { return "Not on a page" }
-        return (numbers.count == 1 ? "On page " : "On pages ") + numbers.joined(separator: ", ")
+        if numbers.isEmpty { return String(localized: "Not on a page", comment: "Recordings list: no card shows the recording") }
+        let list = numbers.joined(separator: ", ")
+        return numbers.count == 1 ? String(localized: "On page \(list)", comment: "Recordings list: the page with its card")
+            : String(localized: "On pages \(list)", comment: "Recordings list: the pages with its cards, e.g. 1, 3")
     }
 
     private func row(_ r: Recording) -> some View {
@@ -412,7 +414,7 @@ struct RecordingsListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(AudioCard.title(r)).font(.headline).lineLimit(1)
                 Text([r.started.formatted(date: .abbreviated, time: .shortened), AudioCard.duration(r),
-                      r.transcript == nil ? nil : "Transcript", placement(r)].compactMap { $0 }.joined(separator: " · "))
+                      r.transcript == nil ? nil : String(localized: "Transcript"), placement(r)].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
             Spacer()
