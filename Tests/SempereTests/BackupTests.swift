@@ -194,6 +194,107 @@ final class BackupTests: VaultTestCase {
         }
     }
 
+    // MARK: - Status, preview and protected targets
+
+    func testStatusReadsTheIndexOnly() throws {
+        XCTAssertThrowsError(try Backup.status(at: dest)) {
+            XCTAssertEqual($0 as? BackupError, .notABackupDirectory(dest.path))
+        }
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        _ = try Backup.run(source: vault, to: dest, options: BackupOptions(now: t0))
+        let first = try Backup.status(at: dest)
+        let files = try contents(vault.url)
+        XCTAssertEqual(first.vaultId, vault.vaultId.uuidString.lowercased())
+        XCTAssertEqual(first.created, t0)
+        XCTAssertEqual(first.updated, t0)
+        XCTAssertEqual(first.files, files.count)
+        XCTAssertEqual(first.bytes, files.values.reduce(0) { $0 + $1.count })
+        XCTAssertEqual(first.notes, try vault.noteIDs().count)
+        XCTAssertEqual(first.versionFiles, 0)
+        XCTAssertEqual(first.totalBytes, first.bytes)
+
+        // A later run moves `updated` even when nothing changed; a replaced file counts its previous copy.
+        try vault.writeIdentityFile(id, passphrase: "pw", workFactor: 15)
+        _ = try Backup.run(source: vault, to: dest, options: BackupOptions(now: t0.addingTimeInterval(60)))
+        var other = vault!
+        _ = try other.addRecipient(pqIdentity().recipient, label: "second")
+        _ = try Backup.run(source: other, to: dest, options: BackupOptions(now: t0.addingTimeInterval(120)))
+        let later = try Backup.status(at: dest)
+        XCTAssertEqual(later.created, t0)
+        XCTAssertEqual(later.updated, t0.addingTimeInterval(120))
+        XCTAssertGreaterThan(later.versionFiles, 0)
+        XCTAssertEqual(later.totalBytes, later.bytes + later.versionBytes)
+    }
+
+    func testStatusClampsHostileSizes() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        let url = dest.appendingPathComponent(BackupManifest.fileName)
+        var m = try BackupManifest.read(url)
+        for k in m.files.keys { m.files[k]?.size = Int.max }
+        m.files["notes/x/y"] = .init(sha256: "00", size: -5)
+        try m.write(to: url)
+        let s = try Backup.status(at: dest)
+        XCTAssertEqual(s.bytes, Int.max)
+        XCTAssertEqual(s.totalBytes, Int.max)
+    }
+
+    func testPreviewCountsWithoutAKey() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        let p = try Backup.preview(of: dest)
+        let names = try Backup.formatFiles(in: vault.url).compactMap { path -> RevisionName? in
+            let parts = path.split(separator: "/")
+            return parts.count == 3 ? RevisionName(String(parts[2])) : nil
+        }
+        XCTAssertTrue(p.isBackup)
+        XCTAssertNotNil(p.backupUpdated)
+        XCTAssertEqual(p.vaultId, vault.vaultId.uuidString.lowercased())
+        XCTAssertEqual(p.notes, try vault.noteIDs().count)
+        XCTAssertEqual(p.revisions, names.count)
+        XCTAssertEqual(p.attachments, 0)
+        XCTAssertFalse(p.legacy)
+        XCTAssertEqual(p.newestRevision, Date(timeIntervalSince1970: TimeInterval(names.map(\.hlc.millis).max()!) / 1000))
+        XCTAssertEqual(p.bytes, try contents(dest).values.reduce(0) { $0 + $1.count })
+
+        // A plain vault folder previews too; a folder with neither file does not.
+        let plain = try Backup.preview(of: vault.url)
+        XCTAssertFalse(plain.isBackup)
+        XCTAssertNil(plain.backupUpdated)
+        XCTAssertEqual(plain.revisions, p.revisions)
+        let empty = tmp.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try Backup.preview(of: empty)) {
+            XCTAssertEqual($0 as? BackupError, .nothingToRestore(empty.path))
+        }
+    }
+
+    func testRestoreRefusesTheProtectedVaultsLocation() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        let open = vault.url
+        // Inside the open vault (an empty folder there would otherwise be taken),
+        // the open vault itself, and a folder around it.
+        let inside = open.appendingPathComponent("Restored.sempere")
+        let around = tmp.appendingPathComponent("Outer.sempere")
+        let moved = around.appendingPathComponent("v.sempere")
+        try FileManager.default.createDirectory(at: around, withIntermediateDirectories: true)
+        for target in [inside, open, around] {
+            XCTAssertThrowsError(try Backup.restore(from: dest, to: target, protecting: [open, moved])) {
+                XCTAssertEqual($0 as? BackupError, .protectedTarget(target.path), target.path)
+            }
+            XCTAssertThrowsError(try Backup.checkRestoreTarget(target, from: dest, protecting: [open, moved]))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inside.path), "nothing written")
+        XCTAssertEqual(try contents(open), try contents(dest).filter { $0.key != BackupManifest.fileName })
+
+        // Elsewhere it goes ahead.
+        let target = tmp.appendingPathComponent("Elsewhere.sempere")
+        XCTAssertEqual(try Backup.checkRestoreTarget(target, from: dest, protecting: [open]),
+                       vault.vaultId.uuidString.lowercased())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path), "a check writes nothing")
+        let report = try Backup.restore(from: dest, to: target, identities: [id], protecting: [open])
+        XCTAssertTrue(report.errors.isEmpty)
+        XCTAssertEqual(report.verify?.isHealthy, true)
+    }
+
     func testRestoreResumesAndRefusesDamagedFiles() throws {
         _ = try Backup.run(source: vault, to: dest)
         let target = tmp.appendingPathComponent("R.sempere")
