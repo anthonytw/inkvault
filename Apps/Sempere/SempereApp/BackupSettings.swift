@@ -78,7 +78,7 @@ enum BackupLocation {
                 return String(localized: "“\(name)” is a vault. Choose a folder outside it (an external drive, another cloud folder).",
                               comment: "Backups: the picked backup folder is a vault; %@ is its name")
             case .insideOpenVault:
-                return String(localized: "That folder is the open vault, or inside it. A backup must be somewhere else.")
+                return String(localized: "That folder is the open vault, holds it or is inside it. A backup must be somewhere else.")
             case .otherVaultsBackup(let name):
                 return String(localized: "“\(name)” holds the backup of another vault. Choose another folder.",
                               comment: "Backups: %@ is the picked folder's name")

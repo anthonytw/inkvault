@@ -9568,13 +9568,13 @@
         }
       }
     },
-    "That folder is the open vault, or inside it. A backup must be somewhere else." : {
+    "That folder is the open vault, holds it or is inside it. A backup must be somewhere else." : {
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esa carpeta es la bóveda abierta o está dentro de ella. La copia debe estar en otro lugar."
+            "value" : "Esa carpeta es la bóveda abierta, la contiene o está dentro de ella. La copia debe estar en otro lugar."
           }
         }
       }

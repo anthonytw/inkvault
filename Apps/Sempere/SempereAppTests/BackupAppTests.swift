@@ -104,6 +104,9 @@ struct BackupAppTests {
             _ = try BackupLocation.subfolder(in: fixture.deletingLastPathComponent(), vaultId: id, vaultName: "Notes",
                                          openVault: fixture)
         }
+        // The message covers both refusals: a folder inside the vault and one that holds it.
+        let why = BackupLocation.Problem.insideOpenVault.description
+        #expect(why.contains("holds it") && why.contains("inside it"), "\(why)")
     }
 
     @Test func restoreSourceAndName() throws {
