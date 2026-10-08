@@ -94,7 +94,7 @@ final class LaunchSmokeUITests: XCTestCase {
         }
         require(restore, "Restore from Backup… button", in: app)
         restore.click()
-        require(app.descendants(matching: .any)["restoreBackupSheet"].firstMatch, "Restore from Backup sheet", in: app)
+        requireSheet("restoreBackupSheet", titled: "Restore from Backup", "Restore from Backup sheet", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         requireRunning(app, "restore sheet")
         app.typeKey("w", modifierFlags: .command)   // closes the Settings window
@@ -117,7 +117,7 @@ final class LaunchSmokeUITests: XCTestCase {
         // Export… (⇧⌘E) on the selected note.
         focusLibrary(app)
         app.typeKey("e", modifierFlags: [.command, .shift])
-        require(app.descendants(matching: .any)["exportSheet"].firstMatch, "export sheet", in: app)
+        requireSheet("exportSheet", titled: "Export", "export sheet", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         requireRunning(app, "export sheet")
 
@@ -127,7 +127,7 @@ final class LaunchSmokeUITests: XCTestCase {
         let bulk = app.menuItems["Export Notes…"].firstMatch
         require(bulk, "File > Export Notes…", in: app)
         bulk.click()
-        require(app.descendants(matching: .any)["bulkExportSheet"].firstMatch, "bulk export sheet", in: app)
+        requireSheet("bulkExportSheet", titled: "Export", "bulk export sheet", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         requireRunning(app, "bulk export sheet")
         #endif
@@ -242,6 +242,22 @@ final class LaunchSmokeUITests: XCTestCase {
     private func require(_ element: XCUIElement, _ what: String, in app: XCUIApplication, timeout: TimeInterval = 30,
                          file: StaticString = #filePath, line: UInt = #line) {
         if element.waitForExistence(timeout: timeout) { return }
+        dump(app, what)
+        XCTFail("\(what) not found (app state \(app.state.rawValue))", file: file, line: line)
+    }
+
+    /// A sheet is up: its view by identifier, or the window whose title the
+    /// sheet's navigation title (prefix) became. On Mac Catalyst a sheet's
+    /// content was missing from the accessibility snapshot while its title
+    /// was already the window's (CI, Restore from Backup).
+    @MainActor
+    private func requireSheet(_ id: String, titled prefix: String, _ what: String, in app: XCUIApplication,
+                              file: StaticString = #filePath, line: UInt = #line) {
+        let byID = app.descendants(matching: .any)[id].firstMatch
+        let byTitle = app.windows.matching(NSPredicate(format: "title BEGINSWITH %@", prefix)).firstMatch
+        for _ in 0..<15 {
+            if byID.waitForExistence(timeout: 2) || byTitle.exists { return }
+        }
         dump(app, what)
         XCTFail("\(what) not found (app state \(app.state.rawValue))", file: file, line: line)
     }
