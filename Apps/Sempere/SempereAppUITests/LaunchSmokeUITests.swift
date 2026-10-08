@@ -87,8 +87,13 @@ final class LaunchSmokeUITests: XCTestCase {
         let settings = app.descendants(matching: .any)["settingsForm"].firstMatch
         require(settings, "Settings window", in: app)
         let restore = app.buttons["Restore from Backup…"].firstMatch
+        // The form is a lazy list: rows below the window are not built (and not in the
+        // accessibility tree) until scrolled to. Scroll-wheel steps, trying either sign.
+        for deltaY in Array(repeating: -400.0, count: 10) + Array(repeating: 400.0, count: 10) where !restore.exists {
+            settings.scroll(byDeltaX: 0, deltaY: deltaY)
+        }
         require(restore, "Restore from Backup… button", in: app)
-        restore.click()   // XCTest scrolls it into view first
+        restore.click()
         require(app.descendants(matching: .any)["restoreBackupSheet"].firstMatch, "Restore from Backup sheet", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         requireRunning(app, "restore sheet")
