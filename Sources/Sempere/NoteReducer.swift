@@ -562,6 +562,7 @@ enum RegisterValue: Equatable {
         case .pageSize: self = .meta(.pageSize(m.pageSize))
         case .lang: self = .meta(.lang(m.lang))
         case .markersBehindText: self = .meta(.markersBehindText(m.markersBehindText))
+        case .recognized: self = .meta(.recognized(m.recognized))
         case .deleted: self = .deleted(state.deleted)
         }
     }
@@ -579,6 +580,7 @@ enum RegisterValue: Equatable {
             case .pageSize: return .pageSize
             case .lang: return .lang
             case .markersBehindText: return .markersBehindText
+            case .recognized: return .recognized
             }
         }
     }

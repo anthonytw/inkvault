@@ -144,7 +144,7 @@ final class AppModel {
     /// The title of a note created at a date with no title typed, as Settings
     /// → New Notes says (`NewNoteSettings`; "" for Blank: the note stays
     /// untitled). Tests replace it.
-    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.title(NewNoteSettings.titleFormat(), now: $0) }
+    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.defaultTitle(now: $0) }
     /// Pause after typing before the search runs.
     @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
     /// Reads handwriting on pages as they change and when notes open; nil = off.
@@ -178,10 +178,10 @@ final class AppModel {
     /// What the last "Recognize All Notes" run changed, kept (also after it
     /// ends) until the next run starts; the "Recently Recognized" filter lists it.
     var recognitionResults: RecognitionResults?
-    /// What this device remembers of the open vault between launches: notes
-    /// recognised in the last 7 days ("Recently Recognized") and recent
-    /// searches (`RecentActivity`, `AppModel+Activity`). Changing it re-derives the lists.
-    var activity = RecentActivity() { didSet { if activity.recognized != oldValue.recognized { listVersion &+= 1 } } }
+    /// What this device remembers of the open vault between launches: the
+    /// recent searches (`RecentActivity`, `AppModel+Activity`). "Recently
+    /// Recognized" is in the vault (`meta.recognized`, shared by every device).
+    var activity = RecentActivity()
     /// Where `activity` is kept (a folder per vault secret inside it).
     @ObservationIgnored var activityRoot: URL
     /// The clock "Recently Recognized" is measured with (tests move it).
@@ -297,6 +297,13 @@ final class AppModel {
     /// The note `downloadNote` is fetching, with its files' progress.
     var noteDownload: (id: UUID, progress: CloudProgress)?
     var cloudSyncTask: Task<Void, Never>?
+    /// Background time and scheduled tasks for the sync (`AppModel+Background`); tests pass fakes.
+    @ObservationIgnored var backgroundTasks: any BackgroundTaskRunning = UIKitBackgroundTasks()
+    @ObservationIgnored var syncScheduler: any BackgroundSyncScheduling = BGTaskSyncScheduler()
+    /// The background-time assertion held while a sync in flight finishes off screen.
+    @ObservationIgnored var backgroundSyncToken: BackgroundTaskToken?
+    /// The app is off screen and the sync loop is finishing what was in flight.
+    var syncingInBackground = false
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
     /// Pause between progressive passes, passes with an unchanged note set
@@ -528,8 +535,7 @@ final class AppModel {
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
         case .recentlyRecognized:
-            let ids = Set(activity.recognized.recent(now: activityNow()).map(\.id))
-            return notes.filter { !$0.deleted && ids.contains($0.id) }
+            return RecentlyRecognized.notes(notes, now: activityNow())
         }
     }
 
@@ -945,6 +951,8 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        syncingInBackground = false
+        endBackgroundTime()
         cancelRemoteMerges()
         isCloudVault = false
         isBusy = false

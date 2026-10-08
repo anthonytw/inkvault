@@ -74,6 +74,8 @@ private struct GeneralSettings: View {
 
 private struct NewNoteSettingsSection: View {
     @State private var format = NewNoteSettings.titleFormat()
+    /// The custom pattern as typed (stored only while it checks).
+    @State private var pattern = NewNoteSettings.titlePattern()
     @State private var notebook = NewNoteSettings.voiceNotebook()
     @State private var paper = PaperPreference.load()
     @State private var choosingPaper = false
@@ -81,9 +83,23 @@ private struct NewNoteSettingsSection: View {
     var body: some View {
         Section {
             Picker("Title", selection: $format) {
-                ForEach(NewNoteSettings.TitleFormat.allCases) { Text($0.title).tag($0) }
+                ForEach(NewNoteSettings.TitleFormat.allCases) { f in
+                    // Each preset with what it gives today (a menu shows the second line as its subtitle).
+                    if f == .custom || f == .blank {
+                        Text(f.title).tag(f)
+                    } else {
+                        VStack(alignment: .leading) {
+                            Text(f.title)
+                            Text(NewNoteSettings.title(f)).foregroundStyle(.secondary)
+                        }
+                        .tag(f)
+                    }
+                }
             }
             .onChange(of: format) { NewNoteSettings.setTitleFormat(format) }
+            if format == .custom {
+                TitlePatternField(pattern: $pattern)
+            }
             Button { choosingPaper = true } label: {
                 HStack {
                     Text("Paper").foregroundStyle(.primary)
@@ -113,13 +129,112 @@ private struct NewNoteSettingsSection: View {
     }
 
     private var sample: String {
-        let t = NewNoteSettings.title(format)
+        let t = NewNoteSettings.title(format, pattern: NewNoteSettings.titlePattern())
         return t.isEmpty ? String(localized: "“Untitled”", comment: "Settings ▸ New Notes footer: how a note with no title is shown, in quotes") : "“\(t)”"
     }
 
     private func commitNotebook() {
         NewNoteSettings.setVoiceNotebook(notebook)
         notebook = NewNoteSettings.voiceNotebook()
+    }
+}
+
+/// The custom title pattern: a monospaced field checked as it is typed
+/// (`DefaultTitle.check`, the rules `notes new --title-format` applies), with
+/// the title it gives now or the reason it cannot be used, and a menu of
+/// fields to insert. Only a pattern that checks is stored.
+struct TitlePatternField: View {
+    @Binding var pattern: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Pattern", text: $pattern, prompt: Text(NewNoteSettings.defaultTitlePattern))
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .onChange(of: pattern) { NewNoteSettings.setTitlePattern(pattern) }
+                    .accessibilityLabel("Title pattern")
+                Menu("Insert", systemImage: "plus.circle") {
+                    ForEach(TitlePatternField.fields, id: \.self) { field in
+                        Button("\(field.name) (\(DefaultTitle.title(at: Date(), format: field.pattern)))") {
+                            pattern += (pattern.isEmpty || pattern.hasSuffix(" ") ? "" : " ") + field.pattern
+                        }
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .help("Insert a date field into the pattern")
+            }
+            switch TitlePatternField.status(of: pattern) {
+            case .preview(let title):
+                Label(title, systemImage: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Preview: \(title)")
+            case .problem(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            }
+            Text("Letters are date fields (yyyy year, MM month, d day, EEEE weekday, HH:mm time); put other text in single quotes, e.g. 'Lecture' d MMM. strftime works too: %Y-%m-%d %H:%M.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    struct Field: Hashable, Sendable {
+        let name: String
+        let pattern: String
+    }
+
+    /// The fields the Insert menu offers.
+    static let fields: [Field] = [
+        Field(name: String(localized: "Year", comment: "Title pattern Insert menu: the year field"), pattern: "yyyy"),
+        Field(name: String(localized: "Month", comment: "Title pattern Insert menu: the month name"), pattern: "MMMM"),
+        Field(name: String(localized: "Month (number)", comment: "Title pattern Insert menu: the month as a number"), pattern: "MM"),
+        Field(name: String(localized: "Day", comment: "Title pattern Insert menu: the day of the month"), pattern: "d"),
+        Field(name: String(localized: "Weekday", comment: "Title pattern Insert menu: the weekday name"), pattern: "EEEE"),
+        Field(name: String(localized: "Time", comment: "Title pattern Insert menu: 24-hour time"), pattern: "HH:mm"),
+        Field(name: String(localized: "Time (12-hour)", comment: "Title pattern Insert menu: 12-hour time"), pattern: "h:mm a"),
+        Field(name: String(localized: "Text", comment: "Title pattern Insert menu: literal text in quotes"), pattern: "'Note'"),
+    ]
+
+    enum Status: Equatable {
+        case preview(String)
+        case problem(String)
+    }
+
+    /// `problem` for the screen (`DefaultTitle.Problem.description` is the CLI's English).
+    static func message(_ problem: DefaultTitle.Problem) -> String {
+        switch problem {
+        case .tooLong:
+            let limit = String(DefaultTitle.maxFormatLength)
+            return String(localized: "The format is too long: at most \(limit) characters.",
+                          comment: "Title pattern field: the pattern is too long; the limit is always 200 [not-plural]")
+        case .unclosedQuote:
+            return String(localized: "A quote (') opens text that is never closed. Put literal text in single quotes, and write '' for a quote.",
+                          comment: "Title pattern field: unbalanced single quote")
+        case .unknownLetter(let c):
+            let letter = String(c)
+            return String(localized: "“\(letter)” is not a date field. Put literal text in single quotes, e.g. 'Lecture' d MMM.",
+                          comment: "Title pattern field: a letter outside quotes that is no date field")
+        case .unknownDirective(let d):
+            return String(localized: "“\(d)” is not a strftime directive.",
+                          comment: "Title pattern field: an unknown % directive")
+        case .blank:
+            return String(localized: "The format gives no text.", comment: "Title pattern field: the pattern produces only spaces")
+        }
+    }
+
+    /// What the field shows under `pattern` at `now`. Pure, tested.
+    static func status(of pattern: String, now: Date = Date(), locale: Locale = .current,
+                       timeZone: TimeZone = .current) -> Status {
+        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .problem(String(localized: "Type a pattern, e.g. \(NewNoteSettings.defaultTitlePattern).",
+                                   comment: "Title pattern field: the field is empty"))
+        }
+        if let problem = DefaultTitle.check(pattern, at: now, locale: locale, timeZone: timeZone) {
+            return .problem(message(problem))
+        }
+        return .preview(DefaultTitle.title(at: now, format: pattern, locale: locale, timeZone: timeZone))
     }
 }
 

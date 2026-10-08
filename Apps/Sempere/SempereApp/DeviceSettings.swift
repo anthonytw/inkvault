@@ -259,9 +259,15 @@ enum RewrapSettings {
 /// *New notes*: the title a note gets when the user gives none, the default
 /// notebook of quick voice notes, and (with `PaperPreference`) the paper.
 enum NewNoteSettings {
+    /// The title presets, and `custom` (the user's own pattern, `titlePattern`).
     enum TitleFormat: String, CaseIterable, Sendable, Identifiable {
         case dateAndTime
         case dateOnly
+        /// `2026-10-07 14:30`: sorts by date.
+        case isoDateTime
+        /// `Wednesday 7 October`.
+        case weekday
+        case custom
         case blank
 
         var id: String { rawValue }
@@ -269,12 +275,29 @@ enum NewNoteSettings {
             switch self {
             case .dateAndTime: return String(localized: "Date and Time", comment: "Settings ▸ New Notes ▸ Title: default title is the date and time")
             case .dateOnly: return String(localized: "Date", comment: "Settings ▸ New Notes ▸ Title: default title is the date")
+            case .isoDateTime: return String(localized: "Year-Month-Day Time", comment: "Settings ▸ New Notes ▸ Title: 2026-10-07 14:30")
+            case .weekday: return String(localized: "Weekday and Date", comment: "Settings ▸ New Notes ▸ Title: Wednesday 7 October")
+            case .custom: return String(localized: "Custom", comment: "Settings ▸ New Notes ▸ Title: the user's own date pattern")
             case .blank: return String(localized: "Untitled", comment: "Settings ▸ New Notes ▸ Title: new notes get no title (shown as Untitled)")
+            }
+        }
+
+        /// The pattern of a fixed preset (`DefaultTitle`); nil for the locale's styles, custom and blank.
+        var pattern: String? {
+            switch self {
+            case .isoDateTime: return "yyyy-MM-dd HH:mm"
+            case .weekday: return "EEEE d MMMM"
+            default: return nil
             }
         }
     }
 
     static let titleFormatKey = "Sempere.newNote.titleFormat"
+    /// The custom pattern (`TitleFormat.custom`): a Unicode date pattern or a
+    /// strftime format, checked by `DefaultTitle.check` (as `notes new
+    /// --title-format` is) before it is stored.
+    static let titlePatternKey = "Sempere.newNote.titlePattern"
+    static let defaultTitlePattern = "yyyy-MM-dd HH:mm"
     static let voiceNotebookKey = "Sempere.newNote.voiceNotebook"
     static let defaultTitleFormat = TitleFormat.dateAndTime
     static let defaultVoiceNotebook = "Inbox"
@@ -287,9 +310,29 @@ enum NewNoteSettings {
         defaults.set(f.rawValue, forKey: titleFormatKey)
     }
 
+    /// The stored custom pattern; the default one when none (or one that
+    /// does not check, written by an older build) is stored.
+    static func titlePattern(_ defaults: UserDefaults = .standard) -> String {
+        guard let p = defaults.string(forKey: titlePatternKey), !p.isEmpty, DefaultTitle.check(p) == nil else {
+            return defaultTitlePattern
+        }
+        return p
+    }
+
+    /// Stores `pattern` as the custom pattern when it can be used; returns why
+    /// not otherwise (nothing is stored: the last good one stays).
+    @discardableResult
+    static func setTitlePattern(_ pattern: String, in defaults: UserDefaults = .standard) -> DefaultTitle.Problem? {
+        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .blank }
+        if let problem = DefaultTitle.check(pattern) { return problem }
+        defaults.set(pattern, forKey: titlePatternKey)
+        return nil
+    }
+
     /// The title for a note made at `now` in `format`: "Oct 7, 2026 at 2:30 PM",
-    /// "Oct 7, 2026", or "" (shown as "Untitled").
-    static func title(_ format: TitleFormat, now: Date = Date(), locale: Locale = .current,
+    /// "Oct 7, 2026", "2026-10-07 14:30", "Wednesday 7 October", the custom
+    /// `pattern`'s, or "" (shown as "Untitled").
+    static func title(_ format: TitleFormat, pattern: String? = nil, now: Date = Date(), locale: Locale = .current,
                       timeZone: TimeZone = .current) -> String {
         let f = DateFormatter()
         f.locale = locale
@@ -302,14 +345,22 @@ enum NewNoteSettings {
         case .dateAndTime:
             f.dateStyle = .medium
             f.timeStyle = .short
+        case .isoDateTime, .weekday, .custom:
+            let p = format == .custom ? (pattern ?? defaultTitlePattern) : format.pattern
+            return DefaultTitle.title(at: now, format: p, locale: locale, timeZone: timeZone)
         }
         return f.string(from: now)
+    }
+
+    /// The title the stored setting gives a note made at `now`.
+    static func defaultTitle(_ defaults: UserDefaults = .standard, now: Date = Date()) -> String {
+        title(titleFormat(defaults), pattern: titlePattern(defaults), now: now)
     }
 
     /// `typed` when the user typed a title, else the stored format's.
     static func resolvedTitle(typed: String, defaults: UserDefaults = .standard, now: Date = Date()) -> String {
         let t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? title(titleFormat(defaults), now: now) : t
+        return t.isEmpty ? defaultTitle(defaults, now: now) : t
     }
 
     /// The notebook quick voice notes go to: "Inbox" until changed. A name

@@ -95,8 +95,11 @@ struct PolishRound1Tests {
     }
 
     /// TestFlight build 6: "Recently Recognized" is a sidebar section like
-    /// Recently Deleted, kept across launches for 7 days, gone when empty.
-    @Test func recentlyRecognizedOutlivesTheSessionForSevenDays() async throws {
+    /// Recently Deleted, listed for 7 days, gone when empty. Build 7: it is
+    /// shared by every device, like the trash: the run's delta sets the
+    /// note's `meta.recognized` (format.md §5.4), so another device (another
+    /// device folder, no local memory of the run) lists the same notes.
+    @Test func recentlyRecognizedIsSharedThroughTheVaultForSevenDays() async throws {
         let (model, _, _) = try await SearchTests.model(recognizer: FakeRecognizer(), texts: nil)
         let start = Date()
         model.activityNow = { start }
@@ -105,55 +108,46 @@ struct PolishRound1Tests {
         #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionTask == nil })
         #expect(model.recentlyRecognizedNotes.map(\.id) == [Self.lecture])
         #expect(model.recognizedEntry(for: Self.lecture)?.pagesRecognized == 2)
+        let vault = try #require(model.vault)
+        let stored = try vault.reconstruct(noteId: Self.lecture).meta.recognized
+        #expect(stored?.read == 2)
+        #expect(stored.map { abs($0.at.timeIntervalSince(start)) < 0.01 } == true)
         model.sidebarSelection = .recentlyRecognized
         let url = try #require(model.vaultURL), identities = model.unlockIdentities
         model.close()
         #expect(model.recognitionResults == nil && model.recentlyRecognizedNotes.isEmpty)
         #expect(model.sidebarSelection == .allNotes)
 
-        // Next launch (same device folder): still listed, and restorable as a window's selection.
-        let next = AppModel(deviceStateURL: model.deviceStateURL)
+        // Another device: listed there too, and restorable as a window's selection.
+        let other = AppModel(deviceStateURL: TS.deviceStateURL())
         let sixDays: TimeInterval = 6 * 86_400, overSeven: TimeInterval = 7 * 86_400 + 60
-        next.activityNow = { start.addingTimeInterval(sixDays) }
-        try await next.openVault(at: url, identities: identities)
-        #expect(next.recognitionResults == nil, "the run itself belongs to the session")
-        #expect(next.recentlyRecognizedNotes.map(\.id) == [Self.lecture])
-        next.sidebarSelection = .recentlyRecognized
-        #expect(next.visibleNotes.map(\.id) == [Self.lecture])
+        other.activityNow = { start.addingTimeInterval(sixDays) }
+        try await other.openVault(at: url, identities: identities)
+        #expect(other.recognitionResults == nil, "the run itself belongs to the session")
+        #expect(other.recentlyRecognizedNotes.map(\.id) == [Self.lecture])
+        #expect(other.recognizedEntry(for: Self.lecture)?.pagesRecognized == 2)
+        other.sidebarSelection = .recentlyRecognized
+        #expect(other.visibleNotes.map(\.id) == [Self.lecture])
         #expect(RestorableSelection.name(of: .recentlyRecognized) == "recognized")
         #expect(RestorableSelection(sidebar: .recentlyRecognized, note: nil, vault: nil).sidebarItem == .recentlyRecognized)
 
         // After 7 days it is gone, and so is the selection of it.
-        next.activityNow = { start.addingTimeInterval(overSeven) }
-        #expect(next.recentlyRecognizedNotes.isEmpty)
-        next.leaveEmptyRecognizedSection()
-        #expect(next.sidebarSelection == .allNotes)
-        next.close()
-
-        // Another device folder knows nothing of it.
-        let other = AppModel(deviceStateURL: TS.deviceStateURL())
-        other.activityNow = { start }
-        try await other.openVault(at: url, identities: identities)
+        other.activityNow = { start.addingTimeInterval(overSeven) }
         #expect(other.recentlyRecognizedNotes.isEmpty)
+        other.leaveEmptyRecognizedSection()
+        #expect(other.sidebarSelection == .allNotes)
+        other.close()
     }
 
-    @Test func recognitionHistoryKeepsOneEntryPerNoteForSevenDays() {
-        let a = UUID(), b = UUID(), t0 = Date(timeIntervalSince1970: 1_800_000_000)
-        var h = RecognitionHistory()
-        h.record([RecognizedNote(id: a, title: "", pages: 3, pagesRecognized: 3)], at: t0)
-        h.record([RecognizedNote(id: b, title: "", pages: 1, pagesRecognized: 1),
-                  RecognizedNote(id: a, title: "", pages: 3, pagesRecognized: 1)], at: t0.addingTimeInterval(86_400))
-        #expect(h.entries.count == 2, "one entry per note")
-        #expect(h.entry(for: a, now: t0.addingTimeInterval(86_400))?.pagesRecognized == 1, "the newest run wins")
-        let day: TimeInterval = 86_400
-        let lastMoment = t0.addingTimeInterval(8 * day - 1), afterIt = t0.addingTimeInterval(8 * day + 1)
-        let stillListed: Set<UUID> = Set(h.recent(now: lastMoment).map(\.id))
-        #expect(stillListed == [a, b])
-        #expect(h.recent(now: afterIt).isEmpty)
-        // An entry far in the future (a wrong clock) is dropped.
-        var future = RecognitionHistory()
-        future.record([RecognizedNote(id: a, title: "", pages: 1, pagesRecognized: 1)], at: t0.addingTimeInterval(3 * day))
-        #expect(future.recent(now: t0).isEmpty)
+    /// A note the run found current is not written to, so it is not listed.
+    @Test func aRunThatWritesNothingListsNothing() async throws {
+        let (model, _, _) = try await SearchTests.model(recognizer: FakeRecognizer(), texts: nil)
+        model.startRecognizingNotes()
+        #expect(await TS.waitUntil(timeout: .seconds(10)) { model.recognitionTask == nil })
+        let vault = try #require(model.vault)
+        let before = try vault.revisionNames(of: Self.lecture).count
+        #expect(try await model.recognizeNote(Self.lecture, with: FakeRecognizer()) == nil)
+        #expect(try vault.revisionNames(of: Self.lecture).count == before)
     }
 
     @Test func recentSearchesAreTrimmedDeduplicatedAndBounded() {

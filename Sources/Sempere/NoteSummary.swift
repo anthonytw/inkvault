@@ -50,6 +50,9 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var favorite = false
     /// When the note was created (`meta.created`); nil when it could not be reconstructed.
     public var created: Date?
+    /// The last vault-wide recognition run that read the note (format.md §5.4
+    /// `recognized`): "Recently Recognized" lists the recent ones.
+    public var recognized: RecognitionRecord?
     /// What the note holds that a newer version wrote, and what could not be
     /// shown (format.md §7.4); nil when nothing. The vault is then read-only.
     public var newer: NewerContent?
@@ -226,6 +229,7 @@ extension Vault {
             s.markersBehindText = state.meta.markersBehindText
             s.favorite = state.meta.favorite
             s.created = state.meta.created
+            s.recognized = state.meta.recognized
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }

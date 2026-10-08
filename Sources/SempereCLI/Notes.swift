@@ -28,6 +28,8 @@ struct NoteJSON: Encodable {
     /// The handwriting language (format.md §5.4), when set.
     var lang: String?
     var markersBehindText: Bool
+    /// The last recognition run that read the note (format.md §5.4 `recognized`), when one did.
+    var recognized: RecognitionRecord?
     /// True when the note cannot be changed by this version: the vault is
     /// read-only, or the note holds content a newer version wrote (format.md §7.3).
     var readOnly: Bool
@@ -41,7 +43,7 @@ struct NoteJSON: Encodable {
         deleted = s.deleted; pages = s.pages; strokes = s.strokes
         recognizedPages = s.recognizedPages; items = s.items; recordings = s.recordings
         modified = s.modified; problem = s.problem
-        lang = s.lang; markersBehindText = s.markersBehindText
+        lang = s.lang; markersBehindText = s.markersBehindText; recognized = s.recognized
     }
 }
 

@@ -63,6 +63,33 @@ final class CLINoteEditTests: CLITestCase {
 
         // An explicit empty title stays empty.
         XCTAssertEqual(try note(try json(["notes", "new", ""]))["title"] as? String, "")
+
+        // strftime, and the machine's setting from the environment.
+        let strf = try json(["notes", "new", "--title-format", "Note %Y"])
+        let strfTitle = try XCTUnwrap(try note(strf)["title"] as? String)
+        XCTAssertTrue(strfTitle == "Note \(year)" || strfTitle == "Note \(year + 1)", strfTitle)
+        let env = try cli(["notes", "new", "--json"] + access, env: ["SEMPERE_TITLE_FORMAT": "'Env' yyyy"])
+        XCTAssertEqual(env.status, 0, env.err)
+        let envTitle = ((env.json as? [String: Any])?["note"] as? [String: Any])?["title"] as? String
+        XCTAssertTrue(envTitle == "Env \(year)" || envTitle == "Env \(year + 1)", "\(String(describing: envTitle))")
+    }
+
+    /// A format the app's setting would refuse is refused with the same reason, before anything is written.
+    func testNewRefusesAFormatItCannotUse() throws {
+        func noteFolders() throws -> Int { try FileManager.default.contentsOfDirectory(atPath: vault + "/notes").count }
+        let notes = try noteFolders()
+        for (format, reason) in [("'Lecture d MMM", "never closed"), ("Lecture d MMM", "not a date field"),
+                                 ("%Y %Q", "strftime directive")] {
+            let r = try cli(["notes", "new", "--title-format", format] + access)
+            XCTAssertEqual(r.status, 2, format)
+            XCTAssertTrue(r.err.contains(reason), r.err)
+        }
+        let env = try cli(["notes", "new"] + access, env: ["SEMPERE_TITLE_FORMAT": "%Q"])
+        XCTAssertEqual(env.status, 2)
+        XCTAssertTrue(env.err.contains("SEMPERE_TITLE_FORMAT"), env.err)
+        // A typed title needs no format.
+        XCTAssertEqual(try cli(["notes", "new", "Typed"] + access, env: ["SEMPERE_TITLE_FORMAT": "%Q"]).status, 0)
+        XCTAssertEqual(try noteFolders(), notes + 1)
     }
 
     func testRenameByTitleAndPrefixWritesOneDeltaOrNothing() throws {

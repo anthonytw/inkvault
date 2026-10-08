@@ -297,7 +297,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   releases as soon as `onDrag` returns (the model holds it anyway). `onDrag`
   reports no end, so the payload of a cancelled drag lingers: only a drop that
   carries the app's own types (`carriesAppTypes`) may use it, never a photo or
-  text dragged in from another app.
+  text dragged in from another app. Rows propose `.copy`, never `.move`
+  (`SidebarDrop.proposedOperation`): `onDrag` sessions from a `List` row allow
+  no move, and UIKit cancels such a drop at the release (highlight, then
+  `dropExited`, no `performDrop`; builds 6 and 7). A `List` handles drags it
+  started itself and never asks its rows' drop delegates, so notebook rows drag
+  from a `UIDragInteraction` of their own that also carries their context menu
+  (`NotebookDragSource.swift`; one view, or the menu takes the long press on the
+  iPad); never put `onDrag`/`draggable` or a SwiftUI `contextMenu` back on them.
+  `SidebarDropUITests` drags for real (`scripts/app.sh test-ui`,
+  `SEMPERE_DEBUG_DROPS` trace, `SEMPERE_DEBUG_NOTEBOOK_DRAG` styles).
 - Per-vault device memory (`RecentActivity`, sealed, Application Support):
   "Recently Recognized" (7 days) and recent searches; `activityNow` is the test clock.
 - Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log

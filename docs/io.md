@@ -190,6 +190,50 @@ Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
 
+### Background sync (iOS)
+
+The sync loop used to pause the moment the app left the screen, so locking
+an iPhone or iPad mid-sync stopped the progress until the app was opened
+again (TestFlight build 7). Now (`AppModel+Background`, `BackgroundSync.swift`):
+
+- **A sync in flight finishes.** When the app goes to the background with
+  notes still downloading or listed as placeholders (`syncInFlight`), the
+  loop keeps running under a `beginBackgroundTask` assertion and pauses as
+  before once nothing is pending (`finishBackgroundSync`). The summary cache
+  is saved when the app leaves the screen and again when it settles.
+- **When iOS takes the time back** with notes still pending (the expiration
+  handler, `backgroundTimeExpired`), or gives none, the loop pauses and a
+  `BGProcessingTask` (`io.github.anthonytw.sempere.sync.processing`,
+  network required, no external power required) is requested to continue.
+- **Otherwise** a `BGAppRefreshTask` (`…sync.refresh`, not before 15
+  minutes) is requested whenever the app leaves the screen with an iCloud
+  vault open, so revisions other devices wrote are fetched and read before
+  the app is opened again.
+- A scheduled task runs passes over every note folder
+  (`runScheduledSync`, `cloudPollInterval` apart) until nothing is pending
+  or its expiration handler cancels it, then requests the next refresh.
+
+What iOS does not allow, so the app cannot promise it:
+
+- Background time after leaving the screen is short (about 30 seconds on
+  current iOS) and is not guaranteed; a large first sync does not finish in it.
+- Scheduled tasks run when iOS decides: it weighs battery, charging, network,
+  thermal state and how often the app is used. A refresh gets about 30
+  seconds; a processing task a few minutes, usually while charging and idle.
+  Background App Refresh switched off (Settings → General, or for the app),
+  Low Power Mode, or force-quitting the app from the app switcher stop both
+  until the app is opened again. The simulator runs neither unless debugged.
+- They sync only a vault that is still open in the suspended app. A task that
+  launches the app afresh (iOS terminated it meanwhile) finds no unlocked
+  vault, since the key is behind Face ID, and ends at once; the next launch
+  syncs as usual.
+- iCloud Drive itself keeps downloading files that were already requested
+  while the app is suspended; what stops is the app asking for the next
+  window of notes and reading the ones that arrived.
+
+The Mac (Catalyst) keeps apps running when their windows are in the
+background, so it schedules nothing.
+
 ## Opening a vault fast (app)
 
 The note list is shown from a persistent local **index**: the encrypted

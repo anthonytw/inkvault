@@ -54,7 +54,10 @@ enum RecognitionRun {
     /// Reads the pages of note `id` that `mode` selects and writes what it
     /// read as one delta (nothing when no page needs it). With `dryRun` only
     /// the selection is made: nothing is read or written, and Vision is not needed.
-    static func run(note id: UUID, vault: Vault, mode: RecognitionMode, dryRun: Bool) -> NoteResult {
+    /// With `recordedAt` the delta also sets `meta.recognized` (format.md
+    /// §5.4), which lists the note in "Recently Recognized" on every device.
+    static func run(note id: UUID, vault: Vault, mode: RecognitionMode, dryRun: Bool,
+                    recordedAt: Date? = nil) -> NoteResult {
         var result = NoteResult(note: id.uuidString.lowercased(), title: "")
         func record(_ state: NoteState, _ pages: [Page]) {
             result.title = state.meta.title
@@ -76,9 +79,11 @@ enum RecognitionRun {
                 let pages = RecognitionPolicy.pagesToRead(state.pages, mode: mode)
                 record(state, pages)
                 result.language = state.meta.lang
-                return try pages.map {
+                let ops: [Op] = try pages.map {
                     .setPageRecognition(pageId: $0.id, recognition: try recognize($0.strokes, language: state.meta.lang))
                 }
+                guard let at = recordedAt, !ops.isEmpty else { return ops }
+                return ops + RecentlyRecognized.record(at: at, pages: state.pages.count, read: ops.count)
             }
             result.file = r?.name.filename
         } catch {
@@ -104,6 +109,11 @@ struct RecognizeCommand: ParsableCommand {
             every page with ink, replacing any recognition (Notability's included). A page whose ink
             is gone has its recognised text cleared. --dry-run lists the pages without reading them
             (this works on Linux too). macOS only: elsewhere the command exits 1 and changes nothing.
+
+            Each note it writes recognition for is marked with the time of the run (format.md §5.4
+            `recognized`), which lists it in the app's "Recently Recognized" on every device for 7
+            days. --recent lists those notes (newest first; --days sets the window); it reads
+            nothing, writes nothing and works on Linux too.
             """
     )
 
@@ -122,10 +132,24 @@ struct RecognizeCommand: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Only list the pages that would be read.")
     var dryRun = false
 
+    @Flag(name: .long, help: "List the notes recognised recently (the app's Recently Recognized) instead.")
+    var recent = false
+
+    @Option(name: .long, help: ArgumentHelp("With --recent: the window in days (default 7).", valueName: "n"))
+    var days: Int?
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func validate() throws {
+        if recent {
+            if all || !notes.isEmpty || missingOnly || force || dryRun {
+                throw ValidationError("--recent takes no notes, --all, --missing-only, --force or --dry-run")
+            }
+            if let days, !(1...3650).contains(days) { throw ValidationError("--days must be 1 to 3650") }
+            return
+        }
+        if days != nil { throw ValidationError("--days needs --recent") }
         if all == !notes.isEmpty { throw ValidationError("give note ids or titles, or --all") }
         if missingOnly && force { throw ValidationError("--missing-only and --force cannot be combined") }
     }
@@ -133,6 +157,7 @@ struct RecognizeCommand: ParsableCommand {
     var mode: RecognitionMode { force ? .all : missingOnly ? .missing : .stale }
 
     func run() throws {
+        if recent { return try listRecent() }
         if !dryRun && !RecognitionRun.available { throw RecognitionRun.unavailable }
         let vault = try access.openVault(.required)
         let ids: [UUID]
@@ -142,8 +167,34 @@ struct RecognizeCommand: ParsableCommand {
             var seen = Set<UUID>()
             ids = try notes.map { try vault.resolveNote($0) }.filter { seen.insert($0).inserted }
         }
-        let results = ids.map { RecognitionRun.run(note: $0, vault: vault, mode: mode, dryRun: dryRun) }
+        let now = Date()
+        let results = ids.map { RecognitionRun.run(note: $0, vault: vault, mode: mode, dryRun: dryRun, recordedAt: now) }
         try report(results, output: output, dryRun: dryRun)
+    }
+
+    /// `--recent`: the notes whose `meta.recognized` is within the window, newest first.
+    func listRecent() throws {
+        let vault = try access.openVault(.required)
+        let window = TimeInterval(days ?? 7) * 86_400
+        let recent = RecentlyRecognized.notes(try vault.summaries(of: nil), now: Date(), window: window)
+        if output.json {
+            struct Entry: Encodable {
+                var note: String; var title: String; var notebook: String?
+                var at: Date; var pages: Int; var read: Int
+            }
+            struct Out: Encodable { var days: Int; var notes: [Entry] }
+            try output.emitJSON(Out(days: days ?? 7, notes: recent.compactMap { s in
+                s.recognized.map { Entry(note: s.id.uuidString.lowercased(), title: s.title, notebook: s.notebook,
+                                         at: $0.at, pages: $0.pages, read: $0.read) }
+            }))
+            return
+        }
+        for s in recent {
+            guard let r = s.recognized else { continue }
+            let title = s.title.isEmpty ? "(untitled)" : s.title
+            print("\(s.id.uuidString.lowercased())  \(RFC3339.string(from: r.at) ?? "-")  \(title): read \(r.read) of \(r.pages) page(s)")
+        }
+        output.info("\(recent.count) note(s) recognised in the last \(days ?? 7) day(s).")
     }
 }
 
