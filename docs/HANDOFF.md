@@ -250,6 +250,27 @@ queued for up to 30 minutes.
   checks Mac behaviour with `gh workflow run CI --ref <branch>` (or the GitHub
   MCP `run_workflow`). When the app job fails, its "Summary of failures" step
   prints the failing tests and the UI-test window dumps at the end of the log.
+- **Launch smoke tests run on every PR that runs the app job** (any change
+  under `Apps/`, the Sources the app links, `scripts/app.sh` or `ci.yml`): a
+  build that crashed at launch on the Mac shipped (fresh state, a real vault
+  unlocked, sidebar visible) while every UI test started from a demo vault
+  the app unlocked itself. `LaunchSmokeUITests` launches with no
+  preferences, caches or saved windows (`SEMPERE_DEBUG_FRESH`), unlocks the
+  demo vault through the unlock sheet (`SEMPERE_DEMO_PASSPHRASE`), checks the
+  library in each column layout and opens Settings, Vault Keys, a note window,
+  Export…, Export Notes… and Restore from Backup…. On the Mac it is its own
+  step, "Launch smoke tests on Mac Catalyst" (`scripts/app.sh
+  test-mac-smoke`: a Catalyst build of the app and its UI tests from the
+  cache, then four launches; about 5 minutes, the only Catalyst step a PR
+  runs). On the iPad its two sidebar/list layouts run inside "UI tests on the
+  iPad simulator" (`test-ui`, about a minute more). Their window dumps are
+  `SMOKEDEBUG` lines in the failure summary.
+- **Every scene injects the app environment:** `AppSceneEnvironmentTests`
+  (Linux, plain `swift test`) reads `Apps/Sempere/SempereApp/` and fails when
+  a `WindowGroup` (or any other scene) does not put `AppModel`,
+  `VaultLibrary` and `RememberedKeys` into its root view's environment
+  (directly or through `appEnvironment(model:library:keys:)`). App-only PRs
+  run it in the "Localization catalogs and app scenes (Linux)" job.
 - **Age is compiled with `-O` even in debug builds** (`Package.swift`).
   Unoptimized scrypt made the passphrase tests take minutes: 37 s for one test
   on macOS CI, and 138 s for one app test. Keep that flag.

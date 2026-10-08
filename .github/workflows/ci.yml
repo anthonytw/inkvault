@@ -59,9 +59,10 @@ jobs:
           # (SempereImport, SemperePDF; CZlib under them), and its tests open the
           # package's fixture vault; CLI and WebDAV changes cannot affect it.
           app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|SempereSpeech|SempereImport|SemperePDF|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/(app\.sh|check-help\.py)$|\.github/workflows/ci\.yml$)')
-          # The string catalogs against the app sources (LocalizationCatalogTests reads Apps/ and
-          # runs on Linux): an app-only change runs just that test, not the macOS package job.
-          localization=$(has '^(Apps/Sempere/(Localization|SempereApp|SempereShared|SempereWidgets|Sempere\.xcodeproj)/|Apps/Sempere/SempereInfo\.plist$|Tests/SempereTests/LocalizationCatalogTests\.swift$)')
+          # The string catalogs and the scenes' environment against the app sources
+          # (LocalizationCatalogTests and AppSceneEnvironmentTests read Apps/ and run on Linux): an
+          # app-only change runs just those tests, not the macOS package job.
+          localization=$(has '^(Apps/Sempere/(Localization|SempereApp|SempereShared|SempereWidgets|Sempere\.xcodeproj)/|Apps/Sempere/SempereInfo\.plist$|Tests/SempereTests/(LocalizationCatalogTests|AppSceneEnvironmentTests)\.swift$)')
           # Web viewer (web/): its own job; app changes do not run it.
           web=$(has '^(web/|\.github/workflows/ci\.yml$)')
           # The goldens are the CLI's JSON and SVG export of the fixture vaults: a
@@ -147,9 +148,9 @@ jobs:
           if-no-files-found: ignore
 
   localization:
-    name: Localization catalogs (Linux)
+    name: Localization catalogs and app scenes (Linux)
     needs: changes
-    # The Linux job runs this test too; this one is for changes that only touch Apps/.
+    # The Linux job runs these tests too; this one is for changes that only touch Apps/.
     if: needs.changes.outputs.localization == 'true' && needs.changes.outputs.package != 'true'
     runs-on: ubuntu-24.04
     container: swift:6.4-noble
@@ -165,8 +166,8 @@ jobs:
           path: .build
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
           restore-keys: ${{ steps.cachekey.outputs.key }}-
-      - name: Test the catalogs against the app sources
-        run: swift test --filter LocalizationCatalogTests
+      - name: Test the catalogs and the scenes' environment against the app sources
+        run: swift test --filter 'LocalizationCatalogTests|AppSceneEnvironmentTests'
 
   macos:
     name: macOS
@@ -238,11 +239,20 @@ jobs:
       - name: Test the iPhone layouts on an iPhone simulator
         run: scripts/app.sh test-phone
       # Real drags onto the sidebar (SidebarDropUITests): the drop delegate needs a drag session.
+      # Also the launch smoke tests' iPad layouts (LaunchSmokeUITests: fresh state, unlock sheet).
       - name: UI tests on the iPad simulator
         if: ${{ !cancelled() }}
         timeout-minutes: 25
         shell: bash
         run: mkdir -p build && scripts/app.sh test-ui 2>&1 | tee build/app-test-ui.log
+      # A first launch on the Mac in every column layout, then every window and sheet
+      # (LaunchSmokeUITests; a build that crashed there shipped). Every run, PRs included:
+      # a Catalyst build of the app and its UI tests, then four launches (docs/HANDOFF.md "CI").
+      - name: Launch smoke tests on Mac Catalyst
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        run: mkdir -p build && scripts/app.sh test-mac-smoke 2>&1 | tee build/app-test-mac-smoke.log
       # Same target and sources as the simulator build; checked on main only.
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'
@@ -267,9 +277,9 @@ jobs:
           for f in build/app-test*.log; do
             [ -f "$f" ] || continue
             echo "== $f"
-            grep -E "✘|↳|error:|DROPDEBUG|Failing tests|SempereMenus|SempereMenuTree|PDF-SCALE|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
+            grep -E "✘|↳|error:|DROPDEBUG|SMOKEDEBUG no|Failing tests|SempereMenus|SempereMenuTree|PDF-SCALE|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
             # UI test dumps of the windows (several lines each).
-            awk '/MACUIDEBUG|DROPDEBUG tree/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
+            awk '/MACUIDEBUG|DROPDEBUG tree|SMOKEDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
           done
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'

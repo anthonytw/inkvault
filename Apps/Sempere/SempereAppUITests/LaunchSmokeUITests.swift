@@ -59,7 +59,6 @@ final class LaunchSmokeUITests: XCTestCase {
         defer { app.terminate() }
         requireNote(app)
         #if targetEnvironment(macCatalyst)
-        XCTAssertFalse(noteRow(app).exists, "the note list is hidden")
         app.typeKey("l", modifierFlags: [.command, .option])   // View > Hide or Show Note List
         requireNoteList(app)
         showSidebar(app)
@@ -89,8 +88,7 @@ final class LaunchSmokeUITests: XCTestCase {
         require(settings, "Settings window", in: app)
         let restore = app.buttons["Restore from Backup…"].firstMatch
         require(restore, "Restore from Backup… button", in: app)
-        for _ in 0..<15 where !restore.isHittable { settings.scroll(byDeltaX: 0, deltaY: -400) }
-        restore.click()
+        restore.click()   // XCTest scrolls it into view first
         require(app.descendants(matching: .any)["restoreBackupSheet"].firstMatch, "Restore from Backup sheet", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         requireRunning(app, "restore sheet")

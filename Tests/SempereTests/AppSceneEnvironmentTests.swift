@@ -124,10 +124,13 @@ struct SceneEnvironmentCheck {
     /// Scene types that take a content closure.
     static let sceneTypes = ["WindowGroup", "Window", "UtilityWindow", "DocumentGroup", "Settings", "MenuBarExtra"]
 
-    /// File name → code with comments and string literal contents blanked.
+    /// File name → code with comments and string literal contents blanked
+    /// (the same length in characters as the source).
     let code: [String: String]
+    let sources: [String: String]
 
     init(sources: [String: String]) {
+        self.sources = sources
         code = sources.mapValues(Self.mask)
     }
 
@@ -146,7 +149,10 @@ struct SceneEnvironmentCheck {
         var report = Report()
         for (file, text) in code.sorted(by: { $0.key < $1.key }) {
             for scene in scenes(in: text) {
-                let label = "\(file): \(scene.head)"
+                // The head as written (titles are blanked in `text`).
+                let original = Array(sources[file] ?? text)
+                let head = String(original[scene.head]).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                let label = "\(file): \(head.trimmingCharacters(in: .whitespaces))"
                 report.scenes.append(label)
                 let content = expand(scene.content, appBody: appBody)
                 var missing: [String] = []
@@ -209,8 +215,8 @@ struct SceneEnvironmentCheck {
     }
 
     /// Every scene declaration: its head (`WindowGroup("Note", …)`) and content closure.
-    private func scenes(in text: String) -> [(head: String, content: String)] {
-        var out: [(String, String)] = []
+    private func scenes(in text: String) -> [(head: Range<Int>, content: String)] {
+        var out: [(Range<Int>, String)] = []
         let pattern = "(?<![\\w.])(\(Self.sceneTypes.joined(separator: "|")))\\s*(?=[({<])"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
@@ -230,8 +236,8 @@ struct SceneEnvironmentCheck {
                 // A type mention (`Settings` the enum case, say) rather than a scene with content.
                 continue
             }
-            let head = String(text[start.lowerBound..<i]).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            out.append((head.trimmingCharacters(in: .whitespaces), body))
+            let from = text.distance(from: text.startIndex, to: start.lowerBound)
+            out.append((from..<(from + text.distance(from: start.lowerBound, to: i)), body))
         }
         return out
     }
