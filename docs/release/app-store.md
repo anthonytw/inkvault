@@ -29,8 +29,8 @@ scripts/test-release-check.sh     # the checker's own tests (mutated copies of t
 ```
 
 The script needs only bash and python3, so it runs on Linux. CI runs it, and its tests, in the
-`release` job: on every PR that touches `Apps/`, the script, the privacy policy or `ci.yml`, and
-always on `main`. It fails when:
+`release` job: on every PR that touches `Apps/`, the `Sources/` targets the app links, the scripts,
+the privacy policy or `ci.yml`, and always on `main`. It takes seconds and needs no Mac. It fails when:
 
 | Check | Why |
 | --- | --- |
@@ -127,7 +127,7 @@ goes only where the user puts it, encrypted with the user's key, which the devel
 
 | Apple data type | Why it is not collected |
 | --- | --- |
-| Contact info, contacts, financial, health, location, sensitive info, purchases, browsing and search history, identifiers | Never read by the app, or never leaves the device. Photo location metadata is stripped by default (photo privacy setting); when the user turns that off, it stays inside their own encrypted vault. |
+| Contact info, contacts, financial, health, location, sensitive info, purchases, browsing history, identifiers | Never read by the app, or never leaves the device. Photo location metadata is stripped by default (photo privacy setting); when the user turns that off, it stays inside their own encrypted vault. |
 | User content: handwriting, text, photos, video, audio, PDFs, equations | Stored only in the user's vault: a folder on the device or one the user picks (iCloud Drive or any Files provider), encrypted on the device before writing. The developer cannot read it and receives nothing. |
 | User content: voice transcripts, handwriting recognition | Computed on the device (Speech's `SpeechTranscriber`, Vision) and stored in the vault. No server recognition (`Sources/SempereSpeech`). The system may download an on-device speech model from Apple, which is the OS's own traffic and carries no user data. |
 | Usage data, diagnostics | No analytics or crash SDK. Timing signposts (`Perf`) stay in the device log; the debug timing log exists only in debug builds. Crash reports that users choose to share with developers go through Apple's own system, not the app. |

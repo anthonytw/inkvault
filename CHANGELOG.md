@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- App Store submission preparation (`docs/release/`): export compliance answers with sources,
+  privacy manifests for the app and the widget extension, App Privacy and age rating answers, App
+  Review notes, listing drafts, the Mac App Store (universal purchase) steps, and a privacy policy page
+  for GitHub Pages (`docs/privacy/`). `scripts/release-check.sh` (run by CI) fails on mismatched
+  version or build numbers, a committed signing team, a missing or incomplete privacy manifest, or an
+  entitlement outside the allow-list.
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
