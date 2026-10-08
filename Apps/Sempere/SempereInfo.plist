@@ -63,6 +63,20 @@
 				<string>io.github.anthonytw.sempere.vault</string>
 			</array>
 		</dict>
+		<!-- PDFs: offered under Open With (Finder) and in the share sheet, never the default app.
+		     An opened PDF is imported as a new note into the open vault (docs/mac.md). -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PDF Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>

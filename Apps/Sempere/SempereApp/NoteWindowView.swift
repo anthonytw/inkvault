@@ -57,6 +57,8 @@ struct NoteWindowView: View {
         .windowSheets(ui)
         .focusedSceneValue(\.commandRouter, router)
         .menuRouter(router)
+        // A file opened with Sempere while this window is in front: the same as in the library window.
+        .onOpenURL { url in Task { await model.handleOpened(url, library: library) } }
         .task(id: LoadKey(ready: ready, epoch: model.keyEpoch)) { await load() }
         .task {
             // Restored without the library window: bring it up to open and unlock the vault.

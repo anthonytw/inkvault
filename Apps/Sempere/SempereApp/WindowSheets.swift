@@ -1,5 +1,6 @@
 import Sempere
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The rename alert and the tag sheet that menu commands (and the toolbars)
 /// open through `WindowUI`, for the window they are attached to.
@@ -11,7 +12,46 @@ struct WindowSheets: ViewModifier {
     @State private var pdfPassword = ""
 
     func body(content: Content) -> some View {
+        @Bindable var ui = ui
         content
+            // Each importer on a view of its own: two `fileImporter`s on one view do not both work.
+            .background {
+                SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingPDF, allowedContentTypes: [.pdf]) { result in
+                    guard case .success(let url) = result else { return }
+                    let notebook = model.sidebarNotebook
+                    Task {
+                        if case .needsPassword(let request) = await model.importPDF(picked: url, to: .newNote(notebook: notebook)) {
+                            ui.pdfPassword = request
+                        }
+                    }
+                }
+            }
+            .background {
+                SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingNotability, allowedContentTypes: AppModel.notabilityTypes,
+                                                 allowsMultipleSelection: true) { result in
+                    guard case .success(let urls) = result, !urls.isEmpty else { return }
+                    let notebook = model.sidebarNotebook
+                    Task { await model.report { try await model.importNotability(urls, notebook: notebook) } }
+                }
+            }
+            .overlay {
+                if model.isImportingNotability {
+                    ProgressView("Importing from Notability…")
+                        .padding()
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .alert(model.notabilitySummary?.title ?? "", isPresented: Binding(get: { model.notabilitySummary != nil && isFront },
+                                                                            set: { if !$0 { model.notabilitySummary = nil } })) {
+                Button("OK", role: .cancel) { model.notabilitySummary = nil }
+            } message: {
+                Text(model.notabilitySummary?.message ?? "")
+            }
+            // PDFs opened from the Finder or the share sheet (`AppModel+OpenedFiles`).
+            .sheet(isPresented: Binding(get: { isFront && [.ready, .readOnly].contains(model.openedPDFStage) },
+                                        set: { _ in })) {
+                OpenedPDFsView(ui: ui)
+            }
             .onChange(of: ui.renameNoteID) { _, id in
                 if let id, let note = model.notes.first(where: { $0.id == id }) { title = note.title }
             }
@@ -76,6 +116,110 @@ struct WindowSheets: ViewModifier {
                                  } })) { request in
                 ExportSheet(request: request)
             }
+    }
+}
+
+extension WindowSheets {
+    /// The window that shows app-wide prompts (the opened-PDF sheet, the
+    /// Notability result): the library window with the canvas, else any.
+    private var isFront: Bool { OpenedFile.shows(in: ui.id, canvasWindow: model.canvasWindow) }
+}
+
+/// The PDFs opened from outside the app: "Import as new notes into <vault>",
+/// with the notebook to file them in. Another vault: close this one and open
+/// that one; the PDFs wait (the welcome screen says so).
+struct OpenedPDFsView: View {
+    @Environment(AppModel.self) private var model
+    let ui: WindowUI
+    @State private var notebook = ""
+    @State private var importing = false
+
+    private var vaultName: String {
+        model.vaultURL.map { VaultLibrary.displayName(of: $0) } ?? "the open vault"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                Form {
+                    Section {
+                        ForEach(model.openedPDFs) { pdf in
+                            Label(pdf.name, systemImage: "doc.richtext")
+                        }
+                    } footer: {
+                        Text(model.openedPDFs.count == 1
+                             ? "Becomes a new note in “\(vaultName)”, one page per PDF page, to write on. The PDF is stored encrypted in the vault."
+                             : "Each PDF becomes a new note in “\(vaultName)”, one page per PDF page, to write on. The PDFs are stored encrypted in the vault.")
+                    }
+                    if model.openedPDFStage == .readOnly {
+                        Section {
+                            Label("This vault is read-only: it was written by a newer version of Sempere.", systemImage: "lock")
+                        }
+                    } else {
+                        Section {
+                            NotebookField(title: "Notebook (blank: top level)", text: $notebook, notebooks: model.notebooks, reveal: proxy)
+                        }
+                    }
+                    Section {
+                        Button("Choose Another Vault…", systemImage: "archivebox") { model.close() }
+                            .help("Close this vault; the PDFs wait until you open and unlock another one")
+                    }
+                }
+            }
+            .navigationTitle(model.openedPDFs.count == 1 ? "Import PDF" : "Import \(model.openedPDFs.count) PDFs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { model.discardOpenedPDFs() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") { runImport() }
+                        .disabled(importing || model.openedPDFStage != .ready)
+                }
+            }
+        }
+        .interactiveDismissDisabled()
+        .onAppear { notebook = model.sidebarNotebook ?? "" }
+    }
+
+    private func runImport() {
+        importing = true
+        let target = notebook
+        Task {
+            let locked = await model.importOpenedPDFs(notebook: target)
+            importing = false
+            // One password prompt at a time: the others are dropped and named.
+            if let first = locked.first { ui.pdfPassword = first }
+            let rest = locked.dropFirst()
+            for request in rest { model.cancelPDFImport(request) }
+            if !rest.isEmpty {
+                model.errorMessage = "Protected PDFs not imported (open them again to enter their passwords): "
+                    + rest.map { $0.file.lastPathComponent }.joined(separator: ", ")
+            }
+        }
+    }
+}
+
+/// Under the welcome screen or the locked vault: PDFs opened with Sempere
+/// wait for a vault to be opened and unlocked.
+struct OpenedPDFsWaitingBar: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let count = model.openedPDFs.count
+        HStack {
+            Label(model.openedPDFStage == .needsVault
+                  ? "Open a vault to import \(count == 1 ? "the PDF" : "\(count) PDFs") as new notes."
+                  : "Unlock the vault to import \(count == 1 ? "the PDF" : "\(count) PDFs") as new notes.",
+                  systemImage: "doc.richtext")
+                .font(.callout)
+            Spacer()
+            Button("Discard") { model.discardOpenedPDFs() }
+                .help("Forget the PDFs waiting to be imported")
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 }
 

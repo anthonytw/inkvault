@@ -96,7 +96,13 @@ struct RootView: View {
                 }
             }
         }
-        .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
+        // A vault tapped in Files, or a PDF opened with Sempere (Finder, share sheet): imported as a new note.
+        .onOpenURL { url in Task { await model.handleOpened(url, library: library) } }
+        .safeAreaInset(edge: .bottom) {
+            if model.openedPDFStage == .needsVault || model.openedPDFStage == .needsUnlock {
+                OpenedPDFsWaitingBar()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // iCloud may have delivered files while the app was away; no
             // polling while it is in the background.
@@ -294,7 +300,7 @@ struct RootView: View {
     }
 
     private func open(_ url: URL) async {
-        await model.report { try await model.open(picked: url, library: library) }
+        await model.handleOpened(url, library: library)
     }
 
     /// Reopens a recent vault; on failure explains and falls back to the picker.

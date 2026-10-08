@@ -247,6 +247,12 @@ struct EditorView: View {
                 .inspectorColumnWidth(min: 150, ideal: 180, max: 260)
         }
         .modifier(EditorInsert(editor: editor, state: insert, ui: ui))
+        // File > Insert Photo… and Insert PDF Pages… (Mac menu): the Insert menu's pickers.
+        .onChange(of: ui.insertRequest) { _, request in
+            guard let request else { return }
+            ui.insertRequest = nil
+            insert.open(request)
+        }
         .onChange(of: editor.deletedPages.count) { old, new in
             undoBannerFor = new > old ? new : 0
         }

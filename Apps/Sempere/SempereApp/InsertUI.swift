@@ -111,6 +111,18 @@ final class InsertState {
     var playing: VideoPlayRequest?
     /// Something is being added (a spinner in the menu's place).
     var working = 0
+
+    /// Opens the picker for `request`: the Insert menu's items and the File
+    /// menu's Insert Photo… and Insert PDF Pages… (`WindowUI.insertRequest`).
+    func open(_ request: InsertRequest) {
+        switch request {
+        case .photos:
+            pickingPhotos = true
+        case .pdfPages:
+            fileImport = .pdf
+            pickingFile = true
+        }
+    }
 }
 
 /// What the camera is for.
@@ -137,7 +149,7 @@ struct InsertMenu: View {
 
     var body: some View {
         Menu {
-            Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
+            Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.open(.photos) }
             if InsertOptions.camera {
                 Button("Take Photo…", systemImage: "camera") { state.camera = .photo }
                 Button("Record Video…", systemImage: "video") { state.camera = .video }
@@ -147,10 +159,7 @@ struct InsertMenu: View {
                 state.fileImport = .video
                 state.pickingFile = true
             }
-            Button("PDF Pages…", systemImage: "doc.richtext") {
-                state.fileImport = .pdf
-                state.pickingFile = true
-            }
+            Button("PDF Pages…", systemImage: "doc.richtext") { state.open(.pdfPages) }
             .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
         } label: {
             Label("Insert", systemImage: state.working > 0 ? "hourglass" : "photo.badge.plus")
