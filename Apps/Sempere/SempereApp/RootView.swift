@@ -110,10 +110,17 @@ struct RootView: View {
             }
         }
         .onChange(of: model.quickCapture.pendingLink, initial: true) { _, link in
-            // `.recording` is the banner's (`VoiceNoteBanner`), which is always there.
-            guard link == .settings else { return }
-            model.quickCapture.pendingLink = nil
-            showingVoiceSettings = true
+            let capture = model.quickCapture
+            switch link {
+            case .settings:
+                capture.pendingLink = nil
+                showingVoiceSettings = true
+            case .recording:
+                // The banner (`VoiceNoteBanner`) takes it while it shows; nothing to show: done.
+                if capture.state == .idle, capture.notice == nil { capture.pendingLink = nil }
+            case nil:
+                break
+            }
         }
         .voiceNoteBanner()
         .onChange(of: scenePhase) { _, phase in

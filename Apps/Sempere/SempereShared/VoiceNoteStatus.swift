@@ -63,6 +63,15 @@ struct VoiceNoteStatus: Codable, Equatable, Sendable {
         }
     }
 
+    /// What a tap on the control does. Decided from the app's live state, but
+    /// a Stop the control still showed for a recording that is gone (its
+    /// process died) never starts a new one: it stops, which only ends the
+    /// orphaned Live Activity (#106).
+    static func controlAction(shown: Phase?, live: VoiceNoteStatus) -> Action {
+        if shown == .recording, live.action == .start { return .stop }
+        return live.action
+    }
+
     /// The control's and the widgets' label.
     var title: String {
         switch phase {

@@ -10,7 +10,6 @@ import SwiftUI
 struct VoiceNoteBanner: View {
     @Environment(AppModel.self) private var model
     @State private var stopping = false
-    @State private var stopError: String?
     @State private var emphasis = 0
 
     private var capture: QuickCapture { model.quickCapture }
@@ -37,14 +36,6 @@ struct VoiceNoteBanner: View {
                         Image(systemName: "xmark").font(.footnote.weight(.bold))
                     }
                     .accessibilityLabel("Dismiss")
-                }
-            } else if let stopError {
-                bar(tint: .orange) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text(stopError).font(.footnote)
-                    Spacer(minLength: 0)
-                    Button { self.stopError = nil } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Dismiss")
                 }
             }
         }
@@ -109,10 +100,9 @@ struct VoiceNoteBanner: View {
             defer { stopping = false }
             do {
                 _ = try await capture.stop()
-            } catch QuickCaptureError.notRecording {
-                // Already stopped (the Live Activity's Stop got there first).
             } catch {
-                stopError = "\(error)"
+                // Already stopped (the Live Activity's Stop got there first), or the
+                // seal failed: `finish` put that in `notice`, which this bar shows.
             }
         }
     }
@@ -134,8 +124,28 @@ private struct PulsingDot: View {
 }
 
 extension View {
-    /// Shows `VoiceNoteBanner` above this view's content.
+    /// Shows `VoiceNoteBanner` above this view's content while a voice note
+    /// records, saves or has just been saved. Not on the Mac: it has no Live
+    /// Activity or widgets, its voice notes start from Shortcuts.
     func voiceNoteBanner() -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { VoiceNoteBanner() }
+        modifier(VoiceNoteBannerPlacement())
+    }
+}
+
+/// Inserts the banner only while it has something to show, so a window
+/// without a voice note has no inset at all.
+private struct VoiceNoteBannerPlacement: ViewModifier {
+    @Environment(AppModel.self) private var model
+
+    private var shows: Bool {
+        guard !Platform.isMac else { return false }
+        let capture = model.quickCapture
+        return capture.state == .recording || capture.state == .saving || capture.notice != nil
+    }
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) {
+            if shows { VoiceNoteBanner() }
+        }
     }
 }
