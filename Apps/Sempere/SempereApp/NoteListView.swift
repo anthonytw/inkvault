@@ -146,7 +146,7 @@ struct NoteListView: View {
         List(model.visibleNotes, id: \.id, selection: listSelection) { note in
             NoteRow(note: note, placeholder: model.placeholderNoteIDs.contains(note.id),
                     downloading: model.pendingNoteIDs.contains(note.id),
-                    recognized: model.sidebarSelection == .recentlyRecognized ? model.recognizedEntry(for: note.id)?.recognizedNote : nil)
+                    recognized: model.sidebarSelection == .recentlyRecognized ? model.recognizedEntry(of: note) : nil)
                 .modifier(NoteDragOut(note: note, enabled: model.phase == .unlocked
                                       && !model.placeholderNoteIDs.contains(note.id)))
                 // A placeholder's summary is empty: nothing to act on until it arrives

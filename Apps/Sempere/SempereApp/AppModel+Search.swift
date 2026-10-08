@@ -42,7 +42,7 @@ struct RecognitionProgress: Equatable, Sendable {
 }
 
 /// The notes a "Recognize All Notes" run changed, as it goes and after it
-/// ends (this session; "Recently Recognized" keeps them for 7 days, `RecentActivity`).
+/// ends (this session; "Recently Recognized" lists them for 7 days on every device, `meta.recognized`).
 struct RecognitionResults: Equatable, Sendable {
     /// In the order they were read.
     var notes: [RecognizedNote] = []
@@ -178,10 +178,8 @@ extension AppModel {
         for id in ids {
             guard !Task.isCancelled, gen == generation else { return }
             do {
-                if let done = try await recognizeNote(id, with: recognizer) {
-                    recognitionResults?.notes.append(done)
-                    recordRecognized([done])   // "Recently Recognized", kept for 7 days
-                }
+                // The delta also sets the note's `meta.recognized`: "Recently Recognized" on every device.
+                if let done = try await recognizeNote(id, with: recognizer) { recognitionResults?.notes.append(done) }
             } catch is CancellationError {
                 return
             } catch {
@@ -229,11 +227,12 @@ extension AppModel {
         guard !jobs.isEmpty else { return nil }
         let planned = jobs
         let written = WrittenCount()
+        let now = activityNow()
         try await commit(id) { current in
             // Deleted meanwhile (another device): no writes into Recently Deleted.
-            let ops = RecognitionJob.ops(for: planned, in: current)
-            written.value = ops.count
-            return ops
+            written.value = RecognitionJob.ops(for: planned, in: current).count
+            // With the `setMeta` of `meta.recognized`: listed in "Recently Recognized" on every device.
+            return RecognitionJob.ops(for: planned, in: current, recordedAt: now)
         }
         guard written.value > 0 else { return nil }
         let summary = notes.first { $0.id == id }

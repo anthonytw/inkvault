@@ -166,10 +166,10 @@ final class AppModel {
     /// What the last "Recognize All Notes" run changed, kept (also after it
     /// ends) until the next run starts; the "Recently Recognized" filter lists it.
     var recognitionResults: RecognitionResults?
-    /// What this device remembers of the open vault between launches: notes
-    /// recognised in the last 7 days ("Recently Recognized") and recent
-    /// searches (`RecentActivity`, `AppModel+Activity`). Changing it re-derives the lists.
-    var activity = RecentActivity() { didSet { if activity.recognized != oldValue.recognized { listVersion &+= 1 } } }
+    /// What this device remembers of the open vault between launches: the
+    /// recent searches (`RecentActivity`, `AppModel+Activity`). "Recently
+    /// Recognized" is in the vault (`meta.recognized`, shared by every device).
+    var activity = RecentActivity()
     /// Where `activity` is kept (a folder per vault secret inside it).
     @ObservationIgnored var activityRoot: URL
     /// The clock "Recently Recognized" is measured with (tests move it).
@@ -476,8 +476,7 @@ final class AppModel {
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
         case .recentlyRecognized:
-            let ids = Set(activity.recognized.recent(now: activityNow()).map(\.id))
-            return notes.filter { !$0.deleted && ids.contains($0.id) }
+            return RecentlyRecognized.notes(notes, now: activityNow())
         }
     }
 
