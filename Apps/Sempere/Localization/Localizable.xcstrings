@@ -4266,6 +4266,18 @@
         }
       }
     },
+    "Live Activities are off for Sempere, and iOS needs one to record a voice note: turn them on in Settings → Sempere → Live Activities." : {
+      "comment" : "Error from the quick voice note intents, also shown in Settings: Live Activities are turned off for the app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las Actividades en directo están desactivadas para Sempere, e iOS necesita una para grabar una nota de voz: actívalas en Ajustes › Sempere › Actividades en directo."
+          }
+        }
+      }
+    },
     "Location" : {
       "comment" : "New vault form: picker of where the vault is created",
       "extractionState" : "manual",
