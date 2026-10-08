@@ -96,6 +96,8 @@ PRODUCT_SOURCES = {
     "Sempere": ["Sempere", "Age", "CZlib"],
     "SempereRender": ["SempereRender", "Sempere", "SemperePDF", "Age", "CZlib"],
     "SempereSpeech": ["SempereSpeech", "Sempere", "Age", "CZlib"],
+    # The app's Notability import (`AppModel+NotabilityImport`).
+    "SempereImport": ["SempereImport", "Sempere", "SemperePDF", "SempereRender", "Age", "CZlib"],
     # Third-party (app only, never in Sources/): ships its own manifest if it needs one;
     # check the archive's privacy report (docs/release/app-store.md).
     "SwiftMath": [],
