@@ -385,7 +385,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   See `docs/post-quantum.md`.
 - Authenticated recipients (`format.md` §2.1, `Sources/Sempere/RecipientsAuth.swift`):
   `vault.json` carries `recipientsTag` (HMAC of vault id + keys under an HKDF
-  key of the secret) and, after a rotation, `secretLink`; `Vault.open(…, trust:)`
+  key of the secret) and, after a rotation, `secretLink` (Ed25519 + ML-DSA-65
+  signatures by keys derived from the outgoing secret, `SecretLink.swift`;
+  both must verify; trust records `sempere-trust/2` hold only the public
+  keys; a legacy `sempere-trust/1` HMAC record confirms only its own secret
+  and is replaced at the first write; never accept a legacy link under a
+  record; shared vectors `Fixtures/secret-link-vectors.json`, mirrored in
+  `web/src/vault/link.ts`); `Vault.open(…, trust:)`
   classifies the list (`recipientsStatus`) against the device's trust record
   (CLI `$XDG_STATE_HOME/sempere/trust/`, app `AppModel.defaultTrustDirectory`,
   tests `MemoryRecipientsTrustStore`). `requireWritable` refuses a tampered list

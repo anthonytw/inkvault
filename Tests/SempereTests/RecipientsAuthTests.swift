@@ -33,7 +33,7 @@ enum RecipientsTamper: String, CaseIterable {
             let keys = try m.recipients.map { try NativeRecipient(string: $0.key) }
             m.vaultSecret = String(decoding: try AgeFile.encrypt(forged.bytes, to: keys, armor: true), as: UTF8.self)
             m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: forged)
-            m.secretLink = String(repeating: "0", count: 64)
+            m.secretLink = .legacy(String(repeating: "0", count: 64))
         }
         try m.encoded().write(to: url)
     }
@@ -86,12 +86,13 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertFalse(RecipientsAuth.verifyTag(expected.uppercased(), vaultId: id, keys: keys, secret: secret), "lowercase hex only")
         XCTAssertFalse(RecipientsAuth.verifyTag(String(expected.dropLast()), vaultId: id, keys: keys, secret: secret))
 
-        // The link: HMAC under the old secret's linkKey over the new secret's id.
+        // The link: both signatures by the old secret's keys over the new secret's id.
         let old = VaultSecret.random(), new = VaultSecret.random()
-        let link = RecipientsAuth.link(from: old, to: new, vaultId: id)
-        XCTAssertTrue(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: new, vaultId: id))
-        XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(new), to: new, vaultId: id))
-        XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: .random(), vaultId: id))
+        let link = try RecipientsAuth.link(from: old, to: new, vaultId: id)
+        XCTAssertTrue(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: old), to: new, vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: new), to: new, vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: old), to: .random(), vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: old), to: new, vaultId: UUID()))
     }
 
     /// Shared with web/test/vault.test.ts.
@@ -105,7 +106,7 @@ final class RecipientsAuthTests: VaultTestCase {
     func testEveryRecipientChangeWritesTagFeatureAndLink() throws {
         let store = MemoryRecipientsTrustStore()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient], identities: [a], trust: store)
-        XCTAssertEqual(vault.manifest.features, ["recipients-tag"])
+        XCTAssertEqual(vault.manifest.features, ["recipients-tag", "signed-secret-link"])
         XCTAssertNil(vault.manifest.secretLink)
         XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged))
         XCTAssertEqual(try open(vault.url, nil).recipientsStatus, .verified(.firstUse))
@@ -118,7 +119,7 @@ final class RecipientsAuthTests: VaultTestCase {
         let before = try XCTUnwrap(vault.secret)
         try vault.removeRecipient(b.recipient)
         let link = try XCTUnwrap(vault.manifest.secretLink)
-        XCTAssertTrue(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(before), to: try XCTUnwrap(vault.secret),
+        XCTAssertTrue(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: before), to: try XCTUnwrap(vault.secret),
                                                 vaultId: vault.vaultId))
         XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged), "this device remembered the rotation")
 
@@ -210,7 +211,7 @@ final class RecipientsAuthTests: VaultTestCase {
         let all = try m.recipients.map { try NativeRecipient(string: $0.key) }
         m.vaultSecret = String(decoding: try AgeFile.encrypt(s2.bytes, to: all, armor: true), as: UTF8.self)
         m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: s2)
-        m.secretLink = RecipientsAuth.link(from: s1, to: s2, vaultId: m.vaultId)
+        m.secretLink = try RecipientsAuth.link(from: s1, to: s2, vaultId: m.vaultId)
         try m.encoded().write(to: url)
 
         let step2 = try open(made.url, store)
@@ -460,7 +461,8 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertNil(try store.record(for: vault.vaultId), "nothing remembered before the upgrade")
         XCTAssertTrue(try vault.upgradeRecipientsTag())
         XCTAssertFalse(try vault.upgradeRecipientsTag(), "once")
-        XCTAssertEqual(vault.manifest.features.last, "recipients-tag")
+        XCTAssertTrue(vault.manifest.features.contains("recipients-tag"))
+        XCTAssertTrue(vault.manifest.features.contains("signed-secret-link"), "the first writer also marks signed links")
         XCTAssertEqual(try Vault.open(at: fixture, identities: [id], trust: store).recipientsStatus, .verified(.unchanged))
         XCTAssertTrue(try Vault.open(at: fixture, identities: [id], trust: store).verify().isHealthy)
 
@@ -615,7 +617,7 @@ final class RecipientsAuthTests: VaultTestCase {
     func testTrustRecordRoundTripsAndRejectsMalformedFiles() throws {
         let dir = tmp.appendingPathComponent("trust")
         let store = FileRecipientsTrustStore(directory: dir)
-        let record = RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
+        let record = try RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
         try store.save(record)
         XCTAssertEqual(try store.record(for: record.vaultId), record)
         let file = dir.appendingPathComponent("\(record.vaultId.uuidString.lowercased()).json")
@@ -626,19 +628,22 @@ final class RecipientsAuthTests: VaultTestCase {
         // replaced record is created private (never world-readable first).
         let dirMode = try FileManager.default.attributesOfItem(atPath: dir.path)[.posixPermissions] as? Int
         XCTAssertEqual(dirMode, 0o700)
-        let next = RecipientsTrustRecord(vaultId: record.vaultId, secret: .random(), recipients: [a.recipient.string])
+        let next = try RecipientsTrustRecord(vaultId: record.vaultId, secret: .random(), recipients: [a.recipient.string])
         try store.save(next)
         XCTAssertEqual(try store.record(for: record.vaultId), next)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [file.lastPathComponent], "no temporary left")
         #endif
         XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("vaultSecret"))
-        for junk in ["{", #"{"format":"x"}"#, #"{"format":"sempere-trust/1","vaultId":"\#(record.vaultId.uuidString.lowercased())","linkKey":"00","recipients":[]}"#] {
+        let id = record.vaultId.uuidString.lowercased()
+        for junk in ["{", #"{"format":"x"}"#, #"{"format":"sempere-trust/1","vaultId":"\#(id)","linkKey":"00","recipients":[]}"#,
+                     #"{"format":"sempere-trust/2","vaultId":"\#(id)","linkPublicKeys":{"ed25519":"00","mldsa65":"00"},"recipients":[]}"#,
+                     #"{"format":"sempere-trust/2","vaultId":"\#(id)","linkKey":"\#(String(repeating: "0", count: 64))","recipients":[]}"#] {
             try Data(junk.utf8).write(to: file)
             // Security review 2026-10 (R5): unreadable is an error, never "no record".
             XCTAssertThrowsError(try store.record(for: record.vaultId), junk)
         }
-        let other = RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
+        let other = try RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
         try JSONEncoder().encode(other).write(to: file)
         XCTAssertThrowsError(try store.record(for: record.vaultId), "a record of another vault")
         XCTAssertNil(try store.record(for: UUID()))
@@ -724,7 +729,7 @@ enum FixtureVault {
         let url = dest.appendingPathComponent("vault.json")
         var m = try VaultManifest.decode(Data(contentsOf: url))
         m.recipientsTag = nil
-        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature || $0 == VaultManifest.signedLinkFeature }
         try m.encoded().write(to: url)
         return dest
     }

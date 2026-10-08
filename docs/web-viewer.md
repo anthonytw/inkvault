@@ -110,7 +110,10 @@ The code mirrors the Swift reader and is tested against it (see "Tests").
 
 Typage 0.3.1 implements the age v1.3 hybrid recipient (`mlkem768x25519`,
 HPKE with X-Wing) with `@noble/post-quantum`; the viewer has no cryptography
-of its own beyond calling typage and WebCrypto (HMAC-SHA256).
+of its own beyond calling typage, WebCrypto (HMAC-SHA256, HKDF) and, for
+signed secret links (`format.md` §2.1), `@noble/curves` 2.4.0 (Ed25519) and
+`@noble/post-quantum` 0.7.1 (ML-DSA-65, `web/src/vault/link.ts`), both pinned
+and pure JavaScript, so the CSP needs no WebAssembly or `eval`.
 
 Unreadable revisions (wrong tag, undecryptable, undecodable) are reported in
 the note view and the list ("N unreadable revisions", a "Problems" filter);
@@ -319,6 +322,16 @@ note id, file name and body, §4), and cannot make the viewer run code:
   shows its revisions. The file is bounded (64 MiB, 256 MiB after gunzip),
   each entry is checked (canonical sorted revision names, dates, counts, page
   numbers) and a bad entry is dropped alone; a fuzz test covers it.
+- **Device list and secret link** (`format.md` §2.1): the viewer keeps no
+  trust record and writes nothing, so it reports only what the recipients
+  tag says under the secret. It checks `secretLink` for one purpose: a
+  rewrap journal's previous secret (blob names and derived keys during an
+  unfinished rewrap) counts only when the link connects it to the current
+  secret, with both signatures (Ed25519 and ML-DSA-65) verifying under the
+  previous secret's derived public keys, or, for a journal an older writer
+  left, the legacy HMAC (which needs the current secret to forge). A link
+  with one valid signature is refused. Shared test vectors with the Swift
+  code: `Tests/SempereTests/Fixtures/secret-link-vectors.json`.
 - **`config.json`** (deploy time, "Hosting") holds no secret and is only
   read: it names the vault's URL and listing and whether other vaults may be
   opened. One that exists but cannot be read or parsed stops the viewer
@@ -627,6 +640,11 @@ Tests (`web/test/`, vitest, Node 22):
   (`attachment-render.test.ts`), and pdf.js's effective page and crop mapping
   for each `/Rotate` (`pdf.test.ts`, rendered in Node with pdf.js's optional
   `@napi-rs/canvas`).
+- Signed secret links (`link.test.ts`): the seeds, public keys and message
+  of `Tests/SempereTests/Fixtures/secret-link-vectors.json`, the links made
+  by noble and by swift-crypto verifying, links with one valid signature
+  refused, strict parsing, and a journal secret accepted only through a
+  link whose two signatures verify.
 - Ports of the Swift merge, tag, clock, model, search and notebook tests,
   including §5.3's shuffled-order reconstruction and the multi-device tag
   convergence simulation.

@@ -5,7 +5,7 @@
 /** The major version this viewer reads. */
 export const formatMajor = 1;
 /** The extensions (format.md §2) this viewer knows. */
-export const knownFeatures: ReadonlySet<string> = new Set(["attachments", "recipients-tag"]);
+export const knownFeatures: ReadonlySet<string> = new Set(["attachments", "recipients-tag", "signed-secret-link"]);
 
 /** Longest name kept, in characters (§9). */
 export const maxNameLength = 64;

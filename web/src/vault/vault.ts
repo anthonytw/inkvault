@@ -9,6 +9,7 @@ import { type Revision, decodeRevision } from "../format/model.ts";
 import { formatMajor, majorOf, manifestReadOnlyReasons, revisionMarkersNewer } from "../format/newer.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
 import { gunzip } from "./gzip.ts";
+import { type SecretLink, linkConnects, parseSecretLink } from "./link.ts";
 
 /** format.md §9 limits. */
 export const limits = {
@@ -55,8 +56,8 @@ export interface VaultManifest {
    * that is not a string reads as "" (a tag that never verifies).
    */
   recipientsTag?: string;
-  /** `secretLink` (format.md §2.1): undefined unless a string. */
-  secretLink?: string;
+  /** `secretLink` (format.md §2.1): undefined when absent or null. */
+  secretLink?: SecretLink;
 }
 
 const bech32 = /^[02-9ac-hj-np-z]+$/;
@@ -100,8 +101,8 @@ export function parseManifest(bytes: Uint8Array): VaultManifest {
       features: Array.isArray(features) ? features.filter((f): f is string => typeof f === "string") : [],
     };
     if (tag !== undefined && tag !== null) m.recipientsTag = typeof tag === "string" ? tag : "";
-    const link = opt(o, "secretLink");
-    if (typeof link === "string") m.secretLink = link;
+    const link = parseSecretLink(opt(o, "secretLink"));
+    if (link) m.secretLink = link;
   } catch (e) {
     // A later major that does not decode cannot be opened even read-only (§7.2).
     if (isObject(json) && typeof json.format === "string" && (majorOf(json.format) ?? 0) > formatMajor) {
@@ -220,16 +221,9 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
  * True when `link` (a `secretLink`, format.md §2.1) links the secret `previous`
  * to `current`: the rotation from `previous` was made by a holder of it.
  */
-export async function verifySecretLink(link: string | undefined, previous: Uint8Array, current: Uint8Array,
+export async function verifySecretLink(link: SecretLink | undefined, previous: Uint8Array, current: Uint8Array,
   vaultId: string): Promise<boolean> {
-  if (link === undefined || !/^[0-9a-f]{64}$/.test(link)) return false;
-  const message = concat([encoder.encode("sempere/1"), Uint8Array.of(0), encoder.encode("secret link"), Uint8Array.of(0),
-    encoder.encode(vaultId.toLowerCase()), Uint8Array.of(0), await hkdf(current, "sempere/1 secret id")]);
-  const key = await hmacKey(await hkdf(previous, "sempere/1 secret link key"));
-  const expected = new Uint8Array(await crypto.subtle.sign("HMAC", key, buf(message)));
-  const given = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) given[i] = parseInt(link.slice(2 * i, 2 * i + 2), 16);
-  return equalBytes(expected, given);
+  return linkConnects(link, previous, current, vaultId);
 }
 
 /** Classifies the manifest's recipients under the vault secret (format.md §2.1, without a trust record). */

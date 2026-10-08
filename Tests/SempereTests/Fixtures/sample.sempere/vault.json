@@ -2,7 +2,8 @@
   "created" : "2026-10-04T16:20:00.000Z",
   "features" : [
     "attachments",
-    "recipients-tag"
+    "recipients-tag",
+    "signed-secret-link"
   ],
   "format" : "sempere/1",
   "recipients" : [

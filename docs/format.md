@@ -65,7 +65,9 @@ Unknown files and directories must be ignored, never deleted.
   the first blob or attachment op (§8). A writer that finds a feature it does
   not implement must not write to the vault (it may still read it: read-only access, §7.3).
   Absent means `[]`. `"recipients-tag"` (*new: authenticated recipients*)
-  says the vault carries `recipientsTag` (§2.1).
+  says the vault carries `recipientsTag` (§2.1). `"signed-secret-link"`
+  (*new: signed secret links*) says `secretLink` is never in the legacy HMAC
+  form (§2.1 "Upgrading to signed links").
 - `recipientsTag`, `secretLink` (optional, *new: authenticated recipients*):
   §2.1.
 
@@ -85,9 +87,26 @@ not know; `recipientsTag` extends that to the recipients list, and
 
 ```
 recipientsKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 recipients key", L = 32)
-linkKey       = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link key", L = 32)
 secretId      = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret id", L = 32)
+linkEdSeed    = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link ed25519 seed", L = 32)
+linkMLSeed    = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link ml-dsa-65 seed", L = 32)
 ```
+
+and two **link signing key pairs**, deterministic functions of the secret
+(*new: signed secret links*; security review 2026-10, R2):
+
+| Key pair | Derivation | Public key | Signature |
+| --- | --- | --- | --- |
+| Ed25519 (RFC 8032, pure, no context) | private key = `linkEdSeed` (the RFC 8032 32-byte seed) | 32 bytes | 64 bytes |
+| ML-DSA-65 (FIPS 204) | `ML-DSA.KeyGen_internal(ξ = linkMLSeed)` (FIPS 204 Algorithm 16) | 1952 bytes (`pk`) | 3309 bytes |
+
+ML-DSA-65 signatures are made with `ML-DSA.Sign` (pure, hedged or
+deterministic: both verify the same) with an **empty context string**, and
+checked with `ML-DSA.Verify` with an empty context. The private keys and
+seeds are never stored; whoever holds the secret derives them again.
+`linkPublicKeys(secret)` names the pair of public keys. Test vectors (fixed
+secrets → seeds → public keys → links that verify, made by two
+implementations) are in `Tests/SempereTests/Fixtures/secret-link-vectors.json`.
 
 **Tag.** `recipientsTag` is the lowercase hex (64 digits) of
 
@@ -107,28 +126,62 @@ not verify.
 **Secret link.** Anyone can encrypt a secret of their own to public keys, so
 a forged `vault.json` could carry a fresh secret, the attacker's recipient and
 a tag that verifies under that secret. Whenever a writer rotates the secret
-(§3.3) it therefore writes `secretLink`, the lowercase hex (64 digits) of
+(§3.3) it therefore writes `secretLink`: two signatures, by the **outgoing**
+secret's link signing keys, over the link message
 
 ```
-HMAC-SHA256(key = linkKey(old secret),
-            message = "sempere/1" ‖ 0x00 ‖ "secret link" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ secretId(new secret))
+linkMessage = "sempere/1" ‖ 0x00 ‖ "secret link" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ secretId(new secret)
 ```
 
-which only a holder of the outgoing secret can compute. It is kept, unchanged,
+(`vaultId` lowercase, UTF-8; `secretId` the 32 raw bytes), as a JSON object
+of lowercase hex strings:
+
+```json
+"secretLink": { "ed25519": "…(128 hex digits)…", "mldsa65": "…(6618 hex digits)…" }
+```
+
+A link is valid only when **both** signatures verify under the public keys
+the reader holds for the outgoing secret; one valid signature alone (the
+other missing, malformed, of another message or by another key) is
+invalid. Two independent schemes are required so that the link stays
+unforgeable while either one does (Ed25519 against classical attacks,
+ML-DSA-65 against a quantum computer). Only a holder of the outgoing secret
+can make the link, and a reader checks it with public keys alone. A value
+of any other shape (a missing member, uppercase hex, a wrong length, not an
+object) never verifies, and writers drop it. `secretLink` is kept, unchanged,
 by changes that do not rotate the secret, and replaced by the next rotation.
 
+A JSON string in `secretLink` is a **legacy link**, written before signed
+links: the lowercase hex (64 digits) of
+`HMAC-SHA256(key = legacyLinkKey(old secret), message = linkMessage)` with
+`legacyLinkKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link key", L = 32)`.
+That key was also what a legacy trust record kept, so whoever could read such
+a record could forge the link. A legacy link never confirms a rotation to a
+trust record (below); it is checked only to accept a rewrap journal's
+previous secret (§3.3.1), by a reader that holds both secrets (forging it
+then needs `secretId(current)`, which only holders of the current secret know).
+
 **Trust record.** A reader that writes keeps, per device and per vault,
-outside the vault and never in it (like §10): the vault id, `linkKey` of the
-last secret it verified, and the keys of the last recipients list it verified.
-The reference implementation keeps it in
-`$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI, mode 0600) and in the
-app's Application Support folder. It holds neither the vault secret nor a
-key that decrypts anything, but it is private: `linkKey` is an HMAC key, so
-whoever reads a record can make a `secretLink` from that secret as well as
-check one, and a device whose record is at that secret would accept a list
-linked that way. Records are kept readable by their owner only (the CLI
-creates them mode 0600 in a 0700 folder; the app excludes them from backups)
-and are never copied between devices.
+outside the vault and never in it (like §10): the vault id,
+`linkPublicKeys` of the last secret it verified, and the keys of the last
+recipients list it verified. The reference implementation keeps it in
+`$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI) and in the app's
+Application Support folder, as
+
+```json
+{ "format": "sempere-trust/2", "vaultId": "…",
+  "linkPublicKeys": { "ed25519": "…(64 hex digits)…", "mldsa65": "…(3904 hex digits)…" },
+  "recipients": ["age1pq1…", …] }
+```
+
+It holds no secret and no key that can make a link or decrypt anything:
+whoever reads it can check a `secretLink` but not forge one. It is still
+kept private (it names the vault's devices; the CLI creates it mode 0600 in
+a 0700 folder, the app excludes it from backups) and never copied between
+devices. A **legacy record** (`"format": "sempere-trust/1"`, with a 64-digit
+hex `linkKey` = `legacyLinkKey` of the secret instead of `linkPublicKeys`)
+was written before signed links; it is read only until it is upgraded
+(below) and never written.
 
 **Writing.** Every write of `recipients` (creating a vault, adding, removing
 or replacing a recipient, a migration, finishing an interrupted change, a
@@ -147,10 +200,15 @@ cannot check nor drop the tag by rewriting `vault.json`.
    (a **downgrade**) and the list is tampered; otherwise the vault is
    **untagged** (written before this section).
 3. The device has a trust record: this step is decided **before** steps 1
-   and 2, whatever the tag says. If `linkKey` of the current secret equals
-   the record's, the secret is the one the device verified; otherwise, if
-   `secretLink` verifies under the record's `linkKey`, it is a rotation by a
-   key holder. Either way steps 1 and 2 then apply, and a list whose tag
+   and 2, whatever the tag says. If `linkPublicKeys` of the current secret
+   equal the record's (both keys), the secret is the one the device verified;
+   otherwise, if `secretLink` is a signed link whose two signatures verify
+   under the record's public keys over `linkMessage` for the current secret,
+   it is a rotation by a key holder. A legacy link never counts here. With a
+   legacy record, the secret is the one the device verified when
+   `legacyLinkKey` of the current secret equals the record's `linkKey`, and
+   **nothing else is accepted** (no rotation, legacy or signed): whoever read
+   that record could have forged a legacy link. Either way steps 1 and 2 then apply, and a list whose tag
    verifies is **verified**. If neither holds, the change is **unconfirmed**
    and the list is tampered, whatever keys it holds and whether its tag is
    present, absent or wrong (a tag is never judged, and no shorter list is
@@ -190,6 +248,33 @@ list it now trusts. This trusts whatever the list is at that moment
 (trust on first use); a device that has a trust record never upgrades, it
 reports a downgrade.
 
+**Upgrading to signed links.** Vaults and records written before signed
+links are migrated in place, once, by a device holding the secret whose list
+checks (verified, or untagged and then tagged first):
+
+1. **Record.** At the device's first write (any write: a writer saves its
+   record before writing), its trust record is saved as `sempere-trust/2` for
+   the current secret, replacing a legacy one. A legacy record therefore
+   lives only until then, and only ever confirms the secret it was made for:
+   a device that missed a rotation while its record was legacy sees the change
+   as unconfirmed and confirms the list explicitly (below). There is no path
+   back: no writer creates a legacy record, and a signed record never accepts
+   a legacy link.
+2. **Vault**, explicitly (`sempere vault link upgrade`; the app after
+   unlocking) and as part of every write of `recipients` or of a tag, in the
+   same atomic write of `vault.json`: a legacy link is **re-signed** when the
+   outgoing secret is still known (an unfinished rewrap's journal, whose
+   secret the legacy link connects to the current one) as a signed link from
+   that secret, and otherwise **retired** (removed: it cannot be signed
+   without the outgoing secret, and no record accepts it); a malformed link
+   is removed; `"signed-secret-link"` is added to `features`, so older
+   writers, which would rotate with a legacy link that signed records refuse,
+   stop writing (§2).
+
+`features` is not authenticated (security review 2026-10, N3): an attacker
+can take the feature out or put a legacy link back, which changes nothing for
+a device with a signed record; it only lets older writers write again.
+
 **Repair.** A key holder repairs a list whose tag does not verify, or was
 removed, by writing the last verified list (keeping the labels the current
 entries have; a key the attacker deleted comes back with an empty label) as a
@@ -205,7 +290,10 @@ An untagged copy older than the tag (a restored backup) may be confirmed the
 same way; it is then tagged again. A list whose tag does not verify is never
 confirmed, and nothing here is ever done implicitly.
 
-**Limits.** The check is only as fresh as the trust record. A device that
+**Limits.** The check is only as fresh as the trust record. Signed links
+protect against whoever reads a device's trust record (or a backup of it),
+which holds public keys only; they do not protect against whoever held the
+outgoing secret itself. A device that
 opens a vault for the first time trusts the list it finds; a removed device,
 which knew the outgoing secret, can still forge a `secretLink` for devices
 that have not seen its removal; and an attacker who removes keys from the

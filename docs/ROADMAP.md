@@ -25,7 +25,7 @@ working state.
 | Crypto | age v1: X25519, scrypt, armor, STREAM; CCTV vectors | ✅ |
 | Crypto | Post-quantum ML-KEM-768 + X25519 recipients; vaults post-quantum only, legacy vaults open only to migrate | ✅ #33 |
 | Crypto | Streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt (B1) | ✅ #43 |
-| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations, per-device trust records; writes, rewraps and capture profiles refuse a tampered list; repair and confirm; untagged vaults tagged by their first writer | ✅ #98 |
+| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations (signed, Ed25519 + ML-DSA-65, 🚧 #115), per-device trust records (public keys only, 🚧 #115); writes, rewraps and capture profiles refuse a tampered list; repair and confirm; untagged vaults tagged by their first writer | ✅ #98 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
 | Vault | Version history round 2 (`format.md` §5.8): checkpoints, editing-session ids, positioned snapshots (`asOf`), thinning with stated and property-tested guarantees; compaction keeps checkpoints complete | ✅ #74 |
@@ -101,6 +101,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | sync webdav `--push-only` (one-way mirror, `--delete-extraneous`) | ✅ #97 | ✅ #97 |
 | `vault summaries` (published summaries for the web viewer, `format.md` §12), kept current by unlocked commands and `sync webdav` (`--web-viewer` creates them and the index on the server) | 🔀 #100 | 🔀 #100 |
 | Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | ✅ #98 | ✅ #98 |
+| Signed secret links (`format.md` §2.1, security review R2): `secretLink` = Ed25519 + ML-DSA-65 signatures, trust records hold public keys only; `vault link [status]` and `vault link upgrade` (one-time migration, `--json`); the app upgrades after unlock | 🚧 #115 | 🚧 #115 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
 | `backup status DIR` (last run, notes, files, bytes from `backup.json`), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | 🚧 #110 | 🚧 #110 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |

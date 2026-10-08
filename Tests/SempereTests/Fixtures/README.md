@@ -31,7 +31,7 @@ Vault id `5a3b1e00-1000-4000-8000-000000000001`, created
 (kind `bin`, sha256 `ae0a2902…6436`). No revision references it yet (a
 note with items is a follow-up of the attachments merge, task A1), so `verify`
 lists it as `unreferenced`, and `vault.json` has `features: ["attachments",
-"recipients-tag"]` and a `recipientsTag` (`format.md` §2.1; it was added to the
+"recipients-tag", "signed-secret-link"]` and a `recipientsTag` (`format.md` §2.1; they were added to the
 committed file, so copies of the fixture share a vault id without looking
 like a downgrade). Tests that need a vault written before §2.1 take the tag
 and the feature out of a copy (`FixtureVault.copySample`). `legacy.sempere`

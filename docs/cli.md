@@ -260,10 +260,11 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   derived from the vault secret, so nobody without the key can add a device
   (a sync server, a shared folder). `init` and every `recipients` command
   write it in the same write as the list (a secret rotation also writes
-  `secretLink`, which proves it was made with the old secret). With a key,
+  `secretLink`, Ed25519 and ML-DSA-65 signatures by the old secret's keys,
+  which prove it was made with the old secret). With a key,
   every command checks the list against this machine's trust record
   (`$XDG_STATE_HOME/sempere/trust/<vault id>.json`, mode 0600, kept by
-  commands that write; it holds no secret). A list that does not check is
+  commands that write; it holds only the two public keys that check a link). A list that does not check is
   refused for writing with exit 6 (see Exit codes); reading still works. An
   older vault without a tag is tagged by the first command that writes to it,
   which reports it once on stderr ("vault.json's device list is now
@@ -295,6 +296,21 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   or a trust record of this machine that no longer reads (it is written again).
   Never for a tag that does not verify. Confirming a list an attacker wrote
   lets them read what this machine writes.
+- `link` (or `link status`) shows the form of `vault.json`'s `secretLink`
+  (`none`, `signed`, `legacy` HMAC, `malformed`), whether the vault is marked
+  `signed-secret-link`, and this machine's trust record (`none`, `signed`:
+  public keys only, `legacy`: the HMAC record of earlier versions); `--json`
+  gives `link`, `featureListed`, `record`, `needsUpgrade` and `recipientsAuth`.
+  Works without a key. `link upgrade` (needs the key) does the one-time move
+  to signed links (`format.md` §2.1 "Upgrading to signed links"): it replaces
+  a legacy record by a signed one, retires a legacy link (re-signs it while
+  an interrupted rewrap still holds the old secret) and marks the vault, after
+  which older Sempere versions stop writing to it. `--json` adds `upgrade`
+  (`link`: `none`, `reSigned`, `retired`; `featureAdded`; `recordUpgraded`).
+  A second run changes nothing. A list that does not check is refused
+  (exit 6). Any write also upgrades this machine's record; a legacy record
+  never confirms a changed secret, so a machine that missed a key change
+  before upgrading runs `recipients confirm`.
 - `rewrap-resume` finishes an interrupted change; it refuses (exit 6) a list
   that does not check, so a planted journal cannot re-encrypt the vault to a
   planted key.
@@ -1894,8 +1910,8 @@ local `sempere-index.json` or `sempere-summaries.sealed`.
 A remote `vault.json` whose device list changed is copied over the local one
 only when it checks (`format.md` §2.1): its tag verifies under the secret it
 carries, and that secret is the local one or a rotation confirmed by its
-`secretLink` (from this machine's trust record, else the local vault's
-secret). That needs the key; without it only a list with the same keys is
+signed `secretLink` (checked with this machine's trust record's public keys,
+else the local vault's secret). That needs the key; without it only a list with the same keys is
 taken. Anything else is reported as `rejected` (stderr line and `--json`
 `rejected: [{path, message}]`), the local copy stays, and the exit code is 6.
 Every downloaded revision and blob is checked before it is placed

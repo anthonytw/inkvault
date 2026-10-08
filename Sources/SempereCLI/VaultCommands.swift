@@ -7,8 +7,8 @@ struct VaultCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "vault",
         abstract: "Create, inspect, verify and re-key a vault.",
-        subcommands: [VaultInit.self, VaultInfo.self, VaultRecipients.self, VaultRewrapResume.self, VaultVerify.self,
-                      VaultIndex.self, VaultSummaries.self]
+        subcommands: [VaultInit.self, VaultInfo.self, VaultRecipients.self, VaultLink.self, VaultRewrapResume.self,
+                      VaultVerify.self, VaultIndex.self, VaultSummaries.self]
     )
 }
 
@@ -427,6 +427,112 @@ struct RecipientsConfirm: ParsableCommand {
             try output.emitJSON(RecipientsStatusOutput(vault))
         } else {
             output.info("Trusted \(vault.recipients.count) recipient(s) on this machine.")
+        }
+    }
+}
+
+// MARK: - link
+
+struct VaultLink: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "link",
+        abstract: "Show or upgrade the signed secret link and this machine's trust record (format.md §2.1).",
+        subcommands: [LinkStatus.self, LinkUpgrade.self],
+        defaultSubcommand: LinkStatus.self
+    )
+}
+
+/// `sempere vault link [status] --json`.
+struct LinkStatusOutput: Encodable {
+    /// vault.json's `secretLink`: `none`, `signed`, `legacy` (HMAC) or `malformed`.
+    var link: String
+    /// True when `features` lists `signed-secret-link`.
+    var featureListed: Bool
+    /// This machine's trust record: `none`, `signed` (sempere-trust/2) or `legacy` (sempere-trust/1).
+    var record: String
+    /// True when `sempere vault link upgrade` would change something.
+    var needsUpgrade: Bool
+    var recipientsAuth: RecipientsStatusOutput
+
+    init(_ vault: Vault) {
+        let s = vault.secretLinkStatus
+        link = s.link.rawValue
+        featureListed = s.featureListed
+        record = s.record.rawValue
+        needsUpgrade = s.needsUpgrade
+        recipientsAuth = RecipientsStatusOutput(vault)
+    }
+
+    func printText() {
+        let linkText: String
+        switch link {
+        case "signed": linkText = "signed (Ed25519 + ML-DSA-65)"
+        case "legacy": linkText = "LEGACY (HMAC): run `sempere vault link upgrade`"
+        case "malformed": linkText = "MALFORMED (never verifies): run `sempere vault link upgrade`"
+        default: linkText = "none (no rotation since signed links)"
+        }
+        let recordText: String
+        switch record {
+        case "signed": recordText = "signed (public keys only)"
+        case "legacy": recordText = "LEGACY (HMAC key): run `sempere vault link upgrade`"
+        case "unreadable": recordText = "UNREADABLE: check the list, then `sempere vault recipients confirm`"
+        default: recordText = "none on this machine"
+        }
+        print("Secret link:    \(linkText)")
+        print("Signed links:   \(featureListed ? "yes" : "not marked (older writers may still rotate with HMAC links)")")
+        print("Trust record:   \(recordText)")
+        print("Device list:    \(recipientsAuth.text)")
+        print("Upgrade:        \(needsUpgrade ? "needed" : "nothing to do")")
+    }
+}
+
+struct LinkStatus: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "status",
+        abstract: "Show the form of vault.json's secret link and of this machine's trust record.",
+        discussion: "Works without a key (the device list is then not checked)."
+    )
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.ifPossible, migration: true)
+        let out = LinkStatusOutput(vault)
+        if output.json { try output.emitJSON(out) } else { out.printText() }
+    }
+}
+
+struct LinkUpgrade: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "upgrade",
+        abstract: "Move this machine and the vault to signed secret links (once; needs the key).",
+        discussion: """
+            Replaces this machine's HMAC trust record by one holding only public keys, marks the vault
+            `signed-secret-link` (older Sempere versions then stop writing to it), and removes a legacy HMAC
+            `secretLink` (re-signed when an unfinished rewrap still holds the outgoing secret). A device list
+            that does not check is refused (exit 6): confirm or repair it first.
+            """
+    )
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        var vault = try access.openVault(.required, migration: true)
+        let report = try vault.upgradeSecretLink()
+        if output.json {
+            struct Out: Encodable { var upgrade: SecretLinkUpgrade; var status: LinkStatusOutput }
+            try output.emitJSON(Out(upgrade: report, status: LinkStatusOutput(vault)))
+            return
+        }
+        guard report.changed else { output.info("Already signed; nothing to do."); return }
+        if report.recordUpgraded { output.info("Trust record on this machine: now public keys only.") }
+        if report.featureAdded { output.info("Vault marked signed-secret-link.") }
+        switch report.link {
+        case .reSigned: output.info("Legacy secret link re-signed (Ed25519 + ML-DSA-65).")
+        case .retired: output.info("Legacy secret link removed.")
+        case .none: break
         }
     }
 }
