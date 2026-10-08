@@ -453,11 +453,13 @@ CLI into `SempereRender`) writes the Markdown and HTML trees.
 | PDF | `<stem>.pdf` | one per note, or one merged `Sempere-Notes.pdf` |
 | PNG pages | `<stem>-p001.png`, ... | a folder per note |
 | Text (Markdown) | `<stem>.md` leading with the recognised text; with the PDF (optional, off) or page PNGs, a folder with them and `README.md` | `Sempere Export/`, mirroring the notebook tree |
+| Media | a folder `<stem>/` with the note's recordings, transcripts, clips, images and PDFs and `media.json` ("Media export" below) | a folder per note; notes without media are counted, not written |
 
 `<stem>` is `ExportName.stem` (sanitised title and the first 8 characters of the
 note id). Options: paper background (on), PNG resolution (72, 144, 216, 300
 dpi), merged PDF, and for text the PDF (off) and page images. The text export
-is disabled when no selected note has recognised handwriting. HTML is the
+is disabled when no selected note has recognised handwriting, the media
+export when none has a recording, video, image or PDF. HTML is the
 CLI's only (`sempere export --format html`). A one-off share writes no export
 manifest.
 
@@ -494,9 +496,11 @@ sidebar's notebook, else the vault). iPad, iPhone and Mac share the sheet
 (`BulkExportSheet`).
 
 - **Formats.** PDF (one file per note), PDF + attachments (recordings with
-  their transcripts and video clips embedded, as the share sheet's "PDF +
-  attachments"), PNG pages (a folder of `p001.png`, ... per note). SVG is the
-  CLI's only, as in the single-note export.
+  their transcripts and video clips embedded and listed on a last page, as the
+  share sheet's "PDF + attachments"), PNG pages (a folder of `p001.png`, ...
+  per note), Media (a folder per note, "Media export" below; notes whose
+  summary names no audio, video, image or PDF blob are not planned, so they
+  are never read). SVG is the CLI's only, as in the single-note export.
 - **Layout.** "Folders like your notebooks" (on by default) mirrors the
   notebook tree (`TreeExporter.folders`: sanitised segments, names that differ
   only by case share one spelling); a notebook export starts at that notebook
@@ -516,7 +520,8 @@ sidebar's notebook, else the vault). iPad, iPhone and Mac share the sheet
   or Save to Files…; deleted when the sheet closes and at launch.
 - **One note at a time, bounded memory.** `AppModel.runBulkExport` loops over
   the jobs: download (iCloud), read (coordinated, `requireLocal` before and
-  after, as for the share export), fetch embedded media for PDF + attachments,
+  after, as for the share export), fetch embedded media for PDF + attachments
+  (every file it writes for Media),
   render and write in a detached task, then let go. Only one note's state is
   held; PDFs stream (clips never in memory) to `<name>.pdf.partial` and are
   renamed when complete; zip entries are streamed from those files
@@ -544,6 +549,64 @@ sidebar's notebook, else the vault). iPad, iPhone and Mac share the sheet
   `SempereRender`; `sempere export --all --format pdf|png` runs the same
   session (docs/cli.md "Bulk export"), and the sheet shows the equivalent
   command for a notebook or the vault.
+
+## The attachment list page (app and CLI)
+
+"PDF + attachments" (the share sheet's and "Export Notes…"'s, the CLI's
+`--attachments`, `--recordings attach`, `--videos attach`) ends with a list of
+what the PDF carries: one row per recording, its transcript (when embedded) and
+video clip, with the kind, the title, the pages of the PDF it appears on (a
+recording's cards, a clip; "–" for none), the duration and the size. The rows
+follow the notes (a merged PDF heads each note's rows with its title), the
+recordings in their order, then the clips in page order. US Letter, as many
+pages as the rows need (about 35 rows a page; a title too long for its column
+is cut at the end of its first line).
+
+- **Links.** Each embedded file gets a FileAttachment annotation (the viewer's
+  paperclip in the left margin) naming the same file specification as the
+  document's `/EmbeddedFiles`: opening it opens or saves the file, also in
+  viewers that have no panel for document attachments. The
+  Page column links to the first page it appears on. `pdfdetach -list` counts
+  each file twice (the name tree and the annotation); the file is stored once.
+- **Not embedded.** A recording or clip left out (missing, not downloaded,
+  over the size limit) is listed with "(not embedded)" and no file link.
+  `sempere export --recordings list` lists them all without embedding anything.
+- **Text.** Laid out by the export's shaper (CoreText in the app, the bundled
+  Noto in the CLI), so it is the same page from both; without a shaper the
+  page is left out with a warning. A note without recordings or clips gets no
+  page. Shared code: `AttachmentList` (SempereRender), drawn by `PDFWriter`.
+
+## Media export (app and CLI)
+
+"Media" (the share sheet, "Export Notes…", `sempere export --format media`)
+writes a note's attachments as files: one folder per note, named like its
+other exports (`ExportName.stem`), holding
+
+- each recording, byte for byte as stored, and its transcript as a `.txt` of
+  time-stamped lines (`Transcript.plainText`) next to it;
+- each video clip, streamed from the vault, location metadata removed in place
+  unless kept (`--keep-image-metadata`), as "PDF + attachments" does;
+- each image, JPEG and PNG with their metadata removed unless kept (other
+  formats, and JPEG or PNG over 64 MiB, as stored, with a warning);
+- each PDF (the document behind `pdfPage` items), as stored;
+- `media.json`: `{"format": "sempere-media/1", "note", "title", "files": [{"file",
+  "kind" (recording, video, image, pdf), "title", "pages" (1-based note pages
+  it appears on), "duration", "started" (RFC 3339), "transcript" (the .txt),
+  "type", "size"}]}`.
+
+Each blob is written once however often it is placed. Names are
+`<title>-<Kind>-<n>[-<recording title>].<ext>` (`Physics-Week-3-Recording-1-Lecture.m4a`,
+`…-Image-2.jpg`), every part through `ExportName.component`, the title and the
+recording title capped at 60 bytes, unique ignoring case; the extension comes
+from the media type (`bin` when unknown). Every file is decrypted and verified
+on its way out (`BlobSource.stream`, never whole in memory) into a temporary
+file next to its name and moved into place. A blob that is missing or not
+downloaded is left out with a warning; one that fails verification while it is
+written fails that note (its files are removed) and the export goes on. A note
+without media writes nothing (the CLI warns, the app counts it). The bulk export
+records the files in its manifest, so a re-run skips unchanged notes and a
+changed note's earlier files are removed first. Shared code: `MediaExport`
+(SempereRender), used by `ShareExport`, `BulkExportSession` and the CLI.
 
 ## Vaults as single items (app)
 

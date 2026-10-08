@@ -186,7 +186,7 @@ struct ExportSheet: View {
         if options.format == .media {
             sentence = String(localized: "\(count) recordings and their transcripts included.")
         } else if options.format == .pdf && options.pdfAttachments {
-            sentence = String(localized: "\(count) recordings and their transcripts attached to the PDF, and listed on a last page.")
+            sentence = String(localized: "\(count) recordings and their transcripts attached to the PDF.")
         } else if options.format == .pdf {
             sentence = String(localized: "\(count) recordings not included (PDF + attachments includes them).")
         } else {
