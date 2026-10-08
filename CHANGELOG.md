@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Handwriting → LaTeX on device (G1 part 2), behind a setting and without a model yet: research with
+  licences, sizes, accuracy and measured decoder costs in `docs/research/handwriting-to-latex.md`. CLI:
+  `sempere recognize-math` picks ink (`--strokes`, `--rect`, `--lasso`, `--all-ink`), reads it with a
+  converted Core ML model on macOS (`--model DIR`, every file checked against its manifest's SHA-256) or
+  takes `--latex`, and with `--place replace|beside` turns it into an equation in one delta. App:
+  Settings → Handwritten Math (off by default; a model is downloaded only on request, its size shown
+  first) and Insert → Equation from Handwriting…: circle the ink, check the LaTeX the model read (with the
+  SwiftMath preview), then replace the ink or place the equation beside it, with undo.
+  `tools/math-model/convert.py` converts a Hugging Face image-to-LaTeX model into the model folder format.
 - Signed secret links (security review 2026-10, R2): a secret rotation's `secretLink` is now an Ed25519
   and an ML-DSA-65 (FIPS 204) signature by keys derived from the outgoing secret, valid only when both
   verify, and each device's trust record keeps only the two public keys, so reading a record (or a backup

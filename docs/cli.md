@@ -1357,6 +1357,37 @@ lines `ID  TIME  TITLE: read M of N page(s)`, or `--json`
 summaries, writes nothing and works on Linux. `notes show --json` gives the
 register as `recognized` (`{at, pages, read}`, absent when never set).
 
+### Handwritten math
+
+```
+sempere recognize-math ID|TITLE (--strokes ID... | --rect X,Y,W,H | --lasso "X,Y X,Y X,Y ..." | --all-ink)
+                       [--page N] [--model DIR | --latex SRC | --latex-file FILE]
+                       [--place replace|beside [--candidate N] [--inline] [--size PT] [--color HEX] [--dry-run]]
+                       [--save-image FILE.png]
+```
+
+Reads handwritten math as LaTeX and optionally turns it into an equation: the app's "Convert to
+Math" (docs/research/handwriting-to-latex.md), with the same code. The ink is picked with stroke ids
+(or unique prefixes of 4+ characters), a rectangle or a loop of page points (a stroke is taken when
+at least half of its control points are inside: `InkLasso`), or every stroke of the page
+(`--all-ink`; markers' highlights are left out). It is drawn as the model wants it (`MathInkImage`:
+black lines of one width, scaled into the model's input) and read on this machine by a converted
+model, `--model DIR` (a `sempere-math-model/1` folder: `manifest.json`, two Core ML packages and a
+tokenizer; every file is checked against its SHA-256 before anything runs; `tools/math-model/convert.py`
+makes one). The readings come best first, with a score (mean log-probability per token).
+
+Without `--place` nothing is written. `--place replace` removes the strokes and adds the equation
+where they were, `--place beside` keeps them and adds it to their right (or below, near the right
+margin); either way it is one delta (`NoteOps.convertInk`), as tall as the ink, and has no rendering
+until the app typesets it (the CLI has no typesetter, see "Equations in exports"). `--candidate`
+picks another reading; `--inline`, `--size` and `--color` are `attach math`'s. `--latex` skips
+recognition and converts the ink with a source made elsewhere (works on every platform).
+`--save-image` writes the model's input image as a PNG (512 × 128 without a model).
+
+**macOS only** for `--model`: Core ML exists on Apple platforms only; elsewhere the command exits 1
+and changes nothing. `--json` gives `{note, page, pageId, strokes, engine, seconds, candidates:
+[{latex, score}], placement, dryRun, file, item, removed, image}`.
+
 ### Transcription
 
 ```
