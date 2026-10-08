@@ -91,6 +91,51 @@ final class CLIAttachTests: CLITestCase {
         XCTAssertTrue(show.out.contains("Items (1):") && show.out.contains("image/jpeg"), show.out)
     }
 
+    /// `items replace`: the app's Replace Image. The new picture is stored
+    /// (stripped), then one delta removes the old image and adds the new one
+    /// with `parent`, fitted into the old frame; text boxes are refused.
+    func testItemsReplaceSwapsThePictureInOneDelta() throws {
+        let args = try setUpVault()
+        let placed = try ok(["attach", "image", physics, image("rgb8.png"), "--frame", "10,20,230,170", "--rotation", "90",
+                             "--json"] + args)
+        let old = try XCTUnwrap(((placed["items"] as? [[String: Any]])?.first?["item"] as? [String: Any])?["id"] as? String)
+        let before = try revisionCount(physics)
+        let out = try ok(["items", "replace", physics, String(old.prefix(13)), image("metadata.jpg"), "--json"] + args)
+        XCTAssertEqual(try revisionCount(physics), before + 1, "one delta")
+        XCTAssertEqual(out["changed"] as? Bool, true)
+        XCTAssertEqual(out["replaced"] as? String, old)
+        let newID = try XCTUnwrap(out["item"] as? String)
+        let items = try state(physics).pages[0].items
+        XCTAssertFalse(items.contains { $0.id.uuidString.lowercased() == old })
+        let new = try XCTUnwrap(items.first { $0.id.uuidString.lowercased() == newID })
+        XCTAssertEqual(new.parent?.uuidString.lowercased(), old)
+        XCTAssertEqual(new.blob?.type, "image/jpeg")
+        XCTAssertEqual(new.orientation, 6)
+        XCTAssertEqual(new.rotation, 90)
+        XCTAssertNil(new.crop)
+        // 45 × 61 (upright) fitted into 230 × 170, centred.
+        XCTAssertEqual(new.frame.h, 170, accuracy: 0.001)
+        XCTAssertEqual(new.frame.w, 170 * 45 / 61, accuracy: 0.001)
+        XCTAssertEqual(new.frame.x + new.frame.w / 2, 125, accuracy: 0.001)
+        XCTAssertEqual(try cli(["blobs", "verify", physics] + args).status, 0)
+        let sha = try XCTUnwrap(new.blob?.sha256)
+        XCTAssertNil(try cli(["blobs", "extract", physics, sha] + args).outData.range(of: Data("Exif".utf8)), "stripped")
+
+        // Plain output: the new id on stdout.
+        let again = try cli(["items", "replace", physics, newID, image("rgb8.png")] + args)
+        XCTAssertEqual(again.status, 0, again.err)
+        XCTAssertEqual(UUID(uuidString: again.out.trimmingCharacters(in: .whitespacesAndNewlines)) != nil, true, again.out)
+
+        let text = try ok(["attach", "text", physics, "Not a picture", "--json"] + args)
+        let textID = try XCTUnwrap(((text["items"] as? [[String: Any]])?.first?["item"] as? [String: Any])?["id"] as? String)
+        let count = try revisionCount(physics), blobs = blobFiles(physics).count
+        let refused = try cli(["items", "replace", physics, textID, image("rgb8.png")] + args)
+        XCTAssertEqual(refused.status, 1)
+        XCTAssertTrue(refused.err.contains("no image"), refused.err)
+        XCTAssertEqual(try revisionCount(physics), count, "nothing written")
+        XCTAssertEqual(blobFiles(physics).count, blobs, "no blob stored for a refused replace")
+    }
+
     func testKeepMetadataStoresTheOriginalBytes() throws {
         let args = try setUpVault()
         let out = try ok(["attach", "image", physics, image("metadata.jpg"), "--keep-metadata", "--json"] + args)
