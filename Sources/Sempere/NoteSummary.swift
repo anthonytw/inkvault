@@ -46,6 +46,9 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var lang: String?
     /// Marker strokes drawn below content items (format.md §5.4).
     public var markersBehindText = false
+    /// The last vault-wide recognition run that read the note (format.md §5.4
+    /// `recognized`): "Recently Recognized" lists the recent ones.
+    public var recognized: RecognitionRecord?
     /// What the note holds that a newer version wrote, and what could not be
     /// shown (format.md §7.4); nil when nothing. The vault is then read-only.
     public var newer: NewerContent?
@@ -220,6 +223,7 @@ extension Vault {
             s.blobs = state.blobReferences
             s.lang = state.meta.lang
             s.markersBehindText = state.meta.markersBehindText
+            s.recognized = state.meta.recognized
         } catch {
             s.problem = "cannot reconstruct: \(error)"
         }
