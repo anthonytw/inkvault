@@ -508,6 +508,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.isOpaque = false
         // Ink colours are stored as drawn on light paper; never invert them.
         canvas.overrideUserInterfaceStyle = .light
+        canvas.accessibilityIdentifier = "pageCanvas"   // UI tests draw on it
         // A Mac has no Pencil: the mouse and trackpad always draw, whatever
         // the system's Pencil preference says (`.default` follows it).
         // An iPhone has no Pencil: a finger draws (once annotating is switched on).
@@ -664,6 +665,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     var isDrawingWithPointer: Bool { mouseInk.isDrawing }
     /// Whether the app, not PencilKit, draws pointer strokes now (`MouseSmoothing.takesPointer`).
     var pointerInkActive: Bool { mouseInk.isActive }
+    /// Whether ink can be drawn now: PencilKit's gesture, or on a Mac the app's pointer ink.
+    var drawsInk: Bool { canvas.drawingGestureRecognizer.isEnabled || mouseInk.isActive }
 
     /// Drops an object-eraser gesture or a mouse stroke in progress (the drawing is being replaced).
     func cancelErasing() {

@@ -149,48 +149,78 @@ final class MacWindowUITests: XCTestCase {
     /// A mouse drag on the canvas draws a stroke (docs/mac.md "Mouse and
     /// trackpad"): with "Smooth Mouse Strokes" at its default (Light) the app,
     /// not PencilKit, draws pointer strokes, so this fails if its gesture never
-    /// gets the drag. Dark pixels in the window go up by about the stroke's area.
+    /// gets the drag. The pen is picked first (the app tests, which share this
+    /// container, leave PencilKit's saved palette on another tool), the drags
+    /// go inside the visible part of a page's canvas, and the pixels that
+    /// changed there are counted.
     @MainActor
     func testAMouseDragDrawsASmoothedStroke() throws {
         let app = launch()
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
         let window = app.windows.firstMatch
+        let canvases = app.descendants(matching: .any).matching(identifier: "pageCanvas")
+        XCTAssertTrue(canvases.firstMatch.waitForExistence(timeout: 30), "a page canvas")
+        app.typeKey("1", modifierFlags: [.command, .option])   // Tools > Pen
         Thread.sleep(forTimeInterval: 3)   // the page's ink and tiles settle
-        let before = Self.darkPixels(window.screenshot().pngRepresentation)
-        // Lower right of the page (the canvas is the window's right part), left to right and back.
-        let a = window.coordinate(withNormalizedOffset: CGVector(dx: 0.58, dy: 0.86))
-        let b = window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.88))
-        a.press(forDuration: 0.1, thenDragTo: b, withVelocity: 300, thenHoldForDuration: 0.1)
-        let c = window.coordinate(withNormalizedOffset: CGVector(dx: 0.58, dy: 0.92))
-        b.press(forDuration: 0.1, thenDragTo: c, withVelocity: 300, thenHoldForDuration: 0.1)
-        var after = before
+        // The largest visible part of a page canvas, in screen points.
+        let frame = window.frame
+        let visible = canvases.allElementsBoundByIndex.map { $0.frame.intersection(frame) }
+            .filter { !$0.isNull && $0.width > 100 && $0.height > 100 }
+            .max { $0.width * $0.height < $1.width * $1.height }
+        guard let area = visible else {
+            dump(app, "mouse-stroke")
+            XCTFail("no page canvas on screen")
+            return
+        }
+        print("MACUIDEBUG mouse stroke window \(frame) canvas \(area)")
+        let origin = window.coordinate(withNormalizedOffset: .zero)
+        func at(_ fx: CGFloat, _ fy: CGFloat) -> XCUICoordinate {
+            origin.withOffset(CGVector(dx: area.minX - frame.minX + area.width * fx,
+                                       dy: area.minY - frame.minY + area.height * fy))
+        }
+        let before = window.screenshot().pngRepresentation
+        at(0.2, 0.55).press(forDuration: 0.1, thenDragTo: at(0.8, 0.6), withVelocity: 300, thenHoldForDuration: 0.1)
+        at(0.8, 0.65).press(forDuration: 0.1, thenDragTo: at(0.2, 0.7), withVelocity: 300, thenHoldForDuration: 0.1)
+        var changed = 0
         for _ in 0..<5 {
             Thread.sleep(forTimeInterval: 1)
-            after = Self.darkPixels(window.screenshot().pngRepresentation)
-            if after - before > 300 { break }
+            changed = Self.changedPixels(before, window.screenshot().pngRepresentation)
+            if changed > 300 { break }
         }
         let shot = XCTAttachment(screenshot: window.screenshot())
         shot.name = "mouse-stroke"
         shot.lifetime = .keepAlways
         add(shot)
-        print("MACUIDEBUG mouse stroke dark pixels: before \(before) after \(after)")
-        XCTAssertGreaterThan(after - before, 300, "the two drags drew ink")
+        print("MACUIDEBUG mouse stroke changed pixels: \(changed)")
+        XCTAssertGreaterThan(changed, 300, "the two drags drew ink")
     }
 
-    /// Pixels that are clearly ink-dark (the pen's default black).
-    static func darkPixels(_ png: Data) -> Int {
+    /// RGBA pixels of a PNG, with its width and height.
+    static func pixels(_ png: Data) -> (data: [UInt8], w: Int, h: Int)? {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return 0 }
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
         let w = cg.width, h = cg.height
-        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let data = ctx.data else { return 0 }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        let p = data.assumingMemoryBound(to: UInt8.self)
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return drawn ? (data, w, h) : nil
+    }
+
+    /// Pixels that differ clearly between two screenshots of one size.
+    static func changedPixels(_ a: Data, _ b: Data) -> Int {
+        guard let p = pixels(a), let q = pixels(b), p.w == q.w, p.h == q.h else { return 0 }
         var count = 0
-        for i in stride(from: 0, to: w * h * 4, by: 4) where p[i] < 80 && p[i + 1] < 80 && p[i + 2] < 80 { count += 1 }
+        for i in stride(from: 0, to: p.data.count, by: 4) {
+            let d = max(abs(Int(p.data[i]) - Int(q.data[i])), abs(Int(p.data[i + 1]) - Int(q.data[i + 1])),
+                        abs(Int(p.data[i + 2]) - Int(q.data[i + 2])))
+            if d > 60 { count += 1 }
+        }
         return count
     }
 

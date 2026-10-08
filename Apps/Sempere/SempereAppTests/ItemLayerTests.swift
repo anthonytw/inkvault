@@ -200,14 +200,14 @@ struct ItemLayerTests {
         let host = PageCanvasHost(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
         host.itemSelection.reset(editor: editor, pageID: page, undoManager: nil)
         host.itemSelectionActive = true
-        #expect(!host.canvas.drawingGestureRecognizer.isEnabled)
+        #expect(!host.drawsInk)
         #expect(host.itemSelection.isActive)
         host.itemSelection.select(editor.items(on: page).first?.id)
         #expect(host.itemSelection.selectedID != nil)
         host.itemSelection.deleteSelection()
         #expect(editor.items(on: page).isEmpty)
         host.itemSelectionActive = false
-        #expect(host.canvas.drawingGestureRecognizer.isEnabled == !host.objectEraserSelected)
+        #expect(host.drawsInk == !host.objectEraserSelected)
         #expect(!host.itemSelection.isActive)
         await editor.flush()
     }
