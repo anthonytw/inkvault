@@ -302,6 +302,15 @@ final class AppModel {
     var syncingInBackground = false
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
+    /// The running Back Up Now, Verify Backup or restore (`AppModel+Backup`),
+    /// nil when none runs.
+    var backupProgress: BackupProgress?
+    /// Cancels the running backup (`cancelBackup`).
+    @ObservationIgnored var backupControl: BackupRunControl?
+    /// Per-vault backup folders and results (`UserDefaults`; tests use a scratch suite).
+    @ObservationIgnored var backupStore = BackupStore()
+    /// Delivers backup reminders; the app installs `UserNotificationBackupNotifier`.
+    @ObservationIgnored var backupNotifier: any BackupNotifying = NoBackupNotifier()
     /// Pause between progressive passes, passes with an unchanged note set
     /// before the loop slows to `cloudIdleInterval` (doubling while nothing
     /// changes, up to `cloudMaxIdleInterval`), and how long without progress
@@ -455,6 +464,7 @@ final class AppModel {
          attachmentIndexRoot: URL? = nil,
          automaticThinning: Bool = false,
          recipientsTrust: (any RecipientsTrustStore)? = nil,
+         backupNotifier: (any BackupNotifying)? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.recipientsTrust = recipientsTrust ?? MemoryRecipientsTrustStore()
         self.deviceStateURL = deviceStateURL
@@ -471,6 +481,7 @@ final class AppModel {
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
         self.afterIO = afterIO
+        if let backupNotifier { self.backupNotifier = backupNotifier }
     }
 
     // MARK: - Derived
@@ -652,6 +663,7 @@ final class AppModel {
         if awaitNotes { try await notesLoaded() }
         refreshQuickCaptureProfile()
         startInboxAdoption()
+        Task { await rescheduleBackupReminder() }
     }
 
     /// Enters the migration screen for the vault just unlocked with
@@ -949,6 +961,7 @@ final class AppModel {
         syncingInBackground = false
         endBackgroundTime()
         cancelRemoteMerges()
+        backupControl?.cancel()   // it reads the vault, whose access ends here
         isCloudVault = false
         isBusy = false
         let editor = self.editor

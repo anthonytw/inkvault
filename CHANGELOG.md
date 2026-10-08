@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- App: Settings → Backups. Back Up Now copies the vault's encrypted files to a folder you choose (another
+  drive, another cloud provider), only what is new each time, on the same code as `sempere backup`; Verify
+  Backup checks it (decrypting every note while the vault is unlocked) and lists what is wrong, which the next
+  backup repairs; the last backup's date and size; an optional reminder after a number of days without a
+  backup. Restore from Backup (in Settings and on the welcome screen) shows what a backup holds, then restores
+  it into a new vault, never over the open one.
+- CLI: `sempere backup status DIR` (last run, notes, files and bytes from `backup.json`) and
+  `sempere restore DIR --to NEW --dry-run` (what a restore would bring back, and whether `NEW` can take it).
+  `restore` refuses a target that is, holds or lies inside the vault named by `--vault` / `$SEMPERE_VAULT`.
+
 - "Recently Recognized" is shared by every device, like the trash: a recognition run ("Recognize All
   Notes", `sempere recognize`) marks each note it writes recognition for with the time of the run
   (`meta.recognized`, `format.md` §5.4), which syncs with the note. The sidebar lists it under All Notes
