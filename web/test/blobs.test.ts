@@ -201,6 +201,9 @@ describe("reading blobs from a vault", async () => {
     // the current one (format.md §2.1; security review 2026-10, R4).
     const unlinked = await UnlockedVault.unlock(manifest, sampleIdentity(), journal);
     expect(await unlinked.blobNames(hexToBytes(r.sha256))).toHaveLength(1);
+    // Nor does it add a key for derived data such as published summaries (§12).
+    const gcm = { name: "AES-GCM", length: 256 } as const;
+    expect(await unlinked.derivedKeys("sempere/1 test", gcm, ["decrypt"])).toHaveLength(1);
     const d = new Decrypter();
     d.addIdentity(sampleIdentity());
     const currentSecret = await d.decrypt(armor.decode(manifest.vaultSecret));
@@ -210,6 +213,7 @@ describe("reading blobs from a vault", async () => {
       enc.encode("secret link"), Uint8Array.of(0), enc.encode(manifest.vaultId), Uint8Array.of(0), secretId])).digest("hex");
     const rewrapping = await UnlockedVault.unlock({ ...manifest, secretLink }, sampleIdentity(), journal);
     const [current, old] = await rewrapping.blobNames(hexToBytes(r.sha256));
+    expect(await rewrapping.derivedKeys("sempere/1 test", gcm, ["decrypt"])).toHaveLength(2);
     expect(old).toBe(createHmac("sha256", previous).update(Buffer.concat([enc.encode("sempere/1"), Uint8Array.of(0), enc.encode("blob"), Uint8Array.of(0), hexToBytes(r.sha256)])).digest("hex"));
     const att = join(tmp, "notes", note, "att");
     cpSync(join(att, `${current}.image.age`), join(att, `${old}.image.age`));
