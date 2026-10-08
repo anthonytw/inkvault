@@ -301,6 +301,20 @@ struct MacMenuBarTests {
         }
     }
 
+    /// ⌘, is the app's Settings…, in the app menu: UIKit's own item (Catalyst's
+    /// generated pane, touch alternatives only) is gone (TestFlight build 7).
+    @Test func settingsInTheAppMenuAreTheApps() async throws {
+        guard Platform.isMac else { return }
+        UIMenuSystem.main.setNeedsRebuild()
+        _ = await TS.waitUntil(timeout: .seconds(10)) { !SempereAppDelegate.lastTree.isEmpty }
+        let tree = SempereAppDelegate.lastTree
+        #expect(MacMenus.built.contains { $0 == "preferences → Settings…" || $0 == "Settings… added" }, "\(MacMenus.built)")
+        #expect(!tree.joined(separator: "\n").contains("orderFrontPreferencesPanel"), "UIKit's Settings… is gone")
+        let settings = tree.filter { $0.contains("|key|Settings…|") }
+        #expect(settings.count == 1, "one Settings… item: \(settings)")
+        #expect(settings.first?.hasSuffix("|,") == true, "on ⌘,: \(settings)")
+    }
+
     /// On a Mac, the menu bar as built has no shortcut twice.
     @Test func theBuiltMenuBarHasEveryShortcutOnce() async throws {
         guard Platform.isMac else { return }

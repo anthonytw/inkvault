@@ -333,3 +333,38 @@ struct DoubleClickTests {
         #expect(fired == ["b"], "the row the cell shows now")
     }
 }
+
+/// ⌘, opens the app's Settings, not Catalyst's generated pane (TestFlight build 7).
+@MainActor
+struct SettingsMenuTests {
+    @Test func settingsIsTheAppMenusItemNotASwiftUICommand() {
+        #expect(MenuCommand.nativeOnMac.contains(.showSettings), "MacMenus turns UIKit's Settings… into the app's")
+        #expect(MenuCommand.showSettings.shortcut == MenuCommand.Shortcut(",", [.command]))
+        let item = MacMenus.nativeItem(.showSettings)
+        #expect(item.input == "," && item.modifierFlags == .command)
+        #expect(item.title == "Settings…")
+        #expect(item.propertyList as? String == MenuCommand.showSettings.rawValue)
+    }
+
+    @Test func settingsOpenTheSettingsWindowWithNoWindowFocused() {
+        let routing = MenuRouting.shared
+        let previous = routing.openScene
+        defer { routing.openScene = previous }
+        var opened: [String] = []
+        routing.openScene = { opened.append($0) }
+        #expect(routing.perform(.showSettings, in: nil), "no router needed")
+        #expect(opened == [MenuRouting.settingsSceneID])
+        #expect(!routing.perform(.newNote, in: nil), "other commands still need their window")
+        #expect(opened == [MenuRouting.settingsSceneID])
+    }
+
+    @Test func theAppDelegateTakesTheCommandAtTheEndOfTheResponderChain() {
+        let routing = MenuRouting.shared
+        let previous = routing.openScene
+        defer { routing.openScene = previous }
+        var opened: [String] = []
+        routing.openScene = { opened.append($0) }
+        SempereAppDelegate().sempereMenuCommand(MacMenus.nativeItem(.showSettings))
+        #expect(opened == ["settings"])
+    }
+}

@@ -163,6 +163,7 @@ behaviour and testing on a real Mac.
 | Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`); acts on the focused window's notes since build 6; File > Export… (⇧⌘E, the sheet picks the format) replaces the submenu on the Mac 🔀 #101 |
 | File menu: Import PDF as New Note… (⇧⌘I), Import from Notability…, Insert PDF Pages…, Insert Photo… (⌥⌘I), Export… (⇧⌘E), same paths as the toolbars | 🔀 #101 |
 | Double-click a note in the list opens it in its own window | 🔀 #101 (`MacWindowUITests`) |
+| ⌘, (app menu Settings…) opens the app's Settings; Catalyst's generated pane (touch alternatives) is replaced | 🔀 #101 (`MacWindowUITests`) |
 | Tooltips (`.help`) on every icon-only control, enforced by `scripts/check-help.py` in the `app` job | 🔀 #101 |
 | Finder Open With on a PDF: imported as a new note (vault chosen, unlocked first) | 🔀 #101; needs a hand test on a Mac |
 | PDF page attachments on the canvas | 🔀 blank in build 6; tile redraw on scale change fixed, checked on Catalyst in CI; iCloud vault needs a hand test |

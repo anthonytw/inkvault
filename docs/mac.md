@@ -99,7 +99,7 @@ need a paged note). Imports file new notes under the sidebar's notebook. With no
 | View | Hide or Show Note List | ⌥⌘L |
 | View | Library (opens a library window when none is open) | ⌥⌘0 |
 | View | Vault Keys (the key window) | ⌥⌘K |
-| View | Settings… (the settings window; at the end of the View menu, since Catalyst has no app-menu placement for it) | ⌘, |
+| Sempere (app menu) | Settings… (the app's settings window; UIKit's own item, which opened Catalyst's generated pane, is replaced) | ⌘, |
 
 ⌘W closes a window as usual; it never closes the vault (⇧⌘W does). Zoom
 steps are 1, 1.25, 1.5, 2, 2.5, 3 and 4 times the fitted page width
@@ -107,6 +107,19 @@ steps are 1, 1.25, 1.5, 2, 2.5, 3 and 4 times the fitted page width
 canvas's range. Tool commands select the tool in the system palette
 (`PageCanvasHost.select(tool:)`); the compact palette has no pencil, so that
 command does nothing there.
+
+**Settings… (fixed after build 7).** UIKit also builds the app menu's
+Settings… (⌘,), which opens a pane Catalyst generates (touch alternatives and
+system items only), while the sidebar's gear opened the app's settings. Settings…
+is now one of the `nativeOnMac` commands: `MacMenus` replaces UIKit's
+preferences item with the app's, so it sits where a Mac user looks for it, and it
+is no longer at the end of the View menu. It needs no window: `MenuRouting`
+opens the settings window through the `openWindow` of the last window that
+appeared (`openScene`), and the app delegate takes the command when no window
+is in the responder chain. `MacCatalystTests.settingsInTheAppMenuAreTheApps`
+checks the built menu bar (one Settings… on ⌘,, no `orderFrontPreferencesPanel:`)
+and `MacWindowUITests.testCommandCommaOpensTheAppsSettings` presses ⌘, in the
+running app.
 
 ## Windows and state restoration
 
@@ -345,3 +358,5 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 11. In the Finder, right-click a PDF > Open With > Sempere: with the app quit,
     with no vault open, with the vault locked, and unlocked. Sempere must not
     become the default app for PDFs.
+12. ⌘, and Sempere > Settings… open the app's Settings window, with and without
+    a window open; there is no other Settings window.

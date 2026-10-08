@@ -26,6 +26,7 @@ struct SettingsView: View {
                 DeviceKeySettingsSection()
                 StorageSettingsSection()
             }
+            .accessibilityIdentifier("settingsForm")
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

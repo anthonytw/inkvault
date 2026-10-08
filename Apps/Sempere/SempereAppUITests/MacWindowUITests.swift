@@ -162,6 +162,20 @@ final class MacWindowUITests: XCTestCase {
         return count
     }
 
+    /// ⌘, opens the app's Settings (TestFlight build 7: Catalyst's generated
+    /// pane with touch alternatives only), and the app menu has one Settings….
+    @MainActor
+    func testCommandCommaOpensTheAppsSettings() throws {
+        let app = launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
+        app.typeKey(",", modifierFlags: .command)
+        let opened = app.descendants(matching: .any)["settingsForm"].waitForExistence(timeout: 20)
+        if !opened { dump(app, "settings") }
+        XCTAssertTrue(opened, "the app's Settings window opened")
+        XCTAssertFalse(app.staticTexts["Touch Alternatives"].exists, "not Catalyst's generated pane")
+    }
+
     /// The new-note sheet's notebook field lists matching notebooks while typing.
     @MainActor
     func testNewNoteSheetSuggestsNotebooks() throws {

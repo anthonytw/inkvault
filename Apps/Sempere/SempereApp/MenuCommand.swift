@@ -47,11 +47,14 @@ enum MenuCommand: String, CaseIterable, Sendable {
     }
 
     /// Commands whose shortcut UIKit's own menu bar already uses on a Mac
-    /// (⌘O for "Open…", ⌘F for "Find…"). UIKit refuses a SwiftUI menu group
-    /// holding such a shortcut, and with it every other command of the group
-    /// (TestFlight build 6: the File and Edit commands were missing), so these
-    /// are not SwiftUI commands: `MacMenus` turns UIKit's own items into them.
-    static let nativeOnMac: [MenuCommand] = [.openVault, .find]
+    /// (⌘O for "Open…", ⌘F for "Find…", ⌘, for the app menu's "Settings…").
+    /// UIKit refuses a SwiftUI menu group holding such a shortcut, and with it
+    /// every other command of the group (TestFlight build 6: the File and Edit
+    /// commands were missing), so these are not SwiftUI commands: `MacMenus`
+    /// turns UIKit's own items into them. UIKit's Settings… opened Catalyst's
+    /// generated preferences pane (touch alternatives only), not the app's
+    /// settings (TestFlight build 7).
+    static let nativeOnMac: [MenuCommand] = [.openVault, .find, .showSettings]
 
     /// Who handles the command.
     enum Provider: Sendable {

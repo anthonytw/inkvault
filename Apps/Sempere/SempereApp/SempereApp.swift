@@ -51,7 +51,7 @@ struct SempereApp: App {
                     .environment(keys)
             }
         }
-        WindowGroup("Settings", id: "settings") {
+        WindowGroup("Settings", id: MenuRouting.settingsSceneID) {
             SettingsView(showsDone: false)
                 .environment(model)
         }

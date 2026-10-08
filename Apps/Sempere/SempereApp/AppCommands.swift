@@ -116,7 +116,7 @@ struct AppCommands: Commands {
         switch command {
         case .showKeys: openWindow(id: "keys")
         case .showLibrary: openWindow(id: "library")
-        case .showSettings: openWindow(id: "settings")
+        case .showSettings: openWindow(id: MenuRouting.settingsSceneID)
         default: router?.perform(command)
         }
     }
