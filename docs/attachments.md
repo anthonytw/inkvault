@@ -1201,7 +1201,7 @@ is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
   text boxes: tap selects a box (to move it or set its width), tap again or
   double-tap edits, tap on the page starts a new box.
 - **Menu** (`ItemMenu`): Play (video), Edit Text (text), Copy, Duplicate,
-  Edit Equation… (equations), Crop… (images, PDF pages), Replace Image ▸ From Photos… / From Files…
+  Edit Equation… (math), Crop… (images, PDF pages), Replace Image ▸ From Photos… / From Files…
   (images), Bring to Front, Delete; Paste when the clipboard holds items.
 - **Replace Image.** An image's blob is immutable (format.md §8.2.2): the
   new picture is stored first (photo privacy setting applies), then one delta

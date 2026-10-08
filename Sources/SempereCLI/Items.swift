@@ -18,8 +18,7 @@ struct ItemsCommand: ParsableCommand {
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
         subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsReplace.self, ItemsPoster.self, ItemsMath.self,
-                      ItemsFront.self,
-                      ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
+                      ItemsFront.self, ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
     )
 }
 

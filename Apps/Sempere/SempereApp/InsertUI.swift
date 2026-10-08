@@ -158,9 +158,9 @@ struct ReplaceRequest {
     let done: @MainActor (Item) -> Void
 }
 
-/// The editor toolbar's Insert menu, in three groups: pictures and video
-/// (Photos, the camera, paste, a video file), a text box (the text tool),
-/// and pages of a PDF, whose entry says where they go.
+/// The editor toolbar's Insert menu, in groups: pictures and video (Photos,
+/// the camera, paste, a video file), a text box (the text tool), pages of a
+/// PDF (the entry says where they go), and an equation.
 struct InsertMenu: View {
     let editor: NoteEditor
     let state: InsertState

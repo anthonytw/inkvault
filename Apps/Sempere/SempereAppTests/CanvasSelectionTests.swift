@@ -95,7 +95,7 @@ struct CanvasSelectionTests {
     /// The menu offers the same entries whichever way the item was selected:
     /// Edit Text for text boxes, Crop and Replace Image for images, Crop for
     /// PDF pages, Play for videos; nothing that edits on a read-only note.
-    @Test func theMenuPerKind() throws {
+    @Test func theMenuPerKind() {
         let image = Self.image()
         let text = AttachmentEditorTests.textItem()
         let video = Item(kind: .video, layer: .content, frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "a")
@@ -109,16 +109,16 @@ struct CanvasSelectionTests {
         #expect(entries(pdf) == [.copy, .duplicate, .crop, .bringToFront, .delete])
         #expect(entries(video) == [.play, .copy, .duplicate, .bringToFront, .delete])
         #expect(entries(image, editable: false, paste: true) == [.copy])
+        let math = Item.math(MathContent(latex: "x^2", display: true, size: 20, color: Sempere.Color(r: 0, g: 0, b: 0)),
+                             frame: Rect(x: 0, y: 0, w: 40, h: 20), z: "a")
+        #expect(ItemMenu.entries(for: math, editable: true, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
+                                 canEditMath: true) == [.copy, .duplicate, .editMath, .bringToFront, .delete])
+        #expect(entries(math) == [.copy, .duplicate, .bringToFront, .delete], "no equation sheet wired")
         #expect(entries(nil, paste: true) == [.paste])
         #expect(ItemMenu.entries(for: image, editable: true, canPlay: false, canCrop: false, canReplace: false, canPaste: false)
                 == [.copy, .duplicate, .bringToFront, .delete])
-        // An equation (format.md §8.2.8): Edit Equation… after Duplicate, when the editor offers it.
-        let math = Item.math(try NoteOps.math("x^2"), frame: Rect(x: 0, y: 0, w: 60, h: 30), z: "a")
-        #expect(ItemMenu.entries(for: math, editable: true, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
-                                 canEditMath: true) == [.copy, .duplicate, .editMath, .bringToFront, .delete])
         #expect(ItemMenu.entries(for: math, editable: false, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
                                  canEditMath: true) == [.copy], "read-only")
-        #expect(!entries(math).contains(.editMath), "not without the equation sheet")
     }
 
     // MARK: The canvas host
