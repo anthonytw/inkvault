@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Signed secret links (security review 2026-10, R2): a secret rotation's `secretLink` is now an Ed25519
+  and an ML-DSA-65 (FIPS 204) signature by keys derived from the outgoing secret, valid only when both
+  verify, and each device's trust record keeps only the two public keys, so reading a record (or a backup
+  of it) no longer lets anyone forge a link (`format.md` §2.1). Existing vaults and records are upgraded
+  in place once: `sempere vault link` shows the state and `sempere vault link upgrade` does it; the app
+  does it after unlocking; any CLI write upgrades the machine's record. An old HMAC record confirms only
+  the secret it was made for (a machine that missed a key change confirms the list). Upgraded vaults are
+  marked `signed-secret-link`, so earlier builds stop writing to them (pre-1.0). The web viewer checks
+  signed links with `@noble/post-quantum` and `@noble/curves`.
+
 - "Recently Recognized" is shared by every device, like the trash: a recognition run ("Recognize All
   Notes", `sempere recognize`) marks each note it writes recognition for with the time of the run
   (`meta.recognized`, `format.md` §5.4), which syncs with the note. The sidebar lists it under All Notes

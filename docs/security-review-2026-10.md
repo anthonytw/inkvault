@@ -33,7 +33,7 @@ File:line references are to this branch.
 | --- | --- | --- | --- | --- |
 | R4 / W1 | High | recipients, sync | Planted `rewrap-journal.json` makes forged revisions and blobs verify (reproduced over WebDAV) | Fixed |
 | R1 | High | recipients | Subset search under an attacker's secret: a one-tap repair keeps the attacker's key | Fixed |
-| R2 | High (design) | recipients | A trust record's `linkKey` can forge a `secretLink`; docs said it "holds no secret" | Mitigated; open question |
+| R2 | High (design) | recipients | A trust record's `linkKey` can forge a `secretLink`; docs said it "holds no secret" | Fixed (#115: signed links) |
 | R3 | Medium | recipients | A replaced secret with a stripped or bogus tag could be confirmed or repaired | Fixed |
 | C1 | Medium | capture | A capture-key holder can add a transcript to an existing voice note | Fixed |
 | W3 | Medium | sync | A locked sync accepts a `vault.json` with a swapped secret | Fixed |
@@ -150,9 +150,27 @@ with the umask and only then set mode 0600. `format.md` said "it holds no secret
 - `format.md` §2.1 now says the record is private.
 - Test: `testTrustRecordRoundTripsAndRejectsMalformedFiles` checks the modes.
 
-**Open question for the maintainer:** make the link asymmetric, so a record holds only a verification key.
-For example, derive an Ed25519 key pair from the secret with HKDF and make `secretLink` a signature over
-`secretId(new)`. That changes the format (§2.1) and the web viewer, so it was not done here.
+**Fix (PR #115, maintainer decision 2026-10-08):** the link is asymmetric and hybrid.
+- Two key pairs are derived from the vault secret with HKDF under their own labels: Ed25519 (RFC 8032 seed)
+  and ML-DSA-65 (FIPS 204 `KeyGen_internal` from a 32-byte seed). `secretLink` holds both signatures, by
+  the outgoing secret's keys, over the same link message as before (vault id, `secretId(new)`); it is
+  valid only when both verify (`Sources/Sempere/SecretLink.swift`, `web/src/vault/link.ts`).
+- Trust records are `sempere-trust/2` and hold only the two public keys: reading one no longer helps
+  forge a link. ML-DSA comes from swift-crypto (BoringSSL on Linux, CryptoKit on Apple OSes 26+), the web
+  viewer's from `@noble/post-quantum` 0.7.1 and `@noble/curves` 2.4.0 (pure JavaScript, inside the CSP).
+- Migration in place (`format.md` §2.1 "Upgrading to signed links"): a legacy HMAC record confirms only
+  the secret it was made for (never a rotation, since whoever read it could forge a legacy link) and is
+  replaced by a signed one at the device's first write; `sempere vault link upgrade` and the app (after
+  unlock) retire the vault's legacy link (re-signing it when an unfinished rewrap still holds the outgoing
+  secret) and add the `signed-secret-link` feature, so older writers stop. A signed record never accepts a
+  legacy link. The legacy form is still checked for a rewrap journal's previous secret (R4), where the
+  reader holds both secrets and a forger would need `secretId(current)`.
+- Tests: `SecretLinkTests` (shared vectors made by noble and by swift-crypto, forgery with the public
+  record, one-signature-only links, downgrades, the migration), `CLISecretLinkTests`, the app's
+  `RecipientsAlertTests.unlockUpgradesToSignedSecretLinks`, `web/test/link.test.ts`.
+- Remaining: a device whose record was still legacy when someone read it stays exposed until its first
+  write with this version; a removed device, which held the outgoing secret, can still sign a link for
+  devices that have not seen its removal (`format.md` §2.1 "Limits", unchanged).
 
 ### C1 (Medium): a transcript could be added to an existing voice note
 

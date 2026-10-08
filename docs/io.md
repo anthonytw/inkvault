@@ -648,8 +648,8 @@ The only in-place rewrite. The procedure is the recommended one of
    (recipient removed) it holds the **outgoing** vault secret, age-encrypted
    to the new recipient set.
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
-   removal), `recipientsTag` for them and, on removal, `secretLink` from the
-   outgoing secret (format.md §2.1), in the same atomic write; then save this
+   removal), `recipientsTag` for them and, on removal, `secretLink` signed by the
+   outgoing secret's keys (format.md §2.1), in the same atomic write; then save this
    device's trust record. Before step 1 the current list must check
    (`requireWritable`): a planted list, or a planted journal next to one, is
    never resumed or rewrapped to.

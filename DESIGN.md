@@ -90,7 +90,11 @@ sits in the Keychain, optionally behind Face ID.
 age does not sign. To stop someone with write access to the storage from
 planting a note that decrypts, every plaintext carries an HMAC keyed by a
 per-vault secret that only key holders can decrypt. The stock-CLI recovery
-path simply skips the tag.
+path simply skips the tag. The device list in `vault.json` is tagged the same
+way, and when the secret rotates the new one is linked to the old by two
+signatures (Ed25519 and ML-DSA-65, keys derived from the old secret); each
+device remembers only the public keys, so what it stores can check a
+rotation but never forge one (`format.md` §2.1).
 
 ## Storage and sync
 
