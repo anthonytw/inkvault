@@ -5098,6 +5098,18 @@
         }
       }
     },
+    "List this note's recordings" : {
+      "comment" : "Tooltip of the note toolbar's Recordings… button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver las grabaciones de esta nota"
+          }
+        }
+      }
+    },
     "Live Activities are off for Sempere, and iOS needs one to record a voice note: turn them on in Settings → Sempere → Live Activities." : {
       "comment" : "Error from the quick voice note intents, also shown in Settings: Live Activities are turned off for the app",
       "extractionState" : "manual",
@@ -7055,6 +7067,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Colocar en esta página"
+          }
+        }
+      }
+    },
+    "Place, transcribe, rename or delete this recording" : {
+      "comment" : "Tooltip of a recording's actions menu in the Recordings list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar, transcribir, renombrar o eliminar esta grabación"
           }
         }
       }

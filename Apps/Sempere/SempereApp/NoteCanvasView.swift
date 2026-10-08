@@ -384,6 +384,7 @@ struct EditorView: View {
 
     private var recordingsListButton: some View {
         Button("Recordings…", systemImage: "waveform") { ui.showingRecordings = true }
+            .help("List this note's recordings")
     }
 
     private var recordingsMenu: some View {

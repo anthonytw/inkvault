@@ -416,7 +416,8 @@ struct RecordingsListView: View {
                 Image(systemName: isPlaying(r) ? "pause.circle.fill" : "play.circle.fill").font(.title)
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel(isPlaying(r) ? "Pause" : "Play")
+            .accessibilityLabel(isPlaying(r) ? LocalizedStringKey("Pause") : LocalizedStringKey("Play"))
+            .help(isPlaying(r) ? LocalizedStringKey("Pause") : LocalizedStringKey("Play"))
             VStack(alignment: .leading, spacing: 2) {
                 Text(AudioCard.title(r)).font(.headline).lineLimit(1)
                 Text([r.started.formatted(date: .abbreviated, time: .shortened), AudioCard.duration(r),
@@ -451,6 +452,7 @@ struct RecordingsListView: View {
             } label: {
                 Label("Actions", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
             }
+            .help("Place, transcribe, rename or delete this recording")
         }
         .padding(.vertical, 2)
     }
