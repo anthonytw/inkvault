@@ -130,12 +130,33 @@ struct QuickCaptureTests {
         #expect(Self.leftovers(qc.queueFolder(vaultID)).isEmpty)
     }
 
+    /// The widget and Control Center fired together: the second start used to
+    /// pass the idle check during the first one's microphone prompt and start
+    /// a second recording that nothing could stop.
+    @Test func aSecondStartDuringTheFirstIsRefused() async throws {
+        let (_, _, _, qc, _) = try Self.setUp()
+        let gate = AsyncStream<Void>.makeStream()
+        qc.microphoneAllowed = {
+            for await _ in gate.stream { break }
+            return true
+        }
+        let first = Task { try await qc.start() }
+        #expect(await TS.waitUntil { qc.state == .starting })
+        await #expect(throws: QuickCaptureError.alreadyRecording) { try await qc.start() }
+        gate.continuation.yield()
+        try await first.value
+        #expect(qc.state == .recording)
+        _ = try await qc.stop()
+        #expect(qc.state == .idle)
+    }
+
     @Test func nothingStartsWithoutAProfile() async throws {
         let qc = QuickCapture()
         qc.store = MemoryCaptureProfileStore()
         qc.showsActivity = false
         await #expect(throws: QuickCaptureError.notSetUp) { try await qc.start() }
         await #expect(throws: QuickCaptureError.notRecording) { try await qc.stop() }
+        #expect(qc.state == .idle, "a refused start leaves nothing claimed")
     }
 
     /// The model adopts the inbox once the vault is unlocked; a voice note
