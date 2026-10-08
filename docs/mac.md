@@ -89,6 +89,7 @@ the Insert menu's entry does (#104). Imports file new notes under the sidebar's 
 | Note | Edit Tags… | ⌥⌘T |
 | Note | Paper… | ⌥⌘P |
 | Note | Save Version… | ⌥⌘S |
+| Note | Recordings… | ⌃⌘R |
 | Note | Previous Page, Next Page | ⌘[, ⌘] |
 | Note | Add Page | ⇧⌘A |
 | Note | Move to Recently Deleted | ⌘⌫ |
@@ -123,11 +124,38 @@ checks the built menu bar (one Settings… on ⌘,, no `orderFrontPreferencesPan
 and `MacWindowUITests.testCommandCommaOpensTheAppsSettings` presses ⌘, in the
 running app.
 
-Placed items (images, text boxes, PDF pages, videos): the mouse always draws,
+Placed items (images, text boxes, PDF pages, videos, recordings' cards): the mouse always draws,
 so a right-click (or two-finger click) on an item selects it and shows its
 menu (Crop…, Replace Image, Delete…) without leaving the drawing tool; a click
 with the lasso does the same, and Select in the toolbar turns selection mode
 on (`docs/attachments.md` §13 "Selecting items").
+
+## Recordings and export (TestFlight build 7)
+
+Recordings were reachable only from the Recordings toolbar menu, whose list
+is behind a press and hold (a split button on the Mac): users did not find
+them. Now a recording that stops is placed on the page as a card
+(`format.md` §8.2.9) whose play/pause button is a real `UIButton` in the
+canvas (`AudioCardControls`), like the page footer's, so a mouse click plays
+it without drawing; and the note's recordings are listed by Note >
+Recordings… (⌃⌘R), the note's "…" menu and the Recordings menu
+(`RecordingsListView`): play or pause, place on this page, transcript,
+transcribe, rename, delete.
+
+Exporting a note with a recording crashed on the Mac. Without a crash report,
+the code points at the hand-off to the system after the export, not the
+export itself (the renderers range-check everything and are tested with
+audio): the share sheet (`UIActivityViewController`) and the save picker
+(`UIDocumentPickerViewController`) were hosted inside a SwiftUI sheet, where
+on Catalyst they become the share picker and save panel with no anchor, and
+the share sheet's completion handler was a closure written in a main-actor
+view, which Swift 6 checks at run time: called from the sharing service's
+queue it stops the app. Now, on a Mac, both are presented by UIKit from the
+export sheet's Share button (a popover anchored to it; the picker modally)
+(`ExportHandOff`), every callback is `@Sendable` and hops to the main actor,
+and recordings over 16 MiB are streamed into "PDF + attachments" instead of
+being read whole. `AudioItemAppTests` exports a note with a recording and
+calls the callbacks off the main thread.
 
 ## Windows and state restoration
 
@@ -377,3 +405,8 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
     become the default app for PDFs.
 12. ⌘, and Sempere > Settings… open the app's Settings window, with and without
     a window open; there is no other Settings window.
+13. Record (Recordings menu), stop: the card appears where you were looking;
+    click its play button (no ink is drawn), move and resize it in selection
+    mode, delete it; Note > Recordings… lists the recording, Place on This Page
+    puts it back. Export the note as "PDF + attachments", then Share… and
+    Save…: no crash, the PDF lists the audio in Preview's attachments.

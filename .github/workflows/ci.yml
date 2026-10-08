@@ -310,6 +310,11 @@ jobs:
         run: |
           npm run build
           grep -q 'Content-Security-Policy' dist/index.html
+      # Browser smoke of opening fast: config.json modes, and a second visit fetches no unchanged file.
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Smoke test (cache and config.json, Chromium)
+        run: node scripts/smoke-cache.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 
   web-golden:
     name: Web viewer goldens match the Swift CLI

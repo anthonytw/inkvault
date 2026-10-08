@@ -30,6 +30,7 @@ working state.
 | Vault | History and restore points | ✅ |
 | Vault | Version history round 2 (`format.md` §5.8): checkpoints, editing-session ids, positioned snapshots (`asOf`), thinning with stated and property-tested guarantees; compaction keeps checkpoints complete | ✅ #74 |
 | Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | ✅ #54 |
+| Vault | Published summaries `sempere-summaries.sealed` (`format.md` §12): AES-256-GCM under an HKDF key of the vault secret, entries keyed by revision names, a hint | 🔀 #100 |
 | Vault | Fast exact decoding of stroke points; per-device cache keys (`format.md` §10.1) | ✅ #56 |
 | Vault | Tags merge per tag (add wins) | ✅ #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | ✅ #25 |
@@ -57,7 +58,7 @@ working state.
 | Sync | WebDAV: HTTPS server trust left to the system (sync failed on macOS) | ✅ #105 |
 | Vault | Attachment index and unused-attachment report (E7, `format.md` §10.1) | 🚧 #95 |
 | Vault | Math items (G1, `format.md` §8.2.8): LaTeX source, `MathSource.check`, `NoteOps.placeMath` | ✅ #96 |
-| Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2, a new item kind) | 🚧 #103 |
+| Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2.9) | 🚧 #103 |
 | Vault | Recently Recognized shared across devices (stored in the vault) | 🚧 #102 (draft) |
 | Render | Video in exports: poster with a play mark in PDF/SVG/PNG, clips embedded in "PDF + attachments" streamed from the vault (`PDFWriter.write(to:)`), clips written next to Markdown/HTML and linked | ✅ #93 |
 
@@ -95,6 +96,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | sync webdav | ✅ | ✅ |
 | sync webdav of attachment blobs (`--max-blob-mib`) | ✅ #67 | ✅ #67 |
 | sync webdav `--push-only` (one-way mirror, `--delete-extraneous`) | ✅ #97 | ✅ #97 |
+| `vault summaries` (published summaries for the web viewer, `format.md` §12), kept current by unlocked commands and `sync webdav` (`--web-viewer` creates them and the index on the server) | 🔀 #100 | 🔀 #100 |
 | Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | ✅ #98 | ✅ #98 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
@@ -106,7 +108,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | `attach video` (pure-Swift probe; poster from `--poster`, or from the clip on macOS), `items poster`, `export --videos attach` / `--attachments`, clips linked in Markdown/HTML (G2) | ✅ #93 (no poster without `--poster`) | ✅ #93 |
 | Equations (G1): `attach math` (`--latex`, `--inline`, `--size`, `--color`, `--render` a PDF typeset elsewhere), `items math`, `items list`/`notes show`/`search` over the LaTeX source; exports draw the stored rendering (PDF form; SVG/PNG via Poppler as coverage of its colour), else the source as monospace text with a warning; `$$…$$` in Markdown/HTML | ✅ #96 | ✅ #96 |
-| `recordings list\|place\|rename\|delete`, `attach recording --place`, `vault summaries` | 🚧 #103, #100 | 🚧 #103, #100 |
+| Recordings on the page (`format.md` §8.2.9): `recordings list\|place\|rename\|delete`, `attach recording --place`, audio items in `items list` and `notes show`, the card drawn in PDF/SVG/PNG exports; long recordings streamed into `--recordings attach` | 🚧 build 7 feedback PR | 🚧 build 7 feedback PR |
+| `vault summaries` | 🚧 #100 | 🚧 #100 |
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | ✅ #94 | ✅ #94 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
@@ -152,7 +155,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | ✅ #89; tried on an iPhone in build 7, fixes ✅ #106, 🚧 #107 |
 | Attachments | Unused-attachment index (E7): Settings → Storage "Unused Attachments" list | 🚧 #95 |
 | Attachments | Selecting items (build 7 feedback): one selection model for every kind; Select always in the toolbar; while drawing, a lasso tap, a held finger or a right-click picks an item; outline, handles (text boxes by their sides) and menu on selection; text boxes: tap selects, tap again or double-tap edits; Replace Image… (Photos or Files); text colour swatches from the pen palette; Insert menu grouped, with "Insert PDF Pages After Page N…" (also in the Add Page menu) | ✅ #104 (not yet tried on the iPad) |
-| Attachments | Audio items on the page, Recordings list on the Mac (build 7 feedback) | 🚧 #103 |
+| Attachments | Recordings on the page (build 7 feedback, `format.md` §8.2.9): stopping a recording places its card on the page being looked at (microphone, title, length, transcript; a play/pause button on the card), movable, resizable and deletable like any item; Recordings… list (play or pause, place on the page, transcript, transcribe, rename, delete) in the note's menu, the Recordings menu and Note > Recordings… (⌃⌘R) on the Mac; deleting a recording takes its cards | 🚧 build 7 feedback PR (not yet tried on a device) |
+| App | Mac export of a note with a recording no longer crashes: the share picker and save panel are presented by UIKit from the export sheet (not hosted in a SwiftUI sheet), their callbacks hop to the main actor, long recordings are streamed into "PDF + attachments" | 🚧 build 7 feedback PR (not yet tried on a Mac) |
 | Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | ✅ #96 (not yet tried on the iPad) |
 | Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💡 |
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | ✅ #93 (not yet tried on the iPad) |

@@ -4,15 +4,22 @@ A read-only viewer for Sempere vaults that runs entirely in the browser
 (`web/`, TypeScript + Vite, no backend). It opens a vault folder of encrypted
 files, decrypts them in the page with the key the user pastes, merges the
 revisions into notes, and draws them. It never writes to the vault or to any
-server, and writes to browser storage only one thing, only when asked: a key
-encrypted under a passkey ("Remembering the key with a passkey").
+server. It keeps two things in the browser: a cache of the vault's
+encrypted files, exactly as downloaded ("Opening fast" below), and, only
+when asked, a key encrypted under a passkey ("Remembering the key with a
+passkey"); nothing decrypted and never the key in the clear.
 
 What it does:
 
-- **Open** a vault from an `http(s)` URL (a static file server with
+- **Open** the vault the server configures (`config.json`, "Hosting"), or,
+  without a configuration, a vault from an `http(s)` URL (a static file server with
   `sempere-index.json`, or a WebDAV share), from a folder picked with the File
   System Access API (Chrome, Edge), from `<input webkitdirectory>` (every
   browser), or from a folder dropped on the page.
+- **Open fast**: the note list comes from the vault's published summaries
+  (`sempere-summaries.sealed`, `format.md` §12) and the encrypted files are
+  cached in the browser, so a later visit downloads and decrypts only what
+  changed ("Opening fast").
 - **Unlock** with the `AGE-SECRET-KEY-PQ-1…` identity, pasted as the bare line
   or the whole `age-keygen -pq` key file. Legacy (X25519) vaults are refused
   (`format.md` §3.3.2), as are classic `AGE-SECRET-KEY-1…` keys. Or, on a
@@ -110,6 +117,59 @@ the note view and the list ("N unreadable revisions", a "Problems" filter);
 the note is shown merged from the rest, marked as such (§4: report, never
 silently drop).
 
+## Opening fast
+
+A vault of a few hundred notes has a few thousand revision files, each a
+post-quantum age file: fetching and decrypting all of them on every visit took
+seconds. Three things make a visit fast:
+
+1. **Published summaries** (`format.md` §12). `sempere-summaries.sealed` at
+   the vault root holds each note's title, tags, notebook, flags, dates, page
+   count and searchable text, with the names of the revision files it was made
+   from, sealed (AES-256-GCM) under a key derived from the vault secret. The
+   viewer reads it right after unlocking and shows the whole list at once,
+   then checks the vault's listing: a note whose revision names equal its
+   entry's is current (revision files are write-once, so the same names are
+   the same content); any other note (new, edited, compacted, or without an
+   entry) is decrypted as before, and an entry whose note is gone is dropped.
+   The file is a hint: missing, stale, damaged or another vault's means only
+   that more notes are decrypted, never an error. It is written by
+   `sempere vault summaries` and kept current by `sempere sync webdav`
+   (`--web-viewer` creates it on the server, with `sempere-index.json`;
+   `docs/cli.md`). When a note is opened, the summary computed from its
+   revisions replaces its entry.
+2. **A cache of ciphertext.** Revisions and blobs fetched over HTTP are kept
+   in IndexedDB (`web/src/vault/cache.ts`), keyed by the vault's URL and id
+   and the file's path, exactly as the server sent them. They are write-once,
+   so a cached file is never fetched again: a later visit requests only names
+   it has not seen (plus `config.json`, `vault.json`, the summaries file and
+   the listing, which change). After each listing, cached revisions the
+   listing no longer has and every file of a note that is gone are deleted;
+   the rest is bounded at 512 MiB (least recently used first; no file over
+   64 MiB is cached). Everything read from the cache is decrypted and
+   verified like a download (age, the body tag of §4, a blob's hash and keyed
+   name), and a cached file that fails (a recipient change rewrote it,
+   storage damage) is deleted and downloaded once more. "Clear cached data"
+   (on the open, unlock and main screens) deletes the cache of every vault.
+   Where IndexedDB is unavailable (some private windows) the cache lives in
+   memory for the tab. Local folders are not cached.
+3. **One-request listing.** With `sempere-index.json` on the server
+   (`"listing": "index"` in `config.json`), the listing is one request;
+   over WebDAV it is one `PROPFIND` per note, done 8 at a time while the
+   changed notes are decrypted 4 at a time.
+
+The status line shows the progress ("Checking 120 of 640 notes…",
+"Decrypting 3 of 5 changed notes…") and then the count; note bodies are
+decrypted when a note is opened.
+
+Measured with `scripts/smoke-cache.mjs` (Chromium, the server on the same
+machine, every request delayed by 40 ms) on a synthetic vault of 200 notes
+and 600 revisions: unlock to the verified list took 7.3 s on a first visit
+without summaries (809 requests, 600 revision downloads) and 5.4 s on a
+second visit (209 requests, no revision downloaded: decryption dominates);
+with the summaries file 1.8 s over WebDAV (208 requests) and 0.3 s with the
+index (8 requests), the first rows after 0.25 s, first visit or not.
+
 A vault of a later format version (`sempere/2`, unknown `features`) opens
 like any other, and the status line says it was written partly by a newer
 Sempere (the reasons in its tooltip). In a revision marked newer (§7.4)
@@ -187,6 +247,11 @@ poster and says to extract it with the CLI), and at most 1 MiB of padding beyond
 what a writer adds. Each blob is read once per open note however many items
 use it.
 
+**Recordings on the page** (§8.2.9) are drawn as their card (the CLI's
+elements, cross-checked with its SVG): the microphone icon, the title and
+length, and the transcript once it is read (lazily, verified). A tap on a
+card plays its recording in the list below.
+
 **Recordings** (§8.3) are listed above the pages (title, start, length). Play
 decrypts the audio into an `<audio>` element (AAC in MPEG-4 plays in every
 current browser except Chromium builds without proprietary codecs; ALAC only
@@ -210,7 +275,8 @@ yourself (`npm ci && npm run build`).
 
 **Untrusted:** everything in the vault and everything the storage server
 returns: file contents, listings (`sempere-index.json`, PROPFIND bodies),
-sizes and names. A hostile server can withhold, replay or reorder files, but
+the summaries file, sizes and names; and the browser cache, which holds what
+the server sent. A hostile server can withhold, replay or reorder files, but
 cannot forge or alter a revision without the vault secret (the HMAC tag binds
 note id, file name and body, §4), and cannot make the viewer run code:
 
@@ -246,6 +312,17 @@ note id, file name and body, §4), and cannot make the viewer run code:
   renderer limits of `SempereRender` (extent 200 000 pt, samples per control
   point, outline points per page, ruling commands per band and page). Every
   failure is a typed error shown to the user; a seeded fuzz test checks that.
+- **Summaries** (`format.md` §12) are authenticated under the vault secret:
+  the server can withhold one or serve an older one (its entries then still
+  match unchanged notes, or are decrypted again), not forge one. A malicious
+  recipient can write entries that disagree with its revisions; a note opened
+  shows its revisions. The file is bounded (64 MiB, 256 MiB after gunzip),
+  each entry is checked (canonical sorted revision names, dates, counts, page
+  numbers) and a bad entry is dropped alone; a fuzz test covers it.
+- **`config.json`** (deploy time, "Hosting") holds no secret and is only
+  read: it names the vault's URL and listing and whether other vaults may be
+  opened. One that exists but cannot be read or parsed stops the viewer
+  (fail closed) rather than falling back to ad-hoc loading.
 - **Names are validated** before use: note directories must be lowercase
   UUIDs and revision files canonical `<hlc>-<device>-<seq>.<kind>.age` names;
   anything else is ignored (§1), so a listing cannot point the viewer at
@@ -263,6 +340,18 @@ PDF needed them. **Lock** reloads the page, which drops the key and
 every decrypted note. JavaScript cannot guarantee that memory is wiped, and a
 browser extension with access to the page can read anything the page can; use
 a browser profile without such extensions for sensitive vaults.
+
+**What the browser keeps:** the ciphertext cache of "Opening fast", in
+IndexedDB under the viewer's origin: vault files exactly as downloaded, keyed
+by the vault's URL and id and the file's path, with a size and a last-use
+time. **Nothing decrypted is persisted**: no note content, title, summary,
+vault secret or key, and no derived key (the summaries are decrypted into
+memory on each visit). Someone with access to the browser profile learns
+what the server shows anyone who can list it (note ids, revision and blob
+names, sizes) and which vaults were opened there, and holds encrypted files
+that need the key, as a copy of the vault would. "Clear cached data"
+deletes it (not a remembered key, which "Forget this key" deletes); clearing
+the site's data in the browser deletes both.
 
 **A key remembered with a passkey** (opt-in, above). What each attacker can do:
 
@@ -325,7 +414,35 @@ Depth, Content-Type`, plus `Access-Control-Allow-Credentials: true` if it
 needs a login).
 
 `index.html?vault=https://notes.example.org/vault/` pre-fills the URL (never
-put a key in a URL).
+put a key in a URL) when the viewer has no configuration.
+
+### `config.json`: the server decides the vault
+
+A deployment can fix which vault the viewer shows with a `config.json` next to
+`index.html` (it holds no secret; `connect-src 'self'` still covers a
+same-origin vault):
+
+```json
+{ "vault": "./vault/", "listing": "webdav", "allowOtherVaults": false }
+```
+
+- `vault`: the vault's URL, relative to `config.json` (so `./vault/` is the
+  same origin); `http(s)` only, without credentials, query or fragment.
+- `listing`: `webdav` (`PROPFIND`), `index` (`sempere-index.json`) or `auto`
+  (the index if there is one, else WebDAV; the default).
+- `allowOtherVaults`: `false` (the default) opens that vault directly, at the
+  key prompt: the URL field, "Open a vault folder…", the drop zone and the
+  unlock screen's "Back" are not shown at all, and `?vault=` is ignored.
+  `true` keeps the ad-hoc screen with `vault` pre-filled.
+
+Without a `config.json` (a 404) the viewer behaves as before: any vault by URL
+or folder. A `config.json` that exists but is not valid stops the viewer with
+its error. The maintainer's lab writes it in its deploy recipe, next to the
+built `dist/`:
+
+```bash
+printf '{"vault": "./vault/", "listing": "index", "allowOtherVaults": false}\n' > /srv/sempere/viewer/config.json
+```
 
 ### A WebDAV mirror made by `sempere sync webdav`
 
@@ -338,10 +455,17 @@ login cookie, prompted by the browser); the viewer sends credentials only to
 its own origin.
 
 ```bash
-# on the Mac, from the iCloud vault (docs/cli.md "Sync")
+# on the Mac, from the iCloud vault (docs/cli.md "Sync"); --identity lets it keep
+# the server's summaries current, --web-viewer creates them (and the index) the first time
 SEMPERE_WEBDAV_PASSWORD=… sempere sync webdav https://notes.example.org/vault/ \
-  --vault ~/Library/Mobile\ Documents/com~apple~CloudDocs/Notes.sempere --user notes
+  --vault ~/Library/Mobile\ Documents/com~apple~CloudDocs/Notes.sempere --user notes \
+  --identity ~/.config/sempere/identity.key --push-only --web-viewer
 ```
+
+The run keeps `sempere-summaries.sealed` and `sempere-index.json` on the server
+describing what the server holds, rewriting them only when that changed;
+without `--identity` the summaries are left as they are (stale entries only
+mean more decryption in the viewer).
 
 A Caddy site for viewer and share (Caddy's `webdav` module):
 
@@ -388,7 +512,8 @@ current with no manual step: every `sempere` command that opens the vault
 (`compact`, `import`, `snapshot`, edits, `sync webdav`, even `verify`)
 rewrites it when the vault's listing changed since, and `sync webdav`
 rewrites the server's copy, if the server has one, to list what the server
-holds after the sync. No command creates it except `vault index`. A copy made
+holds after the sync. No command creates it except `vault index` (and, on a
+WebDAV server, `sync webdav --web-viewer`). A copy made
 by other means (`rsync` of the vault folder) carries the index with it. Writes
 by the app do not update it; the next `sempere` command does. Every reader
 treats the file as an unknown file and ignores it (`format.md` §1); `sync
@@ -426,11 +551,12 @@ are missing: download the vault first.
 - **Passphrase-wrapped keys** (`keys/*.key.age`) are not offered: paste the
   key itself. (Typage can decrypt scrypt files; supporting it means scrypt
   with work factor up to 2^20, 1 GiB, in the browser.)
-- **Everything is decrypted on open**, to list titles and tags: a vault of a
-  few hundred notes takes seconds (four notes and up to 24 requests at a
-  time). Summaries are not cached between visits (the `format.md` §10 cache
-  is per device and would need storage), and the decrypted notes are kept
-  only for the notes opened most recently.
+- **Without a summaries file**, every note is decrypted to list titles and
+  tags: a vault of a few hundred notes takes seconds (four notes and up to 24
+  requests at a time), on later visits too (the files then come from the
+  cache, but decryption dominates). Publish one (`sempere vault summaries`,
+  or `sync webdav --web-viewer`). Decrypted notes are kept in memory only for
+  the notes opened most recently.
 - **Equations** (`math` items, format.md §8.2.8) are drawn from their stored
   rendering with pdf.js on a transparent page (no white box over the paper);
   an equation without a rendering, or whose rendering cannot be drawn, shows
@@ -460,6 +586,9 @@ node scripts/smoke-attachments.mjs test/fixtures/render.sempere ../Tests/Sempere
 # passkey: Chromium's virtual authenticator (CTAP2, UV, PRF), and one without PRF
 node scripts/smoke-passkey.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-video.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
+# config.json modes, the cache (second visit fetches no unchanged file) and the summaries, with timings
+# (run `sempere vault summaries` and `sempere vault index` on a copy of the vault first; LATENCY_MS=40 adds latency):
+node scripts/smoke-cache.mjs COPY_OF_VAULT KEY_FILE
 ```
 
 Tests (`web/test/`, vitest, Node 22):
@@ -501,6 +630,15 @@ Tests (`web/test/`, vitest, Node 22):
 - Ports of the Swift merge, tag, clock, model, search and notebook tests,
   including §5.3's shuffled-order reconstruction and the multi-device tag
   convergence simulation.
+- Published summaries (`summaries.test.ts`): the §12.1 vector, the Swift
+  goldens (`test/golden/*.summaries.json`, from `sempere vault summaries
+  --plaintext`) equal to what the viewer computes from the revisions,
+  tampered, foreign-secret and wrong-vault files refused, malformed entries
+  dropped alone. The listing (`listing.test.ts`): summaries shown first,
+  only stale notes decrypted, gone notes dropped, a second visit with the
+  cache downloading nothing, eviction. The cache (`cache.test.ts`: LRU,
+  write-once paths only, a failing cached file evicted and fetched again,
+  IndexedDB through `fake-indexeddb`) and `config.json` (`config.test.ts`).
 - Vault and source tests: legacy refusal, wrong key, tag binding to note and
   file name, unreadable revisions reported, bounded reads and gunzip, index
   and PROPFIND parsing with hostile names.

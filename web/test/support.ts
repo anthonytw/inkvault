@@ -4,6 +4,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isLowercaseUUID } from "../src/format/json.ts";
 import { SourceError, type VaultSource, isRevisionFile } from "../src/vault/source.ts";
+import { sealSummaries, summariesKeyInfo } from "../src/vault/summaries.ts";
+import { UnlockedVault, parseManifest } from "../src/vault/vault.ts";
 
 export const repo = join(import.meta.dirname, "..", "..");
 export const fixtures = join(repo, "Tests", "SempereTests", "Fixtures");
@@ -38,3 +40,22 @@ export class NodeDirSource implements VaultSource {
     return Promise.resolve(readdirSync(join(this.root, "notes", id)).filter(isRevisionFile).sort());
   }
 }
+
+export async function gzip(data: Uint8Array): Promise<Uint8Array> {
+  const s = new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+
+/** Seals JSON content for `vault` with its own derived key (the viewer only reads; tests write). */
+export async function sealFor(vault: UnlockedVault, json: unknown, vaultId = vault.manifest.vaultId): Promise<Uint8Array> {
+  const [key] = await vault.derivedKeys(summariesKeyInfo, { name: "AES-GCM", length: 256 }, ["encrypt"]);
+  if (!key) throw new Error("no key");
+  return sealSummaries(await gzip(new TextEncoder().encode(JSON.stringify(json))), key, vaultId);
+}
+
+export async function unlockFixture(dir: string): Promise<{ source: NodeDirSource; vault: UnlockedVault }> {
+  const source = new NodeDirSource(dir);
+  const vault = await UnlockedVault.unlock(parseManifest(await source.read("vault.json", 1 << 24)), sampleIdentity());
+  return { source, vault };
+}
+
