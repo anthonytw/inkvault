@@ -35,7 +35,9 @@ final class CLIInboxTests: CLITestCase {
         let transcript = path("t.json")
         try Transcript(recording: UUID(), engine: "test", language: "en", created: Date(),
                        segments: [.init(start: 0, end: 1, text: "milk")]).encoded().write(to: URL(fileURLWithPath: transcript))
-        XCTAssertEqual(try cli(["inbox", "transcript", capture, transcript] + locked).status, 0)
+        XCTAssertNotEqual(try cli(["inbox", "transcript", capture, transcript] + locked).status, 0,
+                          "a transcript is bound to the capture's audio")
+        XCTAssertEqual(try cli(["inbox", "transcript", capture, transcript, "--audio", Self.tone] + locked).status, 0)
 
         let listedLocked = try XCTUnwrap(try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])
         XCTAssertEqual(listedLocked.first?["kinds"] as? [String], ["capture", "transcript"])

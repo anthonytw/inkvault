@@ -1312,7 +1312,7 @@ and the exit code is 1.
 ```
 sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key once)
 sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
-sempere inbox transcript CAPTURE JSON [--profile PATH]
+sempere inbox transcript CAPTURE JSON --audio FILE [--profile PATH]
 sempere inbox list
 sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
 ```
@@ -1330,7 +1330,10 @@ only `vault.json` and the profile, no identity or passphrase. It seals the
 audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
 with the capture key) and prints the capture id. `--transcript` seals a
 `sempere-transcript/1` file with it, and `transcript` seals one later; either
-way its recording id is replaced by the capture's. `list` shows the inbox:
+way its recording id is replaced by the capture's, and it is bound to the
+capture's audio (`format.md` §11.2): `transcript` needs that audio file
+(`--audio`, the bytes that were captured), and a transcript bound to other
+audio is never adopted. Both refuse (exit 7) a vault of a newer format. `list` shows the inbox:
 ids and file kinds without a key, titles and whether each verifies with one.
 `import` adopts each capture as a note in the capture's notebook ("Inbox"),
 titled from its date: the audio and transcript as blobs, then one delta as this

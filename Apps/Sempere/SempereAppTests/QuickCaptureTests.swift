@@ -274,7 +274,9 @@ struct QuickCaptureTests {
         let inbox = url.appendingPathComponent(CaptureFile.folderName, isDirectory: true)
         let transcript = Transcript(recording: ids.recording, engine: "test", language: "en", created: Date(),
                                     segments: [.init(start: 0, end: 1, text: "Linear maps.")])
-        try CaptureWriter.store(try writer.seal(transcript: transcript, capture: id), in: inbox)
+        let tone = try Data(contentsOf: RecordingTests.tone)
+        try CaptureWriter.store(try writer.seal(transcript: transcript, capture: id, audio: BlobRef(content: tone, type: "audio/mp4")),
+                                in: inbox)
 
         let model = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .milliseconds(50))
         model.blobCacheFolder = Self.temp("blobs")
@@ -287,7 +289,6 @@ struct QuickCaptureTests {
         #expect(Self.inbox(url) == [CaptureFile.name(id, .transcript)])
         #expect(model.inboxProblem == nil)
 
-        let tone = try Data(contentsOf: RecordingTests.tone)
         try CaptureWriter.store(try writer.seal(audio: tone, started: Date(), id: id), in: inbox)
         #expect(await model.adoptInbox() == 1)
         let state = try #require(model.vault).reconstruct(noteId: ids.note)

@@ -8,6 +8,7 @@ import XCTest
 final class CaptureInboxTests: VaultTestCase {
     let audio = Data((0..<5000).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
     let started = Date(timeIntervalSince1970: 1_800_000_000)
+    var audioRef: BlobRef { BlobRef(content: audio, type: "audio/mp4") }
 
     func deviceState() -> URL { tmp.appendingPathComponent("device-\(UUID().uuidString).json") }
 
@@ -78,7 +79,7 @@ final class CaptureInboxTests: VaultTestCase {
         let vault = try Vault.open(at: locked.url, identities: [identity])
         XCTAssertNil(vault.adoptCapture(id, deviceState: deviceState(), app: "test/1").error)
 
-        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id), in: locked.inboxURL)
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id, audio: audioRef), in: locked.inboxURL)
         let r = vault.adoptCapture(id, deviceState: deviceState(), app: "test/1")
         XCTAssertNil(r.error)
         XCTAssertFalse(r.created)
@@ -90,11 +91,65 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertEqual(try vault.inboxEntries().count, 0)
     }
 
+    /// Security review 2026-10 (C1): the capture key is on every capturing
+    /// device and capture ids are in the clear (file names), so a transcript
+    /// must prove it was made by whoever had the audio. One bound to other
+    /// audio is never added to an existing voice note, nor to a new one, and
+    /// is deleted rather than kept forever.
+    func testATranscriptBoundToOtherAudioIsNeverAdopted() throws {
+        let (identity, profile, locked) = try setUp()
+        let writer = try CaptureWriter(profile: profile)
+        let id = UUID()
+        try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: id), in: locked.inboxURL)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        XCTAssertNil(vault.adoptCapture(id, deviceState: deviceState(), app: "test/1").error)
+
+        let forged = BlobRef(content: Data("guessed audio".utf8), type: "audio/mp4")
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id, audio: forged), in: locked.inboxURL)
+        let r = vault.adoptCapture(id, deviceState: deviceState(), app: "test/1")
+        XCTAssertNil(r.error)
+        XCTAssertFalse(r.transcript)
+        XCTAssertNil(r.file, "nothing written")
+        let ids = CaptureAdoption.ids(for: id)
+        XCTAssertNil(try vault.reconstruct(noteId: ids.note).recordings.first?.transcript)
+        XCTAssertTrue(try vault.inboxEntries().isEmpty, "an unbound transcript is not kept")
+
+        // Planted before the capture is adopted: the capture is adopted without it.
+        let other = UUID()
+        try CaptureWriter.store(try writer.seal(transcript: transcript(other), capture: other, audio: forged), in: locked.inboxURL)
+        try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: other), in: locked.inboxURL)
+        let both = vault.adoptCapture(other, deviceState: deviceState(), app: "test/1")
+        XCTAssertNil(both.error)
+        XCTAssertTrue(both.created)
+        XCTAssertFalse(both.transcript)
+        XCTAssertNil(try vault.reconstruct(noteId: CaptureAdoption.ids(for: other).note).recordings.first?.transcript)
+        XCTAssertTrue(try vault.inboxEntries().isEmpty)
+    }
+
+    /// A transcript sealed before the binding (an empty payload) is bound to
+    /// nothing: it is not adopted, even into an existing recording without one.
+    func testAnUnboundTranscriptIsNotAdopted() throws {
+        let (identity, profile, locked) = try setUp()
+        let writer = try CaptureWriter(profile: profile)
+        let id = UUID()
+        try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: id), in: locked.inboxURL)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        XCTAssertNil(vault.adoptCapture(id, deviceState: deviceState(), app: "test/1").error)
+
+        let name = CaptureFile.name(id, .transcript)
+        let plain = try CaptureFile.frame(line: try transcript(id).encoded(), payload: Data(), filename: name, key: writer.key)
+        try CaptureWriter.store(SealedCapture(name: name, data: try Vault.encrypt(plain, to: writer.recipients)), in: locked.inboxURL)
+        let r = vault.adoptCapture(id, deviceState: deviceState(), app: "test/1")
+        XCTAssertNil(r.error)
+        XCTAssertFalse(r.transcript)
+        XCTAssertNil(try vault.reconstruct(noteId: CaptureAdoption.ids(for: id).note).recordings.first?.transcript)
+    }
+
     func testTranscriptBeforeItsCaptureWaitsAndBothTogetherAreOneDelta() throws {
         let (identity, profile, locked) = try setUp(notebook: "Voice/Quick")
         let writer = try CaptureWriter(profile: profile)
         let id = UUID()
-        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id), in: locked.inboxURL)
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id, audio: audioRef), in: locked.inboxURL)
         let vault = try Vault.open(at: locked.url, identities: [identity])
         let early = vault.adoptCapture(id, deviceState: deviceState(), app: "test/1")
         XCTAssertNil(early.error)
@@ -123,7 +178,7 @@ final class CaptureInboxTests: VaultTestCase {
         let writer = try CaptureWriter(profile: profile)
         let id = UUID()
         try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: id), in: locked.inboxURL)
-        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id), in: locked.inboxURL)
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id, audio: audioRef), in: locked.inboxURL)
         let vault = try Vault.open(at: locked.url, identities: [identity])
         _ = try vault.writeCaptureBlobs(try vault.readCapture(id))   // then the crash
         let ids = CaptureAdoption.ids(for: id)
@@ -206,7 +261,7 @@ final class CaptureInboxTests: VaultTestCase {
         let id = UUID()
         let writer = try CaptureWriter(profile: profile)
         try CaptureWriter.store(try writer.seal(audio: audio, started: started, id: id), in: vault.inboxURL)
-        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id), in: vault.inboxURL)
+        try CaptureWriter.store(try writer.seal(transcript: transcript(id), capture: id, audio: audioRef), in: vault.inboxURL)
 
         let report = try vault.removeRecipient(second.recipient)
         XCTAssertTrue(report.isComplete)

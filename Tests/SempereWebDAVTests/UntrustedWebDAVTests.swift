@@ -38,6 +38,17 @@ final class UntrustedWebDAVTests: XCTestCase {
         assertMalformed(Data(#"<?xml version="1.0"?><!DOCTYPE d [<!ENTITY a "aaaa">]><d:multistatus xmlns:d="DAV:"/>"#.utf8))
     }
 
+    /// Security review 2026-10 (W4): UTF-16 is valid UTF-8 byte by byte (ASCII
+    /// and NULs), libxml2 decodes it from the declaration, and the byte
+    /// searches for `<?` and `<!DOCTYPE` do not see its markup: a data-less
+    /// processing instruction in UTF-16 segfaulted on Linux. NULs are refused.
+    func testUTF16BodiesAreRefused() {
+        func utf16(_ s: String) -> Data { var d = Data(); for u in s.utf16 { d.append(UInt8(u & 0xFF)); d.append(UInt8(u >> 8)) }; return d }
+        assertMalformed(utf16(#"<?xml version="1.0" encoding="UTF-16"?><d:multistatus xmlns:d="DAV:"><?x?></d:multistatus>"#))
+        assertMalformed(utf16(#"<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE d [<!ENTITY a "a">]><d:multistatus xmlns:d="DAV:"/>"#))
+        assertMalformed(Data(#"<d:multistatus xmlns:d="DAV:"/>"#.utf8) + Data([0]))
+    }
+
     func testOrdinaryMultistatusStillParses() throws {
         let body = #"<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"><d:response>"#
             + "<d:href>/dav/vault/caf%C3%A9/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/>"
