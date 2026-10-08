@@ -20,18 +20,21 @@ enum CloudVault {
         var description: String {
             switch self {
             case let .timedOut(progress, seconds):
-                return "iCloud Drive did not deliver the vault's files: \(progress.total - progress.downloaded) of "
-                    + "\(progress.total) are still not downloaded after \(seconds) seconds without progress. "
-                    + "Check that this device is online and signed in to iCloud Drive, then try again."
+                let wait = String(localized: "\(seconds) seconds", comment: "A number of seconds")
+                return String(localized: "iCloud Drive did not deliver the vault's files: \(progress.total - progress.downloaded) of \(progress.total) are still not downloaded after \(wait) without progress. Check that this device is online and signed in to iCloud Drive, then try again.",
+                              comment: "The numbers are files not downloaded and all files; %@ is a number of seconds")
             case let .failed(name, reason):
-                return "iCloud Drive could not download “\(name)”: \(reason)"
+                return String(localized: "iCloud Drive could not download “\(name)”: \(reason)",
+                              comment: "%1$@ is a file name, %2$@ the reason iCloud gave")
             case let .noteNotLocal(missing, total) where total == 0:
-                return "iCloud Drive has not listed this note's files yet (\(missing) missing). Try again in a moment."
+                return String(localized: "iCloud Drive has not listed this note's files yet (\(missing) missing). Try again in a moment.",
+                              comment: "[not-plural] the number is files missing")
             case let .noteNotLocal(missing, total):
-                return "\(missing) of this note's \(total) files are not downloaded from iCloud Drive yet, "
-                    + "so it was not opened (it would look empty or incomplete). Try again in a moment."
+                let files = String(localized: "\(total) files", comment: "A number of files")
+                return String(localized: "\(missing) of this note's \(files) are not downloaded from iCloud Drive yet, so it was not opened (it would look empty or incomplete). Try again in a moment.",
+                              comment: "%@ is a number of files, e.g. “3 of this note's 5 files”")
             case .blobNotLocal:
-                return "This attachment is not downloaded from iCloud Drive yet. Try again in a moment."
+                return String(localized: "This attachment is not downloaded from iCloud Drive yet. Try again in a moment.")
             }
         }
     }

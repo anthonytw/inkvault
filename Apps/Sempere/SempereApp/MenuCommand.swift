@@ -72,41 +72,41 @@ enum MenuCommand: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .newNote: return "New Note…"
-        case .openNoteInWindow: return "Open Note in New Window"
-        case .newVault: return "New Vault…"
-        case .openVault: return "Open Vault…"
-        case .reopenVault: return "Reopen Last Vault"
-        case .closeVault: return "Close Vault"
-        case .reloadVault: return "Reload Vault"
-        case .bulkExport: return "Export Notes…"
-        case .renameNote: return "Rename Note…"
-        case .editTags: return "Edit Tags…"
-        case .changePaper: return "Paper…"
-        case .saveVersion: return "Save Version…"
-        case .deleteNote: return "Move to Recently Deleted"
-        case .restoreNote: return "Restore Note"
-        case .previousPage: return "Previous Page"
-        case .nextPage: return "Next Page"
-        case .addPage: return "Add Page"
-        case .find: return "Find Notes"
-        case .undo: return "Undo"
-        case .redo: return "Redo"
-        case .toolPen: return "Pen"
-        case .toolMarker: return "Marker"
-        case .toolPencil: return "Pencil"
-        case .toolEraser: return "Eraser"
-        case .toolLasso: return "Lasso"
-        case .toggleRuler: return "Ruler"
-        case .togglePalette: return "Show Tool Palette"
-        case .zoomIn: return "Zoom In"
-        case .zoomOut: return "Zoom Out"
-        case .fitWidth: return "Fit Page Width"
-        case .actualSize: return "Actual Size"
-        case .toggleNoteList: return "Hide or Show Note List"
-        case .showLibrary: return "Library"
-        case .showKeys: return "Vault Keys"
-        case .showSettings: return "Settings…"
+        case .newNote: return String(localized: "New Note…")
+        case .openNoteInWindow: return String(localized: "Open Note in New Window")
+        case .newVault: return String(localized: "New Vault…")
+        case .openVault: return String(localized: "Open Vault…")
+        case .reopenVault: return String(localized: "Reopen Last Vault")
+        case .closeVault: return String(localized: "Close Vault")
+        case .reloadVault: return String(localized: "Reload Vault")
+        case .bulkExport: return String(localized: "Export Notes…")
+        case .renameNote: return String(localized: "Rename Note…")
+        case .editTags: return String(localized: "Edit Tags…")
+        case .changePaper: return String(localized: "Paper…", comment: "Note menu: choose the page's paper")
+        case .saveVersion: return String(localized: "Save Version…")
+        case .deleteNote: return String(localized: "Move to Recently Deleted")
+        case .restoreNote: return String(localized: "Restore Note")
+        case .previousPage: return String(localized: "Previous Page")
+        case .nextPage: return String(localized: "Next Page")
+        case .addPage: return String(localized: "Add Page")
+        case .find: return String(localized: "Find Notes", comment: "Edit menu: search the notes")
+        case .undo: return String(localized: "Undo", comment: "Edit menu: undo")
+        case .redo: return String(localized: "Redo", comment: "Edit menu: redo")
+        case .toolPen: return String(localized: "Pen", comment: "Tools menu: select the pen")
+        case .toolMarker: return String(localized: "Marker", comment: "Tools menu: select the marker")
+        case .toolPencil: return String(localized: "Pencil", comment: "Tools menu: select the pencil tool")
+        case .toolEraser: return String(localized: "Eraser", comment: "Tools menu: select the eraser")
+        case .toolLasso: return String(localized: "Lasso", comment: "Tools menu: select the lasso")
+        case .toggleRuler: return String(localized: "Ruler", comment: "Tools menu: show or hide the ruler")
+        case .togglePalette: return String(localized: "Show Tool Palette")
+        case .zoomIn: return String(localized: "Zoom In", comment: "View menu")
+        case .zoomOut: return String(localized: "Zoom Out", comment: "View menu")
+        case .fitWidth: return String(localized: "Fit Page Width")
+        case .actualSize: return String(localized: "Actual Size", comment: "View menu: zoom to 100%")
+        case .toggleNoteList: return String(localized: "Hide or Show Note List")
+        case .showLibrary: return String(localized: "Library", comment: "View menu: show the library window")
+        case .showKeys: return String(localized: "Vault Keys", comment: "View menu: open the vault keys window")
+        case .showSettings: return String(localized: "Settings…", comment: "View menu: open Settings")
         }
     }
 

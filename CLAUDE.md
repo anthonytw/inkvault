@@ -574,6 +574,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   SwiftMath is in the app target only (exact 1.7.3), never in `Sources/`; the CLI has no typesetter
   and draws the stored render, else the source text. The app writes the render blob before the delta
   (`NoteEditor.insertMath` / `setItemMath`); undo restores old values without re-typesetting.
+- Localization (`docs/localization.md`, task L): every interface string is in
+  `Apps/Sempere/Localization/Localizable.xcstrings` (plus `InfoPlist`, `AppShortcuts`), a
+  synchronized group of the app and widget targets. SwiftUI literals localize themselves;
+  strings built in code use `String(localized: "…")` at the point they are defined (a
+  `Text(someString)` never localizes), counts are plural variations (es: one/many/other),
+  and the catalog key's specifier must match the Swift type (`%lld` for `Int`, `%@` for
+  `String`) or the lookup silently shows English. Text the app writes into a vault stays
+  English; the CLI stays English. A new string needs its catalog entry and Spanish value
+  (`scripts/l10n.py merge`): `LocalizationCatalogTests` (Linux, runs in `swift test` and in
+  its own CI job for `Apps/`-only changes) fails otherwise. The Linux scratch package for
+  `AppModel*` needs a `String(localized:)` shim (the Linux Foundation lacks the interpolated
+  form and `comment:`). `scripts/app.sh pseudo` checks double-length, right-to-left and
+  Spanish layouts.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

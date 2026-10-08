@@ -13,13 +13,15 @@ enum SearchScope: String, CaseIterable, Identifiable, Sendable {
     /// The scope bar's label: the list's is the sidebar row it searches
     /// ("In “Math”", "In #todo"), so the bar says what the results cover.
     func title(for selection: SidebarItem?) -> String {
-        guard self == .list else { return rawValue }
+        guard self == .list else { return String(localized: "All Notes", comment: "Search scope: every note") }
         switch selection ?? .allNotes {
-        case .allNotes: return rawValue
-        case .notebook(let n): return "In “\(NotebookPath.components(n).last ?? n)”"
-        case .tag(let t): return "In #\(t)"
-        case .deleted: return "In Recently Deleted"
-        case .recentlyRecognized: return "In Recently Recognized"
+        case .allNotes: return String(localized: "This List", comment: "Search scope: the notes the sidebar selection shows")
+        case .notebook(let n):
+            let name = NotebookPath.components(n).last ?? n
+            return String(localized: "In “\(name)”", comment: "Search scope: the notes of one notebook (its name)")
+        case .tag(let t): return String(localized: "In #\(t)", comment: "Search scope: the notes with one tag")
+        case .deleted: return String(localized: "In Recently Deleted", comment: "Search scope")
+        case .recentlyRecognized: return String(localized: "In Recently Recognized", comment: "Search scope")
         }
     }
 }
@@ -54,7 +56,7 @@ struct RecognitionResults: Equatable, Sendable {
     var stopped = false
 
     /// "Recognized 12 notes".
-    var headline: String { "Recognized \(notes.count) note\(notes.count == 1 ? "" : "s")" }
+    var headline: String { String(localized: "Recognized \(notes.count) notes", comment: "Result of a Recognize All Notes run") }
 
     /// The entry for a note, for its row's "Read 2 of 5 pages".
     func entry(for id: UUID) -> RecognizedNote? { notes.first { $0.id == id } }
