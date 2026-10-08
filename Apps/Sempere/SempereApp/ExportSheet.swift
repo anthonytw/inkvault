@@ -78,14 +78,8 @@ struct ExportSheet: View {
     /// recording crashed on the Mac when it was shared or saved).
     private func deliver(_ outcome: ExportJob.Outcome, save: Bool) {
         handOff = outcome.items
-        guard Platform.isMac, let view = anchor.view else {
+        ExportHandOff.deliver(outcome.items, save: save, anchor: anchor) { save in
             if save { saving = true } else { sharing = true }
-            return
-        }
-        if save {
-            ExportHandOff.save(outcome.items, from: view) {}
-        } else {
-            ExportHandOff.share(outcome.items, from: view) {}
         }
     }
 
@@ -303,6 +297,25 @@ enum ExportHandOff {
     /// Runs `done` on the main actor, from any thread.
     nonisolated static func onMain(_ done: @escaping @MainActor @Sendable () -> Void) {
         Task { @MainActor in done() }
+    }
+
+    /// Share… or Save… for finished export files: on a Mac, by UIKit from
+    /// `anchor`'s view; elsewhere (or before the anchor exists) `inSheet` is
+    /// called to show the SwiftUI sheet (`ShareSheet` / `SaveToFiles`).
+    /// Returns whether UIKit presented it.
+    @discardableResult
+    static func deliver(_ items: [URL], save: Bool, anchor: PresentationAnchor.Box, isMac: Bool = Platform.isMac,
+                        inSheet: (_ save: Bool) -> Void) -> Bool {
+        guard isMac, let view = anchor.view else {
+            inSheet(save)
+            return false
+        }
+        if save {
+            ExportHandOff.save(items, from: view) {}
+        } else {
+            ExportHandOff.share(items, from: view) {}
+        }
+        return true
     }
 
     /// The view controller that shows `view` (the export sheet's), to present from.

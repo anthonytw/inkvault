@@ -437,8 +437,69 @@ manifest.
   its sheet deletes it when it ends (the note being rendered at that moment
   finishes, and no file is written once the run is cancelled). Share and Save to Files copy from there.
 - **Plaintext.** Exports strip nothing and encrypt nothing, exactly like the
-  CLI's; the sheet says so. Memory use is that of the CLI: the selected notes'
-  states are held at once while rendering.
+  CLI's; the sheet says so. The share sheet holds the selected notes' states at
+  once while rendering; "Export Notes…" (below) streams one note at a time.
+
+## Bulk export (app and CLI)
+
+"Export Notes…" exports many notes at once: the ticked notes of the list
+(Export ▸ To Folder or Zip…), a notebook with its sub-notebooks (the
+notebook's context menu), or the whole vault (All Notes' context menu, and
+File ▸ Export Notes… on a Mac, which takes the ticked notes, else the
+sidebar's notebook, else the vault). iPad, iPhone and Mac share the sheet
+(`BulkExportSheet`).
+
+- **Formats.** PDF (one file per note), PDF + attachments (recordings with
+  their transcripts and video clips embedded, as the share sheet's "PDF +
+  attachments"), PNG pages (a folder of `p001.png`, ... per note). SVG is the
+  CLI's only, as in the single-note export.
+- **Layout.** "Folders like your notebooks" (on by default) mirrors the
+  notebook tree (`TreeExporter.folders`: sanitised segments, names that differ
+  only by case share one spelling); a notebook export starts at that notebook
+  (`School/Math` gives `Math/…`). Off: every note at the top.
+- **Names.** `ExportName.stem` (`<title>-<8 hex of the id>`): path separators,
+  `\ : * ? " < > |`, controls and newlines become `-`, length is capped, an empty
+  title is `untitled`, reserved folder names (`CON`, `NUL`, ...) get `_`. Two
+  notes whose names would still clash in one folder (equal ignoring case and
+  Unicode normalisation, or equal to a sub-folder's name) take the full id,
+  then `-2`, `-3`, ...; the note with the smaller id keeps the short name, so
+  a re-run names every note the same way (`BulkExportPlan.jobs`).
+- **Destination.** A folder the user picks (the default on a Mac; on iPadOS
+  any Files location): files are written in place, the picked folder's
+  security scope held for the run. A folder inside the vault is refused. Or a
+  zip archive (the default on iPad and iPhone), staged under
+  `tmp/SempereBulkExports/<uuid>` (file protection "complete"), then Share…
+  or Save to Files…; deleted when the sheet closes and at launch.
+- **One note at a time, bounded memory.** `AppModel.runBulkExport` loops over
+  the jobs: download (iCloud), read (coordinated, `requireLocal` before and
+  after, as for the share export), fetch embedded media for PDF + attachments,
+  render and write in a detached task, then let go. Only one note's state is
+  held; PDFs stream (clips never in memory) to `<name>.pdf.partial` and are
+  renamed when complete; zip entries are streamed from those files
+  (`ZipWriter`: stored, CRC first, zip64 past 4 GiB or 65 535 entries) and the
+  staged files deleted. A 1.4 GB vault takes the memory of its largest note.
+- **Progress, Stop, failures.** Progress counts notes (and skipped and failed
+  ones). Stop ends after the note being written: a folder keeps what was
+  written, a zip is deleted. A note that cannot be downloaded, read or
+  rendered is listed at the end ("Not exported", title, id prefix, reason) and
+  the batch goes on; nothing is half written for it. Closing the vault stops
+  the run (generation token). Nothing is written to the vault.
+- **Resumable-ish.** The folder gets a hidden manifest,
+  `.sempere-export-bulk.json`: per file, the note id, the note's version (a
+  fingerprint of its revision file names, `BulkExportPlan.version`), the
+  options (`BulkExportOptions.fingerprint`) and the size written. Exporting
+  again into the same folder skips a note when every file it wrote is still
+  there with the same name and size, for the same note version and options,
+  before anything is downloaded or read; the sheet and the CLI say how many
+  were skipped. The manifest is saved every 10 notes and at the end (also
+  after Stop), so an interrupted run redoes at most ten notes. It is untrusted
+  when read back: a path that would leave the folder is ignored, and it can
+  only make a run skip, never delete. A zip is never resumed.
+- **Shared core.** `BulkExportPlan` (selection → jobs), `BulkExportSession`
+  (skip, render, write, manifest, zip) and `ZipWriter` live in
+  `SempereRender`; `sempere export --all --format pdf|png` runs the same
+  session (docs/cli.md "Bulk export"), and the sheet shows the equivalent
+  command for a notebook or the vault.
 
 ## Vaults as single items (app)
 

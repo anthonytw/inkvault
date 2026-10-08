@@ -11,6 +11,8 @@ struct SidebarView: View {
 
     @Environment(AppModel.self) private var model
     @Environment(RememberedKeys.self) private var keys
+    /// The window's UI state: "Export Notes…" opens its sheet in this window.
+    @Environment(WindowUI.self) private var ui: WindowUI?
     @State private var forgettingKey = false
     @State private var showingSettings = false
     @State private var renaming: String?
@@ -23,6 +25,11 @@ struct SidebarView: View {
         List(selection: $model.sidebarSelection) {
             Label("All Notes", systemImage: "note.text").tag(SidebarItem.allNotes)
                 .sidebarDropTarget(.allNotes)
+                .contextMenu {
+                    Button("Export All Notes…", systemImage: ExportCommand.menuImage) {
+                        model.requestBulkExport(.vault, window: ui?.id)
+                    }
+                }
             let tree = model.notebookTree
             if !tree.isEmpty {
                 Section("Notebooks") {
@@ -37,6 +44,9 @@ struct SidebarView: View {
                             .contextMenu {
                                 Button("Rename or Move…", systemImage: "pencil") { newName = node.path; renaming = node.path }
                                 Button("Move Notebook To…", systemImage: "folder") { movingNotebook = MovingNotebook(path: node.path) }
+                                Button("Export Notebook…", systemImage: ExportCommand.menuImage) {
+                                    model.requestBulkExport(.notebook(node.path), window: ui?.id)
+                                }
                             }
                             .swipeActions {
                                 Button("Rename", systemImage: "pencil") { newName = node.path; renaming = node.path }

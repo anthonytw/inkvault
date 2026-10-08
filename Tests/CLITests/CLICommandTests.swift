@@ -196,7 +196,8 @@ final class CLICommandTests: CLITestCase {
         let pdfDir = path("pdf")
         let pdf = try cli(["export", "--all", "--format", "pdf", "--out", pdfDir, "--vault", v, "--identity", keyPath])
         XCTAssertEqual(pdf.status, 0, pdf.err)
-        let pdfs = try FileManager.default.contentsOfDirectory(atPath: pdfDir).sorted()
+        // The hidden `.sempere-export-bulk.json` records what was written, for a re-run to skip.
+        let pdfs = try FileManager.default.contentsOfDirectory(atPath: pdfDir).filter { !$0.hasPrefix(".") }.sorted()
         XCTAssertEqual(pdfs, ["Groceries-bbbbbbbb.pdf", "Physics-Week-3-aaaaaaaa.pdf"])
         for f in pdfs {
             let data = try Data(contentsOf: URL(fileURLWithPath: pdfDir + "/" + f))
