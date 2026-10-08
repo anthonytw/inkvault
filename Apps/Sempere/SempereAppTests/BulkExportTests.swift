@@ -2,6 +2,7 @@ import Foundation
 import Sempere
 import SempereRender
 import Testing
+import UIKit
 @testable import SempereApp
 
 /// "Export Notes…" (`AppModel+BulkExport`, `BulkExportRun`): selection →
@@ -208,5 +209,27 @@ struct BulkExportAppTests {
             #expect(BulkExportSheet.shape(BulkExportOptions(format: format), zip: false).contains("skips"))
             #expect(BulkExportSheet.shape(BulkExportOptions(format: format), zip: true).contains("zip"))
         }
+    }
+
+    /// The finished zip's Share… and Save… go through `ExportHandOff` like a
+    /// single note's export (#103): on a Mac UIKit presents them from the
+    /// button, never a SwiftUI sheet hosted in this sheet (the build 7 Mac
+    /// export crash); elsewhere, or before the anchor exists, the sheets.
+    @Test func theZipHandOffAvoidsSwiftUISheetsOnAMac() {
+        let zip = [URL(fileURLWithPath: "/tmp/notes.zip")]
+        var sheets: [Bool] = []
+        let anchor = PresentationAnchor.Box()
+        for save in [false, true] {
+            #expect(!ExportHandOff.deliver(zip, save: save, anchor: anchor, isMac: true) { sheets.append($0) })
+        }
+        #expect(sheets == [false, true], "no anchor yet: the sheets")
+        let view = UIView()
+        anchor.view = view
+        sheets = []
+        for save in [false, true] {
+            #expect(ExportHandOff.deliver(zip, save: save, anchor: anchor, isMac: true) { sheets.append($0) })
+            #expect(!ExportHandOff.deliver(zip, save: save, anchor: anchor, isMac: false) { sheets.append($0) })
+        }
+        #expect(sheets == [false, true], "a Mac never uses the SwiftUI sheets once the anchor exists")
     }
 }

@@ -16,6 +16,8 @@ struct BulkExportSheet: View {
     @State private var pickingFolder = false
     @State private var sharing = false
     @State private var saving = false
+    /// The view the Mac's share picker and save panel are presented from (`ExportHandOff`).
+    @State private var anchor = PresentationAnchor.Box()
 
     init(request: BulkExportRequest) {
         self.request = request
@@ -164,11 +166,22 @@ struct BulkExportSheet: View {
         }
         if case .zip = destinationKind(result), !result.exported.isEmpty, !result.cancelled {
             Section {
-                Button("Share…", systemImage: "square.and.arrow.up") { sharing = true }
-                Button("Save to Files…", systemImage: "folder") { saving = true }
+                Button("Share…", systemImage: "square.and.arrow.up") { deliver(result, save: false) }
+                    .background(PresentationAnchor(box: anchor))
+                Button(Platform.isMac ? LocalizedStringKey("Save…") : LocalizedStringKey("Save to Files…"),
+                       systemImage: "folder") { deliver(result, save: true) }
             } footer: {
                 Text("The archive is deleted from the app when you close this sheet.")
             }
+        }
+    }
+
+    /// The finished zip's Share… and Save…: on a Mac presented by UIKit from
+    /// the button (`ExportHandOff`), never from inside this SwiftUI sheet
+    /// (the build 7 Mac export crash, #103).
+    private func deliver(_ result: BulkExportResult, save: Bool) {
+        ExportHandOff.deliver([result.output], save: save, anchor: anchor) { save in
+            if save { saving = true } else { sharing = true }
         }
     }
 
