@@ -11,6 +11,7 @@
 		A1000000000000000000B002 /* Age in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D002 /* Age */; };
 		A1000000000000000000B004 /* SempereRender in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D003 /* SempereRender */; };
 		A1000000000000000000B005 /* SempereSpeech in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D004 /* SempereSpeech */; };
+		A1000000000000000000B007 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D005 /* SwiftMath */; };
 		A1000000000000000000B003 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F003 /* Fixtures */; };
 		A1000000000000000000B006 /* SempereWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F005 /* SempereWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -103,6 +104,7 @@
 				A1000000000000000000B002 /* Age in Frameworks */,
 				A1000000000000000000B004 /* SempereRender in Frameworks */,
 				A1000000000000000000B005 /* SempereSpeech in Frameworks */,
+				A1000000000000000000B007 /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -191,6 +193,7 @@
 				A1000000000000000000D002 /* Age */,
 				A1000000000000000000D003 /* SempereRender */,
 				A1000000000000000000D004 /* SempereSpeech */,
+				A1000000000000000000D005 /* SwiftMath */,
 			);
 			productName = SempereApp;
 			productReference = A1000000000000000000F001 /* Sempere.app */;
@@ -298,6 +301,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A10000000000000000002001 /* XCLocalSwiftPackageReference "../.." */,
+				A10000000000000000002002 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000001002 /* Products */;
@@ -684,6 +688,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000000000000000002002 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.7.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A1000000000000000000D001 /* Sempere */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -700,6 +715,11 @@
 		A1000000000000000000D004 /* SempereSpeech */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SempereSpeech;
+		};
+		A1000000000000000000D005 /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000002002 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

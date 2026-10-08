@@ -109,6 +109,8 @@ final class InsertState {
     var cropping: CropRequest?
     /// The video item playing (format.md §8.2.7).
     var playing: VideoPlayRequest?
+    /// The equation being added or edited (`MathEditorView`).
+    var editingMath: MathRequest?
     /// Something is being added (a spinner in the menu's place).
     var working = 0
 }
@@ -152,10 +154,15 @@ struct InsertMenu: View {
                 state.pickingFile = true
             }
             .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
+            Button("Equation…", systemImage: "function") {
+                guard let page = editor.currentPage?.id else { return }
+                state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
+                                                visible: editor.canvasTarget?.visibleRect(ofPage: page))
+            }
         } label: {
             Label("Insert", systemImage: state.working > 0 ? "hourglass" : "photo.badge.plus")
         }
-        .help("Add photos, videos, a picture from the clipboard, or pages of a PDF")
+        .help("Add photos, videos, a picture from the clipboard, pages of a PDF, or an equation")
         .disabled(editor.isReadOnly || editor.currentPage == nil)
     }
 }
@@ -207,6 +214,9 @@ struct EditorInsert: ViewModifier {
             }
             .fullScreenCover(item: $state.playing) { request in
                 VideoPlayerSheet(request: request)
+            }
+            .sheet(item: $state.editingMath) { request in
+                MathEditorView(request: request)
             }
     }
 

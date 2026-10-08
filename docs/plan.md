@@ -71,7 +71,7 @@ Design: `docs/attachments.md` (rationale, task details and acceptance
 criteria) and `docs/format.md` §8 (normative). Status: **decisions final**
 (`docs/attachments.md` §16); no task starts before the design PR merges. A0
 goes first; after it, the rest run in parallel along the dependencies in
-`docs/attachments.md` §14. G1, G2 and L are future work and block nothing.
+`docs/attachments.md` §14. G2 and L are future work and block nothing; G1 is in review (#96).
 
 | # | Task | Owner target | Depends on | Done when (summary) |
 | --- | --- | --- | --- | --- |
@@ -97,7 +97,7 @@ goes first; after it, the rest run in parallel along the dependencies in
 | E6 ✅ | App **Settings panel**: recording format, photo privacy, transcription, device-key rewrap modes (add; remove/PQ), storage | `Apps/` | E0 (E7 for storage) | defaults match `docs/attachments.md` §15; each setting tested |
 | E7 | App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days) | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested |
 | F | CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/SempereCLI` | A1, B2, C* | end-to-end CLI test |
-| G1 | *Future:* `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob); handwriting→LaTeX later, on device | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
+| G1 | `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob). **In review (#96)**: `format.md` §8.2.8; core `MathItems.swift` (`MathContent`, `MathSource` limits, `NoteOps.placeMath`/`setMath`); render `MathRendering.swift`; CLI `attach math`, `items math`; app `MathTypesetter`, `MathEditor`; web viewer. Handwriting→LaTeX (part 2) is researched in `docs/attachments.md` §14 G1, not built | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
 | G2 | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); in review, PR #93 | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
 | L | **In review (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
 
