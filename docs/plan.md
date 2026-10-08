@@ -55,7 +55,10 @@ Done from this list:
   `DESIGN.md` "Recovery"): `sempere keys paper` prints the key (or the
   passphrase-wrapped key file) as a QR code and checked text with stock-tool
   recovery steps; `sempere backup` (incremental folder or tar), `backup
-  verify`, `restore`. Still to do: the same kit and a backup button in the app.
+  verify`, `restore`. The app's Backups (Settings → Backups, #110): Back Up
+  Now, Verify Backup, reminder, Restore from Backup into a new vault, on the
+  same core (`backup status` and `restore --dry-run` added for it). Still to
+  do: the paper kit in the app (key export is PR #99's "Save Key").
 
 - **History and restore, core + CLI** (`Sources/Sempere/History.swift`,
   `format.md` §5.7, `docs/cli.md`): restore points per revision, the note as of

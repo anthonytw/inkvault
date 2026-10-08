@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- App: Settings → Backups. Back Up Now copies the vault's encrypted files to a folder you choose (another
+  drive, another cloud provider), only what is new each time, on the same code as `sempere backup`; Verify
+  Backup checks it (decrypting every note while the vault is unlocked) and lists what is wrong, which the next
+  backup repairs; the last backup's date and size; an optional reminder after a number of days without a
+  backup. Restore from Backup (in Settings and on the welcome screen) shows what a backup holds, then restores
+  it into a new vault, never over the open one.
+- CLI: `sempere backup status DIR` (last run, notes, files and bytes from `backup.json`) and
+  `sempere restore DIR --to NEW --dry-run` (what a restore would bring back, and whether `NEW` can take it).
+  `restore` refuses a target that is, holds or lies inside the vault named by `--vault` / `$SEMPERE_VAULT`.
+
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields

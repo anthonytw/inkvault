@@ -128,7 +128,9 @@ extension AppModel {
     /// and hash-checked). An iCloud vault is downloaded first, attachments
     /// included: a file that is not local would be missing from the backup.
     /// Per-file failures are in the report; the run counts as the last
-    /// backup only without them, and then moves the reminder.
+    /// backup only without them, and then moves the reminder. After a Verify
+    /// Backup that found problems, the run re-hashes every file (the CLI's
+    /// `--checksum`), so damaged copies are replaced.
     @discardableResult
     func backUpNow() async throws -> BackupReport {
         guard let vault, let vaultURL else { throw BackupAppError.noVault }
@@ -159,9 +161,13 @@ extension AppModel {
         }
         defer { ticker.cancel() }
         let dest = folder.dest
+        // After a check found damage, every file is compared by hash: a damaged
+        // copy keeps its size, which a normal run takes as unchanged.
+        let checksum = backupStore.record(for: vault.vaultId).lastVerifyHealthy == false
         let (report, status) = try await offMain(priority: .utility) { () throws -> (BackupReport, BackupStatus?) in
             let report = try Backup.run(source: vault, to: dest,
-                                        options: BackupOptions(afterEachFile: { _ in try control.fileWritten() }))
+                                        options: BackupOptions(checksum: checksum,
+                                                               afterEachFile: { _ in try control.fileWritten() }))
             return (report, try? Backup.status(at: dest))
         }
         outcome = "copied=\(report.copied.count) replaced=\(report.replaced.count) errors=\(report.errors.count)"
@@ -171,6 +177,8 @@ extension AppModel {
         if report.errors.isEmpty {
             record.apply(status: status)
             record.lastBackup = status?.updated ?? Date()
+            // Damage a check found is repaired now; the next check says so.
+            if checksum { record.lastVerifyHealthy = nil }
         }
         backupStore.save(record, for: vault.vaultId)
         await rescheduleBackupReminder()

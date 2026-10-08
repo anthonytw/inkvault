@@ -161,6 +161,10 @@ things keep it, none of which need us, a server or the app:
   backup and runs the full verify on the result, and `backup verify` with a
   key decrypts every revision, so a backup is known to be readable before it
   is needed.
+- **The app backs up the same way.** Settings → Backups runs the CLI's
+  backup, verify and restore code on a folder the user picks (another drive
+  or provider), with a reminder after N days without a backup; a restore
+  always makes a new vault after showing what the backup holds.
 
 ## Attachments
 

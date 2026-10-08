@@ -521,6 +521,67 @@ does for deletions. The tar writer is POSIX ustar (names up to 255 bytes via
 the prefix field); the archive is verified with a small reader before it is
 renamed into place.
 
+`Backup.status` reads `backup.json` alone (last run, notes, files, bytes,
+sizes summed with saturation since the index may be hostile);
+`Backup.preview` lists a backup or vault folder without a key (notes,
+revisions, attachments, bytes, newest revision from the file names' clocks);
+`Backup.checkRestoreTarget` refuses a target before anything is written,
+including one that is, holds or lies inside a `protecting` folder (the open
+vault). The CLI's `backup status` and `restore --dry-run` and the app use them.
+
+### Backups in the app
+
+Settings → Backups (`AppModel+Backup.swift`, `BackupSettings.swift`,
+`BackupViews.swift`) runs the CLI's core; `docs/cli.md` "The app's Backups"
+maps each control to its command.
+
+- **Folder.** The user picks a folder (another drive, another cloud
+  provider's folder in Files). The backup goes into the folder itself when it
+  is empty or already this vault's backup, else into "<vault> Backup" inside
+  it (the next free "<vault> Backup N" when that name holds something else;
+  `BackupLocation.subfolder`). A vault, another vault's backup, the open vault
+  or a folder inside it is refused. The app keeps a bookmark of the picked
+  folder (`VaultBookmark`, plain options as for vaults, see "Saved folder
+  access") plus the subfolder name, per vault and per device
+  (`BackupRecord` in `UserDefaults` under `Sempere.backup.<vault id>`); access
+  granted to the picked folder covers the subfolder. A bookmark that no longer
+  resolves, or a folder that is gone, is reported by name ("choose it again").
+- **Back Up Now** is `Backup.run` off the main actor, with the picked folder's
+  security scope held for the run. An iCloud Drive vault is made local first,
+  every note (`downloadEverything`) and every attachment blob: a placeholder
+  is not a file `Backup.run` sees, so it would be missing from the backup.
+  The run's `afterEachFile` counts files for the progress line and stops the
+  run when the user taps Stop or the vault closes (the backup holds only
+  complete files; the next run finishes it). The run counts as the last
+  backup only without file errors. After a Verify Backup found problems, the
+  next run compares every file by hash (`--checksum`), so damaged copies are
+  replaced, not skipped for having the right size.
+- **Verify Backup** is `Backup.verify` with the unlocked key (every revision
+  decrypted and checked), or hashes only when the vault is locked; the
+  problems are listed (`BackupVerifyReport.problemLines`).
+- **Reminder.** "Remind me after N days without a backup" schedules one local
+  notification per vault (`UNUserNotificationCenter`, identifier
+  `Sempere.backupReminder.<vault id>`), due N days after the last backup, or
+  after the reminder was switched on when there is none, but never sooner than
+  an hour from now. It is rescheduled after every backup, every change of the
+  setting and every unlock; Settings shows an overdue backup in red even when
+  notifications are not allowed. The text names the vault, never a note.
+- **Restore from Backup** (Settings, and the welcome screen when no vault is
+  open): pick a backup folder, a folder holding one, or any vault folder
+  (`BackupLocation.restoreSource`); the sheet shows `Backup.preview` (notes,
+  versions, attachments, size, newest change, when it was backed up) before
+  anything is written. The restore goes into a new "<name>.sempere" on this
+  device or in a chosen folder through `Backup.restore(protecting: [open
+  vault])`, coordinated in iCloud Drive; a legacy (classic-key) backup is
+  refused as in the CLI. The new vault is added to the recents and can be
+  opened from the sheet; it has the backed-up vault's id and opens with the
+  same key. The open vault is never written.
+- A backup folder in iCloud Drive is downloaded before a restore; a backup
+  *into* iCloud Drive is written with plain file writes, which iCloud uploads,
+  but an evicted file of an earlier run there reads as missing to Verify
+  Backup. Prefer a folder that stays local (an external drive) or another
+  provider.
+
 ## Listing errors
 
 A directory that does not exist lists as empty (sync tools drop empty

@@ -89,6 +89,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | sync webdav `--push-only` (one-way mirror, `--delete-extraneous`) | ✅ #97 | ✅ #97 |
 | Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | 🔀 #98 | 🔀 #98 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
+| `backup status DIR` (last run, notes, files, bytes from `backup.json`), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | 🔀 #110 | 🔀 #110 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | ✅ #26 | ✅ #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | ✅ #60 | ✅ #60 |
@@ -132,6 +133,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Search | Recognition in the note's language (`meta.lang`); PDF page text searched; the app's PDF import stores each page's text from PDFKit | 🔀 #79 |
 | App | Performance round 3: mass-changed vault reconcile without quadratic iCloud checks ("Updating N changed notes"), thinning with progress, "Thin Versions Older Than N Days" and "Thin Everything Except Checkpoints" | 🔀 #88 (not yet tried on the iPad) |
 | App | Settings panel (E6): one screen (sidebar gear on iPad and iPhone, Settings… ⌘, on the Mac) with General, New Notes, Recording, Transcription, Photos, Version History, Device Keys and Storage; the recording, transcription, voice-notebook and title-format settings are stored now and read by their features when those land | 🔀 draft (not yet tried on the iPad) |
+| App | Backups (Settings → Backups): Back Up Now to a chosen folder (bookmark kept; another drive or cloud provider), incremental on the CLI's core, Stop; Verify Backup (decrypts with the unlocked key) with the problems listed and repaired by the next run; last backup date and size; reminder after N days without a backup (local notification, "overdue" in Settings); Restore from Backup (also on the welcome screen) into a new vault after a preview, never over the open vault | 🔀 #110 (not yet tried on a device) |
 | App | Spanish localization (L) | 📋 |
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | ✅ #68 |
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | 🔀 #81 (not yet tried on the iPad) |
