@@ -3,7 +3,7 @@
 Sempere uses standard encryption algorithms that the OS does not provide
 (age, scrypt, HPKE over swift-crypto). Supplying it in France therefore needs a
 declaration to ANSSI, and Apple needs that declaration uploaded before the app
-can be sold in France (`export-compliance.md`).
+can be sold in France (`docs/release/export-compliance.md`).
 
 **Plan:** ship everywhere except France. File this declaration in parallel,
 and add France once it is approved.
@@ -130,8 +130,8 @@ Requested. Point 3 of Annex II of décret 2007-663 sets three conditions.
 ## Section E: pièces jointes
 
 - **Documentation technique:** `docs/format.md` (the encrypted format) and
-  `docs/appstore/export-compliance.md`, printed or as PDF.
-- **Brochure commerciale:** the App Store description (`docs/appstore/listing.md`).
+  `docs/release/export-compliance.md`, printed or as PDF.
+- **Brochure commerciale:** the App Store description (`docs/release/app-store.md` §8).
 - **Manuel utilisateur:** README and `docs/cli.md`.
 - Company documents and a business register extract do not apply (natural person).
 

@@ -92,6 +92,12 @@ canvas's range. Tool commands select the tool in the system palette
 (`PageCanvasHost.select(tool:)`); the compact palette has no pencil, so that
 command does nothing there.
 
+Placed items (images, text boxes, PDF pages, videos): the mouse always draws,
+so a right-click (or two-finger click) on an item selects it and shows its
+menu (Crop…, Replace Image, Delete…) without leaving the drawing tool; a click
+with the lasso does the same, and Select in the toolbar turns selection mode
+on (`docs/attachments.md` §13 "Selecting items").
+
 ## Windows and state restoration
 
 * **Library window** (`WindowGroup` id `library`): the sidebar, the note list

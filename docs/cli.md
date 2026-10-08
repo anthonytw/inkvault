@@ -927,6 +927,7 @@ sempere items list ID|TITLE [--page N]
 sempere items move ID|TITLE ITEM --frame x,y,w,h
 sempere items rotate ID|TITLE ITEM --degrees D
 sempere items crop ID|TITLE ITEM (--crop x,y,w,h | --clear) [--keep-frame]
+sempere items replace ID|TITLE ITEM FILE [--keep-metadata]
 sempere items math ID|TITLE ITEM [--latex SOURCE | --latex-file FILE|-] [--display | --no-display]
                                  [--size PT] [--color #RRGGBB[AA]] [--render FILE.pdf [--engine NAME]]
 sempere items front ID|TITLE ITEM
@@ -959,7 +960,15 @@ part of an image or PDF page shown (`--crop` in the source's coordinates:
 pixels of the upright image, or points on the PDF page's visible box; clamped
 to the source; `--clear` shows all of it): the frame follows so the part that
 stays visible keeps its place and size on the page, as the app's Crop, unless
-`--keep-frame` (`NoteOps.setCrop`; a text box is refused), `math` writes an
+`--keep-frame` (`NoteOps.setCrop`; a text box is refused), `replace` swaps an
+image's picture for a JPEG or PNG, as the app's Replace Image: an image's blob
+cannot change in place (`format.md` §8.2.2), so after the new picture is
+stored (without its metadata unless `--keep-metadata`) one delta removes the
+old image and adds a new one whose `parent` names it, in the largest frame of
+the new picture's proportions inside the old frame, centred on it, with the
+old rotation and stacking and no crop (`NoteOps.replaceImage`; anything but an
+image is refused before anything is written; prints the new item's id;
+`--json`: `note`, `changed`, `file`, `item`, `replaced`, `blob`), `math` writes an
 equation's whole value (`NoteOps.setMath`, `format.md` §8.2.8): the options
 given replace the source, style, size or colour, checked as `attach math`
 does; any such change drops the rendering (the CLI cannot typeset) unless
