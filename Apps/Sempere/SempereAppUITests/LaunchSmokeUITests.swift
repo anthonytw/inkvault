@@ -15,7 +15,7 @@ import XCTest
 /// windows and sheets must open: Settings (⌘,), Vault Keys (⌥⌘K), a note
 /// window (⌥⌘N), Export… (⇧⌘E), Export Notes… and Restore from Backup….
 ///
-/// Run by `scripts/app.sh test-smoke` (iPad simulator) and `test-mac-smoke`
+/// Run by `scripts/app.sh test-ui` (iPad simulator: the two sidebar and list layouts) and `test-mac-smoke`
 /// (Mac Catalyst), on every CI run of the app job (docs/HANDOFF.md "CI").
 final class LaunchSmokeUITests: XCTestCase {
     private static let passphrase = "smoke test passphrase"
