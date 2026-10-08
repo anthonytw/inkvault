@@ -10,14 +10,14 @@ import Sempere
 struct ItemsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "items",
-        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items.",
+        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items; set a video's poster.",
         discussion: """
-            Placed items are text boxes, images and PDF pages (format.md §8.2). An item is named by its
+            Placed items are text boxes, images, PDF pages and video clips (format.md §8.2). An item is named by its
             id or an id prefix of at least 4 characters, as `items list` prints it. Each edit writes one
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
-        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsFront.self, ItemsDelete.self,
-                      ItemsDuplicate.self, ItemsCopy.self]
+        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsPoster.self, ItemsFront.self,
+                      ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
     )
 }
 
@@ -69,13 +69,15 @@ struct ItemsList: ParsableCommand {
         struct Row: Encodable {
             var page: Int; var id: String; var kind: String; var layer: String; var frame: Rect
             var rotation: Double?; var z: String; var blob: BlobRef?; var crop: Rect?
+            /// Videos: seconds, the poster blob (nil when none).
+            var duration: Double?; var poster: BlobRef?
         }
         var rows: [Row] = []
         for (i, p) in state.pages.enumerated() where page == nil || page == i + 1 {
             for item in p.items.sorted(by: Item.drawsBefore) {
                 rows.append(Row(page: i + 1, id: item.id.uuidString.lowercased(), kind: item.kind.rawValue,
                                 layer: "\(item.layer)", frame: item.frame, rotation: item.rotation, z: item.z,
-                                blob: item.blob, crop: item.crop))
+                                blob: item.blob, crop: item.crop, duration: item.duration, poster: item.poster))
             }
         }
         if output.json { try output.emitJSON(rows); return }
@@ -85,7 +87,10 @@ struct ItemsList: ParsableCommand {
             let f = r.frame
             let n = AttachmentListing.number
             let place: String = n(f.x) + "," + n(f.y) + " " + n(f.w) + "x" + n(f.h)
-            let blob: String = r.blob.map(AttachmentListing.blob) ?? "-"
+            var blob: String = r.blob.map(AttachmentListing.blob) ?? "-"
+            if r.kind == ItemKind.video.rawValue {
+                blob += " " + AttachmentListing.number(r.duration ?? 0) + " s" + (r.poster == nil ? " (no poster)" : " +poster")
+            }
             table.append([String(r.page), String(r.id.prefix(8)), r.kind, place, blob])
         }
         print(Format.table(table))

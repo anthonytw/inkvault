@@ -86,7 +86,9 @@ enum ItemRendering {
         }
         defer { Perf.end(interval, "drawn") }
         var files: [String: URL] = [:]
-        let blobs = item.blob.map { [$0] } ?? []
+        // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7).
+        let drawn = item.kind == .video ? item.poster : item.blob
+        let blobs = drawn.map { [$0] } ?? []
         if let cache {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {
@@ -102,7 +104,8 @@ enum ItemRendering {
                                         imageDecoder: ImageIODecoder())
             do {
                 let r = try ItemRaster.render(item, scale: key.scale, maxPixels: ItemRendering.maxPixels, paper: key.paper, options: options)
-                if let reason = r.placeholder { return .failed(reason.description) }
+                // A video without a poster is its placeholder under the play mark, as exports draw it.
+                if let reason = r.placeholder, reason != .noPoster { return .failed(reason.description) }
                 return .pixels(r.image, r.bounds)
             } catch {
                 return .failed("\(error)")

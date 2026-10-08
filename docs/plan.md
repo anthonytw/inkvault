@@ -45,9 +45,9 @@ Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper; now designed with text boxes and audio,
 see "Attachments" below); stroke
 dedupe after concurrent slicing; ~~post-quantum recipient type~~ (done:
-MLKEM768-X25519, `docs/post-quantum.md`); read-only
-access to vaults of a newer format version (`format.md` §7; today `Vault.open`
-refuses any `format` other than `sempere/1`).
+MLKEM768-X25519, `docs/post-quantum.md`); ~~read-only
+access to vaults of a newer format version~~ (done in #94: `format.md` §7,
+`Vault.readOnlyReasons`, CLI exit 7, app banner, web viewer).
 
 Done from this list:
 
@@ -97,8 +97,8 @@ goes first; after it, the rest run in parallel along the dependencies in
 | E6 ✅ | App **Settings panel**: recording format, photo privacy, transcription, device-key rewrap modes (add; remove/PQ), storage | `Apps/` | E0 (E7 for storage) | defaults match `docs/attachments.md` §15; each setting tested |
 | E7 🔀 | App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days) | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested. **In review (#95)**: core `AttachmentIndex.swift` (`AttachmentIndexer`, `AttachmentStorageReport`, `BlobRetention`), `AttachmentIndexStore.swift`, `collectBlobs(note:records:only:)`; app `AppModel+AttachmentIndex`, `UnusedAttachmentsView` (SettingsView), `AttachmentThumbnail`; CLI `blobs unused`/`gc` |
 | F | CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/SempereCLI` | A1, B2, C* | end-to-end CLI test |
-| G1 | *Future:* `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob); handwriting→LaTeX later, on device | `Apps/`, `Sources/` | C3, E2 | format §8.2.7 defined; exports embed the rendering |
-| G2 | *Future:* `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments") | `Apps/`, `Sources/` | E4 | format §8.2.7 defined |
+| G1 | *Future:* `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob); handwriting→LaTeX later, on device | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
+| G2 | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); in review, PR #93 | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
 | L | *Future:* app UI localization with String Catalogs, Spanish first; contributions welcome | `Apps/` | — | Spanish catalog complete; contributor guide |
 
 ## Working agreements

@@ -273,7 +273,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(LowercaseUUID.self, forKey: .id).uuid
         order = try c.decode(String.self, forKey: .order)
-        strokes = try c.decodeIfPresent([Stroke].self, forKey: .strokes) ?? []
+        strokes = try c.decodeElements(Stroke.self, forKey: .strokes, decoder: decoder) ?? []
         orderClock = try c.decodeIfPresent(String.self, forKey: .orderClock)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         recognition = try c.decodeIfPresent(Recognition.self, forKey: .recognition)
@@ -281,7 +281,7 @@ public struct Page: Hashable, Sendable, Codable, Identifiable {
         parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
         paper = try c.decodeIfPresent(Paper.self, forKey: .paper)
         paperClock = try c.decodeIfPresent(String.self, forKey: .paperClock)
-        items = try c.decodeIfPresent([Item].self, forKey: .items) ?? []
+        items = try c.decodeElements(Item.self, forKey: .items, decoder: decoder) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -633,11 +633,14 @@ public struct NoteState: Hashable, Sendable, Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         deleted = try c.decode(Bool.self, forKey: .deleted)
         meta = try c.decode(NoteMeta.self, forKey: .meta)
-        pages = try c.decode([Page].self, forKey: .pages)
+        guard c.contains(.pages) else {
+            throw DecodingError.keyNotFound(CodingKeys.pages, .init(codingPath: c.codingPath, debugDescription: "no pages"))
+        }
+        pages = try c.decodeElements(Page.self, forKey: .pages, decoder: decoder) ?? []
         clocks = try c.decodeIfPresent([String: String].self, forKey: .clocks)
         tombstones = try c.decodeIfPresent(Tombstones.self, forKey: .tombstones)
         tagSet = try c.decodeIfPresent(TagSet.self, forKey: .tagSet)
-        recordings = try c.decodeIfPresent([Recording].self, forKey: .recordings) ?? []
+        recordings = try c.decodeElements(Recording.self, forKey: .recordings, decoder: decoder) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1063,6 +1066,7 @@ extension Op: Codable {
             case .z(let v): try c.encode(v, forKey: .value)
             case .text(let v): try c.encode(v, forKey: .value)
             case .crop(let v): try c.encode(v, forKey: .value)
+            case .poster(let v): try c.encode(v, forKey: .value)
             case .other(_, let v): try c.encode(v, forKey: .value)
             }
         case .addRecording(let recording):
@@ -1135,6 +1139,7 @@ public enum InkJSON {
             throw DecodingError.dataCorrupted(.init(codingPath: dec.codingPath, debugDescription: "bad date \(s.prefix(64))"))
         }
         if let key = JSONValueBudget.key { d.userInfo[key] = JSONValueBudget() }
+        if let key = NewerDecoding.key { d.userInfo[key] = NewerDecoding() }
         return d
     }
 

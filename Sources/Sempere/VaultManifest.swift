@@ -34,12 +34,25 @@ public struct VaultManifest: Hashable, Sendable, Codable {
     /// Format extensions the vault uses (format.md §2), e.g. `attachments`.
     /// Empty when absent; written only when non-empty.
     public var features: [String]
+    /// `recipientsTag` (format.md §2.1): lowercase hex HMAC over `vaultId`
+    /// and the recipient keys under a key derived from the vault secret. Nil
+    /// when absent; a value that is not a string reads as `""` (a tag that
+    /// never verifies), so a hostile file cannot make the manifest unreadable.
+    public var recipientsTag: String?
+    /// `secretLink` (format.md §2.1): proof, under the outgoing secret, that
+    /// the last secret rotation was made by a holder of the old secret. A
+    /// value that is not a string reads as `""` (a link that never verifies).
+    public var secretLink: String?
 
     /// The extensions this implementation knows. A writer must not write to
     /// a vault that uses any other (format.md §2).
-    public static let knownFeatures: Set<String> = [attachmentsFeature]
+    public static let knownFeatures: Set<String> = [attachmentsFeature, recipientsTagFeature]
     /// Added before the first blob or attachment op is written (format.md §2, §8).
     public static let attachmentsFeature = "attachments"
+    /// The vault carries `recipientsTag` (format.md §2.1). Older writers do
+    /// not know it, so they stop writing instead of encrypting to an
+    /// unchecked list or dropping the tag.
+    public static let recipientsTagFeature = "recipients-tag"
 
     /// Builds a manifest value. No validation happens here; `Vault.create`
     /// and `Vault.open` enforce format.md §2.
@@ -48,12 +61,13 @@ public struct VaultManifest: Hashable, Sendable, Codable {
     ///   - format: `sempere/1` unless testing other versions.
     ///   - vaultSecret: the armored age file holding the 32-byte secret.
     public init(format: String = SempereFormat.identifier, vaultId: UUID, created: Date, recipients: [Recipient],
-                vaultSecret: String, features: [String] = []) {
+                vaultSecret: String, features: [String] = [], recipientsTag: String? = nil, secretLink: String? = nil) {
         self.format = format; self.vaultId = vaultId; self.created = created
         self.recipients = recipients; self.vaultSecret = vaultSecret; self.features = features
+        self.recipientsTag = recipientsTag; self.secretLink = secretLink
     }
 
-    enum CodingKeys: String, CodingKey { case format, vaultId, created, recipients, vaultSecret, features }
+    enum CodingKeys: String, CodingKey { case format, vaultId, created, recipients, vaultSecret, features, recipientsTag, secretLink }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -63,6 +77,14 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         recipients = try c.decode([Recipient].self, forKey: .recipients)
         vaultSecret = try c.decode(String.self, forKey: .vaultSecret)
         features = try c.decodeIfPresent([String].self, forKey: .features) ?? []
+        recipientsTag = Self.lenientString(c, .recipientsTag)
+        secretLink = Self.lenientString(c, .secretLink)
+    }
+
+    /// Nil when absent (or JSON null), the string when it is one, else `""`.
+    private static func lenientString(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> String? {
+        guard c.contains(key), (try? c.decodeNil(forKey: key)) != true else { return nil }
+        return (try? c.decode(String.self, forKey: key)) ?? ""
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -73,6 +95,8 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         try c.encode(recipients, forKey: .recipients)
         try c.encode(vaultSecret, forKey: .vaultSecret)
         if !features.isEmpty { try c.encode(features, forKey: .features) }
+        try c.encodeIfPresent(recipientsTag, forKey: .recipientsTag)
+        try c.encodeIfPresent(secretLink, forKey: .secretLink)
     }
 
     /// The features this implementation does not know, sorted.
@@ -86,6 +110,12 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         let e = InkJSON.encoder()
         e.outputFormatting.insert(.prettyPrinted)
         return try e.encode(self) + Data("\n".utf8)
+    }
+
+    /// `format` alone, from bytes that may not decode as a whole manifest.
+    static func peekFormat(_ data: Data) -> String? {
+        struct Format: Decodable { var format: String }
+        return try? JSONDecoder().decode(Format.self, from: data).format
     }
 
     /// Parses `vault.json` bytes.

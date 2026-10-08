@@ -47,6 +47,17 @@ struct NamedSummary: Sendable {
 extension AppModel {
     /// Summary caches of every vault this install opened: one encrypted file
     /// per vault secret in Application Support (`format.md` §10). Not backed up.
+    /// Where the app keeps its trust records of vault recipients lists
+    /// (format.md §2.1), next to the device clock.
+    nonisolated static var defaultTrustDirectory: URL {
+        DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("Trust", isDirectory: true)
+    }
+
+    /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`.
+    nonisolated static var defaultRecipientsTrust: any RecipientsTrustStore {
+        FileRecipientsTrustStore(directory: defaultTrustDirectory)
+    }
+
     nonisolated static var defaultSummaryCacheDirectory: URL? {
         DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("SummaryCache")
     }

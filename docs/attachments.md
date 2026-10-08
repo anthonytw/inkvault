@@ -34,8 +34,8 @@ recordings with on-device transcripts, and the link between ink and audio
 ("tap a stroke to hear what was said").
 
 Reserved for later, with names and blob machinery fixed now so that they need
-no format change (`format.md` §8.2.7): `math` items (LaTeX equations) and
-`video` items. Also later: localization of the app's interface (§14, task L).
+no format change (`format.md` §8.2.8): `math` items (LaTeX equations).
+`video` items are defined (`format.md` §8.2.7, task G2). Also later: localization of the app's interface (§14, task L).
 
 Not in scope: typed-text *documents* (reflowing text with ink anchored to
 it), arbitrary file attachments, shapes, links, collaboration. The open item
@@ -556,7 +556,7 @@ text as you write in a text box).
 
 ### Math (reserved, later)
 
-A `math` item kind is reserved (`format.md` §8.2.7): an equation stored as
+A `math` item kind is reserved (`format.md` §8.2.8): an equation stored as
 LaTeX source, shown typeset, edited as text (tap to edit the source, the
 typeset result updates live). The item also stores a rendered PDF of the
 result (a blob, `render`), so the CLI and older readers draw it without a
@@ -685,15 +685,42 @@ Readers must play AAC-LC and should play HE-AAC and ALAC (AVFoundation and
 ffmpeg play all three). Other audio types stay allowed so an importer never
 has to transcode.
 
-### Video (reserved, later)
+### Video (task G2, `format.md` §8.2.7)
 
-A `video` item kind is reserved (`format.md` §8.2.7) and needs no new
-machinery: the clip is a blob of kind `video` in the note's `att/`
-(`video/mp4` or `video/quicktime`, within the 1 GiB blob cap), placed on the
-page like an image with a poster frame (an image blob) that every renderer
-can draw. The app plays it with `AVPlayer` from a verified temporary file
-(as for audio); PDF exports draw the poster and, in "PDF + attachments",
-attach the clip as an embedded file (§10). Not implemented now (task G2).
+A `video` item needs no new machinery: the clip is a blob of kind `video` in
+the note's `att/` (`video/mp4` or `video/quicktime`, H.264 or HEVC, within the
+1 GiB blob cap), placed on the page like an image, with a poster frame (an
+image blob, a register) that every renderer draws under a play mark.
+
+- **Stored as recorded.** No transcoding unless the format does not take the
+  clip (another codec, fragmented MP4: the app converts with AVFoundation, the
+  CLI refuses and says how to convert). The clip streams from the picked file
+  into the blob in 1 MiB pieces, hashed then encrypted, never held in memory.
+- **Metadata.** The location and device metadata (`udta` and `meta` boxes of
+  `moov` and of each track, a top-level `meta`, and XMP `uuid` boxes) are blanked *in place* on the way into the blob:
+  the boxes become `free` boxes of the same length, zero-filled, so every
+  sample offset stays valid and nothing is re-encoded. The app follows the
+  photo privacy setting (§7, on by default); the CLI strips unless
+  `--keep-metadata`; exports strip unless asked to keep.
+- **Reading the container.** `VideoProbe` (`Sources/Sempere/VideoProbe.swift`)
+  walks the ISO BMFF box tree with bounded reads (box headers, and at most
+  4 KiB of `mvhd`, `tkhd`, `mdhd`, `hdlr`, `stsd`), never the samples or the
+  sample tables, so a 1 GiB clip costs a few hundred small reads. Hostile
+  input: sizes checked against their parent (64-bit sizes included), depth and
+  box count bounded, a fuzz target (`VideoProbeTests.testFuzz`).
+- **Poster.** The app and the CLI on macOS take a frame half a second in
+  (`VideoPoster`, AVAssetImageGenerator with the track transform applied,
+  at most 1920 px, JPEG); the CLI on Linux stores none unless `--poster`
+  is given (readers draw a placeholder with the play mark), and the first
+  device that plays such a clip gives it a poster (`setItem(poster)`).
+- **Playback.** The app plays a clip with `AVPlayer` from the verified file
+  of its blob cache (downloaded from iCloud only then, §4), released when the
+  player closes; the web viewer from an object URL of the verified blob (at
+  most 512 MiB), revoked when it closes.
+- **Exports.** PDF, SVG and PNG draw the poster and the play mark; "PDF +
+  attachments" embeds the clip as an embedded file, streamed from the vault
+  into the PDF file (§10); Markdown and HTML write it next to the note and
+  link it.
 
 ### Transcripts (decided: separate encrypted JSON)
 
@@ -912,6 +939,21 @@ Pages never show recordings. Options for the PDF (decided):
 SVG and PNG exports omit recordings. A separate `sempere export --format
 media` writes the note's original blobs (images, PDFs, audio, transcripts) as
 files, named `<title>-<n>.<ext>`.
+
+### Video in exports
+
+Pages show a video item as its poster with the play mark (`format.md`
+§8.2.7). "PDF + attachments" (CLI `--attachments`, or `--videos attach` for
+the clips alone) embeds each clip once as a PDF file attachment, named
+`<title> – Video N.mp4`. A clip can be 1 GiB, so the PDF is not built in
+memory when it is written to a file (`PDFWriter.write(…to:)`): the embedded
+file objects hold a blob reference, and serialising the PDF streams the
+verified clip from the vault straight into the output (xref offsets counted as
+it goes), up to 8 GiB of attachments per PDF. The in-memory
+`PDFWriter.render` keeps its 512 MiB budget. Markdown and HTML exports write
+each clip to `<stem>-assets/video-N.mp4` (streamed to a temporary file,
+metadata blanked, compared with what is there and moved into place) and link
+it (`![[…]]` for Obsidian, `<video controls>` in HTML).
 
 ### Raster limits
 
@@ -1648,7 +1690,7 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
 
 ### G. Future item kinds (not scheduled)
 
-- **G1 — `math` items.** Define `format.md` §8.2.7 `math` fully; typeset
+- **G1 — `math` items.** Define `format.md` §8.2.8 `math` fully; typeset
   with SwiftMath (MIT; MathJax as fallback, §6) on device; edit as LaTeX
   source in the text editor with a live preview; store the rendered PDF
   blob for other renderers; exports embed that PDF as a Form XObject (C3's
@@ -1656,6 +1698,16 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
 - **G2 — `video` items.** Define `format.md` §8.2.7 `video` fully; record
   or pick a clip, poster frame, `AVPlayer` playback, 1 GiB cap, "PDF +
   attachments" embeds the clip, SVG/PNG draw the poster.
+
+  *Status:* in review (PR #93). Format §8.2.7 (clip, `poster` register,
+  `pixelSize`, `duration`, `videoRotation`, `codec`, in-place metadata removal,
+  play mark, fallback); `VideoProbe`, `VideoMetadata`, `NoteOps.placeVideo` /
+  `setPoster`, `Vault.writeVideo` (Sources/Sempere); `VideoPoster`,
+  `ExportVideos`, streamed PDF attachments (SempereRender); CLI `attach video`,
+  `items poster`, `export --videos attach` / `--attachments`; app: Photos and
+  Videos, Record Video, Video File, drops, conversion of other codecs, poster,
+  Play in the selection menu or a finger tap, `AVPlayer` from the blob cache,
+  poster backfill; web viewer: poster, play mark, tap or Play to play.
 
 ### L. Localization (future; contributions welcome)
 

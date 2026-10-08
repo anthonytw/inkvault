@@ -6,10 +6,13 @@ import { type NotebookNode, type SearchHit, canonicalNotebook, isWithinNotebook,
 import { tagKey } from "../format/tags.ts";
 import { type LoadedNote, type NoteSummary, loadNote, mapLimited, summarize } from "../vault/library.ts";
 import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional } from "../vault/source.ts";
-import { UnlockedVault, VaultError, limits, parseIdentity, parseManifest, type VaultManifest } from "../vault/vault.ts";
+import { type RecipientsStatus, UnlockedVault, VaultError, limits, parseIdentity, parseManifest, readOnlyReasons,
+  recipientsWarningText, type VaultManifest } from "../vault/vault.ts";
+import { newerSummary } from "../format/newer.ts";
 import { clear, formatDate, h } from "./dom.ts";
 import { NoteView, hasUnknownPaper } from "./noteview.ts";
 import { RecordingsPanel } from "./recordings.ts";
+import { VideosPanel } from "./videos.ts";
 import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
 
@@ -33,6 +36,7 @@ export class App {
   private selected?: string;
   private view?: NoteView;
   private recordings?: RecordingsPanel;
+  private videos?: VideosPanel;
   /** Recently opened notes; the list itself keeps summaries only. */
   private readonly cache = new Map<string, LoadedNote>();
   private generation = 0;
@@ -186,6 +190,7 @@ export class App {
       h("header", { class: "topbar" },
         h("strong", { text: "Sempere" }), h("span", { class: "vault-label", text: src.label, title: src.label }), this.status,
         h("button", { text: "Lock", class: "secondary", attrs: { type: "button" }, title: "Forget the key and close the vault", on: { click: () => this.lock() } })),
+      ...recipientsWarning(this.vault?.recipientsStatus),
       h("div", { class: "columns" }, this.sidebar,
         h("div", { class: "list-column" }, h("div", { class: "search" }, searchBox), this.list),
         this.detail)));
@@ -199,6 +204,7 @@ export class App {
     this.notes.clear();
     this.cache.clear();
     this.view?.destroy();
+    this.videos?.destroy();
     // A reload drops every reference to the key and decrypted notes.
     location.reload();
   }
@@ -246,6 +252,11 @@ export class App {
     const problems = [...this.notes.values()].filter((n) => n.error !== undefined || n.failures > 0).length;
     this.status.textContent = done < total ? `Decrypting ${done} of ${total} notes…`
       : `${total} note${total === 1 ? "" : "s"}${problems ? ` · ${problems} with problems` : ""}`;
+    // Content of a newer format version (format.md §7.3): shown as far as understood.
+    const newer = (this.manifest ? readOnlyReasons(this.manifest) : []).length > 0
+      || [...this.notes.values()].some((n) => n.newer);
+    if (newer) this.status.textContent += " · written partly by a newer Sempere";
+    this.status.title = this.manifest ? readOnlyReasons(this.manifest).join("; ") : "";
   }
 
   private visible(n: NoteSummary): boolean {
@@ -327,6 +338,7 @@ export class App {
       const badges: string[] = [];
       if (n.error !== undefined) badges.push("unreadable");
       else if (n.failures > 0) badges.push(`${n.failures} unreadable revision${n.failures === 1 ? "" : "s"}`);
+      if (n.newer) badges.push("newer version");
       return h("li", {}, h("button", {
         class: n.id === this.selected ? "note active" : "note", attrs: { type: "button" },
         on: { click: () => void this.open(n.id, hit?.page?.number) },
@@ -364,6 +376,8 @@ export class App {
     this.view = undefined;
     this.recordings?.destroy();
     this.recordings = undefined;
+    this.videos?.destroy();
+    this.videos = undefined;
     this.detail.replaceChildren(h("p", { class: "empty", text: "Decrypting…" }));
     let note = this.cache.get(id);
     if (!note) {
@@ -392,6 +406,10 @@ export class App {
         h("p", { class: "error", text: note.error ?? "unknown error" })), ...warnings);
       return;
     }
+    if (note.newer) {
+      warnings.push(h("p", { class: "warning", text:
+        `Parts of this note were written by a newer version of Sempere (${newerSummary(note.newer)}); it is shown as far as this viewer understands it.` }));
+    }
     if (state.deleted) warnings.push(h("p", { class: "warning", text: "This note is deleted (it stays in the vault until restored in the app)." }));
     if (hasUnknownPaper(state)) warnings.push(h("p", { class: "warning", text: "Some paper was made by a newer app; it is shown as blank paper." }));
     const m = state.meta;
@@ -399,14 +417,22 @@ export class App {
     const meta = [notebook ? `Notebook: ${notebook.replaceAll("/", " › ")}` : "", `Created ${formatDate(m.created)}`,
       `${state.pages.length} page${state.pages.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
     const blobs = this.source && this.vault ? new NoteBlobs(this.source, this.vault, note.id) : undefined;
-    this.view = new NoteView(state, blobs);
+    const videos = new VideosPanel(state, blobs);
+    this.videos = videos;
+    this.view = new NoteView(state, blobs, (id) => void videos.play(id));
     this.recordings = new RecordingsPanel(state.recordings, blobs);
     this.detail.replaceChildren(
       h("div", { class: "note-header" },
         h("h2", { text: m.title || "Untitled" }), h("p", { class: "sub", text: meta }),
         m.tags.length ? h("p", { class: "tags" }, ...m.tags.map((t) => h("span", { class: "tag", text: `#${t}` }))) : null,
-        ...warnings, this.view.problemsEl, this.recordings.root),
+        ...warnings, this.view.problemsEl, this.recordings.root, videos.root),
       this.view.root);
     if (page !== undefined) requestAnimationFrame(() => requestAnimationFrame(() => this.view?.showPage(page)));
   }
+}
+
+/** A banner when vault.json's device list does not check (format.md §2.1). */
+function recipientsWarning(status: RecipientsStatus | undefined): HTMLElement[] {
+  const text = recipientsWarningText(status);
+  return text ? [h("p", { class: "warning", attrs: { role: "alert" }, text })] : [];
 }

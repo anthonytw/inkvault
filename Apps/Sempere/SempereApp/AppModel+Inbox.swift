@@ -21,6 +21,7 @@ extension AppModel {
     /// capture key comes from its secret); afterwards capture needs nothing.
     func enableQuickCapture(notebook: String = CaptureProfile.defaultNotebook, transcribe: Bool = true) throws {
         guard let vault, vault.canRead, let url = vaultURL, phase == .unlocked else { throw ModelError.noVaultOpen }
+        try requireWritableVault()
         let clock = try deviceClockForWriting()
         let profile = try vault.captureProfile(device: clock.device, notebook: notebook)
         let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -37,8 +38,9 @@ extension AppModel {
     /// After an unlock or a key change: the stored profile of this vault gets
     /// the current recipients and capture key (a removed key rotates both).
     func refreshQuickCaptureProfile() {
-        guard let vault, vault.canRead, var stored = quickCaptureProfile, stored.profile.vaultId == vault.vaultId,
-              let key = try? vault.captureKey() else { return }
+        // Never a list that does not check (format.md §2.1, §11.1): captures are sealed to it.
+        guard let vault, vault.canRead, vault.recipientsStatus.allowsWriting, var stored = quickCaptureProfile,
+              stored.profile.vaultId == vault.vaultId, let key = try? vault.captureKey() else { return }
         let recipients = vault.recipients.map(\.key)
         guard stored.profile.recipients != recipients || stored.profile.key != key.bytes else { return }
         stored.profile.recipients = recipients
@@ -62,7 +64,8 @@ extension AppModel {
     /// moved in first). Returns how many captures were adopted or updated.
     @discardableResult
     func adoptInbox() async -> Int {
-        guard let vault, vault.canRead, phase == .unlocked, let url = vaultURL else { return 0 }
+        // A read-only vault (format.md §7.3) adopts nothing: the captures wait in the inbox.
+        guard let vault, vault.canRead, phase == .unlocked, !isVaultReadOnly, let url = vaultURL else { return 0 }
         let gen = generation
         let cloud = isCloudVault, hooks = cloudHooks
         quickCapture.flushQueue(into: url, vaultId: vault.vaultId, coordinated: cloud)

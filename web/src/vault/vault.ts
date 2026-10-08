@@ -6,6 +6,7 @@ import { Decrypter, armor, identityToRecipient } from "age-encryption";
 import { DecodeError, arr, isObject, obj, opt, reqWith, str, uuid } from "../format/json.ts";
 import { parseRevisionName, revisionFilename } from "../format/ids.ts";
 import { type Revision, decodeRevision } from "../format/model.ts";
+import { formatMajor, majorOf, manifestReadOnlyReasons, revisionMarkersNewer } from "../format/newer.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
 import { gunzip } from "./gzip.ts";
 
@@ -27,7 +28,8 @@ export class VaultError extends Error {
   }
 }
 
-export type RevisionErrorCode = "undecryptable" | "tagMismatch" | "corruptBody" | "undecodable";
+/** `newer`: written by a newer version and not readable by this one (format.md §7.2, §7.4). */
+export type RevisionErrorCode = "undecryptable" | "tagMismatch" | "corruptBody" | "undecodable" | "newer";
 
 /** Why one revision file could not be read; reported, never silently dropped (§4). */
 export class RevisionReadError extends Error {
@@ -48,6 +50,11 @@ export interface VaultManifest {
   recipients: ManifestRecipient[];
   vaultSecret: string;
   features: string[];
+  /**
+   * `recipientsTag` (format.md §2.1): undefined when absent or null; a value
+   * that is not a string reads as "" (a tag that never verifies).
+   */
+  recipientsTag?: string;
 }
 
 const bech32 = /^[02-9ac-hj-np-z]+$/;
@@ -82,6 +89,7 @@ export function parseManifest(bytes: Uint8Array): VaultManifest {
     const created = reqWith(o, "created", "$", str);
     if (parseRFC3339(created) === undefined) throw new DecodeError("$.created: bad date");
     const features = opt(o, "features");
+    const tag = opt(o, "recipientsTag");
     m = {
       format: reqWith(o, "format", "$", str),
       vaultId: reqWith(o, "vaultId", "$", uuid),
@@ -89,18 +97,34 @@ export function parseManifest(bytes: Uint8Array): VaultManifest {
       vaultSecret: reqWith(o, "vaultSecret", "$", str),
       features: Array.isArray(features) ? features.filter((f): f is string => typeof f === "string") : [],
     };
+    if (tag !== undefined && tag !== null) m.recipientsTag = typeof tag === "string" ? tag : "";
   } catch (e) {
+    // A later major that does not decode cannot be opened even read-only (§7.2).
+    if (isObject(json) && typeof json.format === "string" && (majorOf(json.format) ?? 0) > formatMajor) {
+      throw new VaultError("unsupportedFormat", `vault format ${json.format} cannot be read by this viewer`);
+    }
     throw new VaultError("manifestCorrupt", e instanceof Error ? e.message : String(e));
   }
-  if (m.format !== "sempere/1") throw new VaultError("unsupportedFormat", `unsupported vault format ${m.format}`);
+  // A later major opens read-only, which the viewer always is (format.md §7.3).
+  const major = majorOf(m.format);
+  if (major === undefined) throw new VaultError("unsupportedFormat", `unsupported vault format ${m.format.slice(0, 64)}`);
   if (m.recipients.length === 0) throw new VaultError("manifestCorrupt", "no recipients");
-  for (const r of m.recipients) {
+  // A later major may list recipient types this viewer does not know.
+  for (const r of major <= formatMajor ? m.recipients : []) {
     if (!recipientType(r.key)) throw new VaultError("manifestCorrupt", `invalid recipient ${r.key.slice(0, 24)}…`);
   }
   if (new Set(m.recipients.map((r) => r.key)).size !== m.recipients.length) {
     throw new VaultError("manifestCorrupt", "duplicate recipient");
   }
   return m;
+}
+
+/**
+ * Why the vault is read-only for this version (format.md §7.3): a later
+ * `format`, unknown `features`. The viewer never writes; this is what it reports.
+ */
+export function readOnlyReasons(m: VaultManifest): string[] {
+  return manifestReadOnlyReasons(m.format, m.features);
 }
 
 /** True when the vault lists an X25519 recipient: migrate-only (format.md §3.3.2). */
@@ -148,6 +172,60 @@ async function hmacKey(secret: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", buf(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
+/**
+ * How `vault.json`'s recipients list checked (format.md §2.1). The viewer
+ * writes nothing and keeps no trust record, so it reports only what the tag
+ * says: `verified` (the tag verifies under the vault secret), `untagged` (an
+ * older vault), or `tampered` (`tagMismatch`: the tag does not verify;
+ * `tagRemoved`: the `recipients-tag` feature is listed but the tag is gone).
+ */
+export type RecipientsStatus =
+  | { status: "verified" }
+  | { status: "untagged" }
+  | { status: "tampered"; reason: "tagMismatch" | "tagRemoved" };
+
+export const recipientsTagFeature = "recipients-tag";
+
+async function hkdf(secret: Uint8Array, info: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", buf(secret), "HKDF", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: encoder.encode(info) },
+    key, 256);
+  return new Uint8Array(bits);
+}
+
+/** `recipientsTag` (lowercase hex) of `keys`, in order, under the vault secret (format.md §2.1). */
+export async function recipientsTag(vaultId: string, keys: string[], secret: Uint8Array): Promise<string> {
+  const parts: Uint8Array[] = [encoder.encode("sempere/1"), Uint8Array.of(0), encoder.encode("recipients"), Uint8Array.of(0),
+    encoder.encode(vaultId.toLowerCase())];
+  for (const k of keys) parts.push(Uint8Array.of(0), encoder.encode(k));
+  const key = await hmacKey(await hkdf(secret, "sempere/1 recipients key"));
+  return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, buf(concat(parts)))));
+}
+
+/** Classifies the manifest's recipients under the vault secret (format.md §2.1, without a trust record). */
+export async function checkRecipients(m: VaultManifest, secret: Uint8Array): Promise<RecipientsStatus> {
+  if (m.recipientsTag === undefined) {
+    return m.features.includes(recipientsTagFeature) ? { status: "tampered", reason: "tagRemoved" } : { status: "untagged" };
+  }
+  const expected = await recipientsTag(m.vaultId, m.recipients.map((r) => r.key), secret);
+  const given = m.recipientsTag;
+  let diff = given.length ^ expected.length;
+  for (let i = 0; i < expected.length; i++) diff |= (given.charCodeAt(i) || 0) ^ expected.charCodeAt(i);
+  return diff === 0 ? { status: "verified" } : { status: "tampered", reason: "tagMismatch" };
+}
+
+/**
+ * What the viewer says about a list that does not check (format.md §2.1),
+ * or undefined. The viewer only reads, so it reports; the app or
+ * `sempere vault recipients repair` fixes it.
+ */
+export function recipientsWarningText(status: RecipientsStatus | undefined): string | undefined {
+  if (status?.status !== "tampered") return undefined;
+  const why = status.reason === "tagRemoved" ? "lost its authentication tag" : "was changed without the vault's key";
+  return `This vault's device list ${why}. Notes still read correctly here, but the Sempere app and CLI will not `
+    + "write to it until it is repaired (sempere vault recipients repair).";
+}
+
 /** An unlocked vault: the identity and the vault secret, in memory only. */
 export class UnlockedVault {
   private constructor(
@@ -157,6 +235,8 @@ export class UnlockedVault {
     private readonly previous: CryptoKey | undefined,
     /** The recipient of the pasted identity. */
     readonly recipient: string,
+    /** How the recipients list checked (format.md §2.1); reported, the viewer never writes. */
+    readonly recipientsStatus: RecipientsStatus = { status: "untagged" },
   ) {}
 
   /**
@@ -178,6 +258,7 @@ export class UnlockedVault {
     }
     const secretBytes = await decryptSecret(decrypter, manifest.vaultSecret);
     const secret = await hmacKey(secretBytes);
+    const recipientsStatus = await checkRecipients(manifest, secretBytes);
     let previous: CryptoKey | undefined;
     if (journal) {
       try {
@@ -189,7 +270,7 @@ export class UnlockedVault {
         // then fail their tag check and are reported.
       }
     }
-    return new UnlockedVault(manifest, decrypter, secret, previous, recipient);
+    return new UnlockedVault(manifest, decrypter, secret, previous, recipient, recipientsStatus);
   }
 
   /**
@@ -226,6 +307,7 @@ export class UnlockedVault {
     }
     if (plain.length < headerSize) throw new RevisionReadError("corruptBody", "body shorter than its header");
     if (!magic.every((b, i) => plain[i] === b)) throw new RevisionReadError("corruptBody", "body does not start with SMPR");
+    if ((plain[4] ?? 0) > 1) throw new RevisionReadError("newer", `written by a newer version (body version ${plain[4]})`);
     if (plain[4] !== 1) throw new RevisionReadError("corruptBody", `unsupported body version ${plain[4]}`);
     const tag = plain.subarray(5, headerSize);
     const gz = plain.subarray(headerSize);
@@ -245,7 +327,15 @@ export class UnlockedVault {
     try {
       rev = decodeRevision(json);
     } catch (e) {
-      throw new RevisionReadError("undecodable", e instanceof Error ? e.message : String(e));
+      // A newer revision that does not decode is newer, not corrupt (§7.2).
+      let newer: boolean;
+      try {
+        newer = isObject(json) && revisionMarkersNewer(json);
+      } catch {
+        newer = false;
+      }
+      throw new RevisionReadError(newer ? "newer" : "undecodable",
+        (newer ? "written by a newer version: " : "") + (e instanceof Error ? e.message : String(e)));
     }
     if (rev.noteId !== noteId || rev.hlc !== name.hlc || rev.device !== name.device || rev.seq !== name.seq
       || rev.body.type !== name.kind) {

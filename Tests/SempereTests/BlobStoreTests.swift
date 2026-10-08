@@ -307,21 +307,21 @@ final class BlobStoreTests: VaultTestCase {
         let id = pqIdentity()
         let vault = try makeVault(id)
         let manifestURL = vault.url.appendingPathComponent("vault.json")
-        XCTAssertFalse(String(decoding: try Data(contentsOf: manifestURL), as: UTF8.self).contains("features"))
+        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, ["recipients-tag"], "format.md §2.1")
         var log = LogBuilder()
         try vault.write(log.delta(devA, 0, [.addPage(Page(id: blobPage, order: "a0"))]))
-        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, [], "plain revisions add nothing")
+        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, ["recipients-tag"], "plain revisions add nothing")
         let ref = try vault.writeBlob(note: testNote, Data("x".utf8), type: "image/png")
-        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, ["attachments"])
+        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, ["recipients-tag", "attachments"])
         try vault.write(referencingDelta(&log, 10, refs: [ref], newPage: false))
-        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, ["attachments"], "added once")
+        XCTAssertEqual(try Vault.open(at: vault.url).manifest.features, ["recipients-tag", "attachments"], "added once")
         XCTAssertTrue(vault.verify().isHealthy, "a feature added after open is not a manifest change")
 
         // A revision with attachment ops adds it too (fresh vault).
         let v2 = try makeVault(id, name: "Two")
         var log2 = LogBuilder()
         try v2.write(referencingDelta(&log2, 0, refs: [BlobRef(content: Data("y".utf8), type: "image/png")]))
-        XCTAssertEqual(try Vault.open(at: v2.url).manifest.features, ["attachments"])
+        XCTAssertEqual(try Vault.open(at: v2.url).manifest.features, ["recipients-tag", "attachments"])
 
         // An unknown feature: readable, never written.
         var m = try Vault.open(at: vault.url).manifest
@@ -334,16 +334,16 @@ final class BlobStoreTests: VaultTestCase {
                         { _ = try newer.writeBlob(note: testNote, Data("z".utf8), type: "image/png") },
                         { try newer.copyBlob(ref, from: testNote, to: otherNote) }] as [() throws -> Void] {
             XCTAssertThrowsError(try attempt()) {
-                XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+                XCTAssertEqual($0 as? VaultError, .readOnly(ReadOnlyReasons(unknownFeatures: ["holograms"])))
             }
         }
         // Compaction deletes revisions, which is writing too.
         XCTAssertThrowsError(try newer.compact(noteId: testNote, retention: 0)) {
-            XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+            XCTAssertEqual($0 as? VaultError, .readOnly(ReadOnlyReasons(unknownFeatures: ["holograms"])))
         }
         var changing = newer
         XCTAssertThrowsError(try changing.addRecipient(pqIdentity().recipient, label: "x")) {
-            XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+            XCTAssertEqual($0 as? VaultError, .readOnly(ReadOnlyReasons(unknownFeatures: ["holograms"])))
         }
     }
 

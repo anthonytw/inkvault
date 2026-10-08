@@ -19,6 +19,20 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   Drive nothing is decided while a version of the note is not downloaded. CLI: `sempere blobs unused`
   reports the same numbers (`--json`: totals, items with `firstSeen`, `deletableFrom`, `eligible`,
   `held`), and `sempere blobs gc --file NAME` deletes one eligible blob.
+- Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
+  names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
+  newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
+  and snapshot elements are skipped, a later body version is left out, each reported) and never writes.
+  CLI: reading commands report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every
+  write exits 7. App: a read-only banner, notes open read-only, no autosave, thinning, inbox adoption or
+  transcripts. The web viewer opens such vaults too.
+
+- CLI: `sempere sync webdav --push-only [--delete-extraneous]`, a one-way mirror for a server that is not
+  trusted to write back. It uploads, overwrites the server's `vault.json` / `rewrap-journal.json` from the local
+  copy, and follows local compaction and blob collection with deletions on the server; it never downloads and
+  never changes the vault (a compromised server cannot feed an attacker's recipient back). Files only the server
+  has and nothing explains are reported as `extraneous` (new in `--json`, with `overwritten`) and removed with
+  `--delete-extraneous`.
 - A note open in the app picks up what another device writes to it (iCloud Drive, any sync, the CLI)
   without being reopened: the new revisions are downloaded and merged into the open canvas, pages,
   items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink

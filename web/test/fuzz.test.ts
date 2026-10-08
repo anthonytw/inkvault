@@ -59,8 +59,20 @@ function mutate(v: unknown, r: () => number, depth = 0): unknown {
   return pick(interesting);
 }
 
-/** Revisions in plain JSON, from the Swift CLI's state exports wrapped as snapshots. */
+/**
+ * Revisions in plain JSON, from the Swift CLI's state exports wrapped as
+ * snapshots, each also as a newer revision (format.md §7.4) with an unknown op.
+ */
 function seeds(): unknown[] {
+  return plainSeeds().flatMap((r) => {
+    const o = r as Record<string, unknown>;
+    const newer: Record<string, unknown> = { ...o, format: "sempere/2", features: ["tables"] };
+    if (Array.isArray(o.ops)) newer.ops = [...(o.ops as unknown[]), { op: "warp", by: [1, 2] }, { op: "setMeta", field: "color", value: 1 }];
+    return [r, newer];
+  });
+}
+
+function plainSeeds(): unknown[] {
   const ids = ["11111111-1111-4111-8111-111111111111", "55555555-5555-4555-8555-555555555555", "77777777-7777-4777-8777-777777777777"];
   return ids.flatMap((id) => {
     const dir = id.startsWith("1") ? "sample" : "render";

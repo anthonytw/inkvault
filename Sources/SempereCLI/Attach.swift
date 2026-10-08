@@ -13,15 +13,16 @@ import SempereRender
 struct AttachCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "attach",
-        abstract: "Add an image, PDF pages, text, a recording or a transcript to a note (one delta each).",
+        abstract: "Add an image, PDF pages, text, a video, a recording or a transcript to a note (one delta each).",
         discussion: """
             The file's bytes are stored as an encrypted blob of the note (format.md §8.1) and one delta places \
-            them: an image or text box at a frame of a page, PDF pages as new pages (backgrounds) or as a figure, \
+            them: an image, video clip or text box at a frame of a page, PDF pages as new pages (backgrounds) or as a figure, \
             a recording on the note. Page numbers are 1-based, as `pages list` prints them; coordinates are \
             points from the page's top-left. Nothing in the note is changed by a command that fails; a blob \
             stored before a failure is unreferenced and collected by `blobs gc`.
             """,
-        subcommands: [AttachImage.self, AttachPDF.self, AttachText.self, AttachRecording.self, AttachTranscript.self]
+        subcommands: [AttachImage.self, AttachPDF.self, AttachText.self, AttachVideo.self, AttachRecording.self,
+                      AttachTranscript.self]
     )
 }
 
@@ -153,23 +154,26 @@ struct AttachJSON: Encodable {
     /// PDF pages stored with their text (`pageText`, format.md §8.2.6), and the extractor.
     var pagesWithText: Int?
     var textEngine: String?
+    /// `attach video`: the poster stored with the clip, and how many metadata boxes were blanked.
+    var poster: BlobRef?
+    var metadataRemoved: Int?
 }
 
 /// The note as it is on disk now, live.
-private func liveState(_ vault: Vault, _ id: UUID) throws -> NoteState {
+func liveState(_ vault: Vault, _ id: UUID) throws -> NoteState {
     let state = try vault.reconstruct(try vault.loadNote(id))
     try requireLive(state)
     return state
 }
 
 /// The page `--page` names (1-based; the first by default).
-private func targetPage(_ state: NoteState, _ number: Int?) throws -> (number: Int, page: Page) {
+func targetPage(_ state: NoteState, _ number: Int?) throws -> (number: Int, page: Page) {
     let n = number ?? 1
     return (n, try pageNumbered(n, of: state))
 }
 
 /// The page with `id` in `state`, which a preflight found by number.
-private func pageWithID(_ id: UUID, in state: NoteState) throws -> (number: Int, page: Page) {
+func pageWithID(_ id: UUID, in state: NoteState) throws -> (number: Int, page: Page) {
     guard let i = state.pages.firstIndex(where: { $0.id == id }) else {
         throw CLIError.failure("the page was removed while the command ran")
     }
@@ -189,13 +193,13 @@ func resolveRecording(_ query: String, in state: NoteState) throws -> Recording 
     return first
 }
 
-private func link(_ options: PlacementOptions, in state: NoteState) throws -> RecordingLink? {
+func link(_ options: PlacementOptions, in state: NoteState) throws -> RecordingLink? {
     guard let query = options.rec else { return nil }
     return RecordingLink(id: try resolveRecording(query, in: state).id, at: options.recAt ?? 0)
 }
 
 /// Reads a whole input file of at most `limit` bytes.
-private func readInput(_ path: String, limit: Int, what: String) throws -> Data {
+func readInput(_ path: String, limit: Int, what: String) throws -> Data {
     do { return try BoundedRead.contents(of: URL(fileURLWithPath: path), maxBytes: limit) } catch VaultError.fileTooLarge(_, let limit) {
         throw CLIError.failure("\(path): the \(what) is larger than the \(limit / (1 << 20)) MiB limit")
     } catch {
@@ -209,16 +213,17 @@ private func fail(_ error: Error) -> CLIError {
     case let e as ImageIngestError: return .failure("\(e)")
     case let e as PDFIngestError: return .failure("\(e)")
     case let e as AudioProbeError: return .failure("\(e)")
+    case let e as VideoProbeError: return .failure("\(e)")
     default: return CLIError.from(error)
     }
 }
 
 /// Runs `body`, turning ingest and placement errors into CLI failures.
-private func translating<T>(_ body: () throws -> T) throws -> T {
+func translating<T>(_ body: () throws -> T) throws -> T {
     do { return try body() } catch { throw fail(error) }
 }
 
-private func report(_ out: AttachJSON, output: OutputOptions, summary: String) throws {
+func report(_ out: AttachJSON, output: OutputOptions, summary: String) throws {
     if output.json { try output.emitJSON(out); return }
     // A dry run adds nothing, so there is no id to hand to a script.
     if !out.dryRun {

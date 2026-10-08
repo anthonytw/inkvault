@@ -38,6 +38,10 @@ public struct VerifyReport: Hashable, Sendable {
         /// A valid attachment blob that no revision of its note references:
         /// healthy; collection may remove it later (format.md §8.1.6).
         case unreferenced
+        /// A revision written by a newer version (format.md §7.2): read
+        /// leniently (the detail says what was skipped), or not readable by
+        /// this version at all. Healthy; the vault is read-only.
+        case newer
     }
 
     /// One file or directory.
@@ -52,6 +56,9 @@ public struct VerifyReport: Hashable, Sendable {
 
     /// Problems found in `vault.json`; empty when it is fine.
     public var manifestProblems: [String] = []
+    /// How the recipients list checked (format.md §2.1). A tampered list is
+    /// also a manifest problem; an untagged one is not (writers upgrade it).
+    public var recipients: RecipientsStatus = .notChecked
     /// Every entry examined, in walk order.
     public var files: [FileResult] = []
     /// True while a recipient change is unfinished.
@@ -72,7 +79,7 @@ public struct VerifyReport: Hashable, Sendable {
     /// read) `notChecked`.
     public var isHealthy: Bool {
         manifestOK && journalProblem == nil
-            && files.allSatisfy { [.ok, .unknownFile, .notChecked, .unreferenced].contains($0.status) }
+            && files.allSatisfy { [.ok, .unknownFile, .notChecked, .unreferenced, .newer].contains($0.status) }
     }
 }
 
@@ -83,6 +90,7 @@ extension VerifyReport.Status {
         case .tagMismatch, .tagMismatchJournalUnreadable: self = .tagMismatch
         case .corruptBody: self = .corruptBody
         case .undecodable: self = .undecodable
+        case .newer: self = .newer
         }
     }
 }
@@ -102,6 +110,8 @@ extension Vault {
         report.rewrapPending = pendingRewrap
         report.journalProblem = pendingRewrap ? journalProblem : nil
         report.manifestProblems = manifestProblems()
+        report.recipients = recipientsStatus
+        if let problem = recipientsStatus.problem { report.manifestProblems.append(problem.description) }
 
         /// Lists `dir`, recording an `unlistable` entry instead of throwing.
         func list(_ dir: URL, as path: String) -> [String] {
@@ -158,10 +168,13 @@ extension Vault {
                 do {
                     let data = try FileIO.read(file, maxBytes: BoundedRead.maxRevisionBytes)
                     let json = try revisionJSON(data, note: note, name: name, secret: secret)
-                    _ = try Self.decodeRevisionJSON(json, note: note, name: name, detail: .full)
+                    let rev = try Self.decodeRevisionJSON(json, note: note, name: name, detail: .full)
                     refs += (try? BlobReferenceScan.references(in: json)) ?? []
                     let stanzas = (try? Self.stanzaCounts(data)) ?? [:]
-                    if stanzas != expected {
+                    if let newer = rev.newer {
+                        if let id = UUID(uuidString: note) { noteNewerContent(in: id) }
+                        report.files.append(.init(path: path, status: .newer, detail: newer.summary))
+                    } else if stanzas != expected {
                         report.files.append(.init(path: path, status: .staleRecipients,
                                                   detail: "stanzas: \(Self.describe(stanzas)); recipients need: "
                                                       + Self.describe(expected)))
@@ -169,6 +182,7 @@ extension Vault {
                         report.files.append(.init(path: path, status: .ok, detail: nil))
                     }
                 } catch let e as RevisionReadError {
+                    if case .newer = e, let id = UUID(uuidString: note) { noteNewerContent(in: id) }
                     report.files.append(.init(path: path, status: .init(e), detail: "\(e)"))
                 } catch {
                     report.files.append(.init(path: path, status: .undecryptable, detail: "\(error)"))

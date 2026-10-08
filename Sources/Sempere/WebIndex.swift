@@ -51,7 +51,8 @@ extension Vault {
     /// - Returns: true when the file was rewritten.
     @discardableResult
     public func refreshWebIndex() throws -> Bool {
-        guard FileIO.exists(webIndexURL), (try? requireMigrated()) != nil else { return false }
+        // A read-only vault is never written, not even its index (format.md §7.3).
+        guard FileIO.exists(webIndexURL), (try? requireMigrated()) != nil, !isReadOnly else { return false }
         let data = try WebIndex.encode(try webIndexListing())
         if let current = try? FileIO.read(webIndexURL, maxBytes: WebIndex.maxBytes), current == data { return false }
         try FileIO.writeAtomically(data, to: webIndexURL, replacing: true)
