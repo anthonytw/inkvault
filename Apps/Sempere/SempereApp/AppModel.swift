@@ -201,6 +201,8 @@ final class AppModel {
     var multiSelection: Set<UUID> = []
     /// The export sheet's request (`AppModel+Export`).
     var exportRequest: ExportRequest?
+    /// The "Export Notes…" sheet's request (`AppModel+BulkExport`).
+    var bulkExportRequest: BulkExportRequest?
     var sortOrder = NoteSort.modified
     /// True while an edit is being written.
     var isEditing = false
@@ -970,6 +972,7 @@ final class AppModel {
         isSelectingNotes = false
         multiSelection = []
         exportRequest = nil
+        bulkExportRequest = nil
         editorFailure = nil
         recognitionTask?.cancel()
         recognitionTask = nil
