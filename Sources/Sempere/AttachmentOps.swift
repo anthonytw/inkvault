@@ -26,6 +26,8 @@ public enum AttachmentOpsError: Error, Hashable, Sendable {
     case invalidPoster(String)
     /// The clip is not one a `video` item may hold (format.md §8.2.7): why.
     case invalidVideo(String)
+    /// The page has no image with that id (Replace Image takes images only).
+    case noSuchImage(String)
 }
 
 extension AttachmentOpsError: CustomStringConvertible {
@@ -45,6 +47,7 @@ extension AttachmentOpsError: CustomStringConvertible {
         case .noSuchRecording(let r): return "no recording \(r) in this note"
         case .invalidPoster(let why): return "invalid poster: \(why)"
         case .invalidVideo(let why): return "invalid video: \(why)"
+        case .noSuchImage(let i): return "no image \(i) on this page"
         }
     }
 }
@@ -177,6 +180,34 @@ extension NoteOps {
                               crop: crop, frame: rect, z: topZ(of: page, layer: layer, extra: extraZ), layer: layer, rec: rec)
         item.rotation = rotation.flatMap { $0 == 0 ? nil : $0 }
         return ItemPlacement(page: page.id, item: item)
+    }
+
+    /// Replaces the image `id` on `page` with another picture (Replace
+    /// Image): blobs are immutable (format.md §8.2.2), so it is one delta of
+    /// `removeItem` and `addItem` of a new image whose `parent` names the old
+    /// one (§8.2.1). The new image takes the old one's place: the largest
+    /// frame of its proportions inside the old frame, centred on it
+    /// (`ItemFrames.fitted`), with the old rotation, layer and `z`; the whole
+    /// picture is shown (no crop) and it carries no `rec` (it was not placed
+    /// during that recording). Store the blob first (`Vault.writeBlob`).
+    ///
+    /// - Throws: `AttachmentOpsError.noSuchImage` when the page has no image
+    ///   `id`, `.invalidFrame` for a picture without pixels.
+    public static func replaceImage(_ id: UUID, blob: BlobRef, pixelSize: Size, orientation: Int? = nil,
+                                    on page: Page, newID: UUID = UUID()) throws -> ItemEdit {
+        guard let old = page.items.first(where: { $0.id == id }), old.kind == .image else {
+            throw AttachmentOpsError.noSuchImage(id.uuidString.lowercased())
+        }
+        guard pixelSize.isPositive else { throw AttachmentOpsError.invalidFrame("image has no pixels") }
+        let f = ItemFrames.fitted(pixelSize, into: old.frame)
+        var item = Item.image(id: newID, blob: blob, pixelSize: pixelSize, orientation: orientation == 1 ? nil : orientation,
+                              frame: Rect(x: InkJSON.round3(f.x), y: InkJSON.round3(f.y), w: InkJSON.round3(f.w),
+                                          h: InkJSON.round3(f.h)),
+                              z: old.z, layer: old.layer)
+        item.rotation = old.rotation
+        item.parent = old.id
+        try validate(frame: item.frame)
+        return try replaceItem(id, with: item, on: page)
     }
 
     /// A text box's content for `string`: NFC, `\r\n` and `\r` as `\n`, one
