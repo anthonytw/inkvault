@@ -5725,6 +5725,18 @@
         }
       }
     },
+    "Parts of this note were written by a newer version of Sempere (%@). It is shown as far as this version understands it, read-only: update Sempere to edit it." : {
+      "comment" : "Reason a note is read-only; %@ is a short English description from the library",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una versión más reciente de Sempere escribió partes de esta nota (%@). Se muestra hasta donde esta versión la entiende, en solo lectura: actualiza Sempere para editarla."
+          }
+        }
+      }
+    },
     "Passphrase" : {
       "comment" : "Secure text field placeholder",
       "extractionState" : "manual",
@@ -6137,6 +6149,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leídas con Reconocer todo en los últimos 7 días"
+          }
+        }
+      }
+    },
+    "Read-only: %@. Update Sempere to change this vault." : {
+      "comment" : "Banner over the note list; %@ lists the reasons (English, from the library)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo lectura: %@. Actualiza Sempere para modificar esta bóveda."
           }
         }
       }

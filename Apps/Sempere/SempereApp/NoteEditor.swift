@@ -339,8 +339,8 @@ final class NoteEditor {
     /// the note or anywhere in the vault (format.md §7.3); nil when none was seen.
     private static func newerReason(_ loaded: Loaded) -> String? {
         if let newer = loaded.newer {
-            return "Parts of this note were written by a newer version of Sempere (\(newer.summary)). "
-                + "It is shown as far as this version understands it, read-only: update Sempere to edit it."
+            let summary = newer.summary
+            return String(localized: "Parts of this note were written by a newer version of Sempere (\(summary)). It is shown as far as this version understands it, read-only: update Sempere to edit it.")
         } else if !loaded.vaultReadOnly.isEmpty {
             return AppModel.readOnlyText(loaded.vaultReadOnly)
         }
