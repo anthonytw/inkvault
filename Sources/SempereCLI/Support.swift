@@ -364,6 +364,7 @@ extension AccessOptions {
         }
         let vault = try Vault.open(at: url, identities: ids, trust: trust ?? trustStore())
         if case .untagged = vault.recipientsStatus { UntaggedVaults.shared.record(vault) }
+        OpenedVaults.shared.recordUnlocked(vault)
         return vault
     }
 }

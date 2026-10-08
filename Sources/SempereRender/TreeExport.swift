@@ -215,7 +215,7 @@ public struct TreeExporter: Sendable {
                     }
                     var pageImages: [[String]] = []
                     if images == .png {
-                        let store = ImageStore(options: options)
+                        let store = ImageStore(options: options, recordings: state.recordings)
                         let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
                         for (i, page) in state.pages.enumerated() {
                             var pageReport = RenderReport()

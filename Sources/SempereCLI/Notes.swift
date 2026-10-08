@@ -217,6 +217,7 @@ enum AttachmentListing {
         case .math:
             let t = (i.math?.latex ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
             what = "$" + (t.count > 40 ? t.prefix(39) + "…" : t) + "$" + (i.math?.render == nil ? " (not typeset)" : "")
+        case .audio: what = "recording " + (i.recording.map { String($0.uuidString.lowercased().prefix(8)) } ?? "-")
         default: what = i.blob.map(blob) ?? (i.kind.isDefined ? "" : "(unknown kind)")
         }
         if let r = i.rotation, r != 0 { what += " rotated \(number(r))°" }

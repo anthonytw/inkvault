@@ -205,6 +205,11 @@ struct ItemCommands {
                               _ done: @escaping @MainActor (Item) -> Void) -> Void)?
     /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
     var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
+    /// Plays the recording an audio item shows, or pauses it when it plays (format.md §8.2.9); nil: the
+    /// card's control and its Play in the menu do nothing.
+    var toggleRecording: (@MainActor (_ recording: UUID) -> Void)?
+    /// Opens a recording's transcript; nil: no Show Transcript in the menu.
+    var showTranscript: (@MainActor (_ recording: UUID) -> Void)?
     /// Opens the equation sheet for a math item; nil: no Edit Equation in the menu.
     var editMath: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
@@ -218,15 +223,29 @@ enum ReplaceSource: Equatable {
 /// entries whichever way the item was selected.
 enum ItemMenu {
     enum Entry: Equatable {
-        case play, editText, copy, duplicate, editMath, crop, replaceImage, bringToFront, delete, paste
+        case play, playRecording, pauseRecording, showTranscript, editText, copy, duplicate, editMath, crop, replaceImage,
+             bringToFront, delete, paste
     }
 
-    /// The entries for `item` (nil: nothing selected), in order.
+    /// An audio item's recording (format.md §8.2.9), when the note has it: whether the
+    /// card's Play/Pause is wired, the recording plays, and it has a transcript to show.
+    struct AudioState: Equatable {
+        var canToggle: Bool
+        var isPlaying: Bool
+        var hasTranscript: Bool
+    }
+
+    /// The entries for `item` (nil: nothing selected), in order. `audio` is the
+    /// recording an audio item shows (nil: none, or the recording is missing).
     static func entries(for item: Item?, editable: Bool, canPlay: Bool, canCrop: Bool, canReplace: Bool,
-                        canPaste: Bool, canEditMath: Bool = false) -> [Entry] {
+                        canPaste: Bool, canEditMath: Bool = false, audio: AudioState? = nil) -> [Entry] {
         var out: [Entry] = []
         if let item {
             if item.kind == .video, canPlay { out.append(.play) }
+            if item.kind == .audio, let audio {
+                if audio.canToggle { out.append(audio.isPlaying ? .pauseRecording : .playRecording) }
+                if audio.hasTranscript { out.append(.showTranscript) }
+            }
             if editable, item.kind == .text, item.text != nil { out.append(.editText) }
             out.append(.copy)
             if editable {
@@ -271,6 +290,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     private let pan = UIPanGestureRecognizer()
     /// Outside selection mode: a finger tap on a video item plays it, when fingers do not draw.
     private let videoTap = UITapGestureRecognizer()
+    /// The play/pause buttons of the page's audio cards (format.md §8.2.9).
+    private let audioControls = AudioCardControls()
+    /// The note's recordings and what the player plays, for the cards' buttons (`PageCanvasView.Coordinator.apply`).
+    var recordings: [Recording] = []
+    var playing: AudioPlayState?
     /// While drawing with the lasso: a tap on an item picks it.
     private let lassoTap = UITapGestureRecognizer()
     /// While drawing: a finger held on an item picks it (when fingers do not draw).
@@ -333,6 +357,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             g.delegate = self
             canvas.addGestureRecognizer(g)
         }
+        audioControls.attach(to: canvas)
         let menu = UIEditMenuInteraction(delegate: self)
         canvas.addInteraction(menu)
         self.menu = menu
@@ -392,10 +417,23 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         presentMenu()
     }
 
+    /// The recording audio item `item` shows (format.md §8.2.9: by id, else a restored copy), if the note has it.
+    private func shownRecording(_ item: Item) -> UUID? {
+        NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)), pages: [], recordings: recordings)
+            .recording(shownBy: item)?.id
+    }
+
     /// Redraws the outline (the zoom, the item or the selection changed).
     func refresh() {
         overlay.frame = CGRect(origin: .zero, size: canvas?.contentSize ?? .zero)
         canvas?.bringSubviewToFront(overlay)
+        let shown = items.map { item -> Item in
+            var shown = item
+            if let frame = itemLayer?.shownFrame(of: item.id) { shown.frame = frame }
+            return shown
+        }
+        audioControls.layout(shown, recordings: recordings, playing: playing, zoom: zoom,
+                             hidden: itemLayer?.hiddenItem, toggle: isActive ? nil : commands.toggleRecording)
         guard let id = model.selected, let item = items.first(where: { $0.id == id }) else {
             if model.selected != nil, drag == nil {
                 model.selected = nil
@@ -439,17 +477,25 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         ItemSelectionModel.hit(pagePoint(g), items: items, zoom: Double(zoom))
     }
 
-    /// The video under a finger tap in drawing mode: only when Play is wired, selection mode is
-    /// off, and fingers do not draw on this canvas (else the tap is ink).
+    /// The video (or audio card) under a finger tap in drawing mode: only when Play is wired,
+    /// selection mode is off, and fingers do not draw on this canvas (else the tap is ink). A tap on a
+    /// card's button is the button's (UIKit gives a control's tap to it, not to this recognizer).
     private func videoUnderFingerTap(_ g: UIGestureRecognizer) -> Item? {
-        guard commands.play != nil, !isActive, !fingersDraw else { return nil }
-        guard let hit = itemHit(g), hit.kind == .video else { return nil }
-        return hit
+        guard !isActive, !fingersDraw, let hit = itemHit(g) else { return nil }
+        switch hit.kind {
+        case .video: return commands.play == nil ? nil : hit
+        case .audio: return commands.toggleRecording == nil ? nil : hit
+        default: return nil
+        }
     }
 
     @objc private func videoTapped(_ g: UITapGestureRecognizer) {
         guard let item = videoUnderFingerTap(g), let pageID else { return }
-        commands.play?(item, pageID)
+        if item.kind == .audio {
+            if let recording = shownRecording(item) { commands.toggleRecording?(recording) }
+        } else {
+            commands.play?(item, pageID)
+        }
     }
 
     @objc private func lassoTapped(_ g: UITapGestureRecognizer) {
@@ -571,9 +617,15 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                              suggestedActions: [UIMenuElement]) -> UIMenu? {
         let editable = editor?.canEditItems == true
         let item = model.selected.flatMap { id in pageID.flatMap { editor?.item(id, on: $0) } }
+        let recording = item.flatMap(shownRecording)
+        let audio = recording.map { id in
+            ItemMenu.AudioState(canToggle: commands.toggleRecording != nil,
+                                isPlaying: editor?.player?.recording?.id == id && editor?.player?.isPlaying == true,
+                                hasTranscript: commands.showTranscript != nil && editor?.recording(id)?.transcript != nil)
+        }
         let entries = ItemMenu.entries(for: item, editable: editable, canPlay: commands.play != nil, canCrop: commands.crop != nil,
                                        canReplace: commands.replace != nil, canPaste: commands.canPaste(),
-                                       canEditMath: commands.editMath != nil)
+                                       canEditMath: commands.editMath != nil, audio: audio)
         let elements = entries.compactMap { menuElement($0, item: item) }
         return elements.isEmpty ? nil : UIMenu(children: elements)
     }
@@ -591,6 +643,15 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         case .play:
             guard let play = commands.play else { return nil }
             return UIAction(title: String(localized: "Play"), image: UIImage(systemName: "play.fill")) { _ in play(item, pageID) }
+        case .playRecording, .pauseRecording:
+            guard let toggle = commands.toggleRecording, let recording = shownRecording(item) else { return nil }
+            let pause = entry == .pauseRecording
+            return UIAction(title: pause ? String(localized: "Pause") : String(localized: "Play"), image: UIImage(systemName: pause ? "pause.fill" : "play.fill")) { _ in
+                toggle(recording)
+            }
+        case .showTranscript:
+            guard let show = commands.showTranscript, let recording = shownRecording(item) else { return nil }
+            return UIAction(title: String(localized: "Show Transcript"), image: UIImage(systemName: "text.quote")) { _ in show(recording) }
         case .editText:
             guard let edit = onEditText else { return nil }
             return UIAction(title: String(localized: "Edit Text"), image: UIImage(systemName: "character.cursor.ibeam")) { [weak self] _ in
