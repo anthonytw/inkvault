@@ -9,8 +9,8 @@ An independent review, made on 2026-10-08, of the work merged in the week of 202
 - #89 and #106: quick voice capture.
 
 The web viewer PRs #99 (passkey) and #100 (cache and summaries) were reviewed from their branches while
-they were open. Their findings are posted as comments on those PRs and summarised at the end. #99 merged
-during the review, so its findings are now open items on `main` (P1–P3).
+they were open. Their findings are posted as comments on those PRs and summarised at the end. #99 and #100
+merged during the review, so their findings are now open items on `main` (P1–P3, P4–P5).
 
 Method: the code was read against `DESIGN.md`, `docs/format.md` (§2.1, §3.3, §7, §8.2.7, §9, §11),
 `docs/quick-capture.md` and `docs/web-viewer.md` "Threat model". Each finding marked *reproduced* was run
@@ -444,9 +444,12 @@ Each request is bounded by size and time, but a run is not:
   when a key is remembered again; #99 and #100 contradict each other in `docs/web-viewer.md`.
 - The PRF, HKDF, AES-GCM and AAD handling is sound, and nothing is stored in plaintext.
 
-**#100 (cache and summaries):**
-- Low: cached ciphertext from before a rewrap stays openable by a removed key.
-- Low: `vault summaries --plaintext --out` writes the file world-readable.
-- Info: summary rows hide damaged revisions; summaries under the previous secret are accepted during a
-  rewrap.
+**#100 (cache and summaries), merged during the review:**
+- P4, Low: cached ciphertext from before a rewrap stays openable by a removed key (`web/src/vault/cache.ts`,
+  namespace without a recipients fingerprint).
+- P5, Low: `vault summaries --plaintext --out` writes the file world-readable
+  (`Sources/SempereCLI/Summaries.swift`).
+- Info: summary rows hide damaged revisions until the note is opened.
+- Fixed by R4: summaries sealed under the journal's previous secret were accepted during a rewrap. The web
+  viewer now derives the previous summaries key only from a journal secret that `secretLink` links.
 - Summaries are encrypted. `vault.json` and the journal are never cached. Nothing decrypted is persisted.
