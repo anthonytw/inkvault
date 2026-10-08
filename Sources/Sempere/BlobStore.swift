@@ -399,20 +399,22 @@ extension Vault {
     ///   - raw: receives the file's bytes exactly as read (for byte copies).
     /// - Returns: the header and the index in `secrets` the name verified
     ///   under (nil when not checked).
+    /// `name` is the blob file name the keyed name is checked against;
+    /// nil for `url`'s own (a download in a partial file passes its target's).
     static func readBlobFile(_ url: URL, identities: [any AgeIdentity], secrets: [VaultSecret], expected: BlobRef?,
-                             maxContent: Int64, sink: (Data) throws -> Void = { _ in },
+                             maxContent: Int64, name: String? = nil, sink: (Data) throws -> Void = { _ in },
                              raw: (Data) throws -> Void = { _ in }) throws -> (header: BlobHeader, secret: Int?) {
         // The decryptor is released before this returns, so `raw` does not
         // actually escape.
         try withoutActuallyEscaping(raw) { raw in
             let (decryptor, handle) = try openBlobFile(url, identities: identities, raw: raw)
             defer { try? handle.close() }
-            return try readBlob(decryptor, url: url, secrets: secrets, expected: expected, maxContent: maxContent,
-                                sink: sink)
+            return try readBlob(decryptor, fileName: name ?? url.lastPathComponent, secrets: secrets, expected: expected,
+                                maxContent: maxContent, sink: sink)
         }
     }
 
-    private static func readBlob(_ decryptor: AgeDecryptor, url: URL, secrets: [VaultSecret], expected: BlobRef?,
+    private static func readBlob(_ decryptor: AgeDecryptor, fileName: String, secrets: [VaultSecret], expected: BlobRef?,
                                  maxContent: Int64, sink: (Data) throws -> Void) throws -> (header: BlobHeader, secret: Int?) {
         var checker = BlobPlaintextChecker(expected: expected, maxContent: maxContent)
         var matched: Int?
@@ -434,7 +436,7 @@ extension Vault {
             // any content reaches the sink.
             try checker.consume(chunk.prefix(BlobFraming.headerSize))
             guard let header = checker.header else { continue }
-            guard let name = BlobName.parse(url.lastPathComponent)?.name,
+            guard let name = BlobName.parse(fileName)?.name,
                   let i = BlobName.verify(name, digest: header.digest, secrets: secrets)
             else { throw BlobError.nameMismatch }
             matched = i

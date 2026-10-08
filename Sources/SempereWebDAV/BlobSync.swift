@@ -79,6 +79,7 @@ extension WebDAVSync {
         if remoteAtt != nil {
             do {
                 if let entries = try client.list(["notes", id, Self.attName]) {
+                    try budget.list(entries.count)
                     set.remoteListed = true
                     for e in entries {
                         if e.name.hasPrefix(LocalFS.tempPrefix) { continue }   // another device's upload in flight
@@ -91,6 +92,7 @@ extension WebDAVSync {
                     }
                 }
             } catch {
+                try rethrowRunLimit(error)
                 report.errors.append(.init(path: "notes/\(id)/\(Self.attName)", message: Self.describe(error)))
                 // Unknown remote state: transfer nothing, delete nothing.
                 set.recorded = []
@@ -127,12 +129,12 @@ extension WebDAVSync {
             names.sorted { (Self.priority($0), size($0), $0) < (Self.priority($1), size($1), $1) }
         }
         for name in ordered(newRemote, { set.remote[$0]?.size ?? Int.max }) {
-            blobAttempt(id, name) {
+            try blobAttempt(id, name) {
                 if let size = try downloadBlob(id, name, entry: set.remote[name]) { set.local[name] = size }
             }
         }
         for name in ordered(newLocal, { set.local[$0] ?? 0 }) {
-            blobAttempt(id, name) {
+            try blobAttempt(id, name) {
                 try uploadBlob(id, name)
                 set.remote[name] = RemoteEntry(name: name, isCollection: false)
             }
@@ -140,8 +142,9 @@ extension WebDAVSync {
         return set
     }
 
-    private func blobAttempt(_ id: String, _ name: String, _ body: () throws -> Void) {
+    private func blobAttempt(_ id: String, _ name: String, _ body: () throws -> Void) throws {
         do { try body() } catch {
+            try rethrowRunLimit(error)
             report.errors.append(.init(path: blobPath(id, name), message: Self.describe(error)))
         }
     }
@@ -151,7 +154,7 @@ extension WebDAVSync {
     /// Handles blobs that one side dropped since the last sync, then records
     /// what both sides share. Runs after the note's revisions were synced, so
     /// that the references both sides hold now are the ones checked.
-    func syncBlobDeletions(_ id: String, _ set: inout BlobSet, remoteRevisions: Set<RevisionName>) {
+    func syncBlobDeletions(_ id: String, _ set: inout BlobSet, remoteRevisions: Set<RevisionName>) throws {
         let local = Set(set.local.keys), remote = Set(set.remote.keys)
         let remoteDeleted = options.pushOnly ? [] : local.intersection(set.recorded).subtracting(remote)
         let localDeleted = remote.intersection(set.recorded).subtracting(local)
@@ -166,7 +169,7 @@ extension WebDAVSync {
             let judge = collectable(id, remoteRevisions: remoteRevisions)
             // The server dropped these: delete here only if collection allows it, else upload again.
             for name in remoteDeleted.sorted() {
-                blobAttempt(id, name) {
+                try blobAttempt(id, name) {
                     guard case .judged(let allowed) = judge else {
                         if case .unknown(let why) = judge {
                             report.skipped.append(.init(path: blobPath(id, name), message: "deleted on the server; \(why)"))
@@ -186,7 +189,7 @@ extension WebDAVSync {
             }
             // We dropped these: delete on the server only if collection allows it there, else download again.
             for name in localDeleted.sorted() {
-                blobAttempt(id, name) {
+                try blobAttempt(id, name) {
                     guard case .judged(let allowed) = judge else {
                         if case .unknown(let why) = judge {
                             report.skipped.append(.init(path: blobPath(id, name), message: "deleted locally; \(why)"))
@@ -325,6 +328,8 @@ extension WebDAVSync {
         let path = blobPath(id, name)
         let limit = options.maxBlobBytes
         if let size = entry?.size, size > limit { throw WebDAVError.io("\(path) is \(size) bytes, over the blob limit; skipped") }
+        if skipQuarantined(blobKey(id, name), path: path, entry: entry) { return nil }
+        try budget.willDownload(entry?.size)
         report.downloaded.append(path)
         guard !options.dryRun else { return entry?.size ?? 0 }
         let att = attURL(id)
@@ -336,6 +341,7 @@ extension WebDAVSync {
         let remote = ["notes", id, Self.attName, name]
         let etag = entry?.etag
         var offset = 0
+        var fetched = 0
         if let etag, state.partials?[key]?.etag == etag, let have = LocalFS.regularFileSize(part) {
             offset = have
         } else {
@@ -353,6 +359,10 @@ extension WebDAVSync {
         // A partial file as long as the listing says was complete when the
         // last run stopped: only the checks below remain.
         if offset == 0 || entry?.size != offset {
+            defer {
+                // What this run fetched counts against its budget (checked below).
+                fetched = max((LocalFS.regularFileSize(part) ?? offset) - offset, 0)
+            }
             do {
                 do {
                     try client.download(remote, to: part, resumeFrom: offset, ifRange: etag, maxBytes: limit,
@@ -371,17 +381,28 @@ extension WebDAVSync {
                 throw error
             }
         }
+        do { try budget.downloaded(fetched) } catch { discard(); throw error }
         guard let size = LocalFS.regularFileSize(part) else { discard(); throw WebDAVError.io("\(path): nothing was downloaded") }
         guard size <= limit else { discard(); throw WebDAVError.io("\(path) is over the blob limit; skipped") }
         if let listed = entry?.size, listed != size {
             discard()
             throw WebDAVError.malformedResponse("\(path) is \(size) bytes, the listing said \(listed); not written")
         }
-        guard try LocalFS.prefix(of: part, count: Self.ageMagic.count) == Self.ageMagic else {
-            discard()
-            throw WebDAVError.malformedResponse("\(path) is not an age file; not written")
+        // Checked before it is placed (format.md §9.1): a failure is
+        // quarantined, never placed and never silently dropped.
+        var problem: String?
+        if try LocalFS.prefix(of: part, count: Self.ageMagic.count) != Self.ageMagic {
+            problem = "not an age file"
+        } else if let checker = checker() {
+            do { try checker.checkIncomingBlob(at: part, fileName: name) } catch { problem = "\(error)" }
         }
         defer { state.partials?[key] = nil }
+        if let problem {
+            report.downloaded.removeLast()
+            quarantine(key, path: path, entry: entry, reason: problem, file: part)
+            return nil
+        }
+        state.quarantined?[key] = nil
         guard try LocalFS.placeNew(part, at: att.appendingPathComponent(name)) else {
             report.downloaded.removeLast()
             return nil

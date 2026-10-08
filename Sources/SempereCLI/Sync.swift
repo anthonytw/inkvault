@@ -44,7 +44,19 @@ struct SyncWebDAVCommand: ParsableCommand {
             vault, so nothing the server holds can change it. Files only the server has, which
             no compaction explains, are listed as extraneous, and removed with --delete-extraneous.
 
-            Exit codes: 0 ok, 1 errors (listed), 3 conflicts to resolve, 6 a rejected vault.json.
+            Every downloaded revision and blob is checked before it is placed (format.md §9.1): with the
+            vault unlocked it must decrypt, verify its tag or keyed name and name this note and file; locked
+            (or a first pull without --identity), only its age structure is checked. A file that fails is
+            never placed: it is kept in a quarantine folder next to the sync state, listed as quarantined
+            (exit 1), and not fetched again while it and the local vault.json are unchanged
+            (--retry-quarantined fetches it again).
+
+            A run is bounded as a whole: --max-notes, --max-entries (listed remote entries),
+            --max-download-mib and --max-minutes. Reaching one stops the run with an error (exit 1); what
+            was done so far is kept, and the next run continues.
+
+            Exit codes: 0 ok, 1 errors or quarantined files (listed), 3 conflicts to resolve, 6 a rejected
+            vault.json.
             """
     )
 
@@ -65,6 +77,26 @@ struct SyncWebDAVCommand: ParsableCommand {
             help: ArgumentHelp("Largest attachment blob file to transfer, in MiB (default 1088: 1 GiB of content plus padding).",
                                valueName: "n"))
     var maxBlobMiB: Int?
+
+    @Option(name: .customLong("max-notes"),
+            help: ArgumentHelp("Most note folders the server may list in one run (default 100000).", valueName: "n"))
+    var maxNotes: Int?
+
+    @Option(name: .customLong("max-entries"),
+            help: ArgumentHelp("Most remote entries listed in one run, all folders together (default 1000000).", valueName: "n"))
+    var maxEntries: Int?
+
+    @Option(name: .customLong("max-download-mib"),
+            help: ArgumentHelp("Most MiB downloaded in one run (default 65536).", valueName: "n"))
+    var maxDownloadMiB: Int?
+
+    @Option(name: .customLong("max-minutes"),
+            help: ArgumentHelp("Longest a run may take, in minutes (default 720).", valueName: "n"))
+    var maxMinutes: Int?
+
+    @Flag(name: .customLong("retry-quarantined"),
+          help: "Download and check again the files an earlier run quarantined, even if they did not change.")
+    var retryQuarantined = false
 
     @Flag(name: .customLong("dry-run"), help: "Only list what would be transferred or deleted.")
     var dryRun = false
@@ -96,6 +128,16 @@ struct SyncWebDAVCommand: ParsableCommand {
             guard (1...(1 << 20)).contains(maxBlobMiB) else { throw CLIError.usage("--max-blob-mib must be 1 to 1048576") }
             options.maxBlobBytes = maxBlobMiB << 20
         }
+        func bounded(_ value: Int?, _ flag: String, max: Int) throws -> Int? {
+            guard let value else { return nil }
+            guard (1...max).contains(value) else { throw CLIError.usage("--\(flag) must be 1 to \(max)") }
+            return value
+        }
+        if let n = try bounded(maxNotes, "max-notes", max: 100_000_000) { options.limits.maxNotes = n }
+        if let n = try bounded(maxEntries, "max-entries", max: 1_000_000_000) { options.limits.maxEntries = n }
+        if let n = try bounded(maxDownloadMiB, "max-download-mib", max: 1 << 30) { options.limits.maxDownloadBytes = Int64(n) << 20 }
+        if let n = try bounded(maxMinutes, "max-minutes", max: 525_600) { options.limits.maxDuration = TimeInterval(n) * 60 }
+        options.retryQuarantined = retryQuarantined
         var credentials: WebDAVCredentials?
         if let user {
             let varName = passwordEnv ?? "SEMPERE_WEBDAV_PASSWORD"
@@ -121,6 +163,8 @@ struct SyncWebDAVCommand: ParsableCommand {
         if webViewer && vault?.canRead != true {
             throw CLIError.usage("--web-viewer needs the vault unlocked (--identity or a stored key's passphrase)")
         }
+        // A first pull checks what it downloads under the vault.json it pulls (format.md §9.1).
+        if vault == nil { options.firstPullIdentities = try access.explicitIdentities() }
         options.deviceLabel = device ?? ProcessInfo.processInfo.hostName
         let sync = WebDAVSync(
             directory: dir, vault: vault, client: client,
@@ -133,7 +177,7 @@ struct SyncWebDAVCommand: ParsableCommand {
         } else {
             printReport(report)
         }
-        if !report.errors.isEmpty { throw ExitCode(ExitStatus.failure) }
+        if !report.errors.isEmpty || !report.quarantined.isEmpty { throw ExitCode(ExitStatus.failure) }
         if !report.rejected.isEmpty { throw ExitCode(ExitStatus.untrustedRecipients) }
         if !report.conflicts.isEmpty { throw ExitCode(ExitStatus.unhealthy) }
     }
@@ -153,10 +197,12 @@ struct SyncWebDAVCommand: ParsableCommand {
             printStderr("conflict: \(c.path): \(c.detail)" + (c.remoteCopy.map { "; server copy kept as \($0)" } ?? ""))
         }
         for e in r.errors { printStderr("error: \(e.path): \(e.message)") }
+        for q in r.quarantined { printStderr("quarantined: \(q.path): \(q.message); not placed in the vault") }
         for e in r.rejected { printStderr("rejected: \(e.path): \(e.message); the local copy is kept") }
         output.info("\(r.dryRun ? "dry run: " : "")\(r.uploaded.count) uploaded, \(r.downloaded.count) downloaded, "
                     + "\(r.deleted.count) deleted, \(r.conflicts.count) conflicts, \(r.errors.count) errors"
                     + (r.extraneous.isEmpty ? "" : ", \(r.extraneous.count) extraneous")
+                    + (r.quarantined.isEmpty ? "" : ", \(r.quarantined.count) quarantined")
                     + (r.skipped.isEmpty ? "" : ", \(r.skipped.count) skipped (-v)"))
     }
 }

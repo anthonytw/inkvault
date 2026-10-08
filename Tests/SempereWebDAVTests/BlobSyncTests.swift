@@ -365,7 +365,7 @@ final class BlobSyncTests: BlobSyncTestCase {
         let name = String(repeating: "cd", count: 32) + ".pdf.age"
         server.putDirect("notes/\(id)/att/\(name)", Data("<html>login</html>".utf8))
         let report = try sync("B", server)
-        XCTAssertEqual(report.errors.map(\.path), ["notes/\(id)/att/\(name)"], "\(report)")
+        XCTAssertEqual(report.quarantined.map(\.path), ["notes/\(id)/att/\(name)"], "\(report)")
         XCTAssertEqual(attEntries("B"), [], "nothing under the name, no partial file")
     }
 

@@ -115,12 +115,15 @@ final class SyncTests: SyncTestCase {
         // Server returns an HTML page with 200 instead of the file.
         server.putDirect(rel, Data("<html>login required</html>".utf8))
         let report = try sync("B", server)
-        XCTAssertEqual(report.errors.count, 1, "\(report)")
+        XCTAssertEqual(report.quarantined.map(\.path), [rel], "\(report)")
         let noteDir = dir("B").appendingPathComponent("notes/\(noteID.uuidString.lowercased())")
         XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: noteDir.path)) ?? [], [])
         // A transport failure mid-download behaves the same.
         server.interceptor = { r in r.method == "GET" && r.url.path.hasSuffix(".age") ? WebDAVResponse(status: 500) : nil }
-        let report2 = try sync("B", server)
+        var options = WebDAVSyncOptions(deviceLabel: "B")
+        options.retryQuarantined = true
+        let report2 = try WebDAVSync(directory: dir("B"), vault: try openVault("B"), client: try client(server),
+                                     stateURL: tmp.appendingPathComponent("state-B.json"), options: options).run()
         XCTAssertEqual(report2.errors.count, 1)
         XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: noteDir.path)) ?? [], [])
     }

@@ -49,6 +49,14 @@ public struct SyncReport: Codable, Hashable, Sendable {
     /// `vault.json` whose device list changed without a valid tag (format.md
     /// §2.1). The local copy stays; nothing is uploaded over the remote one.
     public var rejected: [Issue] = []
+    /// Remote revisions and blobs that were downloaded but failed the checks
+    /// before placing (format.md §9.1): not written to the vault, kept in
+    /// the quarantine folder (`quarantineDirectory`), and not downloaded
+    /// again while unchanged (then listed in `skipped`).
+    public var quarantined: [Issue] = []
+    /// Set when a bound of the run (`SyncLimits`) stopped it early: what was
+    /// reached. Also listed in `errors`; the next run continues.
+    public var stoppedEarly: String?
 
     public init(dryRun: Bool = false) { self.dryRun = dryRun }
 
@@ -69,6 +77,6 @@ public struct SyncReport: Codable, Hashable, Sendable {
     /// True when nothing was transferred, deleted or reported.
     public var isEmpty: Bool {
         uploaded.isEmpty && downloaded.isEmpty && deleted.isEmpty && conflicts.isEmpty && errors.isEmpty && rejected.isEmpty
-            && extraneous.isEmpty && overwritten.isEmpty
+            && extraneous.isEmpty && overwritten.isEmpty && quarantined.isEmpty
     }
 }

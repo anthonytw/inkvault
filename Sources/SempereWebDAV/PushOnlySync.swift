@@ -129,7 +129,7 @@ extension WebDAVSync {
             }
         }
 
-        syncBlobDeletions(id, &blobs, remoteRevisions: R)
+        try syncBlobDeletions(id, &blobs, remoteRevisions: R)
 
         guard !options.dryRun else { return }
         var coverage: [RevisionName: Included] = [:]

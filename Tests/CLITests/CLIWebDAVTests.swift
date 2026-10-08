@@ -30,6 +30,17 @@ final class CLIWebDAVTests: CLITestCase {
         }
     }
 
+    /// Security review 2026-10 (W5): the run bounds are validated.
+    func testRunLimitsAreValidated() throws {
+        let vault = try copyFixtureVault()
+        for (flag, bad) in [("--max-notes", "0"), ("--max-entries", "-1"), ("--max-download-mib", "0"),
+                            ("--max-minutes", "525601")] {
+            let r = try cli(["sync", "webdav", "https://dav.example.com/v/", "--vault", vault, flag, bad])
+            XCTAssertEqual(r.status, 2, "\(flag) \(bad): \(r.err)")
+            XCTAssertTrue(r.err.contains(String(flag.dropFirst(2))) || r.err.contains("Missing value"), r.err)
+        }
+    }
+
     func testPushOnlyFlagRules() throws {
         let vault = try copyFixtureVault()
         let lone = try cli(["sync", "webdav", "https://dav.example.com/v/", "--vault", vault, "--delete-extraneous"])
