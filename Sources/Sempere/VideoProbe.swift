@@ -148,13 +148,16 @@ public enum VideoProbe {
             throw VideoProbeError.notVideo
         }
         guard let moov = top.first(where: { $0.type == "moov" }) else { throw VideoProbeError.noMovie }
+        // A second moov is not walked, so whatever metadata it carries would
+        // stay: refused (format.md §8.2.7 "holds one moov").
+        guard top.filter({ $0.type == "moov" }).count == 1 else { throw VideoProbeError.malformed("more than one moov") }
         let firstMdat = top.first { $0.type == "mdat" }
         var info = try walker.movie(moov)
         info.mediaType = mediaType
         info.fastStart = firstMdat.map { moov.offset < $0.offset } ?? true
         var topMetadata: [VideoBox] = []
         for box in top {
-            if box.type == "meta" {
+            if box.type == "meta" || box.type == "udta" {   // udta at the top level carries ©xyz like moov's
                 topMetadata.append(box)
             } else if try walker.isXMP(box) {
                 topMetadata.append(box)
@@ -209,7 +212,10 @@ public enum VideoProbe {
                 guard length <= range.upperBound - pos else {
                     // The last top-level box of a file cut short (mdat of a recording that stopped): keep what
                     // came before (without a moov it is `noMovie`). Anything inside a box must fit it.
-                    if depth == 0 { break }
+                    // Only mdat may be cut short: any other truncated box could hold metadata that would be
+                    // kept unread (security review 2026-10, V2).
+                    // A first box that overruns is no video at all (`notVideo`).
+                    if depth == 0, type == "mdat" || out.isEmpty { break }
                     throw VideoProbeError.malformed("box '\(type)' overruns its parent")
                 }
                 out.append(VideoBox(type: type, offset: pos, length: length, header: header))

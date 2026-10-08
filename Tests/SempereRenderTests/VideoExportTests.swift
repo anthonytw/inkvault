@@ -11,6 +11,18 @@ final class VideoExportTests: XCTestCase {
     static let clip = Data("not really a video, only bytes to embed".utf8)
     static let clipRef = BlobRef(content: clip, type: "video/mp4")
 
+    /// Security review 2026-10 (V1): a stored duration is untrusted and only
+    /// needs to be finite and non-negative; a huge one (an mvhd of 2^64
+    /// ticks at timescale 1) trapped in `Int(_:)` during Markdown and HTML
+    /// exports.
+    func testHugeDurationsDoNotTrap() {
+        XCTAssertEqual(ExportVideos.clock(65), "1:05")
+        XCTAssertEqual(ExportVideos.clock(3_725), "1:02:05")
+        XCTAssertNotNil(ExportVideos.clock(1.8446744073709552e19))
+        XCTAssertNotNil(ExportVideos.clock(1e300))
+        XCTAssertNil(ExportVideos.clock(.infinity))
+    }
+
     /// 40 × 20 pixels: red left half, green right half.
     static func posterPNG() throws -> Data {
         var px = [UInt8]()

@@ -76,6 +76,30 @@
         }
       }
     },
+    "%@: a file does not verify and was kept: %@" : {
+      "comment" : "Delete result; the note's title, then the reason (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: un archivo no supera la verificación y se ha conservado: %@"
+          }
+        }
+      }
+    },
+    "%@: not downloaded: %@" : {
+      "comment" : "Delete result; the note's title, then the error (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: sin descargar: %@"
+          }
+        }
+      }
+    },
     "%lld / %lld" : {
       "comment" : "[not-plural] Page number and page count in the version preview",
       "extractionState" : "manual",
@@ -806,6 +830,54 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld notas no se han comprobado (ilegibles o sin descargar)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld notes were not checked: a version could not be read, or is not downloaded yet." : {
+      "comment" : "Footer of Unused Attachments",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld note was not checked: a version could not be read, or is not downloaded yet."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notes were not checked: a version could not be read, or is not downloaded yet."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas no se han comprobado: no se ha podido leer una versión o aún no se ha descargado."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld nota no se ha comprobado: no se ha podido leer una versión o aún no se ha descargado."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notas no se han comprobado: no se ha podido leer una versión o aún no se ha descargado."
                 }
               }
             }
@@ -2170,6 +2242,18 @@
         }
       }
     },
+    "An attachment can be deleted 30 days after this device first found it unused. Deleting reads its note again first and keeps anything a version still uses." : {
+      "comment" : "Footer of Unused Attachments",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un adjunto se puede eliminar 30 días después de que este dispositivo lo encontrara sin usar por primera vez. Antes de eliminar, se vuelve a leer su nota y se conserva todo lo que aún use alguna versión."
+          }
+        }
+      }
+    },
     "Annotate" : {
       "comment" : "iPhone toolbar toggle: draw with a finger",
       "extractionState" : "manual",
@@ -2464,6 +2548,54 @@
         }
       }
     },
+    "Check %lld More Notes" : {
+      "comment" : "Settings ▸ Storage: index the notes not checked yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Check %lld More Note"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Check %lld More Notes"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Comprobar %lld de notas más"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Comprobar %lld nota más"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Comprobar %lld notas más"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Check Again" : {
       "comment" : "Button: check for unused attachments again",
       "extractionState" : "manual",
@@ -2484,6 +2616,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Buscar adjuntos sin usar"
+          }
+        }
+      }
+    },
+    "Checking %lld notes…" : {
+      "comment" : "Settings ▸ Storage: the attachment index is being updated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Checking %lld note…"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Checking %lld notes…"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Comprobando %lld de notas…"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Comprobando %lld nota…"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Comprobando %lld notas…"
+                }
+              }
+            }
           }
         }
       }
@@ -2805,6 +2985,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido eliminar la grabación: %@"
+          }
+        }
+      }
+    },
+    "Could not delete: %@" : {
+      "comment" : "the error text follows (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido eliminar: %@"
           }
         }
       }
@@ -3253,6 +3445,30 @@
         }
       }
     },
+    "Delete %@?" : {
+      "comment" : "Confirmation title; %@ is a number of items and their size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Eliminar %@?"
+          }
+        }
+      }
+    },
+    "Delete All Eligible (%@)" : {
+      "comment" : "Button; %@ is a number of items and their size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar todos los elegibles (%@)"
+          }
+        }
+      }
+    },
     "Delete Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3260,6 +3476,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eliminar página"
+          }
+        }
+      }
+    },
+    "Deleted %@." : {
+      "comment" : "Result; %@ is a number of items and their size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminación: %@."
           }
         }
       }
@@ -3994,6 +4222,18 @@
         }
       }
     },
+    "File" : {
+      "comment" : "Attachment kind in the unused attachments list: anything else",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivo"
+          }
+        }
+      }
+    },
     "Files in a Folder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4337,6 +4577,30 @@
         }
       }
     },
+    "Held by History" : {
+      "comment" : "Settings ▸ Storage: attachments only older versions of notes show",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retenidos por el historial"
+          }
+        }
+      }
+    },
+    "Held by History (%@)" : {
+      "comment" : "Section header; %@ is a number of items and their size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retenidos por el historial (%@)"
+          }
+        }
+      }
+    },
     "Hide Notebooks" : {
       "comment" : "Accessibility label: close the notebook suggestions",
       "extractionState" : "manual",
@@ -4417,6 +4681,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ocultar la lista de notas para ver el lienzo a todo el ancho"
+          }
+        }
+      }
+    },
+    "History" : {
+      "comment" : "Button: open the note's version history",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historial"
           }
         }
       }
@@ -4829,6 +5105,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lazo"
+          }
+        }
+      }
+    },
+    "Last used %@" : {
+      "comment" : "Button opening the note's history; %@ is a day",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Último uso: %@"
+          }
+        }
+      }
+    },
+    "Last used in an earlier version" : {
+      "comment" : "Button opening the note's history",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Último uso: en una versión anterior"
           }
         }
       }
@@ -5561,6 +5861,17 @@
         }
       }
     },
+    "No unused attachments." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay adjuntos sin usar."
+          }
+        }
+      }
+    },
     "No vault is open." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6015,6 +6326,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un archivo HTML independiente."
+          }
+        }
+      }
+    },
+    "Only older versions of these notes show these attachments. They are freed when those versions are thinned (Settings → Version History)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo las versiones anteriores de estas notas muestran estos adjuntos. Se liberan al reducir esas versiones (Ajustes › Historial de versiones)."
           }
         }
       }
@@ -10173,6 +10495,17 @@
         }
       }
     },
+    "These attachments have been unused for at least 30 days. This cannot be undone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estos adjuntos llevan al menos 30 días sin usarse. No se puede deshacer."
+          }
+        }
+      }
+    },
     "Thin" : {
       "comment" : "Button: thin the version history (verb)",
       "extractionState" : "manual",
@@ -11230,6 +11563,17 @@
         }
       }
     },
+    "Unlock a vault to see its unused attachments." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desbloquea una bóveda para ver sus adjuntos sin usar."
+          }
+        }
+      }
+    },
     "Unlock the vault first." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11321,6 +11665,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Los adjuntos sin usar son archivos a los que no se refiere ninguna versión de su nota. La comprobación solo los muestra; una recogida (sempere blobs gc) los elimina, y solo 30 días después de verlos sin usar por primera vez. Las cachés aceleran la apertura de notas y se pueden reconstruir desde la bóveda."
+          }
+        }
+      }
+    },
+    "Unused attachments are files no version of their note uses; they can be deleted 30 days after this device first found them unused. Held by history: files only older versions show, freed when those versions are thinned. Caches speed up opening notes and can be rebuilt from the vault." : {
+      "comment" : "Settings ▸ Storage footer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los adjuntos sin usar son archivos que ninguna versión de su nota usa; se pueden eliminar 30 días después de que este dispositivo los encontrara sin usar por primera vez. Retenidos por el historial: archivos que solo muestran versiones anteriores, que se liberan al reducir esas versiones. Las cachés agilizan la apertura de notas y se pueden reconstruir a partir de la bóveda."
+          }
+        }
+      }
+    },
+    "Unused since %@" : {
+      "comment" : "Settings ▸ Storage: %@ is a day",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin usar desde el %@"
+          }
+        }
+      }
+    },
+    "Unused since %@; can be deleted from %@" : {
+      "comment" : "Settings ▸ Storage: both are days",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin usar desde el %@; se puede eliminar a partir del %@"
           }
         }
       }
@@ -11927,6 +12307,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "iCloud Drive aún no ha listado los archivos de esta nota (sin listar: %lld). Vuelve a intentarlo en un momento."
+          }
+        }
+      }
+    },
+    "in %lld versions" : {
+      "comment" : "Settings ▸ Storage ▸ Held by History: how many versions of the note show it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "in %lld version"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "in %lld versions"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "en %lld de versiones"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "en %lld versión"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "en %lld versiones"
+                }
+              }
+            }
           }
         }
       }

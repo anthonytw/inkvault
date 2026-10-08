@@ -357,13 +357,19 @@ public struct CaptureWriter: Sendable {
     }
 
     /// Seals the transcript of capture `id` (its `recording` must be the
-    /// capture's recording id, `CaptureAdoption.ids(for:)`).
-    public func seal(transcript: Transcript, capture id: UUID) throws -> SealedCapture {
+    /// capture's recording id, `CaptureAdoption.ids(for:)`), bound to the
+    /// capture's `audio` (the manifest's reference): the payload is its
+    /// SHA-256, which only whoever had the audio knows (format.md §11.2), so
+    /// another holder of the capture key cannot attach a transcript of its
+    /// own to the voice note.
+    public func seal(transcript: Transcript, capture id: UUID, audio: BlobRef) throws -> SealedCapture {
         guard transcript.recording == CaptureAdoption.ids(for: id).recording else {
             throw CaptureError.invalidContent("the transcript names another recording")
         }
+        guard audio.isValid else { throw CaptureError.invalidContent("bad audio reference") }
         let name = CaptureFile.name(id, .transcript)
-        let plain = try CaptureFile.frame(line: try transcript.encoded(), payload: Data(), filename: name, key: key)
+        let plain = try CaptureFile.frame(line: try transcript.encoded(), payload: Data(audio.sha256.utf8), filename: name,
+                                          key: key)
         return SealedCapture(name: name, data: try Vault.encrypt(plain, to: recipients))
     }
 
@@ -393,6 +399,9 @@ public struct PendingCapture: Sendable {
     public var transcript: Transcript?
     /// Transcript content as stored (for the blob).
     public var transcriptContent: Data?
+    /// The SHA-256 (lowercase hex) of the audio the transcript is bound to
+    /// (format.md §11.2); nil when there is no usable transcript.
+    public var transcriptAudio: String?
     /// The inbox files read.
     public var files: [String]
 }
@@ -414,7 +423,8 @@ public enum CaptureAdoption {
         guard let after, !after.pages.isEmpty || !after.recordings.isEmpty else { return [] }
         var done = pending.files.filter { CaptureFile.parse(name: $0)?.kind == .capture }
         let rec = after.recordings.first { $0.id == ids(for: pending.id).recording }
-        if rec == nil || rec?.transcript != nil {
+        // A transcript that is not bound to this recording's audio is never adopted.
+        if rec == nil || rec?.transcript != nil || rec?.blob.sha256 != pending.transcriptAudio {
             done += pending.files.filter { CaptureFile.parse(name: $0)?.kind == .transcript }
         }
         return done
@@ -426,15 +436,19 @@ public enum CaptureAdoption {
     /// there is one, in one delta. A note that exists only gets the
     /// transcript, if its recording is there without one. Nothing when there
     /// is nothing to add (a transcript whose capture has not arrived yet waits).
+    /// A transcript is only added to the recording whose audio it is bound to
+    /// (`PendingCapture.transcriptAudio`, format.md §11.2).
     public static func ops(_ pending: PendingCapture, audio: BlobRef?, transcript: BlobRef?, current: NoteState?,
                            paper: Paper = .ruled, pageSize: PageSize = .letter) -> [Op] {
         let ids = ids(for: pending.id)
         if let current, !current.recordings.isEmpty || !current.pages.isEmpty || !current.meta.title.isEmpty {
-            guard let transcript, let r = current.recordings.first(where: { $0.id == ids.recording }), r.transcript == nil
+            guard let transcript, let r = current.recordings.first(where: { $0.id == ids.recording }), r.transcript == nil,
+                  r.blob.sha256 == pending.transcriptAudio
             else { return [] }
             return [.setRecording(recordingId: ids.recording, change: .transcript(transcript))]
         }
         guard let m = pending.manifest, let audio else { return [] }
+        let transcript = m.audio.sha256 == pending.transcriptAudio ? transcript : nil
         var ops = NoteOps.newNote(title: m.title, paper: paper, pageSize: pageSize,
                                   notebook: m.notebook ?? CaptureProfile.defaultNotebook, pageId: ids.page)
         var recording = NoteOps.recording(blob: audio, started: m.started, info: m.info, id: ids.recording)
@@ -497,8 +511,16 @@ extension Vault {
                 guard t.recording == CaptureAdoption.ids(for: id).recording else {
                     throw CaptureError.invalidContent("the transcript names another recording")
                 }
-                pending.transcript = t
-                pending.transcriptContent = line
+                // Bound to the capture's audio (format.md §11.2). One that is
+                // not (an empty payload, written before the binding, or another
+                // audio's hash) is never adopted, and is deleted with the
+                // capture: the app transcribes the recording itself then.
+                let bound = String(decoding: payload, as: UTF8.self)
+                if SHA256Hex.bytes(bound) != nil, pending.manifest.map({ $0.audio.sha256 == bound }) ?? true {
+                    pending.transcript = t
+                    pending.transcriptContent = line
+                    pending.transcriptAudio = bound
+                }
             }
             pending.files.append(name)
         }

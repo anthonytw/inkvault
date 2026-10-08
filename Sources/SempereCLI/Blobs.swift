@@ -333,23 +333,85 @@ private struct CollectionOut: Encodable {
     }
 }
 
-/// Runs collection over `ids`, one report per note.
-private func collect(_ vault: Vault, _ ids: [UUID], state: inout BlobCollectorState, retention: Double,
-                     dryRun: Bool) throws -> [BlobCollectionReport] {
-    var reports: [BlobCollectionReport] = []
-    for id in ids {
-        reports.append(try vault.collectBlobs(note: id, state: &state, retention: retention * 86400, dryRun: dryRun))
+/// What Settings → Storage shows (docs/attachments.md §4), computed with
+/// this device's records: the same `AttachmentStorageReport` the app builds
+/// from its index.
+struct StorageOut: Encodable {
+    struct Total: Encodable { var count: Int; var bytes: Int64 }
+    struct LastUse: Encodable { var revision: String; var wall: Date?; var duration: Double?; var title: String? }
+    struct Unused: Encodable {
+        var note: String; var title: String; var file: String; var kind: String; var bytes: Int64
+        var firstSeen: Date; var deletableFrom: Date; var eligible: Bool; var lastUse: LastUse?
     }
-    return reports
+    struct Held: Encodable {
+        var note: String; var title: String; var file: String; var kind: String; var bytes: Int64
+        var sha256: String; var revisions: [String]
+    }
+    var retentionDays: Double
+    var unused: Total
+    var eligible: Total
+    var heldByHistory: Total
+    var items: [Unused]
+    var held: [Held]
+    /// Notes nothing could be decided about (unreadable revision, recipient change unfinished).
+    var unchecked: [String: String]
+
+    init(_ r: AttachmentStorageReport, titles: [UUID: String], now: Date) {
+        retentionDays = r.retention / 86400
+        unused = Total(count: r.unused.count, bytes: r.unusedBytes)
+        let ok = r.eligible(at: now)
+        eligible = Total(count: ok.count, bytes: r.eligibleBytes(at: now))
+        heldByHistory = Total(count: r.held.count, bytes: r.heldBytes)
+        items = r.unused.map { u in
+            Unused(note: noteName(u.note), title: titles[u.note] ?? "", file: u.fileName, kind: u.kind.rawValue,
+                   bytes: u.bytes, firstSeen: u.firstSeen, deletableFrom: u.deletableFrom, eligible: u.isEligible(at: now),
+                   lastUse: u.lastUse.map { LastUse(revision: $0.revision, wall: $0.wall, duration: $0.duration, title: $0.title) })
+        }
+        held = r.held.map {
+            Held(note: noteName($0.note), title: titles[$0.note] ?? "", file: $0.fileName, kind: $0.kind.rawValue,
+                 bytes: $0.bytes, sha256: $0.sha256, revisions: $0.revisions)
+        }
+        unchecked = Dictionary(uniqueKeysWithValues: r.unchecked.map { (noteName($0.key), $0.value) })
+    }
+
+    /// "Unused attachments: N items, X MB (M eligible now); held by history: …" for people.
+    var line: String {
+        "Unused attachments: \(unused.count) item(s), \(Format.bytes(Int(unused.bytes)))"
+            + " (\(eligible.count) deletable now, \(Format.bytes(Int(eligible.bytes))));"
+            + " held by history: \(heldByHistory.count) item(s), \(Format.bytes(Int(heldByHistory.bytes)))"
+    }
+}
+
+/// The storage report of `ids` with this device's collection `state`
+/// (read, never updated): every revision of each note is read
+/// (`Vault.attachmentIndexEntry`), and the current state's references come
+/// from the notes' summaries (the summary cache when present).
+func storageReport(_ vault: Vault, _ ids: [UUID], state: BlobCollectorState, retention: Double, now: Date,
+                   cache: SummaryCache?) throws -> (AttachmentStorageReport, titles: [UUID: String]) {
+    let summaries = try vault.summaries(of: ids, cache: cache)
+    let byID = Dictionary(summaries.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    let state = state.vaultId == vault.vaultId ? state : BlobCollectorState(vaultId: vault.vaultId)
+    var entries: [AttachmentIndexEntry] = []
+    for id in ids {
+        // A summary with a problem says nothing reliable about the current state.
+        let current = byID[id].flatMap { $0.problem == nil ? Set($0.blobs.map(\.sha256)) : nil }
+        entries.append(vault.attachmentIndexEntry(note: id, records: state.notes[noteName(id)] ?? [:], current: current,
+                                                  now: now))
+    }
+    return (AttachmentStorageReport(entries: entries, retention: retention * 86400), byID.mapValues(\.title))
 }
 
 struct BlobsUnused: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "unused",
-        abstract: "List blobs no revision of their note references, with the date each may be collected.",
+        abstract: "Unused attachments: blobs no revision of their note references, when each may be deleted, and space held by history.",
         discussion: """
-            Read only: uses this device's collection record ($XDG_STATE_HOME/sempere/blobs/<vaultId>.json) \
-            without updating it. A blob not seen before shows today's date; `blobs gc` records it.
+            The numbers Settings → Storage shows in the app: unused blobs (count, bytes, the date each was \
+            first seen unused and may be deleted, and whether it may be deleted now), and blobs only older \
+            revisions use ("held by history": freed when compaction drops those revisions). Read only: uses \
+            this device's collection record ($XDG_STATE_HOME/sempere/blobs/<vaultId>.json) without updating \
+            it, so a blob not seen before shows today's date; `blobs gc` records it. The app keeps its own \
+            record. Exit 3 when a note could not be checked.
             """
     )
 
@@ -357,29 +419,30 @@ struct BlobsUnused: ParsableCommand {
     var note: [String] = []
 
     @OptionGroup var collection: CollectionOptions
+    @OptionGroup var cache: CacheOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
     func run() throws {
         let vault = try access.openVault(.required)
-        var state = try BlobCollectorState.load(from: BlobCollectorState.defaultURL(vaultId: vault.vaultId),
+        let state = try BlobCollectorState.load(from: BlobCollectorState.defaultURL(vaultId: vault.vaultId),
                                                 vaultId: vault.vaultId)
-        let reports = try collect(vault, try notes(note, in: vault), state: &state, retention: collection.retention,
-                                  dryRun: true)
-        if output.json { try output.emitJSON(reports.map(CollectionOut.init)); return }
-        var rows: [[String]] = []
-        for r in reports {
-            if let b = r.blocked { rows.append([noteName(r.note), "BLOCKED", "-", "-", b]) }
-            for u in r.unused {
-                rows.append([noteName(r.note), u.kind.rawValue, "\(u.bytes)",
-                             u.deletableFrom <= Date() ? "deletable now" : "deletable from \(Format.local(u.deletableFrom))",
-                             u.fileName])
+        let now = Date()
+        let (report, titles) = try storageReport(vault, try notes(note, in: vault), state: state,
+                                                 retention: collection.retention, now: now, cache: cache.cache(for: vault))
+        let out = StorageOut(report, titles: titles, now: now)
+        if output.json { try output.emitJSON(out) } else {
+            var rows: [[String]] = []
+            for (n, why) in out.unchecked.sorted(by: { $0.key < $1.key }) { rows.append([n, "NOT CHECKED", "-", "-", why]) }
+            for u in out.items {
+                rows.append([u.note, u.kind, Format.bytes(Int(u.bytes)),
+                             u.eligible ? "deletable now" : "deletable from \(Format.local(u.deletableFrom))", u.file])
             }
+            for h in out.held { rows.append([h.note, "\(h.kind) (history)", Format.bytes(Int(h.bytes)), "in \(h.revisions.count) revision(s)", h.file]) }
+            if !rows.isEmpty { print(Format.table(rows)) }
+            output.info(out.line)
         }
-        if !rows.isEmpty { print(Format.table(rows)) }
-        let unused = reports.flatMap(\.unused)
-        output.info("Unused attachments: \(unused.count) item(s), \(unused.reduce(0) { $0 + $1.bytes }) bytes")
-        if reports.contains(where: { $0.blocked != nil }) { throw ExitCode(ExitStatus.unhealthy) }
+        if !report.unchecked.isEmpty { throw ExitCode(ExitStatus.unhealthy) }
     }
 }
 
@@ -392,7 +455,8 @@ struct BlobsGC: ParsableCommand {
             pending, no revision references the blob, and this device first found it so at least --retention \
             days ago (recorded in $XDG_STATE_HOME/sempere/blobs/<vaultId>.json, never in the vault). Blobs \
             that cannot be verified are reported, never deleted. With --dry-run nothing is deleted or recorded. \
-            Exit 3 when a note could not be collected or a blob could not be verified.
+            With --file only those blob files may be deleted (the app's per-item Delete). Afterwards prints \
+            what `blobs unused` prints. Exit 3 when a note could not be collected or a blob could not be verified.
             """
     )
 
@@ -402,7 +466,12 @@ struct BlobsGC: ParsableCommand {
     @Flag(name: .customLong("dry-run"), help: "Only list what would be deleted.")
     var dryRun = false
 
+    @Option(name: .customLong("file"), help: ArgumentHelp("Only delete this blob file (<name>.<kind>.age). Repeatable.",
+                                                          valueName: "name"))
+    var files: [String] = []
+
     @OptionGroup var collection: CollectionOptions
+    @OptionGroup var cache: CacheOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -410,11 +479,24 @@ struct BlobsGC: ParsableCommand {
         let vault = try access.openVault(.required)
         let stateURL = BlobCollectorState.defaultURL(vaultId: vault.vaultId)
         var state = try BlobCollectorState.load(from: stateURL, vaultId: vault.vaultId)
-        let reports = try collect(vault, try notes(note, in: vault), state: &state, retention: collection.retention,
-                                  dryRun: dryRun)
+        if state.vaultId != vault.vaultId { state = BlobCollectorState(vaultId: vault.vaultId) }
+        let ids = try notes(note, in: vault)
+        let now = Date()
+        var reports: [BlobCollectionReport] = []
+        let only = files.isEmpty ? nil : Set(files)
+        for id in ids {
+            var records = state.notes[noteName(id)] ?? [:]
+            reports.append(try vault.collectBlobs(note: id, records: &records, only: only, now: now,
+                                                  retention: collection.retention * 86400, dryRun: dryRun))
+            state.notes[noteName(id)] = records.isEmpty ? nil : records
+        }
         if !dryRun { try state.save(to: stateURL) }
+        let (after, titles) = try storageReport(vault, ids, state: state, retention: collection.retention, now: now,
+                                                cache: cache.cache(for: vault))
+        let storage = StorageOut(after, titles: titles, now: now)
         if output.json {
-            try output.emitJSON(reports.map(CollectionOut.init))
+            struct Out: Encodable { var notes: [CollectionOut]; var storage: StorageOut }
+            try output.emitJSON(Out(notes: reports.map(CollectionOut.init), storage: storage))
         } else {
             for r in reports {
                 if let b = r.blocked { printError("\(noteName(r.note)): not collected: \(b)") }
@@ -426,6 +508,7 @@ struct BlobsGC: ParsableCommand {
             let deleted = reports.reduce(0) { $0 + $1.deleted.count }
             let waiting = reports.reduce(0) { $0 + $1.unused.count } - deleted
             output.info("\(dryRun ? "Would delete" : "Deleted") \(deleted) blob(s); \(waiting) unused blob(s) inside the retention window.")
+            output.info(storage.line)
         }
         if reports.contains(where: { $0.blocked != nil || !$0.failures.isEmpty }) {
             throw ExitCode(ExitStatus.unhealthy)

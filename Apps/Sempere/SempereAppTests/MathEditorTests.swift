@@ -58,6 +58,9 @@ struct MathEditorTests {
         let stored = try vault.readBlob(note: AppModelTests.lecture, render, maxBytes: 1 << 20)
         let storedSize = try MathRenderIngest.pageSize(stored)
         #expect(abs(storedSize.w - (math.renderSize?.w ?? 0)) < 0.01)
+        // The unused-attachments index takes the open editor's hashes as the note's current state:
+        // the render is in use, not held by history.
+        #expect(editor.blobHashes.contains(render.sha256))
         try AttachmentEditorTests().expectSaved(editor, vault, page: page)
     }
 
