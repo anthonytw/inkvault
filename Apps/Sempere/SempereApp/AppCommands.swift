@@ -64,7 +64,8 @@ struct AppCommands: Commands {
             .disabled((router?.recents ?? []).isEmpty)
             section([.reopenVault, .closeVault])
             Divider()
-            section(MenuLayout.file[2])
+            // Import, insert, export, reload.
+            sections(Array(MenuLayout.file.dropFirst(2)))
         }
         // Edit > Find Notes (⌘F) is UIKit's own Find item, renamed (`MacMenus`).
         CommandMenu("Note") {
@@ -151,6 +152,10 @@ enum EditorCommands {
             editor?.canvasTarget?.zoomToFit()
         case .actualSize:
             editor?.canvasTarget?.zoomToActualSize()
+        case .insertPhoto:
+            if editor != nil { ui.insertRequest = .photos }
+        case .insertPDFPages:
+            if editor != nil { ui.insertRequest = .pdfPages }
         default:
             return false
         }
@@ -160,9 +165,34 @@ enum EditorCommands {
     /// The part of the menu context that comes from an editor.
     static func fill(_ context: inout MenuCommand.Context, from editor: NoteEditor?) {
         context.canEditNote = editor.map { !$0.isReadOnly } ?? false
+        context.notePageless = editor?.isPageless ?? false
         context.hasPage = editor?.currentPage != nil
         context.pageIndex = editor?.pageIndex ?? 0
         context.pageCount = editor?.pages.count ?? 0
+    }
+}
+
+/// The File menu's import and export commands, shared by the library window
+/// and the note windows: they open the same importers and sheets as the
+/// note list's toolbar and the Export menus (`WindowSheets`).
+@MainActor
+enum WindowCommands {
+    /// Runs `command` for the window with `ui`; false when it is not one of these.
+    @discardableResult
+    static func perform(_ command: MenuCommand, model: AppModel, ui: WindowUI, exportIDs: [UUID]) -> Bool {
+        switch command {
+        case .importPDF: ui.importingPDF = true
+        case .importNotability: ui.importingNotability = true
+        case .exportNotes: model.requestExport(.pdf, ids: exportIDs, window: ui.id)
+        default: return false
+        }
+        return true
+    }
+
+    /// The part of the menu context that comes from the model.
+    static func fill(_ context: inout MenuCommand.Context, model: AppModel, exportIDs: [UUID]) {
+        context.vaultReadOnly = model.isVaultReadOnly
+        context.hasExportTargets = !exportIDs.isEmpty
     }
 }
 
@@ -187,4 +217,14 @@ final class WindowUI {
     var pdfPassword: PDFImportRequest?
     /// The file importer for a PDF to import as a new note.
     var importingPDF = false
+    /// The file importer for Notability notes or backups to import (`NotabilityImportView`).
+    var importingNotability = false
+    /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
+    var insertRequest: InsertRequest?
+}
+
+/// File > Insert Photo… and Insert PDF Pages…: the window's editor opens the
+/// same picker as its Insert menu (`InsertMenu`), then clears the request.
+enum InsertRequest: Equatable {
+    case photos, pdfPages
 }

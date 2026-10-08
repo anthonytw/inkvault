@@ -12,6 +12,15 @@ import SempereRender
 /// diverging deltas); it shows a placeholder instead.
 extension AppModel {
 
+    /// The window to open for note `id` (File > Open Note in New Window, the
+    /// list's context menu, a double-click on a row): nil without an unlocked
+    /// vault, for a note not (yet) listed, still downloading or in Recently Deleted.
+    func noteWindowValue(for id: UUID?) -> NoteWindowValue? {
+        guard let id, phase == .unlocked, let vault = vault?.vaultId, !placeholderNoteIDs.contains(id),
+              let note = notes.first(where: { $0.id == id }), !note.deleted else { return nil }
+        return NoteWindowValue(vaultID: vault, noteID: id)
+    }
+
     /// Takes `noteID` for a note window: an editor the library window has open
     /// on it is saved and closed first.
     func claimNote(_ noteID: UUID) async {

@@ -245,23 +245,24 @@ struct RootView: View {
         context.editingText = ui.searchPresented || ui.renameNoteID != nil || ui.tagsNoteID != nil
             || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: shown)
+        let exportIDs = model.exportTargetIDs
+        WindowCommands.fill(&context, model: model, exportIDs: exportIDs)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible, exportIDs: model.exportTargetIDs, windowID: ui.id,
-                             perform: { command in perform(command, editor: shown) },
+                             paletteVisible: paletteVisible, exportIDs: exportIDs, windowID: ui.id,
+                             perform: { command in perform(command, editor: shown, exportIDs: exportIDs) },
                              openRecent: { id in
                                  if let entry = library.recents.first(where: { $0.id == id }) { Task { await reopen(entry) } }
                              })
     }
 
-    private func perform(_ command: MenuCommand, editor: NoteEditor?) {
+    private func perform(_ command: MenuCommand, editor: NoteEditor?, exportIDs: [UUID]) {
         if EditorCommands.perform(command, editor: editor, ui: ui) { return }
+        if WindowCommands.perform(command, model: model, ui: ui, exportIDs: exportIDs) { return }
         let selected = model.selectedNoteID
         switch command {
         case .newNote: ui.creatingNote = true
         case .openNoteInWindow:
-            if let selected, let vault = model.vault?.vaultId {
-                openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: selected))
-            }
+            if let value = model.noteWindowValue(for: selected) { openWindow(id: NoteWindowValue.sceneID, value: value) }
         case .newVault: creatingVault = true
         case .openVault: pickingVault = true
         case .reopenVault:

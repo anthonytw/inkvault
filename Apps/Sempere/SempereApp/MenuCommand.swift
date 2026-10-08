@@ -11,6 +11,7 @@ import Foundation
 enum MenuCommand: String, CaseIterable, Sendable {
     // File
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
+    case importPDF, importNotability, insertPDFPages, insertPhoto, exportNotes
     // Note
     case renameNote, editTags, changePaper, saveVersion, deleteNote, restoreNote
     case previousPage, nextPage, addPage
@@ -78,6 +79,11 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return "Reopen Last Vault"
         case .closeVault: return "Close Vault"
         case .reloadVault: return "Reload Vault"
+        case .importPDF: return "Import PDF as New Note…"
+        case .importNotability: return "Import from Notability…"
+        case .insertPDFPages: return "Insert PDF Pages…"
+        case .insertPhoto: return "Insert Photo…"
+        case .exportNotes: return "Export…"
         case .renameNote: return "Rename Note…"
         case .editTags: return "Edit Tags…"
         case .changePaper: return "Paper…"
@@ -122,6 +128,12 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return Shortcut("t", shift)
         case .closeVault: return Shortcut("w", shift)
         case .reloadVault: return Shortcut("r", cmd)
+        // ⌘I is UIKit's Italic (Format menu); ⌘E its "Use Selection for Find".
+        case .importPDF: return Shortcut("i", shift)
+        case .importNotability: return nil
+        case .insertPDFPages: return nil
+        case .insertPhoto: return Shortcut("i", option)
+        case .exportNotes: return Shortcut("e", shift)
         case .renameNote: return Shortcut("r", shift)
         case .editTags: return Shortcut("t", option)
         case .changePaper: return Shortcut("p", option)
@@ -164,6 +176,12 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var noteDeleted = false
         /// A note is open on a canvas that accepts input.
         var canEditNote = false
+        /// The open note is pageless (one infinite page): PDF pages cannot be inserted.
+        var notePageless = false
+        /// The vault opened read-only (a newer format version, format.md §7.3).
+        var vaultReadOnly = false
+        /// The notes File > Export acts on (`CommandRouter.exportIDs`) are not empty.
+        var hasExportTargets = false
         /// The canvas has a page to show.
         var hasPage = false
         var pageIndex = 0
@@ -194,6 +212,12 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .renameNote, .editTags, .saveVersion: return unlocked && context.hasNote && !context.noteDeleted
         case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted && !context.editingText
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
+        // The importers and their sheets are per window (`WindowSheets`): any window with a vault.
+        case .importPDF, .importNotability: return unlocked && !context.vaultReadOnly && context.window != .other
+        // The Insert menu's own rule (`InsertMenu`): an editable note with a page; PDF pages need a paged note.
+        case .insertPhoto: return context.canEditNote && context.hasPage
+        case .insertPDFPages: return context.canEditNote && context.hasPage && !context.notePageless
+        case .exportNotes: return unlocked && context.hasExportTargets
         case .changePaper: return context.canEditNote && context.hasPage
         case .addPage: return context.canEditNote
         case .previousPage: return context.hasPage && context.pageIndex > 0
@@ -217,6 +241,9 @@ enum MenuLayout {
     static let file: [[MenuCommand]] = [
         [.newNote, .openNoteInWindow],
         [.newVault, .openVault, .reopenVault, .closeVault],
+        [.importPDF, .importNotability],
+        [.insertPDFPages, .insertPhoto],
+        [.exportNotes],
         [.reloadVault],
     ]
     static let note: [[MenuCommand]] = [

@@ -96,17 +96,6 @@ struct NoteListView: View {
                     .disabled(model.phase != .unlocked || model.isVaultReadOnly)
             }
         }
-        .fileImporter(isPresented: $ui.importingPDF, allowedContentTypes: [.pdf]) { result in
-            guard case .success(let url) = result else { return }
-            var notebook: String?
-            if case .notebook(let n)? = model.sidebarSelection { notebook = n }
-            let target = notebook
-            Task {
-                if case .needsPassword(let request) = await model.importPDF(picked: url, to: .newNote(notebook: target)) {
-                    ui.pdfPassword = request
-                }
-            }
-        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
                 // The run's progress only; its results are the sidebar's "Recently Recognized",
@@ -149,6 +138,10 @@ struct NoteListView: View {
                     recognized: model.sidebarSelection == .recentlyRecognized ? model.recognizedEntry(for: note.id)?.recognizedNote : nil)
                 .modifier(NoteDragOut(note: note, enabled: model.phase == .unlocked
                                       && !model.placeholderNoteIDs.contains(note.id)))
+                // Mac: a double-click opens the note in its own window, like the context menu's item.
+                .modifier(OpenOnDoubleClick(enabled: Platform.isMac) {
+                    if let value = model.noteWindowValue(for: note.id) { openWindow(id: NoteWindowValue.sceneID, value: value) }
+                })
                 // A placeholder's summary is empty: nothing to act on until it arrives
                 // (the model downloads a note before any edit anyway).
                 .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
@@ -248,9 +241,9 @@ struct NoteListView: View {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
             ExportMenu(ids: exportIDs(for: note))
         } else {
-            if Platform.isMac, let vault = model.vault?.vaultId {
+            if Platform.isMac, let value = model.noteWindowValue(for: note.id) {
                 Button("Open in New Window", systemImage: "macwindow") {
-                    openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: note.id))
+                    openWindow(id: NoteWindowValue.sceneID, value: value)
                 }
             }
             Button("Rename…", systemImage: "pencil") {
@@ -299,6 +292,23 @@ private struct NoteDragOut: ViewModifier {
             guard Platform.isMac else { return }
             NoteFileDrag.register(on: provider, title: note.title, prepare: NoteFileDrag.prepare(note.id, model: model))
         })
+    }
+}
+
+/// A double-click (a double tap) on a row runs `action`, without taking the
+/// single click that selects the row: the gesture is simultaneous with the
+/// list's own selection. Attached on the Mac only; the iPad's rows keep
+/// exactly their touch handling.
+private struct OpenOnDoubleClick: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.simultaneousGesture(TapGesture(count: 2).onEnded { action() })
+        } else {
+            content
+        }
     }
 }
 

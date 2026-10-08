@@ -11,6 +11,7 @@
 		A1000000000000000000B002 /* Age in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D002 /* Age */; };
 		A1000000000000000000B004 /* SempereRender in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D003 /* SempereRender */; };
 		A1000000000000000000B005 /* SempereSpeech in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D004 /* SempereSpeech */; };
+		A1000000000000000000B007 /* SempereImport in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D005 /* SempereImport */; };
 		A1000000000000000000B003 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F003 /* Fixtures */; };
 		A1000000000000000000B006 /* SempereWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F005 /* SempereWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -98,6 +99,7 @@
 				A1000000000000000000B002 /* Age in Frameworks */,
 				A1000000000000000000B004 /* SempereRender in Frameworks */,
 				A1000000000000000000B005 /* SempereSpeech in Frameworks */,
+				A1000000000000000000B007 /* SempereImport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -184,6 +186,7 @@
 				A1000000000000000000D002 /* Age */,
 				A1000000000000000000D003 /* SempereRender */,
 				A1000000000000000000D004 /* SempereSpeech */,
+				A1000000000000000000D005 /* SempereImport */,
 			);
 			productName = SempereApp;
 			productReference = A1000000000000000000F001 /* Sempere.app */;
@@ -691,6 +694,10 @@
 		A1000000000000000000D004 /* SempereSpeech */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SempereSpeech;
+		};
+		A1000000000000000000D005 /* SempereImport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SempereImport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

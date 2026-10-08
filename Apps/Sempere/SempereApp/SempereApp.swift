@@ -64,10 +64,8 @@ struct SempereApp: App {
     @SceneBuilder private var libraryScene: some Scene {
         #if targetEnvironment(macCatalyst)
         WindowGroup("Sempere", id: "library") { libraryContent }
-            .commands {
-                AppCommands()
-                ExportMenuCommands(model: model)
-            }
+            // File > Export… is a `MenuCommand` on the Mac (`AppCommands`); the iPad keeps the submenu.
+            .commands { AppCommands() }
         #else
         WindowGroup { libraryContent }
             .commands { ExportMenuCommands(model: model) }

@@ -133,9 +133,12 @@ struct NoteWindowView: View {
         context.hasRecents = !library.recents.isEmpty
         context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: editor)
+        let exportIDs = note.map { [$0.id] } ?? []
+        WindowCommands.fill(&context, model: model, exportIDs: exportIDs)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible, exportIDs: note.map { [$0.id] } ?? [], windowID: ui.id) { command in
+                             paletteVisible: paletteVisible, exportIDs: exportIDs, windowID: ui.id) { command in
             guard !EditorCommands.perform(command, editor: editor, ui: ui) else { return }
+            guard !WindowCommands.perform(command, model: model, ui: ui, exportIDs: exportIDs) else { return }
             switch command {
             case .renameNote: ui.renameNoteID = value.noteID
             case .editTags: ui.tagsNoteID = value.noteID
