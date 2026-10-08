@@ -189,6 +189,31 @@ calls the callbacks off the main thread.
 * Multiple scenes are switched on for Mac Catalyst only
   (`INFOPLIST_KEY_UIApplicationSupportsMultipleScenes[sdk=macosx*]`); the iPad
   keeps its single scene.
+* Every `WindowGroup` gets the model, the vault library and the remembered
+  keys through one modifier (`appEnvironment`, `SceneRestoration.swift`), even
+  when its own views read fewer: a view that reads an environment object its
+  window lacks traps in `EnvironmentValues`.
+
+**Windows restored from another build.** The Catalyst build and the iPad
+build ("Designed for iPad" on an Apple silicon Mac, e.g. from TestFlight) share
+one container, so either build may be handed the scenes the other saved. The
+iPad build once crashed at launch that way: SwiftUI restored the Catalyst
+build's Settings window, whose views read an object that window was not given.
+So every non-library window's root is a `RestoredScene`
+(`SceneRestoration.shows`): in a single-scene build (the iPad build, wherever it
+runs) a restored note, Settings or key window shows the library instead, since
+it is the only window and must lead back to the notes; on the Mac a note window
+restored without its `NoteWindowValue` brings the library window up (unless one
+is open) and closes. The library window has the id `library` in both builds.
+`SceneRestorationTests` checks the rules and lays out each window's root with
+only the shared environment.
+
+Keeping the iPad build off Macs altogether is an App Store Connect setting,
+not a build setting: Pricing and Availability → "iPhone and iPad Apps on Apple
+Silicon Macs" (`docs/release/app-store.md`, item 4). `LSRequiresIPhoneOS` does
+not do it (every iOS app has it, and Macs run such apps anyway), and
+`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO` only removes the "My Mac
+(Designed for iPad)" run destination in Xcode. The app stays safe either way.
 
 **One editor per note.** All windows share one `AppModel`, one vault, one
 `DeviceClock` and one edit gate, so every delta ticks the same clock. A note
