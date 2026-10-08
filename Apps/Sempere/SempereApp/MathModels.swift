@@ -187,19 +187,54 @@ struct URLSessionModelFetcher: MathModelFetching {
         var description: String
     }
 
+    /// Tests pass a session whose configuration has a stub `URLProtocol`.
+    var session: URLSession = .shared
+
+    /// Streams the body to a temporary file and stops once it passes
+    /// `maxBytes` (a server may send more than the manifest says; nothing
+    /// past the limit reaches the disk).
     func fetch(_ url: URL, maxBytes: Int64) async throws -> URL {
         guard url.scheme == "https" else { throw Failure(description: "not an HTTPS URL") }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (file, response) = try await URLSession.shared.download(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            try? FileManager.default.removeItem(at: file)
+            bytes.task.cancel()
             throw Failure(description: "the server answered \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }
-        let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? 0
-        guard size <= maxBytes else {
-            try? FileManager.default.removeItem(at: file)
-            throw Failure(description: "the file is larger than expected")
+        let tooLarge = Failure(description: "the file is larger than expected")
+        guard response.expectedContentLength <= maxBytes else {
+            bytes.task.cancel()
+            throw tooLarge
+        }
+        let fm = FileManager.default
+        let file = fm.temporaryDirectory.appendingPathComponent("math-model-\(UUID().uuidString)")
+        guard fm.createFile(atPath: file.path, contents: nil) else {
+            bytes.task.cancel()
+            throw Failure(description: "cannot create \(file.lastPathComponent)")
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            var size: Int64 = 0
+            var buffer = Data()
+            buffer.reserveCapacity(1 << 20)
+            for try await byte in bytes {
+                size += 1
+                guard size <= maxBytes else {
+                    bytes.task.cancel()
+                    throw tooLarge
+                }
+                buffer.append(byte)
+                if buffer.count >= 1 << 20 {
+                    try handle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            try handle.write(contentsOf: buffer)
+        } catch {
+            try? fm.removeItem(at: file)
+            throw error
         }
         return file
     }
