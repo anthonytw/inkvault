@@ -21,6 +21,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 - iPhone and iPad: an iCloud sync in flight when the device locks or the app leaves the screen finishes
   in the background time iOS gives, and scheduled background tasks continue it when iOS allows
   (`docs/io.md` "Background sync" lists the limits).
+- Recordings on the page (`format.md` §8.2.9, an `audio` item kind). Stopping a recording in the app
+  places it on the page you were looking at as a card with a microphone icon, a play/pause button,
+  its length and its transcript; move, resize or delete it like any item. Every recording of a note
+  is listed by Recordings… (the note's menu, the Recordings menu, Note > Recordings… ⌃⌘R on the Mac).
+  CLI: `recordings list|place|rename|delete`, `attach recording --place`; exports and the web viewer
+  draw the card.
+
 - Web viewer opens fast on every visit (`docs/web-viewer.md` "Opening fast"). A `config.json` next to
   the viewer lets the server fix the vault (straight to the key prompt; no URL field, folder picker or
   `?vault=`). The note list comes at once from the vault's published summaries, `sempere-summaries.sealed`
@@ -268,6 +275,9 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   so the system cancelled every drop when it was released (the row still lit up while hovering). A
   notebook dragged within the sidebar never reached the other rows at all (a list keeps its own drags):
   notebook rows now start their drag, and show their context menu, from a view of their own.
+- Exporting a note with a recording no longer crashes on the Mac: Share… and Save… are presented
+  by UIKit from the export sheet, and their callbacks are safe on any thread. Long recordings are
+  streamed into "PDF + attachments" instead of being read into memory.
 
 ## [0.5.0] - TODO(user): date of the first release
 

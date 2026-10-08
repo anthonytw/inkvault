@@ -114,6 +114,9 @@ public enum SVGWriter {
             switch draws[it.item.id] {
             case .text(let shaped, let rotation)?:
                 body += fonts.elements(shaped, transform: rotation)
+            case .card(let card)?:
+                for c in card.shapes { body += element(c) + "\n" }
+                if let label = card.label { body += fonts.elements(label, transform: card.rotation) }
             case .raster(let r)?:
                 let png = try PNGEncoder.encode(width: r.image.width, height: r.image.height, rgba: r.image.pixels)
                 let m = r.placement.after(Affine(a: r.width, d: r.height))   // unit square (y down) → page
@@ -157,7 +160,7 @@ public enum SVGWriter {
     public static func export(note: NoteState, options: RenderOptions = RenderOptions(), assetPrefix: String? = nil,
                               report: inout RenderReport) throws -> (pages: [String], assets: [SVGAsset]) {
         let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
-        let images = ImageStore(options: options)
+        let images = ImageStore(options: options, recordings: note.recordings)
         var assets = SVGAssets(prefix: assetPrefix)
         let pages = try note.pages.enumerated().map { i, page in
             try render(page: page, meta: note.meta, options: options, pageNumber: i + 1, backgrounds: backgrounds,
