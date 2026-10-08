@@ -45,6 +45,13 @@ struct MouseSmoothingTests {
         #expect(!takes(ruler: true), "the ruler snaps PencilKit's own strokes")
     }
 
+    @Test func aRightClickNeverDraws() {
+        #expect(!PointerInkGesture.isSecondaryClick(buttons: .primary, modifiers: []))
+        #expect(!PointerInkGesture.isSecondaryClick(buttons: .primary, modifiers: [.shift, .alternate]))
+        #expect(PointerInkGesture.isSecondaryClick(buttons: .secondary, modifiers: []))
+        #expect(PointerInkGesture.isSecondaryClick(buttons: .primary, modifiers: .control))
+    }
+
     @Test func theSettingDefaultsToLight() {
         Self.withLevel(nil) { #expect(MouseSmoothing.load() == .light) }
         Self.withLevel(.strong) { #expect(MouseSmoothing.load() == .strong) }

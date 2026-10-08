@@ -47,7 +47,8 @@ enum MouseSmoothing {
             PKStrokePoint(location: CGPoint(x: s.x / z, y: s.y / z), timeOffset: max(s.t - t0, 0), size: size,
                           opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        return PKStroke(ink: tool.ink, path: PKStrokePath(controlPoints: points, creationDate: creationDate))
+        return PKStroke(ink: tool.ink, path: PKStrokePath(controlPoints: points, creationDate: creationDate),
+                        transform: .identity, mask: nil)
     }
 }
 
@@ -72,6 +73,11 @@ final class PointerInkGesture: UIGestureRecognizer {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        // A right-click (or control-click) selects an item and shows its menu; it never draws.
+        if tracked == nil, Self.isSecondaryClick(buttons: event.buttonMask, modifiers: event.modifierFlags) {
+            state = .failed
+            return
+        }
         guard tracked == nil, let touch = touches.first, touches.count == 1 else {
             if tracked == nil { state = .failed }
             return
@@ -80,6 +86,11 @@ final class PointerInkGesture: UIGestureRecognizer {
         let p = touch.location(in: view)
         pending = [StrokeSmoothing.Sample(x: Double(p.x), y: Double(p.y), t: touch.timestamp)]
         state = .began
+    }
+
+    /// Whether a click is the secondary one (the right button, or the left with ⌃).
+    static func isSecondaryClick(buttons: UIEvent.ButtonMask, modifiers: UIKeyModifierFlags) -> Bool {
+        buttons.contains(.secondary) || modifiers.contains(.control)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -177,19 +188,26 @@ final class MouseInkController: NSObject, UIGestureRecognizerDelegate {
     @objc private func dragged(_ g: PointerInkGesture) {
         let samples = g.takePending()
         switch g.state {
-        case .began:
-            guard let first = samples.first else { return }
-            begin(at: first)
-            add(samples.dropFirst())
-        case .changed:
-            add(samples)
-        case .ended:
-            add(samples)
-            end()
+        case .began, .changed, .ended:
+            var rest = samples[...]
+            // A quick click may report its end without its beginning.
+            if g.state == .began || !gestureStarted, let first = rest.first {
+                gestureStarted = true
+                begin(at: first)
+                rest = rest.dropFirst()
+            }
+            add(rest)
+            if g.state == .ended {
+                end()
+                gestureStarted = false
+            }
         default:
             cancelStroke()
+            gestureStarted = false
         }
     }
+    /// The gesture's beginning was handled (the stroke may still have been refused).
+    private var gestureStarted = false
 
     /// The pointer went down at `s` (canvas content coordinates). Nothing
     /// happens without an ink tool or with smoothing switched off meanwhile.
