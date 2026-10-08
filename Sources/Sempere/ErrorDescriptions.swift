@@ -145,6 +145,8 @@ extension RecipientsProblem: CustomStringConvertible {
         case .tagMismatch: why = "vault.json's device list was changed without the vault's key (its tag does not verify)"
         case .tagRemoved: why = "vault.json's device list lost its authentication tag (downgrade)"
         case .secretUnconfirmed: why = "the vault's secret changed in a way this device cannot confirm"
+        case .recordUnreadable: why = "this device's trust record for the vault cannot be read, so the list cannot be checked "
+            + "(check the list, then: sempere vault recipients confirm)"
         }
         var parts = [why]
         if !unexpected.isEmpty {

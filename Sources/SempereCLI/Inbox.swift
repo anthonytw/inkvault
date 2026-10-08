@@ -273,7 +273,9 @@ struct InboxImport: ParsableCommand {
             its audio and transcript written as blobs of a new note in the capture's notebook, then one delta, \
             then its inbox files are deleted. Note, page and recording ids come from the capture id, so two \
             machines importing the same capture write the same note. A transcript whose capture is not there \
-            yet waits. A capture that does not verify is reported and kept.
+            yet waits. A capture that does not verify is reported and kept. Its tag is checked streamed, before \
+            the file is read whole, and a file that failed is not read again for an hour, then twice as long \
+            after each failure (up to a week) while it does not change; naming the capture or --retry reads it now.
             """
     )
 
@@ -282,6 +284,9 @@ struct InboxImport: ParsableCommand {
 
     @Flag(name: .customLong("dry-run"), help: "Verify and list; write and delete nothing.")
     var dryRun = false
+
+    @Flag(name: .long, help: "Read again inbox files that failed before, even while they are backed off.")
+    var retry = false
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -297,7 +302,15 @@ struct InboxImport: ParsableCommand {
                 return id
             }
         }
-        let results = ids.map { vault.adoptCapture($0, deviceState: DeviceState.defaultURL(), app: appName, dryRun: dryRun) }
+        // Files that failed before wait (format.md §11.3); named captures and --retry are read anyway.
+        let backoff = InboxBackoff(fileURL: InboxBackoff.cliURL(environment: Env.vars))
+        let skipBackedOff = captures.isEmpty && !retry
+        if !skipBackedOff {
+            for id in ids { for kind in CaptureFile.Kind.allCases { backoff.clear(vault: vault.vaultId, name: CaptureFile.name(id, kind)) } }
+        }
+        let results = ids.map {
+            vault.adoptCapture($0, deviceState: DeviceState.defaultURL(), app: appName, dryRun: dryRun, backoff: backoff)
+        }
         if output.json {
             struct Out: Encodable { var dryRun: Bool; var captures: [Vault.CaptureAdoptionResult] }
             try output.emitJSON(Out(dryRun: dryRun, captures: results))

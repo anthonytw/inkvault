@@ -235,6 +235,103 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertEqual(vault.adoptCapture(other, deviceState: deviceState(), app: "test/1").error, CaptureError.badTag.description)
     }
 
+    /// Security review 2026-10 (C5): a failing inbox file is recorded and not
+    /// read again until its back-off ends, unless it changes; a file that
+    /// verifies clears its record.
+    func testFailingInboxFilesBackOff() throws {
+        let (identity, profile, locked) = try setUp()
+        var forger = profile
+        forger.key = Data(repeating: 7, count: 32)
+        let id = UUID()
+        let name = CaptureFile.name(id, .capture)
+        try CaptureWriter.store(try CaptureWriter(profile: forger).seal(audio: audio, started: started, id: id), in: locked.inboxURL)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        let file = tmp.appendingPathComponent("backoff.json")
+        var backoff = InboxBackoff(fileURL: file)
+        let t0 = Date()
+
+        XCTAssertThrowsError(try vault.readCapture(id, backoff: backoff, now: t0)) { XCTAssertEqual($0 as? CaptureError, .badTag) }
+        XCTAssertEqual(backoff.entries(vault: vault.vaultId)[name]?.failures, 1)
+        // Within the hour it is not read: the error says so.
+        XCTAssertThrowsError(try vault.readCapture(id, backoff: backoff, now: t0.addingTimeInterval(1800))) { error in
+            guard case CaptureError.backedOff(let n, let after, _) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(n, 1)
+            XCTAssertEqual(after, t0.addingTimeInterval(InboxBackoff.firstDelay))
+        }
+        // The record survives a restart, and the wait doubles after the next failure.
+        backoff = InboxBackoff(fileURL: file)
+        let t1 = t0.addingTimeInterval(InboxBackoff.firstDelay + 1)
+        XCTAssertThrowsError(try vault.readCapture(id, backoff: backoff, now: t1)) { XCTAssertEqual($0 as? CaptureError, .badTag) }
+        let e = try XCTUnwrap(backoff.entries(vault: vault.vaultId)[name])
+        XCTAssertEqual(e.failures, 2)
+        XCTAssertEqual(e.retryAfter, t1.addingTimeInterval(2 * InboxBackoff.firstDelay))
+        // Adoption reports the back-off and keeps the file.
+        let r = vault.adoptCapture(id, deviceState: deviceState(), app: "test/1", backoff: backoff, now: t1.addingTimeInterval(60))
+        XCTAssertTrue(r.error?.contains("failed 2 time(s)") == true, r.error ?? "")
+        XCTAssertEqual(try vault.inboxEntries().count, 1)
+
+        // A changed file is read at once; once it verifies, its record goes.
+        try CaptureWriter(profile: profile).seal(audio: audio + Data([1]), started: started, id: id).data
+            .write(to: locked.inboxURL.appendingPathComponent(name))
+        XCTAssertNoThrow(try vault.readCapture(id, backoff: backoff, now: t1.addingTimeInterval(120)))
+        XCTAssertNil(backoff.entries(vault: vault.vaultId)[name])
+    }
+
+    /// Security review 2026-10 (C2): a capture's title and notebook come from
+    /// whoever holds the capture key; the note gets them bounded and on one line.
+    func testCaptureTitleAndNotebookAreBounded() throws {
+        let (identity, profile, locked) = try setUp(notebook: "Voice\nNotes")
+        let id = UUID()
+        let long = String(repeating: "é", count: 5000) + "\u{1B}[2J"
+        try CaptureWriter.store(try CaptureWriter(profile: profile).seal(audio: audio, started: started, title: long, id: id),
+                                in: locked.inboxURL)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        XCTAssertNil(vault.adoptCapture(id, deviceState: deviceState(), app: "test/1").error)
+        let meta = try vault.reconstruct(noteId: CaptureAdoption.ids(for: id).note).meta
+        XCTAssertEqual(meta.title.count, CaptureAdoption.maxNameLength)
+        XCTAssertEqual(meta.notebook, "Voice Notes")
+        XCTAssertEqual(CaptureAdoption.boundedName("a\u{1B}b\tc"), "a b c")
+    }
+
+    /// C2: one grapheme cluster has no length limit (a base letter and any
+    /// number of combining marks), so a cap in characters alone lets a
+    /// megabyte title through as "one character". Scalars are capped too.
+    func testBoundedNameCapsOneHugeGraphemeCluster() {
+        let huge = "a" + String(repeating: "\u{301}", count: 200_000)
+        XCTAssertEqual(huge.count, 1)
+        let bounded = CaptureAdoption.boundedName(huge)
+        XCTAssertLessThanOrEqual(bounded.unicodeScalars.count, CaptureAdoption.maxNameScalars)
+        XCTAssertEqual(bounded.unicodeScalars.first, "a")
+        // Ordinary text is unchanged: emoji with modifiers stay whole.
+        XCTAssertEqual(CaptureAdoption.boundedName("Meeting 👍🏽 notes"), "Meeting 👍🏽 notes")
+        let manyEmoji = String(repeating: "👨‍👩‍👧‍👦", count: 400)
+        XCTAssertLessThanOrEqual(CaptureAdoption.boundedName(manyEmoji).unicodeScalars.count, CaptureAdoption.maxNameScalars)
+    }
+
+    /// C5: a transcript file has a much smaller bound than a capture, checked
+    /// from its size before anything is decrypted; and a capture's tag is
+    /// checked streamed before the file is read whole.
+    func testInboxFileSizeIsBoundedByItsKind() throws {
+        let (identity, _, locked) = try setUp()
+        let id = UUID()
+        try FileManager.default.createDirectory(at: locked.inboxURL, withIntermediateDirectories: true)
+        let url = locked.inboxURL.appendingPathComponent(CaptureFile.name(id, .transcript))
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data("age-encryption.org/v1\n".utf8)))
+        let h = try FileHandle(forWritingTo: url)
+        try h.truncate(atOffset: UInt64(CaptureFile.maxSealedBytes(.transcript) + 1))   // sparse: nothing is written
+        try h.close()
+        XCTAssertLessThan(CaptureFile.maxSealedBytes(.transcript), CaptureFile.maxSealedBytes(.capture) / 3)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        XCTAssertThrowsError(try vault.readCapture(id)) { error in
+            guard case CaptureError.tooLarge = error else { return XCTFail("\(error)") }
+        }
+        // Junk of an allowed size fails as "not a capture", from the stream.
+        try Data(repeating: 0x41, count: 70_000).write(to: url)
+        XCTAssertThrowsError(try vault.readCapture(id)) { error in
+            guard case CaptureError.notCapture = error else { return XCTFail("\(error)") }
+        }
+    }
+
     /// Removing a recipient rotates the secret and with it the capture key:
     /// a profile from before no longer verifies.
     func testKeyRotationRevokesOldProfiles() throws {

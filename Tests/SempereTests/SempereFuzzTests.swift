@@ -383,7 +383,7 @@ final class SempereFuzzTests: VaultTestCase {
                                      identities: [id], trust: store)
         let manifest = try Data(contentsOf: vault.url.appendingPathComponent("vault.json"))
         let secret = try XCTUnwrap(vault.secret)
-        let record = try XCTUnwrap(store.record(for: vault.vaultId))
+        let record = try XCTUnwrap(try store.record(for: vault.vaultId))
         let recordJSON = try JSONEncoder().encode(record)
         let keys = vault.recipients.map(\.key)
         assertClean(Fuzz.run("recipients-tag", seeds: [manifest, recordJSON], quick: 600, text: true) { input in

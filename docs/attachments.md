@@ -1894,7 +1894,7 @@ Settings added since (same panel, same rules):
 | General | Keep Screen On | off | |
 | | Recognize Handwriting | on | |
 | History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
-| Device keys | Save Key… | — | actions, not settings: this device's key after Face ID (Touch ID, or the passcode only on a device without biometrics, never after a Face ID lockout) to Files or the share sheet, plus its paper kit; New Key… makes a key for another device, encrypts the vault to it and offers the same (`docs/cli.md` "Keys", app and CLI) |
+| Device keys | Save Key… | — | actions, not settings: this device's key after Face ID (Touch ID, or the passcode only on a device without biometrics, never after a Face ID lockout) to Files or the share sheet, plus its paper kit; New Key… makes a key for another device, encrypts the vault to it and offers the same (`docs/cli.md` "Keys", app and CLI). New Key…, adding a pasted public key and the key window's Recovery Kit ask for the same owner check first (security review 2026-10, P1): each lets someone else read the vault |
 | Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |
 | | Unused attachments | — | from the per-note index (E7, §4): count and size, a list by note with previews, the date each became unused, Delete from 30 days on and "Delete All Eligible" (through `collectBlobs`), and "Held by History"; `sempere blobs unused` shows the same |
 

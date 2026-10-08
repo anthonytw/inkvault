@@ -36,6 +36,12 @@ struct RecipientsAlert: Identifiable, Equatable, Sendable {
     /// secret this device no longer holds), nor when no list is known.
     var canRemove: Bool { problem.reason != .secretUnconfirmed && problem.restore != nil }
 
+    /// Trust This List is offered when this device's own record of the list
+    /// cannot be read (security review 2026-10, R5): the list itself checks
+    /// under the vault's key, so after the user checked the devices the
+    /// record is written again (`Vault.confirmRecipients`).
+    var canConfirm: Bool { problem.reason == .recordUnreadable }
+
     /// The alert's text: what happened, the unknown devices, what Remove does.
     var message: String {
         var lines: [String] = []
@@ -46,6 +52,8 @@ struct RecipientsAlert: Identifiable, Equatable, Sendable {
             lines.append(String(localized: "The list of devices lost its authentication: someone who can change the vault's folder removed it."))
         case .secretUnconfirmed:
             lines.append(String(localized: "The vault's key was replaced in a way this device cannot confirm."))
+        case .recordUnreadable:
+            lines.append(String(localized: "This device's record of the vault's devices cannot be read, so the list cannot be checked against it."))
         }
         if unexpected.isEmpty {
             lines.append(String(localized: "No unknown device was added, but the list is not the one this device last checked."))
@@ -54,7 +62,9 @@ struct RecipientsAlert: Identifiable, Equatable, Sendable {
             lines.append(String(localized: "Devices this device never confirmed: \(devices).", comment: "The value is a list of device names and abbreviated keys"))
         }
         lines.append(String(localized: "Your notes can still be read. Nothing is written to this vault until the list is fixed."))
-        if canRemove {
+        if canConfirm {
+            lines.append(String(localized: "If every device listed is yours, Trust This List records it again on this device."))
+        } else if canRemove {
             lines.append(String(localized: "Remove restores the last checked list and re-encrypts every note with a new vault key, so no other device can read them."))
         } else if problem.reason == .secretUnconfirmed {
             lines.append(String(localized: "If you changed the vault's keys on another device, open the vault there, or check the list with `sempere vault recipients confirm`. Otherwise restore vault.json from a backup."))
@@ -82,6 +92,31 @@ extension AppModel {
         let policy = RewrapSettings.policy()
         try await changeRecipients { try $0.repairRecipients(policy: policy) }
         if vault?.recipientsStatus.problem == nil { recipientsAlert = nil }
+    }
+
+    /// Trust This List in the alert (an unreadable trust record): records
+    /// the current list again after the user checked it. Nothing in the
+    /// vault changes unless the list was untagged (it is tagged then).
+    /// As a key change (editors closed first, `keyEpoch` bumped), but
+    /// without downloading the vault: no file under `notes/` changes.
+    func confirmRecipientsList() async throws {
+        guard let alert = recipientsAlert, alert.canConfirm, let start = vault, phase == .unlocked else { return }
+        await editGate.acquire()
+        defer { editGate.release() }
+        let gen = generation
+        try await openEditor(for: nil)   // saved, and closed: it holds the tampered status
+        await closeWindowEditors()
+        try ensureCurrent(gen)
+        let coordinate = coordinationURL
+        let next = try await offMain { () throws -> Vault in
+            try CloudVault.coordinatedWrite(coordinate) { () throws -> Vault in
+                var copy = start
+                try copy.confirmRecipients()
+                return copy
+            }
+        }
+        try ensureCurrent(gen)
+        adoptRewrapped(next)
     }
 
     /// Cancel in the alert: the vault stays open for reading; writes keep

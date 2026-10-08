@@ -18,6 +18,9 @@ public enum WebDAVError: Error, Hashable, Sendable {
     case io(String)
     /// The response body exceeded the limit for this request; reading stopped there.
     case responseTooLarge(path: String, limit: Int)
+    /// A bound of the whole run (`SyncLimits`) was reached; the run stopped
+    /// there (security review 2026-10, W5).
+    case limitExceeded(String)
 }
 
 extension WebDAVError: LocalizedError {
@@ -37,6 +40,7 @@ extension WebDAVError: LocalizedError {
         case .io(let m): return m
         case .responseTooLarge(let path, let limit):
             return "the response for \(SyncReport.printable(path)) is over \(limit) bytes; not read"
+        case .limitExceeded(let m): return "sync run stopped: \(m)"
         }
     }
 }

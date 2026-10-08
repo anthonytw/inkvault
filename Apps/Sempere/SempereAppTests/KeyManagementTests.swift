@@ -27,7 +27,7 @@ struct KeyManagementTests {
     @Test func aPastedPublicKeyIsAddedAndOpensTheVault() async throws {
         let (model, url) = try await Self.unlockedModel()
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: "  \(other.recipient.string)\n", label: " Anna's iPad ")
+        try await model.addDeviceKey(recipient: "  \(other.recipient.string)\n", label: " Anna's iPad ", authenticator: PassingOwnerAuthenticator())
         #expect(model.deviceKeys.count == 2)
         let added = try #require(model.deviceKeys.first { $0.recipient == other.recipient.string })
         #expect(added.label == "Anna's iPad")
@@ -39,7 +39,7 @@ struct KeyManagementTests {
 
     @Test func aGeneratedKeyIsAddedAndItsSecretReturnedOnce() async throws {
         let (model, url) = try await Self.unlockedModel()
-        let generated = try await model.generateDeviceKey(label: "")
+        let generated = try await model.generateDeviceKey(label: "", authenticator: PassingOwnerAuthenticator())
         #expect(generated.problem == nil)
         let secret = generated.secret
         let identity = try IdentityFile.parse(secret)
@@ -52,7 +52,7 @@ struct KeyManagementTests {
     @Test func removingAKeyLocksItOutAndKeepsTheOthers() async throws {
         let (model, url) = try await Self.unlockedModel()
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad")
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad", authenticator: PassingOwnerAuthenticator())
         try await model.removeDeviceKey(other.recipient.string)
         #expect(model.deviceKeys.count == 1)
         #expect(model.keyEpoch == 2)
@@ -66,7 +66,7 @@ struct KeyManagementTests {
         let mine = model.deviceKeys[0].recipient
         await #expect(throws: AppModel.KeyError.lastKey) { try await model.removeDeviceKey(mine) }
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "B")
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "B", authenticator: PassingOwnerAuthenticator())
         await #expect(throws: AppModel.KeyError.inUse) { try await model.removeDeviceKey(mine) }
         await #expect(throws: AppModel.KeyError.notListed) {
             try await model.removeDeviceKey(try NativeIdentity.generate(.postQuantum).recipient.string)
@@ -76,10 +76,10 @@ struct KeyManagementTests {
     @Test func badKeysAreRefusedBeforeAnythingChanges() async throws {
         let (model, _) = try await Self.unlockedModel()
         for text in ["", "hello", "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", "AGE-SECRET-KEY-PQ-1ABC"] {
-            await #expect(throws: AppModel.KeyError.notPostQuantum) { try await model.addDeviceKey(recipient: text, label: "x") }
+            await #expect(throws: AppModel.KeyError.notPostQuantum) { try await model.addDeviceKey(recipient: text, label: "x", authenticator: PassingOwnerAuthenticator()) }
         }
         await #expect(throws: AppModel.KeyError.alreadyListed) {
-            try await model.addDeviceKey(recipient: model.deviceKeys[0].recipient, label: "again")
+            try await model.addDeviceKey(recipient: model.deviceKeys[0].recipient, label: "again", authenticator: PassingOwnerAuthenticator())
         }
         #expect(model.deviceKeys.count == 1)
         #expect(model.keyEpoch == 0)
@@ -89,10 +89,10 @@ struct KeyManagementTests {
         let model = AppModel(deviceStateURL: TS.deviceStateURL())
         let other = try NativeIdentity.generate(.postQuantum)
         await #expect(throws: AppModel.KeyError.notUnlocked) {
-            try await model.addDeviceKey(recipient: other.recipient.string, label: "x")
+            try await model.addDeviceKey(recipient: other.recipient.string, label: "x", authenticator: PassingOwnerAuthenticator())
         }
-        await #expect(throws: AppModel.KeyError.notUnlocked) { _ = try await model.generateDeviceKey(label: "x") }
-        await #expect(throws: AppModel.KeyError.notUnlocked) { _ = try model.recoveryKitPDF() }
+        await #expect(throws: AppModel.KeyError.notUnlocked) { _ = try await model.generateDeviceKey(label: "x", authenticator: PassingOwnerAuthenticator()) }
+        await #expect(throws: AppModel.KeyError.notUnlocked) { _ = try await model.recoveryKitPDF(authenticator: PassingOwnerAuthenticator()) }
         #expect(model.deviceKeys.isEmpty)
     }
 
@@ -102,7 +102,7 @@ struct KeyManagementTests {
         let window = try await model.openWindowNote(Self.lecture)
         window.addPage()   // pending: saved before the vault changes
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "B")
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "B", authenticator: PassingOwnerAuthenticator())
         #expect(model.windowEditors.isEmpty)
         #expect(model.editor == nil)
         var vault = try Vault.open(at: url, identities: model.unlockIdentities)
@@ -126,7 +126,7 @@ struct KeyManagementTests {
         let file = try #require(try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0.hasSuffix(".age") && !$0.hasPrefix(".") }.sorted().first)
         try Data("not an age file".utf8).write(to: folder.appendingPathComponent(file))
-        let generated = try await model.generateDeviceKey(label: "Tablet")
+        let generated = try await model.generateDeviceKey(label: "Tablet", authenticator: PassingOwnerAuthenticator())
         #expect(generated.problem != nil, "one file could not be re-encrypted")
         let identity = try IdentityFile.parse(generated.secret)
         #expect(model.deviceKeys.contains { $0.recipient == identity.recipient.string })
@@ -138,12 +138,12 @@ struct KeyManagementTests {
         let (model, _) = try await Self.unlockedModel()
         let other = try NativeIdentity.generate(.postQuantum)
         await #expect(throws: AppModel.KeyError.vaultChanged) {
-            try await model.addDeviceKey(recipient: other.recipient.string, label: "x", expectedVault: UUID())
+            try await model.addDeviceKey(recipient: other.recipient.string, label: "x", expectedVault: UUID(), authenticator: PassingOwnerAuthenticator())
         }
         await #expect(throws: AppModel.KeyError.vaultChanged) {
-            _ = try await model.generateDeviceKey(label: "x", expectedVault: UUID())
+            _ = try await model.generateDeviceKey(label: "x", expectedVault: UUID(), authenticator: PassingOwnerAuthenticator())
         }
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "x", expectedVault: model.vault?.vaultId)
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "x", expectedVault: model.vault?.vaultId, authenticator: PassingOwnerAuthenticator())
         let key = try #require(model.deviceKeys.first { $0.recipient == other.recipient.string })
         await #expect(throws: AppModel.KeyError.vaultChanged) {
             try await model.removeDeviceKey(key.recipient, expectedVault: UUID())
@@ -160,7 +160,7 @@ struct KeyManagementTests {
         await model.claimNote(Self.lecture)
         let window = try await model.openWindowNote(Self.lecture)
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "B")
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "B", authenticator: PassingOwnerAuthenticator())
         #expect(window.isShutDown)
         let before = try Vault.open(at: url, identities: model.unlockIdentities).revisionNames(of: Self.lecture).count
         window.addPage()
@@ -186,8 +186,8 @@ struct KeyManagementTests {
 
     @Test func theRecoveryKitIsAPDFOfTheKeyInUse() async throws {
         let (model, _) = try await Self.unlockedModel()
-        let letter = try model.recoveryKitPDF()
-        let a4 = try model.recoveryKitPDF(a4: true)
+        let letter = try await model.recoveryKitPDF(authenticator: PassingOwnerAuthenticator())
+        let a4 = try await model.recoveryKitPDF(a4: true, authenticator: PassingOwnerAuthenticator())
         #expect(letter.starts(with: Data("%PDF-".utf8)))
         #expect(a4.starts(with: Data("%PDF-".utf8)))
         #expect(letter != a4)

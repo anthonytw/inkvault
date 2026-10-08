@@ -87,6 +87,19 @@ final class CLIInboxTests: CLITestCase {
         let first = try XCTUnwrap(((r.json as? [String: Any])?["captures"] as? [[String: Any]])?.first)
         XCTAssertTrue((first["error"] as? String)?.contains("does not verify") == true, "\(first)")
         XCTAssertEqual((try cli(["inbox", "list", "--json"] + locked).json as? [[String: Any]])?.count, 1, "kept")
+
+        // Security review 2026-10 (C5): it is not read again at the next
+        // import (backed off, reported), but is with --retry or by its id.
+        let again = try cli(["inbox", "import", "--json", "--identity", keyPath] + locked)
+        XCTAssertEqual(again.status, 1)
+        let second = try XCTUnwrap(((again.json as? [String: Any])?["captures"] as? [[String: Any]])?.first)
+        XCTAssertTrue((second["error"] as? String)?.contains("failed 1 time(s)") == true, "\(second)")
+        let retried = try cli(["inbox", "import", "--json", "--retry", "--identity", keyPath] + locked)
+        let third = try XCTUnwrap(((retried.json as? [String: Any])?["captures"] as? [[String: Any]])?.first)
+        XCTAssertTrue((third["error"] as? String)?.contains("does not verify") == true, "\(third)")
+        let byID = try cli(["inbox", "import", try XCTUnwrap(first["capture"] as? String), "--json", "--identity", keyPath] + locked)
+        let fourth = try XCTUnwrap(((byID.json as? [String: Any])?["captures"] as? [[String: Any]])?.first)
+        XCTAssertTrue((fourth["error"] as? String)?.contains("does not verify") == true, "\(fourth)")
     }
 
     /// A capture waiting in the inbox survives `vault recipients remove`: the

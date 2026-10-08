@@ -274,7 +274,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   key), `tagged`, and for `verified` a `verification` (`unchanged`,
   `firstUse`, `rotated`: a secret rotation confirmed by its `secretLink`),
   for `tampered` a `reason` (`tagMismatch`, `tagRemoved`,
-  `secretUnconfirmed`), `unexpected` (keys not in the last verified list),
+  `secretUnconfirmed`, `recordUnreadable`: this machine's trust record exists
+  but does not read, so nothing can be compared until `recipients confirm`),
+  `unexpected` (keys not in the last verified list),
   `missing` and `restore` (what `repair` would write).
 - `recipients repair` undoes a tampered list: it writes the last verified
   list (this machine's record, or the list the tag still verifies once the
@@ -288,8 +290,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   another device (exit 1 says so).
 - `recipients confirm` trusts the current list on this machine after you
   have checked every key: for a secret change this machine missed (it was
-  offline for two or more key changes), or an
-  untagged copy older than the tag (a restored backup), which it tags again.
+  offline for two or more key changes), an
+  untagged copy older than the tag (a restored backup), which it tags again,
+  or a trust record of this machine that no longer reads (it is written again).
   Never for a tag that does not verify. Confirming a list an attacker wrote
   lets them read what this machine writes.
 - `rewrap-resume` finishes an interrupted change; it refuses (exit 6) a list
@@ -1387,7 +1390,7 @@ sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key 
 sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
 sempere inbox transcript CAPTURE JSON --audio FILE [--profile PATH]
 sempere inbox list
-sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
+sempere inbox import [CAPTURE...] [--dry-run] [--retry]          (needs the key)
 ```
 
 Voice notes without the key (`format.md` §11, `docs/quick-capture.md`), the
@@ -1412,7 +1415,14 @@ ids and file kinds without a key, titles and whether each verifies with one.
 titled from its date: the audio and transcript as blobs, then one delta as this
 machine, then the inbox files are deleted. The note, page and recording ids
 derive from the capture id, so importing on two machines gives one note. A
-capture that does not verify is reported (exit 1) and kept. `--json`:
+capture that does not verify is reported (exit 1) and kept. Each file's tag
+is checked as it is decrypted, before the file is read whole, and a
+`transcript` file over about 64 MiB is refused from its size. A file that
+failed is recorded in `$XDG_STATE_HOME/sempere/inbox-backoff.json` and not
+read again for an hour, then twice as long after each failure (up to a
+week), while it does not change: `import` reports it as `failed N time(s)
+…; not read again before TIME`. Naming the capture, or `--retry`, reads it
+now. `--json`:
 `capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
 [{capture, note, title, created, transcript, file, removed, error}]}`.
 
@@ -1838,7 +1848,8 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
                          [--max-blob-mib N] [--web-viewer] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
-                         [--push-only [--delete-extraneous]]
+                         [--push-only [--delete-extraneous]] [--retry-quarantined]
+                         [--max-notes N] [--max-entries N] [--max-download-mib N] [--max-minutes N]
 ```
 
 Mirrors the vault folder with a WebDAV collection (`docs/io.md`, "WebDAV
@@ -1887,6 +1898,21 @@ carries, and that secret is the local one or a rotation confirmed by its
 secret). That needs the key; without it only a list with the same keys is
 taken. Anything else is reported as `rejected` (stderr line and `--json`
 `rejected: [{path, message}]`), the local copy stays, and the exit code is 6.
+Every downloaded revision and blob is checked before it is placed
+(`format.md` §9.1): with the vault unlocked (or, on a first pull, with
+`--identity`) it must decrypt, verify its tag (a blob: its keyed name and
+content hash) and name its note and file; locked, only its age structure is
+checked. A file that fails is never placed in the vault: it is kept under
+`<sync state>.quarantine/` (mode 0600, outside the vault), printed as
+`quarantined: PATH: why` on stderr, listed in the JSON `quarantined`
+(`{path, message}`), and the exit code is 1. Later runs do not fetch it
+again while it, the local `vault.json` and the lock state are unchanged (it
+is listed as skipped, `-v`); `--retry-quarantined` fetches and checks it
+again. A run is bounded as a whole (`format.md` §9 table): `--max-notes`
+(default 100000 note folders listed), `--max-entries` (1000000 remote entries
+listed in all), `--max-download-mib` (65536) and `--max-minutes` (720).
+Reaching one stops the run with an error naming the flag (exit 1, JSON
+`stoppedEarly`); what was done is kept and the next run continues.
 `--dry-run` makes no request that changes anything and writes nothing; it
 lists `would upload`, `would download` and `would delete` lines. It cannot see
 files it would first download, so it may under-report deletions.
@@ -1920,8 +1946,9 @@ Output: one line per action, then
 lines, `-v` adds skipped and ignored entries). `--json` prints the report:
 `dryRun`, `uploaded`, `downloaded`, `deleted` (`{side, path}`), `conflicts`
 (`{path, remoteCopy, detail}`), `errors` and `skipped` (`{path, message}`) and
-`ignored` (remote names that are not vault files), `rejected`, and with `--push-only` also `extraneous` and `overwritten` (both arrays are always present). One failing file does not stop the
-run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts, 6 a
+`ignored` (remote names that are not vault files), `rejected`, `quarantined`
+(`{path, message}`), `stoppedEarly` (only when a run bound stopped it), and with `--push-only` also `extraneous` and `overwritten` (these arrays are always present). One failing file does not stop the
+run. Exit 0 ok, 1 errors or quarantined files, 2 usage (including a refused URL), 3 conflicts, 6 a
 rejected `vault.json`.
 
 ## Worked examples

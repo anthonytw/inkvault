@@ -44,6 +44,20 @@ struct SyncState: Codable, Equatable {
     /// summaries were last written for by this device,
     /// when every note there got an entry (else nil: try again next run).
     var publishedSummaries: String?
+    /// Remote files an earlier run downloaded and quarantined (format.md
+    /// §9.1), keyed like `files`: not downloaded again while the server's
+    /// copy and the local `vault.json` are unchanged.
+    var quarantined: [String: QuarantineRecord]?
+
+    /// A quarantined remote file.
+    struct QuarantineRecord: Codable, Equatable {
+        /// The remote version (ETag, else Last-Modified, else size) that failed.
+        var stamp: String?
+        /// SHA-256 (hex) of the local `vault.json` it was checked against,
+        /// and whether the vault was unlocked: either changing checks it again.
+        var manifest: String?
+        var unlocked: Bool
+    }
 
     /// The default state file for one (remote, local vault) pair.
     static func defaultURL(remote: URL, vault: URL,

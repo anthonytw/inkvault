@@ -1,3 +1,4 @@
+import Age
 import Foundation
 import Sempere
 
@@ -39,6 +40,19 @@ public struct WebDAVSyncOptions: Sendable {
     /// Blob downloads are made of `Range` requests of this size, so memory
     /// stays bounded by one of them however fast the server is.
     public var blobSegmentBytes = WebDAVClient.defaultSegmentBytes
+
+    /// Where downloads that fail the checks before placing are kept
+    /// (format.md §9.1); nil: `<state file>.quarantine/` next to the sync state.
+    public var quarantineDirectory: URL?
+    /// Download again the files an earlier run quarantined, even when
+    /// neither they nor the local `vault.json` changed.
+    public var retryQuarantined = false
+    /// Bounds of the whole run (notes, entries, bytes, time).
+    public var limits = SyncLimits()
+    /// For a first pull (no local vault to pass as `vault`): identities to
+    /// open the pulled `vault.json` with, so the files that follow it are
+    /// checked fully rather than for their structure only (format.md §9.1).
+    public var firstPullIdentities: [any AgeIdentity] = []
 
     /// 1 GiB + 64 MiB.
     public static let defaultMaxBlobBytes = (1 << 30) + (64 << 20)
@@ -93,6 +107,11 @@ public final class WebDAVSync {
     /// False on a first sync (no readable state): then nothing on the server
     /// is known to have been synced, so push-only never deletes extraneous files.
     var hadState = false
+    /// What this run has used of `options.limits`.
+    var budget: RunBudget
+    /// SHA-256 of the local `vault.json` when the run started (what `vault` was opened from).
+    var checkerBaseManifest: String?
+    var checkerCache: (manifest: String?, vault: Vault?)?
 
     /// - Parameters:
     ///   - directory: the local vault; it may be missing or empty for a first pull.
@@ -107,6 +126,7 @@ public final class WebDAVSync {
         self.stateURL = stateURL
         self.options = options
         self.report = SyncReport(dryRun: options.dryRun)
+        self.budget = RunBudget(options.limits)
     }
 
     /// `$XDG_STATE_HOME/sempere/sync/<id>.json`, one per (remote, vault) pair.
@@ -130,7 +150,10 @@ public final class WebDAVSync {
             // A mirror of nothing would list (and could delete) the whole server.
             throw WebDAVError.io("push-only sync needs a local vault (no \(Self.manifestName) in \(root.path))")
         }
+        checkerBaseManifest = manifestHash()
+        budget = RunBudget(options.limits)
         let rootEntries = try client.list([]) ?? []
+        try budget.list(rootEntries.count)
         let remoteRoot = Dictionary(rootEntries.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         try checkSameVault(remoteRoot)
         remoteJournal = remoteRoot[Self.journalName] != nil
@@ -143,17 +166,27 @@ public final class WebDAVSync {
             }
         }
 
-        let remoteNotes = try listRemoteNotes(rootEntries)
-        let localNotes = try localNoteIDs()
-        for (id, entries) in remoteNotes {
-            remoteRevisions[id] = entries.compactMap { e in
-                RevisionName(e.name).flatMap { !e.isCollection && $0.filename == e.name ? e.name : nil }
+        do {
+            let remoteNotes = try listRemoteNotes(rootEntries)
+            let localNotes = try localNoteIDs()
+            for (id, entries) in remoteNotes {
+                remoteRevisions[id] = entries.compactMap { e in
+                    RevisionName(e.name).flatMap { !e.isCollection && $0.filename == e.name ? e.name : nil }
+                }
             }
-        }
-        for id in Set(remoteNotes.keys).union(localNotes).sorted() {
-            do { try syncNote(id, remoteEntries: remoteNotes[id]) } catch {
-                report.errors.append(.init(path: "notes/\(id)", message: Self.describe(error)))
+            for id in Set(remoteNotes.keys).union(localNotes).sorted() {
+                do {
+                    try budget.checkTime()
+                    try syncNote(id, remoteEntries: remoteNotes[id])
+                } catch {
+                    try rethrowRunLimit(error)
+                    report.errors.append(.init(path: "notes/\(id)", message: Self.describe(error)))
+                }
             }
+        } catch let e as WebDAVError where e.isRunLimit {
+            // Stop here: what was done is recorded below, the next run continues.
+            report.stoppedEarly = Self.describe(e)
+            report.errors.append(.init(path: "notes", message: Self.describe(e)))
         }
         if options.pushOnly { deleteRemoteJunk() }
         if !options.dryRun, options.publishForWebViewer || remoteRoot[WebIndex.fileName].map({ !$0.isCollection }) ?? false {
@@ -231,6 +264,7 @@ public final class WebDAVSync {
         }
 
         let (remoteData, getETag) = try client.get([name])
+        try budget.downloaded(remoteData.count)
         let remoteHash = sha256Hex(remoteData)
         let stamp = remote.etag ?? getETag ?? remote.lastModified
         if remoteHash == localHash {
@@ -258,6 +292,7 @@ public final class WebDAVSync {
 
     private func pullMutable(_ name: String, remote: RemoteEntry) throws {
         let (data, etag) = try client.get([name])
+        try budget.downloaded(data.count)
         try accept(name, data, stamp: remote.etag ?? etag ?? remote.lastModified)
     }
 
@@ -340,6 +375,11 @@ public final class WebDAVSync {
     private func listRemoteNotes(_ rootEntries: [RemoteEntry]) throws -> [String: [RemoteEntry]] {
         guard rootEntries.contains(where: { $0.name == "notes" && $0.isCollection }),
               let dirs = try client.list(["notes"]) else { return [:] }
+        try budget.list(dirs.count)
+        let noteDirs = dirs.filter { $0.isCollection && Self.isNoteID($0.name) }.count
+        if noteDirs > options.limits.maxNotes {
+            throw WebDAVError.limitExceeded("the server lists \(noteDirs) notes, more than \(options.limits.maxNotes) (--max-notes)")
+        }
         var out: [String: [RemoteEntry]] = [:]
         for d in dirs {
             guard d.isCollection, Self.isNoteID(d.name) else {
@@ -347,7 +387,10 @@ public final class WebDAVSync {
                 remoteJunk.append(["notes", d.name])
                 continue
             }
-            out[d.name] = try client.list(["notes", d.name]) ?? []
+            try budget.checkTime()
+            let entries = try client.list(["notes", d.name]) ?? []
+            try budget.list(entries.count)
+            out[d.name] = entries
         }
         return out
     }
@@ -357,7 +400,7 @@ public final class WebDAVSync {
     private func syncNote(_ id: String, remoteEntries: [RemoteEntry]?) throws {
         if options.pushOnly { return try syncNotePushOnly(id, remoteEntries: remoteEntries) }
         let dir = root.appendingPathComponent("notes").appendingPathComponent(id)
-        var size: [RevisionName: Int] = [:]
+        var entries: [RevisionName: RemoteEntry] = [:]
         var R = Set<RevisionName>()
         var remoteAtt: RemoteEntry?
         for e in remoteEntries ?? [] {
@@ -368,7 +411,7 @@ public final class WebDAVSync {
                 continue
             }
             R.insert(n)
-            if let s = e.size { size[n] = s }
+            entries[n] = e
         }
         let remoteListed = R
         // Whatever happens below, the server ends up holding R.
@@ -388,14 +431,15 @@ public final class WebDAVSync {
         let remoteDeleted = L.subtracting(R).intersection(S)
         let localDeleted = R.subtracting(L).intersection(S)
 
-        func attempt(_ n: RevisionName, _ body: () throws -> Void) {
+        func attempt(_ n: RevisionName, _ body: () throws -> Void) throws {
             do { try body() } catch {
+                try rethrowRunLimit(error)
                 report.errors.append(.init(path: "notes/\(key(id, n))", message: Self.describe(error)))
             }
         }
 
-        for n in newRemote.sorted() { attempt(n) { if try download(id, n, size: size[n]) { L.insert(n) } } }
-        for n in newLocal.sorted() { attempt(n) { try upload(id, n); R.insert(n) } }
+        for n in newRemote.sorted() { try attempt(n) { if try download(id, n, entry: entries[n]) { L.insert(n) } } }
+        for n in newLocal.sorted() { try attempt(n) { try upload(id, n); R.insert(n) } }
 
         var loaded: LoadedNote?
         if let vault, let uuid = UUID(uuidString: id) {
@@ -413,7 +457,7 @@ public final class WebDAVSync {
             for r in loaded?.revisions ?? [] { if let c = SnapshotCoverage(r) { coverage[c.name] = c } }
             let readable = Set(loaded?.revisions.map(\.name) ?? [])
             for n in remoteDeleted.sorted() {
-                attempt(n) {
+                try attempt(n) {
                     var allowed = false
                     if loaded != nil, readable.contains(n) {
                         var snaps = onServer
@@ -442,7 +486,7 @@ public final class WebDAVSync {
         if !localDeleted.isEmpty {
             let cover = (loaded?.revisions ?? []).filter { R.contains($0.name) }.compactMap(SnapshotCoverage.init)
             for n in localDeleted.sorted() {
-                attempt(n) {
+                try attempt(n) {
                     guard loaded != nil else {
                         report.skipped.append(.init(path: "notes/\(key(id, n))",
                                                     message: "deleted locally; cannot check it against compaction (vault not unlocked)"))
@@ -463,7 +507,7 @@ public final class WebDAVSync {
                         report.deleted.append(.init(side: "remote", path: "notes/\(key(id, n))"))
                         if !options.dryRun { try client.delete(["notes", id, n.filename]) }
                         R.remove(n)
-                    } else if try download(id, n, size: size[n]) {
+                    } else if try download(id, n, entry: entries[n]) {
                         L.insert(n)
                     }
                 }
@@ -471,7 +515,7 @@ public final class WebDAVSync {
         }
 
         // Blob deletions are judged against the revisions both sides hold now.
-        syncBlobDeletions(id, &blobs, remoteRevisions: R)
+        try syncBlobDeletions(id, &blobs, remoteRevisions: R)
 
         guard !options.dryRun else { return }
         // Remember what both sides now share; drop what neither has.
@@ -509,18 +553,36 @@ public final class WebDAVSync {
         try client.put(["notes", id, n.filename], data, condition: .create)
     }
 
-    /// Returns false when the file appeared locally in the meantime.
-    private func download(_ id: String, _ n: RevisionName, size: Int?) throws -> Bool {
+    /// Downloads a revision, checks it (format.md §9.1) and places it.
+    /// Returns false when it was not placed: it appeared locally in the
+    /// meantime, or it failed a check and was quarantined (reported in
+    /// `quarantined`), or an earlier run quarantined it (in `skipped`).
+    private func download(_ id: String, _ n: RevisionName, entry: RemoteEntry?) throws -> Bool {
         try requireLocalWrite("download notes/\(key(id, n))")
         let path = "notes/\(key(id, n))"
+        let size = entry?.size
         if let size, size > options.maxFileBytes { throw WebDAVError.io("\(path) is \(size) bytes, over the limit; skipped") }
+        if skipQuarantined(key(id, n), path: path, entry: entry) { return false }
+        try budget.willDownload(size)
         report.downloaded.append(path)
         guard !options.dryRun else { return true }
         let (data, _) = try client.get(["notes", id, n.filename], maxBytes: options.maxFileBytes)
+        try budget.downloaded(data.count)
         guard data.count <= options.maxFileBytes else { throw WebDAVError.io("\(path) is over the size limit; skipped") }
-        guard data.starts(with: Self.ageMagic) else {
-            throw WebDAVError.malformedResponse("\(path) is not an age file; not written")
+        var problem: String?
+        if !data.starts(with: Self.ageMagic) {
+            problem = "not an age file"
+        } else if let checker = checker(), let uuid = UUID(uuidString: id) {
+            do { try checker.checkIncomingRevision(data, noteId: uuid, name: n) } catch {
+                problem = "\(error)"
+            }
         }
+        if let problem {
+            report.downloaded.removeLast()
+            quarantine(key(id, n), path: path, entry: entry, reason: problem, data: data)
+            return false
+        }
+        state.quarantined?[key(id, n)] = nil
         let url = root.appendingPathComponent("notes/\(id)/\(n.filename)")
         if try !LocalFS.write(data, to: url, replacing: false) { report.downloaded.removeLast(); return false }
         return true

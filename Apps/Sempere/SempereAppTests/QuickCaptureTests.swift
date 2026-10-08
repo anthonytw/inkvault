@@ -131,6 +131,27 @@ struct QuickCaptureTests {
         #expect(Self.leftovers(qc.queueFolder(vaultID)).isEmpty)
     }
 
+    /// Security review 2026-10 (N2): a vault whose `vault.json` names a newer
+    /// format is read-only for this version (format.md §7.3), so a voice note
+    /// for it waits in the local queue, and the queue is not flushed into it.
+    @Test func aReadOnlyVaultGetsNoCaptures() async throws {
+        let (url, _, _, qc, _) = try Self.setUp(transcribe: false)
+        let manifest = url.appendingPathComponent("vault.json")
+        var obj = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        obj["format"] = "sempere/9"
+        try JSONSerialization.data(withJSONObject: obj).write(to: manifest)
+        let vaultID = try #require(try qc.store.load()).profile.vaultId
+        #expect(!QuickCapture.acceptsCaptures(at: url, vaultId: vaultID))
+
+        try await qc.start()
+        let outcome = try await qc.stop()
+        #expect(outcome.delivery == .queued)
+        #expect(Self.inbox(url).isEmpty, "nothing written into the read-only vault")
+        #expect(qc.flushQueue(into: url, vaultId: vaultID, coordinated: false) == 0)
+        #expect(Self.inbox(url).isEmpty)
+        #expect(Self.leftovers(qc.queueFolder(vaultID)) == [CaptureFile.name(outcome.id, .capture)])
+    }
+
     /// The widget and Control Center fired together: the second start used to
     /// pass the idle check during the first one's microphone prompt and start
     /// a second recording that nothing could stop.
@@ -339,7 +360,7 @@ struct QuickCaptureTests {
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         try model.enableQuickCapture()
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad")
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad", authenticator: PassingOwnerAuthenticator())
         #expect(try qc.store.load()?.profile.recipients.contains(other.recipient.string) == true, "added: the new key reads captures too")
         let before = try #require(try qc.store.load()).profile.key
         try await model.removeDeviceKey(other.recipient.string)

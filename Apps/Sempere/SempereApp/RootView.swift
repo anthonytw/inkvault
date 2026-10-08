@@ -197,6 +197,11 @@ struct RootView: View {
                     Task { await model.report { try await model.repairRecipients() } }
                 }
             }
+            if model.recipientsAlert?.canConfirm == true {
+                Button("Trust This List") {
+                    Task { await model.report { try await model.confirmRecipientsList() } }
+                }
+            }
             Button("Cancel", role: .cancel) { model.dismissRecipientsAlert() }
         } message: {
             Text(model.recipientsAlert?.message ?? "")
