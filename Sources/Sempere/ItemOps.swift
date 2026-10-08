@@ -235,7 +235,7 @@ public enum ItemFrames {
     /// returns a background item.
     public static func item(at p: Point, in items: [Item], slop: Double = 0, includeBackground: Bool = true) -> Item? {
         let hits = items.sorted(by: Item.drawsBefore).reversed().filter {
-            contains($0.frame, rotation: $0.rotation, p, slop: slop)
+            isDrawable($0.frame, rotation: $0.rotation) && contains($0.frame, rotation: $0.rotation, p, slop: slop)
         }
         return hits.first { !$0.layer.isBackground } ?? (includeBackground ? hits.first : nil)
     }

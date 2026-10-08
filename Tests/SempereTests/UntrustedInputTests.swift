@@ -391,6 +391,11 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertFalse(ItemFrames.isDrawable(Rect(x: 0, y: 150_000, w: 190_000, h: 10), rotation: 90))
         XCTAssertTrue(ItemFrames.isDrawable(Rect(x: 0, y: 150_000, w: 190_000, h: 10), rotation: nil))
         XCTAssertTrue(ItemFrames.isDrawable(Rect(x: 10, y: 20, w: 300, h: 200), rotation: 1e308))
+        // What the canvas does not draw cannot be tapped and selected either.
+        let hidden = Item(kind: .text, frame: Rect(x: 0, y: 0, w: 1e20, h: 1e20), z: "b")
+        let shown = Item(kind: .text, frame: Rect(x: 0, y: 0, w: 100, h: 100), z: "a")
+        XCTAssertEqual(ItemFrames.item(at: .init(x: 50, y: 50), in: [hidden, shown])?.id, shown.id)
+        XCTAssertNil(ItemFrames.item(at: .init(x: 500, y: 500), in: [hidden, shown]))
     }
 
     /// `1e308 * .pi` is infinite and a rotation by it all NaN: angles are

@@ -2437,6 +2437,7 @@ where the table says how they degrade.
 | shape objects (import) | 1 curve point per byte of the `shapes` plist + 65 536 | `NotabilityShapes.pointsPerByte` |
 | duplicate detection (import) | 256 stroke comparisons per stroke + 10⁶ per copy; beyond, the copy is imported as a separate version | `NotabilityImporter.PrintIndex` |
 | page size and stroke extent (render) | 200 000 pt | `RenderLimits.maxExtent` |
+| item frame (app canvas, hit testing) | every number finite, rotated corners within 200 000 pt; other items are not drawn or selectable | `ItemFrames.isDrawable` |
 | curve samples per stroke | 64 per control point + 1024 (sparser beyond) | `RenderLimits.samplesPerPoint` |
 | outline points per page | 40 M | `RenderLimits.maxOutlinePoints` |
 | nib width | 1 000 pt (drawn no wider) | `RenderLimits.maxNibWidth` |
