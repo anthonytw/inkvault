@@ -93,7 +93,8 @@ extension NoteEditor {
             }
             return recording
         } catch {
-            recordingError = "Could not save the recording: \(error)"
+            let detail = "\(error)"
+            recordingError = String(localized: "Could not save the recording: \(detail)")
             if recordingSession === s { recordingSession = nil }
             RecordingSession.busy.remove(s.id)   // the files stay for `RecordingRecovery`
             return nil
@@ -162,7 +163,8 @@ extension NoteEditor {
             try await writeRecordingOps([.setRecording(recordingId: id, change: .title(t.isEmpty ? nil : t))])
             recordings[i].title = t.isEmpty ? nil : t
         } catch {
-            recordingError = "Could not rename the recording: \(error)"
+            let detail = "\(error)"
+            recordingError = String(localized: "Could not rename the recording: \(detail)")
         }
     }
 
@@ -182,7 +184,8 @@ extension NoteEditor {
             showWrittenItems(added: [], removed: removed)
             playbackHighlight = [:]
         } catch {
-            recordingError = "Could not delete the recording: \(error)"
+            let detail = "\(error)"
+            recordingError = String(localized: "Could not delete the recording: \(detail)")
         }
     }
 

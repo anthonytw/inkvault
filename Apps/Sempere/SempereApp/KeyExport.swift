@@ -119,10 +119,10 @@ extension AppModel {
 
         var description: String {
             switch self {
-            case .notAuthenticated: return "Sempere could not confirm it is you, so the key was not shown."
-            case .noDeviceLock: return "Set a passcode (or Face ID or Touch ID) on this device to save its key."
+            case .notAuthenticated: return String(localized: "Sempere could not confirm it is you, so the key was not shown.")
+            case .noDeviceLock: return String(localized: "Set a passcode (or Face ID or Touch ID) on this device to save its key.")
             case .biometryLockedOut:
-                return "Face ID or Touch ID is locked after too many attempts. Lock the device and unlock it with its passcode, then try again."
+                return String(localized: "Face ID or Touch ID is locked after too many attempts. Lock the device and unlock it with its passcode, then try again.")
             }
         }
     }
@@ -144,7 +144,7 @@ extension AppModel {
         }
         let vaultID = vault.vaultId
         let gen = generation
-        try await authenticator.authenticate(reason: "Save the key of “\(vaultName ?? "this vault")”")
+        try await authenticator.authenticate(reason: String(localized: "Save the key of “\(vaultName ?? String(localized: "Vault", comment: "Name shown for a vault that has none"))”"))
         // Another vault opened, or this one locked, while the prompt was up.
         guard gen == generation, self.vault?.vaultId == vaultID, phase == .unlocked else { throw KeyError.vaultChanged }
         let label = vault.recipients.first { $0.key == identity.recipient.string }?.label ?? "Device"

@@ -574,9 +574,9 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             drag = nil
             itemLayer?.preview(item.id, frame: nil)
             if case .resize = d {
-                actions?.setFrame(item.id, to: frame, on: pageID, name: "Resize")
+                actions?.setFrame(item.id, to: frame, on: pageID, name: String(localized: "Resize", comment: "Undo action name (Edit menu: Undo …)"))
             } else {
-                actions?.setFrame(item.id, to: frame, on: pageID, name: "Move")
+                actions?.setFrame(item.id, to: frame, on: pageID, name: String(localized: "Move", comment: "Undo action name (Edit menu: Undo …)"))
             }
             refresh()
         default:
@@ -634,7 +634,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         guard let pageID, let editor else { return nil }
         switch entry {
         case .paste:
-            return UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.pasteClipboard() }
+            return UIAction(title: String(localized: "Paste"), image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.pasteClipboard() }
         default: break
         }
         guard let item else { return nil }
@@ -642,57 +642,57 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         switch entry {
         case .play:
             guard let play = commands.play else { return nil }
-            return UIAction(title: "Play", image: UIImage(systemName: "play.fill")) { _ in play(item, pageID) }
+            return UIAction(title: String(localized: "Play"), image: UIImage(systemName: "play.fill")) { _ in play(item, pageID) }
         case .playRecording, .pauseRecording:
             guard let toggle = commands.toggleRecording, let recording = shownRecording(item) else { return nil }
             let pause = entry == .pauseRecording
-            return UIAction(title: pause ? "Pause" : "Play", image: UIImage(systemName: pause ? "pause.fill" : "play.fill")) { _ in
+            return UIAction(title: pause ? String(localized: "Pause") : String(localized: "Play"), image: UIImage(systemName: pause ? "pause.fill" : "play.fill")) { _ in
                 toggle(recording)
             }
         case .showTranscript:
             guard let show = commands.showTranscript, let recording = shownRecording(item) else { return nil }
-            return UIAction(title: "Show Transcript", image: UIImage(systemName: "text.quote")) { _ in show(recording) }
+            return UIAction(title: String(localized: "Show Transcript"), image: UIImage(systemName: "text.quote")) { _ in show(recording) }
         case .editText:
             guard let edit = onEditText else { return nil }
-            return UIAction(title: "Edit Text", image: UIImage(systemName: "character.cursor.ibeam")) { [weak self] _ in
+            return UIAction(title: String(localized: "Edit Text"), image: UIImage(systemName: "character.cursor.ibeam")) { [weak self] _ in
                 self?.select(nil)
                 edit(item)
             }
         case .copy:
-            return UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+            return UIAction(title: String(localized: "Copy"), image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
                 self?.commands.copy([item], editor.noteID)
             }
         case .duplicate:
-            return UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
+            return UIAction(title: String(localized: "Duplicate"), image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
                 guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                 self.select(new.id)
             }
         case .editMath:
             guard let editMath = commands.editMath, let actions else { return nil }
-            return UIAction(title: "Edit Equation…", image: UIImage(systemName: "function")) { [weak self] _ in
+            return UIAction(title: String(localized: "Edit Equation…"), image: UIImage(systemName: "function")) { [weak self] _ in
                 self?.select(nil)
                 editMath(item, pageID, actions)
             }
         case .crop:
             guard let crop = commands.crop, let actions else { return nil }
-            return UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in crop(item, pageID, actions) }
+            return UIAction(title: String(localized: "Crop…"), image: UIImage(systemName: "crop")) { _ in crop(item, pageID, actions) }
         case .replaceImage:
             guard let replace = commands.replace, let actions else { return nil }
-            return UIMenu(title: "Replace Image", image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: [
-                UIAction(title: "From Photos…", image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in
+            return UIMenu(title: String(localized: "Replace Image"), image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: [
+                UIAction(title: String(localized: "From Photos…"), image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in
                     replace(item, pageID, actions, .photos) { self?.pick($0.id) }
                 },
-                UIAction(title: "From Files…", image: UIImage(systemName: "folder")) { [weak self] _ in
+                UIAction(title: String(localized: "From Files…"), image: UIImage(systemName: "folder")) { [weak self] _ in
                     replace(item, pageID, actions, .files) { self?.pick($0.id) }
                 },
             ])
         case .bringToFront:
-            return UIAction(title: "Bring to Front", image: UIImage(systemName: "square.3.layers.3d.top.filled")) { [weak self] _ in
+            return UIAction(title: String(localized: "Bring to Front"), image: UIImage(systemName: "square.3.layers.3d.top.filled")) { [weak self] _ in
                 self?.actions?.bringToFront(id, on: pageID)
                 self?.refresh()
             }
         case .delete:
-            return UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+            return UIAction(title: String(localized: "Delete"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
                 self?.deleteSelection()
             }
         case .paste:

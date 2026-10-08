@@ -76,7 +76,8 @@ extension AppModel {
                     throw error
                 }
             } catch {
-                errorMessage = "Could not play the recording: \(error)"
+                let detail = "\(error)"
+                errorMessage = String(localized: "Could not play the recording: \(detail)")
                 return
             }
             if recording.transcript != nil {
@@ -130,7 +131,8 @@ extension AppModel {
             await transcribe(recording, note: note, file: url, meta: editor.meta)
             await cache.release(note: note, ref: recording.blob, discard: true)
         } catch {
-            errorMessage = "Could not read the recording: \(error)"
+            let detail = "\(error)"
+            errorMessage = String(localized: "Could not read the recording: \(detail)")
         }
     }
 
@@ -154,7 +156,8 @@ extension AppModel {
             }
         } catch is CancellationError {
         } catch {
-            if gen == generation { errorMessage = "Could not transcribe the recording: \(error)" }
+            let detail = "\(error)"
+            if gen == generation { errorMessage = String(localized: "Could not transcribe the recording: \(detail)") }
         }
     }
 
@@ -199,11 +202,12 @@ extension AppModel {
                 // A recording of that id may already be in the note (saved, then the files were not deleted).
                 if editor.recording(manifest.recording) == nil {
                     try await editor.addRecording(file: out, started: manifest.started ?? Date(), id: manifest.recording,
-                                                  title: "Recovered recording")
+                                                  title: "Recovered recording")   // stored in the vault: stays English
                 }
                 try? FileManager.default.removeItem(at: folder)
             } catch {
-                editor.recordingError = "A recording interrupted by the app closing could not be recovered: \(error)"
+                let detail = "\(error)"
+                editor.recordingError = String(localized: "A recording interrupted by the app closing could not be recovered: \(detail)")
             }
         }
     }
