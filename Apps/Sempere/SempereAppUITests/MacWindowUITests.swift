@@ -165,9 +165,14 @@ final class MacWindowUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 3)   // the page's ink and tiles settle
         // The largest visible part of a page canvas, in screen points.
         let frame = window.frame
-        let visible = canvases.allElementsBoundByIndex.map { $0.frame.intersection(frame) }
-            .filter { !$0.isNull && $0.width > 100 && $0.height > 100 }
-            .max { $0.width * $0.height < $1.width * $1.height }
+        var visible: CGRect?
+        for element in canvases.allElementsBoundByIndex {
+            let part: CGRect = element.frame.intersection(frame)
+            guard !part.isNull, part.width > 100, part.height > 100 else { continue }
+            let size: CGFloat = part.width * part.height
+            if let best = visible, best.width * best.height >= size { continue }
+            visible = part
+        }
         guard let area = visible else {
             dump(app, "mouse-stroke")
             XCTFail("no page canvas on screen")
@@ -175,9 +180,12 @@ final class MacWindowUITests: XCTestCase {
         }
         print("MACUIDEBUG mouse stroke window \(frame) canvas \(area)")
         let origin = window.coordinate(withNormalizedOffset: .zero)
+        let left: CGFloat = area.minX - frame.minX
+        let top: CGFloat = area.minY - frame.minY
         func at(_ fx: CGFloat, _ fy: CGFloat) -> XCUICoordinate {
-            origin.withOffset(CGVector(dx: area.minX - frame.minX + area.width * fx,
-                                       dy: area.minY - frame.minY + area.height * fy))
+            let dx: CGFloat = left + area.width * fx
+            let dy: CGFloat = top + area.height * fy
+            return origin.withOffset(CGVector(dx: dx, dy: dy))
         }
         let before = window.screenshot().pngRepresentation
         at(0.2, 0.55).press(forDuration: 0.1, thenDragTo: at(0.8, 0.6), withVelocity: 300, thenHoldForDuration: 0.1)
@@ -217,9 +225,10 @@ final class MacWindowUITests: XCTestCase {
         guard let p = pixels(a), let q = pixels(b), p.w == q.w, p.h == q.h else { return 0 }
         var count = 0
         for i in stride(from: 0, to: p.data.count, by: 4) {
-            let d = max(abs(Int(p.data[i]) - Int(q.data[i])), abs(Int(p.data[i + 1]) - Int(q.data[i + 1])),
-                        abs(Int(p.data[i + 2]) - Int(q.data[i + 2])))
-            if d > 60 { count += 1 }
+            let r: Int = abs(Int(p.data[i]) - Int(q.data[i]))
+            let g: Int = abs(Int(p.data[i + 1]) - Int(q.data[i + 1]))
+            let b: Int = abs(Int(p.data[i + 2]) - Int(q.data[i + 2]))
+            if max(r, g, b) > 60 { count += 1 }
         }
         return count
     }
