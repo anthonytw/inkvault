@@ -178,9 +178,8 @@ private struct HistoryPreviewView: View {
             Button("Restore This Version") { Task { await restore() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The note is set back to how it was on "
-                 + "\(entry.date.formatted(date: .abbreviated, time: .shortened)). "
-                 + "Newer changes stay in the history, so you can undo this by restoring a newer version.")
+            let when = entry.date.formatted(date: .abbreviated, time: .shortened)
+            Text("The note is set back to how it was on \(when). Newer changes stay in the history, so you can undo this by restoring a newer version.")
         }
         .alert("Version History", isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })) {
             Button("OK") {}
@@ -199,11 +198,14 @@ private struct HistoryPreviewView: View {
         defer { working = false }
         do {
             let summary = try await model.restoreVersion(of: data.noteID, to: entry.id)
-            outcome = summary == nil ? "The note already matches this version." : "The note was restored."
+            outcome = summary == nil
+                ? String(localized: "The note already matches this version.")
+                : String(localized: "The note was restored.")
             await restored()
         } catch is CancellationError {
         } catch {
-            outcome = "Could not restore: \(error)"
+            let detail = "\(error)"
+            outcome = String(localized: "Could not restore: \(detail)")
         }
     }
 }

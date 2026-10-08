@@ -35,7 +35,7 @@ struct NoteWindowView: View {
     var body: some View {
         NavigationStack {
             content
-                .navigationTitle(note.map { NoteTitle.display($0.title) } ?? "Note")
+                .navigationTitle(note.map { NoteTitle.display($0.title) } ?? String(localized: "Note", comment: "Window title while its note is not loaded"))
                 .toolbar {
                     if let note {
                         ToolbarItem(placement: .secondaryAction) {

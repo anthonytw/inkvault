@@ -54,24 +54,28 @@ struct HistoryEntry: Identifiable, Hashable, Sendable {
 
     /// "This device", or "Device " and the id's first four characters.
     var deviceLabel: String {
-        isThisDevice ? "This device" : "Device \(point.device.rawValue.prefix(4))"
+        if isThisDevice { return String(localized: "This device", comment: "History: a version saved on this device") }
+        let prefix = String(point.device.rawValue.prefix(4))
+        return String(localized: "Device \(prefix)", comment: "History: another device, named by the first characters of its id")
     }
 
     /// "Saved version" for a checkpoint, "Edit" for a delta, "Snapshot" for a snapshot.
     var kindLabel: String {
-        if point.isCheckpoint { return "Saved version" }
-        return point.kind == .snapshot ? "Snapshot" : "Edit"
+        if point.isCheckpoint { return String(localized: "Saved version", comment: "History: kind of a restore point (a checkpoint)") }
+        return point.kind == .snapshot
+            ? String(localized: "Snapshot", comment: "History: kind of a restore point (a compacted snapshot)")
+            : String(localized: "Edit", comment: "History: kind of a restore point (noun: one autosaved change)")
     }
 
     /// A checkpoint's name; "Saved Version" when it has none; nil for other points.
     var checkpointTitle: String? {
         guard let c = point.checkpoint else { return nil }
-        return c.name ?? "Saved Version"
+        return c.name ?? String(localized: "Saved Version", comment: "History: title of a saved version without a name")
     }
 
     /// Why the point is greyed out, when it is.
     var unavailableReason: String? {
-        isAvailable ? nil : "Earlier revisions were compacted away or cannot be read, so this version cannot be rebuilt."
+        isAvailable ? nil : String(localized: "Earlier revisions were compacted away or cannot be read, so this version cannot be rebuilt.")
     }
 
     /// Rows for `points` (oldest first, as `NoteHistory.restorePoints` returns
@@ -86,8 +90,7 @@ struct HistoryEntry: Identifiable, Hashable, Sendable {
     /// points; said whenever a snapshot exists or a point is incomplete.
     static func compactionNotice(_ points: [RestorePoint]) -> String? {
         guard points.contains(where: { $0.kind == .snapshot || !$0.complete }) else { return nil }
-        return "Revisions removed by compaction are not restore points and are not listed. "
-            + "Versions that depend on them are greyed out and cannot be shown or restored."
+        return String(localized: "Revisions removed by compaction are not restore points and are not listed. Versions that depend on them are greyed out and cannot be shown or restored.")
     }
 }
 
@@ -111,7 +114,8 @@ struct HistoryGroupRow: Identifiable, Hashable, Sendable {
 
     /// "This device · 12 saves" (the device and the number of autosaves).
     var summary: String {
-        "\(newest.deviceLabel) · \(saves) save\(saves == 1 ? "" : "s")"
+        let savesText = String(localized: "\(saves) saves", comment: "History: number of autosaves in an editing session")
+        return String(localized: "\(newest.deviceLabel) · \(savesText)", comment: "History: device and number of saves of a session")
     }
 
     /// "Oct 6, 2026, 2:02 PM – 2:31 PM": the date and time range of a session
@@ -120,7 +124,8 @@ struct HistoryGroupRow: Identifiable, Hashable, Sendable {
         let first = start.formatted(date: .abbreviated, time: .shortened)
         guard saves > 1, end != start else { return first }
         let sameDay = Calendar.current.isDate(start, inSameDayAs: end)
-        return first + " – " + end.formatted(date: sameDay ? .omitted : .abbreviated, time: .shortened)
+        let last = end.formatted(date: sameDay ? .omitted : .abbreviated, time: .shortened)
+        return String(localized: "\(first) – \(last)", comment: "History: the start and end of an editing session")
     }
 
     /// Groups `points` (oldest first) with `NoteHistory.groups` and pairs them
@@ -173,7 +178,7 @@ extension AppModel {
         let state = try await offMain { try data.state(at: point) }
         try ensureCurrent(gen)
         return NoteEditor(noteID: data.noteID, state: state, writer: nil,
-                          readOnlyReason: "Preview of an earlier version. Nothing here can be edited.")
+                          readOnlyReason: String(localized: "Preview of an earlier version. Nothing here can be edited."))
     }
 
     /// Restores note `id` to `point` with one delta (`NoteWriter.restore`),

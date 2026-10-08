@@ -77,7 +77,7 @@ struct NoteListView: View {
             ToolbarItem(placement: secondary) {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
                     Picker("Sort By", selection: $model.sortOrder) {
-                        ForEach(NoteSort.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(NoteSort.allCases) { Text($0.title).tag($0) }
                     }
                 }
                 .help("Sort the notes by date or title")
@@ -87,7 +87,7 @@ struct NoteListView: View {
                     Toggle("Recognize Handwriting", isOn: Binding(get: { model.recognizer != nil },
                                                                   set: { model.setHandwritingRecognition($0) }))
                     let waiting = model.notesNeedingRecognition.count
-                    Button("Recognize \(waiting) Note\(waiting == 1 ? "" : "s") Now", systemImage: "wand.and.stars") {
+                    Button("Recognize \(waiting) Notes Now", systemImage: "wand.and.stars") {
                         model.startRecognizingNotes()
                     }
                     .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil || model.isVaultReadOnly)
@@ -227,25 +227,25 @@ struct NoteListView: View {
 
     private var title: String {
         switch model.sidebarSelection ?? .allNotes {
-        case .allNotes: return "Notes"
+        case .allNotes: return String(localized: "Notes", comment: "Note list title: all notes")
         case .notebook(let n): return NotebookPath.components(n).last ?? n
         case .tag(let t): return "#\(t)"
-        case .deleted: return "Recently Deleted"
-        case .recentlyRecognized: return "Recently Recognized"
+        case .deleted: return String(localized: "Recently Deleted", comment: "Sidebar row: deleted notes")
+        case .recentlyRecognized: return String(localized: "Recently Recognized", comment: "Sidebar row: notes whose handwriting was recognized in the last 7 days")
         }
     }
 
     private var promptTitle: String {
         switch prompt?.kind {
-        case .tag: return "Add Tag"
-        default: return "Rename Note"
+        case .tag: return String(localized: "Add Tag", comment: "Alert title: add a tag to a note")
+        default: return String(localized: "Rename Note", comment: "Alert title: rename a note")
         }
     }
 
     private var promptField: String {
         switch prompt?.kind {
-        case .tag: return "Tag"
-        default: return "Title"
+        case .tag: return String(localized: "Tag", comment: "Text field placeholder: a tag name")
+        default: return String(localized: "Title", comment: "Text field placeholder: a note title")
         }
     }
 
@@ -357,7 +357,7 @@ private struct NoteRow: View {
     private var summary: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text(note.title.isEmpty ? "Untitled" : note.title)
+                Text(note.title.isEmpty ? String(localized: "Untitled", comment: "Shown for a note without a title") : note.title)
                     .font(.headline)
                 if downloading {
                     ProgressView().controlSize(.mini)
@@ -368,7 +368,7 @@ private struct NoteRow: View {
                 if let modified = note.modified {
                     Text(modified, format: .dateTime.year().month().day())
                 }
-                Text("\(note.pages) page\(note.pages == 1 ? "" : "s")")
+                Text("\(note.pages) pages")
                 if let recognized {
                     Label(RecognitionResultsText.pagesRead(recognized.pagesRecognized, of: note.pages), systemImage: "text.viewfinder")
                 }
@@ -408,7 +408,7 @@ struct EmptyListView: View {
         case .loading(let loading):
             VStack(spacing: 12) {
                 ProgressView()
-                Text(loading?.headline ?? "Opening vault…").font(.headline).monospacedDigit()
+                Text(loading?.headline ?? String(localized: "Opening vault…", comment: "Progress: the note list is being read")).font(.headline).monospacedDigit()
                 Text("Notes appear here as they are read.").font(.callout).foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
@@ -578,7 +578,8 @@ struct RecognitionBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Reading handwriting: \(progress.done) of \(progress.total) notes")
+                let notes = String(localized: "\(progress.total) notes", comment: "A number of notes")
+                Text("Reading handwriting: \(progress.done) of \(notes)")
                     .font(.footnote.weight(.semibold)).monospacedDigit()
                 Spacer()
                 Button("Stop", action: cancel).font(.footnote)
@@ -597,19 +598,20 @@ struct RecognitionBar: View {
 
 /// Wording of the recognition results (tested).
 enum RecognitionResultsText {
-    static let sectionHeadline = "Read by Recognize All in the last 7 days"
+    static let sectionHeadline = String(localized: "Read by Recognize All in the last 7 days", comment: "Header above the Recently Recognized list")
 
     /// "Read 2 of 5 pages", "Read 1 page".
     static func pagesRead(_ read: Int, of pages: Int) -> String {
-        read >= pages ? "Read \(read) page\(read == 1 ? "" : "s")" : "Read \(read) of \(pages) pages"
+        read >= pages ? String(localized: "Read \(read) pages", comment: "Pages of a note whose handwriting was read")
+            : String(localized: "Read \(read) of \(String(localized: "\(pages) pages", comment: "A number of pages"))", comment: "%@ is a number of pages, e.g. “5 pages”")
     }
 
     /// The line under the headline: what is still going on, or what went wrong.
     static func detail(_ results: RecognitionResults, running: Bool) -> String? {
         var parts: [String] = []
-        if running { parts.append("Still reading…") }
-        if results.failed > 0 { parts.append("\(results.failed) could not be read") }
-        if results.stopped { parts.append("Stopped early") }
+        if running { parts.append(String(localized: "Still reading…", comment: "Recognize All is still running")) }
+        if results.failed > 0 { parts.append(String(localized: "\(results.failed) could not be read", comment: "A number of notes whose handwriting could not be read")) }
+        if results.stopped { parts.append(String(localized: "Stopped early", comment: "Recognize All was stopped before the end")) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

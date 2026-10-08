@@ -102,7 +102,7 @@ struct AppCommands: Commands {
     @ViewBuilder
     private func item(_ command: MenuCommand) -> some View {
         let enabled = router.map { command.isEnabled(in: $0.context) } ?? (command == .showLibrary || command == .showSettings)
-        let title = command == .togglePalette && router?.paletteVisible == true ? "Hide Tool Palette" : command.title
+        let title = command == .togglePalette && router?.paletteVisible == true ? String(localized: "Hide Tool Palette") : command.title
         let button = Button(title) { run(command) }.disabled(!enabled)
         if let shortcut = command.shortcut {
             button.keyboardShortcut(shortcut.key == MenuCommand.Shortcut.backspace ? KeyEquivalent.delete : KeyEquivalent(shortcut.key),

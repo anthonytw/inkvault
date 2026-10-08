@@ -147,9 +147,11 @@ struct OpenedPDFsView: View {
                             Label(pdf.name, systemImage: "doc.richtext")
                         }
                     } footer: {
-                        Text(model.openedPDFs.count == 1
-                             ? "Becomes a new note in “\(vaultName)”, one page per PDF page, to write on. The PDF is stored encrypted in the vault."
-                             : "Each PDF becomes a new note in “\(vaultName)”, one page per PDF page, to write on. The PDFs are stored encrypted in the vault.")
+                        if model.openedPDFs.count == 1 {
+                            Text("Becomes a new note in “\(vaultName)”, one page per PDF page, to write on. The PDF is stored encrypted in the vault.")
+                        } else {
+                            Text("Each PDF becomes a new note in “\(vaultName)”, one page per PDF page, to write on. The PDFs are stored encrypted in the vault.")
+                        }
                     }
                     if model.openedPDFStage == .readOnly {
                         Section {
@@ -166,7 +168,7 @@ struct OpenedPDFsView: View {
                     }
                 }
             }
-            .navigationTitle(model.openedPDFs.count == 1 ? "Import PDF" : "Import \(model.openedPDFs.count) PDFs")
+            .navigationTitle(String(localized: "Import \(model.openedPDFs.count) PDFs", comment: "Title of the sheet for PDFs opened with Sempere"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -193,8 +195,9 @@ struct OpenedPDFsView: View {
             let rest = locked.dropFirst()
             for request in rest { model.cancelPDFImport(request) }
             if !rest.isEmpty {
-                model.errorMessage = "Protected PDFs not imported (open them again to enter their passwords): "
-                    + rest.map { $0.file.lastPathComponent }.joined(separator: ", ")
+                let names = rest.map { $0.file.lastPathComponent }.formatted(.list(type: .and))
+                model.errorMessage = String(localized: "Protected PDFs not imported (open them again to enter their passwords): \(names)",
+                                            comment: "The value lists file names")
             }
         }
     }
@@ -207,11 +210,11 @@ struct OpenedPDFsWaitingBar: View {
 
     var body: some View {
         let count = model.openedPDFs.count
+        let text = model.openedPDFStage == .needsVault
+            ? String(localized: "Open a vault to import \(count) PDFs as new notes.", comment: "Bar under the welcome screen")
+            : String(localized: "Unlock the vault to import \(count) PDFs as new notes.", comment: "Bar under the locked vault")
         HStack {
-            Label(model.openedPDFStage == .needsVault
-                  ? "Open a vault to import \(count == 1 ? "the PDF" : "\(count) PDFs") as new notes."
-                  : "Unlock the vault to import \(count == 1 ? "the PDF" : "\(count) PDFs") as new notes.",
-                  systemImage: "doc.richtext")
+            Label(text, systemImage: "doc.richtext")
                 .font(.callout)
             Spacer()
             Button("Discard") { model.discardOpenedPDFs() }

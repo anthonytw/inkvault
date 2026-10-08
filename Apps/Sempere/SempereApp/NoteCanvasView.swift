@@ -39,8 +39,7 @@ struct NoteCanvasView: View {
                 } else if let download = model.noteDownload, download.id == note.id {
                     VStack(spacing: 10) {
                         ProgressView(value: download.progress.fractionCompleted).frame(width: 240)
-                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of "
-                             + "\(download.progress.total) file\(download.progress.total == 1 ? "" : "s")")
+                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of \(String(localized: "\(download.progress.total) files"))")
                             .font(.callout).monospacedDigit().foregroundStyle(.secondary)
                     }
                 } else if model.pendingNoteIDs.contains(note.id) {
@@ -102,12 +101,12 @@ struct NoteCanvasView: View {
             if !Platform.isPhone {   // the stack's back button is the way to the list
                 ToolbarItem(placement: .topBarLeading) {
                     let full = ColumnLayout.visibility(from: storedColumns) == .detailOnly
-                    Button(full ? "Show Notes" : "Hide Notes",
+                    Button(LocalizedStringKey(full ? "Show Notes" : "Hide Notes"),
                            systemImage: full ? "list.bullet" : "arrow.up.left.and.arrow.down.right") {
                         withAnimation { storedColumns = ColumnLayout.toggled(storedColumns) }
                     }
                     .disabled(!full && model.selectedNote == nil)
-                    .help(full ? "Show the note list" : "Hide the note list for a full-width canvas")
+                    .help(LocalizedStringKey(full ? "Show the note list" : "Hide the note list for a full-width canvas"))
                 }
             }
         }
@@ -395,12 +394,11 @@ struct EditorView: View {
     private var itemSelectionToggle: some View {
         Toggle("Select", systemImage: "cursorarrow.rays", isOn: $selectingItems)
             .toggleStyle(.button)
-            .help("Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. "
-                  + "While drawing: tap one with the lasso, hold a finger on it, or right-click it")
+            .help("Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. While drawing: tap one with the lasso, hold a finger on it, or right-click it")
     }
 
     private var pageCounter: some View {
-        Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+        Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
             .monospacedDigit()
     }
 
@@ -459,7 +457,7 @@ struct EditorView: View {
                     Menu {
                         Toggle("Compact Palette", systemImage: "rectangle.compress.vertical", isOn: $paletteCompact)
                     } label: {
-                        Label(paletteVisible ? "Hide Tools" : "Show Tools",
+                        Label(LocalizedStringKey(paletteVisible ? "Hide Tools" : "Show Tools"),
                               systemImage: paletteVisible ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
                     } primaryAction: {
                         paletteVisible.toggle()
@@ -501,7 +499,7 @@ struct EditorView: View {
                     Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
                         .disabled(editor.pageIndex == 0)
                         .help("Previous page (⌘[)")
-                    Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+                    Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
                         .monospacedDigit()
                     Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
                         .disabled(editor.pageIndex + 1 >= editor.pages.count)
@@ -533,7 +531,7 @@ struct EditorView: View {
                         .help("Add a page after this one; press and hold to duplicate, delete or add at the end")
                     }
                     if !editor.isPageless {
-                        Button(stripVisible ? "Hide Pages" : "Show Pages", systemImage: "sidebar.right") {
+                        Button(LocalizedStringKey(stripVisible ? "Hide Pages" : "Show Pages"), systemImage: "sidebar.right") {
                             stripVisible.toggle()
                         }
                         .help("Page thumbnails: tap to go to a page, drag to reorder")
@@ -554,7 +552,8 @@ struct SearchMatchBar: View {
 
     /// "3 of 12 matches", "1 match".
     static func label(position: Int, count: Int) -> String {
-        count == 1 ? "1 match" : "\(position) of \(count) matches"
+        count == 1 ? String(localized: "1 match", comment: "Search highlights: the only match")
+            : String(localized: "\(position) of \(count) matches", comment: "Search highlights: current match of the count (never 1)")
     }
 
     var body: some View {
@@ -586,7 +585,7 @@ struct SearchMatchBar: View {
 /// canvas for a few seconds after a merge brought another device's changes
 /// (`NoteEditor.mergeRevisions`). It takes no touches.
 struct RemoteUpdateNotice: View {
-    static let text = "Updated from another device"
+    static let text = String(localized: "Updated from another device", comment: "Notice over the canvas after another device's changes were merged into the open note")
     static let duration = Duration.seconds(3)
 
     var body: some View {
@@ -621,6 +620,6 @@ private struct Banner: View {
 enum NoteTitle {
     static func display(_ title: String) -> String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? "Untitled" : t
+        return t.isEmpty ? String(localized: "Untitled", comment: "Shown for a note without a title") : t
     }
 }

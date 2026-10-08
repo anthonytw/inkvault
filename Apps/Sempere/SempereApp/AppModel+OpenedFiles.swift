@@ -95,7 +95,8 @@ extension AppModel {
             let copy = try await Task.detached(priority: .userInitiated) { try PDFPreparation.copyPicked(url) }.value
             openedPDFs.append(OpenedPDF(file: copy, name: url.lastPathComponent))
         } catch {
-            errorMessage = "Could not open “\(url.lastPathComponent)”. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not open “\(url.lastPathComponent)”. \(Self.describe(error))",
+                                  comment: "A file opened with Sempere: its name, then a sentence saying why")
         }
     }
 

@@ -236,7 +236,7 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
         guard let canvas, let before else { return }
         let after = canvas.drawing
         guard after.strokes.count != before.strokes.count else { return }
-        registerUndo(restoring: DrawingBox(before), redoing: DrawingBox(after), action: "Erase")
+        registerUndo(restoring: DrawingBox(before), redoing: DrawingBox(after), action: String(localized: "Erase", comment: "Undo action name (Edit menu: Undo …)"))
     }
 
     /// One undo step that sets the drawing back to `restoring`, and its redo.

@@ -21,7 +21,7 @@ struct KeyTextFile: FileDocument {
 }
 
 enum KeyExportText {
-    static let warning = "This is the secret key in plain text. Anyone who has it can read every note in the vault. Keep it in a password manager or another place only you can open; do not leave it in a shared or synced folder, an email or a chat."
+    static let warning = String(localized: "This is the secret key in plain text. Anyone who has it can read every note in the vault. Keep it in a password manager or another place only you can open; do not leave it in a shared or synced folder, an email or a chat.")
 }
 
 /// Save to Files, Share and the recovery kit for one key. The share sheet's
@@ -47,7 +47,7 @@ struct KeyFileActions: View {
         // One file exporter per view: SwiftUI presents only one of several on the same view.
         .fileExporter(isPresented: $savingFile, document: KeyTextFile(text: key.text), contentType: .plainText,
                       defaultFilename: (key.fileName as NSString).deletingPathExtension) { result in
-            if case .failure(let error) = result { failure = "The key was not saved: \(error.localizedDescription)" }
+            if case .failure(let error) = result { failure = String(localized: "The key was not saved: \(error.localizedDescription)") }
         }
         .sheet(isPresented: Binding(get: { shared != nil }, set: { if !$0 { unshare() } })) {
             if let shared { ShareSheet(items: [shared]) { unshare() } }
@@ -74,7 +74,7 @@ struct KeyFileActions: View {
     }
 
     private func share() {
-        do { shared = try KeyShareFile.stage(key) } catch { failure = "The key could not be prepared for sharing: \(error)" }
+        do { shared = try KeyShareFile.stage(key) } catch { failure = String(localized: "The key could not be prepared for sharing: \(error)") }
     }
 
     private func unshare() {
@@ -121,7 +121,7 @@ struct SaveKeyView: View {
                         LabeledContent("Public key", value: DeviceKey.abbreviated(key.recipient))
                             .font(.caption.monospaced())
                     } footer: {
-                        Text("The key this device unlocked “\(model.vaultName ?? "the vault")” with.")
+                        Text("The key this device unlocked “\(model.vaultName ?? String(localized: "Vault", comment: "Name shown for a vault that has none"))” with.")
                     }
                     KeyFileActions(key: key)
                 } else if let failure {

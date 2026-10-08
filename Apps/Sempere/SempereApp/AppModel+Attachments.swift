@@ -123,7 +123,8 @@ extension AppModel {
                                                   stallTimeout: stall, pollInterval: poll)
             }
         } catch {
-            errorMessage = "Could not paste: \(error)"
+            let detail = "\(error)"
+            errorMessage = String(localized: "Could not paste: \(detail)")
             return []
         }
     }

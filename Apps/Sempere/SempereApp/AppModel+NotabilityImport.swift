@@ -31,18 +31,27 @@ struct NotabilityImportSummary: Equatable, Sendable {
                   nothingFound: report.notes.isEmpty)
     }
 
-    var title: String { failed > 0 ? "Import Finished with Errors" : "Notability Import" }
+    var title: String {
+        failed > 0 ? String(localized: "Import Finished with Errors", comment: "Alert title after a Notability import")
+            : String(localized: "Notability Import", comment: "Alert title after a Notability import")
+    }
 
+    /// Whole sentences, one per line (never joined fragments: docs/localization.md).
     var message: String {
-        if nothingFound { return "No Notability notes (.note or .ntb files, or a zip of them) were found in what you picked." }
-        var lines = ["\(imported) note\(imported == 1 ? "" : "s") imported."]
+        if nothingFound {
+            return String(localized: "No Notability notes (.note or .ntb files, or a zip of them) were found in what you picked.")
+        }
+        var lines = [String(localized: "\(imported) notes imported.", comment: "Notability import result: notes written")]
         if skipped > 0 {
-            lines.append("\(skipped) skipped (already in the vault, or a copy of a note imported from another file).")
+            lines.append(String(localized: "\(skipped) notes skipped (already in the vault, or a copy of a note imported from another file).",
+                                comment: "Notability import result"))
         }
         if failed > 0 {
-            lines.append("\(failed) failed:")
+            lines.append(String(localized: "\(failed) notes failed:", comment: "Notability import result, followed by one line per note"))
             lines += failures.prefix(5)
-            if failures.count > 5 { lines.append("…and \(failures.count - 5) more.") }
+            if failures.count > 5 {
+                lines.append(String(localized: "…and \(failures.count - 5) more.", comment: "After the first failed notes of a Notability import"))
+            }
         }
         return lines.joined(separator: "\n")
     }
