@@ -122,8 +122,13 @@ outside the vault and never in it (like §10): the vault id, `linkKey` of the
 last secret it verified, and the keys of the last recipients list it verified.
 The reference implementation keeps it in
 `$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI, mode 0600) and in the
-app's Application Support folder. It holds no secret: `linkKey` can only
-check a `secretLink`.
+app's Application Support folder. It holds neither the vault secret nor a
+key that decrypts anything, but it is private: `linkKey` is an HMAC key, so
+whoever reads a record can make a `secretLink` from that secret as well as
+check one, and a device whose record is at that secret would accept a list
+linked that way. Records are kept readable by their owner only (the CLI
+creates them mode 0600 in a 0700 folder; the app excludes them from backups)
+and are never copied between devices.
 
 **Writing.** Every write of `recipients` (creating a vault, adding, removing
 or replacing a recipient, a migration, finishing an interrupted change, a
@@ -141,12 +146,15 @@ cannot check nor drop the tag by rewriting `vault.json`.
    device has a trust record for the vault, the tag was removed
    (a **downgrade**) and the list is tampered; otherwise the vault is
    **untagged** (written before this section).
-3. The tag verifies and the device has a trust record: if `linkKey` of the
-   current secret equals the record's, the list is **verified**. Otherwise
-   the secret changed since the device last checked: if `secretLink` verifies
-   under the record's `linkKey`, the list is verified (a rotation by a key
-   holder). If it does not, the change is **unconfirmed** and the list is
-   tampered, whatever keys it holds: the new secret may be an attacker's,
+3. The device has a trust record: this step is decided **before** steps 1
+   and 2, whatever the tag says. If `linkKey` of the current secret equals
+   the record's, the secret is the one the device verified; otherwise, if
+   `secretLink` verifies under the record's `linkKey`, it is a rotation by a
+   key holder. Either way steps 1 and 2 then apply, and a list whose tag
+   verifies is **verified**. If neither holds, the change is **unconfirmed**
+   and the list is tampered, whatever keys it holds and whether its tag is
+   present, absent or wrong (a tag is never judged, and no shorter list is
+   searched, under a secret the device cannot link to its record): the new secret may be an attacker's,
    and a device that accepted it would also accept any later `secretLink`
    made under it, including one that adds the attacker's key. A device that
    missed two or more rotations therefore sees a tampered list, even when
@@ -165,7 +173,9 @@ The last verified list is, when the current secret verifies a tag over the
 current list with up to three entries deleted (order kept), that shorter
 list: an attacker who only inserted keys is undone exactly, including keys
 another device added since this one last checked. Otherwise it is the trust
-record's list, if the device has one.
+record's list, if the device has one. The search runs only under a secret
+that step 3 accepted (or with no record): under an attacker's secret it
+would return a list holding the attacker's own key.
 
 An untagged vault is upgraded by the first writer that holds the secret:
 it writes the tag over the current list and the feature, and reports the
@@ -181,8 +191,9 @@ no file stays encrypted to an unexpected key. An unconfirmed secret change
 cannot be repaired this way: the files are tagged under a secret the device
 no longer holds, so the user restores `vault.json` from a backup or another
 device, or, when the device only missed a legitimate change, confirms the
-current list explicitly after checking it (the tag must verify under the
-current secret; the trust record is updated, nothing in the vault changes).
+current list explicitly after checking it (the tag must be present and verify
+under the current secret; the trust record is updated, nothing in the vault
+changes).
 An untagged copy older than the tag (a restored backup) may be confirmed the
 same way; it is then tagged again. A list whose tag does not verify is never
 confirmed, and nothing here is ever done implicitly.
@@ -319,6 +330,16 @@ unfinished: a writer whose list checks (§2.1) finishes steps 3 and 4 before
 any other recipient change, and may verify tags under `previousVaultSecret` meanwhile. Readers
 that do not implement this procedure treat the journal as an unknown file
 (§1).
+
+The journal is plaintext that anyone who can write the folder can plant,
+and anyone can encrypt a secret of their own to the public keys. A reader
+therefore uses `previousVaultSecret` only when it equals the current secret
+(a change interrupted before step 2) or `vault.json`'s `secretLink` (§2.1)
+verifies a rotation from it to the current secret. Otherwise the journal is
+reported as unreadable: nothing verifies under its secret, and a writer does
+not resume from it. A journal written before §2.1 (no `secretLink`) is
+treated the same way; its files not yet rewrapped are reported as failing
+their tags until they are restored from a backup.
 
 A change may also **replace** one recipient by another in a single pass
 (steps 1–4 as for a removal: the secret rotates). Until it finishes, files
@@ -2035,13 +2056,15 @@ bands of an infinite page) is its choice (`docs/attachments.md`).
   make, model, software, creation date), every top-level `meta` box, and
   every XMP `uuid` box (usertype `BE7ACFCB-97A9-42E8-9C71-999491E3AFAC`,
   which may hold `exif:GPSLatitude` and the like) at the top level or
-  directly inside `moov` or a `trak` has its type changed to `free` and
+  directly inside `moov` or a `trak`, and a top-level `udta`, has its type changed to `free` and
   its contents set to zero bytes. Positions recorded per frame in the
   samples of a timed-metadata or text track (a drone's or action camera's
   telemetry) are not removed this way. Nothing else moves, so every sample offset
   (`stco`, `co64`) stays valid and the clip plays unchanged. Exporters do the
   same to bytes they pass through into an export unless asked to keep them
-  (as for images, §8.2.5).
+  (as for images, §8.2.5). Stripping fails closed: a file with more than one
+  `moov`, or whose last top-level box other than `mdat` runs past the end, is
+  refused rather than stored with metadata the walk did not see.
 - `pixelSize` (immutable): `[w, h]`, the clip's display size in pixels: the
   video track's `tkhd` width and height, swapped when `videoRotation` is 90 or
   270. For layout and the poster's aspect; players use the decoded size.
@@ -2716,7 +2739,15 @@ most 256 MiB.
   a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
   `device` is the capturing device's id (§5). `title`, `notebook` (absent:
   `Inbox`) and the informational fields become the note's.
-- **`transcript`**: the JSON is a transcript (§8.3.2) whose `recording` is the
+- **`transcript`**: the payload is the 64 lowercase hex digits of the
+  capture's audio SHA-256 (its manifest's `audio.sha256`). That binds the
+  transcript to the audio: the capture key is on every capturing device and
+  capture ids are in the clear, so otherwise any holder of the key could add
+  a transcript to a voice note it never heard. A reader adds a transcript
+  only to the recording whose blob has that hash, and never one whose
+  payload is anything else (an empty payload was written before this rule):
+  such a transcript is deleted once its note exists, never adopted. The JSON
+  is a transcript (§8.3.2) whose `recording` is the
   capture's recording id (§11.3); the payload is empty.
 
 Recovery without the app (the audio of a capture):
@@ -2750,10 +2781,12 @@ itself (its own device id and clock):
   informational fields), with `transcript` set when a transcript file is
   there;
 - a note that exists gets only `setRecording(transcript)`, and only when the
-  recording is there without a transcript.
+  recording is there without a transcript and its blob is the audio the
+  transcript is bound to (§11.2).
 
 Afterwards the capture file is deleted once the note exists, and the
-transcript file once the recording has a transcript (or is gone). A
+transcript file once the recording has a transcript (or is gone, or holds
+other audio than the transcript is bound to, §11.2). A
 transcript file whose capture has not arrived yet stays.
 
 

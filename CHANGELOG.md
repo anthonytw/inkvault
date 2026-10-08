@@ -223,6 +223,27 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   system fonts). PDF and SVG embed font subsets only, with searchable text; characters no font
   covers are reported with the script and what to install.
 
+### Security
+
+- Security review of October 2026 (`docs/security-review-2026-10.md`):
+  - A `rewrap-journal.json` planted in the vault folder, or sent by a sync server, made revisions and
+    blobs tagged under a secret of the attacker's verify, and a resumed rewrap re-tagged them under the real
+    secret. Its secret now counts only when `secretLink` links it to the vault's (Swift and the web viewer).
+  - An unconfirmed secret is now detected before the tag is looked at. A stripped or bogus tag under a
+    replaced secret can no longer be confirmed or repaired. A repair can no longer keep an attacker's key
+    found by the shorter-list search.
+  - A locked `sync webdav` no longer takes a `vault.json` whose sealed secret or tag changed.
+  - Quick capture transcripts are bound to their audio (`format.md` §11.2), so another holder of the capture
+    key cannot add one to an existing voice note. `sempere inbox transcript` takes `--audio`.
+  - Trust records are created mode 0600 in a 0700 folder, and the app keeps them out of backups.
+  - Other fixes:
+    - PROPFIND bodies with NUL bytes (UTF-16) are refused.
+    - `blobs repair` stops on a note with newer revisions.
+    - `inbox capture` and `inbox transcript` refuse vaults of a newer format.
+    - A huge video duration no longer traps Markdown and HTML exports or the player.
+    - Video metadata stripping refuses a second `moov` or a truncated box other than `mdat`, and blanks a
+      top-level `udta`.
+
 ### Changed
 
 - Exports cut pageless pages at gaps in the ink near each sheet height instead of through

@@ -51,10 +51,11 @@ vault, and the vault's integrity.
 | --- | --- |
 | Storage (iCloud, a WebDAV host, a stolen backup) | Inbox files are age-encrypted to the recipients. Without the capture key they cannot add a capture that verifies. They see that captures exist, their sizes and times. |
 | Storage that rewrites `vault.json` (adds its own recipient) | A capture is sealed to the capture profile's recipients only, never to the list in `vault.json`, and a profile is only made or refreshed from a list that checks (`format.md` §2.1): a planted recipient never receives a voice note. The app refuses to enable or refresh quick capture while the list does not check. |
-| A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and no audio is on disk. |
-| Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox; they show up in the inbox notebook, attributed to a device id. They cannot read any capture, any note, or the caches, and cannot change existing notes. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
+| A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and audio on disk (a recording interrupted by a crash or a restart) is protected until the first unlock. |
+| Someone holding the locked device after its first unlock | They can record voice notes from the Lock Screen widget, Control Center, the Action button or Siri without unlocking (the intents need no authentication), and those notes look like the owner's. They cannot listen to any. |
+| Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox, under any title and in any notebook (the manifest names both), written as the adopting device: nothing marks them as forged. They cannot read any capture, any note, or the caches, and cannot change existing notes: a transcript is bound to its capture's audio (`format.md` §11.2), which they never see. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
 | Someone using the unlocked device | They can record voice notes, which is the feature. They cannot listen to past ones without unlocking the vault. |
-| A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted. The same holds for a device that is still authorized but has not unlocked the vault since the key change (its profile still has the old capture key): voice notes it records in that window stay in the inbox unadopted, readable only with the stock-CLI recipe (`format.md` §11.2). Open question: adopt them after a confirmation. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
+| A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted once the recipient change has finished (while it is unfinished, its journal keeps the outgoing secret, whose capture key still verifies). The same holds for a device that is still authorized but has not unlocked the vault since the key change (its profile still has the old capture key): voice notes it records in that window stay in the inbox unadopted, readable only with the stock-CLI recipe (`format.md` §11.2). Open question: adopt them after a confirmation. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
 
 ### Plaintext audio
 
@@ -108,9 +109,10 @@ transcription on. That transcript goes through the normal path: a blob, then
 | --- | --- |
 | Siri, Shortcuts | `StartVoiceNoteIntent` (an `AudioRecordingIntent`) and `StopVoiceNoteIntent`, phrases in `VoiceNoteShortcuts` |
 | Action button | Any of the above, or the control |
-| Control Center | `VoiceNoteControl` (`ControlWidget`, iOS 18+) |
-| Lock Screen, Home Screen | `VoiceNoteWidget` (circular, rectangular, small) |
-| While recording | `VoiceNoteLiveActivity`: timer and Stop, on the Lock Screen and in the Dynamic Island (required for `AudioRecordingIntent`) |
+| Control Center | `VoiceNoteControl` (`ControlWidget`, iOS 18+): records when ready, stops while recording, opens the setup otherwise |
+| Lock Screen, Home Screen | `VoiceNoteWidget` (circular, rectangular, small): the same three actions |
+| While recording | `VoiceNoteLiveActivity`: pulsing record dot, elapsed time and a large Stop, on the Lock Screen and in the Dynamic Island (required for `AudioRecordingIntent`); then where the voice note went |
+| In the app | `VoiceNoteBanner`: a red bar with the time and Stop at the top of the window (and of the unlock and Settings sheets) while recording, then where the voice note went |
 | Mac | Shortcuts and Siri (no widgets in the Catalyst build; a menu bar item is future work) |
 | CLI | `sempere inbox enable`, `capture`, `transcript`, `list`, `import` (`docs/cli.md`) |
 
@@ -128,6 +130,53 @@ intents firing together cannot start two recordings. With Live Activities
 off, iOS ends an intent's recording, so `start()` refuses with an
 explanation (also shown in Settings).
 
+## What the widgets and the control show
+
+The widget extension cannot ask the app anything, so the app writes a small
+status (`VoiceNoteStatus`, `SempereShared/VoiceNoteStatus.swift`) into the
+App Group container `group.io.github.anthonytw.sempere` after every change
+(recorder state, quick voice notes turned on or off, the app becoming active,
+Live Activities switched in Settings) and reloads the widgets
+(`WidgetCenter`) and the control (`ControlCenter`) when it changed. The
+status holds only the phase and the start time of a recording in progress: no
+key, no vault, no note.
+
+The control has one action, `VoiceNoteControlIntent` (a control's template
+cannot switch on its value): it decides when tapped, from the app's live
+state, whether to record, stop, or continue in the app (iOS 26
+`continueInForeground`). The widgets switch their button per state.
+
+| Phase | Shows | A tap |
+| --- | --- | --- |
+| Not set up | mic slashed, "Set Up Voice Notes" | opens the app at Settings ▸ Quick Voice Notes (`sempere://quick-voice/settings`; the control's `VoiceNoteControlIntent` continues in the app) |
+| Live Activities off | mic slashed, "Live Activities Off" | the same; the section explains and links to the app's page in Settings |
+| Ready | mic | records (`StartVoiceNoteIntent`) |
+| Recording | stop, the elapsed time | stops and saves (`StopVoiceNoteIntent`) |
+| Saving | "Saving Voice Note" | opens the app at the banner |
+
+The file is protected until the first unlock after boot. Before it, the
+extension cannot read it (and nothing can record: the capture profile is a
+Keychain item readable only after the first unlock), and the widget shows
+the plain mic button. The widget uses only system symbols and is marked
+`unredacted()`: the placeholder iOS shows before the first unlock is
+otherwise redacted to an empty grey box (build 7). Without the App Group (an
+unsigned build) the widgets show the plain mic button, as before.
+
+A stale status cannot trap anyone: the app rewrites it at launch, and Stop on
+a recording the process does not know ends the orphaned Live Activity quietly
+(#106).
+
+## After Stop
+
+The Live Activity shows "Saving" while the audio is sealed, then, as soon as
+the sealed file is in the inbox (before any transcript), "Saved to Inbox"
+("Saved on This Device" when it went to the queue, "Not Saved" on failure),
+and is dismissed 5 seconds later (12 for a failure). The app's banner says
+the same when the app is open. Opening the app from the Live Activity
+(`sempere://quick-voice/recording`) lands on the banner. Any other `sempere:` URL is
+ignored (`VoiceNoteLink.route`): anyone can open one, and it is never taken
+for a vault.
+
 ## Not verified yet
 
 - On a device: the Lock Screen path (intent launch while locked, Keychain
@@ -136,3 +185,11 @@ explanation (also shown in Settings).
 - The widget extension's code signing in a TestFlight build: it needs the
   bundle id `io.github.anthonytw.sempere.widgets` (automatic signing creates
   it).
+- The App Group `group.io.github.anthonytw.sempere` on both the app and the
+  widget extension (`SempereiOS.entitlements`, `SempereWidgets.entitlements`):
+  automatic signing should register it; if the group is missing from a
+  provisioning profile, the widgets fall back to the plain mic button.
+- On a device: the control and the widgets switching between Set Up, record
+  and Stop; the Live Activity's pulse, its final "Saved to Inbox" state and
+  its dismissal; the Lock Screen widget after a reboot, before the first
+  unlock.

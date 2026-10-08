@@ -223,7 +223,10 @@ final class UntrustedImportTests: XCTestCase {
         index.insert(prints(30_000, y: 0))
         let t0 = Date()
         XCTAssertEqual(index.missing(prints(30_000, y: 1000)), 30_000)
-        XCTAssertLessThan(Date().timeIntervalSince(t0), 10)
+        // The budget is about 1.6·10⁷ comparisons, the quadratic scan 9·10⁸ (55 times more:
+        // minutes even on a fast machine). 10 s was too tight for debug builds on CI's macOS
+        // runners, which take 10–11 s for the budgeted scan; 60 s still catches the regression.
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 60)
         // Matching strokes are still found.
         XCTAssertEqual(index.missing(prints(100, y: 0)), 0)
     }

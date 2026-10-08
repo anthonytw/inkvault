@@ -428,6 +428,12 @@ final class PropfindParser: NSObject, XMLParserDelegate {
         // so both are refused before parsing. A multistatus has no use for a
         // DTD either; refusing one rules out entity expansion whatever
         // libxml2's own limits are.
+        // A NUL byte first: XML 1.0 forbids U+0000, and UTF-16 or UTF-32
+        // text (which libxml2 detects from its declaration) is otherwise
+        // valid UTF-8 whose markup the byte searches below cannot see.
+        guard !data.contains(0) else {
+            throw WebDAVError.malformedResponse("PROPFIND body holds a NUL byte (not UTF-8 XML)")
+        }
         guard isValidUTF8(data) else {
             throw WebDAVError.malformedResponse("PROPFIND body is not valid UTF-8")
         }

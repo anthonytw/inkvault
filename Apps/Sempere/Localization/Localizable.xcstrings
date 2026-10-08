@@ -81,6 +81,102 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%lld Notes" : {
+      "comment" : "Bulk export sheet: what is exported (title after “Export”)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Note"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Notes"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld nota"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notas"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld already in the folder, unchanged (skipped)" : {
+      "comment" : "Bulk export result: notes skipped",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld already in the folder, unchanged (skipped)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld already in the folder, unchanged (skipped)"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas ya estaban en la carpeta sin cambios (omitidas)"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld ya estaba en la carpeta sin cambios (omitida)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld ya estaban en la carpeta sin cambios (omitidas)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld autosaves" : {
       "comment" : "Thinning preview: autosaves removed from one note",
       "extractionState" : "manual",
@@ -909,6 +1005,18 @@
         }
       }
     },
+    "%lld recordings and videos attached" : {
+      "comment" : "[not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabaciones y vídeos adjuntos: %lld"
+          }
+        }
+      }
+    },
     "%lld recordings attached" : {
       "comment" : "Export result: recordings embedded in the PDF",
       "extractionState" : "manual",
@@ -1293,6 +1401,18 @@
         }
       }
     },
+    "%lld unchanged, %lld not exported so far" : {
+      "comment" : "Bulk export progress: notes skipped, notes that failed [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin cambios: %1$lld; sin exportar por ahora: %2$lld"
+          }
+        }
+      }
+    },
     "%lld videos attached" : {
       "comment" : "Export result: videos embedded in the PDF",
       "extractionState" : "manual",
@@ -1456,6 +1576,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Una carpeta de imágenes PNG por nota."
+          }
+        }
+      }
+    },
+    "A folder of PNG pages per note." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta de páginas PNG por nota."
           }
         }
       }
@@ -2357,6 +2488,17 @@
         }
       }
     },
+    "Choose Folder and Export…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir carpeta y exportar…"
+          }
+        }
+      }
+    },
     "Choose Folder…" : {
       "comment" : "New vault location option: pick a folder",
       "extractionState" : "manual",
@@ -2365,6 +2507,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elegir carpeta…"
+          }
+        }
+      }
+    },
+    "Choose a folder outside the vault: exported notes are not encrypted." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige una carpeta fuera de la bóveda: las notas exportadas no están cifradas."
           }
         }
       }
@@ -2461,6 +2614,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Color"
+          }
+        }
+      }
+    },
+    "Command line: %@" : {
+      "comment" : "%@ is a sempere command, not translated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Línea de comandos: %@"
           }
         }
       }
@@ -3504,6 +3669,40 @@
         }
       }
     },
+    "Encrypted. It becomes a note the next time you unlock the vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cifrada. Pasará a ser una nota la próxima vez que desbloquees la bóveda."
+          }
+        }
+      }
+    },
+    "Encrypted. It moves to the vault's inbox when Sempere can reach the vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cifrada. Pasará a la bandeja de entrada de la bóveda cuando Sempere pueda acceder a ella."
+          }
+        }
+      }
+    },
+    "Encrypting…" : {
+      "comment" : "Widget subtitle while a voice note is encrypted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cifrando…"
+          }
+        }
+      }
+    },
     "End" : {
       "comment" : "Text alignment: trailing edge",
       "extractionState" : "manual",
@@ -3586,6 +3785,17 @@
         }
       }
     },
+    "Everything goes into one zip archive." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todo va en un solo archivo zip."
+          }
+        }
+      }
+    },
     "Export" : {
       "comment" : "Button: start the export",
       "extractionState" : "manual",
@@ -3594,6 +3804,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Exportar"
+          }
+        }
+      }
+    },
+    "Export %@" : {
+      "comment" : "Bulk export sheet title; %@ is “3 Notes”, “Notebook “Math””, “All Notes”",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar %@"
           }
         }
       }
@@ -3646,6 +3868,39 @@
         }
       }
     },
+    "Export All Notes…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar todas las notas…"
+          }
+        }
+      }
+    },
+    "Export Notebook…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar cuaderno…"
+          }
+        }
+      }
+    },
+    "Export Notes…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar notas…"
+          }
+        }
+      }
+    },
     "Export failed" : {
       "comment" : "Export sheet: the export failed",
       "extractionState" : "manual",
@@ -3654,6 +3909,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Error al exportar"
+          }
+        }
+      }
+    },
+    "Exporting again into the same folder skips notes already there unchanged (same name, size and version)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al volver a exportar en la misma carpeta se omiten las notas que ya están allí sin cambios (mismo nombre, tamaño y versión)."
           }
         }
       }
@@ -3688,6 +3954,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Face ID o Touch ID se ha bloqueado tras demasiados intentos. Bloquea el dispositivo y desbloquéalo con su código; después, vuelve a intentarlo."
+          }
+        }
+      }
+    },
+    "Files in a Folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivos en una carpeta"
           }
         }
       }
@@ -3772,6 +4049,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Carpeta"
+          }
+        }
+      }
+    },
+    "Folders Like Your Notebooks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carpetas como tus cuadernos"
+          }
+        }
+      }
+    },
+    "Folders follow your notebooks." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las carpetas siguen tus cuadernos."
           }
         }
       }
@@ -4570,6 +4869,18 @@
         }
       }
     },
+    "Live Activities Off" : {
+      "comment" : "Widget and control title: iOS needs Live Activities to record",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actividades en directo desactivadas"
+          }
+        }
+      }
+    },
     "Live Activities are off for Sempere, and iOS needs one to record a voice note: turn them on in Settings → Sempere → Live Activities." : {
       "comment" : "Error from the quick voice note intents, also shown in Settings: Live Activities are turned off for the app",
       "extractionState" : "manual",
@@ -4830,6 +5141,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nombre (opcional)"
+          }
+        }
+      }
+    },
+    "Needed to record" : {
+      "comment" : "Widget subtitle under Live Activities Off",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Necesarias para grabar"
           }
         }
       }
@@ -5200,6 +5523,18 @@
         }
       }
     },
+    "Not Saved" : {
+      "comment" : "Live Activity and banner: a voice note could not be saved",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No guardada"
+          }
+        }
+      }
+    },
     "Not available on this device" : {
       "comment" : "Transcription language model status",
       "extractionState" : "manual",
@@ -5332,6 +5667,18 @@
         }
       }
     },
+    "Notebook “%@”" : {
+      "comment" : "Bulk export sheet: a notebook being exported; %@ is its name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuaderno “%@”"
+          }
+        }
+      }
+    },
     "Notebooks" : {
       "comment" : "Sidebar section header",
       "extractionState" : "manual",
@@ -5364,6 +5711,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se han podido mostrar las notas"
+          }
+        }
+      }
+    },
+    "Notes already written stay in the folder; exporting again into it skips them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas ya escritas se quedan en la carpeta; al volver a exportar en ella se omiten."
           }
         }
       }
@@ -5530,6 +5888,17 @@
         }
       }
     },
+    "One PDF per note, with its recordings, transcripts and videos attached." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un PDF por nota, con sus grabaciones, transcripciones y vídeos adjuntos."
+          }
+        }
+      }
+    },
     "One PDF per note." : {
       "comment" : "Export sheet footer: what the export contains",
       "extractionState" : "manual",
@@ -5637,6 +6006,29 @@
         }
       }
     },
+    "Open Sempere for details." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre Sempere para ver los detalles."
+          }
+        }
+      }
+    },
+    "Open Sempere's Settings" : {
+      "comment" : "Button: open Sempere's page in the system Settings app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir los ajustes de Sempere"
+          }
+        }
+      }
+    },
     "Open Settings › your name › iCloud › iCloud Drive and turn on “Sync this %@”. (On older versions the switch is called iCloud Drive.)" : {
       "comment" : "iCloud Drive help step; %@ is iPhone or iPad. Use the system's own names of these settings.",
       "extractionState" : "manual",
@@ -5679,6 +6071,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abre y desbloquea la bóveda en la ventana de la biblioteca."
+          }
+        }
+      }
+    },
+    "Open and unlock the vault that voice notes should go to, then turn this on." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre y desbloquea la bóveda a la que deben ir las notas de voz y luego activa esta opción."
           }
         }
       }
@@ -6949,6 +7352,18 @@
         }
       }
     },
+    "Record or Stop a Voice Note" : {
+      "comment" : "App Intent title (the Control Center control's action)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabar o detener una nota de voz"
+          }
+        }
+      }
+    },
     "Record with the microphone button in the toolbar." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6980,6 +7395,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grabación %@"
+          }
+        }
+      }
+    },
+    "Recording voice note" : {
+      "comment" : "In-app banner while a voice note records",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabando nota de voz"
           }
         }
       }
@@ -7026,6 +7453,18 @@
         }
       }
     },
+    "Recording…" : {
+      "comment" : "Widget and control subtitle: a voice note is being recorded",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabando…"
+          }
+        }
+      }
+    },
     "Records a voice note into your Sempere vault's inbox, encrypted on this device, without unlocking the vault." : {
       "comment" : "App Intent description",
       "extractionState" : "manual",
@@ -7034,6 +7473,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Graba una nota de voz en la bandeja de entrada de tu bóveda de Sempere, cifrada en este dispositivo, sin desbloquear la bóveda."
+          }
+        }
+      }
+    },
+    "Records a voice note into your Sempere vault's inbox, or stops the one being recorded." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graba una nota de voz en la bandeja de entrada de tu bóveda de Sempere, o detiene la que se está grabando."
           }
         }
       }
@@ -7708,6 +8158,18 @@
         }
       }
     },
+    "Save As" : {
+      "comment" : "Bulk export: files in a folder or a zip archive",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar como"
+          }
+        }
+      }
+    },
     "Save Key" : {
       "comment" : "Title of the sheet that exports this device's key",
       "extractionState" : "manual",
@@ -7864,6 +8326,30 @@
         }
       }
     },
+    "Saved on This Device" : {
+      "comment" : "Live Activity and banner: the vault was out of reach, the voice note waits on the device",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardada en este dispositivo"
+          }
+        }
+      }
+    },
+    "Saved to Inbox" : {
+      "comment" : "Live Activity and banner: where a voice note went (short: widget width)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En la bandeja de entrada"
+          }
+        }
+      }
+    },
     "Saved version" : {
       "comment" : "History: kind of a restore point (a checkpoint)",
       "extractionState" : "manual",
@@ -7895,6 +8381,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guardar…"
+          }
+        }
+      }
+    },
+    "Saving Voice Note" : {
+      "comment" : "Widget and control title while a stopped voice note is encrypted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardando nota de voz"
+          }
+        }
+      }
+    },
+    "Saving voice note…" : {
+      "comment" : "In-app banner while a stopped voice note is encrypted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardando la nota de voz…"
           }
         }
       }
@@ -8078,6 +8588,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Serif"
+          }
+        }
+      }
+    },
+    "Set Up Voice Notes" : {
+      "comment" : "Widget and control title when quick voice notes are not set up",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configurar notas de voz"
           }
         }
       }
@@ -8521,6 +9043,17 @@
         }
       }
     },
+    "Stop Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detener exportación"
+          }
+        }
+      }
+    },
     "Stop Recording" : {
       "comment" : "Menu item",
       "extractionState" : "manual",
@@ -8557,6 +9090,18 @@
         }
       }
     },
+    "Stop and save the voice note" : {
+      "comment" : "Stop button (VoiceOver) of the banner and the widget",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detener y guardar la nota de voz"
+          }
+        }
+      }
+    },
     "Stop the Voice Note" : {
       "comment" : "App Intent title",
       "extractionState" : "manual",
@@ -8577,6 +9122,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Detenido antes de acabar"
+          }
+        }
+      }
+    },
+    "Stopped: %lld not exported" : {
+      "comment" : "Bulk export stopped; notes not reached [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detenida: %lld sin exportar"
+          }
+        }
+      }
+    },
+    "Stopping deletes the unfinished archive." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al detenerla se borra el archivo zip sin terminar."
           }
         }
       }
@@ -8845,6 +9413,18 @@
         }
       }
     },
+    "Tap to record" : {
+      "comment" : "Widget subtitle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca para grabar"
+          }
+        }
+      }
+    },
     "Tap: record or stop. Press and hold: the note's recordings" : {
       "comment" : "Help for the Recordings toolbar button",
       "extractionState" : "manual",
@@ -9089,6 +9669,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ese texto no es un destinatario age1pq1…"
+          }
+        }
+      }
+    },
+    "The archive is deleted from the app when you close this sheet." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El archivo zip se elimina de la app al cerrar esta hoja."
           }
         }
       }
@@ -9448,6 +10039,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido leer el vídeo. %@"
+          }
+        }
+      }
+    },
+    "There are no notes to export." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay notas que exportar."
           }
         }
       }
@@ -10017,6 +10619,17 @@
         }
       }
     },
+    "To Folder or Zip…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A carpeta o zip…"
+          }
+        }
+      }
+    },
     "To keep a vault in iCloud Drive, choose a folder inside it. Any Files location works." : {
       "comment" : "New vault form footer",
       "extractionState" : "manual",
@@ -10283,6 +10896,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reintentar"
+          }
+        }
+      }
+    },
+    "Turn on in Sempere" : {
+      "comment" : "Widget subtitle: quick voice notes are off; turn them on in the app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actívalas en Sempere"
           }
         }
       }
@@ -10934,6 +11559,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tus otros dispositivos con sesión iniciada en la misma cuenta de Apple también reciben la clave. El Llavero no puede exigir Face ID para los elementos sincronizados, así que Sempere pide Face ID o tu código antes de usarla; por lo demás, la clave está protegida por el cifrado de extremo a extremo del Llavero de iCloud y por el código de tu dispositivo. Puede que las claves sincronizadas no aparezcan en la app Contraseñas."
+          }
+        }
+      }
+    },
+    "Zip Archive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivo zip"
           }
         }
       }

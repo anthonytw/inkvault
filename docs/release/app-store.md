@@ -205,10 +205,17 @@ matter: only the privacy page is meant to be read there.
 
 ### Entitlements
 
-The iPad/iPhone build has **no entitlements file**. It needs none: the Keychain uses the app's
-default access group, folders come through the document picker, and there is no iCloud
-container (vaults are user-picked folders, `docs/HANDOFF.md`). The Mac build has these five,
-which are exactly `release-check.sh`'s allow-list:
+The iPad/iPhone app (`SempereiOS.entitlements`) and the widget extension
+(`SempereWidgets.entitlements`) have one entitlement, the App Group
+`group.io.github.anthonytw.sempere`. It holds only the quick voice note status the widgets
+and the Control Center control show (`VoiceNoteStatusStore`, a few dozen bytes: the phase
+and a recording's start time; no key, no vault, no note; `docs/quick-capture.md`). The App
+ID and the widget's App ID need the App Groups capability with that group in the developer
+portal (automatic signing registers it). Nothing else: the Keychain uses the app's default
+access group, folders come through the document picker, and there is no iCloud container
+(vaults are user-picked folders, `docs/HANDOFF.md`). The Mac build has the first five below
+and no App Group (the Catalyst build has no widgets); the six are exactly
+`release-check.sh`'s allow-list, and the App Group may only name that one group:
 
 | Entitlement | Why it is needed | What breaks without it |
 | --- | --- | --- |
@@ -217,6 +224,7 @@ which are exactly `release-check.sh`'s allow-list:
 | `com.apple.security.files.bookmarks.app-scope` | Recent vaults are reopened from security-scoped bookmarks across launches (`VaultLibrary`). | Reopening the last vault after a relaunch without picking it again. |
 | `com.apple.security.print` | Printing the recovery kit (the key's paper copy). | The print panel; the sandbox refuses to print. |
 | `com.apple.security.device.audio-input` | Recording audio into notes and quick voice notes. | The microphone is silent under the sandbox. |
+| `com.apple.security.application-groups` (iOS app and widget extension only) | The widgets and the control read the quick voice note status the app writes (`VoiceNoteStatusStore`). | The widgets show the plain record button whatever the state (no Stop, no "Set Up"). |
 
 Deliberately absent:
 
@@ -224,7 +232,8 @@ Deliberately absent:
 - `device.camera`: the camera is offered on iPad and iPhone only (`InsertOptions.camera`).
 - iCloud containers.
 - `keychain-access-groups`: the default access group is enough.
-- `application-groups`: the widget runs intents in the app's process and shares no container.
+- `application-groups` on the Mac, and any group but `group.io.github.anthonytw.sempere`:
+  the intents run in the app's process; the group carries only the widgets' status.
 - `files.downloads`, `personal-information.*`, `cs.*`.
 
 Adding any entitlement means editing the allow-list in `scripts/release-check.sh` and this

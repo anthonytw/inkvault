@@ -368,6 +368,9 @@ extension Vault {
             return report
         }
         let inv = try blobInventory(note: note)
+        // The inventory may have found newer revisions (format.md §7.3): it
+        // set the read-only latch, so nothing is renamed or deleted.
+        try requireWritable()
         let secret = try requireSecret()
         let recipients = try ageRecipients()
         let expected = Self.expectedStanzas(recipients)

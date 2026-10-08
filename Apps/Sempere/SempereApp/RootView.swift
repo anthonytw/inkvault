@@ -25,6 +25,8 @@ struct RootView: View {
     /// The vault whose saved selection was applied (or found missing); until
     /// then nothing is saved, so the first selections do not overwrite it.
     @State private var restoredVault: UUID?
+    /// Settings ▸ Quick Voice Notes asked for by a widget or the control (`VoiceNoteLink.settings`).
+    @State private var showingVoiceSettings = false
 
     /// The stack column an iPhone shows (`CompactNavigation`); the other devices ignore it.
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
@@ -96,12 +98,38 @@ struct RootView: View {
                 }
             }
         }
-        .onOpenURL { url in Task { await open(url) } }   // a vault tapped in Files
+        .onOpenURL { url in
+            switch VoiceNoteLink.route(url) {
+            case .link(let link):
+                // A widget, the control or the Live Activity (`sempere://quick-voice/…`).
+                model.quickCapture.pendingLink = link
+            case .ignore:
+                break   // another `sempere:` link: not a vault
+            case .file:
+                Task { await open(url) }   // a vault tapped in Files
+            }
+        }
+        .onChange(of: model.quickCapture.pendingLink, initial: true) { _, link in
+            let capture = model.quickCapture
+            switch link {
+            case .settings:
+                capture.pendingLink = nil
+                showingVoiceSettings = true
+            case .recording:
+                // The banner (`VoiceNoteBanner`) takes it while it shows; nothing to show: done.
+                if capture.state == .idle, capture.notice == nil { capture.pendingLink = nil }
+            case nil:
+                break
+            }
+        }
+        .voiceNoteBanner()
         .onChange(of: scenePhase) { _, phase in
             // iCloud may have delivered files while the app was away; no
             // polling while it is in the background.
             if phase == .active, model.isCloudVault { model.startCloudSync() }
             if phase == .active {
+                // Live Activities may have been switched in Settings ▸ Sempere meanwhile.
+                model.quickCapture.publishStatus()
                 // Voice notes queued while the vault folder was out of reach, then adopted if it is unlocked.
                 model.quickCapture.flushStoredQueue()
                 if model.phase == .unlocked { model.startInboxAdoption() }
@@ -122,7 +150,13 @@ struct RootView: View {
         }
         .sheet(isPresented: .constant(model.phase == .locked || keys.holdsUnlockSheet(model))) {
             UnlockView()
+                .voiceNoteBanner()
                 .interactiveDismissDisabled()
+        }
+        // After the unlock sheet, if the vault is locked: enabling needs it unlocked.
+        .sheet(isPresented: Binding(get: { showingVoiceSettings && model.phase != .locked && !keys.holdsUnlockSheet(model) },
+                                    set: { if !$0 { showingVoiceSettings = false } })) {
+            SettingsView(scrollTo: QuickCaptureSettingsSection.anchor)
         }
         .onChange(of: model.vaultURL) { keys.discardStaleOffer(model) }
         #if DEBUG
@@ -268,6 +302,7 @@ struct RootView: View {
             if let last = library.recents.first { Task { await reopen(last) } }
         case .closeVault: model.close()
         case .reloadVault: Task { await model.report { try await model.reload() } }
+        case .bulkExport: model.requestBulkExport(model.bulkExportScope, window: ui.id)
         case .renameNote: ui.renameNoteID = selected
         case .editTags: ui.tagsNoteID = selected
         case .saveVersion: ui.saveVersionNoteID = selected

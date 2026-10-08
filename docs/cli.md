@@ -1312,7 +1312,7 @@ and the exit code is 1.
 ```
 sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key once)
 sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
-sempere inbox transcript CAPTURE JSON [--profile PATH]
+sempere inbox transcript CAPTURE JSON --audio FILE [--profile PATH]
 sempere inbox list
 sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
 ```
@@ -1330,7 +1330,10 @@ only `vault.json` and the profile, no identity or passphrase. It seals the
 audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
 with the capture key) and prints the capture id. `--transcript` seals a
 `sempere-transcript/1` file with it, and `transcript` seals one later; either
-way its recording id is replaced by the capture's. `list` shows the inbox:
+way its recording id is replaced by the capture's, and it is bound to the
+capture's audio (`format.md` §11.2): `transcript` needs that audio file
+(`--audio`, the bytes that were captured), and a transcript bound to other
+audio is never adopted. Both refuse (exit 7) a vault of a newer format. `list` shows the inbox:
 ids and file kinds without a key, titles and whether each verifies with one.
 `import` adopts each capture as a note in the capture's notebook ("Inbox"),
 titled from its date: the audio and transcript as blobs, then one delta as this
@@ -1349,6 +1352,7 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
                 [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
                 [--assets DIR] [--keep-image-metadata] [--recordings none|attach]
                 [--videos none|attach] [--attachments]
+                [--layout flat|notebooks] [--zip] [--overwrite] [--no-cache]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -1414,6 +1418,45 @@ reconstruct does not stop the others; the exit code is then 1. Every file
 written is printed. With `--json`, each entry has `note`, `files` and, when
 some items were drawn as placeholders, `placeholders` (their number), and
 `recordings` (the number embedded) with `--recordings attach`.
+
+#### Bulk export
+
+`--all` with `--format pdf` or `png` (not `--merge` or `--at`) runs the bulk
+export the app's "Export Notes…" uses (`BulkExportSession`, docs/io.md "Bulk
+export"): notes are planned from the summaries (the summary cache unless
+`--no-cache`), then read, rendered and written **one at a time**, so memory is
+that of the largest note, not of the vault.
+
+- `--layout notebooks` puts each note in a folder per notebook level
+  (`School/Math/Week-1-0d1c6a1e.pdf`); with `--notebook NAME` the folders
+  start at that notebook (`Math/…`), as the app's "Export Notebook…". The
+  default, `flat`, writes every note directly in `--out`, as before.
+- `--zip`: `--out` is a zip archive (stored entries, zip64 when needed) holding
+  the same tree; notes are staged in the temporary directory one at a time.
+- Names: two notes whose names would clash in a folder (same title and id
+  prefix, equal ignoring case or Unicode normalisation, or equal to a
+  sub-folder) take the full id, then `-2`, ...
+- **Re-runs skip unchanged notes.** `--out` gets a hidden
+  `.sempere-export-bulk.json` listing each file with its note, the note's
+  version (a fingerprint of its revision file names), the options and the size.
+  Exporting again into the same folder skips a note whose files are all still
+  there with the same names and sizes, for the same note version and options
+  (printed as `Unchanged …`, and `"skipped": true` with `--json`); the summary
+  line says how many. `--overwrite` renders every note again. A zip is
+  always written whole.
+- A note that cannot be read or rendered is reported on stderr and the others
+  are exported; the exit code is then 1.
+- `--recordings attach` without `--videos attach` (or the reverse) keeps the
+  old in-memory path; `--attachments` (both) is the bulk "PDF + attachments".
+
+The app's sheet shows the matching command for a notebook or the whole vault:
+
+| App ("Export Notes…") | `sempere export` |
+| --- | --- |
+| All notes, PDF, folders like notebooks, into a folder | `--all --format pdf --layout notebooks --out FOLDER` |
+| Notebook "School/Math", PDF + attachments, zip | `--all --notebook School/Math --format pdf --attachments --layout notebooks --zip --out Math.zip` |
+| All notes, PNG at 300 dpi, no paper, flat | `--all --format png --dpi 300 --no-paper --out FOLDER` |
+| A list selection | one `sempere export ID --format pdf --out FOLDER` per note |
 
 #### PDF page backgrounds
 
