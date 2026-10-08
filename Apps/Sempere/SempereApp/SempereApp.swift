@@ -26,6 +26,7 @@ struct SempereApp: App {
     init() {
         // Staged exports are plaintext copies of notes: none survives a launch.
         ExportJob.purgeStale()
+        BulkExportRun.purgeStale()
         // A key file staged for the share sheet by a run that quit with the sheet up.
         KeyShareFile.purge()
         // Plaintext PDFs dragged out in an earlier run that quit with a vault
