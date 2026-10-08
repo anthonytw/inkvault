@@ -1,0 +1,91 @@
+{
+  "coreml": {
+    "computeUnits": "cpuAndGPU",
+    "decoder": "decoder.mlpackage",
+    "encoder": "encoder.mlpackage",
+    "encoderOutput": "encoder_states",
+    "encoderStates": "encoder_states",
+    "image": "image",
+    "logits": "logits",
+    "tokens": "tokens"
+  },
+  "decoder": {
+    "beamWidth": 3,
+    "end": 2,
+    "maxLength": 64,
+    "pad": 1,
+    "start": 0,
+    "vocabularySize": 200
+  },
+  "files": [
+    {
+      "path": "decoder.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "sha256": "3daadca3238463310adaa77d6fc0b208f25565302626350efdd38d53b865525a",
+      "size": 49339
+    },
+    {
+      "path": "decoder.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "sha256": "59dabf421524a4fa3f5cf83e01d7112a920c650a8869b17356319009485c9f51",
+      "size": 247056
+    },
+    {
+      "path": "decoder.mlpackage/Manifest.json",
+      "sha256": "156d6816515a1ee7e32a82d1e4ff6d0b7a95aaa8b391fc057f8ddb0bbbfd8185",
+      "size": 617
+    },
+    {
+      "path": "decoder.mlpackage/executorch_debug_handle_mapping.json",
+      "sha256": "c7cbdde53479a87e8c48620a801b458b3b876f953188ba9cc2b1a26a250352e8",
+      "size": 45400
+    },
+    {
+      "path": "encoder.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "sha256": "53c62d0acb3ebf02bbc425735f6db9f480601a38803547d9c46f5db562bfe43e",
+      "size": 27127
+    },
+    {
+      "path": "encoder.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "sha256": "14c8f5bb3d46ad94a9cea9b2b201beb897642723791515708b20b8d3d7f97514",
+      "size": 177664
+    },
+    {
+      "path": "encoder.mlpackage/Manifest.json",
+      "sha256": "f09ff8878369246b9a5641caaf6d49b4778c4687832a5210f1d308f7edd36e59",
+      "size": 617
+    },
+    {
+      "path": "encoder.mlpackage/executorch_debug_handle_mapping.json",
+      "sha256": "8fab39dbb95b50ce295a643d176ed55f6857fef503620713ac5c1a74026e702a",
+      "size": 23761
+    },
+    {
+      "path": "tokenizer.json",
+      "sha256": "cf545500a40f6e73f1f7334c7585e336781c2b5f8c15383524265446fff1a2b4",
+      "size": 2691
+    }
+  ],
+  "format": "sempere-math-model/1",
+  "id": "tiny-test",
+  "image": {
+    "alignLeft": true,
+    "channels": 1,
+    "height": 64,
+    "invert": false,
+    "mean": [
+      0.0
+    ],
+    "padding": 8,
+    "std": [
+      1.0
+    ],
+    "strokeWidth": 3.0,
+    "width": 256
+  },
+  "licence": "none",
+  "name": "Tiny test model (random weights)",
+  "source": "random",
+  "vocabulary": {
+    "file": "tokenizer.json",
+    "joining": "byteLevel"
+  }
+}
