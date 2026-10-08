@@ -201,6 +201,7 @@ behaviour and testing on a real Mac.
 | Finder Open With on a PDF: imported as a new note (vault chosen, unlocked first) | 🚧 #101; needs a hand test on a Mac |
 | PDF page attachments on the canvas | ✅ #85 (blank in build 6; tile redraw on scale change fixed, checked on Catalyst in CI); iCloud vault needs a hand test |
 | App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
+| Launch smoke tests: fresh state, unlock sheet, every column layout, every window and sheet (`LaunchSmokeUITests`, `test-mac-smoke`; iPad layouts in `test-ui`); every scene injects the app environment (`AppSceneEnvironmentTests`, Linux) | 🚧 #119, CI on every run |
 | Multiple windows (one note per window), state restoration | ✅ #46 (`docs/mac.md`); note windows checked on Catalyst in CI; restoration needs a hand test; double-click opens a window 🚧 #101 |
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): 🚧 #109 |

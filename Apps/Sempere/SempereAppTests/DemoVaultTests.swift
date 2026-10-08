@@ -36,6 +36,23 @@ struct DemoVaultTests {
         #expect(a.meta.paper.isValid && b.meta.paper.isValid)
     }
 
+    /// `SEMPERE_DEMO_PASSPHRASE` (launch smoke tests): the key is stored in
+    /// `keys/` under the passphrase, so the unlock sheet's passphrase field opens it.
+    @Test func passphraseStoresTheKey() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("demo-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let built = try await DemoVault.build(in: dir, specs: Array(DemoVault.specs.prefix(1)), passphrase: "smoke test")
+        let vault = try Self.open(built)
+        let identity = try IdentityFile.parse(built.identityText)
+        #expect(try vault.identityFiles() == [identity.recipient])
+        let read = try vault.readIdentityFile(recipient: identity.recipient, passphrase: "smoke test")
+        #expect(read.recipient == identity.recipient)
+        #expect(throws: VaultError.self) { try vault.readIdentityFile(recipient: identity.recipient, passphrase: "wrong") }
+        // Without a passphrase no key file is written (the screenshots' vault).
+        let plain = try await DemoVault.build(in: dir, specs: Array(DemoVault.specs.prefix(1)))
+        #expect(try Self.open(plain).identityFiles().isEmpty)
+    }
+
     @Test func datesAreFixed() async throws {
         let (built, dir) = try await Self.build()
         defer { try? FileManager.default.removeItem(at: dir) }

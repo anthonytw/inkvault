@@ -18,6 +18,10 @@ struct SempereApp: App {
     @State private var keys: RememberedKeys
 
     init() {
+        #if DEBUG
+        // A scripted first launch: nothing below may read state from an earlier run.
+        DebugLaunch.resetForFreshLaunch()
+        #endif
         let library = VaultLibrary()
         let keys = RememberedKeys()
         // A view updated outside its window's environment falls back to these (`AppModelEnvironment`).

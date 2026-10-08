@@ -49,6 +49,7 @@ struct ExportSheet: View {
                     Section { Button("Try Again") { job.discard() } }
                 }
             }
+            .accessibilityIdentifier("exportSheet")
             .navigationTitle(Text("Export \(request.noteIDs.count) Notes"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
