@@ -9,12 +9,16 @@ import FoundationNetworking
 /// handler; cancelling it failed every HTTPS sync with "cancelled".
 final class TransportChallengeTests: XCTestCase {
     func testServerTrustIsLeftToTheSystem() {
-        XCTAssertTrue(URLSessionTransport.isServerTrust(NSURLAuthenticationMethodServerTrust))
+        XCTAssertEqual(URLSessionTransport.disposition(forAuthenticationMethod: URLSessionTransport.serverTrustMethod),
+                       .performDefaultHandling)
+        #if !canImport(FoundationNetworking)
+        XCTAssertEqual(URLSessionTransport.serverTrustMethod, NSURLAuthenticationMethodServerTrust)
+        #endif
     }
 
-    func testHTTPAuthenticationIsNotServerTrust() {
+    func testHTTPAuthenticationIsCancelled() {
         for m in [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodDefault] {
-            XCTAssertFalse(URLSessionTransport.isServerTrust(m), m)
+            XCTAssertEqual(URLSessionTransport.disposition(forAuthenticationMethod: m), .cancelAuthenticationChallenge, m)
         }
     }
 }
