@@ -269,7 +269,9 @@ queued for up to 30 minutes.
   (Linux, plain `swift test`) reads `Apps/Sempere/SempereApp/` and fails when
   a `WindowGroup` (or any other scene) does not put `AppModel`,
   `VaultLibrary` and `RememberedKeys` into its root view's environment
-  (directly or through `appEnvironment(model:library:keys:)`). App-only PRs
+  (directly or through `appEnvironment(model:library:keys:)`), or when a view
+  reads one of them with a plain `@Environment(X.self)` instead of the
+  non-trapping wrappers (`AppModelEnvironment.swift`). App-only PRs
   run it in the "Localization catalogs and app scenes (Linux)" job.
 - **Age is compiled with `-O` even in debug builds** (`Package.swift`).
   Unoptimized scrypt made the passphrase tests take minutes: 37 s for one test

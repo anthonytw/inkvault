@@ -10,7 +10,9 @@ import XCTest
 /// `VaultLibrary` and the `RememberedKeys` of the `App` into its root view's
 /// environment, either through `.environment(…)` each or through the shared
 /// `appEnvironment(model:library:keys:)` modifier, which must itself inject
-/// all three. A new window cannot miss one.
+/// all three. A new window cannot miss one. No view may read the three with
+/// a plain `@Environment(X.self)` either: the wrappers fall back instead of
+/// trapping (`AppModelEnvironment.swift`).
 final class AppSceneEnvironmentTests: XCTestCase {
     static let appSources = LocalizationCatalogTests.apps.appendingPathComponent("SempereApp")
 
@@ -24,6 +26,15 @@ final class AppSceneEnvironmentTests: XCTestCase {
         let report = try SceneEnvironmentCheck(sources: sources).run()
         XCTAssertGreaterThanOrEqual(report.scenes.count, 4, "library, note, Settings and Vault Keys at least: \(report.scenes)")
         XCTAssertEqual(report.problems, [], "every scene injects AppModel, VaultLibrary and RememberedKeys")
+    }
+
+    /// The crash that shipped came from a list row inside a window, not from a
+    /// window's root: a plain `@Environment(AppModel.self)` traps whenever SwiftUI
+    /// updates that view outside the window's environment. Views read the app-wide
+    /// objects through `@AppModelEnvironment` / `@AppEnvironmentObject` (CLAUDE.md).
+    func testNoViewReadsAnAppObjectWithAPlainEnvironment() throws {
+        let reads = SceneEnvironmentCheck(sources: try Self.loadSources()).plainEnvironmentReads()
+        XCTAssertEqual(reads, [], "use @AppModelEnvironment / @AppEnvironmentObject instead")
     }
 
     // MARK: - The checker on synthetic sources
@@ -99,6 +110,22 @@ final class AppSceneEnvironmentTests: XCTestCase {
         XCTAssertEqual(report.problems.count, 1, "\(report.problems)")
     }
 
+    func testTheCheckerFindsAPlainEnvironmentRead() {
+        let view = """
+            struct Row: View {
+                @Environment(AppModel.self) private var model
+                @Environment(RememberedKeys.self) var keys: RememberedKeys
+                @Environment(AppModel.self) private var injected: AppModel?
+                @AppModelEnvironment private var wrapped
+                // @Environment(VaultLibrary.self) private var library
+                let note = "@Environment(VaultLibrary.self) var library"
+                @Environment(WindowUI.self) private var ui
+            }
+            """
+        XCTAssertEqual(SceneEnvironmentCheck(sources: ["Row.swift": view]).plainEnvironmentReads(),
+                       ["Row.swift:2", "Row.swift:3"])
+    }
+
     func testTheCheckerFailsWithoutAnApp() {
         XCTAssertThrowsError(try SceneEnvironmentCheck(sources: ["Env.swift": Self.goodModifier]).run())
     }
@@ -167,6 +194,25 @@ struct SceneEnvironmentCheck {
             }
         }
         return report
+    }
+
+    /// `file:line` of every plain `@Environment(X.self)` read of an app-wide
+    /// object (comments and strings skipped). The optional form (`: AppModel?`,
+    /// which the wrappers use) never traps and is allowed.
+    func plainEnvironmentReads() -> [String] {
+        let pattern = "@Environment\\(\\s*(?:\(Self.types.joined(separator: "|")))\\.self\\s*\\)\\s*"
+            + "(?:(?:private|fileprivate|internal)\\s+)?var\\s+\\w+(\\s*:\\s*\\w+\\s*\\?)?"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return ["bad pattern"] }
+        var out: [String] = []
+        for (file, text) in code.sorted(by: { $0.key < $1.key }) {
+            let ns = text as NSString
+            for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+            where match.range(at: 1).location == NSNotFound {
+                let line = ns.substring(to: match.range.location).filter { $0 == "\n" }.count + 1
+                out.append("\(file):\(line)")
+            }
+        }
+        return out
     }
 
     /// `appEnvironment(model:library:keys:)`'s argument label for an environment type.
