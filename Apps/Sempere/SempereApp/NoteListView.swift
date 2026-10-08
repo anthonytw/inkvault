@@ -5,6 +5,13 @@ import UniformTypeIdentifiers
 /// The notes matching the sidebar selection, with title search, sorting and
 /// per-note actions.
 struct NoteListView: View {
+    /// Whether the list's import buttons (PDF, Notability) can be used: the
+    /// same rule as File > Import… (`MenuCommand.importPDF`), an unlocked vault
+    /// that can be written.
+    static func importsEnabled(_ model: AppModel) -> Bool {
+        model.phase == .unlocked && !model.isVaultReadOnly
+    }
+
     @Environment(AppModel.self) private var model
     @Environment(WindowUI.self) private var ui
     @Environment(\.openWindow) private var openWindow
@@ -90,8 +97,16 @@ struct NoteListView: View {
             }
             ToolbarItem(placement: secondary) {
                 Button("Import PDF…", systemImage: "doc.richtext") { ui.importingPDF = true }
-                    .disabled(model.phase != .unlocked || model.isVaultReadOnly)
+                    .disabled(!Self.importsEnabled(model))
                     .help("Make a note from a PDF: one page per PDF page, to write on")
+            }
+            // The iPad has no File menu: the Notability importer is here too (the Mac's File menu has it as well).
+            ToolbarItem(placement: secondary) {
+                Button("Import from Notability…", systemImage: "square.and.arrow.down.on.square") {
+                    ui.importingNotability = true
+                }
+                .disabled(!Self.importsEnabled(model) || model.isImportingNotability)
+                .help("Import Notability notes or a Notability backup (.note, .ntb, folders or zips) into this vault")
             }
             ToolbarItem {
                 Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }

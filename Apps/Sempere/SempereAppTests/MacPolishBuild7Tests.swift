@@ -279,6 +279,27 @@ struct MacPolishBuild7Tests {
         }
     }
 
+    /// The note list's toolbar offers Import from Notability… (the iPad has no
+    /// File menu), enabled like File > Import…: an unlocked vault that can be
+    /// written, never a locked or read-only one.
+    @Test func theListsImportButtonsFollowTheFileMenusRule() async throws {
+        let locked = AppModel(deviceStateURL: TS.deviceStateURL())
+        #expect(!NoteListView.importsEnabled(locked))
+        let (model, _) = try await NoteWindowTests.unlockedModel()
+        #expect(NoteListView.importsEnabled(model))
+        model.close()
+        let (url, keyText) = try ReadOnlyVaultTests.newerVault()
+        let readOnly = AppModel(deviceStateURL: TS.deviceStateURL(), editorDebounce: .seconds(60))
+        try await readOnly.openVault(at: url)
+        try await readOnly.unlock(identityText: keyText)
+        #expect(readOnly.isVaultReadOnly)
+        #expect(!NoteListView.importsEnabled(readOnly))
+        var c = MenuCommand.Context(window: .library, vault: .unlocked)
+        c.vaultReadOnly = true
+        #expect(!MenuCommand.importNotability.isEnabled(in: c), "the same rule as the menu")
+        readOnly.close()
+    }
+
     @Test func theSummaryNamesFailuresByFileOnly() {
         let summary = NotabilityImportSummary(imported: 1, skipped: 1, failed: 1,
                                               failures: [("/a/b/Three.note", "not a Notability note")])

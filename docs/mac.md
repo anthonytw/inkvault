@@ -59,7 +59,8 @@ its keyboard menu.)
 The File menu's import and insert commands (TestFlight build 7) open the same
 pickers as the toolbars: Import PDF as New Note… sets the flag the note list's
 Import PDF… button sets (`WindowUI.importingPDF`), Import from Notability… the
-Notability importer's (`importingNotability`); both importers live in
+flag of the note list's Import from Notability… button (`importingNotability`;
+the iPad, which has no File menu, uses that button); both importers live in
 `WindowSheets`, so they work with the note list hidden and in note windows.
 Insert Photo… and Insert PDF Pages… send `WindowUI.insertRequest` to the
 window's editor, which opens its Insert menu's picker (`InsertState.open`);
