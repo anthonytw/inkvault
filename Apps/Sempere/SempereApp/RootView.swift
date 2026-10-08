@@ -271,6 +271,7 @@ struct RootView: View {
             if let last = library.recents.first { Task { await reopen(last) } }
         case .closeVault: model.close()
         case .reloadVault: Task { await model.report { try await model.reload() } }
+        case .bulkExport: model.requestBulkExport(model.bulkExportScope, window: ui.id)
         case .renameNote: ui.renameNoteID = selected
         case .editTags: ui.tagsNoteID = selected
         case .saveVersion: ui.saveVersionNoteID = selected

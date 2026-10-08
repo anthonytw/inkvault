@@ -11,6 +11,8 @@ struct SidebarView: View {
 
     @Environment(AppModel.self) private var model
     @Environment(RememberedKeys.self) private var keys
+    /// The window's UI state: "Export Notes…" opens its sheet in this window.
+    @Environment(WindowUI.self) private var ui: WindowUI?
     @State private var forgettingKey = false
     @State private var showingSettings = false
     @State private var renaming: String?
@@ -23,6 +25,11 @@ struct SidebarView: View {
         List(selection: $model.sidebarSelection) {
             Label("All Notes", systemImage: "note.text").tag(SidebarItem.allNotes)
                 .sidebarDropTarget(.allNotes)
+                .contextMenu {
+                    Button("Export All Notes…", systemImage: ExportCommand.menuImage) {
+                        model.requestBulkExport(.vault, window: ui?.id)
+                    }
+                }
             // A smart list under All Notes: notes a recognition run on any device read
             // in the last 7 days (`meta.recognized`, synced); gone while there are none.
             let recognized = model.recentlyRecognizedNotes.count
@@ -45,6 +52,8 @@ struct SidebarView: View {
                                 renaming = node.path
                             }, move: {
                                 movingNotebook = MovingNotebook(path: node.path)
+                            }, export: {
+                                model.requestBulkExport(.notebook(node.path), window: ui?.id)
                             }))
                             .swipeActions {
                                 Button("Rename", systemImage: "pencil") { newName = node.path; renaming = node.path }

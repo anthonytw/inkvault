@@ -59,11 +59,13 @@ struct NotebookRowAction: Identifiable, Sendable {
     /// The title in the app's language.
     var localizedTitle: String { String(localized: title) }
 
-    /// A notebook row's menu: Rename or Move…, Move Notebook To….
+    /// A notebook row's menu: Rename or Move…, Move Notebook To…, Export Notebook….
     static func notebookMenu(rename: @escaping @MainActor @Sendable () -> Void,
-                             move: @escaping @MainActor @Sendable () -> Void) -> [NotebookRowAction] {
+                             move: @escaping @MainActor @Sendable () -> Void,
+                             export: @escaping @MainActor @Sendable () -> Void) -> [NotebookRowAction] {
         [NotebookRowAction(title: "Rename or Move…", systemImage: "pencil", perform: rename),
-         NotebookRowAction(title: "Move Notebook To…", systemImage: "folder", perform: move)]
+         NotebookRowAction(title: "Move Notebook To…", systemImage: "folder", perform: move),
+         NotebookRowAction(title: "Export Notebook…", systemImage: ExportCommand.menuImage, perform: export)]
     }
 }
 
