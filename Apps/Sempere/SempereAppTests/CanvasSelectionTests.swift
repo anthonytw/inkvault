@@ -261,4 +261,28 @@ struct CanvasSelectionTests {
         #expect(InsertOptions.pdfPagesTitle(pageless: false, pageIndex: 0, pageCount: 0) == "Insert PDF Pages…")
         #expect(InsertOptions.pdfPagesTitle(pageless: true, pageIndex: 0, pageCount: 1) == "Switch to Pages and Insert PDF…")
     }
+
+    /// "Switch to Pages and Insert PDF…" on a pageless note writes nothing
+    /// until a PDF is picked (a cancelled picker leaves the note pageless);
+    /// once one is, the switch is one delta and the note has pages for it.
+    @Test func switchingToPagesForAPDFWaitsForThePick() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, clock) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
+        await editor.setLayout(pageless: true)
+        #expect(editor.isPageless)
+        let before = try NoteEditorTests.myDeltas(vault, clock).count
+        #expect(InsertOptions.pdfImport(pageless: true) == .pdfSwitchingToPages)
+        #expect(InsertOptions.pdfImport(pageless: false) == .pdf)
+        #expect(EditorInsert.types(.pdfSwitchingToPages) == [.pdf])
+        // Choosing the menu entry only picks the importer's mode: nothing is written.
+        #expect(editor.isPageless)
+        #expect(try NoteEditorTests.myDeltas(vault, clock).count == before)
+        // A PDF was picked: the note switches to pages first, in one delta.
+        #expect(await EditorInsert.preparePages(editor))
+        #expect(!editor.isPageless)
+        #expect(try NoteEditorTests.myDeltas(vault, clock).count == before + 1)
+        // Already paged: nothing more.
+        #expect(await EditorInsert.preparePages(editor))
+        #expect(try NoteEditorTests.myDeltas(vault, clock).count == before + 1)
+    }
 }

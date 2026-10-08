@@ -13,6 +13,11 @@ enum InsertOptions {
 
     static func offersPDFPages(pageless: Bool) -> Bool { !pageless }
 
+    /// What the Insert menu's PDF entry picks: on a pageless note the switch
+    /// to pages waits for the PDF (`EditorInsert.preparePages`), so a
+    /// cancelled picker leaves the note as it was.
+    static func pdfImport(pageless: Bool) -> EditorFileImport { pageless ? .pdfSwitchingToPages : .pdf }
+
     /// The Insert menu's PDF entry, saying where the pages go: after the
     /// current page (`pageIndex`, 0-based) of a paged note; a pageless note
     /// is switched to pages first (its one page stays the first).
@@ -182,15 +187,8 @@ struct InsertMenu: View {
                 Button(InsertOptions.pdfPagesTitle(pageless: editor.isPageless, pageIndex: editor.pageIndex,
                                                    pageCount: editor.pages.count),
                        systemImage: "doc.badge.plus") {
-                    let editor = self.editor, state = self.state
-                    Task {
-                        if editor.isPageless {
-                            await editor.setLayout(pageless: false)
-                            guard !editor.isPageless else { return }
-                        }
-                        state.fileImport = .pdf
-                        state.pickingFile = true
-                    }
+                    state.fileImport = InsertOptions.pdfImport(pageless: editor.isPageless)
+                    state.pickingFile = true
                 }
             }
         } label: {
@@ -247,6 +245,7 @@ struct EditorInsert: ViewModifier {
                 guard case .success(let url) = result else { return }
                 switch state.fileImport {
                 case .pdf: importPDF(url)
+                case .pdfSwitchingToPages: importPDF(url, switchingToPages: true)
                 case .video: addVideoFile(url)
                 case .image: replaceWithFile(url)
                 }
@@ -261,9 +260,17 @@ struct EditorInsert: ViewModifier {
 
     private var visible: CGRect? { editor.canvasTarget?.visiblePageRect }
 
+    /// Switches a pageless note to pages before PDF pages go in (one delta,
+    /// `NoteEditor.setLayout`), only once a PDF was picked. Whether the
+    /// note has pages now.
+    @MainActor static func preparePages(_ editor: NoteEditor) async -> Bool {
+        if editor.isPageless { await editor.setLayout(pageless: false) }
+        return !editor.isPageless
+    }
+
     static func types(_ kind: EditorFileImport) -> [UTType] {
         switch kind {
-        case .pdf: return [.pdf]
+        case .pdf, .pdfSwitchingToPages: return [.pdf]
         case .video: return [.movie]
         case .image: return [.image]
         }
@@ -371,11 +378,17 @@ struct EditorInsert: ViewModifier {
         }
     }
 
-    private func importPDF(_ url: URL) {
+    private func importPDF(_ url: URL, switchingToPages: Bool = false) {
         let editor = self.editor
         state.working += 1
         Task {
             defer { state.working -= 1 }
+            if switchingToPages {
+                guard await Self.preparePages(editor) else {
+                    model.errorMessage = "Could not switch the note to pages, so the PDF was not inserted."
+                    return
+                }
+            }
             let after = editor.pages.isEmpty ? 0 : editor.pageIndex + 1
             if case .needsPassword(let request) = await model.importPDF(picked: url, to: .insert(editor, after: after)) {
                 ui.pdfPassword = request

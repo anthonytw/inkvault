@@ -1207,6 +1207,11 @@ is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
   largest frame of the new picture's proportions inside the old frame,
   centred, with its rotation and stacking (`NoteOps.replaceImage`, CLI
   `sempere items replace`). Undo puts the old picture back the same way.
+- **Insert menu** (pictures and video, a text box, PDF): the PDF entry says
+  where the pages go ("Insert PDF Pages After Page N…", "…at the End…"; also
+  in the Add Page menu). On a pageless note it reads "Switch to Pages and
+  Insert PDF…": the note is switched to pages (one delta) only once a PDF is
+  picked, so cancelling the picker changes nothing.
 - **Text colour** is a row of swatches (the pen palette: black, blue, green,
   yellow, red, and the pen's current colour first when it is another one)
   plus the system colour picker, as the pen's colour wheel opens.
