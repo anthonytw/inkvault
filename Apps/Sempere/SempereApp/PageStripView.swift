@@ -89,7 +89,7 @@ private struct PageStripRow: View {
                 .frame(width: width, height: height)
                 .overlay(Rectangle().stroke(selected ? SwiftUI.Color.accentColor : SwiftUI.Color.secondary.opacity(0.5),
                                             lineWidth: selected ? 2 : 1))
-            Text("\(number)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            Text(verbatim: "\(number)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)

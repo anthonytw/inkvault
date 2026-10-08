@@ -53,7 +53,10 @@ struct VideoPlayerSheet: View {
     }
 
     private var title: String {
-        ExportVideos.clock(request.item.duration).map { "Video · \($0)" } ?? "Video"
+        guard let length = ExportVideos.clock(request.item.duration) else {
+            return String(localized: "Video", comment: "Title of the video player when the clip's length is unknown")
+        }
+        return String(localized: "Video · \(length)", comment: "Title of the video player; the value is the clip's length, such as 1:05")
     }
 
     private func load() async {
@@ -62,7 +65,7 @@ struct VideoPlayerSheet: View {
         do {
             url = try await model.acquireVideo(request.item, note: note)
         } catch {
-            if !gone { failure = "The video could not be read. \(AppModel.describe(error))" }
+            if !gone { failure = String(localized: "The video could not be read. \(AppModel.describe(error))", comment: "The value is a sentence saying why") }
             return
         }
         guard !gone else {
@@ -145,4 +148,9 @@ struct PickedMovie: Transferable {
 /// Which file the editor's file importer is choosing.
 enum EditorFileImport {
     case pdf, video
+    /// A picture to replace an image with (Replace Image from Files).
+    case image
+    /// PDF pages for a pageless note: the note is switched to pages only
+    /// once a PDF is picked, so cancelling the picker changes nothing.
+    case pdfSwitchingToPages
 }

@@ -197,6 +197,17 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   device copy to --domain-type appDataContainer`). With `xcrun simctl launch`
   prefix each with `SIMCTL_CHILD_`. Point it at a copy of a vault: the editor
   autosaves.
+- App Store release (`docs/release/`): `scripts/release-check.sh` (Linux, CI job `release`,
+  its tests `scripts/test-release-check.sh`) fails on differing MARKETING_VERSION /
+  CURRENT_PROJECT_VERSION between targets, any DEVELOPMENT_TEAM, an entitlement outside its
+  allow-list, a Mac bundle id of its own, or a required-reason API (UserDefaults, file timestamps,
+  disk space, boot time, keyboards) used in a shipping target's sources (including the `Sources/`
+  targets it links) but not declared in its `PrivacyInfo.xcprivacy` (app: `SempereApp/`, widget:
+  `SempereWidgets/`). A new entitlement, package product or API category means updating the
+  script's tables, the manifest and `docs/release/app-store.md` in the same PR.
+  `ITSAppUsesNonExemptEncryption` stays `NO` while France is excluded
+  (`docs/release/export-compliance.md`). The privacy policy has two copies
+  (`docs/privacy/index.html` for Pages, `docs/appstore/privacy-policy.md`): edit both, same date.
 - App Store screenshots (`scripts/screenshots.sh`, `docs/appstore/screenshots.md`):
   `SEMPERE_DEMO=1` builds a synthetic vault in code (`DemoVault`,
   `DemoHandwriting`, DEBUG only, Linux-typecheckable like the other non-UI
@@ -557,6 +568,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   SwiftMath is in the app target only (exact 1.7.3), never in `Sources/`; the CLI has no typesetter
   and draws the stored render, else the source text. The app writes the render blob before the delta
   (`NoteEditor.insertMath` / `setItemMath`); undo restores old values without re-typesetting.
+- Localization (`docs/localization.md`, task L): every interface string is in
+  `Apps/Sempere/Localization/Localizable.xcstrings` (plus `InfoPlist`, `AppShortcuts`), a
+  synchronized group of the app and widget targets. SwiftUI literals localize themselves;
+  strings built in code use `String(localized: "…")` at the point they are defined (a
+  `Text(someString)` never localizes), counts are plural variations (es: one/many/other),
+  and the catalog key's specifier must match the Swift type (`%lld` for `Int`, `%@` for
+  `String`) or the lookup silently shows English. Text the app writes into a vault stays
+  English; the CLI stays English. A new string needs its catalog entry and Spanish value
+  (`scripts/l10n.py merge`): `LocalizationCatalogTests` (Linux, runs in `swift test` and in
+  its own CI job for `Apps/`-only changes) fails otherwise. The Linux scratch package for
+  `AppModel*` needs a `String(localized:)` shim (the Linux Foundation lacks the interpolated
+  form and `comment:`). `scripts/app.sh pseudo` checks double-length, right-to-left and
+  Spanish layouts.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

@@ -9,6 +9,14 @@ enum NoteSort: String, CaseIterable, Identifiable, Sendable {
     case title = "Title"
 
     var id: String { rawValue }
+
+    /// The picker's label (`rawValue` is not localized).
+    var title: String {
+        switch self {
+        case .modified: return String(localized: "Date Modified", comment: "Note list sort order")
+        case .title: return String(localized: "Title", comment: "Note list sort order: by title")
+        }
+    }
 }
 
 /// What the sidebar has selected; filters the note list.
@@ -58,18 +66,18 @@ final class AppModel {
 
         var description: String {
             switch self {
-            case .noVaultOpen: return "No vault is open."
-            case .notAnIdentity: return "That text holds no AGE-SECRET-KEY-PQ-1… or AGE-SECRET-KEY-1… identity."
-            case .noStoredKeys: return "This vault has no passphrase-protected key file."
-            case .passphraseMatchesNoKey: return "The passphrase opens none of this vault's key files."
-            case .noteNotFound: return "That note is no longer in the vault."
+            case .noVaultOpen: return String(localized: "No vault is open.")
+            case .notAnIdentity: return String(localized: "That text holds no AGE-SECRET-KEY-PQ-1… or AGE-SECRET-KEY-1… identity.")
+            case .noStoredKeys: return String(localized: "This vault has no passphrase-protected key file.")
+            case .passphraseMatchesNoKey: return String(localized: "The passphrase opens none of this vault's key files.")
+            case .noteNotFound: return String(localized: "That note is no longer in the vault.")
             case .noteNotDownloaded:
-                return "iCloud Drive has not delivered all of this note's files yet. Try again in a moment."
+                return String(localized: "iCloud Drive has not delivered all of this note's files yet. Try again in a moment.")
             case .notesStillDownloading:
-                return "Some notes are still loading or downloading from iCloud Drive. Try again once the list has finished loading."
-            case .invalidNotebookMove: return "A notebook cannot be moved into itself or into a notebook inside it."
+                return String(localized: "Some notes are still loading or downloading from iCloud Drive. Try again once the list has finished loading.")
+            case .invalidNotebookMove: return String(localized: "A notebook cannot be moved into itself or into a notebook inside it.")
             case .unsavedChanges(let reason):
-                return "The note's latest changes could not be saved first, so nothing was restored. \(reason)"
+                return String(localized: "The note's latest changes could not be saved first, so nothing was restored. \(reason)")
             }
         }
     }
@@ -818,7 +826,7 @@ final class AppModel {
         }
         if opened.loadFailed {   // it failed before the callback was set
             if let stale = editor { editor = nil; Task { await stale.close() } }
-            editorFailure = (noteID, opened.readOnlyReason ?? "This note could not be read.")
+            editorFailure = (noteID, opened.readOnlyReason ?? String(localized: "This note could not be read."))
             Task { await opened.close() }
             return
         }

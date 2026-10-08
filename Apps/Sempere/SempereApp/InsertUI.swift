@@ -13,6 +13,21 @@ enum InsertOptions {
 
     static func offersPDFPages(pageless: Bool) -> Bool { !pageless }
 
+    /// What the Insert menu's PDF entry picks: on a pageless note the switch
+    /// to pages waits for the PDF (`EditorInsert.preparePages`), so a
+    /// cancelled picker leaves the note as it was.
+    static func pdfImport(pageless: Bool) -> EditorFileImport { pageless ? .pdfSwitchingToPages : .pdf }
+
+    /// The Insert menu's PDF entry, saying where the pages go: after the
+    /// current page (`pageIndex`, 0-based) of a paged note; a pageless note
+    /// is switched to pages first (its one page stays the first).
+    static func pdfPagesTitle(pageless: Bool, pageIndex: Int, pageCount: Int) -> String {
+        if pageless { return String(localized: "Switch to Pages and Insert PDF…") }
+        if pageCount <= 0 { return String(localized: "Insert PDF Pages…") }
+        let n = min(max(pageIndex, 0), pageCount - 1) + 1
+        return n == pageCount ? String(localized: "Insert PDF Pages at the End…") : String(localized: "Insert PDF Pages After Page \(n)…")
+    }
+
     /// The camera on this device.
     @MainActor static var camera: Bool {
         offersCamera(isMac: Platform.isMac, cameraAvailable: UIImagePickerController.isSourceTypeAvailable(.camera))
@@ -107,6 +122,10 @@ final class InsertState {
     var pickingFile = false
     var fileImport = EditorFileImport.pdf
     var cropping: CropRequest?
+    /// The image Replace Image is picking a picture for.
+    var replacing: ReplaceRequest?
+    var pickingReplacementPhoto = false
+    var replacementSelection: [PhotosPickerItem] = []
     /// The video item playing (format.md §8.2.7).
     var playing: VideoPlayRequest?
     /// The equation being added or edited (`MathEditorView`).
@@ -130,39 +149,61 @@ struct CropRequest: Identifiable {
     let actions: ItemActions
 }
 
-/// The editor toolbar's Insert menu: Photos (pictures and videos), the camera
-/// (a photo or a clip), paste, a video file, PDF pages.
+/// An image to replace and how to record the result (one undo step), then
+/// what to do with the new image (select it).
+struct ReplaceRequest {
+    let item: Item
+    let page: UUID
+    let actions: ItemActions
+    let done: @MainActor (Item) -> Void
+}
+
+/// The editor toolbar's Insert menu, in groups: pictures and video (Photos,
+/// the camera, paste, a video file), a text box (the text tool), pages of a
+/// PDF (the entry says where they go), and an equation.
 struct InsertMenu: View {
     let editor: NoteEditor
     let state: InsertState
+    /// Turns the text tool on.
+    var onAddText: () -> Void = {}
     let onPaste: ([NSItemProvider]) -> Void
 
     var body: some View {
         Menu {
-            Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
-            if InsertOptions.camera {
-                Button("Take Photo…", systemImage: "camera") { state.camera = .photo }
-                Button("Record Video…", systemImage: "video") { state.camera = .video }
+            Section("Pictures and Video") {
+                Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
+                if InsertOptions.camera {
+                    Button("Take Photo…", systemImage: "camera") { state.camera = .photo }
+                    Button("Record Video…", systemImage: "video") { state.camera = .video }
+                }
+                PasteButton(supportedContentTypes: [.image], payloadAction: onPaste)
+                Button("Video File…", systemImage: "film") {
+                    state.fileImport = .video
+                    state.pickingFile = true
+                }
             }
-            PasteButton(supportedContentTypes: [.image], payloadAction: onPaste)
-            Button("Video File…", systemImage: "film") {
-                state.fileImport = .video
-                state.pickingFile = true
+            Section("Text") {
+                Button("Text Box", systemImage: "character.textbox", action: onAddText)
             }
-            Button("PDF Pages…", systemImage: "doc.richtext") {
-                state.fileImport = .pdf
-                state.pickingFile = true
+            Section("PDF") {
+                Button(InsertOptions.pdfPagesTitle(pageless: editor.isPageless, pageIndex: editor.pageIndex,
+                                                   pageCount: editor.pages.count),
+                       systemImage: "doc.badge.plus") {
+                    state.fileImport = InsertOptions.pdfImport(pageless: editor.isPageless)
+                    state.pickingFile = true
+                }
             }
-            .disabled(!InsertOptions.offersPDFPages(pageless: editor.isPageless))
-            Button("Equation…", systemImage: "function") {
-                guard let page = editor.currentPage?.id else { return }
-                state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
-                                                visible: editor.canvasTarget?.visibleRect(ofPage: page))
+            Section("Equation") {
+                Button("Equation…", systemImage: "function") {
+                    guard let page = editor.currentPage?.id else { return }
+                    state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
+                                                    visible: editor.canvasTarget?.visibleRect(ofPage: page))
+                }
             }
         } label: {
-            Label("Insert", systemImage: state.working > 0 ? "hourglass" : "photo.badge.plus")
+            Label("Insert", systemImage: state.working > 0 ? "hourglass" : "plus.circle")
         }
-        .help("Add photos, videos, a picture from the clipboard, pages of a PDF, or an equation")
+        .help("Add photos, videos, a picture from the clipboard, a text box, pages of a PDF, or an equation")
         .disabled(editor.isReadOnly || editor.currentPage == nil)
     }
 }
@@ -185,6 +226,13 @@ struct EditorInsert: ViewModifier {
                 state.photoSelection = []
                 addPhotos(picked)
             }
+            .photosPicker(isPresented: $state.pickingReplacementPhoto, selection: $state.replacementSelection,
+                          maxSelectionCount: 1, matching: .images, preferredItemEncoding: .current)
+            .onChange(of: state.replacementSelection) { _, picked in
+                guard let first = picked.first else { return }
+                state.replacementSelection = []
+                replaceWithPhoto(first)
+            }
             .fullScreenCover(item: $state.camera) { mode in
                 switch mode {
                 case .photo:
@@ -202,11 +250,13 @@ struct EditorInsert: ViewModifier {
                 }
             }
             .fileImporter(isPresented: $state.pickingFile,
-                          allowedContentTypes: state.fileImport == .video ? [.movie] : [.pdf]) { result in
+                          allowedContentTypes: Self.types(state.fileImport)) { result in
                 guard case .success(let url) = result else { return }
                 switch state.fileImport {
                 case .pdf: importPDF(url)
+                case .pdfSwitchingToPages: importPDF(url, switchingToPages: true)
                 case .video: addVideoFile(url)
+                case .image: replaceWithFile(url)
                 }
             }
             .sheet(item: $state.cropping) { request in
@@ -221,6 +271,64 @@ struct EditorInsert: ViewModifier {
     }
 
     private var visible: CGRect? { editor.canvasTarget?.visiblePageRect }
+
+    /// Switches a pageless note to pages before PDF pages go in (one delta,
+    /// `NoteEditor.setLayout`), only once a PDF was picked. Whether the
+    /// note has pages now.
+    @MainActor static func preparePages(_ editor: NoteEditor) async -> Bool {
+        if editor.isPageless { await editor.setLayout(pageless: false) }
+        return !editor.isPageless
+    }
+
+    static func types(_ kind: EditorFileImport) -> [UTType] {
+        switch kind {
+        case .pdf, .pdfSwitchingToPages: return [.pdf]
+        case .video: return [.movie]
+        case .image: return [.image]
+        }
+    }
+
+    /// Replace Image from Photos: the picked picture's bytes.
+    private func replaceWithPhoto(_ picked: PhotosPickerItem) {
+        guard let request = state.replacing else { return }
+        state.replacing = nil
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            do {
+                guard let data = try await picked.loadTransferable(type: Data.self) else { return }
+                await replace(request, with: data)
+            } catch {
+                model.errorMessage = String(localized: "Could not load the photo: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Replace Image from Files (security-scoped: read within its scope, with a size bound).
+    private func replaceWithFile(_ url: URL) {
+        guard let request = state.replacing else { return }
+        state.replacing = nil
+        state.working += 1
+        Task {
+            defer { state.working -= 1 }
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    return try ImagePreparation.readInput(url)
+                }.value
+                await replace(request, with: data)
+            } catch {
+                model.errorMessage = String(localized: "Could not read the picture. \(AppModel.describe(error))")
+            }
+        }
+    }
+
+    private func replace(_ request: ReplaceRequest, with data: Data) async {
+        if let new = await model.replaceImage(request.item.id, on: request.page, with: data, in: editor, actions: request.actions) {
+            request.done(new)
+        }
+    }
 
     private func addPhotos(_ picked: [PhotosPickerItem]) {
         let editor = self.editor, visible = self.visible
@@ -237,7 +345,7 @@ struct EditorInsert: ViewModifier {
                     guard let data = try await item.loadTransferable(type: Data.self) else { continue }
                     await model.insertImage(data, into: editor, visible: visible)
                 } catch {
-                    model.errorMessage = "Could not load the photo or video: \(error.localizedDescription)"
+                    model.errorMessage = String(localized: "Could not load the photo or video: \(error.localizedDescription)")
                 }
             }
         }
@@ -252,7 +360,7 @@ struct EditorInsert: ViewModifier {
                 let data = try ImagePreparation.jpeg(from: image)
                 await model.insertImage(data, into: editor, visible: visible)
             } catch {
-                model.errorMessage = "Could not add the photo. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not add the photo. \(AppModel.describe(error))")
             }
         }
     }
@@ -277,16 +385,22 @@ struct EditorInsert: ViewModifier {
                 let copy = try await Task.detached(priority: .userInitiated) { try VideoPreparation.copyPicked(url) }.value
                 await model.insertVideo(file: copy, into: editor, visible: visible)
             } catch {
-                model.errorMessage = "Could not add the video. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not add the video. \(AppModel.describe(error))", comment: "The value is a sentence saying why")
             }
         }
     }
 
-    private func importPDF(_ url: URL) {
+    private func importPDF(_ url: URL, switchingToPages: Bool = false) {
         let editor = self.editor
         state.working += 1
         Task {
             defer { state.working -= 1 }
+            if switchingToPages {
+                guard await Self.preparePages(editor) else {
+                    model.errorMessage = String(localized: "Could not switch the note to pages, so the PDF was not inserted.")
+                    return
+                }
+            }
             let after = editor.pages.isEmpty ? 0 : editor.pageIndex + 1
             if case .needsPassword(let request) = await model.importPDF(picked: url, to: .insert(editor, after: after)) {
                 ui.pdfPassword = request
@@ -318,7 +432,7 @@ extension EditorInsert {
                                             at: InsertOptions.cascade(point, index: images))
                     images += 1
                 case .failed(let why):
-                    model.errorMessage = "Could not add the attachment. \(why)"
+                    model.errorMessage = String(localized: "Could not add the attachment. \(why)")
                 case .pdf(let url):
                     let index = page.flatMap { id in editor.pages.firstIndex { $0.id == id } } ?? editor.pageIndex
                     if case .needsPassword(let request) = await model.importPDF(copy: url, to: .insert(editor, after: index + 1),

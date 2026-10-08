@@ -35,7 +35,10 @@ enum NoteFileDrag {
     /// The drop's file request gave up on the preparation (`load`).
     enum DragError: Error, LocalizedError {
         case timedOut
-        var errorDescription: String? { "The note took too long to get ready to export. Try dragging it again." }
+        var errorDescription: String? {
+            String(localized: "The note took too long to get ready to export. Try dragging it again.",
+                   comment: "Error when a note dragged out of the app as a PDF could not be prepared in time")
+        }
     }
 
     /// How long a file request waits for the preparation.

@@ -9,6 +9,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- App Store submission preparation (`docs/release/`): export compliance answers with sources,
+  privacy manifests for the app and the widget extension, App Privacy and age rating answers, App
+  Review notes, listing drafts, the Mac App Store (universal purchase) steps, and a privacy policy page
+  for GitHub Pages (`docs/privacy/`). `scripts/release-check.sh` (run by CI) fails on mismatched
+  version or build numbers, a committed signing team, a missing or incomplete privacy manifest, or an
+  entitlement outside the allow-list.
 - Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
   A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
   into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to
@@ -32,6 +38,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   never changes the vault (a compromised server cannot feed an attacker's recipient back). Files only the server
   has and nothing explains are reported as `extraneous` (new in `--json`, with `overwritten`) and removed with
   `--delete-extraneous`.
+- The app's interface in Spanish (task L). Every interface string lives in String Catalogs
+  (`Apps/Sempere/Localization/`), with plural forms, iPhone/iPad/Mac wording, the permission prompts, the
+  Siri phrases and the Lock Screen widget, Control Center control and Live Activity text. Notes, notebook
+  and tag names and the CLI's messages are not translated. Rules, the Spanish glossary and a guide to adding
+  a language: `docs/localization.md`, `CONTRIBUTING.md`. `scripts/app.sh pseudo` checks the layouts in the
+  double-length, right-to-left and Spanish languages; `LocalizationCatalogTests` keeps the catalogs
+  complete.
 - A note open in the app picks up what another device writes to it (iCloud Drive, any sync, the CLI)
   without being reopened: the new revisions are downloaded and merged into the open canvas, pages,
   items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink

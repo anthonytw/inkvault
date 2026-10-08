@@ -49,7 +49,7 @@ struct UnlockView: View {
                 Text(failure).foregroundStyle(.red)
             }
         }
-        .navigationTitle("Unlock \(model.vaultName ?? "Vault")")
+        .navigationTitle("Unlock \(vaultTitle)")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Close Vault") { model.close() }
@@ -62,10 +62,16 @@ struct UnlockView: View {
         }
     }
 
+    /// The open vault's name, or a generic word when it has none.
+    private var vaultTitle: String {
+        model.vaultName ?? String(localized: "Vault", comment: "Fallback name of a vault in “Unlock Vault”")
+    }
+
     private func tryRememberedKey() async {
         failure = nil
         switch await keys.unlockWithRememberedKey(model) {
-        case .failed(let message): failure = message + "\nUse the passphrase or paste the key instead."
+        case .failed(let message): failure = String(localized: "\(message)\nUse the passphrase or paste the key instead.",
+                                                    comment: "%@ is why the saved key could not be used")
         case .unlocked, .noKey, .cancelled: break
         }
     }
@@ -128,7 +134,7 @@ private struct RememberKeyView: View {
             } catch {
                 // Keep the vault unlocked; say why the key was not saved.
                 keys.offer = nil
-                model.errorMessage = "The vault is unlocked, but its key could not be saved: \(error)"
+                model.errorMessage = String(localized: "The vault is unlocked, but its key could not be saved: \(String(describing: error))")
             }
         }
     }

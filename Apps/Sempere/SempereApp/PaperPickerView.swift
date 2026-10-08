@@ -80,12 +80,12 @@ struct PaperPickerView: View {
                 Button { draft.select(kind) } label: {
                     VStack(spacing: 6) {
                         thumbnail(for: kind)
-                        Text(kind.title).font(.caption).foregroundStyle(.primary)
+                        Text(kind.localizedTitle).font(.caption).foregroundStyle(.primary)
                             .multilineTextAlignment(.center)
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(kind.title)
+                .accessibilityLabel(kind.localizedTitle)
                 .accessibilityAddTraits(kind == draft.kind ? .isSelected : [])
             }
         }
@@ -113,7 +113,7 @@ struct PaperPickerView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(SwiftUI.Color.secondary.opacity(0.5), lineWidth: 1))
             .shadow(radius: 6, y: 2)
-            .accessibilityLabel("Preview of \(draft.kind.title) paper")
+            .accessibilityLabel("Preview of \(draft.kind.localizedTitle) paper")
     }
 
     private var controls: some View {
@@ -122,11 +122,11 @@ struct PaperPickerView: View {
                 parameterRow(parameter)
             }
             if draft.hasLineColor {
-                colorRow(draft.kind == .dot || draft.kind == .isoDot ? "Dot colour" : "Line colour",
+                colorRow(draft.kind == .dot || draft.kind == .isoDot ? String(localized: "Dot colour") : String(localized: "Line colour"),
                          get: { draft.paper.lineColor }, set: { draft.setLineColor($0) })
             }
             if draft.hasMarginColor {
-                colorRow("Margin colour", get: { draft.paper.marginColor }, set: { draft.setMarginColor($0) })
+                colorRow(String(localized: "Margin colour"), get: { draft.paper.marginColor }, set: { draft.setMarginColor($0) })
             }
             backgroundRow
             Button("Reset to Defaults", systemImage: "arrow.counterclockwise") { draft.reset() }
@@ -212,7 +212,7 @@ struct PaperPickerView: View {
             Button("Apply to All Pages") { choose(.allPages) }
                 .buttonStyle(.bordered)
         }
-        Button(savedAsDefault ? "Saved as Default" : "Use as Default for New Notes",
+        Button(LocalizedStringKey(savedAsDefault ? "Saved as Default" : "Use as Default for New Notes"),
                systemImage: savedAsDefault ? "checkmark" : "star") {
             PaperPreference.save(draft.paper)
             savedAsDefault = true
