@@ -8,8 +8,9 @@ An independent review, made on 2026-10-08, of the work merged in the week of 202
 - #93: video items;
 - #89 and #106: quick voice capture.
 
-The open web viewer PRs #99 (passkey) and #100 (cache and summaries) were reviewed from their branches. Their
-findings are posted as comments on those PRs and summarised at the end.
+The web viewer PRs #99 (passkey) and #100 (cache and summaries) were reviewed from their branches while
+they were open. Their findings are posted as comments on those PRs and summarised at the end. #99 merged
+during the review, so its findings are now open items on `main` (P1–P3).
 
 Method: the code was read against `DESIGN.md`, `docs/format.md` (§2.1, §3.3, §7, §8.2.7, §9, §11),
 `docs/quick-capture.md` and `docs/web-viewer.md` "Threat model". Each finding marked *reproduced* was run
@@ -39,6 +40,7 @@ File:line references are to this branch.
 | W4 | Medium | WebDAV | UTF-16 PROPFIND bypasses the pre-checks; FoundationXML segfaults (reproduced) | Fixed |
 | N1 | Medium | newer format | `blobs repair` renames and deletes blobs of a note with newer revisions (reproduced) | Fixed |
 | V1 | Medium | video | A huge `duration` traps Markdown and HTML exports and the player title (reproduced) | Fixed |
+| P1 | Medium | app keys (#99) | "New Key…" and adding a pasted recipient need no owner check, unlike "Save Key…" | Open |
 | W2 | Medium | sync | Downloaded revisions and blobs are placed unverified; one junk snapshot blocks every edit to a note | Open |
 | V2 | Low | video | Location kept with a second `moov`, a top-level `udta` or a truncated trailing `meta` (reproduced) | Fixed |
 | N2 | Low | newer format | `inbox capture` and `inbox transcript` write into a read-only vault's `inbox/` (reproduced, CLI) | Fixed (CLI); app open |
@@ -428,11 +430,16 @@ Each request is bounded by size and time, but a run is not:
 
 ## Web viewer PRs (comments posted on the PRs)
 
-**#99 (passkey):**
-- Medium: "New Key…" (and adding a pasted recipient) adds a recipient without the owner check that guards
-  "Save Key…". On an unlocked iPad, anyone can create a key the vault is then encrypted to.
-- Low: the share sheet's Copy puts the key file on the general pasteboard.
-- Low: the remembered record is chosen by an unauthenticated vault id; the doc says otherwise.
+**#99 (passkey), merged during the review:**
+- P1, Medium: "New Key…" (and adding a pasted recipient) adds a recipient without the owner check that
+  guards "Save Key…". On an unlocked iPad, anyone can create a key the vault is then encrypted to, which
+  reads future notes too.
+  - Where: `AppModel.generateDeviceKey` and `addDeviceKey` (`Apps/Sempere/SempereApp/AppModel+Keys.swift`).
+  - Not fixed here: requiring an `OwnerAuthenticator` there changes every key-management path and its app
+    tests (which cannot run outside the macOS CI job), and the policy (Face ID only? the passcode on a Mac
+    without Touch ID?) is the maintainer's call. The paper recovery kit (`recoveryKitPDF`) has the same gap.
+- P2, Low: the share sheet's Copy puts the key file on the general pasteboard.
+- P3, Low: the remembered record is chosen by an unauthenticated vault id; the doc says otherwise.
 - Info: the IndexedDB database is created before the user opts in; old passkeys are not signalled unknown
   when a key is remembered again; #99 and #100 contradict each other in `docs/web-viewer.md`.
 - The PRF, HKDF, AES-GCM and AAD handling is sound, and nothing is stored in plaintext.
