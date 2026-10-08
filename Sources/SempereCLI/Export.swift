@@ -5,6 +5,7 @@ import SempereRender
 import Sempere
 
 extension PageBreaks: ExpressibleByArgument {}
+extension BulkExportLayout: ExpressibleByArgument {}
 
 enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
     case pdf, svg, png, json, markdown, html
@@ -138,7 +139,18 @@ struct ExportCommand: ParsableCommand {
                                             valueName: "dir"))
     var assets: String?
 
+    @Option(name: .long, help: ArgumentHelp("pdf/png with --all: flat (every file in --out, the default) or notebooks (a folder per notebook level).",
+                                            valueName: "flat|notebooks"))
+    var layout: BulkExportLayout = .flat
+
+    @Flag(name: .long, help: "pdf/png with --all: write one zip archive at --out (a .zip path) instead of files.")
+    var zip = false
+
+    @Flag(name: .long, help: "pdf/png with --all: render every note again, even those an earlier export into --out wrote unchanged.")
+    var overwrite = false
+
     @OptionGroup var access: AccessOptions
+    @OptionGroup var cache: CacheOptions
     @OptionGroup var output: OutputOptions
 
     func validate() throws {
@@ -154,6 +166,12 @@ struct ExportCommand: ParsableCommand {
         if clean && !tree { throw ValidationError("--clean only applies to --format markdown or html") }
         if clean && !all { throw ValidationError("--clean needs --all") }
         if notebook != nil && !all { throw ValidationError("--notebook needs --all") }
+        if layout != .flat || zip || overwrite {
+            guard bulk else {
+                throw ValidationError("--layout, --zip and --overwrite need --all with --format pdf or png (not --merge, "
+                                      + "and --recordings and --videos together, as --attachments does)")
+            }
+        }
         if format == .markdown && images == .png && !(dpi.isFinite && dpi > 0 && dpi <= 2400) {
             throw ValidationError("--dpi must be greater than 0 and at most 2400")
         }
@@ -163,6 +181,17 @@ struct ExportCommand: ParsableCommand {
         if !(pdfTimeout.isFinite && pdfTimeout > 0 && pdfTimeout <= 3600) {
             throw ValidationError("--pdf-timeout must be greater than 0 and at most 3600")
         }
+    }
+
+    /// `--all` as PDF or PNG files: one note at a time through the shared
+    /// bulk export (`BulkExportSession`, the app's "Export Notes…").
+    var bulk: Bool {
+        all && !merge && at == nil && (format == .png || (format == .pdf && (attachments || recordings == videos)))
+    }
+
+    /// The bulk export's format.
+    var bulkFormat: BulkExportFormat {
+        format == .png ? .png : (attachments || recordings == .attach ? .pdfAttachments : .pdf)
     }
 
     /// The rasterizer for SVG and PNG (and for PDF pages that cannot be copied).
@@ -207,10 +236,12 @@ struct ExportCommand: ParsableCommand {
         case none, attach
     }
 
-    private struct Written: Encodable {
+    struct Written: Encodable {
         var note: String
         var files: [String]
         var changed: [String]? = nil
+        /// Left as an earlier export wrote it (bulk PDF/PNG; omitted otherwise).
+        var skipped: Bool? = nil
         /// Items drawn as placeholders (omitted when none).
         var placeholders: Int? = nil
         /// Recordings embedded (`--recordings attach`; omitted when none).
@@ -221,6 +252,7 @@ struct ExportCommand: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
+        if bulk { return try runBulk(vault) }
         // Each note is decrypted once: loaded, summarised and reconstructed from the same read.
         let ids = try note.map { [try vault.resolveNote($0)] } ?? vault.noteIDs()
         var states: [(NoteSummary, NoteState)] = []
