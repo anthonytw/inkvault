@@ -163,7 +163,7 @@ behaviour and testing on a real Mac.
 | App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
 | Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md`; note windows checked on Catalyst in CI; restoration needs a hand test |
 | Drag a note to the Finder as PDF | 🔀 `docs/mac.md`; file promise served off the main thread after build 6; Finder drop needs a hand test |
-| Bulk export from the app | 📋 with the share/export work (the CLI has it) |
+| Bulk export from the app | 🔀 in progress (`claude/bulk-export-notes-rzdiev`) |
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
