@@ -146,7 +146,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | 🔀 #93 (not yet tried on the iPad) |
 | Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | 🔀 #96 (not yet tried on the iPad) |
 | Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💭 |
-| Release | TestFlight, then App Store | 📋 after the rename |
+| Release | TestFlight, then App Store: submission prep (export compliance, privacy manifests for the app and widget, App Privacy / age rating / review notes / listing, privacy policy page, `scripts/release-check.sh` in CI; `docs/release/`) | 🔀 #113; the maintainer submits |
 | Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | ✅ #53 |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
@@ -171,7 +171,7 @@ behaviour and testing on a real Mac.
 | Bulk export from the app | 📋 with the share/export work (the CLI has it) |
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
-| Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+| Mac App Store build (same bundle, universal purchase) | 🔀 #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
 
 ## Future: iPhone and web
