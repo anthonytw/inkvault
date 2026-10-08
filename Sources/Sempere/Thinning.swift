@@ -311,6 +311,9 @@ extension Vault {
     public func planCompaction(_ noteId: UUID, loaded: LoadedNote, mode: CompactionMode, now: Date = Date(),
                                device: DeviceID, clock: inout HybridClock, app: String) throws -> CompactionPlan {
         try requireMigrated()
+        // No compaction or thinning, not even planned, once newer content is seen (format.md §7.3).
+        if loaded.newer != nil { noteNewerContent(in: noteId) }
+        try requireWritable()
         if let (name, _) = loaded.failures.min(by: { $0.key < $1.key }) {
             throw CompactionError.unreadableRevision(name.filename)
         }

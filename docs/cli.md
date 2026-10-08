@@ -41,6 +41,7 @@ printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
 | 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: sempere vault recipients replace OLD NEW`. |
 | 6 | Untrusted device list: `vault.json`'s recipients do not check (`format.md` §2.1: changed without the vault's key, its tag removed, or the vault secret replaced in a way this machine cannot confirm). Every command that would encrypt to the list refuses (nothing is written), `vault verify` reports it, and `sync webdav` exits 6 when it rejected a remote `vault.json`. The message names the unexpected keys and `sempere vault recipients repair`. Reading notes still works. |
+| 7 | Read-only vault: it holds content of a newer format version (format.md §7), so this version may read it but not change it. The message says why (`format`, `features`, or notes a newer version wrote). |
 
 **Legacy vaults** (format.md §3.3.2) are migrate-only. On a vault that lists a
 classic X25519 recipient, alone or next to post-quantum ones, only these run:
@@ -55,6 +56,39 @@ are allowed too: they copy the encrypted files without decrypting anything,
 and a copy before migrating is a good idea. `restore` is refused because it
 would hand back a legacy vault; migrate the backup folder (itself a vault)
 first. `keys generate` and `keys show` do not touch a vault.
+
+**Vaults of a newer format version** (format.md §7) open read-only. A vault
+whose `vault.json` names a later `format` (`sempere/2`) or a format extension
+this version does not know (`features`) prints one warning on stderr
+(`sempere: warning: read-only: …`) and every reading command works: `vault
+info`, `vault verify`, `notes list`/`show`/`search`/`history`, `search`,
+`export`, `recover`, `blobs list`/`verify`/`extract`, `backup`. What a newer
+version wrote is shown as far as this version understands it: unknown ops,
+fields and snapshot elements are skipped, a revision with a later body version
+is left out, and every such thing is reported. Every command that would write
+(`notes new`/`rename`/`tag`/`move`/`paper`/`delete`/…, `pages`, `items`,
+`attach`, `import`, `snapshot`, `compact`, `blobs add`/`copy`/`gc`/`repair`,
+`vault recipients …`, `vault rewrap-resume`, `inbox enable`/`import`,
+`recognize`, `transcribe`) exits 7 without changing a file. `vault index`
+exits 7 too unless it writes elsewhere (`--out FILE` or `-`), and no command
+refreshes the vault's `sempere-index.json` any more. Newer
+*revisions* in a version-1 vault (a sync can deliver them before the new
+`vault.json`) make the run read-only from the moment it reads them: a write to
+such a note, and any write after it in the same run, exits 7.
+
+`--json` says so:
+
+- `vault info --json` adds `format`, `features`, `readOnly` (bool) and
+  `readOnlyReasons` (sentences), from `vault.json` alone;
+- `vault verify --json` adds `readOnly` and `readOnlyReasons` after reading
+  everything; each newer revision is a file with status `newer` (healthy) and
+  a detail saying what was skipped;
+- every note object (`notes list`, `notes show`, …) has `readOnly` (the vault
+  or the note is read-only) and, for a note a newer version wrote, `newer`:
+  `{revisions, unreadable, skippedOps: {name: count}, skippedElements,
+  formats: {id: count}, features: {name: count}}` (names cut to 64 characters,
+  at most 32 distinct, the rest under `…`); `notes show --json` also has
+  top-level `readOnly` and `readOnlyReasons`.
 
 Errors go to stderr, one line each, prefixed `sempere:`.
 
@@ -293,7 +327,8 @@ sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS]
 sempere blobs repair [NOTE ...]
 ```
 
-Blobs hold the bytes of images, PDFs, recordings and transcripts, one
+Blobs hold the bytes of images, PDFs, video clips and their posters,
+recordings and transcripts, one
 encrypted file per content per note: `notes/<id>/att/<keyed hash>.<kind>.age`
 (`format.md` §8.1). Revisions reference them by SHA-256; a note never uses
 another note's blobs. NOTE is an id or a title; without one, every note.
@@ -350,6 +385,9 @@ sempere attach pdf NOTE FILE [--pages 1-3,5,7-] [--after N] [--pdf-text auto|bui
 sempere attach text NOTE (TEXT | --file FILE|-) [--page N] [--frame ... | --at ... --width ...]
                              [--font sans|serif|mono] [--size PT] [--color #RRGGBB[AA]]
                              [--align start|center|end|left|right] [--bold] [--italic] [--lang TAG]
+                             [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
+sempere attach video NOTE FILE [--page N] [--frame ... | --at ... --width ...] [--rotation DEG]
+                             [--poster IMAGE | --poster-time S | --no-poster] [--keep-metadata]
                              [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
 sempere attach recording NOTE FILE [--title T] [--started TIME] [--type MEDIA/TYPE] [--duration S]
                              [--codec NAME] [--sample-rate HZ] [--channels N] [--bit-rate BPS]
@@ -413,6 +451,34 @@ exit 2).
   height. `--no-breaks` stores none (each renderer then wraps the text with its
   own fonts); without usable fonts the CLI warns and stores none. `--lang`
   picks fonts for CJK text. Typed text is searchable (`search`).
+- `video` places a video clip (`format.md` §8.2.7): an MP4 or QuickTime file
+  (`.mp4`, `.m4v`, `.mov`) with an H.264 or HEVC video track, at most 1 GiB,
+  stored as it is (no transcoding) and **streamed**: the file is read twice
+  (hash, then encrypt) in 1 MiB pieces and never held in memory, so a 1 GiB
+  clip takes a few MiB. Its container is read in pure Swift (`VideoProbe`:
+  box headers and a few small boxes only; damaged or hostile files are refused
+  with a typed error) for the duration, the display size (`pixelSize`, after
+  the track's rotation) and the rotation (`videoRotation`). Unless
+  `--keep-metadata`, the location and device metadata (every `udta` and `meta`
+  box in `moov` or a track, a top-level `meta` and XMP `uuid` boxes: GPS
+  position, make, model, software) are blanked
+  **in place** on the way into the blob (type `free`, contents zero): the file
+  keeps its length and every sample offset, so it plays as before; the file on
+  disk is not changed. Other codecs (MPEG-4 Part 2, VP9, AV1), WebM, AVI and
+  fragmented MP4 are refused: convert first (`ffmpeg -i IN -c:v libx264 -c:a
+  aac OUT.mp4`, or `-c copy` to defragment). The poster frame is what exports
+  and readers that do not play video draw: `--poster IMAGE` (JPEG or PNG,
+  stored upright without metadata; an image with an EXIF rotation is refused),
+  else on macOS a frame taken from the clip with AVFoundation
+  (`--poster-time`, default 0.5 s, upright, at most 1920 px), else (Linux, or
+  `--no-poster`) none: renderers draw a crossed box with a play mark, and
+  `items poster` can add one later. Without a frame the clip is fitted inside
+  the margins at most 480 pt wide, centred across the page, a margin from the
+  top; `--at`, `--width`, `--frame`, `--rotation`, `--layer` and `--rec` as
+  for `image`. Blobs are written poster first, then clip, then the delta.
+  `--json` adds `poster` (the poster's reference) and `metadataRemoved` (the
+  number of boxes blanked). `--dry-run` probes and hashes the clip (streamed)
+  and writes nothing.
 - `recording` stores an audio file and adds it to the note. MPEG-4 audio (`.m4a`;
   AAC-LC, HE-AAC or ALAC, `audio/mp4`) is read for its duration, codec, sample
   rate, channels and average bit rate; each option overrides what was read.
@@ -843,15 +909,23 @@ sempere items front ID|TITLE ITEM
 sempere items delete ID|TITLE ITEM...
 sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
 sempere items copy ID|TITLE ITEM... --to ID|TITLE [--page N]
+sempere items poster ID|TITLE ITEM (IMAGE | --from-clip [--poster-time S] | --remove) [--dry-run]
 ```
 
-The app's gestures on placed items (text boxes, images, PDF pages;
+The app's gestures on placed items (text boxes, images, PDF pages, video clips;
 `docs/format.md` §8.2), one delta each, built by the same `NoteOps` item
 builders as the app's canvas and computed from the note as it is on disk when
 the delta is written. An item is named by its id or an id prefix of at least
 4 characters (an ambiguous prefix is refused); the items of one command must
 be on one page. `list` prints page, id prefix, kind, frame and attachment
-(`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`, `crop`).
+(`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`, `crop`,
+and for a video `duration` and `poster`; the table shows a video's length and
+`+poster` or `(no poster)`). `poster` sets a video's poster frame (a JPEG or
+PNG, stored upright without metadata; `--from-clip` on macOS takes it from the
+clip at `--poster-time`, default 0.5 s) or removes it (`--remove`): one
+`setItem` of the `poster` register (`format.md` §8.2.7), nothing when the video
+already has that poster (`--json`: `note`, `item`, `poster`, `file`,
+`changed`). `copy` copies a video's clip and poster into the target note.
 `move` sets the frame (move and resize; a text box with stored `breaks` that
 gets another width is laid out again with the CLI's fonts, its new `breaks`
 and the height of its lines written in the same delta, as the app does), `rotate` the rotation, `crop` the
@@ -1163,6 +1237,7 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
                 [--notebook NAME] [--images none|png] [--clean]
                 [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
                 [--assets DIR] [--keep-image-metadata] [--recordings none|attach]
+                [--videos none|attach] [--attachments]
 ```
 
 - `--at REVISION` (single note only) exports the note as it was at that
@@ -1202,6 +1277,18 @@ shows them). At most 512 MiB of recordings go into one PDF; the rest are left ou
 warning. Without it (`none`, the default) a PDF export warns "N recordings not exported". The
 `--recordings list` page and `--format media` of task C4 are not done yet; `json` and `notes
 show` list recordings.
+
+Video clips (`format.md` §8.2.7) are drawn by `pdf`, `svg` and `png` as their poster, stretched
+onto the frame, with a play mark over it (a disc and a triangle); a video without a poster is a
+crossed-out box with the mark, reported as "video without a poster frame". `--videos attach` (PDF
+only) embeds each note's clips as PDF file attachments, each once however often it is placed,
+named `<title> – Video N.mp4` (or `.mov`), byte for byte as stored; `--attachments` embeds
+recordings and videos (the app's "PDF + attachments"). The PDF is written to a temporary file
+next to `--out` and moved into place, and the clips are **streamed** from the vault into it:
+memory does not grow with them, and up to 8 GiB of attachments go into one PDF. A clip that is
+missing or not yet downloaded is left out with a warning; one that fails verification while it
+is written fails that note's export (nothing is left behind). Without it a PDF export warns "N
+video clips shown as poster only".
 
 - `markdown` and `html`: a folder tree, see "Markdown and HTML exports" below.
   `--notebook NAME` (with `--all`, any format) keeps only notes in that
@@ -1372,6 +1459,11 @@ shared folder cannot make an export write or `--clean` delete elsewhere.
   fenced `text` block, so it stays literal and Obsidian or `grep` finds it.
 - The text of the page's text boxes, in drawing order, under `Typed text:` as
   fenced `text` blocks (a page with only typed text gets a section too).
+- Video clips: each clip once, streamed from the vault to
+  `<stem>-assets/video-1.mp4`, `video-2.mov`, ... (in page and drawing order), with its
+  location and device metadata blanked unless `--keep-image-metadata`, embedded under its page as
+  `![[<stem>-assets/video-1.mp4]]` and linked as `[Video 1 (0:42)](...)`. The note's PDF draws
+  the posters; it does not embed the clips.
 - `README.md` in the root and every folder: sub-notebooks and notes (title,
   pages, modified, tags). These list every note the output folder has been
   exported with, not only this run's.
@@ -1384,7 +1476,9 @@ recognised text (a few lines of inline script; the page works without it,
 unfiltered). Recognised words are also laid over the ink as an invisible
 selectable SVG text layer, and each page's text is listed below it in a
 collapsed "Machine-recognized text" block, and the text of its text boxes in a
-collapsed "Typed text" block; the index search covers both. There are no external resources:
+collapsed "Typed text" block; the index search covers both. Video clips are written next to
+the page as for Markdown (`<stem>-assets/video-N.mp4`) and shown under their page with a
+`<video controls preload="none">` and a link. Apart from those clip files there are no external resources:
 no scripts, fonts, stylesheets or images are fetched, and the file is
 well-formed XML as well as HTML.
 
@@ -1497,6 +1591,7 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
                          [--max-blob-mib N] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
+                         [--push-only [--delete-extraneous]]
 ```
 
 Mirrors the vault folder with a WebDAV collection (`docs/io.md`, "WebDAV
@@ -1538,12 +1633,36 @@ taken. Anything else is reported as `rejected` (stderr line and `--json`
 lists `would upload`, `would download` and `would delete` lines. It cannot see
 files it would first download, so it may under-report deletions.
 
+**`--push-only`** makes the run a one-way mirror, for a server that is not
+trusted to write back (the web viewer's NAS share, fed from the Mac's iCloud
+vault every few minutes). It uploads what the server lacks (revisions, blobs,
+`vault.json`, `rewrap-journal.json`, even files the server lost), replaces a
+differing server copy of `vault.json` / `rewrap-journal.json` with the local
+one (listed in `overwritten` and `uploaded`; a server `vault.json` of another
+vault still aborts the run), and deletes on the server what local compaction
+or `blobs gc` explains (as above, which needs the vault unlocked). It never
+downloads, and never writes, restores or deletes anything in the vault folder
+(it needs an existing vault: no `vault.json` is exit 2). The reason: a
+two-way sync rejects a `vault.json` whose recipients changed without a valid
+tag (`format.md` §2.1), but still takes everything else a server holds; a
+push-only mirror can be corrupted but never feeds anything back. Files only the server has:
+if they were never synced and no compaction explains them (injected files,
+junk names, a stray `rewrap-journal.json`) they are `extraneous`: listed, and
+with `--delete-extraneous` removed from the server. One that was synced before
+but is missing locally without a compaction or collection to explain it (or
+with the vault locked) is kept and listed as skipped, never deleted, since the
+local copy may merely be evicted from iCloud. On the first sync to a server
+(no sync state for it yet) every server file looks never synced, so
+`--delete-extraneous` only lists them (as skipped) and removes them on a later
+run; use `--dry-run` first when the local vault may not be fully downloaded.
+`--delete-extraneous` needs `--push-only`, and `--push-only` an existing vault.
+
 Output: one line per action, then
 `N uploaded, N downloaded, N deleted, N conflicts, N errors` (`-q` hides the
 lines, `-v` adds skipped and ignored entries). `--json` prints the report:
 `dryRun`, `uploaded`, `downloaded`, `deleted` (`{side, path}`), `conflicts`
 (`{path, remoteCopy, detail}`), `errors` and `skipped` (`{path, message}`) and
-`ignored` (remote names that are not vault files), and `rejected`. One failing file does not stop the
+`ignored` (remote names that are not vault files), `rejected`, and with `--push-only` also `extraneous` and `overwritten` (both arrays are always present). One failing file does not stop the
 run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts, 6 a
 rejected `vault.json`.
 

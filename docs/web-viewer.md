@@ -99,6 +99,7 @@ The code mirrors the Swift reader and is tested against it (see "Tests").
 | text lines: stored `breaks`, line metrics, alignment, direction (§8.5.3) | `web/src/render/text.ts` | `TextLayout.swift` |
 | PDF pages (§8.2.6) | pdf.js 6.4.299 (`web/src/ui/pdf.ts`) | `SemperePDF`, Poppler / PDFKit |
 | transcripts (§8.3.2) | `web/src/format/transcript.ts` | `Transcript` |
+| newer format versions: `sempere/<major>`, revision markers, lenient decoding of newer revisions, bounded report (§7) | `web/src/format/newer.ts`, `model.ts`, `vault.ts` | `NewerContent.swift`, `Revision.swift` |
 
 Typage 0.3.1 implements the age v1.3 hybrid recipient (`mlkem768x25519`,
 HPKE with X-Wing) with `@noble/post-quantum`; the viewer has no cryptography
@@ -108,6 +109,16 @@ Unreadable revisions (wrong tag, undecryptable, undecodable) are reported in
 the note view and the list ("N unreadable revisions", a "Problems" filter);
 the note is shown merged from the rest, marked as such (§4: report, never
 silently drop).
+
+A vault of a later format version (`sempere/2`, unknown `features`) opens
+like any other, and the status line says it was written partly by a newer
+Sempere (the reasons in its tooltip). In a revision marked newer (§7.4)
+unknown ops and fields and undecodable snapshot elements are skipped; the note
+view says what was skipped, the list marks the note "newer version", and a
+revision with a later body version is reported as written by a newer
+version. The viewer never writes, so it needs nothing else to be read-only
+(§7.3). `test/newer.test.ts` checks this against the committed
+`newer.sempere` fixture and its CLI export (`test/golden/newer`).
 
 ## Attachments
 
@@ -143,14 +154,25 @@ colour), then the ink. Each item is one of:
   the page, the paper shows, as in the exports). pdf.js's effective page is
   CropBox ∩ MediaBox turned by `/Rotate`, tested against the tables of
   §8.5.1 (`test/pdf.test.ts`). Annotations are not drawn (§8.2.6).
-- **Placeholder** (§8.5.2), for an unknown or reserved kind (`math`, `video`),
+- **Video** (§8.2.7): its poster, placed like an image (the whole image,
+  upright, onto the frame), under the format's play mark (a dark disc with a
+  white triangle, turned with the item); without a poster, a placeholder
+  under the mark (not reported: nothing is missing). Tapping the clip on the
+  page, or Play in the "N videos" list above the pages, decrypts and verifies
+  the clip and plays it in a `<video>` under the list (H.264 plays in every
+  current browser except Chromium builds without proprietary codecs, HEVC in
+  Safari and in Chrome or Edge with hardware decoding; an unplayable clip says
+  so). One clip is held at a time: playing another, Close, or leaving the note
+  revokes its object URL so the browser frees it.
+- **Placeholder** (§8.5.2), for an unknown or reserved kind (`math`),
   a missing, unreadable or invalid blob, HEIC (no decoder in the viewer; the
   app converts photos to JPEG by default), an image or PDF it cannot draw, or
   a page index the PDF lacks. The note view lists every placeholder with its
   reason ("N items shown as placeholders").
 
 **Blobs** (§8.1) are read only when their item comes within half a screen of
-the viewport, and audio only when Play is pressed, transcripts when opened.
+the viewport (a video's poster with it), audio and video clips only when
+played, transcripts when opened.
 Each is looked up at `notes/<id>/att/<name>.<kind>.age`, with `name` keyed from
 the reference's hash under the vault secret (and under the previous secret
 while a rewrap is unfinished, §8.1.5), decrypted as a stream (typage checks
@@ -160,7 +182,8 @@ the file to its keyed name), zero padding, and the SHA-256 of the content.
 Content is never handed out before that. Limits: images 64 MiB, PDFs 256 MiB,
 transcripts 64 MiB, audio 256 MiB (the format allows 1 GiB, §8.4, but a
 browser holds the whole verified file in memory; 256 MiB is over 8 hours at
-the app's default 64 kbit/s), and at most 1 MiB of padding beyond
+the app's default 64 kbit/s), video clips 512 MiB (a longer clip shows its
+poster and says to extract it with the CLI), and at most 1 MiB of padding beyond
 what a writer adds. Each blob is read once per open note however many items
 use it.
 
@@ -432,6 +455,7 @@ node scripts/smoke.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/Se
 node scripts/smoke-attachments.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
 # passkey: Chromium's virtual authenticator (CTAP2, UV, PRF), and one without PRF
 node scripts/smoke-passkey.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
+node scripts/smoke-video.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
 ```
 
 Tests (`web/test/`, vitest, Node 22):
@@ -449,16 +473,19 @@ Tests (`web/test/`, vitest, Node 22):
   so PDF pages are placeholders there and the goldens do not depend on a
   Poppler version) and fails on any difference, so the committed goldens are
   always the Swift output.
-- **Attachments against the CLI** (`items-crosscheck.test.ts`): two fixture
+- **Attachments against the CLI** (`items-crosscheck.test.ts`): three fixture
   notes with blobs (`test/fixtures/media/`: a synthetic JPEG with EXIF and a
   comment, a PNG with a text chunk, a hand-written two-page PDF with a
-  CropBox and `/Rotate`, a one-second tone, a transcript; plus a missing, a
-  forged and a HEIC blob, unknown and reserved kinds). The page outside the
+  CropBox and `/Rotate`, a one-second tone, a transcript, a one-second H.264
+  test-pattern clip; plus a missing, a forged and a HEIC blob, unknown and
+  reserved kinds, and video items with and without posters, rotated, with a
+  poster set and reset by another device and with a missing clip). The page outside the
   `items` group is compared byte for byte; the group itself structurally,
   since the CLI embeds its own font subsets: background fills, placeholders,
   each image's clip polygon and matrix (blobs read by the viewer's own
   reader), each text line's baseline, size, characters, direction (and x
-  where it does not depend on glyph widths), and each text box's rotation.
+  where it does not depend on glyph widths), each text box's rotation, and
+  each video's play mark element for element.
 - Blobs (`blobs.test.ts`: the §8.1.3 test vector, Padmé, every framing
   failure, missing, forged and cross-note blobs, the previous secret during a
   rewrap), images, placement, text layout and transcripts

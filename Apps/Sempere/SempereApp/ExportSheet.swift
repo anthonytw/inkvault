@@ -127,6 +127,9 @@ struct ExportSheet: View {
                 Label("\(outcome.recordingsOmitted) recording\(outcome.recordingsOmitted == 1 ? "" : "s") not included",
                       systemImage: "waveform.slash").foregroundStyle(.secondary)
             }
+            if outcome.videosAttached > 0 {
+                Label("\(outcome.videosAttached) video\(outcome.videosAttached == 1 ? "" : "s") attached", systemImage: "film")
+            }
             ForEach(outcome.items, id: \.self) { Text($0.lastPathComponent).font(.callout) }
         }
         if !outcome.failures.isEmpty {
