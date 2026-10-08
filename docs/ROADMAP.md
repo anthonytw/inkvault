@@ -98,7 +98,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Text boxes: `attach text` stores the `breaks` of its layout (`--no-breaks` to leave wrapping to renderers), `items move` lays a text box out again at a new width (E2) | 🔀 #82 | 🔀 #82 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | `attach video` (pure-Swift probe; poster from `--poster`, or from the clip on macOS), `items poster`, `export --videos attach` / `--attachments`, clips linked in Markdown/HTML (G2) | 🔀 #93 (no poster without `--poster`) | 🔀 #93 |
-| Math in exports | 💭 | 💭 |
+| Equations (G1): `attach math` (`--latex`, `--inline`, `--size`, `--color`, `--render` a PDF typeset elsewhere), `items math`, `items list`/`notes show`/`search` over the LaTeX source; exports draw the stored rendering (PDF form; SVG/PNG via Poppler as coverage of its colour), else the source as monospace text with a warning; `$$…$$` in Markdown/HTML | 🔀 #96 | 🔀 #96 |
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | 🔀 #94 | 🔀 #94 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
@@ -140,8 +140,9 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | 🔀 #87 (not yet tried on the iPad) |
 | Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | 🔀 quick capture PR (not yet tried on a device) |
 | Attachments | Unused-attachment index (E7): per-note device-local index updated by every write and arrival, Settings → Storage list (previews, history links, 30-day Delete, Delete All Eligible, held by history); `blobs unused`/`gc` show the same numbers | 🔀 #95 |
-| Future | Math (LaTeX typing, handwriting → LaTeX on device; G1) | 💭 after E2 + C3 |
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | 🔀 #93 (not yet tried on the iPad) |
+| Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | 🔀 #96 (not yet tried on the iPad) |
+| Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💭 |
 | Release | TestFlight, then App Store | 📋 after the rename |
 | Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | ✅ #53 |
 
