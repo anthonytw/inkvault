@@ -1,3 +1,6 @@
+#if os(iOS) && !targetEnvironment(macCatalyst)
+import ActivityKit
+#endif
 import Sempere
 import SwiftUI
 
@@ -31,6 +34,11 @@ struct QuickCaptureSettingsSection: View {
                 LabeledContent("Voice notes go to", value: stored.vaultName)
             }
             if let problem { Text(problem).font(.footnote).foregroundStyle(.orange) }
+            #if os(iOS) && !targetEnvironment(macCatalyst)
+            if stored != nil, !ActivityAuthorizationInfo().areActivitiesEnabled {
+                Text(QuickCaptureError.liveActivitiesOff.description).font(.footnote).foregroundStyle(.orange)
+            }
+            #endif
         } header: {
             Text("Quick Voice Notes")
         } footer: {
