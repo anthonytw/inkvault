@@ -1802,6 +1802,7 @@ Settings added since (same panel, same rules):
 | General | Keep Screen On | off | |
 | | Recognize Handwriting | on | |
 | History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
+| Device keys | Save Key… | — | actions, not settings: this device's key after Face ID (Touch ID, or the passcode only on a device without biometrics, never after a Face ID lockout) to Files or the share sheet, plus its paper kit; New Key… makes a key for another device, encrypts the vault to it and offers the same (`docs/cli.md` "Keys", app and CLI) |
 | Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |
 | | Unused attachments | — | a scan (`Vault.blobInventory`, every revision of each note) lists blob files no revision references; it never deletes (collection with the 30-day window is E7 / `sempere blobs gc`) |
 

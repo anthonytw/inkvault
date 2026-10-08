@@ -15,6 +15,7 @@ import { RecordingsPanel } from "./recordings.ts";
 import { VideosPanel } from "./videos.ts";
 import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
+import { passkeyVault, rememberOption, rememberScreen, rememberedCard } from "./passkey.ts";
 
 type Filter =
   | { kind: "all" } | { kind: "favorites" } | { kind: "deleted" } | { kind: "problems" }
@@ -143,30 +144,51 @@ export class App {
       attrs: { rows: "4", placeholder: "AGE-SECRET-KEY-PQ-1…", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-label": "Key" },
     });
     const button = h("button", { text: "Unlock", attrs: { type: "submit" } });
+    const unlock = async (text: string): Promise<string> => {
+      const identity = parseIdentity(text);
+      const journal = await readOptional(src, "rewrap-journal.json", limits.manifestBytes);
+      this.vault = await UnlockedVault.unlock(m, identity, journal);
+      return identity;
+    };
+    const failed = (err: unknown) =>
+      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message : `Unlocking failed: ${message(err)}`);
+    const remember = rememberOption();
     const submit = async (e: Event) => {
       e.preventDefault();
       button.disabled = true;
       button.textContent = "Unlocking…";
       try {
-        const identity = parseIdentity(key.value);
+        const text = key.value;
         key.value = "";
-        const journal = await readOptional(src, "rewrap-journal.json", limits.manifestBytes);
-        this.vault = await UnlockedVault.unlock(m, identity, journal);
-        this.showMain();
+        const identity = await unlock(text);
+        const pv = passkeyVault();
+        if (remember.checked() && pv) {
+          clear(this.root);
+          this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+        } else {
+          this.showMain();
+        }
       } catch (err) {
-        this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message : `Unlocking failed: ${message(err)}`);
+        failed(err);
       }
     };
+    const pv = passkeyVault();
+    const remembered = pv ? rememberedCard(pv, m.vaultId,
+      (text) => unlock(text).then(() => this.showMain(), (err: unknown) =>
+        failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err)),
+      (msg) => this.showUnlock(msg), () => this.showUnlock()) : null;
     clear(this.root);
     this.root.append(h("div", { class: "welcome" },
       h("h1", { text: "Unlock vault" }),
       h("p", { class: "lede" }, "Vault ", h("code", { text: src.label }), ` · ${m.recipients.length} key${m.recipients.length === 1 ? "" : "s"}`),
       error ? h("p", { class: "error", text: error, attrs: { role: "alert" } }) : null,
+      remembered,
       h("form", { class: "card", on: { submit: (e) => void submit(e) } },
         h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, or the whole key file)" }, key),
+        remember.element,
         h("div", { class: "row" }, button,
           h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
-        h("p", { class: "hint", text: "The key is kept in this tab's memory only: not stored, not sent. Closing the tab or Lock forgets it." }))));
+        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). Closing the tab or Lock forgets it." }))));
     key.focus();
   }
 
