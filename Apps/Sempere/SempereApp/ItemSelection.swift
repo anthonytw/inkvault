@@ -545,7 +545,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
 
     /// Shows the menu next to the selected item (or at `point`, for Paste on the empty page).
     private func presentMenu(at point: CGPoint? = nil) {
-        guard let source = point ?? selectedRect.map({ CGPoint(x: $0.midX, y: $0.minY) }) else { return }
+        guard canvas?.window != nil, let source = point ?? selectedRect.map({ CGPoint(x: $0.midX, y: $0.minY) }) else { return }
         menu?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: source))
     }
 
