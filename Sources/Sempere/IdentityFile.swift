@@ -56,6 +56,18 @@ public enum IdentityFile {
         return hex.count == 64 && hex.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
     }
 
+    /// The name the app suggests when it saves or shares a plaintext key
+    /// file (`render`'s text): `Sempere key - <label>.txt`. The label is cut
+    /// to one line of at most 60 characters, without path separators,
+    /// or control characters; an empty one gives `Sempere key.txt`.
+    public static func exportFileName(label: String) -> String {
+        let banned = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters).union(.newlines)
+        let cleaned = String(String.UnicodeScalarView(label.unicodeScalars.map { banned.contains($0) ? " " : $0 }))
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let name = String(cleaned.prefix(60)).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Sempere key.txt" : "Sempere key - \(name).txt"
+    }
+
     /// The plaintext, `age-keygen` style, newline-terminated.
     public static func render(_ identity: NativeIdentity, created: Date) -> String {
         let f = ISO8601DateFormatter()

@@ -555,6 +555,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   from iCloud only to play (`AppModel.acquireVideo`, `releaseVideo` after).
   Posters come from `VideoPoster` (AVFoundation, shared by the app and the CLI
   on macOS); the Linux CLI stores none without `--poster`.
+- Equations (`math` items, `format.md` §8.2.8, task G1): the whole `math` object is ONE register
+  (source, style, size, colour, `render`, `renderSize`, `engine`); a value whose source or style
+  changed carries a new render or none (`MathContent.withoutRender`, `typesetsLike`). Build edits
+  with `NoteOps.math` / `placeMath` / `setMath` (frame follows the render at the same scale,
+  `mathFrame`). Every LaTeX source goes through `MathSource.check` before any parser sees it.
+  SwiftMath is in the app target only (exact 1.7.3), never in `Sources/`; the CLI has no typesetter
+  and draws the stored render, else the source text. The app writes the render blob before the delta
+  (`NoteEditor.insertMath` / `setItemMath`); undo restores old values without re-typesetting.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in
