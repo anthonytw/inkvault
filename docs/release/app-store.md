@@ -144,7 +144,8 @@ deletion requirement does not apply. **Privacy Policy URL:** section 5.
 The permission prompts the app can show, all for local features (Info.plist build settings in
 `project.pbxproj`): camera (photos and video into notes; iPad/iPhone only), microphone
 (recording), speech recognition (on-device transcription), Face ID (remembered keys), Live
-Activities (a voice note in progress). Photos are picked with the system picker, which needs no
+Activities (a voice note in progress), notifications (the optional backup reminder, Settings →
+Backups; local, no push). Photos are picked with the system picker, which needs no
 permission.
 
 ## 4. Age rating

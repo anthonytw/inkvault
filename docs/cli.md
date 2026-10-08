@@ -618,7 +618,8 @@ however many cards show it.
 sempere backup [V] --to DIR [--prune] [--checksum]
 sempere backup [V] --archive FILE.tar
 sempere backup verify DIR [--identity FILE]
-sempere restore DIR --to NEWPATH.sempere [--identity FILE]
+sempere backup status DIR
+sempere restore DIR --to NEWPATH.sempere [--identity FILE] [--dry-run]
 ```
 
 `V` is the vault (else `--vault` / `$SEMPERE_VAULT`). Backups only ever hold
@@ -672,6 +673,12 @@ for `--prune` and for a full `verify`.
   `rewrapPending`, `counts` and `files` (`{path, status, detail}`; index
   statuses `ok`, `missing`, `modified`, `unindexed`, plus the vault check's
   problem statuses).
+- `backup status DIR` reads `DIR/backup.json` only (no key, no other file)
+  and prints the vault id, the first (`created`) and last (`updated`) run, and
+  the `notes`, `files` and `bytes` it records, previous copies under
+  `versions/` apart (`versionFiles`, `versionBytes`; `totalBytes` is both).
+  It checks nothing: `backup verify` does. Exit 0, or 1 when `DIR` is not a
+  backup or its `backup.json` cannot be read. `--json` emits those fields.
 - `restore DIR --to NEWPATH` copies `vault.json`, `keys/` and `notes/` (not
   `versions/` or `backup.json`) into a new or empty folder ending in
   `.sempere`, checking every file against `backup.json`; a file that does not
@@ -680,7 +687,15 @@ for `--prune` and for a full `verify`.
   restore is never mistaken for a vault; the same command finishes it. The
   result is then verified: every revision with `--identity`, structure only
   without. Exit 0 ok, 1 files not restored, 2 usage (`NEWPATH` without
-  `.sempere`), 3 the restored vault is not healthy, 4 wrong key.
+  `.sempere`), 3 the restored vault is not healthy, 4 wrong key. `NEWPATH`
+  may not be, hold or lie inside the vault named by `--vault` or
+  `$SEMPERE_VAULT` (exit 1: restore never touches a vault in use).
+  `--dry-run` writes nothing: it refuses `NEWPATH` exactly as a restore would,
+  then shows what `DIR` holds, read without a key: `notes`, `revisions`,
+  `attachments`, `keyFiles`, `bytes`, `newestRevision` (the newest revision
+  file's clock, so a device whose clock ran ahead can put it in the future),
+  `isBackup`, `backupUpdated` and `legacy` (a classic-key vault, which
+  restore refuses). `--json` emits those fields with `source` and `vaultId`.
 
 #### Scheduling backups
 
@@ -748,6 +763,24 @@ A failed run exits non-zero, which cron mails, launchd logs and
 `systemctl --user status sempere-backup` shows. For an off-site copy, sync
 the backup folder (or a weekly `--archive` tar) with any tool: it holds only
 encrypted files.
+
+#### The app's Backups (parity)
+
+The iPad and Mac app (Settings → Backups, `docs/io.md` "Backups in the app")
+runs the same core code, so its backups are these backups: the app and the
+CLI can each continue the other's folder, and everything above applies.
+
+| App | CLI |
+| --- | --- |
+| Back Up Now | `backup V --to DIR` (after a failed Verify Backup, `--checksum`) |
+| Verify Backup | `backup verify DIR` (with the key when the vault is unlocked) |
+| Last Backup, Contents | `backup status DIR` |
+| Restore from Backup: preview | `restore DIR --to NEW --dry-run` |
+| Restore from Backup | `restore DIR --to NEW` (never into the open vault) |
+| Remind Me | a scheduled job (above) |
+
+The app never prunes (`--prune`) and does not write tar archives
+(`--archive`): do those with the CLI.
 
 ### Notes
 

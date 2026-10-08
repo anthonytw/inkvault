@@ -25,7 +25,8 @@ struct SempereApp: App {
                              renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
                              attachmentIndexRoot: AppModel.defaultAttachmentIndexRoot,
                              automaticThinning: true,
-                             recipientsTrust: AppModel.defaultRecipientsTrust)
+                             recipientsTrust: AppModel.defaultRecipientsTrust,
+                             backupNotifier: UserNotificationBackupNotifier())
         _model = State(initialValue: model)
         // Background sync (iOS): the launch handlers of the scheduled tasks, registered before launch ends.
         BackgroundSync.register(model: model)
@@ -62,6 +63,7 @@ struct SempereApp: App {
         WindowGroup("Settings", id: MenuRouting.settingsSceneID) {
             SettingsView(showsDone: false)
                 .environment(model)
+                .environment(library)
         }
         WindowGroup("Vault Keys", id: "keys") {
             KeysWindowView()

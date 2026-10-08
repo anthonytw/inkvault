@@ -13,6 +13,18 @@
         }
       }
     },
+    "%@ (Restored)" : {
+      "comment" : "Restore from Backup: suggested name of the new vault; %@ is the backed-up vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (restaurada)"
+          }
+        }
+      }
+    },
     "%@ A password manager that takes files or text (for example from the share sheet) is the best place. The same file from a terminal: sempere keys generate / sempere keys export." : {
       "comment" : "Footer under Save to Files and Share of a key; %@ is the plain-text warning before it; commands are not translated",
       "extractionState" : "manual",
@@ -1773,6 +1785,29 @@
         }
       }
     },
+    "A backup is a copy of the vault's encrypted files, kept up to date: each run copies only what is new. Choose a folder on another drive or another cloud service. Nothing is decrypted: a backup is useless without your key, so save it with Device Keys ▸ Save Key… (with its paper recovery kit) and keep it somewhere safe as well." : {
+      "comment" : "Settings ▸ Backups footer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una copia de seguridad es una copia de los archivos cifrados de la bóveda, siempre al día: cada vez se copia solo lo nuevo. Elige una carpeta en otro disco u otro servicio en la nube. No se descifra nada: una copia no sirve sin tu clave, así que guárdala con Claves de dispositivo ▸ Guardar clave… (con su kit de recuperación en papel) y guárdala también en un lugar seguro."
+          }
+        }
+      }
+    },
+    "A backup, check or restore is already running." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya hay una copia, verificación o restauración en curso."
+          }
+        }
+      }
+    },
     "A change of this vault's keys was interrupted. Finish it to open your notes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1967,6 +2002,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Una clave de dispositivo quitada, o una copia de la bóveda anterior a una actualización, aún podría abrir los adjuntos que ya podía abrir. Elige esto solo si lo aceptas."
+          }
+        }
+      }
+    },
+    "A vault folder, not a backup" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta de bóveda, no una copia"
           }
         }
       }
@@ -2350,6 +2396,54 @@
         }
       }
     },
+    "After %lld days" : {
+      "comment" : "Settings ▸ Backups ▸ Remind Me: remind after this many days without a backup",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "After %lld day"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "After %lld days"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tras %lld de días"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tras %lld día"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tras %lld días"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Alignment" : {
       "comment" : "Text style bar: paragraph alignment menu",
       "extractionState" : "manual",
@@ -2516,6 +2610,18 @@
         }
       }
     },
+    "Attachments" : {
+      "comment" : "Restore preview: number of attachments",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjuntos"
+          }
+        }
+      }
+    },
     "Audio" : {
       "comment" : "Attachment kind in the unused attachments list",
       "extractionState" : "manual",
@@ -2569,6 +2675,173 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este dispositivo nunca elimina guardados automáticos. Otro dispositivo con la reducción activada sí reduce el historial de la bóveda."
+          }
+        }
+      }
+    },
+    "Back Up Now" : {
+      "comment" : "Settings ▸ Backups: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hacer copia ahora"
+          }
+        }
+      }
+    },
+    "Back up “%@”" : {
+      "comment" : "Backup reminder notification title; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haz una copia de «%@»"
+          }
+        }
+      }
+    },
+    "Backed Up" : {
+      "comment" : "Restore preview: when the backup last ran",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copiada"
+          }
+        }
+      }
+    },
+    "Backed up %lld files." : {
+      "comment" : "Back Up Now finished: files written",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Backed up %lld file."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Backed up %lld files."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Se han copiado %lld de archivos."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Se ha copiado %lld archivo."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Se han copiado %lld archivos."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Backing up: %lld files written" : {
+      "comment" : "Backups progress: files written so far",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Backing up: %lld file written"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Backing up: %lld files written"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Haciendo copia: %lld de archivos escritos"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Haciendo copia: %lld archivo escrito"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Haciendo copia: %lld archivos escritos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Backing up…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haciendo copia…"
+          }
+        }
+      }
+    },
+    "Backup" : {
+      "comment" : "Restore from Backup: label for the picked backup folder",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia"
+          }
+        }
+      }
+    },
+    "Backups" : {
+      "comment" : "Settings section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copias de seguridad"
           }
         }
       }
@@ -2740,6 +3013,18 @@
         }
       }
     },
+    "Change Backup Folder…" : {
+      "comment" : "Settings ▸ Backups: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar carpeta de copia…"
+          }
+        }
+      }
+    },
     "Channels" : {
       "comment" : "Settings ▸ Recording: mono or stereo picker",
       "extractionState" : "manual",
@@ -2884,6 +3169,18 @@
         }
       }
     },
+    "Choose Another Backup…" : {
+      "comment" : "Restore from Backup: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir otra copia…"
+          }
+        }
+      }
+    },
     "Choose Another Vault…" : {
       "comment" : "Button: close this vault so the PDFs go into another one",
       "extractionState" : "manual",
@@ -2892,6 +3189,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elegir otra bóveda…"
+          }
+        }
+      }
+    },
+    "Choose Backup Folder…" : {
+      "comment" : "Backups: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir carpeta de copia…"
           }
         }
       }
@@ -2919,6 +3228,17 @@
         }
       }
     },
+    "Choose a backup folder first." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige antes una carpeta de copia."
+          }
+        }
+      }
+    },
     "Choose a folder outside the vault: exported notes are not encrypted." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2926,6 +3246,72 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elige una carpeta fuera de la bóveda: las notas exportadas no están cifradas."
+          }
+        }
+      }
+    },
+    "Choose the backup folder (it holds backup.json), or any vault folder. Nothing is written until you tap Restore." : {
+      "comment" : "Restore from Backup: footer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Choose the backup folder (it holds backup.json), or any vault folder. Nothing is written until you tap Restore."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Choose the backup folder (it holds backup.json), or any vault folder. Nothing is written until you tap Restore."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Choose the backup folder (it holds backup.json), or any vault folder. Nothing is written until you click Restore."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Choose the backup folder (it holds backup.json), or any vault folder. Nothing is written until you tap Restore."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Elige la carpeta de la copia (contiene backup.json) o cualquier carpeta de bóveda. No se escribe nada hasta que toques Restaurar."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Elige la carpeta de la copia (contiene backup.json) o cualquier carpeta de bóveda. No se escribe nada hasta que toques Restaurar."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Elige la carpeta de la copia (contiene backup.json) o cualquier carpeta de bóveda. No se escribe nada hasta que hagas clic en Restaurar."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Elige la carpeta de la copia (contiene backup.json) o cualquier carpeta de bóveda. No se escribe nada hasta que toques Restaurar."
+                }
+              }
+            }
           }
         }
       }
@@ -3094,6 +3480,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Paleta compacta"
+          }
+        }
+      }
+    },
+    "Contents" : {
+      "comment" : "Settings ▸ Backups: what the backup holds",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contenido"
           }
         }
       }
@@ -3996,6 +4394,18 @@
         }
       }
     },
+    "Downloading from iCloud Drive: %lld of %lld" : {
+      "comment" : "Backups progress: files downloaded so far of the total [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargando de iCloud Drive: %lld de %lld"
+          }
+        }
+      }
+    },
     "Downloading from iCloud Drive: %lld of %lld notes…" : {
       "comment" : "Progress: notes downloaded so far of all notes. [not-plural] (the English always says notes)",
       "extractionState" : "manual",
@@ -4373,6 +4783,17 @@
         }
       }
     },
+    "Every note was decrypted and checked with this vault's key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas las notas se han descifrado y comprobado con la clave de esta bóveda."
+          }
+        }
+      }
+    },
     "Everything goes into one zip archive." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4711,6 +5132,18 @@
         }
       }
     },
+    "Forget Backup Folder" : {
+      "comment" : "Settings ▸ Backups: button (the backup stays on disk)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Olvidar carpeta de copia"
+          }
+        }
+      }
+    },
     "Forget Key" : {
       "comment" : "Destructive button: forget the remembered key",
       "extractionState" : "manual",
@@ -4957,6 +5390,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reconocimiento de escritura a mano: leer las notas para poder buscar en su escritura"
+          }
+        }
+      }
+    },
+    "Healthy, %@" : {
+      "comment" : "Settings ▸ Backups ▸ Last Check; %@ is how long ago",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Correcta, %@"
           }
         }
       }
@@ -5596,6 +6041,18 @@
         }
       }
     },
+    "Kind" : {
+      "comment" : "Restore preview: what the picked folder is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tipo"
+          }
+        }
+      }
+    },
     "LaTeX" : {
       "comment" : "Equation sheet: header of the source field; a name, not translated",
       "extractionState" : "manual",
@@ -5657,6 +6114,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lazo"
+          }
+        }
+      }
+    },
+    "Last Backup" : {
+      "comment" : "Settings ▸ Backups: label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Última copia"
+          }
+        }
+      }
+    },
+    "Last Check" : {
+      "comment" : "Settings ▸ Backups: label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Última verificación"
           }
         }
       }
@@ -6237,6 +6718,18 @@
         }
       }
     },
+    "Newest Change" : {
+      "comment" : "Restore preview: the newest revision's date",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Último cambio"
+          }
+        }
+      }
+    },
     "Next Match" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -6530,6 +7023,18 @@
         }
       }
     },
+    "None" : {
+      "comment" : "Restore preview: no revision at all",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ninguno"
+          }
+        }
+      }
+    },
     "Not Now" : {
       "comment" : "Button: do not remember the key",
       "extractionState" : "manual",
@@ -6566,6 +7071,18 @@
         }
       }
     },
+    "Not copied: %lld (first: %@: %@)." : {
+      "comment" : "Back Up Now: files that failed, then the first one's path and English error [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin copiar: %lld (el primero: %@: %@)."
+          }
+        }
+      }
+    },
     "Not downloaded" : {
       "comment" : "Transcription language model status",
       "extractionState" : "manual",
@@ -6598,6 +7115,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En ninguna página"
+          }
+        }
+      }
+    },
+    "Not restored (damaged or missing in the backup): %lld." : {
+      "comment" : "Restore from Backup: files that could not be restored [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin restaurar (dañados o ausentes en la copia): %lld."
           }
         }
       }
@@ -6779,6 +7308,17 @@
         }
       }
     },
+    "Notes were not decrypted (the vault is locked)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas no se han descifrado (la bóveda está bloqueada)."
+          }
+        }
+      }
+    },
     "Nothing in this notebook, tag or list." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6808,6 +7348,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nada que eliminar: ningún guardado automático es lo bastante antiguo para reducirlo."
+          }
+        }
+      }
+    },
+    "Notifications are off for Sempere, so the reminder shows here only; allow them in the system Settings ▸ Notifications." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notificaciones de Sempere están desactivadas, así que el recordatorio solo se muestra aquí; actívalas en Ajustes del sistema ▸ Notificaciones."
           }
         }
       }
@@ -6844,6 +7395,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tamaño del borrador de objetos"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "comment" : "Settings ▸ Backups ▸ Remind Me: no reminder",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No"
           }
         }
       }
@@ -7208,6 +7771,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abre la app Archivos una vez: iCloud Drive puede tardar un minuto en aparecer en un dispositivo que acaba de empezar a sincronizarlo."
+          }
+        }
+      }
+    },
+    "Open “%@”" : {
+      "comment" : "Restore from Backup: open the restored vault; %@ is its name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir «%@»"
           }
         }
       }
@@ -8119,6 +8694,18 @@
         }
       }
     },
+    "Problems found, %@" : {
+      "comment" : "Settings ▸ Backups ▸ Last Check; %@ is how long ago",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Con problemas, %@"
+          }
+        }
+      }
+    },
     "Protected PDFs not imported (open them again to enter their passwords): %@" : {
       "comment" : "The value lists file names",
       "extractionState" : "manual",
@@ -8770,6 +9357,18 @@
         }
       }
     },
+    "Remind Me" : {
+      "comment" : "Settings ▸ Backups: reminder picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recordármelo"
+          }
+        }
+      }
+    },
     "Remove" : {
       "comment" : "Swipe action: remove a vault from the recents list (the vault is kept)",
       "extractionState" : "manual",
@@ -9201,6 +9800,18 @@
         }
       }
     },
+    "Restore As a New Vault" : {
+      "comment" : "Restore from Backup: section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurar como bóveda nueva"
+          }
+        }
+      }
+    },
     "Restore Note" : {
       "comment" : "Note menu: bring a deleted note back",
       "extractionState" : "manual",
@@ -9225,6 +9836,30 @@
         }
       }
     },
+    "Restore from Backup" : {
+      "comment" : "Sheet title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurar desde copia"
+          }
+        }
+      }
+    },
+    "Restore from Backup…" : {
+      "comment" : "Settings ▸ Backups and welcome screen: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurar desde copia…"
+          }
+        }
+      }
+    },
     "Restore this version?" : {
       "comment" : "Confirmation title",
       "extractionState" : "manual",
@@ -9233,6 +9868,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Restaurar esta versión?"
+          }
+        }
+      }
+    },
+    "Restored “%@”: %lld files." : {
+      "comment" : "Restore from Backup finished; %1$@ is the new vault's name, %2$lld the files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Restored “%1$@”: %2$lld file."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Restored “%1$@”: %2$lld files."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Restaurada «%1$@»: %2$lld de archivos."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Restaurada «%1$@»: %2$lld archivo."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Restaurada «%1$@»: %2$lld archivos."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Restoring…" : {
+      "comment" : "Restore from Backup: progress",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurando…"
           }
         }
       }
@@ -9364,6 +10059,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Regla"
+          }
+        }
+      }
+    },
+    "Run Back Up Now again; the backup is incomplete until it succeeds." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vuelve a elegir Hacer copia ahora; la copia está incompleta hasta que termine bien."
+          }
+        }
+      }
+    },
+    "Run Back Up Now to replace missing or damaged files, then verify again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige Hacer copia ahora para reponer los archivos que faltan o están dañados y vuelve a verificar."
           }
         }
       }
@@ -10468,6 +11185,17 @@
         }
       }
     },
+    "Stopped. The backup holds every file written so far; Back Up Now finishes it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detenida. La copia contiene todos los archivos escritos hasta ahora; Hacer copia ahora la termina."
+          }
+        }
+      }
+    },
     "Stopped: %lld not exported" : {
       "comment" : "Bulk export stopped; notes not reached [not-plural]",
       "extractionState" : "manual",
@@ -10881,6 +11609,18 @@
         }
       }
     },
+    "That folder holds several backups (%@). Choose one of them." : {
+      "comment" : "Restore from Backup: %@ is a list of folder names",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esa carpeta contiene varias copias (%@). Elige una de ellas."
+          }
+        }
+      }
+    },
     "That folder holds several vaults (%@). Choose one of them." : {
       "comment" : "%@ is a list of vault folder names",
       "extractionState" : "manual",
@@ -10889,6 +11629,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esa carpeta contiene varias bóvedas (%@). Elige una de ellas."
+          }
+        }
+      }
+    },
+    "That folder is the open vault, holds it or is inside it. A backup must be somewhere else." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esa carpeta es la bóveda abierta, la contiene o está dentro de ella. La copia debe estar en otro lugar."
           }
         }
       }
@@ -11022,6 +11773,136 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "El archivo zip se elimina de la app al cerrar esta hoja."
+          }
+        }
+      }
+    },
+    "The backup folder “%@” can't be found any more. It may have been moved or deleted, or access to it expired. Choose it again." : {
+      "comment" : "Backups: %@ is the folder's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya no se encuentra la carpeta de copia «%@». Puede que se haya movido o eliminado, o que el acceso haya caducado. Vuelve a elegirla."
+          }
+        }
+      }
+    },
+    "The backup has %lld problems." : {
+      "comment" : "Verify Backup result",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The backup has %lld problem."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The backup has %lld problems."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La copia tiene %lld de problemas."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La copia tiene %lld problema."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La copia tiene %lld problemas."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "The backup is copied into a new vault; the vault you have open is never changed. It opens with the same key as the vault that was backed up." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copia se restaura en una bóveda nueva; la bóveda que tienes abierta nunca cambia. Se abre con la misma clave que la bóveda copiada."
+          }
+        }
+      }
+    },
+    "The backup is healthy: %lld files match their recorded checksums." : {
+      "comment" : "Verify Backup result",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The backup is healthy: %lld file matches its recorded checksum."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The backup is healthy: %lld files match their recorded checksums."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La copia está bien: %lld de archivos coinciden con sus sumas de comprobación."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La copia está bien: %lld archivo coincide con su suma de comprobación."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La copia está bien: %lld archivos coinciden con sus sumas de comprobación."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "The backup was already up to date." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copia ya estaba al día."
           }
         }
       }
@@ -11281,6 +12162,17 @@
         }
       }
     },
+    "The restored vault has problems; open it and check its notes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bóveda restaurada tiene problemas; ábrela y revisa sus notas."
+          }
+        }
+      }
+    },
     "The saved key could not be read: %@" : {
       "comment" : "The error text follows (English)",
       "extractionState" : "manual",
@@ -11323,6 +12215,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La bóveda ya está cifrada con esa clave."
+          }
+        }
+      }
+    },
+    "The vault is not complete: restore again from another copy of the backup to finish it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bóveda no está completa: vuelve a restaurar desde otra copia para terminarla."
           }
         }
       }
@@ -11562,6 +12465,18 @@
         }
       }
     },
+    "This Backup Holds" : {
+      "comment" : "Restore from Backup: section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta copia contiene"
+          }
+        }
+      }
+    },
     "This List" : {
       "comment" : "Search scope: the notes the sidebar selection shows",
       "extractionState" : "manual",
@@ -11626,6 +12541,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este adjunto aún no se ha descargado de iCloud Drive. Vuelve a intentarlo en un momento."
+          }
+        }
+      }
+    },
+    "This backup holds a vault with a classic (not quantum-safe) key. Restore it with the sempere command-line tool and migrate it first (docs/post-quantum.md)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta copia contiene una bóveda con una clave clásica (no resistente a la computación cuántica). Restáurala con la herramienta de línea de comandos sempere y migra la bóveda antes (docs/post-quantum.md)."
           }
         }
       }
@@ -12869,6 +13795,29 @@
         }
       }
     },
+    "Verify Backup" : {
+      "comment" : "Settings ▸ Backups: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificar copia"
+          }
+        }
+      }
+    },
+    "Verifying the backup…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificando la copia…"
+          }
+        }
+      }
+    },
     "Version History" : {
       "comment" : "Title of a note's version history sheet",
       "extractionState" : "manual",
@@ -12889,6 +13838,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Historial de versiones…"
+          }
+        }
+      }
+    },
+    "Versions" : {
+      "comment" : "Restore preview: number of revisions",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versiones"
           }
         }
       }
@@ -13307,6 +14268,18 @@
         }
       }
     },
+    "iCloud Drive has not delivered every note yet (missing: %lld), and a backup must hold every note. Check that this device is online and try again." : {
+      "comment" : "Back Up Now: %lld notes are not downloaded yet [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Drive aún no ha entregado todas las notas (faltan: %lld), y una copia debe contenerlas todas. Comprueba que este dispositivo tiene conexión y vuelve a intentarlo."
+          }
+        }
+      }
+    },
     "iCloud Drive has not listed this note's files yet (%lld missing). Try again in a moment." : {
       "comment" : "The number is files missing. [not-plural]: the Spanish avoids number agreement (sin listar: N)",
       "extractionState" : "manual",
@@ -13495,6 +14468,102 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ya no se encuentra “%@”. Puede que se haya movido o eliminado, o que su acceso haya caducado. Vuelve a elegir su carpeta."
+          }
+        }
+      }
+    },
+    "“%@” has never been backed up. Open Sempere and choose Settings → Back Up Now." : {
+      "comment" : "Backup reminder notification; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» nunca se ha copiado. Abre Sempere y elige Ajustes → Hacer copia ahora."
+          }
+        }
+      }
+    },
+    "“%@” has not been backed up for %lld days. Open Sempere and choose Settings → Back Up Now." : {
+      "comment" : "Backup reminder notification; %1$@ is the vault's name, %2$lld the days without a backup",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "“%1$@” has not been backed up for %2$lld day. Open Sempere and choose Settings → Back Up Now."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "“%1$@” has not been backed up for %2$lld days. Open Sempere and choose Settings → Back Up Now."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "«%1$@» lleva %2$lld de días sin copia. Abre Sempere y elige Ajustes → Hacer copia ahora."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "«%1$@» lleva %2$lld día sin copia. Abre Sempere y elige Ajustes → Hacer copia ahora."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "«%1$@» lleva %2$lld días sin copia. Abre Sempere y elige Ajustes → Hacer copia ahora."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "“%@” holds no backup or vault. Choose the backup folder itself (it holds backup.json)." : {
+      "comment" : "Restore from Backup: %@ is the picked folder's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» no contiene ninguna copia ni bóveda. Elige la propia carpeta de la copia (contiene backup.json)."
+          }
+        }
+      }
+    },
+    "“%@” holds the backup of another vault. Choose another folder." : {
+      "comment" : "Backups: %@ is the picked folder's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» contiene la copia de otra bóveda. Elige otra carpeta."
+          }
+        }
+      }
+    },
+    "“%@” is a vault. Choose a folder outside it (an external drive, another cloud folder)." : {
+      "comment" : "Backups: the picked backup folder is a vault; %@ is its name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» es una bóveda. Elige una carpeta fuera de ella (un disco externo, otra carpeta en la nube)."
           }
         }
       }
