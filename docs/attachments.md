@@ -1898,6 +1898,7 @@ Settings added since (same panel, same rules):
 | | Notebook for quick voice notes | Inbox | read by the voice-note feature via `NewNoteSettings.voiceNotebook()` |
 | General | Keep Screen On | off | |
 | | Recognize Handwriting | on | |
+| | Smooth Mouse Strokes (Mac only) | Light | Off, Light, Strong (`MouseSmoothing`, `docs/mac.md` "Mouse and trackpad"); pointer input only, nothing in the vault or the CLI |
 | History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
 | Device keys | Save Key… | — | actions, not settings: this device's key after Face ID (Touch ID, or the passcode only on a device without biometrics, never after a Face ID lockout) to Files or the share sheet, plus its paper kit; New Key… makes a key for another device, encrypts the vault to it and offers the same (`docs/cli.md` "Keys", app and CLI). New Key…, adding a pasted public key and the key window's Recovery Kit ask for the same owner check first (security review 2026-10, P1): each lets someone else read the vault |
 | Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |

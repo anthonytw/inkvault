@@ -205,7 +205,7 @@ behaviour and testing on a real Mac.
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): 🚧 #109 |
 | Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
-| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing 💡 |
+| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) 🚧 #123 |
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
 
