@@ -72,8 +72,7 @@ struct MacPolishBuild7Tests {
         #expect(MenuCommand.insertPDFPages.isEnabled(in: c))
         c.notePageless = true
         #expect(MenuCommand.insertPhoto.isEnabled(in: c))
-        #expect(!MenuCommand.insertPDFPages.isEnabled(in: c), "a pageless note takes no PDF pages (InsertOptions)")
-        #expect(InsertOptions.offersPDFPages(pageless: true) == MenuCommand.insertPDFPages.isEnabled(in: c))
+        #expect(MenuCommand.insertPDFPages.isEnabled(in: c), "a pageless note switches to pages with the PDF (#104)")
         c.notePageless = false
         c.canEditNote = false
         #expect(!MenuCommand.insertPhoto.isEnabled(in: c), "a read-only note")
@@ -119,6 +118,8 @@ struct MacPolishBuild7Tests {
         #expect(state.pickingPhotos)
         state.open(.pdfPages)
         #expect(state.pickingFile && state.fileImport == .pdf)
+        state.open(.pdfPages, pageless: true)
+        #expect(state.fileImport == InsertOptions.pdfImport(pageless: true), "the Insert menu's pageless path")
         var context = MenuCommand.Context()
         EditorCommands.fill(&context, from: editor)
         #expect(context.notePageless == editor.isPageless)

@@ -217,9 +217,9 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
         // The importers and their sheets are per window (`WindowSheets`): any window with a vault.
         case .importPDF, .importNotability: return unlocked && !context.vaultReadOnly && context.window != .other
-        // The Insert menu's own rule (`InsertMenu`): an editable note with a page; PDF pages need a paged note.
-        case .insertPhoto: return context.canEditNote && context.hasPage
-        case .insertPDFPages: return context.canEditNote && context.hasPage && !context.notePageless
+        // The Insert menu's own rule (`InsertMenu`): an editable note with a page. On a pageless note
+        // Insert PDF Pages… switches it to pages once a PDF is picked (`InsertOptions.pdfImport`).
+        case .insertPhoto, .insertPDFPages: return context.canEditNote && context.hasPage
         case .exportNotes: return unlocked && context.hasExportTargets
         case .changePaper: return context.canEditNote && context.hasPage
         case .addPage: return context.canEditNote

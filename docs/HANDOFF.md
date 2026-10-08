@@ -77,7 +77,8 @@ the owning session (`claude -p "…" --cloud <session_id>`).
   strength. The App Store Connect answer is "exempt" (Info.plist
   `ITSAppUsesNonExemptEncryption = NO`, so no per-build question). France is
   excluded from availability until the ANSSI declaration
-  (`docs/appstore/france-declaration.md`) is approved.
+  (`docs/appstore/france-declaration.md`) is approved. Research, sources and exact
+  answers: `docs/release/export-compliance.md`; the rest of the submission: `docs/release/app-store.md`.
 - **Attachments design (#22):**
   - per-note storage `notes/<id>/att/`, keyed-hash names, Padmé padding;
   - LWW item fields, integer z-layers (0 background, 100 content, ink above);

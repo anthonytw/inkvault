@@ -34,6 +34,7 @@ jobs:
       app: ${{ steps.f.outputs.app }}
       web: ${{ steps.f.outputs.web }}
       webgolden: ${{ steps.f.outputs.webgolden }}
+      release: ${{ steps.f.outputs.release }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,7 +44,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != pull_request ]; then
             echo "package=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"
-            echo "web=true" >> "$GITHUB_OUTPUT"; echo "webgolden=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "web=true" >> "$GITHUB_OUTPUT"; echo "webgolden=true" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}")"
           echo "$files"
@@ -65,8 +67,13 @@ jobs:
           echo "package=$package" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
+          # App Store release checks (scripts/release-check.sh, docs/release/app-store.md): the
+          # project, plists and privacy manifests under Apps/, the Sources/ the app links (the
+          # required-reason API scan) and the privacy policy pages. Linux, seconds.
+          release=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|SemperePDF|SempereSpeech|CZlib)/|scripts/(test-)?release-check\.sh$|docs/privacy/|docs/appstore/privacy-policy\.md$|\.github/workflows/ci\.yml$)')
           echo "webgolden=$webgolden" >> "$GITHUB_OUTPUT"
-          echo "package=$package app=$app web=$web webgolden=$webgolden"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "package=$package app=$app web=$web webgolden=$webgolden release=$release"
 
   linux:
     name: Linux (swift:6.4-noble)
@@ -236,6 +243,18 @@ jobs:
         with:
           path: .build/xcode
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+
+  release:
+    name: App Store release checks
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release checks (versions, signing team, privacy manifests, entitlements)
+        run: scripts/release-check.sh --list
+      - name: Tests of the release checks
+        run: scripts/test-release-check.sh
 
   web:
     name: Web viewer (lint, typecheck, tests, build)

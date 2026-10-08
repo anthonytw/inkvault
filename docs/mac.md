@@ -64,8 +64,9 @@ the iPad, which has no File menu, uses that button); both importers live in
 `WindowSheets`, so they work with the note list hidden and in note windows.
 Insert Photo… and Insert PDF Pages… send `WindowUI.insertRequest` to the
 window's editor, which opens its Insert menu's picker (`InsertState.open`);
-they follow the Insert menu's enabling (an editable note with a page; PDF pages
-need a paged note). Imports file new notes under the sidebar's notebook. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
+they follow the Insert menu's enabling (an editable note with a page); on a
+pageless note Insert PDF Pages… switches it to pages once a PDF is picked, as
+the Insert menu's entry does (#104). Imports file new notes under the sidebar's notebook. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
 
 | Menu | Command | Shortcut |
 | --- | --- | --- |
@@ -121,6 +122,12 @@ is in the responder chain. `MacCatalystTests.settingsInTheAppMenuAreTheApps`
 checks the built menu bar (one Settings… on ⌘,, no `orderFrontPreferencesPanel:`)
 and `MacWindowUITests.testCommandCommaOpensTheAppsSettings` presses ⌘, in the
 running app.
+
+Placed items (images, text boxes, PDF pages, videos): the mouse always draws,
+so a right-click (or two-finger click) on an item selects it and shows its
+menu (Crop…, Replace Image, Delete…) without leaving the drawing tool; a click
+with the lasso does the same, and Select in the toolbar turns selection mode
+on (`docs/attachments.md` §13 "Selecting items").
 
 ## Windows and state restoration
 
@@ -363,8 +370,8 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 9. Double-click a note in the list: its window opens. Hover over every toolbar
    button: each shows a tooltip.
 10. File > Import PDF as New Note…, Import from Notability… (a `.note` and a
-    backup zip), Insert Photo…, Insert PDF Pages… (disabled on a pageless
-    note), Export…, with and without an open note.
+    backup zip), Insert Photo…, Insert PDF Pages… (on a pageless note it
+    switches to pages), Export…, with and without an open note.
 11. In the Finder, right-click a PDF > Open With > Sempere: with the app quit,
     with no vault open, with the vault locked, and unlocked. Sempere must not
     become the default app for PDFs.
