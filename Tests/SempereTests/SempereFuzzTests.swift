@@ -386,7 +386,14 @@ final class SempereFuzzTests: VaultTestCase {
         let record = try XCTUnwrap(store.record(for: vault.vaultId))
         let recordJSON = try JSONEncoder().encode(record)
         let keys = vault.recipients.map(\.key)
-        assertClean(Fuzz.run("recipients-tag", seeds: [manifest, recordJSON], quick: 600, text: true) { input in
+        // A manifest with a signed `secretLink` (format.md §2.1), when ML-DSA is available.
+        var seeds = [manifest, recordJSON]
+        if postQuantumAvailable {
+            var rotated = try Vault.create(at: vaultURL("Rotated"), recipients: [id.recipient, other.recipient], identities: [id])
+            try rotated.removeRecipient(other.recipient)
+            seeds.append(try Data(contentsOf: rotated.url.appendingPathComponent("vault.json")))
+        }
+        assertClean(Fuzz.run("recipients-tag", seeds: seeds, quick: 600, text: true) { input in
             if let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: input) {
                 switch r.anchor {
                 case .legacy(let k) where k.count != 32: return "a legacy trust record with a \(k.count)-byte link key"

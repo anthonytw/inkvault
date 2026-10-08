@@ -803,6 +803,10 @@ public struct Vault: Sendable {
               RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: m.recipients.map(\.key), secret: secret) else {
             throw VaultError.manifestCorrupt("vault.json changed since it was opened; open the vault again")
         }
+        if case .untagged = recipientsStatus {   // `requireWritable` just tagged it on disk
+            manifest = m
+            recipientsStatus = .verified(.firstUse)
+        }
         let recordUpgraded = wasLegacyRecord && trustStore?.record(for: vaultId)?.isLegacy == false
         let (link, change) = try upgradedLink(m.secretLink)
         let featureAdded = !m.features.contains(VaultManifest.signedLinkFeature)

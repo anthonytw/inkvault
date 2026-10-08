@@ -305,6 +305,23 @@ final class SecretLinkTests: VaultTestCase {
         }
     }
 
+    /// An untagged vault (written before §2.1) is tagged first, then marked.
+    func testUpgradeTagsAnUntaggedVaultFirst() throws {
+        let vault = try Vault.create(at: vaultURL(), recipients: [a.recipient], identities: [a])
+        try rewrite(vault.url) { m in
+            m.recipientsTag = nil
+            m.features = []
+        }
+        let store = MemoryRecipientsTrustStore()
+        var opened = try Vault.open(at: vault.url, identities: [a], trust: store)
+        XCTAssertEqual(opened.recipientsStatus, .untagged)
+        try opened.upgradeSecretLink()
+        XCTAssertEqual(opened.recipientsStatus, .verified(.firstUse))
+        XCTAssertNotNil(opened.manifest.recipientsTag)
+        XCTAssertEqual(opened.secretLinkStatus, SecretLinkStatus(link: .none, featureListed: true, record: .signed))
+        XCTAssertEqual(try Vault.open(at: vault.url, identities: [a], trust: store).recipientsStatus, .verified(.unchanged))
+    }
+
     /// A non-rotating change (an addition) by a new writer also retires a
     /// legacy link and adds the feature.
     func testRecipientChangesWriteTheFeatureAndRetireLegacyLinks() throws {
