@@ -30,6 +30,7 @@ working state.
 | Vault | History and restore points | ✅ |
 | Vault | Version history round 2 (`format.md` §5.8): checkpoints, editing-session ids, positioned snapshots (`asOf`), thinning with stated and property-tested guarantees; compaction keeps checkpoints complete | ✅ #74 |
 | Vault | Fast summaries (no stroke points, parallel) and per-device encrypted summary cache (`format.md` §10) | ✅ #54 |
+| Vault | Published summaries `sempere-summaries.sealed` (`format.md` §12): AES-256-GCM under an HKDF key of the vault secret, entries keyed by revision names, a hint | 🔀 #100 |
 | Vault | Fast exact decoding of stroke points; per-device cache keys (`format.md` §10.1) | ✅ #56 |
 | Vault | Tags merge per tag (add wins) | ✅ #23 |
 | Vault | Hardened parsers + fuzz harness (untrusted input) | ✅ #25 |
@@ -95,6 +96,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | sync webdav | ✅ | ✅ |
 | sync webdav of attachment blobs (`--max-blob-mib`) | ✅ #67 | ✅ #67 |
 | sync webdav `--push-only` (one-way mirror, `--delete-extraneous`) | ✅ #97 | ✅ #97 |
+| `vault summaries` (published summaries for the web viewer, `format.md` §12), kept current by unlocked commands and `sync webdav` (`--web-viewer` creates them and the index on the server) | 🔀 #100 | 🔀 #100 |
 | Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | ✅ #98 | ✅ #98 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
 | `backup status DIR` (last run, notes, files, bytes from `backup.json`), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | 🚧 #110 | 🚧 #110 |
