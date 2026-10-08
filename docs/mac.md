@@ -314,6 +314,13 @@ There is no Pencil, so on a Mac:
 * The **object eraser takes the pointer** (`ObjectEraserController.pressTouchTypes`).
   It replaces PencilKit's gesture, and used to listen for the Pencil and
   fingers only, so on a Mac the default eraser did nothing.
+* **The remembered eraser mode** (object or pixel, `EraserPreference`) holds
+  on the Mac too. macOS 27's Catalyst picker does not keep a
+  `.fixedWidthBitmap` eraser item, the iPadOS 26 one's pixel eraser, so the
+  picker gets whichever pixel type this platform keeps (`pixelPickerType`,
+  probed once per launch; `EraserPreferenceTests` print what each type comes
+  back as, `ERASER-PROBE`). Where none is kept, a canvas starts with the
+  object eraser.
 * The pointer over the canvas is a circle the size of the ink tool's stroke at
   the current zoom (`PointerCursor.diameter`, 6 to 64 pt); the object eraser
   keeps its own cursor, the lasso and the pixel eraser the system arrow.

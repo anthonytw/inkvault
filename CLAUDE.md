@@ -187,7 +187,11 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   that saved eraser entry before building a picker, so the object eraser is
   the default and the user's last choice (stored under `Sempere.eraserType`)
   wins. On iPadOS 26 the picker's pixel eraser is `.fixedWidthBitmap`: a
-  `.bitmap` eraser item comes back as that.
+  `.bitmap` eraser item comes back as that; macOS 27 Catalyst does not keep a
+  `.fixedWidthBitmap` item. So the preference is two modes (object, pixel:
+  `EraserPreference.canonical`) and the picker gets the pixel type the
+  platform keeps (`pixelPickerType`, probed); never compare eraser types
+  with `==` across platforms, use `isPixel`.
 - Debug builds open a vault and note from launch environment variables, for
   scripted simulator or Catalyst runs (`DebugLaunch.swift`):
   `SEMPERE_DEBUG_VAULT`, `SEMPERE_DEBUG_IDENTITY`, `SEMPERE_DEBUG_NOTE`
