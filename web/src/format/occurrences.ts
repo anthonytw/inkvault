@@ -85,6 +85,18 @@ export function prepare(text: string): FoldedText {
   return { text, offsets, cps, folded, origin, start };
 }
 
+/** The folded form of a text alone (`prepare(text).folded`), for a cheap first check of many texts. */
+export function foldedText(text: string): string {
+  let out = "";
+  for (const ch of text) out += String.fromCodePoint(...foldCodePoint(ch.codePointAt(0) ?? 0));
+  return out;
+}
+
+/** False when `folded` (from `foldedText`) cannot contain the term, so the full search can be skipped. */
+export function mayContain(folded: string, term: FoldedTerm): boolean {
+  return term.folded.length === 0 || folded.includes(term.folded);
+}
+
 /**
  * A search term: the extenders it starts with, which must be in the text as
  * they are (Foundation compares the first character of a match without

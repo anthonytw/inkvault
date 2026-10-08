@@ -5,11 +5,12 @@
 // tab's memory only; matches follow the CLI's rules (src/format/phrasesearch.ts).
 
 import { type JSONObject } from "../format/json.ts";
-import { trimTerm } from "../format/occurrences.ts";
+import { foldedText, mayContain, trimTerm } from "../format/occurrences.ts";
 import { type PhraseHit, type TranscriptRead, phraseQuery, transcriptHits } from "../format/phrasesearch.ts";
 import { mapLimited } from "../vault/library.ts";
 import { type BlobReader, readTranscripts } from "../vault/transcripts.ts";
 import { type NoteState } from "../format/model.ts";
+import { type Transcript, type TranscriptSegment } from "../format/transcript.ts";
 import { h } from "./dom.ts";
 
 interface Indexed {
@@ -29,6 +30,8 @@ export class TranscriptSearch {
   private readonly problems = h("ul", { class: "transcript-problems" });
   private readonly indexed = new Map<string, Indexed>();
   private readonly pending = new Set<string>();
+  /** Each segment's folded text, made at the first search: the full search runs only where the term can be. */
+  private readonly folded = new WeakMap<TranscriptSegment, string>();
   private failedNotes = 0;
   private running = false;
   private stopped = false;
@@ -121,6 +124,18 @@ export class TranscriptSearch {
       `${b.title || "Untitled"}, ${typeof b.recording.title === "string" && b.recording.title ? b.recording.title : "recording"}: ${b.error}`)));
   }
 
+  private candidates(t: Transcript, term: Parameters<typeof mayContain>[1]): Transcript {
+    const segments = t.segments.filter((seg) => {
+      let f = this.folded.get(seg);
+      if (f === undefined) {
+        f = foldedText(seg.text);
+        this.folded.set(seg, f);
+      }
+      return mayContain(f, term);
+    });
+    return { ...t, segments };
+  }
+
   /** Transcript hits per note for `query` (CLI rules), each note's in time order; empty when off. */
   hits(query: string): Map<string, PhraseHit[]> {
     const out = new Map<string, PhraseHit[]>();
@@ -128,7 +143,7 @@ export class TranscriptSearch {
     if (!q) return out;
     for (const [id, n] of this.indexed) {
       if (n.deleted) continue;
-      const hits = n.reads.flatMap((r) => r.transcript ? transcriptHits(id, n.title, n.notebook, r.recording, r.transcript, q) : []);
+      const hits = n.reads.flatMap((r) => r.transcript ? transcriptHits(id, n.title, n.notebook, r.recording, this.candidates(r.transcript, q.folded), q) : []);
       if (hits.length > 0) out.set(id, hits.sort((a, b) => (a.start ?? 0) - (b.start ?? 0)));
     }
     return out;

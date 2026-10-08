@@ -46,3 +46,13 @@ describe("folding rules", () => {
     expect(trimTerm("﻿x")).toBe("﻿x");
   });
 });
+
+describe("the cheap first check", () => {
+  it("never rules out a text that has an occurrence", async () => {
+    const { foldedText, mayContain } = await import("../src/format/occurrences.ts");
+    for (const v of vectors) {
+      const term = foldTerm(trimTerm(v.term));
+      if (v.ranges.length > 0) expect(mayContain(foldedText(v.text), term)).toBe(true);
+    }
+  });
+});

@@ -23,6 +23,9 @@ import { ConfigError, parseConfig } from "../src/vault/config.ts";
 import { sealFor, unlockFixture } from "./support.ts";
 import { BlobError, verifyPlaintext } from "../src/vault/blobs.ts";
 import { createHash } from "node:crypto";
+import { KeyFileError, unwrapKey, workFactor, wrappedBytes } from "../src/vault/keyfile.ts";
+import { foldTerm, occurrences, prepare, snippet } from "../src/format/occurrences.ts";
+import { fixtures } from "./support.ts";
 
 const iterations = process.env.SEMPERE_FUZZ_LONG ? 20_000 : 600;
 
@@ -210,6 +213,49 @@ describe("fuzz", () => {
         } catch (e) {
           if (!(e instanceof BlobError)) throw new Error(`blob iteration ${i}: ${String(e)}`, { cause: e });
         }
+      }
+    }
+  });
+
+  it("reads mutated passphrase-wrapped key files with typed errors only", async () => {
+    const r = rng(0x6b65);
+    const dir = join(fixtures, "sample.sempere", "keys");
+    const { readdirSync } = await import("node:fs");
+    const stored = new Uint8Array(readFileSync(join(dir, readdirSync(dir)[0] ?? "")));
+    const kit = readFileSync(join(webFixtures, "paper-kit-passphrase.txt"), "utf8");
+    for (let i = 0; i < iterations; i++) {
+      const bytes = stored.slice(0, r() < 0.1 ? Math.floor(r() * stored.length) : stored.length);
+      // Mostly in the header, where the parser looks.
+      const n = 1 + Math.floor(r() * 3);
+      for (let k = 0; k < n && bytes.length; k++) bytes[Math.floor(r() * Math.min(bytes.length, r() < 0.8 ? 120 : bytes.length))] = Math.floor(r() * 256);
+      const chars = [...kit];
+      for (let k = 0; k < n; k++) chars[Math.floor(r() * chars.length)] = String.fromCharCode(Math.floor(r() * 128));
+      for (const input of [bytes, chars.join("")]) {
+        try {
+          const file = wrappedBytes(input);
+          const logN = workFactor(file);
+          // scrypt runs only on files whose header parses; at work factor 15 it is quick.
+          if (i % 50 === 0 && logN <= 15) await unwrapKey(file, "sempere-test");
+        } catch (e) {
+          if (!(e instanceof KeyFileError)) throw new Error(`key file iteration ${i}: ${String(e)}`, { cause: e });
+        }
+      }
+    }
+  });
+
+  it("finds phrases in random text without failing or leaving the text", () => {
+    const r = rng(0x5ea4);
+    const alphabet = ["a", "E", "é", "e\u0301", "\u0301", "ß", "SS", "ﬃ", "İ", "\ufe0f", "👍🏽", "\n", " ", "\r\n", "が", "\uff21", "न्", "\u200c", "\ud800", "x"];
+    const pick = () => alphabet[Math.floor(r() * alphabet.length)] ?? "";
+    for (let i = 0; i < iterations * 5; i++) {
+      const text = Array.from({ length: Math.floor(r() * 40) }, pick).join("");
+      const term = Array.from({ length: 1 + Math.floor(r() * 4) }, pick).join("");
+      const t = prepare(text);
+      let last = 0;
+      for (const [a, b] of occurrences(t, foldTerm(term))) {
+        expect(a >= last && b >= a && b <= t.cps.length).toBe(true);
+        last = b;
+        expect(typeof snippet(t, [a, b])).toBe("string");
       }
     }
   });
