@@ -28,6 +28,11 @@ struct SyncWebDAVCommand: ParsableCommand {
             is never taken from the command line: --password-env names the variable (default
             SEMPERE_WEBDAV_PASSWORD). The vault folder may be new or empty for a first pull.
 
+            With the vault unlocked, the server's sempere-summaries.sealed (format.md §12, the note list
+            the web viewer reads first) is rewritten for what the server holds after the sync, when its
+            entries changed. --web-viewer creates it, and sempere-index.json (the one-request listing), on a
+            server that has none. Neither is ever copied between the two sides.
+
             A remote vault.json whose device list changed without a valid tag (format.md §2.1) is never
             copied over the local one: it is reported as rejected and the exit code is 6 (checking a changed
             list needs the key: pass --identity or --passphrase-env).
@@ -72,6 +77,10 @@ struct SyncWebDAVCommand: ParsableCommand {
           help: "With --push-only: remove from the server the files the vault does not have and compaction does not explain.")
     var deleteExtraneous = false
 
+    @Flag(name: .customLong("web-viewer"),
+          help: "Create the server's sempere-index.json and sempere-summaries.sealed for the web viewer (needs the vault unlocked).")
+    var webViewer = false
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -81,6 +90,8 @@ struct SyncWebDAVCommand: ParsableCommand {
         if deleteExtraneous && !pushOnly { throw CLIError.usage("--delete-extraneous needs --push-only") }
         options.pushOnly = pushOnly
         options.deleteExtraneous = deleteExtraneous
+        options.publishForWebViewer = webViewer
+        options.summaryCacheDirectory = SummaryCache.cliDirectory(environment: Env.vars)
         if let maxBlobMiB {
             guard (1...(1 << 20)).contains(maxBlobMiB) else { throw CLIError.usage("--max-blob-mib must be 1 to 1048576") }
             options.maxBlobBytes = maxBlobMiB << 20
@@ -105,6 +116,11 @@ struct SyncWebDAVCommand: ParsableCommand {
         if pushOnly && !hasManifest { throw CLIError.usage("--push-only needs an existing vault (no vault.json in \(dir.path))") }
         if !pushOnly { OpenedVaults.shared.record(dir) }   // a first pull creates the vault here
         let vault = hasManifest ? try access.openVault(.ifPossible) : nil
+        // A mirror never writes in the vault: not even the local index or summaries refresh at exit.
+        if pushOnly { OpenedVaults.shared.forget(dir) }
+        if webViewer && vault?.canRead != true {
+            throw CLIError.usage("--web-viewer needs the vault unlocked (--identity or a stored key's passphrase)")
+        }
         options.deviceLabel = device ?? ProcessInfo.processInfo.hostName
         let sync = WebDAVSync(
             directory: dir, vault: vault, client: client,

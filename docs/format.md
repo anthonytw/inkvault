@@ -21,6 +21,7 @@ Notes.sempere/
   inbox/
     <captureId>.capture.age               a voice note sealed without the vault's key (§11), until adopted
     <captureId>.transcript.age            its transcript, sealed the same way (§11)
+  sempere-summaries.sealed                optional published note summaries, a hint for listing (§12)
 ```
 
 Everything under `notes/` (revisions and `att/` blobs alike) is written once
@@ -2453,6 +2454,7 @@ where the table says how they degrade.
 | PDF attachment (export, `SemperePDF`) | 1 GiB file; 10⁶ objects; 256 MiB per decoded stream, 1 GiB decoded per file; nesting and page-tree depth 64; 32 reference hops; 4 096 cross-reference sections; 16 filters per stream; encrypted files refused | `PDFLimits` |
 | PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
+| published summaries (§12) | 64 MiB on disk, 256 MiB after gunzip; unknown fields skipped, not kept; any failure ignores the file, a bad entry only that entry | `PublishedSummaries.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
 on Linux, `PropertyListSerialization` crashes on a binary plist holding a
@@ -2686,3 +2688,130 @@ Afterwards the capture file is deleted once the note exists, and the
 transcript file once the recording has a transcript (or is gone). A
 transcript file whose capture has not arrived yet stays.
 
+
+## 12. Published summaries
+
+*New: web viewer.* A vault may hold, at its root, `sempere-summaries.sealed`:
+the summary of each note (title, tags, notebook, flags, page count and the
+searchable text of each page) together with the names of the revision files
+it was made from, so that a reader can list and search the vault without
+decrypting every revision. It exists for readers that start cold on every
+visit, such as the web viewer (`docs/web-viewer.md`), and is published next
+to a copy of the vault (a WebDAV mirror) rather than kept per device like
+the cache of §10.
+
+The file is **a hint**. It is derived from the revisions, never needed to
+read the vault, and never trusted over them: a reader that does not
+implement this section ignores it (§1), and a missing, stale, damaged or
+foreign file is never an error, only a slower listing. It is not under
+`notes/` and is not write-once: a writer replaces it whole (atomically, or
+with one `PUT`). It needs no `features` entry (§2).
+
+### 12.1 Key and file
+
+```
+key = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 published summaries key", L = 32)
+```
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| 0 | 4 | ASCII `SMPU` |
+| 4 | 1 | version `0x01` |
+| 5 | 12 | nonce, random per write |
+| 17 | rest | AES-256-GCM ciphertext under `key`, then its 16-byte tag |
+
+The associated data is the first 5 bytes ‖ `"sempere/1"` ‖ `0x00` ‖ the
+vault's `vaultId` (§2, lowercase, ASCII). The plaintext is `gzip(JSON)`
+(UTF-8). AES-GCM rather than the ChaCha20-Poly1305 of §10 because browsers
+provide it (WebCrypto); with a random 96-bit nonce per write and one write per
+change of the vault's listing, nonce reuse is not a concern. Only holders of
+the vault secret (the vault's recipients) can write or read the file. A
+vault whose secret rotates (§3.3) derives another key, so its old file no
+longer opens and is ignored until rewritten; during an unfinished rewrap a
+reader may also try the previous secret's key.
+
+Test vector (`vaultSecret` = 32 bytes `0x00 0x01 … 0x1f`, `vaultId`
+`0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c`, nonce 12 bytes `0xa0 0xa1 … 0xab`,
+plaintext the ASCII bytes `{}` (not gzip, to keep the vector short)):
+
+```
+key  = 4ffd10840df4dc46092a2c424919f611c1bcc355fe7526a19e25a1489bf5510a
+file = 534d505501a0a1a2a3a4a5a6a7a8a9aaabb466bcf027fe45b94f3fe195f6e0b57d9c6e
+```
+
+### 12.2 Content
+
+```json
+{
+  "format": "sempere-summaries/1",
+  "vaultId": "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c",
+  "notes": {
+    "6f1c2b9e-0a43-4f6e-9a51-2c8d7e3b4a10": {
+      "revisions": ["17596320000000000-a1b2c3d4-1.delta.age",
+                    "17596952000000000-a1b2c3d4-2.delta.age"],
+      "title": "Groceries",
+      "tags": ["home"],
+      "notebook": "Personal/Lists",
+      "favorite": false,
+      "deleted": false,
+      "created": "2026-10-04T16:20:00.000Z",
+      "modified": "2026-10-06T09:12:44.512Z",
+      "pages": 2,
+      "pageTexts": [{ "page": 1, "text": "milk eggs" }]
+    }
+  }
+}
+```
+
+- `format` is `sempere-summaries/1` and `vaultId` the vault's; a file with
+  another value of either is ignored.
+- `notes` maps a note id (a lowercase UUID, the note's directory name) to its
+  entry. A writer includes only notes whose listed revisions it read
+  completely and could reconstruct (§5.3); a note with an unreadable revision,
+  or with content of a newer format version it does not understand (§7.4),
+  has no entry.
+- `revisions`: the file names of every revision of the note the summary was
+  made from (canonical names, §5), sorted, at least one.
+- The rest describes the note's state (§5.4) merged from exactly those
+  revisions: `title`; `tags` (the current tags, §5.4.1); `notebook`, absent
+  when the note has none; `favorite`; `deleted`; `created`; `modified`, the
+  greatest `wall` (§5.1) among the revisions; `pages`, the number of pages;
+  `pageTexts`, for each page with searchable text, its 1-based position and
+  that text: the page's recognised text (§5.5), then the text of each text
+  item (§8.2.4), the `pageText` of each PDF page item (§8.2.6) and the LaTeX
+  source of each math item (§8.2.8) in drawing order (§8.2.3), the non-empty
+  ones joined by `\n`, in page order. Pages
+  without such text are left out. Dates are as in §6.
+
+Unknown fields are ignored. Writers emit no others under `format`
+`sempere-summaries/1`; a change readers must not misread changes `format`.
+
+### 12.3 Reading
+
+A reader uses an entry only when the note's revision file names in its own
+listing of the vault are exactly the entry's `revisions`. Revision files are
+write-once and named by `(hlc, device, seq)` (§5), so the same names are the
+same revisions and the same summary. For any other note (a new, compacted or
+removed revision, no entry, or an entry that does not validate) it reads the
+revisions as usual; entries of notes the listing does not have are ignored.
+A reader may show the entries before its listing is complete, as long as it
+replaces each one that turns out not to match.
+
+The whole file is ignored when it is missing, larger than its limit (§9),
+does not start with `SMPU` `0x01`, fails to authenticate, does not gunzip or
+parse, or has another `format` or `vaultId`. An entry whose id, `revisions`
+or any field above is malformed is ignored alone.
+
+Trust. The file is authenticated under the vault secret, so a storage server
+cannot forge or alter an entry; it can withhold the file or serve an older
+one, whose entries then either still match (unchanged notes) or are read
+again. A malicious recipient, who can also write revisions, can write
+entries that disagree with the revisions; a reader shows what the revisions
+say once it opens a note, and prefers that summary from then on.
+
+### 12.4 Writing
+
+`sempere vault summaries` writes the file (docs/cli.md); `sempere sync
+webdav` keeps the server's copy current, computed from what the server holds
+after the sync. The file is never copied between the two sides of a sync:
+each writer computes it from its own listing. The app does not write it.
