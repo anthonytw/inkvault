@@ -51,16 +51,16 @@ extension AppModel {
 
         var description: String {
             switch self {
-            case .notUnlocked: return "Unlock the vault first."
-            case .notPostQuantum: return "That is not a post-quantum key. It must start with age1pq1…; create a new key on the other device."
-            case .alreadyListed: return "The vault is already encrypted to that key."
-            case .notListed: return "That key is not one of the vault's keys."
-            case .lastKey: return "The vault needs at least one key. Add another before removing this one."
-            case .inUse: return "That is the key this vault was unlocked with. Unlock with another key to remove it."
+            case .notUnlocked: return String(localized: "Unlock the vault first.")
+            case .notPostQuantum: return String(localized: "That is not a post-quantum key. It must start with age1pq1…; create a new key on the other device.")
+            case .alreadyListed: return String(localized: "The vault is already encrypted to that key.")
+            case .notListed: return String(localized: "That key is not one of the vault's keys.")
+            case .lastKey: return String(localized: "The vault needs at least one key. Add another before removing this one.")
+            case .inUse: return String(localized: "That is the key this vault was unlocked with. Unlock with another key to remove it.")
             case .incomplete(let n):
-                return "\(n) file\(n == 1 ? "" : "s") could not be re-encrypted. The change is saved and finishes the next time you try again."
-            case .noIdentity: return "This window does not hold a key of the vault, so it cannot print a recovery kit."
-            case .vaultChanged: return "Another vault was opened meanwhile. Nothing was changed."
+                return String(localized: "\(n) files could not be re-encrypted. The change is saved and finishes the next time you try again.")
+            case .noIdentity: return String(localized: "This window does not hold a key of the vault, so it cannot print a recovery kit.")
+            case .vaultChanged: return String(localized: "Another vault was opened meanwhile. Nothing was changed.")
             }
         }
     }
@@ -128,7 +128,7 @@ extension AppModel {
                 .contains { $0.key == recipient.string } ?? false)
             guard listed else { throw error }
             let problem = error is CancellationError
-                ? "The vault was closed before the change finished. It finishes when the vault is opened and its keys are changed again."
+                ? String(localized: "The vault was closed before the change finished. It finishes when the vault is opened and its keys are changed again.")
                 : "\(error)"
             return GeneratedKey(secret: identity.string, problem: problem, file: KeyFile(identity: identity, label: name))
         }

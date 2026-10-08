@@ -92,7 +92,9 @@ extension AppModel {
             if gen == generation { inboxProblem = nil }
         } catch is CancellationError {
         } catch {
-            if gen == generation { inboxProblem = "Voice notes could not be read from the inbox: \(error)" }
+            if gen == generation {
+                inboxProblem = String(localized: "Voice notes could not be read from the inbox: \(String(describing: error))")
+            }
         }
         return done
     }
@@ -164,7 +166,8 @@ extension AppModel {
         } catch is CancellationError {
             return false
         } catch {
-            inboxProblem = "A voice note could not be added: \((error as? CaptureError)?.description ?? "\(error)")"
+            let reason = (error as? CaptureError)?.description ?? "\(error)"
+            inboxProblem = String(localized: "A voice note could not be added: \(reason)")
             return false
         }
     }
@@ -177,7 +180,7 @@ extension AppModel {
             await transcribe(recording, note: note, file: url, meta: meta)
             await cache.release(note: note, ref: recording.blob, discard: true)
         } catch {
-            errorMessage = "Could not read the voice note to transcribe it: \(error)"
+            errorMessage = String(localized: "Could not read the voice note to transcribe it: \(String(describing: error))")
         }
     }
 }

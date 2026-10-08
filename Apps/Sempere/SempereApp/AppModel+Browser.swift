@@ -66,7 +66,7 @@ extension AppModel {
     private func remember(in library: VaultLibrary) {
         guard let url = vaultURL else { return }
         do { try library.remember(url) } catch {
-            errorMessage = "The vault opened, but Sempere could not save access to it for next time: \(error)"
+            errorMessage = String(localized: "The vault opened, but Sempere could not save access to it for next time: \(String(describing: error))")
         }
     }
 
@@ -361,7 +361,9 @@ extension AppModel {
                 }
             }
         }
-        return NotebookMoveRecord(previous: previous, actionName: batch.count == 1 ? "Move Note" : "Move Notes")
+        return NotebookMoveRecord(previous: previous, actionName: batch.count == 1
+                                  ? String(localized: "Move Note", comment: "Undo action name: one note moved to a notebook")
+                                  : String(localized: "Move Notes", comment: "Undo action name: several notes moved to a notebook"))
     }
 
     /// Moves the notebook `path`, with everything below it, into the notebook
@@ -378,7 +380,7 @@ extension AppModel {
         }
         guard target != from else { return nil }
         let previous = try await renameNotebook(from, to: target)
-        return previous.isEmpty ? nil : NotebookMoveRecord(previous: previous, actionName: "Move Notebook")
+        return previous.isEmpty ? nil : NotebookMoveRecord(previous: previous, actionName: String(localized: "Move Notebook", comment: "Undo action name"))
     }
 
     /// Puts the notes of `record` back where they were (undo of a move), one commit.

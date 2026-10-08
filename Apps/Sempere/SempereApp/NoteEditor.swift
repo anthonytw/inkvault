@@ -190,7 +190,7 @@ final class NoteEditor {
         self.pageSize = state.meta.pageSize
         self.committedPageSize = state.meta.pageSize
         self.writer = writer
-        self.readOnlyReason = writer == nil ? (readOnlyReason ?? "This note is read-only.") : readOnlyReason
+        self.readOnlyReason = writer == nil ? (readOnlyReason ?? String(localized: "This note is read-only.")) : readOnlyReason
         self.debounce = debounce
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
@@ -333,14 +333,14 @@ final class NoteEditor {
     }
 
     /// Why a note in Recently Deleted cannot be edited.
-    static let deletedReason = "This note is in Recently Deleted."
+    static let deletedReason = String(localized: "This note is in Recently Deleted.") // compared by value, so one string for the process
 
     /// Why the note is read-only because of content a newer version wrote, in
     /// the note or anywhere in the vault (format.md §7.3); nil when none was seen.
     private static func newerReason(_ loaded: Loaded) -> String? {
         if let newer = loaded.newer {
-            return "Parts of this note were written by a newer version of Sempere (\(newer.summary)). "
-                + "It is shown as far as this version understands it, read-only: update Sempere to edit it."
+            let summary = newer.summary
+            return String(localized: "Parts of this note were written by a newer version of Sempere (\(summary)). It is shown as far as this version understands it, read-only: update Sempere to edit it.")
         } else if !loaded.vaultReadOnly.isEmpty {
             return AppModel.readOnlyText(loaded.vaultReadOnly)
         }
@@ -352,7 +352,8 @@ final class NoteEditor {
         if let reason = newerReason(loaded) {
             return reason
         } else if loaded.failures > 0 {
-            return "\(loaded.failures) revision(s) of this note could not be read, so it opens read-only."
+            let count = loaded.failures
+            return String(localized: "\(count) revisions of this note could not be read, so it opens read-only.")
         } else if loaded.state.deleted {
             return deletedReason
         }
@@ -413,7 +414,8 @@ final class NoteEditor {
     /// cached ink stays on screen, read-only, with the reason.
     private func failLoading(_ error: any Error) {
         guard isPreparing else { return }
-        readOnlyReason = "This note could not be read: \(error)"
+        let detail = "\(error)"
+        readOnlyReason = String(localized: "This note could not be read: \(detail)")
         loadFailed = true
         isPreparing = false
         onLoadFailed?("\(error)")
@@ -973,7 +975,8 @@ final class NoteEditor {
             knownRevisionNames.insert(name.filename)
         } catch {
             for (id, save) in saves { ledgers[id]?.saveFailed(save) }
-            saveError = "Could not save: \(error)"
+            let detail = "\(error)"
+            saveError = String(localized: "Could not save: \(detail)")
             return
         }
         pendingPageOps.removeFirst(pageOps.count)
@@ -1269,7 +1272,8 @@ extension NoteEditor {
                     r.basis = digest
                     result = r
                 } catch {
-                    recognitionError = "Could not read handwriting: \(error)"
+                    let detail = "\(error)"
+                    recognitionError = String(localized: "Could not read handwriting: \(detail)")
                     failed = true
                     continue
                 }
@@ -1293,7 +1297,8 @@ extension NoteEditor {
             writtenNames.append(name)
             knownRevisionNames.insert(name)
         } catch {
-            recognitionError = "Could not save recognised text: \(error)"
+            let detail = "\(error)"
+            recognitionError = String(localized: "Could not save recognised text: \(detail)")
             return
         }
         for r in current {

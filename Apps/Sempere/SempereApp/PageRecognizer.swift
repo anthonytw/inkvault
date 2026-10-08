@@ -20,7 +20,7 @@ enum RecognitionFailure: Error, CustomStringConvertible {
     /// The page's ink could not be drawn into an image (for example, out of memory).
     case cannotRender
 
-    var description: String { "The page could not be drawn for reading." }
+    var description: String { String(localized: "The page could not be drawn for reading.") }
 }
 
 /// Whether the app recognises handwriting on its own (default on). It is

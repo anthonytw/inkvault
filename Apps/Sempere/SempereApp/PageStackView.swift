@@ -136,7 +136,7 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         footerButton.isHidden = true
         footerButton.accessibilityIdentifier = "pageFooter"
         var config = UIButton.Configuration.bordered()
-        config.title = "Add Page"
+        config.title = String(localized: "Add Page")
         config.image = UIImage(systemName: "doc.badge.plus")
         config.imagePadding = 8
         config.buttonSize = .large

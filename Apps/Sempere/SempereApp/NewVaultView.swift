@@ -33,7 +33,9 @@ struct NewVaultView: View {
                     form
                 }
             }
-            .navigationTitle(created == nil ? "New Vault" : "Vault Created")
+            .navigationTitle(created == nil
+                             ? String(localized: "New Vault", comment: "Title of the new-vault form")
+                             : String(localized: "Vault Created", comment: "Title after a vault was created"))
             .toolbar {
                 if created == nil {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -148,7 +150,9 @@ private struct KeyReceipt: View {
                 Text(created.secretKey ?? "")
                     .font(.callout.monospaced())
                     .textSelection(.enabled)
-                Button(copied ? "Copied" : "Copy Key", systemImage: "doc.on.doc") {
+                Button(copied ? String(localized: "Copied", comment: "Button after the secret key was copied")
+                              : String(localized: "Copy Key", comment: "Button: copy the secret key"),
+                       systemImage: "doc.on.doc") {
                     // Local only (no Universal Clipboard to other devices) and
                     // short-lived: this is the vault's secret key.
                     UIPasteboard.general.setItems([[UTType.plainText.identifier: created.secretKey ?? ""]],

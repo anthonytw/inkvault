@@ -24,10 +24,9 @@ enum ThinningPreference {
     /// "30 days", "1 year", "Never".
     static func label(_ days: Int) -> String {
         switch days {
-        case ...0: return "Never"
-        case 365: return "1 year"
-        case 1: return "1 day"
-        default: return "\(days) days"
+        case ...0: return String(localized: "Never", comment: "Thinning: autosaves are never removed (a choice in Settings)")
+        case 365: return String(localized: "1 year", comment: "Thinning: remove autosaves older than one year (a choice in Settings)")
+        default: return String(localized: "\(days) days", comment: "Thinning: remove autosaves older than this many days (a choice in Settings)")
         }
     }
 
@@ -85,7 +84,11 @@ struct ThinningProgress: Equatable, Sendable {
     var dryRun = true
 
     var fractionCompleted: Double { total == 0 ? 1 : min(1, Double(done) / Double(total)) }
-    var headline: String { "\(dryRun ? "Checking" : "Thinning") notes: \(done) of \(total)" }
+    var headline: String {
+        dryRun
+            ? String(localized: "Checking notes: \(done) of \(total)", comment: "Thinning preview progress")
+            : String(localized: "Thinning notes: \(done) of \(total)", comment: "Thinning progress")
+    }
 }
 
 extension NoteWriter {
