@@ -70,10 +70,10 @@ enum DebugLaunch {
 
     /// Opens what the environment names; errors land in `model.errorMessage`.
     @MainActor
-    static func run(_ model: AppModel, library: VaultLibrary) async {
+    static func run(_ model: AppModel, library: VaultLibrary, keys: RememberedKeys? = nil) async {
         let env = environment
         if DemoLaunch.isActive {
-            await DemoLaunch.run(model)
+            await DemoLaunch.run(model, keys: keys)
             return
         }
         if env["SEMPERE_DEBUG_RECENT"] != nil {

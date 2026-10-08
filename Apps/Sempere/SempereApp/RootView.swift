@@ -173,7 +173,7 @@ struct RootView: View {
                 // `stored` keeps the stored layout (the default one after `SEMPERE_DEBUG_FRESH`).
                 let columns = DebugLaunch.environment["SEMPERE_DEBUG_COLUMNS"] ?? "detailOnly"
                 if columns != "stored" { storedColumns = columns }
-                await DebugLaunch.run(model, library: library)
+                await DebugLaunch.run(model, library: library, keys: keys)
             }
         }
         #endif

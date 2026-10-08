@@ -36,7 +36,7 @@ enum DemoLaunch {
     }
 
     @MainActor
-    static func run(_ model: AppModel) async {
+    static func run(_ model: AppModel, keys: RememberedKeys? = nil) async {
         let env = DebugLaunch.environment
         forceLight(sceneWindows)
         applyWindowSize(env["SEMPERE_DEMO_MAC_WINDOW"])
@@ -47,7 +47,7 @@ enum DemoLaunch {
             try await model.openVault(at: built.url)
             if passphrase != nil {
                 // Unlocked by the test through the unlock sheet; then the choices below.
-                await selectAfterUnlock(model, built: built, env: env)
+                await selectAfterUnlock(model, keys: keys, built: built, env: env)
                 return
             }
             if env["SEMPERE_DEMO_LOCKED"] == nil { try await model.unlock(identityText: built.identityText) }
@@ -64,12 +64,17 @@ enum DemoLaunch {
     }
 
     /// `SEMPERE_DEMO_PASSPHRASE`: waits (at most five minutes) until the vault
-    /// is unlocked and the chosen note is listed, then makes the choices.
+    /// is unlocked, the unlock sheet is gone (the remember-key offer answered)
+    /// and the chosen note is listed, then makes the choices. Opening the note
+    /// while the sheet is up kept the main thread busy under the test's
+    /// queries for the offer (iPad simulator: "Timed out while evaluating UI query").
     @MainActor
-    static func selectAfterUnlock(_ model: AppModel, built: DemoVault.Built, env: [String: String]) async {
+    static func selectAfterUnlock(_ model: AppModel, keys: RememberedKeys?, built: DemoVault.Built,
+                                  env: [String: String]) async {
         let note = env["SEMPERE_DEMO_NOTE"].flatMap { built.notes[$0] }
         for _ in 0..<1500 {
-            if model.phase == .unlocked, note.map({ id in model.notes.contains { $0.id == id } }) ?? true {
+            if model.phase == .unlocked, keys?.holdsUnlockSheet(model) != true,
+               note.map({ id in model.notes.contains { $0.id == id } }) ?? true {
                 select(model, built: built, env: env)
                 return
             }
