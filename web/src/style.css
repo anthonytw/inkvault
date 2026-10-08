@@ -45,6 +45,10 @@ button:disabled { opacity: 0.6; cursor: default; }
 input, select, textarea {
   width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
 }
+input[type=checkbox] { width: auto; padding: 0; }
+/* `hidden` wins over a component's display (cards are flex boxes). */
+[hidden] { display: none !important; }
+.hint { overflow-wrap: anywhere; }
 textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; resize: vertical; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; overflow-wrap: anywhere; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -90,9 +94,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .sidebar button .count { color: var(--muted); font-size: 0.85em; }
 .sidebar button.active, .note-list button.active { background: var(--accent-soft); }
 .search { padding: 8px; border-bottom: 1px solid var(--line); }
-.transcript-search { margin-top: 6px; font-size: 0.85em; }
+.transcript-search { margin-top: 6px; font-size: 0.85em; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .transcript-search label.check { display: inline-flex; gap: 6px; align-items: baseline; cursor: pointer; }
-.transcript-search details { margin-top: 4px; }
+.transcript-search details { margin-top: 4px; flex-basis: 100%; }
 .spoken-hits { border-bottom: 1px solid var(--line); padding: 0 12px 8px !important; margin-top: -4px !important; }
 .note-list button.spoken-hit {
   display: block; width: 100%; text-align: left; background: transparent; color: var(--text); padding: 2px 0; border-radius: 0;
