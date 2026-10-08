@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Title, paper and notebook for a new note.
 struct NewNoteView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var paper = PaperPreference.load()

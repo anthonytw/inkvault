@@ -4,7 +4,7 @@ import SwiftUI
 /// Tags of one note: current tags with remove buttons, and a field to add
 /// one with suggestions from the tags already used in the vault.
 struct TagEditorView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     let noteID: UUID
     @State private var text = ""

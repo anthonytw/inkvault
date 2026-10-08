@@ -20,6 +20,14 @@ import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
 import { clearCacheButton, fileCache } from "./caching.ts";
 import { passkeyVault, rememberOption, rememberScreen, rememberedCard } from "./passkey.ts";
+import { type PhraseHit } from "../format/phrasesearch.ts";
+import { foldTerm, occurrences, prepare, swiftCompare, trimTerm } from "../format/occurrences.ts";
+import { readBlob } from "../vault/blobs.ts";
+import { TranscriptSearch, maxHitsShown } from "./transcriptsearch.ts";
+import { formatDuration } from "./recordings.ts";
+import { KeyFileError, looksArmored, looksWrapped, maxKeyFileBytes, wrappedBytes } from "../vault/keyfile.ts";
+import { unwrapKeyInWorker } from "./keyunwrap.ts";
+import { PassphraseField, keyFileMessage, storedKeyCard } from "./passphrase.ts";
 
 type Filter =
   | { kind: "all" } | { kind: "favorites" } | { kind: "deleted" } | { kind: "problems" }
@@ -40,6 +48,9 @@ export class App {
   private filter: Filter = { kind: "all" };
   private query = "";
   private hits?: Map<string, SearchHit>;
+  /** Transcript matches per note (only with "Also search recording transcripts"). */
+  private transcriptHits = new Map<string, PhraseHit[]>();
+  private transcripts?: TranscriptSearch;
   private selected?: string;
   private view?: NoteView;
   private recordings?: RecordingsPanel;
@@ -180,23 +191,80 @@ export class App {
       return identity;
     };
     const failed = (err: unknown) =>
-      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message : `Unlocking failed: ${message(err)}`);
+      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message
+        : err instanceof KeyFileError ? keyFileMessage(err) : `Unlocking failed: ${message(err)}`);
+    // The identity unlocked the vault: remember it with a passkey if asked (never the passphrase), then open.
+    const opened = (identity: string, remember: boolean) => {
+      const pv = passkeyVault();
+      if (remember && pv) {
+        clear(this.root);
+        this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+      } else {
+        this.showMain();
+      }
+    };
     const remember = rememberOption();
+    // A locked key: pasted (a paper kit's armored passphrase copy) or chosen as a file.
+    const passphrase = new PassphraseField();
+    let chosen: { name: string; file: Uint8Array } | undefined;
+    const fileName = h("span", { class: "hint" });
+    const lockedPaste = (): Uint8Array | undefined => {
+      if (!looksArmored(key.value)) return undefined;
+      try {
+        return wrappedBytes(key.value);
+      } catch {
+        return new Uint8Array(0);
+      }
+    };
+    key.addEventListener("input", () => {
+      if (key.value.trim() !== "") {
+        chosen = undefined;
+        fileName.textContent = "";
+      }
+      passphrase.show(chosen?.file ?? lockedPaste());
+    });
+    const fileInput = h("input", { attrs: { type: "file", accept: ".age,.txt,.key,text/plain" }, class: "visually-hidden" });
+    fileInput.addEventListener("change", () => {
+      const f = fileInput.files?.[0];
+      fileInput.value = "";
+      if (!f) return;
+      if (f.size > maxKeyFileBytes) return this.showUnlock(`${f.name} is not a key file (larger than 64 KiB).`);
+      void f.arrayBuffer().then((buf) => {
+        const bytes = new Uint8Array(buf);
+        if (looksWrapped(bytes)) {
+          chosen = { name: f.name, file: wrappedBytes(bytes) };
+          key.value = "";
+          fileName.textContent = ` ${f.name} (locked with a passphrase)`;
+          passphrase.show(chosen.file);
+          passphrase.focus();
+        } else {
+          chosen = undefined;
+          fileName.textContent = "";
+          key.value = new TextDecoder().decode(bytes);
+          passphrase.show(undefined);
+        }
+      }).catch((err: unknown) => failed(err));
+    });
+    const chooseFile = h("button", {
+      text: "Choose a key file…", class: "secondary", attrs: { type: "button" }, on: { click: () => fileInput.click() },
+    });
     const submit = async (e: Event) => {
       e.preventDefault();
       button.disabled = true;
       button.textContent = "Unlocking…";
       try {
-        const text = key.value;
-        key.value = "";
-        const identity = await unlock(text);
-        const pv = passkeyVault();
-        if (remember.checked() && pv) {
-          clear(this.root);
-          this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+        // A damaged armored paste throws here, with the hint to check the kit's lines.
+        const locked = chosen?.file ?? (looksArmored(key.value) ? wrappedBytes(key.value) : undefined);
+        let text: string;
+        if (locked) {
+          const pass = passphrase.take();
+          key.value = "";
+          text = await unwrapKeyInWorker(locked, pass);
         } else {
-          this.showMain();
+          text = key.value;
+          key.value = "";
         }
+        opened(await unlock(text), remember.checked());
       } catch (err) {
         failed(err);
       }
@@ -206,18 +274,28 @@ export class App {
       (text) => unlock(text).then(() => this.showMain(), (err: unknown) =>
         failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err)),
       (msg) => this.showUnlock(msg), () => this.showUnlock()) : null;
+    const stored = storedKeyCard(src, m, async (identity, rememberIt) => {
+      try {
+        opened(await unlock(identity), rememberIt);
+      } catch (err) {
+        failed(err);
+      }
+    }, (msg) => this.showUnlock(msg));
     clear(this.root);
     this.root.append(h("div", { class: "welcome" },
       h("h1", { text: "Unlock vault" }),
       h("p", { class: "lede" }, "Vault ", h("code", { text: src.label }), ` · ${m.recipients.length} key${m.recipients.length === 1 ? "" : "s"}`),
       error ? h("p", { class: "error", text: error, attrs: { role: "alert" } }) : null,
       remembered,
+      stored,
       h("form", { class: "card", on: { submit: (e) => void submit(e) } },
-        h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, or the whole key file)" }, key),
+        h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, the whole key file, or a recovery kit's passphrase-locked copy)" }, key),
+        h("div", { class: "row" }, chooseFile, fileName, fileInput),
+        passphrase.element,
         remember.element,
         h("div", { class: "row" }, button,
           this.locked ? null : h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
-        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). Closing the tab or Lock forgets it." })),
+        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). A passphrase is used once and never stored. Closing the tab or Lock forgets the key." })),
       h("p", { class: "hint" }, clearCacheButton())));
     key.focus();
   }
@@ -228,6 +306,16 @@ export class App {
     const src = this.source;
     if (!src) return;
     const searchBox = h("input", { attrs: { type: "search", placeholder: "Search titles, tags and handwriting", "aria-label": "Search" } });
+    const vault = this.vault;
+    this.transcripts?.stop();
+    this.transcripts = vault ? new TranscriptSearch(
+      async (id) => (this.cache.get(id) ?? await loadNote(src, vault, id)).state,
+      (id) => (ref, max) => readBlob(src, vault, id, ref, max),
+      () => {
+        this.transcripts?.index(this.liveIds());
+        this.runSearch();
+        this.renderList();
+      }) : undefined;
     let timer: number | undefined;
     searchBox.addEventListener("input", () => {
       window.clearTimeout(timer);
@@ -245,7 +333,7 @@ export class App {
         h("button", { text: "Lock", class: "secondary", attrs: { type: "button" }, title: "Forget the key and close the vault", on: { click: () => this.lock() } })),
       ...recipientsWarning(this.vault?.recipientsStatus),
       h("div", { class: "columns" }, this.sidebar,
-        h("div", { class: "list-column" }, h("div", { class: "search" }, searchBox), this.list),
+        h("div", { class: "list-column" }, h("div", { class: "search" }, searchBox, this.transcripts?.element), this.list),
         this.detail)));
     this.detail.replaceChildren(h("p", { class: "empty", text: "Select a note." }));
     void this.loadAll();
@@ -253,6 +341,7 @@ export class App {
 
   private lock(): void {
     this.generation++;
+    this.transcripts?.stop();
     this.vault = undefined;
     this.notes.clear();
     this.cache.clear();
@@ -300,6 +389,7 @@ export class App {
     }
     if (gen !== this.generation) return;
     this.loading.listed = true;
+    this.transcripts?.index(this.liveIds());
     render(true);
   }
 
@@ -372,17 +462,27 @@ export class App {
       h("ul", {}, item("Deleted", { kind: "deleted" }, all.length - live.length), problems ? item("Problems", { kind: "problems" }, problems) : null));
   }
 
+  /** Notes that are not deleted, for the transcript search. */
+  private liveIds(): string[] {
+    return [...this.notes.values()].filter((n) => !n.deleted).map((n) => n.id);
+  }
+
   private runSearch(): void {
     this.hits = this.query.trim() === "" ? undefined
       : new Map(search(this.query, [...this.notes.values()]).map((hit) => [hit.id, hit]));
+    this.transcriptHits = this.hits && this.transcripts ? this.transcripts.hits(this.query) : new Map<string, PhraseHit[]>();
   }
 
   private renderList(): void {
     let notes = [...this.notes.values()].filter((n) => this.visible(n));
     const hits = this.hits;
+    const spoken = this.transcriptHits;
     if (hits) {
+      // Notes the note search ranks first, then notes found only in a transcript (the CLI's order: title, id).
       const rank = new Map([...hits.keys()].map((id, i) => [id, i]));
-      notes = notes.filter((n) => hits.has(n.id)).sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+      notes = notes.filter((n) => hits.has(n.id) || spoken.has(n.id)).sort((a, b) =>
+        (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity)
+        || swiftCompare(a.title.toLowerCase(), b.title.toLowerCase()) || swiftCompare(a.id, b.id));
     } else {
       notes.sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0) || a.title.localeCompare(b.title));
     }
@@ -406,7 +506,8 @@ export class App {
       h("span", { class: "sub", text: [formatDate(n.modified), `${n.pageCount} page${n.pageCount === 1 ? "" : "s"}`].filter(Boolean).join(" · ") }),
       meta ? h("span", { class: "sub", text: meta }) : null,
       hit?.snippet ? this.snippet(hit) : null,
-      badges.length ? h("span", { class: "badge", text: badges.join(" · ") }) : null));
+      badges.length ? h("span", { class: "badge", text: badges.join(" · ") }) : null),
+      this.spokenHits(n.id, spoken.get(n.id)));
     })));
   }
 
@@ -425,7 +526,32 @@ export class App {
     return el;
   }
 
-  private async open(id: string, page?: number): Promise<void> {
+  /** A note's transcript matches, each a button that opens the recording at that time. */
+  private spokenHits(id: string, hits: PhraseHit[] | undefined): HTMLElement | null {
+    if (!hits || hits.length === 0) return null;
+    const term = foldTerm(trimTerm(this.query));
+    const shown = hits.slice(0, maxHitsShown);
+    return h("ul", { class: "spoken-hits", attrs: { "aria-label": "Matches in recording transcripts" } },
+      ...shown.map((hit) => {
+        const text = h("span", { class: "snippet" });
+        const t = prepare(hit.snippet);
+        let at = 0;
+        for (const [a, b] of occurrences(t, term)) {
+          const from = t.offsets[a] ?? 0, to = t.offsets[b] ?? 0;
+          text.append(hit.snippet.slice(at, from), h("mark", { text: hit.snippet.slice(from, to) }));
+          at = to;
+        }
+        text.append(hit.snippet.slice(at));
+        const where = `${hit.recordingTitle?.trim() || "Recording"} ${formatDuration(hit.start ?? 0)}`;
+        return h("li", {}, h("button", {
+          class: "spoken-hit", attrs: { type: "button" }, title: `Play ${where}`,
+          on: { click: () => void this.open(id, undefined, { recording: hit.recordingId ?? "", start: hit.start ?? 0 }) },
+        }, h("span", { class: "page-ref", text: `🎙 ${where}: ` }), text));
+      }),
+      hits.length > shown.length ? h("li", { class: "sub", text: `${hits.length - shown.length} more in transcripts` }) : null);
+  }
+
+  private async open(id: string, page?: number, at?: { recording: string; start: number }): Promise<void> {
     const src = this.source, vault = this.vault;
     if (!src || !vault) return;
     this.selected = id;
@@ -454,10 +580,10 @@ export class App {
       }
     }
     if (gen !== this.generation || this.selected !== id) return;
-    this.renderNote(note, page);
+    this.renderNote(note, page, at);
   }
 
-  private renderNote(note: LoadedNote, page?: number): void {
+  private renderNote(note: LoadedNote, page?: number, at?: { recording: string; start: number }): void {
     const state: NoteState | undefined = note.state;
     const warnings: HTMLElement[] = [];
     if (note.failures.length) {
@@ -493,6 +619,7 @@ export class App {
         ...warnings, this.view.problemsEl, this.recordings.root, videos.root),
       this.view.root);
     if (page !== undefined) requestAnimationFrame(() => requestAnimationFrame(() => this.view?.showPage(page)));
+    if (at) recordings.jump(at.recording, at.start);
   }
 }
 

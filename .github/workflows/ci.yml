@@ -350,6 +350,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Smoke test (cache and config.json, Chromium)
         run: node scripts/smoke-cache.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
+      # Passphrase-wrapped keys (scrypt in the key worker, under the CSP and Trusted Types) and transcript search.
+      - name: Smoke test (passphrase keys and transcript search, Chromium)
+        run: node scripts/smoke-search-keys.mjs
 
   web-golden:
     name: Web viewer goldens match the Swift CLI

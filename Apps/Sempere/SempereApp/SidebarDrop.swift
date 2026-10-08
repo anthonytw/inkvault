@@ -225,7 +225,7 @@ struct SidebarDropDelegate: DropDelegate {
 
 /// `NotebookDragStyle.transferable`: notebooks dropped through `dropDestination`.
 private struct TransferDropDestination: ViewModifier {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     let target: DropTarget
     let undoManager: UndoManager?
 
@@ -268,7 +268,7 @@ extension View {
 }
 
 private struct SidebarDropRow: ViewModifier {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.undoManager) private var undoManager
     let item: SidebarItem
 

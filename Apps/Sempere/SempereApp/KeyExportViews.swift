@@ -27,7 +27,7 @@ enum KeyExportText {
 /// Save to Files, Share and the recovery kit for one key. The share sheet's
 /// staged file is deleted when it closes and when this view goes away.
 struct KeyFileActions: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     let key: KeyFile
     @State private var savingFile = false
     @State private var shared: URL?
@@ -107,7 +107,7 @@ struct KeyFileActions: View {
 /// Save Key…: this device's key, after Face ID, to Files or the share sheet,
 /// and its recovery kit.
 struct SaveKeyView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var key: KeyFile?
     @State private var failure: String?
@@ -159,7 +159,7 @@ struct SaveKeyView: View {
 /// it (every note re-encrypted, as when adding a device key), then the secret
 /// is shown once to copy, save, share or print.
 struct NewKeyView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var label = ""
     @State private var key: KeyFile?

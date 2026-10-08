@@ -9,7 +9,7 @@ struct AttachmentThumbnail: View {
     let note: UUID
     let fileName: String
     let kind: BlobKind
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var image: UIImage?
 
     static let side: CGFloat = 44

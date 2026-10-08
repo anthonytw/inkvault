@@ -17,6 +17,8 @@ cd "$(dirname "$0")/.."
 project=Apps/Sempere/Sempere.xcodeproj
 scheme=SempereApp
 derived=${SEMPERE_DERIVED_DATA:-.build/xcode}
+# Tests assert English strings: run them in English whatever the Mac's language (es catalog, #92).
+lang=(-testLanguage en -testRegion US)
 
 # The newest available simulator whose name starts with $1 (iPad or iPhone, default iPad) on the
 # newest iOS runtime. SEMPERE_SIM_ID overrides it.
@@ -53,13 +55,13 @@ case "${1:-}" in
     ;;
   test)
     sim=$(pick_simulator)
-    xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
+    xcodebuild test "${lang[@]}" -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination "platform=iOS Simulator,id=$sim" CODE_SIGNING_ALLOWED=NO
     ;;
   test-phone)
     # Same build products as `test` (the simulator SDK is shared), so after it this only runs the suites.
     sim=$(pick_simulator iPhone)
-    xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
+    xcodebuild test "${lang[@]}" -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination "platform=iOS Simulator,id=$sim" CODE_SIGNING_ALLOWED=NO \
       -only-testing:SempereAppTests/CompactNavigationTests -only-testing:SempereAppTests/CompactBackTests \
       -only-testing:SempereAppTests/PhoneReadingTests \
@@ -88,7 +90,7 @@ case "${1:-}" in
     ;;
   test-mac)
     # Ad-hoc signed: a sandboxed Catalyst test host has to be signed to launch.
-    xcodebuild test -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
+    xcodebuild test "${lang[@]}" -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination 'platform=macOS,variant=Mac Catalyst' -only-testing:SempereAppTests \
       CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
     ;;

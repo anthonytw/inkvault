@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 /// classic X25519 key, so its notes stay locked until it is moved to a
 /// post-quantum key (`AppModel+Migration`).
 struct MigrationView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var saved = false
     @State private var copied = false
     @State private var wrap = false

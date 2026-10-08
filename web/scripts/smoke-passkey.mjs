@@ -93,8 +93,8 @@ const records = (page) => page.evaluate(() => new Promise((resolve, reject) => {
   const { context, page, cdp, authenticatorId, problems } = await withAuthenticator({ hasPrf: true });
   await openVault(page);
   await page.fill("textarea", key);
-  await page.check("label.check input");
-  await page.click("form button[type=submit]");
+  await page.check("form:has(textarea) label.check input");
+  await page.click("form:has(textarea) button[type=submit]");
   await page.click("text=Create passkey");
   await unlocked(page);
   check(true, "pasted key unlocked, passkey created");
@@ -128,10 +128,10 @@ const records = (page) => page.evaluate(() => new Promise((resolve, reject) => {
   const { context, page } = await withAuthenticator({ hasPrf: false });
   await openVault(page);
   await page.fill("textarea", key);
-  const disabled = await page.isDisabled("label.check input");
+  const disabled = await page.isDisabled("form:has(textarea) label.check input");
   if (!disabled) {
-    await page.check("label.check input");
-    await page.click("form button[type=submit]");
+    await page.check("form:has(textarea) label.check input");
+    await page.click("form:has(textarea) button[type=submit]");
     await page.click("text=Create passkey");
     await page.waitForSelector(".error", { timeout: 30000 });
     const text = await page.textContent(".error");

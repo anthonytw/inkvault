@@ -5,7 +5,7 @@ import SwiftUI
 /// Opens a `NoteEditor` through the model when the selection changes and
 /// saves when the app goes to the background.
 struct NoteCanvasView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ColumnLayout.key) private var storedColumns = "all"
     @Environment(WindowUI.self) private var ui
@@ -144,7 +144,7 @@ struct NoteCanvasView: View {
 struct EditorView: View {
     let editor: NoteEditor
     @Environment(WindowUI.self) private var ui
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     /// Selection mode for placed items (images, text boxes, PDF pages).
     @State private var selectingItems = false
     /// The text tool: a tap edits a text box or starts a new one (`TextBoxEditorController`).

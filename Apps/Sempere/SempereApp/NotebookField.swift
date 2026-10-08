@@ -106,7 +106,7 @@ struct NotebookField: View {
 
 /// Moves one note to a notebook: the combo box, "No Notebook" and Move.
 struct MoveNoteView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     let note: NoteSummary
     @State private var notebook: String
@@ -158,7 +158,7 @@ struct MoveNoteView: View {
 /// goes into (blank: the top level) and what it becomes. The same move as
 /// dropping the notebook on a row of the sidebar (`AppModel.moveNotebook`).
 struct MoveNotebookView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.undoManager) private var undoManager
     let path: String

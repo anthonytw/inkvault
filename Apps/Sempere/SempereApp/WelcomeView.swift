@@ -3,7 +3,7 @@ import SwiftUI
 /// Shown while no vault is open: recents, vaults on this device, and the
 /// ways to open or create one.
 struct WelcomeView: View {
-    @Environment(VaultLibrary.self) private var library
+    @AppEnvironmentObject private var library: VaultLibrary
     var openFolder: () -> Void
     var newVault: () -> Void
     var openRecent: (RecentVault) -> Void

@@ -5,7 +5,7 @@ import UIKit
 /// The export sheet: format and options, progress with Cancel, then Share and
 /// Save to Files for the result.
 struct ExportSheet: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     let request: ExportRequest
     @State private var job = ExportJob()

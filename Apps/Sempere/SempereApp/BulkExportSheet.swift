@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// archive; progress with Stop, and per-note failures at the end
 /// (docs/io.md "Bulk export").
 struct BulkExportSheet: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     let request: BulkExportRequest
     @State private var run = BulkExportRun()

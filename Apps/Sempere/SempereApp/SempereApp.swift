@@ -22,8 +22,13 @@ struct SempereApp: App {
         // A scripted first launch: nothing below may read state from an earlier run.
         DebugLaunch.resetForFreshLaunch()
         #endif
-        _library = State(initialValue: VaultLibrary())
-        _keys = State(initialValue: RememberedKeys())
+        let library = VaultLibrary()
+        let keys = RememberedKeys()
+        // A view updated outside its window's environment falls back to these (`AppModelEnvironment`).
+        VaultLibrary.current = library
+        RememberedKeys.current = keys
+        _library = State(initialValue: library)
+        _keys = State(initialValue: keys)
         let model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
                              summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
                              drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
@@ -33,6 +38,7 @@ struct SempereApp: App {
                              automaticThinning: true,
                              recipientsTrust: AppModel.defaultRecipientsTrust,
                              backupNotifier: UserNotificationBackupNotifier())
+        AppModel.current = model
         _model = State(initialValue: model)
         // Background sync (iOS): the launch handlers of the scheduled tasks, registered before launch ends.
         BackgroundSync.register(model: model)

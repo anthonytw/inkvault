@@ -8,7 +8,7 @@ import SwiftUI
 /// lands here: the bar is shown whenever there is something to say, and the
 /// link makes it pulse once so it is seen.
 struct VoiceNoteBanner: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var stopping = false
     @State private var emphasis = 0
 
@@ -136,7 +136,7 @@ extension View {
 /// Inserts the banner only while it has something to show, so a window
 /// without a voice note has no inset at all.
 private struct VoiceNoteBannerPlacement: ViewModifier {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
 
     private var shows: Bool {
         guard !Platform.isMac else { return false }

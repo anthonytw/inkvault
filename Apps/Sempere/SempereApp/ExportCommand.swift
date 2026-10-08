@@ -55,7 +55,7 @@ enum ExportCommand: String, CaseIterable, Identifiable, Sendable {
 /// order given). Disabled without notes; the text export is disabled when no
 /// note has recognised handwriting.
 struct ExportMenu: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     /// The window's UI state: the export sheet opens in this window.
     @Environment(WindowUI.self) private var ui: WindowUI?
     let ids: [UUID]

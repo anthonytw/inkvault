@@ -25,12 +25,13 @@ export function contentSecurityPolicy(connect: string[] = []): string {
     "form-action 'none'",
     "object-src 'none'",
     "frame-src 'none'",
-    // pdf.js's worker, a file of the viewer (docs/web-viewer.md).
+    // pdf.js's worker and the key worker (scrypt), files of the viewer (docs/web-viewer.md).
     "worker-src 'self'",
     "manifest-src 'none'",
     "require-trusted-types-for 'script'",
-    // One policy, which admits only the pdf.js worker's URL (src/ui/pdf.ts).
-    "trusted-types sempere-pdf-worker",
+    // Two policies, each admitting only one worker's URL: pdf.js's (src/ui/pdf.ts) and the
+    // key worker's (src/ui/keyunwrap.ts).
+    "trusted-types sempere-pdf-worker sempere-key-worker",
   ].join("; ");
 }
 
