@@ -267,7 +267,8 @@ extension Vault {
     /// summary cache there (format.md §10).
     @discardableResult
     public func refreshPublishedSummaries(cacheDirectory: URL? = nil) throws -> Bool {
-        guard FileIO.exists(publishedSummariesURL), canRead,
+        // A read-only vault is never written, not even its summaries (format.md §7.3).
+        guard FileIO.exists(publishedSummariesURL), canRead, !isReadOnly,
               let vault = try? Vault.open(at: url, identities: identities) else { return false }
         return try vault.refreshOpenedPublishedSummaries(
             cache: cacheDirectory.flatMap { try? SummaryCache(directory: $0, vault: vault) })
@@ -277,7 +278,10 @@ extension Vault {
         guard canRead, (try? requireMigrated()) != nil else { return false }
         let data = try? FileIO.read(publishedSummariesURL, maxBytes: PublishedSummaries.maxFileBytes)
         let current = data.flatMap { try? openPublishedSummaries($0) }
+        guard !isReadOnly else { return false }
         let (entries, _) = try publishedSummaryEntries(reuse: current ?? [:], cache: cache)
+        // Summarising may have just read newer content (format.md §7.3).
+        guard !isReadOnly else { return false }
         if let current, current == entries { return false }
         try FileIO.writeAtomically(try sealPublishedSummaries(entries), to: publishedSummariesURL, replacing: true)
         return true

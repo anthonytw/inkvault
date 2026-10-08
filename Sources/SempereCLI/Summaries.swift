@@ -37,6 +37,8 @@ struct VaultSummaries: ParsableCommand {
         // Plaintext only where the user names it, never at the vault's sealed path by default.
         if plaintext && out == nil { throw CLIError.usage("--plaintext needs --out (a file outside the vault, or -)") }
         let vault = try access.openVault(.required)
+        // Into the vault only if it may be written (format.md §7.3: exit 7), as `vault index`.
+        if out == nil { try vault.requireWritable() }
         let target = out.map { $0 == "-" ? nil : URL(fileURLWithPath: $0) } ?? vault.publishedSummariesURL
         let reuse = target.map { url -> [UUID: PublishedSummaries.Entry] in
             guard let data = try? BoundedRead.contents(of: url, maxBytes: PublishedSummaries.maxFileBytes) else { return [:] }
