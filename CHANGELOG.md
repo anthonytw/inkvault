@@ -19,6 +19,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   summaries`; unlocked commands keep an existing file current; `sync webdav` keeps the server's copy
   current and `--web-viewer` creates it and `sempere-index.json` there. On 200 synthetic notes over a
   40 ms link: 7.3 s to a listed vault before, 0.3 s with summaries and the index.
+- Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
+  A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
+  into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to
+  IndexedDB. "Unlock with passkey" is one prompt; "Forget this key" deletes the record. Without PRF the
+  viewer explains why and stores nothing. App: Settings → Device Keys → "Save Key…" exports this device's
+  key after Face ID to Files or the share sheet (for a password manager), with its paper recovery kit;
+  "New Key…" makes a key for another device, encrypts the vault to it and offers the same. Key files are
+  the CLI's format (`keys generate`), written only where the user chooses; the share sheet's copy is
+  deleted when it closes.
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
