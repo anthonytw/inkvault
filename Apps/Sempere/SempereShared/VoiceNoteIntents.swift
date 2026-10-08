@@ -9,6 +9,8 @@ import Foundation
 enum VoiceNoteActions {
     static var start: (@MainActor () async throws -> Void)?
     static var stop: (@MainActor () async throws -> Void)?
+    /// Shows a place in the app (`OpenVoiceNotesIntent`).
+    static var open: (@MainActor (VoiceNoteLink) -> Void)?
 }
 
 /// Why a voice note intent did nothing.
@@ -50,6 +52,52 @@ struct StopVoiceNoteIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         guard let stop = VoiceNoteActions.stop else { throw VoiceNoteIntentError.unavailable }
         try await stop()
+        return .result()
+    }
+}
+
+/// Where `OpenVoiceNotesIntent` opens the app.
+enum VoiceNoteDestination: String, AppEnum {
+    case settings
+    case recording
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Voice Note Screen"
+    static let caseDisplayRepresentations: [VoiceNoteDestination: DisplayRepresentation] = [
+        .settings: "Quick Voice Notes Settings",
+        .recording: "Voice Note Being Recorded",
+    ]
+
+    var link: VoiceNoteLink {
+        switch self {
+        case .settings: return .settings
+        case .recording: return .recording
+        }
+    }
+}
+
+/// Opens Sempere at Settings ▸ Quick Voice Notes or at the recording banner:
+/// what the Control Center control does while quick voice notes are not set
+/// up (or Live Activities are off), so a tap explains instead of failing.
+struct OpenVoiceNotesIntent: AppIntent {
+    static let title: LocalizedStringResource = "Open Quick Voice Notes"
+    static var description: IntentDescription? {
+        IntentDescription("Opens Sempere at the Quick Voice Notes settings or the voice note being recorded.")
+    }
+    static let openAppWhenRun = true
+    static let isDiscoverable = false
+
+    @Parameter(title: "Screen", default: .settings)
+    var destination: VoiceNoteDestination
+
+    init() {}
+
+    init(_ destination: VoiceNoteDestination) {
+        self.destination = destination
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        VoiceNoteActions.open?(destination.link)
         return .result()
     }
 }

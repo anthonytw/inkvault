@@ -27,12 +27,15 @@ extension AppModel {
         let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         try quickCapture.store.save(StoredCaptureProfile(profile: profile, vaultName: vaultName ?? "Vault", bookmark: bookmark,
                                                          transcribe: transcribe))
+        // The widgets and the control stop showing "Set Up".
+        quickCapture.publishStatus()
     }
 
     /// Turns quick voice notes off on this device (what is in the inbox stays
     /// and is still adopted when the vault is unlocked).
     func disableQuickCapture() throws {
         try quickCapture.store.delete()
+        quickCapture.publishStatus()
     }
 
     /// After an unlock or a key change: the stored profile of this vault gets
