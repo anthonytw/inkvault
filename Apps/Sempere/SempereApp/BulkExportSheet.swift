@@ -99,7 +99,7 @@ struct BulkExportSheet: View {
         }
         Section("Format") {
             Picker("Format", selection: $options.format) {
-                ForEach(BulkExportFormat.allCases) { Text($0.title).tag($0) }
+                ForEach(BulkExportFormat.allCases) { Text($0.localizedTitle).tag($0) }
             }
             .pickerStyle(.inline)
             .labelsHidden()
@@ -107,7 +107,9 @@ struct BulkExportSheet: View {
         Section {
             Toggle("Folders Like Your Notebooks", isOn: Binding(get: { options.layout == .notebooks },
                                                                 set: { options.layout = $0 ? .notebooks : .flat }))
-            Toggle("Paper Background and Ruling", isOn: $options.paper)
+            if options.format != .media {
+                Toggle("Paper Background and Ruling", isOn: $options.paper)
+            }
             if options.format == .png {
                 Picker("Resolution", selection: $options.dpi) {
                     ForEach(Self.resolutions, id: \.self) { Text("\(Int($0)) dpi").tag($0) }
@@ -157,6 +159,10 @@ struct BulkExportSheet: View {
             }
             let attached = result.exported.reduce(0) { $0 + $1.recordingsAttached + $1.videosAttached }
             if attached > 0 { Label("\(attached) recordings and videos attached", systemImage: "paperclip") }
+            if options.format == .media {
+                let files = result.exported.reduce(0) { $0 + $1.files.filter { !$0.hasSuffix("/" + MediaExport.manifestName) }.count }
+                Label("\(files) media files", systemImage: "paperclip")
+            }
             Text(result.output.lastPathComponent).font(.callout)
         }
         if !result.failures.isEmpty {
@@ -196,12 +202,27 @@ struct BulkExportSheet: View {
         var each: String
         switch options.format {
         case .pdf: each = String(localized: "One PDF per note.")
-        case .pdfAttachments: each = String(localized: "One PDF per note, with its recordings, transcripts and videos attached.")
+        case .pdfAttachments:
+            each = String(localized: "One PDF per note, with its recordings, transcripts and videos attached and listed on a last page.")
         case .png: each = String(localized: "A folder of PNG pages per note.")
+        case .media:
+            each = String(localized: "A folder per note with its recordings, transcripts, videos, images and PDFs as files; notes without them are left out.")
         }
         if options.layout == .notebooks { each += " " + String(localized: "Folders follow your notebooks.") }
         let destination = zip ? String(localized: "Everything goes into one zip archive.")
             : String(localized: "Exporting again into the same folder skips notes already there unchanged (same name, size and version).")
         return each + " " + destination
+    }
+}
+
+extension BulkExportFormat {
+    /// The format's name in the sheet's picker (`title` is the library's English name).
+    var localizedTitle: String {
+        switch self {
+        case .pdf: return String(localized: "PDF", comment: "Export format: PDF document")
+        case .pdfAttachments: return String(localized: "PDF + attachments", comment: "Export format: PDF with recordings and videos attached")
+        case .png: return String(localized: "PNG Pages", comment: "Export format: one PNG image per page")
+        case .media: return String(localized: "Media", comment: "Export format: recordings, videos, images and PDFs as files")
+        }
     }
 }

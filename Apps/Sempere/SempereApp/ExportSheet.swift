@@ -96,7 +96,9 @@ struct ExportSheet: View {
             .labelsHidden()
         }
         Section {
-            Toggle("Paper Background and Ruling", isOn: $options.paper)
+            if options.format != .media {
+                Toggle("Paper Background and Ruling", isOn: $options.paper)
+            }
             if options.format == .png || (options.format == .markdown && options.markdownImages == .png) {
                 Picker("Resolution", selection: $options.dpi) {
                     ForEach(Self.resolutions, id: \.self) { Text("\(Int($0)) dpi").tag($0) }
@@ -147,6 +149,13 @@ struct ExportSheet: View {
             if outcome.videosAttached > 0 {
                 Label("\(outcome.videosAttached) videos attached", systemImage: "film")
             }
+            if outcome.mediaFiles > 0 {
+                Label("\(outcome.mediaFiles) media files", systemImage: "paperclip")
+            }
+            if outcome.withoutMedia > 0 {
+                Label("\(outcome.withoutMedia) notes without media", systemImage: "paperclip")
+                    .foregroundStyle(.secondary)
+            }
             ForEach(outcome.items, id: \.self) { Text($0.lastPathComponent).font(.callout) }
         }
         if !outcome.failures.isEmpty {
@@ -174,8 +183,10 @@ struct ExportSheet: View {
         guard count > 0 else { return "" }
         // A leading space: the sentence follows `shape(of:)` in the same footer.
         let sentence: String
-        if options.format == .pdf && options.pdfAttachments {
-            sentence = String(localized: "\(count) recordings and their transcripts attached to the PDF.")
+        if options.format == .media {
+            sentence = String(localized: "\(count) recordings and their transcripts included.")
+        } else if options.format == .pdf && options.pdfAttachments {
+            sentence = String(localized: "\(count) recordings and their transcripts attached to the PDF, and listed on a last page.")
         } else if options.format == .pdf {
             sentence = String(localized: "\(count) recordings not included (PDF + attachments includes them).")
         } else {
@@ -206,6 +217,9 @@ struct ExportSheet: View {
         case .html:
             return many ? String(localized: "A folder with one self-contained HTML file per note and an index.")
                 : String(localized: "One self-contained HTML file.")
+        case .media:
+            return many ? String(localized: "A folder per note with its recordings, transcripts, videos, images and PDFs as files.")
+                : String(localized: "A folder with the note's recordings, transcripts, videos, images and PDFs as files.")
         }
     }
 }
@@ -218,6 +232,7 @@ extension ShareFormat {
         case .png: return String(localized: "PNG Pages", comment: "Export format: one PNG image per page")
         case .markdown: return String(localized: "Text (Markdown)", comment: "Export format: Markdown text")
         case .html: return String(localized: "HTML", comment: "Export format: HTML page")
+        case .media: return String(localized: "Media", comment: "Export format: recordings, videos, images and PDFs as files")
         }
     }
 }

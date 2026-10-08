@@ -193,6 +193,8 @@ struct BulkExportAppTests {
         #expect(nb.cliEquivalent(BulkExportOptions(format: .png, paper: false, dpi: 300), zip: false)
                 == "sempere export --all --notebook 'School/Bob'\\''s notes' --format png --dpi 300 --no-paper --layout notebooks --out FOLDER")
         #expect(nb.archiveName == "Bob's-notes.zip")
+        #expect(vault.cliEquivalent(BulkExportOptions(format: .media, paper: false), zip: false)
+                == "sempere export --all --format media --layout notebooks --out FOLDER", "media has no paper")
         #expect(BulkExportRequest(scope: .notes([Self.lecture])).cliEquivalent(BulkExportOptions(format: .pdf), zip: false) == nil)
     }
 
