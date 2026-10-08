@@ -338,7 +338,7 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
 // (background and figure, CropBox and /Rotate), text boxes (stored breaks,
 // invalid breaks, runs, alignment, direction, rotation), placeholders
 // (an unknown kind, missing, tampered and HEIC blobs), equations (with and
-// without a rendering, §8.2.9), and recordings with a transcript.
+// without a rendering, §8.2.8), and recordings with a transcript.
 {
   const note = "77777777-7777-4777-8777-777777777777";
   const p1 = id(0x700), p2 = id(0x701);
