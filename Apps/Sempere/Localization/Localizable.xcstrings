@@ -1871,6 +1871,18 @@
         }
       }
     },
+    "Add photos, videos, a picture from the clipboard, pages of a PDF, or an equation" : {
+      "comment" : "Tooltip of the Insert menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir fotos, vídeos, una imagen del portapapeles, páginas de un PDF o una ecuación"
+          }
+        }
+      }
+    },
     "Added %@" : {
       "comment" : "When a device key was added; the value is a date",
       "extractionState" : "manual",
@@ -3015,6 +3027,18 @@
         }
       }
     },
+    "Display" : {
+      "comment" : "Equation style (LaTeX display math: set apart, larger)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En bloque"
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -3288,6 +3312,30 @@
         }
       }
     },
+    "Edit Equation" : {
+      "comment" : "Title of the equation sheet when editing one",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar ecuación"
+          }
+        }
+      }
+    },
+    "Edit Equation…" : {
+      "comment" : "Selection menu of an equation item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar ecuación…"
+          }
+        }
+      }
+    },
     "Edit Tags…" : {
       "comment" : "Note menu: edit the note's tags",
       "extractionState" : "manual",
@@ -3332,6 +3380,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Final"
+          }
+        }
+      }
+    },
+    "Equation…" : {
+      "comment" : "Insert menu: add a LaTeX equation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ecuación…"
           }
         }
       }
@@ -3979,6 +4039,18 @@
         }
       }
     },
+    "Inline" : {
+      "comment" : "Equation style (LaTeX inline math: as within a line of text)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En línea"
+          }
+        }
+      }
+    },
     "Insert" : {
       "comment" : "Toolbar menu: add photos or PDF pages",
       "extractionState" : "manual",
@@ -4133,6 +4205,11 @@
           }
         }
       }
+    },
+    "LaTeX" : {
+      "comment" : "Equation sheet: header of the source field; a name, not translated",
+      "extractionState" : "manual",
+      "shouldTranslate" : false
     },
     "Label (for example, Anna's iPad)" : {
       "comment" : "Text field: label of a device key",
@@ -4326,6 +4403,18 @@
         }
       }
     },
+    "Math mode, without $ signs: \\frac{a}{b}, x^{2}, \\sum_{i=1}^{n}, \\sqrt{x}" : {
+      "comment" : "Equation sheet: hint under the LaTeX source; keep the LaTeX examples as they are",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modo matemático, sin signos $: \\frac{a}{b}, x^{2}, \\sum_{i=1}^{n}, \\sqrt{x}"
+          }
+        }
+      }
+    },
     "Medium" : {
       "comment" : "Object eraser size",
       "extractionState" : "manual",
@@ -4514,6 +4603,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nunca"
+          }
+        }
+      }
+    },
+    "New Equation" : {
+      "comment" : "Title of the equation sheet when adding one",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nueva ecuación"
           }
         }
       }
@@ -5959,6 +6060,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reproduce desde aquí."
+          }
+        }
+      }
+    },
+    "Preview" : {
+      "comment" : "Equation sheet: section showing the typeset equation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vista previa"
           }
         }
       }
@@ -7658,6 +7771,18 @@
         }
       }
     },
+    "Size: %@ pt" : {
+      "comment" : "[not-plural] Equation sheet: font size; %@ is a number of points",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tamaño: %@ pt"
+          }
+        }
+      }
+    },
     "Small" : {
       "comment" : "Object eraser size",
       "extractionState" : "manual",
@@ -7952,6 +8077,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tachado"
+          }
+        }
+      }
+    },
+    "Style" : {
+      "comment" : "Equation sheet: section and picker for display or inline typesetting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estilo"
           }
         }
       }
@@ -9503,6 +9640,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reintentar"
+          }
+        }
+      }
+    },
+    "Type an equation below" : {
+      "comment" : "Equation sheet: preview placeholder while the source is empty",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe una ecuación abajo"
           }
         }
       }

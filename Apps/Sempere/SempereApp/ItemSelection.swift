@@ -349,7 +349,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                     self.select(new.id)
                 })
                 if let editMath = commands.editMath, item.kind == .math, item.math != nil, let actions {
-                    elements.append(UIAction(title: "Edit Equation…", image: UIImage(systemName: "function")) { [weak self] _ in
+                    elements.append(UIAction(title: String(localized: "Edit Equation…"), image: UIImage(systemName: "function")) { [weak self] _ in
                         self?.select(nil)
                         editMath(item, pageID, actions)
                     })
