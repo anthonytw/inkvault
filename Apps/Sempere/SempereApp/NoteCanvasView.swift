@@ -333,6 +333,15 @@ struct EditorView: View {
         commands.crop = { item, page, actions in
             state.cropping = CropRequest(item: item, page: page, note: note, actions: actions)
         }
+        commands.replace = { item, page, actions, source, done in
+            state.replacing = ReplaceRequest(item: item, page: page, actions: actions, done: done)
+            switch source {
+            case .photos: state.pickingReplacementPhoto = true
+            case .files:
+                state.fileImport = .image
+                state.pickingFile = true
+            }
+        }
         let editor = self.editor
         commands.play = { item, page in
             state.playing = VideoPlayRequest(item: item, page: page, editor: editor)
@@ -348,16 +357,17 @@ struct EditorView: View {
     }
 
     private var insertMenu: some View {
-        InsertMenu(editor: editor, state: insert) { providers in
+        InsertMenu(editor: editor, state: insert, onAddText: { addingText = true }) { providers in
             EditorInsert.add(providers, to: editor, page: editor.currentPage?.id, at: nil, model: model, ui: ui, state: insert)
         }
     }
 
-    /// Whether the Select Items toggle is offered: the note can be edited and
-    /// the page has items (or there are copied items to paste).
+    /// Whether the Select toggle is offered: whenever the note can be edited
+    /// (always in the same place: a toggle that comes and goes with the
+    /// current page's items cannot be found; on a paged note the current page
+    /// is the one at the top of the screen, not the one with the photo).
     private var showsItemSelection: Bool {
-        guard !editor.isReadOnly, let page = editor.currentPage else { return false }
-        return !page.items.isEmpty || model.itemClipboard.entry != nil || selectingItems
+        !editor.isReadOnly && editor.currentPage != nil
     }
 
     private var textToolToggle: some View {
@@ -367,9 +377,10 @@ struct EditorView: View {
     }
 
     private var itemSelectionToggle: some View {
-        Toggle("Select Items", systemImage: "cursorarrow.rays", isOn: $selectingItems)
+        Toggle("Select", systemImage: "cursorarrow.rays", isOn: $selectingItems)
             .toggleStyle(.button)
-            .help("Select, move, resize and delete images, text boxes and PDF pages")
+            .help("Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. "
+                  + "While drawing: tap one with the lasso, hold a finger on it, or right-click it")
     }
 
     private var pageCounter: some View {
@@ -478,6 +489,12 @@ struct EditorView: View {
                         Menu {
                             Button("Add Page After This One", systemImage: "doc.badge.plus") { editor.addPageAfterCurrent() }
                             Button("Add Page at End", systemImage: "arrow.down.to.line") { editor.addPage() }
+                            Button(InsertOptions.pdfPagesTitle(pageless: false, pageIndex: editor.pageIndex,
+                                                               pageCount: editor.pages.count),
+                                   systemImage: "doc.richtext") {
+                                insert.fileImport = .pdf
+                                insert.pickingFile = true
+                            }
                             if let page = editor.currentPage {
                                 Button("Duplicate Page", systemImage: "plus.square.on.square") { editor.duplicatePage(page.id) }
                                 Button("Delete Page", systemImage: "trash", role: .destructive) { editor.deletePage(page.id) }
