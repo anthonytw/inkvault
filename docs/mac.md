@@ -97,7 +97,7 @@ command does nothing there.
 Recordings were reachable only from the Recordings toolbar menu, whose list
 is behind a press and hold (a split button on the Mac): users did not find
 them. Now a recording that stops is placed on the page as a card
-(`format.md` §8.2.8) whose play/pause button is a real `UIButton` in the
+(`format.md` §8.2.9) whose play/pause button is a real `UIButton` in the
 canvas (`AudioCardControls`), like the page footer's, so a mouse click plays
 it without drawing; and the note's recordings are listed by Note >
 Recordings… (⌃⌘R), the note's "…" menu and the Recordings menu

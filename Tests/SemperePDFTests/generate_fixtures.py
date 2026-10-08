@@ -347,11 +347,26 @@ def runlength(data):
     return bytes(out)
 
 
+def equation():
+    """A math item's rendering (format.md §8.2.7): one 60 x 24 pt page, marks only in
+    #1A1A1A on a transparent page: a bar over the left half and a block on the right."""
+    b = Builder()
+    b.obj(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+    b.obj(2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    b.obj(3, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 60 24] /Resources << >> /Contents 4 0 R >>")
+    c = b"0.102 0.102 0.102 rg 4 10 26 4 re f 36 2 20 20 re f\n"
+    b.obj(4, f"<< /Length {len(c)} >>".encode(), c)
+    pos, size = b.xref_table()
+    b.trailer(pos, f"/Size {size} /Root 1 0 R")
+    return bytes(b.out)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     for name, fn in [("classic.pdf", classic), ("rotated.pdf", rotated), ("objstm.pdf", xref_stream_objstm),
                      ("hybrid.pdf", hybrid), ("incremental.pdf", incremental), ("broken-xref.pdf", broken),
-                     ("no-xref.pdf", no_xref), ("encrypted.pdf", encrypted), ("filters.pdf", filters)]:
+                     ("no-xref.pdf", no_xref), ("encrypted.pdf", encrypted), ("filters.pdf", filters),
+                     ("equation.pdf", equation)]:
         with open(os.path.join(OUT, name), "wb") as f:
             f.write(fn())
 

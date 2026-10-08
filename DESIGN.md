@@ -23,9 +23,8 @@ this document records *why*.
 
 Collaboration between people, real-time sync, Android, Windows, typed text
 documents (reflowing text with ink anchored to it; text boxes placed on a page
-are in scope). Video clips are items too
-(`format.md` §8.2.7); typeset equations are reserved in the format for
-later (§8.2.9).
+are in scope). Video clips, typeset equations and recordings shown on a page
+are items too (`format.md` §8.2.7–§8.2.9).
 
 ## Architecture
 

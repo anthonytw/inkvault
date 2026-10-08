@@ -52,7 +52,7 @@ extension AppModel {
     // MARK: - Playback
 
     /// Plays recording `id` of the editor's note, or pauses it while it plays
-    /// (the button on its card, format.md §8.2.8).
+    /// (the button on its card, format.md §8.2.9).
     func toggleRecording(_ id: UUID, in editor: NoteEditor) {
         if let player = editor.player, player.recording?.id == id {
             player.toggle()

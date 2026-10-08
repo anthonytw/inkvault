@@ -4,7 +4,7 @@ import Sempere
 /// Recordings of the open note (docs/attachments.md §9, §13; format.md
 /// §8.3): recording into the note, saving (the audio blob first, then one
 /// delta adding the recording and its card on the page being looked at,
-/// format.md §8.2.8), renaming and removing, and the ink sync of
+/// format.md §8.2.9), renaming and removing, and the ink sync of
 /// playback: strokes written while recording carry `rec` (stamped in
 /// `StrokeLedger.items(for:tool:stamp:)`), a tap on one plays from there,
 /// and playback highlights what was written around the current moment.
@@ -129,7 +129,7 @@ extension NoteEditor {
     }
 
     /// The card that shows `recording` on the page being looked at, inside the
-    /// part of it on screen (format.md §8.2.8; `NoteOps.placeRecording`), nil
+    /// part of it on screen (format.md §8.2.9; `NoteOps.placeRecording`), nil
     /// when the note has no page or the page is full.
     func audioPlacement(for recording: Recording) -> ItemPlacement? {
         guard let page = currentPage ?? pages.first else { return nil }

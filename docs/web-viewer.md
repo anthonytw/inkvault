@@ -113,7 +113,7 @@ colour), then the ink. Each item is one of:
   Safari and in Chrome or Edge with hardware decoding; an unplayable clip says
   so). One clip is held at a time: playing another, Close, or leaving the note
   revokes its object URL so the browser frees it.
-- **Placeholder** (§8.5.2), for an unknown or reserved kind (`math`),
+- **Placeholder** (§8.5.2), for an unknown kind (an equation only when it has neither a rendering nor a source),
   a missing, unreadable or invalid blob, HEIC (no decoder in the viewer; the
   app converts photos to JPEG by default), an image or PDF it cannot draw, or
   a page index the PDF lacks. The note view lists every placeholder with its
@@ -136,7 +136,7 @@ poster and says to extract it with the CLI), and at most 1 MiB of padding beyond
 what a writer adds. Each blob is read once per open note however many items
 use it.
 
-**Recordings on the page** (§8.2.8) are drawn as their card (the CLI's
+**Recordings on the page** (§8.2.9) are drawn as their card (the CLI's
 elements, cross-checked with its SVG): the microphone icon, the title and
 length, and the transcript once it is read (lazily, verified). A tap on a
 card plays its recording in the list below.
@@ -348,8 +348,12 @@ are missing: download the vault first.
   time). Summaries are not cached between visits (the `format.md` §10 cache
   is per device and would need storage), and the decrypted notes are kept
   only for the notes opened most recently.
-- **Search** covers titles, tags, notebooks, recognised text, text boxes and
-  PDF page text (`pageText`, format.md §8.2.6), as in the app; words are not
+- **Equations** (`math` items, format.md §8.2.8) are drawn from their stored
+  rendering with pdf.js on a transparent page (no white box over the paper);
+  an equation without a rendering, or whose rendering cannot be drawn, shows
+  its LaTeX source in a monospace font. The viewer has no math typesetter.
+- **Search** covers titles, tags, notebooks, recognised text, text boxes,
+  equations' LaTeX source and PDF page text (`pageText`, format.md §8.2.6), as in the app; words are not
   highlighted on the page yet. A note with `markersBehindText` (§5.4) draws
   its marker strokes below its text boxes and images (§8.2.3), as the CLI's
   exports do.
@@ -392,9 +396,11 @@ Tests (`web/test/`, vitest, Node 22):
   notes with blobs (`test/fixtures/media/`: a synthetic JPEG with EXIF and a
   comment, a PNG with a text chunk, a hand-written two-page PDF with a
   CropBox and `/Rotate`, a one-second tone, a transcript, a one-second H.264
-  test-pattern clip; plus a missing, a forged and a HEIC blob, unknown and
-  reserved kinds, and video items with and without posters, rotated, with a
-  poster set and reset by another device and with a missing clip). The page outside the
+  test-pattern clip; plus a missing, a forged and a HEIC blob, an unknown
+  kind, video items with and without posters, rotated, with a poster set and
+  reset by another device and with a missing clip, and two equations: one with
+  a rendering, which the goldens, made without a PDF renderer, draw as its
+  source text, and one without). The page outside the
   `items` group is compared byte for byte; the group itself structurally,
   since the CLI embeds its own font subsets: background fills, placeholders,
   each image's clip polygon and matrix (blobs read by the viewer's own

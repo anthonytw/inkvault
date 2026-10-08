@@ -347,7 +347,10 @@ struct EditorView: View {
         commands.play = { item, page in
             state.playing = VideoPlayRequest(item: item, page: page, editor: editor)
         }
-        // A recording's card on the page (format.md §8.2.8): its button plays or pauses it.
+        commands.editMath = { item, page, actions in
+            state.editingMath = MathRequest(editor: editor, page: page, item: item, actions: actions, visible: nil)
+        }
+        // A recording's card on the page (format.md §8.2.9): its button plays or pauses it.
         let model = self.model
         commands.toggleRecording = { id in model.toggleRecording(id, in: editor) }
         let transcript = $showingTranscript

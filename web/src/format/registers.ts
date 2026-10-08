@@ -14,7 +14,7 @@ const knownRecording: ReadonlySet<string> = new Set(recordingFields);
 
 /**
  * The item's registers, field → value (`null` for an absent optional one):
- * `frame`, `rotation`, `z`, the kind's `text` or `crop`, and every unknown
+ * `frame`, `rotation`, `z`, the kind's `text`, `crop` or `math`, and every unknown
  * field except those named like an immutable field of some kind.
  */
 export function itemRegisters(item: JSONObject): Map<string, unknown> {
@@ -23,6 +23,7 @@ export function itemRegisters(item: JSONObject): Map<string, unknown> {
   if (mine.includes("text") && item.text !== undefined) r.set("text", item.text);
   if (mine.includes("crop")) r.set("crop", item.crop ?? null);
   if (mine.includes("poster")) r.set("poster", item.poster ?? null);
+  if (mine.includes("math") && item.math !== undefined) r.set("math", item.math);
   for (const [k, v] of Object.entries(item)) {
     if (!common.has(k) && !mine.includes(k) && !immutableItemFields.has(k)) r.set(k, v);
   }
@@ -40,7 +41,7 @@ export function applyItemRegister(item: JSONObject, field: string, value: unknow
     if (value === null) delete item[field];
     else item[field] = value;
   } else if (common.has(field) || mine.includes(field)) {
-    if (field === "frame" || field === "z" || field === "text") item[field] = value;
+    if (field === "frame" || field === "z" || field === "text" || field === "math") item[field] = value;
   } else if (!immutableItemFields.has(field)) {
     item[field] = value;
   }
@@ -80,6 +81,12 @@ export function cmpItems(l: JSONObject, r: JSONObject): number {
 export function cmpRecordings(l: JSONObject, r: JSONObject): number {
   const ls = parseRFC3339(String(l.started)) ?? 0, rs = parseRFC3339(String(r.started)) ?? 0;
   return (ls < rs ? -1 : ls > rs ? 1 : 0) || cmpStr(String(l.id), String(r.id));
+}
+
+/** A math item's LaTeX source (§8.2.8); "" for anything else. */
+export function itemLatex(item: JSONObject): string {
+  const m = item.math as { latex?: unknown } | undefined;
+  return item.kind === "math" && typeof m?.latex === "string" ? m.latex : "";
 }
 
 /** A text box's text: every run's `t`, concatenated (§8.2.4). */

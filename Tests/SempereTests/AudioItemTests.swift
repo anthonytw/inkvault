@@ -3,7 +3,7 @@ import XCTest
 
 @testable import Sempere
 
-/// `audio` items (format.md §8.2.8): a recording of the note placed on a
+/// `audio` items (format.md §8.2.9): a recording of the note placed on a
 /// page. The item's wire form, its immutable `recording`, merge and
 /// snapshots, the recording it shows (through a restored copy's `parent`),
 /// the placement and removal builders, and the card's layout and label.

@@ -10,14 +10,14 @@ import Sempere
 struct ItemsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "items",
-        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items; set a video's poster.",
+        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items; set a video's poster; change an equation.",
         discussion: """
-            Placed items are text boxes, images, PDF pages, video clips and recordings shown on the page (audio, \
-            format.md §8.2; `recordings place` adds one). An item is named by its
+            Placed items are text boxes, images, PDF pages, video clips, equations and recordings shown on the page \
+            (audio; format.md §8.2; `recordings place` adds one). An item is named by its
             id or an id prefix of at least 4 characters, as `items list` prints it. Each edit writes one
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
-        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsPoster.self, ItemsFront.self,
+        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsPoster.self, ItemsMath.self, ItemsFront.self,
                       ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
     )
 }
@@ -72,7 +72,9 @@ struct ItemsList: ParsableCommand {
             var rotation: Double?; var z: String; var blob: BlobRef?; var crop: Rect?
             /// Videos: seconds, the poster blob (nil when none).
             var duration: Double?; var poster: BlobRef?
-            /// Audio items: the recording shown, and whether the note has it (format.md §8.2.8).
+            /// An equation (format.md §8.2.8): its source, style and rendering.
+            var math: MathContent?
+            /// Audio items: the recording shown, and whether the note has it (format.md §8.2.9).
             var recording: String?; var recordingMissing: Bool?
         }
         var rows: [Row] = []
@@ -80,8 +82,8 @@ struct ItemsList: ParsableCommand {
             for item in p.items.sorted(by: Item.drawsBefore) {
                 rows.append(Row(page: i + 1, id: item.id.uuidString.lowercased(), kind: item.kind.rawValue,
                                 layer: "\(item.layer)", frame: item.frame, rotation: item.rotation, z: item.z,
-                                blob: item.blob, crop: item.crop, duration: item.duration, poster: item.poster,
-                                recording: item.recording?.uuidString.lowercased(),
+                                blob: item.blob ?? item.math?.render, crop: item.crop, duration: item.duration, poster: item.poster,
+                                math: item.math, recording: item.recording?.uuidString.lowercased(),
                                 recordingMissing: item.kind == .audio ? state.recording(shownBy: item) == nil : nil))
             }
         }
@@ -98,6 +100,10 @@ struct ItemsList: ParsableCommand {
             }
             if r.kind == ItemKind.video.rawValue {
                 blob += " " + AttachmentListing.number(r.duration ?? 0) + " s" + (r.poster == nil ? " (no poster)" : " +poster")
+            }
+            if let m = r.math {
+                let line = m.latex.split(whereSeparator: \.isNewline).joined(separator: " ")
+                blob = (line.count > 40 ? String(line.prefix(39)) + "…" : line) + (m.render == nil ? " (not typeset)" : "")
             }
             table.append([String(r.page), String(r.id.prefix(8)), r.kind, place, blob])
         }
@@ -372,7 +378,7 @@ struct ItemsCopy: ParsableCommand {
         let (_, found) = try findItems(items, in: try vault.reconstruct(try vault.loadNote(source)))
         var copied = found.sorted(by: Item.drawsBefore)
         if source != target {
-            // A recording belongs to its note: its audio items cannot show it in another one (format.md §8.2.8).
+            // A recording belongs to its note: its audio items cannot show it in another one (format.md §8.2.9).
             let kept = NoteOps.copyableToOtherNote(copied)
             if kept.count < copied.count {
                 printStderr("sempere: warning: \(copied.count - kept.count) audio item(s) not copied: their recordings belong to this note")
@@ -386,5 +392,83 @@ struct ItemsCopy: ParsableCommand {
             return try NoteOps.copyItems(copied, to: try pageNumbered(page, of: state)).ops
         }
         try reportEdit(vault, target, r, output: output, done: "Copied \(copied.count) item(s)", unchanged: "No item copied.")
+    }
+}
+
+struct ItemsMath: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "math",
+        abstract: "Change an equation: its source, style, size, colour or rendering (one delta).",
+        discussion: """
+            Writes the item's whole `math` value (format.md §8.2.8). Changing the source, style, size or colour \
+            drops the stored rendering (the CLI cannot typeset; exports then draw the source until the app \
+            typesets it), unless --render gives a one-page PDF typeset elsewhere for the new value; with a new \
+            rendering the frame keeps its top-left corner and its scale. --render alone replaces the rendering \
+            of an unchanged equation. Nothing is written when nothing changes.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("Item id or prefix.", valueName: "item"))
+    var item: String
+
+    @OptionGroup var source: LatexInput
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Display style (--display) or text style (--no-display).")
+    var display: Bool?
+
+    @Option(name: .long, help: ArgumentHelp("Font size in points.", valueName: "pt"))
+    var size: Double?
+
+    @Option(name: .long, help: ArgumentHelp("Colour as #RRGGBB or #RRGGBBAA.", valueName: "hex"))
+    var color: ColorArgument?
+
+    @Option(name: .long, help: ArgumentHelp("A one-page PDF of the typeset equation, stored as its rendering.", valueName: "file"))
+    var render: String?
+
+    @Option(name: .long, help: ArgumentHelp("What typeset --render (informational).", valueName: "name"))
+    var engine: String?
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        try source.validate(required: false)
+        if let size, !(size.isFinite && size > 0 && size <= TextContent.Limits.size) {
+            throw ValidationError("--size must be greater than 0 and at most \(Int(TextContent.Limits.size))")
+        }
+        if engine != nil && render == nil { throw ValidationError("--engine names what made --render") }
+        if !source.given && display == nil && size == nil && color == nil && render == nil {
+            throw ValidationError("nothing to change: give --latex, --display/--no-display, --size, --color or --render")
+        }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let latex = try source.read()
+        let rendering = try render.map { try MathRenderInput(path: $0) }
+        if let rendering {
+            let stored = try translating { try vault.writeBlob(note: id, rendering.data, type: MathContent.renderType) }
+            guard stored == rendering.ref else { throw CLIError.failure("internal error: the stored blob differs from its reference") }
+        }
+        let r = try editNote(vault, id) { state in
+            try requireLive(state)
+            let (page, found) = try findItem(item, in: state)
+            guard found.kind == .math, let old = found.math else { throw CLIError.failure("\(item) is not an equation") }
+            var new = try translating {
+                try NoteOps.math(latex ?? old.latex, display: display ?? old.display, size: size ?? old.size,
+                                 color: color?.color ?? old.color)
+            }
+            if let rendering {
+                new = rendering.content(new, engine: engine)
+            } else if new.typesetsLike(old) {
+                new = old   // the same equation: its rendering still belongs to it
+            }
+            return try translating { try NoteOps.setMath(found.id, to: new, on: page)?.ops ?? [] }
+        }
+        try reportEdit(vault, id, r, output: output, done: "Changed the equation", unchanged: "The equation already is that way.")
     }
 }

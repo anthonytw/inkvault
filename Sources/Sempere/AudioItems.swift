@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Recordings on the page (docs/format.md §8.2.8)
+// MARK: - Recordings on the page (docs/format.md §8.2.9)
 //
 // An `audio` item shows one of the note's recordings on a page: the app places
 // one when a recording stops, the CLI with `items place-recording` or
@@ -10,7 +10,7 @@ import Foundation
 // viewer lay it out the same way.
 
 extension NoteState {
-    /// The recording an `audio` item shows (format.md §8.2.8): the one with
+    /// The recording an `audio` item shows (format.md §8.2.9): the one with
     /// its id, else one restored from it (its `parent` names it, §5.7), else
     /// nil (the recording is missing).
     public func recording(shownBy item: Item) -> Recording? {
@@ -39,7 +39,7 @@ extension NoteOps {
     public static let audioItemSize = Size(w: 300, h: 96)
 
     /// Places recording `recording` (already in the note) on `page` as an
-    /// `audio` item (format.md §8.2.8). Without `frame` the card is
+    /// `audio` item (format.md §8.2.9). Without `frame` the card is
     /// `audioItemSize` (narrower on a narrow page): inside `visible` (the part
     /// of the page the user sees, page coordinates) centred across it and a
     /// margin below its top, else centred across the page a margin from its
@@ -75,7 +75,7 @@ extension NoteOps {
     }
 
     /// The ops that remove recording `id` and, in the same delta, every
-    /// `audio` item of `state` that shows it (format.md §8.2.8). Empty when the
+    /// `audio` item of `state` that shows it (format.md §8.2.9). Empty when the
     /// note has no such recording.
     public static func removeRecording(_ id: UUID, in state: NoteState) -> [Op] {
         guard state.recordings.contains(where: { $0.id == id }) else { return [] }
@@ -90,7 +90,7 @@ extension NoteOps {
     }
 }
 
-/// The card an `audio` item is drawn as (format.md §8.2.8), in frame
+/// The card an `audio` item is drawn as (format.md §8.2.9), in frame
 /// coordinates before the item's rotation: padding, icon and label box, and
 /// the label's text. Shared by every renderer.
 public struct AudioCard: Hashable, Sendable {
@@ -208,7 +208,7 @@ public struct AudioCard: Hashable, Sendable {
         return out.isEmpty ? nil : String(out)
     }
 
-    /// The label's text box content (format.md §8.2.8): the title in bold,
+    /// The label's text box content (format.md §8.2.9): the title in bold,
     /// ` · ` and the duration, then the transcript's excerpt on the next line.
     public static func label(_ recording: Recording, transcript: Transcript?) -> TextContent {
         var runs = [TextRun(oneLine(title(recording)), b: true)]

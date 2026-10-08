@@ -336,7 +336,7 @@ struct WordFlow: Layout {
 
 /// The open note's recordings as a list (the note's Recordings… command,
 /// Note > Recordings… on the Mac, docs/mac.md): each with its title, start,
-/// length, transcript and the pages that show it (format.md §8.2.8), and
+/// length, transcript and the pages that show it (format.md §8.2.9), and
 /// Play or Pause, Place on Page, Show Transcript, Transcribe, Rename and
 /// Delete. Reachable whether or not a recording is on a page.
 struct RecordingsListView: View {

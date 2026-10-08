@@ -94,3 +94,18 @@ describe("pdf page text", () => {
     expect(summary.pageTexts).toEqual([{ number: 1, text: "Eigenvalues" }]);
   });
 });
+
+describe("equations (§8.2.8)", () => {
+  it("are searchable by their LaTeX source, and merge as one register", () => {
+    const log = new LogBuilder();
+    const id = "6f1c2d4e-0000-4000-8000-000000000002";
+    const math = (latex: string) => ({ latex, display: true, size: 14, color: "#000000FF" });
+    const item = { id, kind: "math", layer: 100, frame: [10, 10, 100, 30], z: "a0", math: math("\\lambda_1") };
+    const add = log.delta(devA, 0, [op.addPage(p1, "V"), decodeOp({ op: "addItem", page: p1, item }, "op", new Budget())]);
+    const set = log.delta(devB, 10, [decodeOp({ op: "setItem", page: p1, itemId: id, field: "math", value: math("\\mu") }, "op", new Budget())]);
+    const s = reconstruct([set, add]);
+    const summary = summarize({ id: "n", state: s, failures: [], hasAttachments: true } as unknown as Parameters<typeof summarize>[0]);
+    expect(summary.pageTexts).toEqual([{ number: 1, text: "\\mu" }]);
+    expect(() => decodeOp({ op: "setItem", page: p1, itemId: id, field: "math", value: null }, "op", new Budget())).toThrow();
+  });
+});

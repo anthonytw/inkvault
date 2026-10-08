@@ -107,7 +107,7 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
     /// A video item without a poster frame (format.md §8.2.7): drawn as a
     /// placeholder with the play mark; nothing is missing.
     case noPoster
-    /// An `audio` item whose recording is not in the note (format.md §8.2.8).
+    /// An `audio` item whose recording is not in the note (format.md §8.2.9).
     case recordingMissing
 
     /// A short English description, for reports.
@@ -325,7 +325,7 @@ enum RasterItems {
         case image(PlacedImage)
         /// Laid-out text and its rotation about the frame's centre.
         case text(ShapedText, rotation: Affine)
-        /// An `audio` item's card (format.md §8.2.8).
+        /// An `audio` item's card (format.md §8.2.9).
         case card(AudioCardDraw)
         case placeholder(PlaceholderReason)
     }
@@ -341,6 +341,8 @@ enum RasterItems {
                 case .success(let (shaped, rotation)): d = .text(shaped, rotation: rotation)
                 case .failure(let reason): d = .placeholder(reason)
                 }
+            } else if it.item.kind == .math {
+                d = resolveMath(it, backgrounds: backgrounds, shaper: shaper, scale: scale, maxPixels: maxPixels, report: &report)
             } else if it.item.kind == .audio {
                 switch AudioCards.resolve(it, sources: images.audio, shaper: shaper, report: &report) {
                 case .success(let card): d = .card(card)
@@ -416,7 +418,7 @@ final class ImageStore {
     private var loaded: [String: Result<LoadedImage, PlaceholderReason>] = [:]
     private var decoded: [String: Result<RGBAImage, PlaceholderReason>] = [:]
     private var reduced: [String: Result<RGBAImage, PlaceholderReason>] = [:]
-    /// The note's recordings for `audio` items (format.md §8.2.8); nil when
+    /// The note's recordings for `audio` items (format.md §8.2.9); nil when
     /// drawing a page without its note (its audio items are placeholders).
     let audio: AudioSources?
 

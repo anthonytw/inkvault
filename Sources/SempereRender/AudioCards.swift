@@ -1,7 +1,7 @@
 import Foundation
 import Sempere
 
-// MARK: - Audio items (format.md §8.2.8)
+// MARK: - Audio items (format.md §8.2.9)
 
 /// An `audio` item ready to draw: the card and icon (page coordinates, the
 /// item's rotation applied) and the label laid out in frame coordinates with
@@ -82,7 +82,7 @@ enum AudioCards {
     }
 
     /// The lines whose bottom (baseline + 0.25 S, §8.5.3) is at or above
-    /// `bottom`, stopping at the first that is not (format.md §8.2.8).
+    /// `bottom`, stopping at the first that is not (format.md §8.2.9).
     static func clipped(_ shaped: ShapedText, bottom: Double) -> ShapedText {
         var out = shaped
         out.lines = []
@@ -96,7 +96,7 @@ enum AudioCards {
         return out
     }
 
-    /// The card and the icon (format.md §8.2.8 steps 1–2), through `rotation`.
+    /// The card and the icon (format.md §8.2.9 steps 1–2), through `rotation`.
     static func shapes(_ card: AudioCard, rotation r: Affine) -> [DrawCommand] {
         let f = card.frame
         let corners = [Point(x: f.x, y: f.y), Point(x: f.x + f.w, y: f.y), Point(x: f.x + f.w, y: f.y + f.h),
