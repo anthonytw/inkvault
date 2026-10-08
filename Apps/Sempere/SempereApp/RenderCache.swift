@@ -397,7 +397,7 @@ final class RenderCache: @unchecked Sendable {
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: CGFloat(scale), y: -CGFloat(scale))
         ctx.translateBy(x: CGFloat(item.frame.x + item.frame.w / 2 - bounds.x), y: CGFloat(item.frame.y + item.frame.h / 2 - bounds.y))
-        ctx.rotate(by: CGFloat((item.rotation ?? 0) * .pi / 180))
+        ctx.rotate(by: CGFloat(ItemFrames.radians(item.rotation)))
         ctx.translateBy(x: -CGFloat(item.frame.w / 2), y: -CGFloat(item.frame.h / 2))
         let drawn = document.lock.withLock { PDFItemDrawing.draw(document.document, item: item, in: ctx) }
         guard drawn, let image = ctx.makeImage() else { return nil }

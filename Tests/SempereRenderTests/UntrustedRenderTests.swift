@@ -157,4 +157,23 @@ final class UntrustedRenderTests: XCTestCase {
         XCTAssertEqual(report.warnings.count, 1)
         XCTAssertTrue(report.placeholders.isEmpty)
     }
+
+    // MARK: - App crash audit
+
+    /// A video's stored duration is only checked to be finite: `Int(1e300)`
+    /// trapped in the Markdown and HTML exports (and the app's player title).
+    func testAHugeVideoDurationIsClampedNotTrapped() {
+        XCTAssertEqual(ExportVideos.clock(1e300), "277777:46:40")
+        XCTAssertEqual(ExportVideos.clock(1e19), "277777:46:40")
+        XCTAssertEqual(ExportVideos.clock(.greatestFiniteMagnitude), "277777:46:40")
+        XCTAssertEqual(ExportVideos.clock(75), "1:15")
+        XCTAssertEqual(ExportVideos.clock(3725), "1:02:05")
+        XCTAssertNil(ExportVideos.clock(.nan))
+        XCTAssertNil(ExportVideos.clock(-1))
+    }
+
+    /// The app leaves out items the renderers skip: the same extent.
+    func testTheAppsItemExtentIsTheRenderersExtent() {
+        XCTAssertEqual(ItemFrames.maxExtent, RenderLimits.maxExtent)
+    }
 }

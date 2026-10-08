@@ -78,7 +78,8 @@ final class ItemLayerView: UIView {
 
     /// Shows `items` of note `note` (in any order) over `paper`.
     func show(_ items: [Item], note: UUID, paper: Paper, source: ItemLayerSource) {
-        let sorted = items.sorted(by: Item.drawsBefore)
+        // A frame that overflows to NaN would make Core Animation raise (format.md §9).
+        let sorted = items.filter { ItemFrames.isDrawable($0.frame, rotation: $0.rotation) }.sorted(by: Item.drawsBefore)
         let changedNote = note != noteID
         let changed = changedNote || sorted != self.items || paper != self.paper
         self.source = source

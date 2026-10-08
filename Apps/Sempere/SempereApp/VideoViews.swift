@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import CoreTransferable
 import Sempere
+import SempereRender
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -52,10 +53,7 @@ struct VideoPlayerSheet: View {
     }
 
     private var title: String {
-        guard let d = request.item.duration, d.isFinite, d >= 0 else { return "Video" }
-        let t = Int(d.rounded())
-        return t >= 3600 ? String(format: "Video · %d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
-            : String(format: "Video · %d:%02d", t / 60, t % 60)
+        ExportVideos.clock(request.item.duration).map { "Video · \($0)" } ?? "Video"
     }
 
     private func load() async {

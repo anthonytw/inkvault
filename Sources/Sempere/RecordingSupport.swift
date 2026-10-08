@@ -234,7 +234,10 @@ public enum RecordingSync {
         return (t.a * p.x + t.c * p.y + t.tx, t.b * p.x + t.d * p.y + t.ty)
     }
 
-    /// A stroke's bounding box on the page, widened by half its width; nil without points.
+    /// A stroke's bounding box on the page, widened by half its width; nil
+    /// without points, or when the box cannot be drawn (`SearchMatches.isDrawable`:
+    /// points at ±1.7e308 make its width infinite, and the playback highlight
+    /// layer's position NaN, which Core Animation raises on).
     public static func box(of stroke: Stroke) -> Recognition.Box? {
         guard !stroke.points.isEmpty else { return nil }
         var minX = Double.infinity, minY = Double.infinity, maxX = -Double.infinity, maxY = -Double.infinity
@@ -246,7 +249,8 @@ public enum RecordingSync {
             if p.w.isFinite { half = max(half, p.w / 2) }
         }
         guard minX.isFinite, minY.isFinite else { return nil }
-        return Recognition.Box(x: minX - half, y: minY - half, w: maxX - minX + 2 * half, h: maxY - minY + 2 * half)
+        let box = Recognition.Box(x: minX - half, y: minY - half, w: maxX - minX + 2 * half, h: maxY - minY + 2 * half)
+        return SearchMatches.isDrawable(box) ? box : nil
     }
 
     /// The strokes within `tolerance` points of `(x, y)` on the page, nearest

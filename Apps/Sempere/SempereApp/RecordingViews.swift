@@ -4,6 +4,11 @@ import SwiftUI
 /// "1:02:03" / "4:05".
 enum RecordingClock {
     static func text(_ seconds: Double) -> String { Transcript.clock(seconds) }
+
+    /// The scrubber's range: `max(NaN, 0.1)` is NaN, and `0...NaN` traps.
+    static func sliderRange(_ duration: Double) -> ClosedRange<Double> {
+        0...(duration.isFinite ? max(duration, 0.1) : 0.1)
+    }
 }
 
 /// The bar above the canvas while a recording is made or played
@@ -73,7 +78,7 @@ struct RecordingBar: View {
             }
             Text(RecordingClock.text(player.position)).monospacedDigit().font(.callout)
             Slider(value: Binding(get: { player.position }, set: { player.seek(to: $0) }),
-                   in: 0...max(player.duration, 0.1))
+                   in: RecordingClock.sliderRange(player.duration))
             Text(RecordingClock.text(player.duration)).monospacedDigit().font(.callout).foregroundStyle(.secondary)
             Toggle("Tap Ink to Play", systemImage: "hand.tap", isOn: Binding(get: { editor.listeningToInk },
                                                                          set: { editor.listeningToInk = $0 }))
