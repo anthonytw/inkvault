@@ -3,9 +3,11 @@ import SempereRender
 import UIKit
 
 /// Typing in text boxes on the canvas (docs/attachments.md §13 "Text
-/// editing on the canvas", task E2). With the text tool on, a tap on a text
-/// box edits it and a tap elsewhere starts a new box there; selection mode's
-/// "Edit Text" edits the selected box. The box is edited in a `UITextView`
+/// editing on the canvas", task E2). With the text tool on, the selection
+/// controller (`ItemSelectionController`, scope `.textBoxes`) picks boxes: a
+/// tap selects one (handles to move it and set its width), a tap on the
+/// selected box or a double tap edits it (`begin`), a tap on the empty page
+/// starts a new box there (`beginNew`); the menus' "Edit Text" edits too. The box is edited in a `UITextView`
 /// (TextKit 1, the layout `TextKitBreaks` uses) laid over the page at the
 /// canvas zoom, with a style bar above the keyboard (bold, italic,
 /// underline, strikethrough, size, colour, font, alignment, direction);
@@ -70,7 +72,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         }
     }
 
-    private func updateTap() { tap.isEnabled = toolActive || isEditing }
+    /// The tap here only ends an edit; selecting and starting boxes is the selection controller's.
+    private func updateTap() { tap.isEnabled = isEditing }
 
     /// The note or page on the canvas changed: an edit in progress is written first.
     func reset(editor: NoteEditor, pageID: UUID) {
@@ -82,11 +85,6 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     }
 
     private var zoom: CGFloat { max(canvas?.zoomScale ?? 1, 0.01) }
-
-    private func pagePoint(_ g: UIGestureRecognizer) -> ItemFrames.Point {
-        let p = g.location(in: canvas)
-        return ItemFrames.Point(x: Double(p.x / zoom), y: Double(p.y / zoom))
-    }
 
     // MARK: Gestures
 
@@ -101,19 +99,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     }
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
-        if isEditing {
-            // A tap outside the box ends the edit; it does not start another box.
-            endEditing()
-            return
-        }
-        guard toolActive, let editor, let pageID, editor.canEditItems else { return }
-        let p = pagePoint(g)
-        let items = editor.items(on: pageID)
-        if let hit = TextBoxPlacement.textBox(at: p, in: items, zoom: Double(zoom)) {
-            begin(hit)
-        } else {
-            beginNew(at: p)
-        }
+        // A tap outside the box ends the edit; it does not start another box or select one.
+        if isEditing { endEditing() }
     }
 
     // MARK: Editing
