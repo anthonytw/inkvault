@@ -17,7 +17,9 @@ struct BackupSettingsSection: View {
 
     var body: some View {
         Section {
-            Button(record.bookmark == nil ? "Choose Backup Folder…" : "Change Backup Folder…") { picking = true }
+            Button(record.bookmark == nil ? LocalizedStringKey("Choose Backup Folder…") : LocalizedStringKey("Change Backup Folder…")) {
+                picking = true
+            }
                 .disabled(busy || model.vault == nil)
             if let path = record.displayPath {
                 LabeledContent("Folder", value: path)
@@ -40,8 +42,10 @@ struct BackupSettingsSection: View {
                     LabeledContent("Contents", value: size)
                 }
                 if let verified = record.lastVerified, let healthy = record.lastVerifyHealthy {
+                    let when = verified.formatted(.relative(presentation: .named))
                     LabeledContent("Last Check") {
-                        Text("\(healthy ? "Healthy" : "Problems found"), \(verified.formatted(.relative(presentation: .named)))")
+                        (healthy ? Text("Healthy, \(when)", comment: "Settings ▸ Backups ▸ Last Check; %@ is how long ago")
+                                 : Text("Problems found, \(when)", comment: "Settings ▸ Backups ▸ Last Check; %@ is how long ago"))
                             .foregroundStyle(healthy ? Color.secondary : Color.red)
                     }
                 }
@@ -83,17 +87,17 @@ struct BackupSettingsSection: View {
     private var busy: Bool { model.backupProgress != nil }
 
     private var lastBackupText: String {
-        guard let date = record.lastBackup else { return "Never" }
+        guard let date = record.lastBackup else {
+            return String(localized: "Never", comment: "Settings ▸ Backups ▸ Last Backup: there has been none")
+        }
         return date.formatted(.relative(presentation: .named))
     }
 
     private var footer: String {
-        var s = "A backup is a copy of the vault's encrypted files, kept up to date: each run copies only what is new. "
-            + "Choose a folder on another drive or another cloud service. Nothing is decrypted: a backup is useless "
-            + "without your key: save it with Settings → Device Keys → Save Key… (with its paper recovery kit) and "
-            + "keep it somewhere safe as well."
+        var s = String(localized: "A backup is a copy of the vault's encrypted files, kept up to date: each run copies only what is new. Choose a folder on another drive or another cloud service. Nothing is decrypted: a backup is useless without your key, so save it with Device Keys ▸ Save Key… (with its paper recovery kit) and keep it somewhere safe as well.",
+                       comment: "Settings ▸ Backups footer")
         if notificationsOff {
-            s += " Notifications are off for Sempere, so the reminder shows here only; allow them in Settings → Notifications."
+            s += " " + String(localized: "Notifications are off for Sempere, so the reminder shows here only; allow them in the system Settings ▸ Notifications.")
         }
         return s
     }
@@ -106,7 +110,7 @@ struct BackupSettingsSection: View {
         task = Task {
             message = nil
             do { try await body() } catch is CancellationError {
-                message = "Stopped. The backup holds every file written so far; Back Up Now finishes it."
+                message = String(localized: "Stopped. The backup holds every file written so far; Back Up Now finishes it.")
             } catch {
                 message = "\(error)"
             }
@@ -163,7 +167,7 @@ struct RestoreBackupView: View {
                     Section {
                         Text(BackupText.restore(outcome))
                         ForEach(outcome.report.errors.prefix(20), id: \.path) { e in
-                            Text("\(e.path): \(e.message)").font(.footnote.monospaced()).foregroundStyle(.red)
+                            Text(verbatim: "\(e.path): \(e.message)").font(.footnote.monospaced()).foregroundStyle(.red)
                         }
                         if let id = outcome.recentID, let entry = library.recents.first(where: { $0.id == id }) {
                             Button("Open “\(entry.name)”") {
@@ -185,7 +189,7 @@ struct RestoreBackupView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(outcome == nil ? "Cancel" : "Done") { dismiss() }
+                    Button(outcome == nil ? LocalizedStringKey("Cancel") : LocalizedStringKey("Done")) { dismiss() }
                 }
                 if outcome == nil {
                     ToolbarItem(placement: .confirmationAction) {
@@ -211,7 +215,10 @@ struct RestoreBackupView: View {
 
     @ViewBuilder private var chooser: some View {
         Section {
-            Button(picked == nil ? "Choose Backup Folder…" : "Choose Another Backup…") { importMode = .backup; importerShown = true }
+            Button(picked == nil ? LocalizedStringKey("Choose Backup Folder…") : LocalizedStringKey("Choose Another Backup…")) {
+                importMode = .backup
+                importerShown = true
+            }
             if let source { LabeledContent("Backup", value: source.lastPathComponent) }
         } footer: {
             Text("Choose the backup folder (it holds backup.json), or any vault folder. Nothing is written until you tap Restore.")
@@ -234,8 +241,7 @@ struct RestoreBackupView: View {
             } header: {
                 Text("Restore As a New Vault")
             } footer: {
-                Text("The backup is copied into a new vault; the vault you have open is never changed. "
-                     + "It opens with the same key as the vault that was backed up.")
+                Text("The backup is copied into a new vault; the vault you have open is never changed. It opens with the same key as the vault that was backed up.")
             }
         }
     }

@@ -40,10 +40,12 @@ enum ImagePreparation {
 
         var description: String {
             switch self {
-            case .unreadable: return "This file is not an image Sempere can read."
-            case .tooLarge: return "This image is too large to add (at most \(ImageLimits.maxPixels / 1_000_000) megapixels)."
-            case .cannotConvert: return "This image could not be converted to JPEG or PNG."
-            case .fileTooLarge: return "This file is too large to add (at most \(ImagePreparation.maxInputBytes >> 20) MB)."
+            case .unreadable: return String(localized: "This file is not an image Sempere can read.")
+            case .tooLarge: let limit = ImageLimits.maxPixels / 1_000_000
+                return String(localized: "This image is too large to add (at most \(limit) megapixels).")
+            case .cannotConvert: return String(localized: "This image could not be converted to JPEG or PNG.")
+            case .fileTooLarge: let limit = ImagePreparation.maxInputBytes >> 20
+                return String(localized: "This file is too large to add (at most \(limit) MB).")
             }
         }
     }

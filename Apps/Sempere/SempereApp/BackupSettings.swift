@@ -75,21 +75,27 @@ enum BackupLocation {
         var description: String {
             switch self {
             case .isVault(let name):
-                return "“\(name)” is a vault. Choose a folder outside it (an external drive, another cloud folder)."
+                return String(localized: "“\(name)” is a vault. Choose a folder outside it (an external drive, another cloud folder).",
+                              comment: "Backups: the picked backup folder is a vault; %@ is its name")
             case .insideOpenVault:
-                return "That folder is the open vault, or inside it. A backup must be somewhere else."
+                return String(localized: "That folder is the open vault, or inside it. A backup must be somewhere else.")
             case .otherVaultsBackup(let name):
-                return "“\(name)” holds the backup of another vault. Choose another folder."
+                return String(localized: "“\(name)” holds the backup of another vault. Choose another folder.",
+                              comment: "Backups: %@ is the picked folder's name")
             case .nothingToRestore(let name):
-                return "“\(name)” holds no backup or vault. Choose the backup folder itself (it holds backup.json)."
+                return String(localized: "“\(name)” holds no backup or vault. Choose the backup folder itself (it holds backup.json).",
+                              comment: "Restore from Backup: %@ is the picked folder's name")
             case .severalBackups(let names):
-                return "That folder holds several backups (\(names.joined(separator: ", "))). Choose one of them."
+                let list = names.formatted(.list(type: .and))
+                return String(localized: "That folder holds several backups (\(list)). Choose one of them.",
+                              comment: "Restore from Backup: %@ is a list of folder names")
             }
         }
     }
 
-    /// "<vault name> Backup".
-    static func folderName(forVault name: String) -> String { "\(name) Backup" }
+    /// "<vault name> Backup". A folder name on disk, the same in every
+    /// language, so `suggestedName` recognises it on any device.
+    static func folderName(forVault name: String) -> String { "\(name) Backup" }   // l10n:ignore
 
     /// The vault id a backup folder holds, from its `backup.json`; nil for a
     /// folder that is no backup (or whose index cannot be read).
@@ -159,7 +165,8 @@ enum BackupLocation {
         var name = source.deletingPathExtension().lastPathComponent
         if let r = name.range(of: #" Backup( \d+)?$"#, options: .regularExpression) { name.removeSubrange(r) }
         name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (name.isEmpty ? "Notes" : name) + " (Restored)"
+        if name.isEmpty { name = String(localized: "Notes", comment: "Restore from Backup: default name of a restored vault") }
+        return String(localized: "\(name) (Restored)", comment: "Restore from Backup: suggested name of the new vault; %@ is the backed-up vault's name")
     }
 
     static func overlaps(_ a: URL, _ b: URL) -> Bool {
@@ -179,7 +186,8 @@ enum BackupReminder {
 
     /// "Off", "After 1 day", "After 7 days".
     static func label(_ days: Int) -> String {
-        days <= 0 ? "Off" : days == 1 ? "After 1 day" : "After \(days) days"
+        days <= 0 ? String(localized: "Off", comment: "Settings ▸ Backups ▸ Remind Me: no reminder")
+            : String(localized: "After \(days) days", comment: "Settings ▸ Backups ▸ Remind Me: remind after this many days without a backup")
     }
 
     /// The notification's identifier for vault `id` (one pending per vault).
@@ -205,9 +213,14 @@ enum BackupReminder {
 
     /// The notification's text. Names the vault, never a note.
     static func message(vaultName: String, record r: BackupRecord) -> (title: String, body: String) {
-        let days = r.reminderDays == 1 ? "a day" : "\(r.reminderDays) days"
-        let since = r.lastBackup == nil ? "has never been backed up" : "has not been backed up for \(days)"
-        return ("Back up “\(vaultName)”", "“\(vaultName)” \(since). Open Sempere and choose Settings → Back Up Now.")
+        let days = r.reminderDays
+        let title = String(localized: "Back up “\(vaultName)”", comment: "Backup reminder notification title; %@ is the vault's name")
+        let body = r.lastBackup == nil
+            ? String(localized: "“\(vaultName)” has never been backed up. Open Sempere and choose Settings → Back Up Now.",
+                     comment: "Backup reminder notification; %@ is the vault's name")
+            : String(localized: "“\(vaultName)” has not been backed up for \(days) days. Open Sempere and choose Settings → Back Up Now.",
+                     comment: "Backup reminder notification; %1$@ is the vault's name, %2$lld the days without a backup")
+        return (title, body)
     }
 }
 
@@ -245,10 +258,14 @@ struct BackupProgress: Equatable, Sendable {
 
     var headline: String {
         switch stage {
-        case let .downloading(done, total): return "Downloading from iCloud Drive: \(done) of \(total) files"
-        case .copying(let n): return n == 0 ? "Backing up…" : "Backing up: \(n) file\(n == 1 ? "" : "s") written"
-        case .verifying: return "Verifying the backup…"
-        case .restoring: return "Restoring…"
+        case let .downloading(done, total):
+            return String(localized: "Downloading from iCloud Drive: \(done) of \(total)",
+                          comment: "Backups progress: files downloaded so far of the total [not-plural]")
+        case .copying(let n):
+            return n == 0 ? String(localized: "Backing up…")
+                : String(localized: "Backing up: \(n) files written", comment: "Backups progress: files written so far")
+        case .verifying: return String(localized: "Verifying the backup…")
+        case .restoring: return String(localized: "Restoring…", comment: "Restore from Backup: progress")
         }
     }
 }
@@ -274,33 +291,41 @@ final class BackupRunControl: @unchecked Sendable {
 
 /// The sentences Settings → Backups and the restore sheet show.
 enum BackupText {
-    /// "12 notes, 3,401 files, 1.2 GB".
+    /// "12 notes, 3,401 files and 1.2 GB".
     static func contents(notes: Int?, files: Int?, bytes: Int?) -> String? {
         guard let notes, let files, let bytes else { return nil }
-        return "\(notes) note\(notes == 1 ? "" : "s"), \(files) file\(files == 1 ? "" : "s"), "
-            + StorageText.bytes(Int64(clamping: bytes))
+        return [String(localized: "\(notes) notes", comment: "Settings ▸ Backups ▸ Contents: number of notes"),
+                String(localized: "\(files) files", comment: "Settings ▸ Backups ▸ Contents: number of files"),
+                StorageText.bytes(Int64(clamping: bytes))].formatted(.list(type: .and))
     }
 
     /// What one Back Up Now did.
     static func report(_ r: BackupReport) -> String {
         let written = r.copied.count + r.replaced.count
-        var s = written == 0 ? "The backup was already up to date." : "\(written) file\(written == 1 ? "" : "s") backed up."
-        if !r.errors.isEmpty {
-            s += " \(r.errors.count) file\(r.errors.count == 1 ? "" : "s") could not be copied (\(r.errors[0].path): "
-                + "\(r.errors[0].message)). Run Back Up Now again; the backup is incomplete until it succeeds."
+        var s = written == 0 ? String(localized: "The backup was already up to date.")
+            : String(localized: "Backed up \(written) files.", comment: "Back Up Now finished: files written")
+        if let first = r.errors.first {
+            let failed = r.errors.count
+            s += " " + String(localized: "Not copied: \(failed) (first: \(first.path): \(first.message)).",
+                              comment: "Back Up Now: files that failed, then the first one's path and English error [not-plural]")
+            s += " " + String(localized: "Run Back Up Now again; the backup is incomplete until it succeeds.")
         }
         return s
     }
 
     /// What one Verify Backup found; `problemLines` are listed separately.
     static func verify(_ r: BackupVerifyReport) -> String {
-        let checked = r.files.filter { $0.status == .ok }.count
         if r.isHealthy {
-            return "The backup is healthy: \(checked) file\(checked == 1 ? "" : "s") match their recorded checksums"
-                + (r.decrypted ? ", and every note was decrypted and checked with this vault's key." : ". Notes were not decrypted (the vault is locked).")
+            let checked = r.files.filter { $0.status == .ok }.count
+            return String(localized: "The backup is healthy: \(checked) files match their recorded checksums.",
+                          comment: "Verify Backup result")
+                + " " + (r.decrypted
+                         ? String(localized: "Every note was decrypted and checked with this vault's key.")
+                         : String(localized: "Notes were not decrypted (the vault is locked)."))
         }
-        let n = r.problemLines.count
-        return "The backup has \(n) problem\(n == 1 ? "" : "s"). Run Back Up Now to replace missing or damaged files, then verify again."
+        let problems = r.problemLines.count
+        return String(localized: "The backup has \(problems) problems.", comment: "Verify Backup result")
+            + " " + String(localized: "Run Back Up Now to replace missing or damaged files, then verify again.")
     }
 
     /// One row of the restore preview.
@@ -313,31 +338,42 @@ enum BackupText {
     /// The restore preview's rows.
     static func preview(_ p: RestorePreview) -> [Row] {
         var rows = [
-            Row(label: "Notes", value: "\(p.notes)"),
-            Row(label: "Versions", value: "\(p.revisions)"),
-            Row(label: "Attachments", value: "\(p.attachments)"),
-            Row(label: "Size", value: StorageText.bytes(Int64(clamping: p.bytes))),
-            Row(label: "Newest Change",
-                value: p.newestRevision.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "None"),
+            Row(label: String(localized: "Notes", comment: "Restore preview: number of notes"), value: p.notes.formatted()),
+            Row(label: String(localized: "Versions", comment: "Restore preview: number of revisions"), value: p.revisions.formatted()),
+            Row(label: String(localized: "Attachments", comment: "Restore preview: number of attachments"),
+                value: p.attachments.formatted()),
+            Row(label: String(localized: "Size", comment: "Restore preview: bytes"), value: StorageText.bytes(Int64(clamping: p.bytes))),
+            Row(label: String(localized: "Newest Change", comment: "Restore preview: the newest revision's date"),
+                value: p.newestRevision.map { $0.formatted(date: .abbreviated, time: .shortened) }
+                    ?? String(localized: "None", comment: "Restore preview: no revision at all")),
         ]
         if let d = p.backupUpdated {
-            rows.append(Row(label: "Backed Up", value: d.formatted(date: .abbreviated, time: .shortened)))
+            rows.append(Row(label: String(localized: "Backed Up", comment: "Restore preview: when the backup last ran"),
+                            value: d.formatted(date: .abbreviated, time: .shortened)))
         }
-        if !p.isBackup { rows.append(Row(label: "Kind", value: "A vault folder, not a backup")) }
+        if !p.isBackup {
+            rows.append(Row(label: String(localized: "Kind", comment: "Restore preview: what the picked folder is"),
+                            value: String(localized: "A vault folder, not a backup")))
+        }
         return rows
     }
 
     /// What a restore did.
     static func restore(_ o: RestoreOutcome) -> String {
         let r = o.report
-        var s = "Restored “\(o.url.deletingPathExtension().lastPathComponent)”: \(r.restored.count + r.alreadyPresent) files."
+        let name = o.url.deletingPathExtension().lastPathComponent
+        let restored = r.restored.count + r.alreadyPresent
+        var s = String(localized: "Restored “\(name)”: \(restored) files.",
+                       comment: "Restore from Backup finished; %1$@ is the new vault's name, %2$lld the files")
         if !r.errors.isEmpty {
-            s += " \(r.errors.count) file\(r.errors.count == 1 ? "" : "s") could not be restored (damaged or missing in the backup)."
+            let failed = r.errors.count
+            s += " " + String(localized: "Not restored (damaged or missing in the backup): \(failed).",
+                              comment: "Restore from Backup: files that could not be restored [not-plural]")
         }
         if r.verify == nil {
-            s += " The vault is not complete: restore again from another copy of the backup to finish it."
+            s += " " + String(localized: "The vault is not complete: restore again from another copy of the backup to finish it.")
         } else if r.verify?.isHealthy == false {
-            s += " The restored vault has problems; open it and check its notes."
+            s += " " + String(localized: "The restored vault has problems; open it and check its notes.")
         }
         return s
     }

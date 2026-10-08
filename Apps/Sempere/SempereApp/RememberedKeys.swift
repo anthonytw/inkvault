@@ -59,7 +59,10 @@ final class RememberedKeys {
     }
 
     nonisolated static func name(isMac: Bool, isPhone: Bool) -> String {
-        isMac ? "this Mac" : (isPhone ? "this iPhone" : "this iPad")
+        if isMac { return String(localized: "this Mac", comment: "Device phrase inside sentences: “Saved on this Mac”") }
+        return isPhone
+            ? String(localized: "this iPhone", comment: "Device phrase inside sentences: “Saved on this iPhone”")
+            : String(localized: "this iPad", comment: "Device phrase inside sentences: “Saved on this iPad”")
     }
 
     /// The device's biometry ("Face ID", "Touch ID", "Optic ID") when one is
@@ -80,13 +83,12 @@ final class RememberedKeys {
     /// reads it, never the passcode, so after a lockout the user unlocks with
     /// the key or passphrase. Without biometrics it is `.userPresence`.
     static func deviceOnlyFooter(vaultName: String, biometry: String?) -> String {
-        let kept = "The key stays in this device's Keychain and is not included in backups."
         guard let biometry else {
-            return "Next time, \(vaultName) opens after your device passcode. \(kept)"
+            return String(localized: "Next time, \(vaultName) opens after your device passcode. The key stays in this device's Keychain and is not included in backups.",
+                          comment: "Unlock sheet footer; the value is the vault name")
         }
-        return "Next time, \(vaultName) opens after \(biometry), and only \(biometry): the passcode cannot "
-            + "read the saved key. If \(biometry) is locked out after failed attempts, turned off, or "
-            + "re-enrolled, unlock with the key or the passphrase instead. \(kept)"
+        return String(localized: "Next time, \(vaultName) opens after \(biometry), and only \(biometry): the passcode cannot read the saved key. If \(biometry) is locked out after failed attempts, turned off, or re-enrolled, unlock with the key or the passphrase instead. The key stays in this device's Keychain and is not included in backups.",
+                      comment: "Unlock sheet footer; the first value is the vault name, the others the biometry (Face ID, Touch ID)")
     }
 
     /// The remembered storage for the open vault, if known.
@@ -122,8 +124,9 @@ final class RememberedKeys {
             storageVaultID = id
             storage = stored
             guard stored != nil else { return .noKey }
-            let name = model.vaultName ?? "the vault"
-            identity = try await store.readKey(for: id, reason: "Unlock “\(name)” with its saved key")
+            let reason = model.vaultName.map { String(localized: "Unlock “\($0)” with its saved key", comment: "Face ID prompt") }
+                ?? String(localized: "Unlock the vault with its saved key", comment: "Face ID prompt")
+            identity = try await store.readKey(for: id, reason: reason)
             try model.ensureCurrent(gen)
         } catch is CancellationError {
             return .cancelled
@@ -136,7 +139,8 @@ final class RememberedKeys {
             // Face ID failed or the Keychain could not be read: the key itself
             // may be fine, so it is not marked broken (replacing it could
             // delete a working iCloud Keychain copy on every device).
-            return .failed("The saved key could not be read: \(error)")
+            return .failed(String(localized: "The saved key could not be read: \(String(describing: error))",
+                                  comment: "The error text follows (English)"))
         }
         do {
             // The notes load in the background (`AppModel.startLoadingNotes`): the
@@ -150,7 +154,8 @@ final class RememberedKeys {
             // Only a key that is not one, or that opens nothing, is broken; an
             // I/O failure (e.g. iCloud) says nothing about the key.
             if model.vault?.vaultId == id, Self.isWrongKey(error) { brokenVaultID = id }
-            return .failed("The saved key did not unlock this vault: \(error)")
+            return .failed(String(localized: "The saved key did not unlock this vault: \(String(describing: error))",
+                                  comment: "The error text follows (English)"))
         }
     }
 
@@ -192,7 +197,8 @@ final class RememberedKeys {
     func offerToRemember(_ identity: NativeIdentity, _ model: AppModel) {
         guard model.phase == .unlocked, let id = model.vault?.vaultId else { return }
         if storageVaultID == id, storage != nil, brokenVaultID != id { return }
-        offer = Offer(vaultID: id, vaultName: model.vaultName ?? "Vault", identity: identity.string)
+        offer = Offer(vaultID: id, vaultName: model.vaultName ?? String(localized: "Vault", comment: "Name shown for a vault that has none"),
+                      identity: identity.string)
     }
 
     // MARK: - Remembering and forgetting

@@ -96,7 +96,7 @@ struct MathEditorView: View {
                         Text("Inline").tag(false)
                     }
                     .pickerStyle(.segmented)
-                    Stepper(value: $size, in: MathDefaults.sizes, step: 2) { Text("Size: \(Int(size)) pt") }
+                    Stepper(value: $size, in: MathDefaults.sizes, step: 2) { Text("Size: \(size.formatted(.number.precision(.fractionLength(0)))) pt") }
                     ColorPicker("Colour", selection: $color, supportsOpacity: true)
                 }
                 if let failure {

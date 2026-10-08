@@ -4,6 +4,7 @@
 #   scripts/app.sh test       # xcodebuild test on an iPad simulator
 #   scripts/app.sh test-phone # the iPhone suites (PhoneLayoutTests) on an iPhone simulator
 #   scripts/app.sh catalyst   # Mac Catalyst build, unsigned
+#   scripts/app.sh pseudo     # layout check in the double-length, right-to-left and Spanish languages
 #   scripts/app.sh test-mac   # every app suite on Mac Catalyst, ad-hoc signed and sandboxed
 #   scripts/app.sh test-mac-ui # the Mac UI tests (MacWindowUITests) on Mac Catalyst
 #   scripts/app.sh simulator  # print the simulator id `test` would use
@@ -64,6 +65,20 @@ case "${1:-}" in
       -only-testing:SempereAppTests/ZoomStepsTests -only-testing:SempereAppTests/PhoneStackTests \
       -only-testing:SempereAppTests/PhoneInsertTests -only-testing:SempereAppTests/InsertOptionsTests
     ;;
+  pseudo)
+    # docs/localization.md "Checking layouts": PseudoLanguageUITests once per language, on the
+    # screenshots scheme (it owns the UI test target). Screenshots land in the result bundles.
+    sim=$(pick_simulator)
+    status=0
+    mkdir -p build/pseudo
+    for mode in double rtl es; do
+      TEST_RUNNER_SEMPERE_PSEUDO=$mode xcodebuild test -project "$project" -scheme SempereScreenshots \
+        -derivedDataPath "$derived" -destination "platform=iOS Simulator,id=$sim" \
+        -only-testing:SempereAppUITests/PseudoLanguageUITests -parallel-testing-enabled NO \
+        -resultBundlePath "build/pseudo/$mode.xcresult" CODE_SIGNING_ALLOWED=NO || status=$?
+    done
+    exit $status
+    ;;
   catalyst)
     xcodebuild build -project "$project" -scheme "$scheme" -derivedDataPath "$derived" \
       -destination 'platform=macOS,variant=Mac Catalyst' \
@@ -82,7 +97,7 @@ case "${1:-}" in
       CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
     ;;
   *)
-    echo "usage: $0 test|test-phone|catalyst|test-mac|test-mac-ui|simulator" >&2
+    echo "usage: $0 test|test-phone|pseudo|catalyst|test-mac|test-mac-ui|simulator" >&2
     exit 2
     ;;
 esac

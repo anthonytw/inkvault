@@ -108,7 +108,7 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | F ✅ | ✅ **Done (#69)**: CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/SempereCLI` | A1, B2, C* | end-to-end CLI test |
 | G1 ✅ | `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob). ✅ **Done (#96)**: `format.md` §8.2.8; core `MathItems.swift` (`MathContent`, `MathSource` limits, `NoteOps.placeMath`/`setMath`); render `MathRendering.swift`; CLI `attach math`, `items math`; app `MathTypesetter`, `MathEditor`; web viewer. Handwriting→LaTeX (part 2) is 💡 future, researched in `docs/attachments.md` §14 G1, not built | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
 | G2 ✅ | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); ✅ **done (#93)**: format §8.2.7, CLI, exports, sync, app, web viewer | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
-| L 🚧 | 🚧 **In review (#92)**: app UI localization with String Catalogs, Spanish first; contributions welcome | `Apps/` | — | Spanish catalog complete; contributor guide |
+| L 🚧 | 🚧 **In review (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
 
 ## Working agreements
 

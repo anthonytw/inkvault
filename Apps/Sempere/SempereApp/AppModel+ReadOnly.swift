@@ -30,7 +30,8 @@ extension AppModel {
 
     /// "Written by a newer version of Sempere: …. Read-only: update Sempere to edit it."
     nonisolated static func readOnlyText(_ reasons: ReadOnlyReasons) -> String {
-        "Read-only: " + reasons.descriptions.joined(separator: "; ") + ". Update Sempere to change this vault."
+        let details = reasons.descriptions.joined(separator: "; ")
+        return String(localized: "Read-only: \(details). Update Sempere to change this vault.")
     }
 
     /// Throws `VaultError.readOnly` for a read-only vault (format.md §7.3).

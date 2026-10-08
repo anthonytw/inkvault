@@ -48,7 +48,10 @@ struct RecordingBar: View {
             case .paused:
                 Text("Paused").font(.callout).foregroundStyle(.secondary)
             default:
-                Text("Recording").font(.callout).foregroundStyle(.secondary)
+                // Its own key: Settings' "Recording" header is the noun.
+                Text(String(localized: "Recording.status", defaultValue: "Recording",
+                            comment: "Status in the recording bar: a recording is in progress (verb, not the noun)"))
+                    .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             if session.state == .recording {
@@ -68,7 +71,9 @@ struct RecordingBar: View {
 
     private func playerRow(_ player: RecordingPlayer, _ recording: Recording) -> some View {
         HStack(spacing: 12) {
-            Button(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill") {
+            Button(player.isPlaying ? String(localized: "Pause", comment: "Button: pause playback or recording")
+                                    : String(localized: "Play", comment: "Button: play a recording"),
+                   systemImage: player.isPlaying ? "pause.fill" : "play.fill") {
                 player.toggle()
             }
             Text(RecordingClock.text(player.position)).monospacedDigit().font(.callout)
@@ -121,7 +126,9 @@ struct RecordingsMenu: View {
                             Button("Show Transcript", systemImage: "text.quote") { showingTranscript = r }
                         }
                         if !editor.isReadOnly {
-                            Button(r.transcript == nil ? "Transcribe" : "Transcribe Again", systemImage: "waveform.and.mic") {
+                            Button(r.transcript == nil ? String(localized: "Transcribe", comment: "Menu item: transcribe a recording")
+                                                       : String(localized: "Transcribe Again", comment: "Menu item: transcribe a recording again"),
+                                   systemImage: "waveform.and.mic") {
                                 Task { await model.transcribe(r, in: editor) }
                             }
                             .disabled(model.transcribing.contains(r.id))
@@ -148,7 +155,8 @@ struct RecordingsMenu: View {
     /// "Lecture 3 – 52:10", "Recording 4 Oct 16:20 – 3:02".
     static func title(_ r: Recording) -> String {
         let name = r.title.flatMap { $0.isEmpty ? nil : $0 }
-            ?? "Recording \(r.started.formatted(date: .abbreviated, time: .shortened))"
+            ?? String(localized: "Recording \(r.started.formatted(date: .abbreviated, time: .shortened))",
+                      comment: "Name shown for an untitled recording: its start date and time")
         let length = r.duration.map { " – " + RecordingClock.text($0) } ?? ""
         let transcribed = r.transcript == nil ? "" : " ✎"
         return name + length + transcribed
@@ -160,7 +168,8 @@ struct RecordingsMenu: View {
             return
         }
         do { try editor.startRecording() } catch {
-            editor.recordingError = (error as? RecordingError)?.description ?? "Could not record: \(error)"
+            let detail = "\(error)"
+            editor.recordingError = (error as? RecordingError)?.description ?? String(localized: "Could not record: \(detail)")
         }
     }
 }
@@ -294,7 +303,7 @@ struct TranscriptView: View {
             .background(current ? Color.yellow.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 3))
             .onTapGesture { seek(w.start) }
             .accessibilityAddTraits(.isButton)
-            .accessibilityHint(unsure ? "Uncertain word. Plays from here." : "Plays from here.")
+            .accessibilityHint(unsure ? Text("Uncertain word. Plays from here.") : Text("Plays from here."))
     }
 
     private func seek(_ t: Double) {

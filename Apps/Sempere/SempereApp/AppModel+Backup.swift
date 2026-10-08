@@ -32,18 +32,17 @@ extension AppModel {
 
         var description: String {
             switch self {
-            case .noVault: return "No vault is open."
-            case .noFolder: return "Choose a backup folder first."
+            case .noVault: return String(localized: "No vault is open.")
+            case .noFolder: return String(localized: "Choose a backup folder first.")
             case .folderGone(let name):
-                return "The backup folder “\(name)” can't be found any more. It may have been moved or deleted, "
-                    + "or access to it expired. Choose it again."
-            case .busy: return "A backup, check or restore is already running."
+                return String(localized: "The backup folder “\(name)” can't be found any more. It may have been moved or deleted, or access to it expired. Choose it again.",
+                              comment: "Backups: %@ is the folder's name")
+            case .busy: return String(localized: "A backup, check or restore is already running.")
             case .notDownloaded(let n):
-                return "iCloud Drive has not delivered \(n) note\(n == 1 ? "" : "s") yet, and a backup must hold "
-                    + "every note. Check that this device is online and try again."
+                return String(localized: "iCloud Drive has not delivered every note yet (missing: \(n)), and a backup must hold every note. Check that this device is online and try again.",
+                              comment: "Back Up Now: %lld notes are not downloaded yet [not-plural]")
             case .legacyBackup:
-                return "This backup holds a vault with a classic (not quantum-safe) key. Restore it with the "
-                    + "sempere command-line tool and migrate it first (docs/post-quantum.md)."
+                return String(localized: "This backup holds a vault with a classic (not quantum-safe) key. Restore it with the sempere command-line tool and migrate it first (docs/post-quantum.md).")
             }
         }
     }

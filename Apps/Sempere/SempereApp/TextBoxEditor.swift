@@ -237,39 +237,51 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
             item.accessibilityLabel = title
             return item
         }
-        let sizes = UIMenu(title: "Size", children: TextBoxPlacement.sizes.map { s in
-            UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.apply(.size(s)) }
+        let sizes = UIMenu(title: String(localized: "Size", comment: "Text style bar: font size menu"), children: TextBoxPlacement.sizes.map { s in
+            UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.apply(.size(s)) } // l10n:ignore (number and unit)
         })
-        let colour = UIBarButtonItem(title: "Colour", image: TextColourPalette.swatchImage(currentColour, size: 22),
+        let colour = UIBarButtonItem(title: String(localized: "Colour", comment: "Text style bar: text colour menu"), image: TextColourPalette.swatchImage(currentColour, size: 22),
                                      primaryAction: nil, menu: nil)
-        colour.primaryAction = UIAction(title: "Colour") { [weak self, weak colour] _ in
+        colour.primaryAction = UIAction(title: String(localized: "Colour", comment: "Text style bar: text colour menu")) { [weak self, weak colour] _ in
             guard let self, let colour else { return }
             self.showColours(from: colour)
         }
-        colour.accessibilityLabel = "Colour"
+        colour.accessibilityLabel = String(localized: "Colour", comment: "Text style bar: text colour menu")
         colourItem = colour
-        let fonts = UIMenu(title: "Font", children: [("Sans Serif", TextContent.Font.sans), ("Serif", .serif), ("Monospaced", .mono)].map { name, f in
+        let fontChoices: [(String, TextContent.Font)] = [
+            (String(localized: "Sans Serif", comment: "Typeface"), .sans),
+            (String(localized: "Serif", comment: "Typeface"), .serif),
+            (String(localized: "Monospaced", comment: "Typeface"), .mono),
+        ]
+        let fonts = UIMenu(title: String(localized: "Font", comment: "Text style bar: typeface menu"), children: fontChoices.map { name, f in
             UIAction(title: name) { [weak self] _ in self?.restyle { $0.font = f } }
         })
-        let aligns = UIMenu(title: "Alignment", children: [
-            ("Start", "text.alignleft", TextContent.Alignment.start), ("Center", "text.aligncenter", .center),
-            ("End", "text.alignright", .end),
-        ].map { name, image, a in
+        let alignChoices: [(String, String, TextContent.Alignment)] = [
+            (String(localized: "Start", comment: "Text alignment"), "text.alignleft", .start),
+            (String(localized: "Center", comment: "Text alignment"), "text.aligncenter", .center),
+            (String(localized: "End", comment: "Text alignment"), "text.alignright", .end),
+        ]
+        let aligns = UIMenu(title: String(localized: "Alignment", comment: "Text style bar: paragraph alignment menu"), children: alignChoices.map { name, image, a in
             UIAction(title: name, image: UIImage(systemName: image)) { [weak self] _ in self?.restyle { $0.align = a == .start ? nil : a } }
         })
-        let directions = UIMenu(title: "Direction", children: [
-            ("Automatic", TextContent.Direction.auto), ("Left to Right", .ltr), ("Right to Left", .rtl),
-        ].map { name, d in
+        let directionChoices: [(String, TextContent.Direction)] = [
+            (String(localized: "Automatic", comment: "Writing direction"), .auto),
+            (String(localized: "Left to Right", comment: "Writing direction"), .ltr),
+            (String(localized: "Right to Left", comment: "Writing direction"), .rtl),
+        ]
+        let directions = UIMenu(title: String(localized: "Direction", comment: "Text style bar: writing direction menu"), children: directionChoices.map { name, d in
             UIAction(title: name) { [weak self] _ in self?.restyle { $0.dir = d == .auto ? nil : d } }
         })
         bar.items = [
-            toggle("bold", "Bold", .bold), toggle("italic", "Italic", .italic), toggle("underline", "Underline", .underline),
-            toggle("strikethrough", "Strikethrough", .strikethrough),
-            UIBarButtonItem(title: "Size", image: UIImage(systemName: "textformat.size"), menu: sizes),
+            toggle("bold", String(localized: "Bold", comment: "Text style"), .bold),
+            toggle("italic", String(localized: "Italic", comment: "Text style"), .italic),
+            toggle("underline", String(localized: "Underline", comment: "Text style"), .underline),
+            toggle("strikethrough", String(localized: "Strikethrough", comment: "Text style"), .strikethrough),
+            UIBarButtonItem(title: sizes.title, image: UIImage(systemName: "textformat.size"), menu: sizes),
             colour,
-            UIBarButtonItem(title: "Font", image: UIImage(systemName: "textformat"), menu: fonts),
-            UIBarButtonItem(title: "Alignment", image: UIImage(systemName: "text.alignleft"), menu: aligns),
-            UIBarButtonItem(title: "Direction", image: UIImage(systemName: "arrow.left.arrow.right"), menu: directions),
+            UIBarButtonItem(title: fonts.title, image: UIImage(systemName: "textformat"), menu: fonts),
+            UIBarButtonItem(title: aligns.title, image: UIImage(systemName: "text.alignleft"), menu: aligns),
+            UIBarButtonItem(title: directions.title, image: UIImage(systemName: "arrow.left.arrow.right"), menu: directions),
             .flexibleSpace(),
             UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.endEditing() }),
         ]
@@ -395,8 +407,11 @@ enum TextColourPalette {
     /// The pen palette's colours, as drawn on (light) paper, with their names (for VoiceOver).
     @MainActor static var standard: [(name: String, color: Sempere.Color)] {
         let light = UITraitCollection(userInterfaceStyle: .light)
-        return [("Black", UIColor.black), ("Blue", .systemBlue), ("Green", .systemGreen), ("Yellow", .systemYellow),
-                ("Red", .systemRed)].map { ($0.0, opaque(Sempere.Color($0.1.resolvedColor(with: light)))) }
+        return [(String(localized: "Black", comment: "Text colour"), UIColor.black),
+                (String(localized: "Blue", comment: "Text colour"), .systemBlue),
+                (String(localized: "Green", comment: "Text colour"), .systemGreen),
+                (String(localized: "Yellow", comment: "Text colour"), .systemYellow),
+                (String(localized: "Red", comment: "Text colour"), .systemRed)].map { ($0.0, opaque(Sempere.Color($0.1.resolvedColor(with: light)))) }
     }
 
     /// The swatches: the pen's colour (opaque) first unless the palette has
@@ -418,7 +433,7 @@ enum TextColourPalette {
     /// for the pen's, else the hex value.
     static func name(of colour: Sempere.Color, standard: [(name: String, color: Sempere.Color)], pen: Sempere.Color?) -> String {
         if let named = standard.first(where: { $0.color == opaque(colour) }) { return named.name }
-        if let pen, opaque(pen) == opaque(colour) { return "Pen Colour" }
+        if let pen, opaque(pen) == opaque(colour) { return String(localized: "Pen Colour", comment: "VoiceOver: the swatch of the pen's current colour") }
         return String(format: "#%02X%02X%02X", colour.r, colour.g, colour.b)
     }
 
@@ -486,7 +501,7 @@ final class ColourSwatchesController: UIViewController, UIPopoverPresentationCon
         }
         let more = UIButton(type: .system)
         more.setImage(UIImage(systemName: "paintpalette"), for: .normal)
-        more.accessibilityLabel = "More Colours"
+        more.accessibilityLabel = String(localized: "More Colours", comment: "VoiceOver: opens the system colour picker")
         more.addAction(UIAction { [weak self] _ in self?.showPicker() }, for: .primaryActionTriggered)
         more.widthAnchor.constraint(equalToConstant: Self.swatchSize).isActive = true
         more.heightAnchor.constraint(equalToConstant: Self.swatchSize).isActive = true
