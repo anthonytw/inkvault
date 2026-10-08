@@ -52,7 +52,7 @@ struct RecipientsAlertTests {
         #expect(model.recipientsNotice?.contains("now protected") == true, "the one-time upgrade is reported")
         #expect(model.recipientsAlert == nil)
         #expect(try VaultManifest.decode(Data(contentsOf: url.appendingPathComponent("vault.json"))).recipientsTag != nil)
-        try await model.addDeviceKey(recipient: try NativeIdentity.generate(.postQuantum).recipient.string, label: "Tablet")
+        try await model.addDeviceKey(recipient: try NativeIdentity.generate(.postQuantum).recipient.string, label: "Tablet", authenticator: PassingOwnerAuthenticator())
         model.close()
         // Unlocked again: verified, nothing to report.
         let again = AppModel(deviceStateURL: TS.deviceStateURL(), recipientsTrust: trust)

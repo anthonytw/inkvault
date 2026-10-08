@@ -2230,6 +2230,18 @@
         }
       }
     },
+    "Add a device key to “%@”" : {
+      "comment" : "Face ID prompt reason; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir una clave de dispositivo a «%@»"
+          }
+        }
+      }
+    },
     "Add a page after this one; press and hold to duplicate, delete or add at the end" : {
       "comment" : "Help tag of Add Page",
       "extractionState" : "manual",
@@ -3537,6 +3549,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Crear"
+          }
+        }
+      }
+    },
+    "Create a device key for “%@”" : {
+      "comment" : "Face ID prompt reason; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crear una clave de dispositivo para «%@»"
           }
         }
       }
@@ -5077,6 +5101,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "He guardado esta clave"
+          }
+        }
+      }
+    },
+    "If every device listed is yours, Trust This List records it again on this device." : {
+      "comment" : "Recipients alert: explains the Trust This List button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si todos los dispositivos de la lista son tuyos, Confiar en esta lista la vuelve a registrar en este dispositivo."
           }
         }
       }
@@ -7983,6 +8019,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Imprimir kit de recuperación…"
+          }
+        }
+      }
+    },
+    "Print the recovery kit of “%@”" : {
+      "comment" : "Face ID prompt reason; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imprimir el kit de recuperación de «%@»"
           }
         }
       }
@@ -11521,6 +11569,18 @@
         }
       }
     },
+    "This device's record of the vault's devices cannot be read, so the list cannot be checked against it." : {
+      "comment" : "Recipients alert: this device's trust record file is damaged or unreadable",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede leer el registro que este dispositivo guarda de los dispositivos de la bóveda, así que la lista no se puede comprobar con él."
+          }
+        }
+      }
+    },
     "This file is not a video Sempere can read." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12153,6 +12213,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transcripción"
+          }
+        }
+      }
+    },
+    "Trust This List" : {
+      "comment" : "Recipients alert button: record the vault's current device list as trusted on this device",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confiar en esta lista"
           }
         }
       }

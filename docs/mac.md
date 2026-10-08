@@ -328,7 +328,10 @@ mark on the key that unlocked the vault. From it:
   (`docs/post-quantum.md`). The sheet and the Remove dialog act only on the
   vault they were opened for (`KeyError.vaultChanged`). A generated key can
   also be saved to a file, shared or printed as a kit there (`KeyFileActions`,
-  as in Settings → Device Keys → New Key…).
+  as in Settings → Device Keys → New Key…). Adding or generating a key first
+  asks the owner (Touch ID, or the password on a Mac without it), as Save
+  Key… does (`AppModel.requireOwner`, security review 2026-10, P1); so does
+  Recovery Kit…, which prints the secret key.
 * **Remove…** drops a key. The key that unlocked the vault, and the last key,
   cannot be removed. Removal rotates the vault secret and re-encrypts every
   note (`Vault.removeRecipient`, `docs/io.md` "Recipient changes").

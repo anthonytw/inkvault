@@ -360,7 +360,7 @@ struct QuickCaptureTests {
         try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
         try model.enableQuickCapture()
         let other = try NativeIdentity.generate(.postQuantum)
-        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad")
+        try await model.addDeviceKey(recipient: other.recipient.string, label: "Old iPad", authenticator: PassingOwnerAuthenticator())
         #expect(try qc.store.load()?.profile.recipients.contains(other.recipient.string) == true, "added: the new key reads captures too")
         let before = try #require(try qc.store.load()).profile.key
         try await model.removeDeviceKey(other.recipient.string)
