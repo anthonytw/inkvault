@@ -188,16 +188,26 @@ struct SidebarDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         trace("perform")
+        return SidebarDropDelegate.perform(model: model, target: target, undoManager: undoManager,
+                                           carriesAppTypes: validateDrop(info: info)) { info.itemProviders(for: [$0]).first }
+    }
+
+    static let acceptedTypes = types
+
+    /// A drop on `target` (this delegate's and `NotebookDragSource`'s UIKit
+    /// one): the drag the model started, else the payload decoded from
+    /// `provider(type)`; one move and one undo step on `undoManager`.
+    static func perform(model: AppModel, target: DropTarget, undoManager: UndoManager?, carriesAppTypes ours: Bool,
+                        provider: (UTType) -> NSItemProvider?) -> Bool {
         model.setDropTarget(nil)
-        let model = model, target = target, undo = UndoBox(undoManager)
-        let ours = validateDrop(info: info)
+        let undo = UndoBox(undoManager)
         if model.draggedPayload != nil || !ours {
             guard let payload = model.takeDrop(on: target, carriesAppTypes: ours) else { return false }
             Task { @MainActor in await model.move(payload, to: target, undoManager: undo.manager) }
             return true
         }
-        for type in Self.types {
-            guard let provider = info.itemProviders(for: [type]).first else { continue }
+        for type in types {
+            guard let provider = provider(type) else { continue }
             provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
                 let payload = data.flatMap { DragPayload.decode($0, as: type) }
                 Task { @MainActor in
@@ -244,7 +254,7 @@ private struct TransferDropDestination: ViewModifier {
 
 /// Carries a window's undo manager across an item provider's callback (it is
 /// only read on the main actor); weak, so a closed window's is not kept.
-private final class UndoBox: @unchecked Sendable {
+final class UndoBox: @unchecked Sendable {
     weak var manager: UndoManager?
     init(_ manager: UndoManager?) { self.manager = manager }
 }

@@ -145,7 +145,11 @@ final class SidebarDropUITests: XCTestCase {
         #else
         work.press(forDuration: 1.5)
         #endif
+        #if targetEnvironment(macCatalyst)
+        let item = app.menuItems["Move Notebook To…"].firstMatch
+        #else
         let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Move Notebook To…")).firstMatch
+        #endif
         require(item, "context menu item Move Notebook To…", in: app, timeout: 10)
     }
 }
