@@ -44,6 +44,12 @@ struct ExportCommand: ParsableCommand {
             is exported with a warning. --at exports a single note as it was at that revision (a
             name from `notes history`, as for `notes restore --to`).
 
+            --all with pdf or png reads, renders and writes one note at a time (as the app's "Export
+            Notes…"): --layout notebooks mirrors the notebook tree, --zip writes one archive at --out,
+            and a re-run into the same folder skips notes whose files are still there unchanged (same
+            name, size, note version and options; a hidden .sempere-export-bulk.json records them)
+            unless --overwrite.
+
             markdown and html write a folder tree under --out that mirrors the notebook hierarchy:
             markdown gives <name>.md (YAML front matter, the PDF, recognised text) plus the PDF,
             optionally per-page PNGs (--images png), and a README.md per folder; html gives one

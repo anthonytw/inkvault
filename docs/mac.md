@@ -64,6 +64,7 @@ sheet opens in that window (`ExportRequest.window`). With no window, only View >
 | File | Reopen Last Vault | ⇧⌘T |
 | File | Close Vault | ⇧⌘W |
 | File | Reload Vault | ⌘R |
+| File | Export Notes… (the ticked notes, else the sidebar's notebook, else the vault, into a chosen folder or a zip; docs/io.md "Bulk export") | (none) |
 | Edit | Undo, Redo | ⌘Z, ⇧⌘Z (the system's: the canvas's undo manager, or the text field being edited) |
 | Edit | Find Notes (focuses the title search) | ⌘F |
 | Note | Rename Note… | ⇧⌘R |
@@ -156,7 +157,11 @@ exported with pages missing; a drag prepared before the vault closed writes
 nothing (`ExportEpoch`). The file is plaintext, written under
 `$TMPDIR/SempereExport/<model id>/<random id>/<title>.pdf`; the folder is
 emptied when the vault closes and at launch, and files older than ten minutes
-are removed on the next export. Bulk export is the CLI's (`sempere export`).
+are removed on the next export. Many notes at once go through File ▸ Export
+Notes… (`MenuCommand.bulkExport`, `BulkExportSheet`): on a Mac it writes into
+a folder chosen in the open panel (security-scoped for the run, resumable: a
+re-run skips notes already there unchanged), or a zip saved with the save
+panel. It is enabled in a library window with an unlocked vault.
 
 ## PDF pages on the canvas
 

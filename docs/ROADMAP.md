@@ -84,6 +84,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | 🔀 quick capture PR | 🔀 quick capture PR |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
+| Bulk export: `export --all --format pdf\|png` one note at a time (bounded memory), `--layout notebooks`, `--zip`, re-runs skip unchanged notes (`--overwrite`), the app's "Export Notes…" (`BulkExportSession`) | 🔀 #109 | 🔀 #109 |
 | sync webdav | ✅ | ✅ |
 | sync webdav of attachment blobs (`--max-blob-mib`) | ✅ #67 | ✅ #67 |
 | sync webdav `--push-only` (one-way mirror, `--delete-extraneous`) | ✅ #97 | ✅ #97 |
@@ -127,6 +128,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | 🔀 #84 (not yet tried on the iPad) |
 | Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | 🔀 #84 |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
+| App | Bulk export ("Export Notes…"): list selection, notebook or whole vault; PDF, PDF + attachments, PNG pages; notebook folders or flat; a chosen folder (resumable: unchanged notes skipped) or a zip (share sheet / Save to Files); progress with Stop, per-note failures at the end; File menu on a Mac (docs/io.md "Bulk export") | 🔀 #109 (not yet tried on the iPad or a Mac) |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | ✅ #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | ✅ #74 (not yet tried on the iPad) |
 | Search | Recognition in the note's language (`meta.lang`); PDF page text searched; the app's PDF import stores each page's text from PDFKit | 🔀 #79 |
@@ -163,7 +165,7 @@ behaviour and testing on a real Mac.
 | App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
 | Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md`; note windows checked on Catalyst in CI; restoration needs a hand test |
 | Drag a note to the Finder as PDF | 🔀 `docs/mac.md`; file promise served off the main thread after build 6; Finder drop needs a hand test |
-| Bulk export from the app | 🔀 in progress (`claude/bulk-export-notes-rzdiev`) |
+| Bulk export from the app | 🔀 #109: File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder or zip; resumable), shared with `sempere export --all` (`BulkExportSession`) |
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
