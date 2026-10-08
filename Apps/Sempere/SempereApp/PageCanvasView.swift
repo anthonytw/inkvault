@@ -424,6 +424,8 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     private let objectEraser = ObjectEraserController()
     /// Smoothed mouse and trackpad strokes on a Mac (`MouseInk.swift`).
     private let mouseInk = MouseInkController()
+    /// The "Smooth Mouse Strokes" level last applied (Mac; Off elsewhere).
+    private var smoothingLevel = StrokeSmoothing.Level.off
     /// Bottom of the ink on the page (page points), nil without ink.
     private(set) var inkMaxY: Double?
     /// The Add Page / Next Page button below a finite page.
@@ -669,9 +671,17 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         mouseInk.cancelStroke()
     }
 
-    /// Any setting changed (possibly off the main thread): "Smooth Mouse Strokes" may have.
+    /// Any setting changed (possibly off the main thread): if "Smooth Mouse
+    /// Strokes" did, PencilKit or the app draws the pointer from now on. Other
+    /// settings (the eraser mode is saved during erasing) change nothing here.
     @objc nonisolated private func defaultsChanged() {
-        Task { @MainActor [weak self] in self?.updateEraser() }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let level = MouseSmoothing.load()
+            guard level != self.smoothingLevel else { return }
+            self.smoothingLevel = level
+            self.updateEraser()
+        }
     }
 
     /// PencilKit's ruler snaps only its own strokes: while it shows, PencilKit draws the pointer.
@@ -697,8 +707,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         let editable = drawingEditable
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
+        if Platform.isMac { smoothingLevel = MouseSmoothing.load() }
         let pointer = !ours && MouseSmoothing.takesPointer(
-            isMac: Platform.isMac, level: Platform.isMac ? MouseSmoothing.load() : .off, editable: editable,
+            isMac: Platform.isMac, level: smoothingLevel, editable: editable,
             inkingTool: toolPicker.selectedToolItem is PKToolPickerInkingItem, rulerActive: canvas.isRulerActive)
         mouseInk.setActive(pointer)
         mathLasso.setActive(mathLassoHandler != nil && !isReadOnly && !isPreparing && !drawingSuspended)
