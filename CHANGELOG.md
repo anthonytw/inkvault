@@ -226,7 +226,9 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 - Dragging notes onto a notebook in the sidebar, and a notebook onto another, works on the iPad and the
   Mac. The sidebar asked the drag for a "move" operation, which drags started from a list do not allow,
-  so the system cancelled every drop when it was released (the row still lit up while hovering).
+  so the system cancelled every drop when it was released (the row still lit up while hovering). A
+  notebook dragged within the sidebar never reached the other rows at all (a list keeps its own drags):
+  notebook rows now start their drag, and show their context menu, from a view of their own.
 
 ## [0.5.0] - TODO(user): date of the first release
 
