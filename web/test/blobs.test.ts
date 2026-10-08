@@ -5,8 +5,8 @@
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash, createHmac } from "node:crypto";
-import { Encrypter, armor, identityToRecipient } from "age-encryption";
+import { createHash, createHmac, hkdfSync } from "node:crypto";
+import { Decrypter, Encrypter, armor, identityToRecipient } from "age-encryption";
 import { describe, expect, it } from "vitest";
 import {
   BlobError, NoteBlobs, asBlobRef, blobKind, hexToBytes, maxFileBytes, padme, readBlob, verifyPlaintext,
@@ -196,9 +196,24 @@ describe("reading blobs from a vault", async () => {
     const e = new Encrypter();
     e.addRecipient(await identityToRecipient(sampleIdentity()));
     const journal = enc.encode(JSON.stringify({ previousVaultSecret: armor.encode(await e.encrypt(previous)) }));
-    const rewrapping = await UnlockedVault.unlock(manifest, sampleIdentity(), journal);
     const r = ref(photo, "image/jpeg");
+    // A journal's secret counts only when vault.json's secretLink links it to
+    // the current one (format.md §2.1; security review 2026-10, R4).
+    const unlinked = await UnlockedVault.unlock(manifest, sampleIdentity(), journal);
+    expect(await unlinked.blobNames(hexToBytes(r.sha256))).toHaveLength(1);
+    // Nor does it add a key for derived data such as published summaries (§12).
+    const gcm = { name: "AES-GCM", length: 256 } as const;
+    expect(await unlinked.derivedKeys("sempere/1 test", gcm, ["decrypt"])).toHaveLength(1);
+    const d = new Decrypter();
+    d.addIdentity(sampleIdentity());
+    const currentSecret = await d.decrypt(armor.decode(manifest.vaultSecret));
+    const linkKey = Buffer.from(hkdfSync("sha256", previous, Buffer.alloc(0), "sempere/1 secret link key", 32));
+    const secretId = Buffer.from(hkdfSync("sha256", currentSecret, Buffer.alloc(0), "sempere/1 secret id", 32));
+    const secretLink = createHmac("sha256", linkKey).update(Buffer.concat([enc.encode("sempere/1"), Uint8Array.of(0),
+      enc.encode("secret link"), Uint8Array.of(0), enc.encode(manifest.vaultId), Uint8Array.of(0), secretId])).digest("hex");
+    const rewrapping = await UnlockedVault.unlock({ ...manifest, secretLink }, sampleIdentity(), journal);
     const [current, old] = await rewrapping.blobNames(hexToBytes(r.sha256));
+    expect(await rewrapping.derivedKeys("sempere/1 test", gcm, ["decrypt"])).toHaveLength(2);
     expect(old).toBe(createHmac("sha256", previous).update(Buffer.concat([enc.encode("sempere/1"), Uint8Array.of(0), enc.encode("blob"), Uint8Array.of(0), hexToBytes(r.sha256)])).digest("hex"));
     const att = join(tmp, "notes", note, "att");
     cpSync(join(att, `${current}.image.age`), join(att, `${old}.image.age`));

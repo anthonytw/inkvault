@@ -122,6 +122,25 @@ public enum RecipientsAuth {
         let record = record?.vaultId == manifest.vaultId ? record : nil
         let keys = manifest.recipients.map(\.key)
         let id = manifest.vaultId
+        // Whether the secret is one this device verified (or a confirmed
+        // successor of it) is decided first, whatever the tag says: a tag
+        // that is missing or does not verify is otherwise judged under a
+        // secret the attacker may have chosen, and the subset search below
+        // would hand the attacker's own key to a repair as "last verified"
+        // (security review 2026-10, R1, R3).
+        var rotated = false
+        if let record, !constantTimeEqual(linkKey(secret), record.linkKey) {
+            guard verifyLink(manifest.secretLink, linkKey: record.linkKey, to: secret, vaultId: id) else {
+                // Unconfirmed, even when every key is one this device trusted:
+                // a secret this device cannot link to one it verified may be an
+                // attacker's, and accepting it would let a later `secretLink`
+                // made under it vouch for any list. No repair: the files are
+                // tagged under a secret this device no longer holds (format.md
+                // §2.1 "Repair").
+                return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: nil, record: record))
+            }
+            rotated = true
+        }
         guard let tag = manifest.recipientsTag else {
             let featured = manifest.features.contains(VaultManifest.recipientsTagFeature)
             guard featured || record != nil else { return .untagged }
@@ -131,19 +150,10 @@ public enum RecipientsAuth {
             if let found = verifiedSubset(of: keys, tag: tag, vaultId: id, secret: secret) {
                 return .tampered(.init(reason: .tagMismatch, current: keys, restore: found.kept, record: record))
             }
-            // Same secret as when the record was made, or the device would
-            // see another reason: the record's list is the last verified one.
             return .tampered(.init(reason: .tagMismatch, current: keys, restore: record?.recipients, record: record))
         }
-        guard let record else { return .verified(.firstUse) }
-        if constantTimeEqual(linkKey(secret), record.linkKey) { return .verified(.unchanged) }
-        if verifyLink(manifest.secretLink, linkKey: record.linkKey, to: secret, vaultId: id) { return .verified(.rotated) }
-        // Unconfirmed, even when every key is one this device trusted: a
-        // secret this device cannot link to one it verified may be an
-        // attacker's, and accepting it would let a later `secretLink` made
-        // under it vouch for any list. No repair: the files are tagged under a
-        // secret this device no longer holds (format.md §2.1 "Repair").
-        return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: nil, record: record))
+        guard record != nil else { return .verified(.firstUse) }
+        return .verified(rotated ? .rotated : .unchanged)
     }
 
     static func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
@@ -353,13 +363,23 @@ public struct FileRecipientsTrustStore: RecipientsTrustStore {
         return r
     }
 
+    /// Writes the record atomically, created mode 0600 in a 0700 folder:
+    /// its `linkKey` can make a `secretLink` as well as check one (an HMAC
+    /// key), so it is kept private (security review 2026-10, R2).
     public func save(_ record: RecipientsTrustRecord) throws {
         try FileIO.createDirectory(directory)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(record)
         let url = fileURL(record.vaultId)
-        try FileIO.writeAtomically(try enc.encode(record), to: url, replacing: true)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let tmp = FileIO.tempURL(in: directory)
+        try FileIO.writeNewFile(tmp) { write in try write(data) }
+        guard rename(tmp.path, url.path) == 0 else {
+            let code = errno
+            try? FileManager.default.removeItem(at: tmp)
+            throw VaultError.io("rename to \(url.path): errno \(code)")
+        }
     }
 }
 
@@ -413,11 +433,24 @@ extension Vault {
         let sameKeys = incoming.recipients.map(\.key) == mine.recipients.map(\.key)
         if sameKeys, incoming.recipientsTag == mine.recipientsTag, incoming.vaultSecret == mine.vaultSecret { return nil }
         guard let vault, vault.canRead, vault.vaultId == mine.vaultId else {
-            // Without the key only the keys can be compared: the same keys
-            // (still tagged) let nobody new read; anything else waits.
-            if sameKeys, incoming.recipientsTag != nil || mine.recipientsTag == nil { return nil }
-            return sameKeys ? "the incoming vault.json drops the device list's tag (format.md §2.1); unlock (--identity) to check it"
-                : "the incoming vault.json changes the device list; unlock (--identity) so it can be checked (format.md §2.1)"
+            // Without the key only public fields can be compared: the same
+            // keys and the same sealed secret let nobody new read, and a tag
+            // may only be added. Anything else waits: a new secret under the
+            // same keys (or a changed tag) cannot be checked here, and taking
+            // it would replace the vault's real secret with one the server
+            // chose (security review 2026-10, W3).
+            guard sameKeys else {
+                return "the incoming vault.json changes the device list; unlock (--identity) so it can be checked (format.md §2.1)"
+            }
+            guard incoming.vaultSecret == mine.vaultSecret else {
+                return "the incoming vault.json changes the vault's secret; unlock (--identity) so it can be checked (format.md §2.1)"
+            }
+            if let tag = mine.recipientsTag, incoming.recipientsTag != tag {
+                return incoming.recipientsTag == nil
+                    ? "the incoming vault.json drops the device list's tag (format.md §2.1); unlock (--identity) to check it"
+                    : "the incoming vault.json changes the device list's tag; unlock (--identity) to check it (format.md §2.1)"
+            }
+            return nil
         }
         let secret: VaultSecret
         do { secret = try decryptSecret(incoming.vaultSecret, with: vault.identities) } catch {

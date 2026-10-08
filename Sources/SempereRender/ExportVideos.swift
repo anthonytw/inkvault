@@ -36,7 +36,7 @@ public enum ExportVideos {
     /// `m:ss` (or `h:mm:ss`) of a duration, for link text.
     public static func clock(_ seconds: Double?) -> String? {
         guard let s = seconds, s.isFinite, s >= 0 else { return nil }
-        let t = Int(s.rounded())
+        let t = Int(min(s, 1e9).rounded())   // a stored duration is untrusted (format.md §9): never trap
         return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60)
     }
 

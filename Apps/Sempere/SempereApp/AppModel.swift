@@ -182,6 +182,31 @@ final class AppModel {
     @ObservationIgnored var activityRoot: URL
     /// The clock "Recently Recognized" is measured with (tests move it).
     @ObservationIgnored var activityNow: () -> Date = { Date() }
+    /// The unused-attachments index (`AppModel+AttachmentIndex`, docs/attachments.md §4):
+    /// the entries read or updated this session, by note.
+    @ObservationIgnored var attachmentIndex: [UUID: AttachmentIndexEntry] = [:]
+    /// Bumped whenever `attachmentIndex` changes, so Settings re-derives its numbers.
+    var attachmentIndexVersion = 0
+    /// Notes waiting for their index update (latest current-state hashes, if known).
+    @ObservationIgnored var attachmentIndexQueue: [UUID: Set<String>?] = [:]
+    /// How many notes are queued or being indexed (Settings shows progress).
+    var attachmentIndexPending = 0
+    /// The task working through `attachmentIndexQueue`, owned by the model.
+    @ObservationIgnored var attachmentIndexTask: Task<Void, Never>?
+    /// True once every stored entry of the open vault was read (`loadAttachmentIndex`).
+    @ObservationIgnored var attachmentIndexLoaded = false
+    /// The open vault's sealed index files, made on first use.
+    @ObservationIgnored var attachmentIndexStoreCache: AttachmentIndexStore?
+    /// Where the index is kept (a folder per vault secret inside it): the app's
+    /// Application Support; without one (tests) a folder of this model alone.
+    @ObservationIgnored var attachmentIndexRoot: URL
+    /// Waited before working through queued updates, so an editor's burst of
+    /// autosaves is indexed once. Tests set zero.
+    @ObservationIgnored var attachmentIndexDelay: Duration = .seconds(2)
+    /// The clock the 30-day window is measured with (tests move it).
+    @ObservationIgnored var attachmentNow: () -> Date = { Date() }
+    /// Test seam: what an index update reads (a counting wrapper of the vault).
+    @ObservationIgnored var attachmentIndexSource: (@Sendable (Vault) -> any AttachmentIndexSource)?
     /// What is being dragged inside the app (set when a drag starts), so the
     /// sidebar can tell whether a row would accept it while the drag is still over it.
     var draggedPayload: DragPayload?
@@ -420,6 +445,7 @@ final class AppModel {
          recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
          summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
          blobCacheRoot: URL? = nil, renderCacheRoot: URL? = nil,
+         attachmentIndexRoot: URL? = nil,
          automaticThinning: Bool = false,
          recipientsTrust: (any RecipientsTrustStore)? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
@@ -431,6 +457,9 @@ final class AppModel {
         self.drawingCacheRoot = drawingCacheRoot
         blobCacheFolder = blobCacheRoot ?? BlobCache.legacyFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
         self.renderCacheRoot = renderCacheRoot
+        self.attachmentIndexRoot = attachmentIndexRoot
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("SempereAttachmentIndex-\(UUID().uuidString)",
+                                                                           isDirectory: true)
         self.editorDebounce = editorDebounce
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
@@ -895,7 +924,10 @@ final class AppModel {
 
     func deviceClockForWriting() throws -> DeviceClock {
         if let deviceClock { return deviceClock }
-        let clock = try DeviceClock(url: deviceStateURL)
+        // Every delta any `NoteWriter` writes with this clock updates that note's attachment index.
+        let clock = try DeviceClock(url: deviceStateURL) { [weak self] id in
+            Task { @MainActor in self?.noteWritten(id) }
+        }
         deviceClock = clock
         return clock
     }
@@ -973,6 +1005,7 @@ final class AppModel {
         recognitionTask = nil
         recognitionProgress = nil
         recognitionResults = nil
+        resetAttachmentIndex()
         activity = RecentActivity()
         draggedPayload = nil
         dragProvider = nil

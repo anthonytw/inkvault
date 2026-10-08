@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Unused attachments (E7): the app keeps a per-note index of each note's attachment files on the device,
+  updated only for the note that changed (an edit, or a revision arriving by sync or iCloud). Settings →
+  Storage shows "Unused Attachments: N items, X MB" and "Held by History" (files only older versions
+  show); the list groups them by note with a preview, what each was (a recording's duration and title),
+  since when it is unused, a link to the note's history at the version that last used it, and Delete,
+  which stays disabled until 30 days after the file was first found unused ("Delete All Eligible" does
+  every one that is). Deleting reads the note again and never removes a file any version uses; in iCloud
+  Drive nothing is decided while a version of the note is not downloaded. CLI: `sempere blobs unused`
+  reports the same numbers (`--json`: totals, items with `firstSeen`, `deletableFrom`, `eligible`,
+  `held`), and `sempere blobs gc --file NAME` deletes one eligible blob.
 - Recordings on the page (`format.md` §8.2.9, an `audio` item kind). Stopping a recording in the app
   places it on the page you were looking at as a card with a microphone icon, a play/pause button,
   its length and its transcript; move, resize or delete it like any item. Every recording of a note
@@ -222,6 +232,27 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `fonts/` next to the CLI) or font packs (`$SEMPERE_FONT_DIR`, `~/.local/share/sempere/fonts`,
   system fonts). PDF and SVG embed font subsets only, with searchable text; characters no font
   covers are reported with the script and what to install.
+
+### Security
+
+- Security review of October 2026 (`docs/security-review-2026-10.md`):
+  - A `rewrap-journal.json` planted in the vault folder, or sent by a sync server, made revisions and
+    blobs tagged under a secret of the attacker's verify, and a resumed rewrap re-tagged them under the real
+    secret. Its secret now counts only when `secretLink` links it to the vault's (Swift and the web viewer).
+  - An unconfirmed secret is now detected before the tag is looked at. A stripped or bogus tag under a
+    replaced secret can no longer be confirmed or repaired. A repair can no longer keep an attacker's key
+    found by the shorter-list search.
+  - A locked `sync webdav` no longer takes a `vault.json` whose sealed secret or tag changed.
+  - Quick capture transcripts are bound to their audio (`format.md` §11.2), so another holder of the capture
+    key cannot add one to an existing voice note. `sempere inbox transcript` takes `--audio`.
+  - Trust records are created mode 0600 in a 0700 folder, and the app keeps them out of backups.
+  - Other fixes:
+    - PROPFIND bodies with NUL bytes (UTF-16) are refused.
+    - `blobs repair` stops on a note with newer revisions.
+    - `inbox capture` and `inbox transcript` refuse vaults of a newer format.
+    - A huge video duration no longer traps Markdown and HTML exports or the player.
+    - Video metadata stripping refuses a second `moov` or a truncated box other than `mdat`, and blanks a
+      top-level `udta`.
 
 ### Changed
 

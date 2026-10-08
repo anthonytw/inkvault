@@ -120,8 +120,10 @@ struct InboxCapture: ParsableCommand {
     }
 
     func run() throws {
-        // The vault is opened locked: only vault.json is read.
+        // The vault is opened locked: only vault.json is read. A vault of a
+        // newer format gets nothing in inbox/ either (format.md §7.3).
         let vault = try Vault.open(at: try access.vaultURL())
+        try vault.requireNotReadOnly()
         let writer = try CaptureWriter(profile: try profile.load(vaultId: vault.vaultId))
         let url = URL(fileURLWithPath: file)
         let audio: Data
@@ -138,6 +140,7 @@ struct InboxCapture: ParsableCommand {
         }
         let id = UUID()
         var sealed = [try writer.seal(audio: audio, type: type, started: when, info: info, title: title, id: id)]
+        let audioRef = BlobRef(content: audio, type: type)
         if let transcript {
             let data: Data
             do { data = try BoundedRead.contents(of: URL(fileURLWithPath: transcript), maxBytes: Transcript.maxSize) } catch {
@@ -146,7 +149,7 @@ struct InboxCapture: ParsableCommand {
             var t: Transcript
             do { t = try Transcript.decode(data) } catch { throw CLIError.failure("\(transcript): invalid transcript: \(error)") }
             t.recording = CaptureAdoption.ids(for: id).recording
-            sealed.append(try writer.seal(transcript: t, capture: id))
+            sealed.append(try writer.seal(transcript: t, capture: id, audio: audioRef))
         }
         for s in sealed { try CaptureWriter.store(s, in: vault.inboxURL) }
         let ids = CaptureAdoption.ids(for: id)
@@ -178,6 +181,11 @@ struct InboxTranscript: ParsableCommand {
     @Argument(help: ArgumentHelp("A sempere-transcript/1 JSON file.", valueName: "file"))
     var file: String
 
+    @Option(name: .customLong("audio"),
+            help: ArgumentHelp("The capture's audio file, as it was captured (the transcript is bound to its SHA-256).",
+                               valueName: "file"))
+    var audio: String
+
     @OptionGroup var profile: ProfileOptions
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -185,6 +193,7 @@ struct InboxTranscript: ParsableCommand {
     func run() throws {
         guard let id = UUID(uuidString: capture) else { throw CLIError.usage("not a capture id: \(capture)") }
         let vault = try Vault.open(at: try access.vaultURL())
+        try vault.requireNotReadOnly()   // format.md §7.3
         let writer = try CaptureWriter(profile: try profile.load(vaultId: vault.vaultId))
         let data: Data
         do { data = try BoundedRead.contents(of: URL(fileURLWithPath: file), maxBytes: Transcript.maxSize) } catch {
@@ -193,7 +202,11 @@ struct InboxTranscript: ParsableCommand {
         var t: Transcript
         do { t = try Transcript.decode(data) } catch { throw CLIError.failure("\(file): invalid transcript: \(error)") }
         t.recording = CaptureAdoption.ids(for: id).recording
-        let sealed = try writer.seal(transcript: t, capture: id)
+        let audioData: Data
+        do { audioData = try BoundedRead.contents(of: URL(fileURLWithPath: audio), maxBytes: CaptureFile.maxBytes) } catch {
+            throw CLIError.failure("cannot read \(audio): \(CLIError.from(error).message)")
+        }
+        let sealed = try writer.seal(transcript: t, capture: id, audio: BlobRef(content: audioData, type: "audio/mp4"))
         try CaptureWriter.store(sealed, in: vault.inboxURL)
         if output.json {
             struct Out: Encodable { var capture: String; var file: String }

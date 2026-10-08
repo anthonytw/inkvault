@@ -835,6 +835,16 @@ public struct Vault: Sendable {
         guard problem.reason != .tagMismatch else {
             throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
         }
+        // An unconfirmed secret is confirmed only with a tag that verifies
+        // under it: never one stripped or bogus (security review 2026-10, R3).
+        if problem.reason == .secretUnconfirmed {
+            guard let tag = manifest.recipientsTag,
+                  RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: manifest.recipients.map(\.key), secret: try requireSecret())
+            else {
+                throw VaultError.recipientsNotRepairable("the vault's secret was replaced and its list carries no tag that "
+                    + "verifies: restore vault.json from a backup or another device")
+            }
+        }
         if manifest.recipientsTag == nil { manifest = try tagOnDisk() }   // a tag removed: written again for this list
         recipientsStatus = .verified(.unchanged)
         rememberRecipients()
@@ -857,9 +867,24 @@ public struct Vault: Sendable {
             throw VaultError.rewrapJournalUnreadable("\(error)")
         }
         guard let armored = j.previousVaultSecret else { return (j, nil) }
-        do { return (j, try Self.decryptSecret(armored, with: identities)) } catch {
+        let previous: VaultSecret
+        do { previous = try Self.decryptSecret(armored, with: identities) } catch {
             throw VaultError.rewrapJournalUnreadable("previous secret: \(error)")
         }
+        // The journal is plaintext JSON anyone who can write the folder can
+        // plant, and its secret anyone can encrypt to the public keys: it is
+        // accepted only when `secretLink` links it to the current secret (or
+        // it is the current one: a change interrupted before vault.json was
+        // written). Otherwise files tagged under it would verify, and a
+        // resumed rewrap would re-tag them under the real secret (security
+        // review 2026-10, R4).
+        if let current = secret, !RecipientsAuth.constantTimeEqual(previous.bytes, current.bytes),
+           !RecipientsAuth.verifyLink(manifest.secretLink, linkKey: RecipientsAuth.linkKey(previous), to: current,
+                                      vaultId: vaultId) {
+            throw VaultError.rewrapJournalUnreadable("its previous secret is not linked to the vault's (format.md §2.1 "
+                + "secretLink): not written by this vault's recipient change")
+        }
+        return (j, previous)
     }
 
     /// Re-encrypts every revision file not yet current (format.md §3.3.1).
