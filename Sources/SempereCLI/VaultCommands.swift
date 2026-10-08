@@ -190,7 +190,7 @@ struct RecipientsStatusOutput: Encodable {
     var status: String
     /// For `verified`: `unchanged`, `firstUse` or `rotated`.
     var verification: String?
-    /// For `tampered`: `tagMismatch`, `tagRemoved` or `secretUnconfirmed`.
+    /// For `tampered`: `tagMismatch`, `tagRemoved`, `secretUnconfirmed` or `recordUnreadable`.
     var reason: String?
     /// True when `recipientsTag` is present in vault.json.
     var tagged: Bool

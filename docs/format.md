@@ -162,9 +162,16 @@ cannot check nor drop the tag by rewriting `vault.json`.
    device never updates its trust record to an unconfirmed secret.
 4. The tag verifies and the device has no trust record: verified (first use
    on this device).
+5. A trust record that exists but cannot be read (it does not parse, names
+   another vault, or is not a readable file) is never taken as "no record":
+   that would make the next write a first use and replace the record. The
+   list is then tampered (**record unreadable**) unless steps 1–2 already
+   found it so, with no restore list, until the user checks it and confirms
+   it (below), which writes the record again.
 
 A writer that finds the list verified saves it as its trust record before it
-writes (a reader that only reads keeps none). A tampered list is **refused for
+writes (a reader that only reads keeps none); a record it cannot save stops
+the write, and is tried again by the next one. A tampered list is **refused for
 writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
 files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
 reports the keys that are not in the last verified list (the **unexpected**

@@ -274,7 +274,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   key), `tagged`, and for `verified` a `verification` (`unchanged`,
   `firstUse`, `rotated`: a secret rotation confirmed by its `secretLink`),
   for `tampered` a `reason` (`tagMismatch`, `tagRemoved`,
-  `secretUnconfirmed`), `unexpected` (keys not in the last verified list),
+  `secretUnconfirmed`, `recordUnreadable`: this machine's trust record exists
+  but does not read, so nothing can be compared until `recipients confirm`),
+  `unexpected` (keys not in the last verified list),
   `missing` and `restore` (what `repair` would write).
 - `recipients repair` undoes a tampered list: it writes the last verified
   list (this machine's record, or the list the tag still verifies once the
@@ -288,8 +290,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   another device (exit 1 says so).
 - `recipients confirm` trusts the current list on this machine after you
   have checked every key: for a secret change this machine missed (it was
-  offline for two or more key changes), or an
-  untagged copy older than the tag (a restored backup), which it tags again.
+  offline for two or more key changes), an
+  untagged copy older than the tag (a restored backup), which it tags again,
+  or a trust record of this machine that no longer reads (it is written again).
   Never for a tag that does not verify. Confirming a list an attacker wrote
   lets them read what this machine writes.
 - `rewrap-resume` finishes an interrupted change; it refuses (exit 6) a list

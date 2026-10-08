@@ -240,7 +240,7 @@ public struct Vault: Sendable {
         try requireTrustedRecipients()
         switch recipientsStatus {
         case .untagged: try tagOnDisk()
-        case .verified: rememberRecipients()   // a writer keeps a trust record (format.md §2.1)
+        case .verified: try rememberRecipients()   // a writer keeps a trust record (format.md §2.1)
         case .notChecked, .tampered: break
         }
     }
@@ -341,7 +341,7 @@ public struct Vault: Sendable {
         let written = try writeManifest(manifest, to: manifestURL, replacing: false)
         var vault = Vault(url: url, manifest: written, identities: identities, secret: secret, previousSecret: nil,
                           journalProblem: nil, recipientsStatus: .verified(.firstUse), trustStore: trust)
-        vault.rememberRecipients()
+        try? vault.rememberRecipients()   // else saved by the first write (requireWritable)
         return vault
     }
 
@@ -374,8 +374,7 @@ public struct Vault: Sendable {
             throw error
         }
         if let secret = vault.secret {
-            vault.recipientsStatus = RecipientsAuth.evaluate(manifest, secret: secret,
-                                                             record: trust?.record(for: manifest.vaultId))
+            vault.recipientsStatus = Self.recipientsStatus(manifest, secret: secret, trust: trust)
         }
         if vault.pendingRewrap {
             // Recorded, not thrown: the vault stays usable, verify() and
@@ -385,6 +384,22 @@ public struct Vault: Sendable {
             }
         }
         return vault
+    }
+
+    /// `RecipientsAuth.evaluate` against this device's record in `trust`.
+    /// A record that exists but cannot be read fails closed: a list that
+    /// would otherwise be writable is `tampered(.recordUnreadable)` (security
+    /// review 2026-10, R5); one that does not check stays as it is.
+    static func recipientsStatus(_ manifest: VaultManifest, secret: VaultSecret,
+                                 trust: (any RecipientsTrustStore)?) -> RecipientsStatus {
+        let record: RecipientsTrustRecord?
+        do { record = try trust?.record(for: manifest.vaultId) } catch {
+            let status = RecipientsAuth.evaluate(manifest, secret: secret, record: nil)
+            guard status.allowsWriting else { return status }
+            return .tampered(.init(reason: .recordUnreadable, current: manifest.recipients.map(\.key),
+                                   restore: nil, record: nil))
+        }
+        return RecipientsAuth.evaluate(manifest, secret: secret, record: record)
     }
 
     /// Parses and validates manifest bytes (format, recipients).
@@ -705,7 +720,7 @@ public struct Vault: Sendable {
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
         secret = newSecret
         recipientsStatus = .verified(.unchanged)
-        rememberRecipients()
+        try? rememberRecipients()   // else saved by the next write (requireWritable)
 
         return try finishRewrap(blobs: method, stopAfter: stopAfter)
     }
@@ -713,13 +728,16 @@ public struct Vault: Sendable {
     // MARK: - Authenticated recipients (format.md §2.1)
 
     /// Saves this device's trust record for the current (verified) list.
-    /// A record that cannot be saved weakens only later checks, so it is
-    /// not an error.
-    func rememberRecipients() {
+    /// Writers keep one (format.md §2.1), so a record that cannot be read
+    /// or saved is an error, and it is tried again by the next write (only a
+    /// saved record is memoised; security review 2026-10, R5).
+    /// With `replacing`, the record is saved without reading the old one
+    /// (the user confirmed the list: an unreadable record is replaced).
+    func rememberRecipients(replacing: Bool = false) throws {
         guard let trustStore, let secret else { return }
         let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: manifest.recipients.map(\.key))
-        guard trustMemo.last != record else { return }
-        if trustStore.record(for: vaultId) != record { try? trustStore.save(record) }
+        guard replacing || trustMemo.last != record else { return }
+        if try replacing || trustStore.record(for: vaultId) != record { try trustStore.save(record) }
         trustMemo.last = record
     }
 
@@ -769,7 +787,7 @@ public struct Vault: Sendable {
         let written = try Self.writeManifest(m, to: manifestURL, replacing: true)
         if let trustStore {
             let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: keys)
-            try? trustStore.save(record)
+            try trustStore.save(record)
             trustMemo.last = record
         }
         return written
@@ -808,7 +826,7 @@ public struct Vault: Sendable {
             throw VaultError.recipientsNotRepairable("a recipient change is unfinished; restore vault.json from a backup")
         }
         if let dup = Self.firstDuplicate(keys) { throw VaultError.duplicateRecipient(dup) }
-        let remembered = Set(trustStore?.record(for: vaultId)?.recipients ?? [])
+        let remembered = Set((try? trustStore?.record(for: vaultId))??.recipients ?? [])
         var next: [VaultManifest.Recipient] = []
         for k in keys {
             if let entry = manifest.recipients.first(where: { $0.key == k }) {
@@ -835,6 +853,13 @@ public struct Vault: Sendable {
         guard problem.reason != .tagMismatch else {
             throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
         }
+        // A device whose trust record is unreadable confirms only a list it
+        // can check: tagged under the secret it holds, or untagged (then
+        // tagged now), never a tag that does not verify (R5).
+        if problem.reason == .recordUnreadable, let tag = manifest.recipientsTag,
+           !RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: manifest.recipients.map(\.key), secret: try requireSecret()) {
+            throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
+        }
         // An unconfirmed secret is confirmed only with a tag that verifies
         // under it: never one stripped or bogus (security review 2026-10, R3).
         if problem.reason == .secretUnconfirmed {
@@ -847,7 +872,7 @@ public struct Vault: Sendable {
         }
         if manifest.recipientsTag == nil { manifest = try tagOnDisk() }   // a tag removed: written again for this list
         recipientsStatus = .verified(.unchanged)
-        rememberRecipients()
+        try rememberRecipients(replacing: true)   // also over an unreadable record (R5)
     }
 
     struct RewrapJournal: Codable {
