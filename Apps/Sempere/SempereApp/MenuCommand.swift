@@ -12,6 +12,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
     // File
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
     case importPDF, importNotability, insertPDFPages, insertPhoto, exportNotes
+    case bulkExport
     // Note
     case renameNote, editTags, changePaper, saveVersion, showRecordings, deleteNote, restoreNote
     case previousPage, nextPage, addPage
@@ -87,6 +88,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .insertPDFPages: return String(localized: "Insert PDF Pages…")
         case .insertPhoto: return String(localized: "Insert Photo…")
         case .exportNotes: return String(localized: "Export…", comment: "File menu: open the export sheet")
+        case .bulkExport: return String(localized: "Export Notes…")
         case .renameNote: return String(localized: "Rename Note…")
         case .editTags: return String(localized: "Edit Tags…")
         case .changePaper: return String(localized: "Paper…", comment: "Note menu: choose the page's paper")
@@ -138,6 +140,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .insertPDFPages: return nil
         case .insertPhoto: return Shortcut("i", option)
         case .exportNotes: return Shortcut("e", shift)
+        case .bulkExport: return nil
         case .renameNote: return Shortcut("r", shift)
         case .editTags: return Shortcut("t", option)
         case .changePaper: return Shortcut("p", option)
@@ -212,6 +215,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return context.hasNoteList && context.vault == .none && context.hasRecents
         case .closeVault: return context.vault != .none
         case .reloadVault: return unlocked && context.hasNoteList
+        // The ticked notes, the sidebar's notebook or the vault of the library window.
+        case .bulkExport: return unlocked && context.hasNoteList
         case .newNote: return unlocked && context.hasNoteList
         case .openNoteInWindow: return unlocked && context.hasNoteList && context.hasNote && !context.noteDeleted
         case .renameNote, .editTags, .saveVersion: return unlocked && context.hasNote && !context.noteDeleted
@@ -250,7 +255,7 @@ enum MenuLayout {
         [.newVault, .openVault, .reopenVault, .closeVault],
         [.importPDF, .importNotability],
         [.insertPDFPages, .insertPhoto],
-        [.exportNotes],
+        [.exportNotes, .bulkExport],
         [.reloadVault],
     ]
     static let note: [[MenuCommand]] = [

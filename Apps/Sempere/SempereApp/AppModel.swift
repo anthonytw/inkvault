@@ -209,6 +209,8 @@ final class AppModel {
     var isImportingNotability = false
     /// What the last Notability import did, until the alert is dismissed.
     var notabilitySummary: NotabilityImportSummary?
+    /// The "Export Notes…" sheet's request (`AppModel+BulkExport`).
+    var bulkExportRequest: BulkExportRequest?
     var sortOrder = NoteSort.modified
     /// True while an edit is being written.
     var isEditing = false
@@ -965,6 +967,7 @@ final class AppModel {
         isSelectingNotes = false
         multiSelection = []
         exportRequest = nil
+        bulkExportRequest = nil
         editorFailure = nil
         recognitionTask?.cancel()
         recognitionTask = nil

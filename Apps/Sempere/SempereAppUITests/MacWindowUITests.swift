@@ -100,7 +100,8 @@ final class MacWindowUITests: XCTestCase {
         for title in ["Import PDF as New Note…", "Import from Notability…", "Insert PDF Pages…", "Insert Photo…", "Export…"] {
             XCTAssertTrue(titles.contains(title), "File has \(title): \(titles)")
         }
-        XCTAssertEqual(titles.filter { $0.hasPrefix("Export") }.count, 1, "one Export item, not the iPad's submenu too")
+        XCTAssertEqual(titles.filter { $0 == "Export…" }.count, 1, "one Export… item")
+        XCTAssertFalse(titles.contains("Export"), "not the iPad's Export submenu too (Export Notes… is the bulk export, #109)")
         XCTAssertFalse(identifiers.contains("new_window"), "no system New Window")
         XCTAssertFalse(identifiers.contains("duplicate:"), "no document commands")
         XCTAssertFalse(identifiers.contains("open:"), "no system Open…")
