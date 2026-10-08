@@ -150,8 +150,14 @@ other's new strokes, which the ledger takes as erasures. A window's editor reads
 handwriting like the pane's (the model's `recognizer` reaches it), and notes
 open in a window are left out of "Recognize N Notes Now". Restored note windows
 ask for at most one library window (`shouldOpenLibraryWindow`). A double-click
-on a row of the note list opens the note's window too (`OpenOnDoubleClick`, a
-gesture simultaneous with the list's selection, attached on the Mac only), for
+on a row of the note list opens the note's window too (`OpenOnDoubleClick`, Mac
+only). A SwiftUI tap gesture on the row never fires there, because the list's
+collection view takes the clicks for selection, and `primaryAction` is a
+single click in the iPad idiom. So a `DoubleClickRecognizer` sits on the row's
+cell (`DoubleClick.swift`, one per cell, its handler following the row shown).
+It fires when a touch ends with `tapCount` ≥ 2, so the work the first click
+starts (selecting the note, opening it) cannot break the pair, and it never
+delays or cancels touches. It acts for
 the same notes as the menu (`AppModel.noteWindowValue`: listed, downloaded,
 not in Recently Deleted). Note > Move to
 Recently Deleted (⌘⌫) is off while a search, rename or tag field may have focus.

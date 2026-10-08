@@ -1,6 +1,7 @@
 import Foundation
 import Sempere
 import Testing
+import UIKit
 import UniformTypeIdentifiers
 @testable import SempereApp
 
@@ -298,3 +299,37 @@ struct MacPolishBuild7Tests {
 }
 
 private final class BundleToken {}
+
+/// The double-click recognizer on the note list's cells.
+@MainActor
+struct DoubleClickTests {
+    @Test func secondClickIsADoubleClick() {
+        #expect(!DoubleClickRecognizer.isDoubleClick(tapCount: 1))
+        #expect(DoubleClickRecognizer.isDoubleClick(tapCount: 2))
+        #expect(DoubleClickRecognizer.isDoubleClick(tapCount: 3))
+    }
+
+    @Test func itTakesThePointerAndNeverHoldsTouchesBack() {
+        let r = DoubleClickRecognizer()
+        #expect(r.allowedTouchTypes.contains(NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)))
+        #expect(!r.cancelsTouchesInView && !r.delaysTouchesBegan && !r.delaysTouchesEnded)
+        #expect(r.gestureRecognizer(r, shouldRecognizeSimultaneouslyWith: UITapGestureRecognizer()))
+    }
+
+    @Test func oneRecognizerPerCellFollowingTheRowShown() {
+        let cell = UICollectionViewCell(frame: CGRect(x: 0, y: 0, width: 300, height: 60))
+        var fired: [String] = []
+        let first = DoubleClickAttacher.Probe()
+        first.action = { fired.append("a") }
+        cell.contentView.addSubview(first)
+        first.attach()
+        let second = DoubleClickAttacher.Probe()
+        second.action = { fired.append("b") }
+        cell.contentView.addSubview(second)
+        second.attach()
+        let recognizers = (cell.gestureRecognizers ?? []).compactMap { $0 as? DoubleClickRecognizer }
+        #expect(recognizers.count == 1, "the cell keeps one recognizer")
+        recognizers.first?.handler()
+        #expect(fired == ["b"], "the row the cell shows now")
+    }
+}

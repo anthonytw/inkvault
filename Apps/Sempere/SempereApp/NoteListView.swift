@@ -300,17 +300,16 @@ private struct NoteDragOut: ViewModifier {
     }
 }
 
-/// A double-click (a double tap) on a row runs `action`, without taking the
-/// single click that selects the row: the gesture is simultaneous with the
-/// list's own selection. Attached on the Mac only; the iPad's rows keep
-/// exactly their touch handling.
+/// A double-click on a row runs `action` (`DoubleClickAttacher`, on the
+/// row's cell, alongside the list's own selection). Attached on the Mac only;
+/// the iPad's rows keep exactly their touch handling.
 private struct OpenOnDoubleClick: ViewModifier {
     let enabled: Bool
     let action: () -> Void
 
     func body(content: Content) -> some View {
         if enabled {
-            content.simultaneousGesture(TapGesture(count: 2).onEnded { action() })
+            content.background(DoubleClickAttacher(action: action))
         } else {
             content
         }
