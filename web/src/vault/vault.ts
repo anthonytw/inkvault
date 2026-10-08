@@ -176,6 +176,10 @@ async function hmacKey(secret: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", buf(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
+async function hkdfKey(secret: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", buf(secret), "HKDF", false, ["deriveKey"]);
+}
+
 /**
  * How `vault.json`'s recipients list checked (format.md §2.1). The viewer
  * writes nothing and keeps no trust record, so it reports only what the tag
@@ -263,7 +267,18 @@ export class UnlockedVault {
     readonly recipient: string,
     /** How the recipients list checked (format.md §2.1); reported, the viewer never writes. */
     readonly recipientsStatus: RecipientsStatus = { status: "untagged" },
+    /** The vault secret (then the previous one) as HKDF input, for derived keys (format.md §12). */
+    private readonly derivation: CryptoKey[] = [],
   ) {}
+
+  /**
+   * The keys derived for `info` (HKDF-SHA256, empty salt, format.md §10, §12)
+   * under the current secret and, during an unfinished rewrap, the previous one.
+   */
+  async derivedKeys(info: string, algorithm: AesKeyGenParams, usages: KeyUsage[]): Promise<CryptoKey[]> {
+    return Promise.all(this.derivation.map((k) => crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: encoder.encode(info) }, k, algorithm, false, usages)));
+  }
 
   /**
    * Decrypts `vault.json`'s secret with `identity` (and, while a rewrap is
@@ -284,6 +299,7 @@ export class UnlockedVault {
     }
     const secretBytes = await decryptSecret(decrypter, manifest.vaultSecret);
     const secret = await hmacKey(secretBytes);
+    const derivation = [await hkdfKey(secretBytes)];
     const recipientsStatus = await checkRecipients(manifest, secretBytes);
     let previous: CryptoKey | undefined;
     if (journal) {
@@ -299,6 +315,7 @@ export class UnlockedVault {
           if (equalBytes(bytes, secretBytes)
             || await verifySecretLink(manifest.secretLink, bytes, secretBytes, manifest.vaultId)) {
             previous = await hmacKey(bytes);
+            derivation.push(await hkdfKey(bytes));
           }
         }
       } catch {
@@ -306,7 +323,7 @@ export class UnlockedVault {
         // then fail their tag check and are reported.
       }
     }
-    return new UnlockedVault(manifest, decrypter, secret, previous, recipient, recipientsStatus);
+    return new UnlockedVault(manifest, decrypter, secret, previous, recipient, recipientsStatus, derivation);
   }
 
   /**

@@ -78,15 +78,21 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Reads and merges every revision of one note. */
-export async function loadNote(source: VaultSource, vault: UnlockedVault, id: string, width = 6): Promise<LoadedNote> {
-  const files = await source.listRevisions(id);
+/** Reads and merges every revision of one note (`files`: its listing, when already known). */
+export async function loadNote(source: VaultSource, vault: UnlockedVault, id: string, width = 6, listed?: string[]): Promise<LoadedNote> {
+  const files = listed ?? await source.listRevisions(id);
   const failures: RevisionFailure[] = [];
   const newer = emptyNewer();
   const revs = await mapLimited(files, width, async (file) => {
+    const path = `notes/${id}/${file}`;
     try {
-      const data = await source.read(`notes/${id}/${file}`, limits.revisionBytes);
-      return await vault.readRevision(id, file, data);
+      try {
+        return await vault.readRevision(id, file, await source.read(path, limits.revisionBytes));
+      } catch (e) {
+        // A cached copy that fails is dropped and downloaded once more.
+        if (!(e instanceof RevisionReadError) || !source.evict || !(await source.evict(path))) throw e;
+        return await vault.readRevision(id, file, await source.read(path, limits.revisionBytes));
+      }
     } catch (e) {
       if (e instanceof RevisionReadError && e.code === "newer") newer.unreadable++;
       if (e instanceof SourceError || e instanceof RevisionReadError) {

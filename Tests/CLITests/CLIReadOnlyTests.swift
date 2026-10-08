@@ -109,6 +109,22 @@ final class CLIReadOnlyTests: CLITestCase {
         XCTAssertEqual(try files(vault), before, "nothing in the vault changed")
     }
 
+    /// The published summaries (format.md §12) are vault files too: `vault summaries`
+    /// refuses to write them into a read-only vault, and no unlocked command refreshes them.
+    func testPublishedSummariesAreNeverWrittenIntoAReadOnlyVault() throws {
+        let vault = try copyNewerVault()
+        let key = ["--vault", vault, "--identity", Self.fixtureKey]
+        let file = URL(fileURLWithPath: vault).appendingPathComponent("sempere-summaries.sealed")
+        let r = try cli(["vault", "summaries"] + key)
+        XCTAssertEqual(r.status, 7, r.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+
+        // A stale file (here unreadable) would be rewritten in a writable vault; not in this one.
+        try Data("stale".utf8).write(to: file)
+        XCTAssertEqual(try cli(["notes", "list"] + key).status, 0)
+        XCTAssertEqual(try Data(contentsOf: file), Data("stale".utf8))
+    }
+
     /// A version-1 vault with one newer revision: reads work, the note's
     /// writes are refused with exit 7, as is any write after it was read.
     func testNewerRevisionInAVersionOneVault() throws {
