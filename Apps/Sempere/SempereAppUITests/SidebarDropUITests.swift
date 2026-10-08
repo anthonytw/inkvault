@@ -16,7 +16,7 @@ final class SidebarDropUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(notebookDrag: String? = nil) -> XCUIApplication {
+    private func launch(notebookDrag: String? = nil, menu: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-ApplePersistenceIgnoreState", "YES"]
         var env = ["SEMPERE_DEMO": "1", "SEMPERE_DEBUG_COLUMNS": "all", "SEMPERE_DEMO_SIDEBAR": "all",
@@ -25,6 +25,7 @@ final class SidebarDropUITests: XCTestCase {
         env["SEMPERE_DEMO_MAC_WINDOW"] = "1100x760"
         #endif
         if let notebookDrag { env["SEMPERE_DEBUG_NOTEBOOK_DRAG"] = notebookDrag }
+        if !menu { env["SEMPERE_DEBUG_NOTEBOOK_MENU"] = "0" }
         app.launchEnvironment = env
         #if !targetEnvironment(macCatalyst)
         // Landscape: in portrait an iPad mini (CI's newest simulator) collapses the sidebar.
@@ -73,11 +74,11 @@ final class SidebarDropUITests: XCTestCase {
     }
 
     @MainActor
-    private func drag(_ source: XCUIElement, onto target: XCUIElement) {
+    private func drag(_ source: XCUIElement, onto target: XCUIElement, press: TimeInterval = 1.2) {
         #if targetEnvironment(macCatalyst)
         source.click(forDuration: 0.6, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
         #else
-        source.press(forDuration: 1.2, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
+        source.press(forDuration: press, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
         #endif
     }
 
@@ -128,6 +129,35 @@ final class SidebarDropUITests: XCTestCase {
         print("DROPDEBUG notebook drag styles that work: \(working)")
         // The shipped style (`NotebookDragStyle.shipped`); the others are measured, not required.
         XCTAssertTrue(working.contains("uikit"), "the shipped drag style nests the notebook")
+    }
+
+    /// iPad only: how the press before the drag and the row's context menu
+    /// interact (measured; printed as DROPDEBUG, not asserted).
+    @MainActor
+    func testNotebookDragPressAndMenuMatrix() throws {
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("iPad only")
+        #else
+        var results: [String] = []
+        for menu in [true, false] {
+            for press in [0.6, 1.2] {
+                let app = launch(menu: menu)
+                require(noteRow(app, "Sync design sketch"), "note row", in: app, timeout: 90)
+                showSidebar(app)
+                let work = sidebarRow(app, "Work"), personal = sidebarRow(app, "Personal")
+                require(work, "sidebar row Work", in: app)
+                require(personal, "sidebar row Personal", in: app)
+                sleep(2)
+                drag(work, onto: personal, press: press)
+                let nested = waitForNotebook(app, note: "Sync design sketch", "Personal › Work › Atlas")
+                let tag = "menu=\(menu) press=\(press): \(nested ? "WORKS" : "fails")"
+                trace(app, "matrix \(tag)")
+                results.append(tag)
+                app.terminate()
+            }
+        }
+        print("DROPDEBUG matrix: \(results)")
+        #endif
     }
 
     /// The notebook rows' context menu lives on the drag handle now: it still opens.
