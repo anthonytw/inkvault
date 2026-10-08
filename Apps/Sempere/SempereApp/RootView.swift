@@ -100,13 +100,16 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             // iCloud may have delivered files while the app was away; no
             // polling while it is in the background.
+            if phase == .active { model.enterForeground() }
             if phase == .active, model.isCloudVault { model.startCloudSync() }
             if phase == .active {
                 // Voice notes queued while the vault folder was out of reach, then adopted if it is unlocked.
                 model.quickCapture.flushStoredQueue()
                 if model.phase == .unlocked { model.startInboxAdoption() }
             }
-            if phase == .background { model.pauseCloudSync() }
+            // A sync in flight finishes under background time; then (or when iOS
+            // takes the time back) scheduled tasks continue it (`BackgroundSync`).
+            if phase == .background { model.enterBackground() }
             applyIdleTimer()
         }
         .onChange(of: model.editor != nil) { applyIdleTimer() }

@@ -250,6 +250,13 @@ final class AppModel {
     /// The note `downloadNote` is fetching, with its files' progress.
     var noteDownload: (id: UUID, progress: CloudProgress)?
     var cloudSyncTask: Task<Void, Never>?
+    /// Background time and scheduled tasks for the sync (`AppModel+Background`); tests pass fakes.
+    @ObservationIgnored var backgroundTasks: any BackgroundTaskRunning = UIKitBackgroundTasks()
+    @ObservationIgnored var syncScheduler: any BackgroundSyncScheduling = BGTaskSyncScheduler()
+    /// The background-time assertion held while a sync in flight finishes off screen.
+    @ObservationIgnored var backgroundSyncToken: BackgroundTaskToken?
+    /// The app is off screen and the sync loop is finishing what was in flight.
+    var syncingInBackground = false
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
     /// Pause between progressive passes, passes with an unchanged note set
@@ -889,6 +896,8 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        syncingInBackground = false
+        endBackgroundTime()
         cancelRemoteMerges()
         isCloudVault = false
         isBusy = false
