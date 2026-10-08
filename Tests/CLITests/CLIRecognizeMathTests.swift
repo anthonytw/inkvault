@@ -144,7 +144,7 @@ final class CLIRecognizeMathTests: CLITestCase {
         let r = try cli(["recognize-math", physics, "--page", "2", "--all-ink", "--model", Self.tinyModel.path, "--json"] + args)
         #if canImport(CoreML)
         XCTAssertEqual(r.status, 0, r.err)
-        let out = try XCTUnwrap(r.json as? [String: Any])
+        let out = try XCTUnwrap(r.json as? [String: Any], "standard output is not JSON: \(r.out.prefix(2000))")
         XCTAssertEqual(out["engine"] as? String, "tiny-test")
         XCTAssertNotNil(out["seconds"] as? Double)
         #else

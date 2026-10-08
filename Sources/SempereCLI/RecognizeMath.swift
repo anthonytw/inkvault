@@ -164,7 +164,8 @@ struct RecognizeMathCommand: ParsableCommand {
         var out = Output(note: id.uuidString.lowercased(), page: target.number, pageId: target.page.id,
                          strokes: ids.map { $0.uuidString.lowercased() }, candidates: [], placement: place?.placement,
                          dryRun: dryRun)
-        let recognizer = try model.map { try Self.loadModel($0) }
+        // Core ML may write diagnostics to standard output: keep it for our own output (--json).
+        let recognizer = try model.map { path in try Self.stdoutToStderr { try Self.loadModel(path) } }
         if let saveImage {
             let spec = recognizer?.imageSpec ?? Self.previewSpec
             guard let image = try MathInkImage.render(strokes: ink, spec: spec) else {
@@ -176,7 +177,7 @@ struct RecognizeMathCommand: ParsableCommand {
         if let given = try source.read() {
             out.candidates = [MathCandidate(latex: given)]
         } else if let recognizer {
-            guard let result = try recognizer.recognize(strokes: ink) else {
+            guard let result = try Self.stdoutToStderr({ try recognizer.recognize(strokes: ink) }) else {
                 throw CLIError.failure("the picked strokes have no ink to read")
             }
             out.engine = result.engine
@@ -209,6 +210,23 @@ struct RecognizeMathCommand: ParsableCommand {
             out.removed = conversion.removed.map { $0.uuidString.lowercased() }
         }
         try report(out)
+    }
+
+    /// Runs `body` with file descriptor 1 pointing at standard error, so
+    /// whatever a framework prints there never mixes with our output.
+    static func stdoutToStderr<T>(_ body: () throws -> T) rethrows -> T {
+        fflush(nil)
+        let saved = dup(1)
+        guard saved >= 0, dup2(2, 1) >= 0 else {
+            if saved >= 0 { close(saved) }
+            return try body()
+        }
+        defer {
+            fflush(nil)
+            dup2(saved, 1)
+            close(saved)
+        }
+        return try body()
     }
 
     #if canImport(CoreML)
