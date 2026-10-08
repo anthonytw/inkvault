@@ -200,6 +200,12 @@ jobs:
       # so this adds a boot and a few seconds of tests.
       - name: Test the iPhone layouts on an iPhone simulator
         run: scripts/app.sh test-phone
+      # Real drags onto the sidebar (SidebarDropUITests): the drop delegate needs a drag session.
+      - name: UI tests on the iPad simulator
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        shell: bash
+        run: mkdir -p build && scripts/app.sh test-ui 2>&1 | tee build/app-test-ui.log
       # Same target and sources as the simulator build; checked on main only.
       - name: Build for Mac Catalyst (unsigned)
         if: github.event_name != 'pull_request'
@@ -224,7 +230,7 @@ jobs:
           for f in build/app-test*.log; do
             [ -f "$f" ] || continue
             echo "== $f"
-            grep -E "✘|↳|error:|Failing tests|SempereMenus|SempereMenuTree|PDF-SCALE|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
+            grep -E "✘|↳|error:|DROPDEBUG|Failing tests|SempereMenus|SempereMenuTree|PDF-SCALE|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
             # UI test dumps of the windows (several lines each).
             awk '/MACUIDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
           done

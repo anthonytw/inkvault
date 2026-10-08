@@ -62,6 +62,9 @@ struct SidebarView: View {
             Label("Recently Deleted", systemImage: "trash").tag(SidebarItem.deleted)
         }
         .onChange(of: model.recentlyRecognizedNotes.isEmpty) { model.leaveEmptyRecognizedSection() }
+        #if DEBUG
+        .overlay(alignment: .bottomLeading) { DropTraceLabel() }
+        #endif
         .navigationTitle(model.vaultName ?? "Sempere")
         .toolbar {
             ToolbarItem {

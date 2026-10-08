@@ -142,23 +142,37 @@ struct SidebarDropDelegate: DropDelegate {
 
     /// Only the app's own drags (their types; the providers are `.ownProcess`):
     /// a left-over `draggedPayload` never answers a photo or text dragged in.
-    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: Self.types) }
+    func validateDrop(info: DropInfo) -> Bool {
+        let ours = info.hasItemsConforming(to: Self.types)
+        trace("validate ours=\(ours)")
+        return ours
+    }
+
+    private func trace(_ event: String) {
+        #if DEBUG
+        DropTrace.note("\(event) target=\(target) payload=\(model.draggedPayload.map { "\($0)" } ?? "nil")")
+        #endif
+    }
 
     func dropEntered(info: DropInfo) {
+        trace("entered")
         model.setDropTarget(model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info)) ? target : nil)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        trace("updated")
         let allowed = model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info))
         model.setDropTarget(allowed ? target : nil)
         return DropProposal(operation: allowed ? .move : .forbidden)
     }
 
     func dropExited(info: DropInfo) {
+        trace("exited")
         if model.dropTarget == target { model.setDropTarget(nil) }
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        trace("perform")
         model.setDropTarget(nil)
         let model = model, target = target, undo = UndoBox(undoManager)
         let ours = validateDrop(info: info)
@@ -218,3 +232,36 @@ private struct SidebarDropRow: ViewModifier {
         }
     }
 }
+
+#if DEBUG
+/// Debug builds with `SEMPERE_DEBUG_DROPS` set: which drag and drop callbacks
+/// ran, newest last, shown in an invisible label (`drop-trace`) that
+/// `SidebarDropUITests` reads, so a UI test run tells where a drop stops.
+@MainActor @Observable
+final class DropTrace {
+    static let shared = DropTrace()
+    static var isOn: Bool { ProcessInfo.processInfo.environment["SEMPERE_DEBUG_DROPS"] != nil }
+
+    private(set) var events: [String] = []
+
+    static func note(_ event: String) {
+        guard isOn else { return }
+        shared.events.append(event)
+        if shared.events.count > 40 { shared.events.removeFirst(shared.events.count - 40) }
+    }
+}
+
+/// The trace as an accessibility label (no pixels: it must not change the screenshots).
+struct DropTraceLabel: View {
+    var body: some View {
+        if DropTrace.isOn {
+            Text(DropTrace.shared.events.joined(separator: " | "))
+                .font(.system(size: 1))
+                .opacity(0.01)
+                .accessibilityIdentifier("drop-trace")
+                .accessibilityLabel(DropTrace.shared.events.joined(separator: " | "))
+                .allowsHitTesting(false)
+        }
+    }
+}
+#endif
