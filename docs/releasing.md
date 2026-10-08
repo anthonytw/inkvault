@@ -30,6 +30,6 @@ Verify a download: `sha256sum -c SHA256SUMS` and
 Not included: a man page (the ArgumentParser manual plugin is not a dependency of the
 package; `sempere --help` and `docs/cli.md` ship instead), Apple notarisation of the macOS
 binary, and the iPad/Mac app (TestFlight and App Store builds are made from Xcode; see
-`docs/appstore/`). The workflow could not be run in the session that wrote it: the first
+`docs/release/app-store.md`). The workflow could not be run in the session that wrote it: the first
 real tag is its first run, so consider a prerelease tag (`v0.5.0-rc.1`, which also needs a
 CHANGELOG section) to exercise it.

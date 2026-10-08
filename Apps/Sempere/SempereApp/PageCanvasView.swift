@@ -167,6 +167,7 @@ struct PageCanvasView: UIViewRepresentable {
             generation = nil
             host.cancelErasing()
             host.itemSelectionActive = false
+            host.endTransientSelection()
             host.inkTapHandler = nil
             host.setHighlights([])
             host.textOverlay.isHidden = true   // a spare canvas shows no note's text
@@ -300,12 +301,15 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// Called when picking a tool ends the text tool.
     var onTextToolEnded: (() -> Void)?
 
-    /// The text tool: PencilKit's drawing is off, taps edit or add text boxes.
+    /// The text tool: PencilKit's drawing is off, a tap selects a text box
+    /// (a tap on the selected one, or a double tap, types in it) or starts a
+    /// new one.
     var textToolActive = false {
         didSet {
             guard textToolActive != oldValue else { return }
             textEditor.toolActive = textToolActive
-            updateEraser()
+            if textToolActive { transientSelection = false }
+            updateSelectionMode()
         }
     }
 
@@ -314,9 +318,44 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     var itemSelectionActive = false {
         didSet {
             guard itemSelectionActive != oldValue else { return }
-            itemSelection.setActive(itemSelectionActive)
-            updateEraser()
+            if itemSelectionActive { transientSelection = false }
+            updateSelectionMode()
         }
+    }
+
+    /// Selection mode for one item, picked while drawing (a lasso tap, a held
+    /// finger, a secondary click): drawing is off while it is selected and
+    /// comes back once nothing is (or a tool is picked).
+    private(set) var transientSelection = false {
+        didSet {
+            guard transientSelection != oldValue else { return }
+            updateSelectionMode()
+        }
+    }
+
+    /// The selection controller follows the modes: every item in selection
+    /// mode or a transient selection, text boxes with the text tool, nothing
+    /// while a box is typed in.
+    private func updateSelectionMode() {
+        let editing = textEditor.isEditing
+        if itemSelectionActive || transientSelection {
+            itemSelection.onEmptyTap = nil
+            itemSelection.setActive(!editing, scope: .all)
+        } else if textToolActive {
+            itemSelection.onEmptyTap = { [weak self] p in self?.textEditor.beginNew(at: p) }
+            itemSelection.setActive(!editing, scope: .textBoxes)
+        } else {
+            itemSelection.onEmptyTap = nil
+            itemSelection.setActive(false)
+        }
+        updateEraser()
+    }
+
+    /// Ends a transient selection (the drawing tool comes back).
+    func endTransientSelection() {
+        guard transientSelection else { return }
+        itemSelection.select(nil)
+        transientSelection = false
     }
     /// "Tap Ink to Play" (`NoteEditor+Recordings`): while set, PencilKit's
     /// drawing is off and a tap is handed over in page points.
@@ -460,6 +499,14 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         textEditor.actions = { [weak self] in self?.itemSelection.actions }
         textEditor.onEditingChanged = { [weak self] editing in self?.textEditingChanged(editing) }
         itemSelection.onEditText = { [weak self] item in self?.textEditor.begin(item) }
+        itemSelection.lassoSelected = { [weak self] in self?.canvas.tool is PKLassoTool }
+        textEditor.penColour = { [weak self] in (self?.canvas.tool as? PKInkingTool).map { Sempere.Color($0.color) } }
+        itemSelection.canPick = { [weak self] in self?.drawingEditable ?? false }
+        itemSelection.onPick = { [weak self] in self?.transientSelection = true }
+        itemSelection.onCleared = { [weak self] in
+            guard let self, self.transientSelection, !self.textEditor.isEditing else { return }
+            self.transientSelection = false
+        }
         canvas.addInteraction(UIDropInteraction(delegate: self))
         inkTap.isEnabled = false
         canvas.addGestureRecognizer(inkTap)
@@ -548,6 +595,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         }
         if itemSelectionActive { onItemSelectionEnded?() }   // picking a tool is picking drawing
         if textToolActive { onTextToolEnded?() }
+        endTransientSelection()
         updateEraser()
         cursorInteraction?.invalidate()
     }
@@ -571,11 +619,16 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         (toolPicker.selectedToolItem as? PKToolPickerEraserItem)?.eraserTool.eraserType == .vector
     }
 
+    /// Whether the canvas draws now: nothing selects, types or plays, and the note can be edited.
+    var drawingEditable: Bool {
+        !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive && !textToolActive && !transientSelection
+            && !textEditor.isEditing && inkTapHandler == nil
+    }
+
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
     /// every other tool (pixel eraser included) is PencilKit's.
     private func updateEraser() {
-        let editable = !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive && !textToolActive
-            && !textEditor.isEditing && inkTapHandler == nil
+        let editable = drawingEditable
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
@@ -584,8 +637,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// Typing in a text box started or ended: nothing draws or selects
     /// meanwhile; afterwards the palette comes back.
     private func textEditingChanged(_ editing: Bool) {
-        itemSelection.setActive(itemSelectionActive && !editing)
-        updateEraser()
+        updateSelectionMode()
         guard !editing else { return }
         updateToolPicker()
         if isEmbedded { focus() }   // a page of the stack takes the palette back itself
@@ -860,6 +912,7 @@ extension PageCanvasHost: CanvasCommandTarget {
     func select(tool choice: ToolChoice) -> Bool {
         guard !isReadOnly, let item = toolPicker.toolItems.first(where: { choice.matches($0) }) else { return false }
         toolPicker.selectedToolItemIdentifier = item.identifier
+        endTransientSelection()
         updateEraser()
         cursorInteraction?.invalidate()
         return true

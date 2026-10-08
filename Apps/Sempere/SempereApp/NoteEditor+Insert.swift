@@ -25,6 +25,36 @@ extension NoteEditor {
         }
     }
 
+    /// Replaces the image `id` with another picture (Replace Image): the
+    /// picture is written as a blob of this note first, then one delta
+    /// removes the old image and adds the new one in its place
+    /// (`NoteOps.replaceImage`, as `sempere items replace`). Returns the old
+    /// and the new item.
+    ///
+    /// - Throws: `AttachmentOpsError.noSuchImage` when the page has no image
+    ///   `id` (checked again after the blob is written), `ItemError`, or a write error.
+    @discardableResult
+    func replaceImage(_ id: UUID, with image: PreparedImage, on pageID: UUID) async throws -> (old: Item, new: Item) {
+        guard canEditItems else { throw ItemError.notEditable }
+        guard let page = pages.first(where: { $0.id == pageID }) else { throw ItemError.noPage }
+        let planned = BlobRef(content: image.data, type: image.mediaType)
+        _ = try NoteOps.replaceImage(id, blob: planned, pixelSize: image.pixelSize, orientation: image.orientation, on: page)
+        guard let writer = attachmentWriter else { throw ItemError.notEditable }
+        if let prepare = prepareBlobWrite { try await prepare(planned) }
+        let ref = try await writer.addBlob(image.data, type: image.mediaType)
+        // The page as it is now: it may have changed while the blob was written.
+        guard canEditItems else { throw ItemError.notEditable }
+        guard let current = pages.first(where: { $0.id == pageID }) else { throw ItemError.noPage }
+        guard let old = current.items.first(where: { $0.id == id }) else {
+            throw AttachmentOpsError.noSuchImage(id.uuidString.lowercased())
+        }
+        let edit = try NoteOps.replaceImage(id, blob: ref, pixelSize: image.pixelSize, orientation: image.orientation, on: current)
+        guard applyItemEdit(edit), let new = edit.page.items.first(where: { edit.added.contains($0.id) }) else {
+            throw ItemError.notEditable
+        }
+        return (old, new)
+    }
+
     /// Inserts the pages of `pdf` after the first `index` pages (one finite
     /// page per PDF page, its background the PDF page: `NoteOps.insertPDFPages`)
     /// and shows the first of them. The PDF is one blob; the pages and items

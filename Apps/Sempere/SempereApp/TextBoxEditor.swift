@@ -3,9 +3,11 @@ import SempereRender
 import UIKit
 
 /// Typing in text boxes on the canvas (docs/attachments.md §13 "Text
-/// editing on the canvas", task E2). With the text tool on, a tap on a text
-/// box edits it and a tap elsewhere starts a new box there; selection mode's
-/// "Edit Text" edits the selected box. The box is edited in a `UITextView`
+/// editing on the canvas", task E2). With the text tool on, the selection
+/// controller (`ItemSelectionController`, scope `.textBoxes`) picks boxes: a
+/// tap selects one (handles to move it and set its width), a tap on the
+/// selected box or a double tap edits it (`begin`), a tap on the empty page
+/// starts a new box there (`beginNew`); the menus' "Edit Text" edits too. The box is edited in a `UITextView`
 /// (TextKit 1, the layout `TextKitBreaks` uses) laid over the page at the
 /// canvas zoom, with a style bar above the keyboard (bold, italic,
 /// underline, strikethrough, size, colour, font, alignment, direction);
@@ -70,7 +72,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         }
     }
 
-    private func updateTap() { tap.isEnabled = toolActive || isEditing }
+    /// The tap here only ends an edit; selecting and starting boxes is the selection controller's.
+    private func updateTap() { tap.isEnabled = isEditing }
 
     /// The note or page on the canvas changed: an edit in progress is written first.
     func reset(editor: NoteEditor, pageID: UUID) {
@@ -82,11 +85,6 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     }
 
     private var zoom: CGFloat { max(canvas?.zoomScale ?? 1, 0.01) }
-
-    private func pagePoint(_ g: UIGestureRecognizer) -> ItemFrames.Point {
-        let p = g.location(in: canvas)
-        return ItemFrames.Point(x: Double(p.x / zoom), y: Double(p.y / zoom))
-    }
 
     // MARK: Gestures
 
@@ -101,19 +99,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     }
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
-        if isEditing {
-            // A tap outside the box ends the edit; it does not start another box.
-            endEditing()
-            return
-        }
-        guard toolActive, let editor, let pageID, editor.canEditItems else { return }
-        let p = pagePoint(g)
-        let items = editor.items(on: pageID)
-        if let hit = TextBoxPlacement.textBox(at: p, in: items, zoom: Double(zoom)) {
-            begin(hit)
-        } else {
-            beginNew(at: p)
-        }
+        // A tap outside the box ends the edit; it does not start another box or select one.
+        if isEditing { endEditing() }
     }
 
     // MARK: Editing
@@ -159,6 +146,7 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         tv.inputAccessoryView = makeStyleBar()
         canvas.addSubview(tv)
         textView = tv
+        colourItem?.image = TextColourPalette.swatchImage(currentColour, size: 22)
         layoutTextView()
         updateTap()
         onEditingChanged(true)
@@ -252,11 +240,14 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         let sizes = UIMenu(title: String(localized: "Size", comment: "Text style bar: font size menu"), children: TextBoxPlacement.sizes.map { s in
             UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.apply(.size(s)) } // l10n:ignore (number and unit)
         })
-        let colours = UIMenu(title: String(localized: "Colour", comment: "Text style bar: text colour menu"), children: TextBoxPlacement.colours.map { c in
-            UIAction(title: c.name, image: UIImage(systemName: "circle.fill")?.withTintColor(c.color.uiColor, renderingMode: .alwaysOriginal)) {
-                [weak self] _ in self?.apply(.color(c.color))
-            }
-        })
+        let colour = UIBarButtonItem(title: String(localized: "Colour", comment: "Text style bar: text colour menu"), image: TextColourPalette.swatchImage(currentColour, size: 22),
+                                     primaryAction: nil, menu: nil)
+        colour.primaryAction = UIAction(title: String(localized: "Colour", comment: "Text style bar: text colour menu")) { [weak self, weak colour] _ in
+            guard let self, let colour else { return }
+            self.showColours(from: colour)
+        }
+        colour.accessibilityLabel = String(localized: "Colour", comment: "Text style bar: text colour menu")
+        colourItem = colour
         let fontChoices: [(String, TextContent.Font)] = [
             (String(localized: "Sans Serif", comment: "Typeface"), .sans),
             (String(localized: "Serif", comment: "Typeface"), .serif),
@@ -287,7 +278,7 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
             toggle("underline", String(localized: "Underline", comment: "Text style"), .underline),
             toggle("strikethrough", String(localized: "Strikethrough", comment: "Text style"), .strikethrough),
             UIBarButtonItem(title: sizes.title, image: UIImage(systemName: "textformat.size"), menu: sizes),
-            UIBarButtonItem(title: colours.title, image: UIImage(systemName: "paintpalette"), menu: colours),
+            colour,
             UIBarButtonItem(title: fonts.title, image: UIImage(systemName: "textformat"), menu: fonts),
             UIBarButtonItem(title: aligns.title, image: UIImage(systemName: "text.alignleft"), menu: aligns),
             UIBarButtonItem(title: directions.title, image: UIImage(systemName: "arrow.left.arrow.right"), menu: directions),
@@ -298,8 +289,49 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         return bar
     }
 
+    /// The style bar's colour button (it shows the colour of the text at the cursor).
+    private weak var colourItem: UIBarButtonItem?
+    /// The pen's colour now, offered first among the swatches (the host's tool picker).
+    var penColour: () -> Sempere.Color? = { nil }
+
+    /// The colour of the selected text, or of what is typed next.
+    var currentColour: Sempere.Color {
+        guard let tv = textView, let session else { return Self.lastStyle.color }
+        let r = tv.selectedRange
+        let attributes = r.length > 0 && r.location < tv.attributedText.length
+            ? tv.attributedText.attributes(at: r.location, effectiveRange: nil) : tv.typingAttributes
+        return (attributes[.foregroundColor] as? UIColor).map { Sempere.Color($0) } ?? session.style.color
+    }
+
+    /// Shows the colour swatches (the pen's palette) under the style bar's button.
+    private func showColours(from item: UIBarButtonItem) {
+        guard let tv = textView, let presenter = Self.presenter(for: tv) else { return }
+        let range = tv.selectedRange
+        let picker = ColourSwatchesController(swatches: TextColourPalette.swatches(pen: penColour()), current: currentColour) {
+            [weak self] colour in
+            guard let self, let tv = self.textView else { return }
+            if !tv.isFirstResponder { tv.becomeFirstResponder() }
+            tv.selectedRange = range
+            self.apply(.color(colour))
+        }
+        picker.modalPresentationStyle = .popover
+        picker.popoverPresentationController?.sourceItem = item
+        picker.popoverPresentationController?.delegate = picker
+        presenter.present(picker, animated: true)
+    }
+
+    /// The view controller to present over: the topmost one above `view`'s.
+    private static func presenter(for view: UIView) -> UIViewController? {
+        var responder: UIResponder? = view
+        while let r = responder, !(r is UIViewController) { responder = r.next }
+        var top = (responder as? UIViewController) ?? view.window?.rootViewController
+        while let next = top?.presentedViewController, !next.isBeingDismissed { top = next }
+        return top
+    }
+
     /// Applies a style change to the selection, or to what is typed next.
     func apply(_ change: TextBoxEditing.Change) {
+        defer { colourItem?.image = TextColourPalette.swatchImage(currentColour, size: 22) }
         guard let tv = textView, var session else { return }
         let range = tv.selectedRange
         if range.length > 0 {
@@ -340,13 +372,6 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
 enum TextBoxPlacement {
     /// Sizes in the size menu.
     static let sizes: [Double] = [10, 12, 14, 16, 18, 24, 32, 48, 72]
-    /// Colours in the colour menu.
-    static let colours: [(name: String, color: Sempere.Color)] = [
-        (String(localized: "Black", comment: "Text colour"), Sempere.Color(r: 0x1A, g: 0x1A, b: 0x1A)), (String(localized: "Grey", comment: "Text colour"), Sempere.Color(r: 0x80, g: 0x80, b: 0x80)),
-        (String(localized: "Red", comment: "Text colour"), Sempere.Color(r: 0xD3, g: 0x2F, b: 0x2F)), (String(localized: "Orange", comment: "Text colour"), Sempere.Color(r: 0xEF, g: 0x6C, b: 0x00)),
-        (String(localized: "Green", comment: "Text colour"), Sempere.Color(r: 0x2E, g: 0x7D, b: 0x32)), (String(localized: "Blue", comment: "Text colour"), Sempere.Color(r: 0x15, g: 0x65, b: 0xC0)),
-        (String(localized: "Purple", comment: "Text colour"), Sempere.Color(r: 0x6A, g: 0x1B, b: 0x9A)),
-    ]
     /// Room kept to the page's right edge.
     static let margin = 16.0
     /// Width of a new box, at most (page points).
@@ -370,5 +395,150 @@ enum TextBoxPlacement {
     static func textBox(at p: ItemFrames.Point, in items: [Item], zoom: Double) -> Item? {
         let texts = items.filter { $0.kind == .text && $0.text != nil }
         return ItemFrames.item(at: p, in: texts, slop: ItemSelectionModel.slop / max(zoom, 0.01))
+    }
+}
+
+/// The text colours the style bar offers: the pen's palette (pure, tested).
+/// PencilKit's tool picker offers black, blue, green, yellow and red (the
+/// system colours as on light paper) and a colour wheel; the swatches are the
+/// same, the pen's current colour first when it is another one, and "More"
+/// opens the same system colour picker as the pen's wheel.
+enum TextColourPalette {
+    /// The pen palette's colours, as drawn on (light) paper, with their names (for VoiceOver).
+    @MainActor static var standard: [(name: String, color: Sempere.Color)] {
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        return [(String(localized: "Black", comment: "Text colour"), UIColor.black),
+                (String(localized: "Blue", comment: "Text colour"), .systemBlue),
+                (String(localized: "Green", comment: "Text colour"), .systemGreen),
+                (String(localized: "Yellow", comment: "Text colour"), .systemYellow),
+                (String(localized: "Red", comment: "Text colour"), .systemRed)].map { ($0.0, opaque(Sempere.Color($0.1.resolvedColor(with: light)))) }
+    }
+
+    /// The swatches: the pen's colour (opaque) first unless the palette has
+    /// it, then the palette.
+    static func swatches(pen: Sempere.Color?, standard: [Sempere.Color]) -> [Sempere.Color] {
+        var out = standard
+        if let pen {
+            let p = opaque(pen)
+            if !out.contains(p) { out.insert(p, at: 0) }
+        }
+        return out
+    }
+
+    @MainActor static func swatches(pen: Sempere.Color?) -> [Sempere.Color] {
+        swatches(pen: pen, standard: standard.map(\.color))
+    }
+
+    /// The name VoiceOver reads for a swatch: the palette's, else "Pen Colour"
+    /// for the pen's, else the hex value.
+    static func name(of colour: Sempere.Color, standard: [(name: String, color: Sempere.Color)], pen: Sempere.Color?) -> String {
+        if let named = standard.first(where: { $0.color == opaque(colour) }) { return named.name }
+        if let pen, opaque(pen) == opaque(colour) { return String(localized: "Pen Colour", comment: "VoiceOver: the swatch of the pen's current colour") }
+        return String(format: "#%02X%02X%02X", colour.r, colour.g, colour.b)
+    }
+
+    /// Text is drawn opaque: a marker's translucent colour is taken without its alpha.
+    static func opaque(_ c: Sempere.Color) -> Sempere.Color { Sempere.Color(r: c.r, g: c.g, b: c.b) }
+
+    /// A round swatch of `colour`, with a thin ring so white and yellow show on a light bar.
+    @MainActor static func swatchImage(_ colour: Sempere.Color, size: CGFloat, selected: Bool = false) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        return UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { ctx in
+            let r = CGRect(x: 0, y: 0, width: size, height: size)
+            let inner = selected ? r.insetBy(dx: size * 0.18, dy: size * 0.18) : r.insetBy(dx: 1, dy: 1)
+            colour.uiColor.setFill()
+            ctx.cgContext.fillEllipse(in: inner)
+            UIColor.black.withAlphaComponent(0.2).setStroke()
+            ctx.cgContext.setLineWidth(1)
+            ctx.cgContext.strokeEllipse(in: inner)
+            if selected {
+                UIColor.tintColor.setStroke()
+                ctx.cgContext.setLineWidth(2)
+                ctx.cgContext.strokeEllipse(in: r.insetBy(dx: 1.5, dy: 1.5))
+            }
+        }.withRenderingMode(.alwaysOriginal)
+    }
+}
+
+/// The colour popover of the text style bar: a row of round swatches (the
+/// current colour ringed) and the system colour picker ("More").
+@MainActor
+final class ColourSwatchesController: UIViewController, UIPopoverPresentationControllerDelegate,
+    UIColorPickerViewControllerDelegate {
+    let swatches: [Sempere.Color]
+    let current: Sempere.Color
+    let choose: (Sempere.Color) -> Void
+    static let swatchSize: CGFloat = 36
+
+    init(swatches: [Sempere.Color], current: Sempere.Color, choose: @escaping (Sempere.Color) -> Void) {
+        self.swatches = swatches
+        self.current = current
+        self.choose = choose
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.accessibilityIdentifier = "textColourSwatches"
+        let standard = TextColourPalette.standard
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.spacing = 10
+        row.alignment = .center
+        for c in swatches {
+            let button = UIButton(type: .custom)
+            button.setImage(TextColourPalette.swatchImage(c, size: Self.swatchSize, selected: TextColourPalette.opaque(c) == TextColourPalette.opaque(current)),
+                            for: .normal)
+            button.accessibilityLabel = TextColourPalette.name(of: c, standard: standard, pen: swatches.first)
+            button.accessibilityTraits.insert(.button)
+            button.addAction(UIAction { [weak self] _ in self?.picked(c) }, for: .primaryActionTriggered)
+            button.widthAnchor.constraint(equalToConstant: Self.swatchSize).isActive = true
+            button.heightAnchor.constraint(equalToConstant: Self.swatchSize).isActive = true
+            row.addArrangedSubview(button)
+        }
+        let more = UIButton(type: .system)
+        more.setImage(UIImage(systemName: "paintpalette"), for: .normal)
+        more.accessibilityLabel = String(localized: "More Colours", comment: "VoiceOver: opens the system colour picker")
+        more.addAction(UIAction { [weak self] _ in self?.showPicker() }, for: .primaryActionTriggered)
+        more.widthAnchor.constraint(equalToConstant: Self.swatchSize).isActive = true
+        more.heightAnchor.constraint(equalToConstant: Self.swatchSize).isActive = true
+        row.addArrangedSubview(more)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            row.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            row.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+        ])
+        let n = CGFloat(swatches.count + 1)
+        preferredContentSize = CGSize(width: n * Self.swatchSize + (n - 1) * 10 + 28, height: Self.swatchSize + 24)
+    }
+
+    private func picked(_ c: Sempere.Color) {
+        dismiss(animated: true) { [choose] in choose(c) }
+    }
+
+    /// The system colour picker, as the pen's colour wheel opens.
+    private func showPicker() {
+        let picker = UIColorPickerViewController()
+        picker.supportsAlpha = false
+        picker.selectedColor = current.uiColor
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    func colorPickerViewController(_ controller: UIColorPickerViewController, didSelect color: UIColor, continuously: Bool) {
+        guard !continuously else { return }
+        let c = TextColourPalette.opaque(Sempere.Color(color))
+        controller.dismiss(animated: true) { [weak self] in self?.picked(c) }
+    }
+
+    /// A popover on an iPhone too (not a sheet).
+    func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
+        .none
     }
 }

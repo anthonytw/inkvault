@@ -94,6 +94,28 @@ final class ItemActions {
         added(editor.duplicateItems(ids, on: page), on: page, name: String(localized: "Duplicate", comment: "Undo action name (Edit menu: Undo …)"))
     }
 
+    /// Registers the undo of a replacement made elsewhere (Replace Image:
+    /// `old` was replaced by `new`, already written).
+    func replaced(_ old: Item, by new: Item, on page: UUID) {
+        register("Replace Image") { $0.swap(new.id, back: old, on: page) }
+    }
+
+    /// Puts `content` back in place of the item `current` (undo or redo of
+    /// a replacement): one delta, the item under a new id whose `parent`
+    /// names `content` (tombstones are permanent, format.md §8.2.2). Returns
+    /// the item put back.
+    @discardableResult
+    func swap(_ current: UUID, back content: Item, on page: UUID) -> Item? {
+        var back = content
+        back.id = UUID()
+        back.parent = content.id
+        back.origin = nil
+        back.clocks = nil
+        guard let was = editor.replaceItem(current, with: back, on: page) else { return nil }
+        register("Replace Image") { $0.swap(back.id, back: was, on: page) }
+        return back
+    }
+
     /// Draws an item above the others of its layer.
     func bringToFront(_ id: UUID, on page: UUID) {
         guard let old = editor.bringItemToFront(id, on: page) else { return }
