@@ -35,12 +35,16 @@ enum DebugLaunch {
     /// `SEMPERE_DEBUG_FRESH`: deletes the app's own state before anything reads
     /// it, so the launch is a first one (launch smoke tests, `LaunchSmokeUITests`):
     /// the preferences domain (column layout, recent vaults, tool and eraser
-    /// choices) and the app container's Application Support, Caches, tmp and
-    /// saved window state (device clock, trust records, summary, drawing, blob
-    /// and render caches, staged exports). Keychain items stay (unsigned test
-    /// builds have none). Files are removed only inside an app container (the
-    /// simulator, a device, the sandboxed Mac build), never an unsandboxed Mac
-    /// build's real home. Called first thing in `SempereApp.init`.
+    /// choices), the app's own `Sempere…` folders in Application Support,
+    /// Caches and tmp (device clock, recents, trust records, summary, drawing,
+    /// blob and render caches, staged exports) and the saved window state.
+    /// The system's files in the container (keyboard and UIKit caches) stay:
+    /// they are not the app's state, and wiping them on every launch was the
+    /// suspect when the iPad simulator stopped answering UI tests for minutes
+    /// in CI. Keychain items stay (unsigned test builds have none). Files
+    /// are removed only inside an app container (the simulator, a device, the
+    /// sandboxed Mac build), never an unsandboxed Mac build's real home. Called
+    /// first thing in `SempereApp.init`.
     static func resetForFreshLaunch() {
         guard environment["SEMPERE_DEBUG_FRESH"] != nil else { return }
         if let domain = Bundle.main.bundleIdentifier {
@@ -53,14 +57,19 @@ enum DebugLaunch {
         }
         let fm = FileManager.default
         let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-        let folders = ["Library/Application Support", "Library/Caches", "Library/Saved Application State", "tmp"]
+        let folders = ["Library/Application Support", "Library/Caches", "tmp"]
             .map { home.appendingPathComponent($0, isDirectory: true) }
             + [URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)]
         var removed = 0
         for folder in folders {
-            for item in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+            for item in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            where item.lastPathComponent.hasPrefix("Sempere") {
                 if (try? fm.removeItem(at: item)) != nil { removed += 1 }
             }
+        }
+        // Mac: the windows an earlier run saved.
+        if (try? fm.removeItem(at: home.appendingPathComponent("Library/Saved Application State", isDirectory: true))) != nil {
+            removed += 1
         }
         NSLog("SempereDebug fresh launch: removed the preferences and %d items", removed)
     }

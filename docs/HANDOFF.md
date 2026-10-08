@@ -264,7 +264,14 @@ queued for up to 30 minutes.
   cache, then four launches; about 5 minutes, the only Catalyst step a PR
   runs). On the iPad its two sidebar/list layouts run inside "UI tests on the
   iPad simulator" (`test-ui`, about a minute more). Their window dumps are
-  `SMOKEDEBUG` lines in the failure summary.
+  `SMOKEDEBUG` lines in the failure summary, with the newest Mac crash
+  report's crashing thread and, after an iPad UI test failure, the
+  simulator's log of the app's faults and hangs. The first smoke test of a
+  run launches the app once without querying it (the first launch after an
+  install is slow on a CI simulator). The iPad simulator has stopped answering
+  accessibility queries for a minute or more ("Timed out while evaluating UI
+  query") in some runs; a recurrence is a real failure to diagnose from that
+  log, not a re-run.
 - **Every scene injects the app environment:** `AppSceneEnvironmentTests`
   (Linux, plain `swift test`) reads `Apps/Sempere/SempereApp/` and fails when
   a `WindowGroup` (or any other scene) does not put `AppModel`,

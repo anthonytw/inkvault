@@ -281,6 +281,13 @@ jobs:
             # UI test dumps of the windows (several lines each).
             awk '/MACUIDEBUG|DROPDEBUG tree|SMOKEDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
           done
+          # A stalled app in an iPad UI test ("Timed out while evaluating UI query"): what it logged.
+          if xcrun simctl list devices booted 2>/dev/null | grep -q Booted; then
+            echo "== simulator log (Sempere faults, hangs and debug lines, last 40 min)"
+            xcrun simctl spawn booted log show --last 40m --style compact \
+              --predicate 'process == "Sempere" AND (messageType == fault OR eventMessage CONTAINS[c] "hang" OR eventMessage CONTAINS "SempereDebug")' \
+              2>/dev/null | cut -c1-300 | tail -150 || true
+          fi
           # A crash in a Mac test ("crashed in <external symbol>"): the newest report's crashing thread.
           report=$(ls -t ~/Library/Logs/DiagnosticReports/Sempere*.ips 2>/dev/null | head -1 || true)
           if [ -n "$report" ]; then
