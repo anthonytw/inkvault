@@ -199,6 +199,7 @@ sempere vault recipients confirm
 sempere vault rewrap-resume
 sempere vault verify
 sempere vault index [--out PATH|-]
+sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
 ```
 
 - `init` creates the vault. `PATH` must end in `.sempere`. Give no `--label`
@@ -313,6 +314,24 @@ sempere vault index [--out PATH|-]
   failure to do so is a warning), and `sync webdav` rewrites the server's
   copy when the server has one. A WebDAV share needs no index. Legacy vaults are refused (exit 5), as the
   viewer cannot read them. `--json` emits `path`, `notes` and `revisions`.
+- `summaries` writes `sempere-summaries.sealed` at the vault root (or `--out
+  PATH`; `--out -` prints it): the published note summaries of `format.md`
+  §12, which the web viewer lists and searches a vault from without decrypting
+  every revision (`docs/web-viewer.md` "Opening fast"). Per note: title, tags,
+  notebook, favorite and deleted flags, created and modified dates, page count
+  and each page's searchable text, with the revision file names it was made
+  from; notes with an unreadable revision get no entry. Sealed with AES-256-GCM
+  under a key derived from the vault secret, so it needs the key (exit 3
+  without it) and only the vault's keys open it. Entries of an existing file
+  whose notes did not change are reused (others go through the summary cache
+  unless `--no-cache`), so a rerun reads only changed notes. Once it exists it
+  is kept current: every command that unlocks the vault rewrites it when a
+  note changed (a failure is a warning); commands without the key leave it
+  alone, so it may lag until the next one. `--plaintext` writes the JSON
+  content instead, in the clear (for checks and the web goldens); it needs
+  `--out`, so it never lands at the vault's sealed path by default. Legacy
+  vaults are refused (exit 5). `--json` emits `path`, `notes`, `entries`,
+  `read` (notes summarised again) and `bytes`.
 
 ### Attachments
 
@@ -1653,7 +1672,7 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
-                         [--max-blob-mib N] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
+                         [--max-blob-mib N] [--web-viewer] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
                          [--push-only [--delete-extraneous]]
 ```
 
@@ -1685,6 +1704,17 @@ if no revision of its note references it there and every revision of the
 note could be read (`format.md` §8.1.6 rules 1–3); otherwise it is copied
 back. Blob paths appear in the output and the JSON report like revisions
 (`notes/<id>/att/<name>`).
+With the vault unlocked, the server's `sempere-summaries.sealed` (`format.md`
+§12; the note list the web viewer reads first) is rewritten after the sync to
+describe what the server then holds (an entry per note whose revisions there
+are exactly the local ones), when its entries changed. `--web-viewer` creates
+it, and `sempere-index.json` (the viewer's one-request listing), on a server
+that has none (and needs the vault unlocked, exit 2 otherwise). The file is never copied between the two sides, and a run
+without the key leaves the server's copy as it is (listed as skipped). The
+sync state remembers the server listing it was last written for, so an
+unchanged server costs no request for it. A `--push-only` run publishes them the same way (to the server only); like
+any push-only run it writes nothing in the vault, not even a refresh of a
+local `sempere-index.json` or `sempere-summaries.sealed`.
 A remote `vault.json` whose device list changed is copied over the local one
 only when it checks (`format.md` §2.1): its tag verifies under the secret it
 carries, and that secret is the local one or a rotation confirmed by its

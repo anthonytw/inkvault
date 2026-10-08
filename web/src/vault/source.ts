@@ -27,6 +27,11 @@ export interface VaultSource {
   listNotes(): Promise<string[]>;
   /** Canonical revision file names of one note (format.md §5); `att/` and unknown files skipped. */
   listRevisions(noteId: string): Promise<string[]>;
+  /**
+   * Drops a locally cached copy of `path` that failed to verify, so the next
+   * read downloads it again; true when there was one (`CachingSource`).
+   */
+  evict?(path: string): Promise<boolean>;
 }
 
 /** Reads `path`, or undefined when it does not exist. */

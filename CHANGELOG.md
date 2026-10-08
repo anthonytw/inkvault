@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Web viewer opens fast on every visit (`docs/web-viewer.md` "Opening fast"). A `config.json` next to
+  the viewer lets the server fix the vault (straight to the key prompt; no URL field, folder picker or
+  `?vault=`). The note list comes at once from the vault's published summaries, `sempere-summaries.sealed`
+  (`format.md` §12: sealed under a key derived from the vault secret, entries keyed by revision file
+  names, a hint never trusted over the revisions); only notes that changed are decrypted. Encrypted
+  vault files are cached in IndexedDB (write-once, so never fetched twice; evicted when gone from the
+  listing; 512 MiB LRU; "Clear cached data"); nothing decrypted is stored. CLI: `sempere vault
+  summaries`; unlocked commands keep an existing file current; `sync webdav` keeps the server's copy
+  current and `--web-viewer` creates it and `sempere-index.json` there. On 200 synthetic notes over a
+  40 ms link: 7.3 s to a listed vault before, 0.3 s with summaries and the index.
 - App Store submission preparation (`docs/release/`): export compliance answers with sources,
   privacy manifests for the app and the widget extension, App Privacy and age rating answers, App
   Review notes, listing drafts, the Mac App Store (universal purchase) steps, and a privacy policy page
