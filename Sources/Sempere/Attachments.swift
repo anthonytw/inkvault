@@ -471,14 +471,13 @@ public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable, CustomStr
     public static let text = ItemKind(rawValue: "text")
     public static let image = ItemKind(rawValue: "image")
     public static let pdfPage = ItemKind(rawValue: "pdfPage")
+    /// An equation (format.md §8.2.8).
+    public static let math = ItemKind(rawValue: "math")
     /// A video clip with a poster frame (format.md §8.2.7).
     public static let video = ItemKind(rawValue: "video")
-    /// Reserved (format.md §8.2.8): not written until the format defines it.
-    public static let math = ItemKind(rawValue: "math")
 
-    /// The kinds the format defines; everything else (the reserved one
-    /// included) is read as unknown.
-    public static let defined: [ItemKind] = [.text, .image, .pdfPage, .video]
+    /// The kinds the format defines; everything else is read as unknown.
+    public static let defined: [ItemKind] = [.text, .image, .pdfPage, .video, .math]
 
     /// True for a kind this reader can draw.
     public var isDefined: Bool { Self.defined.contains(self) }
@@ -578,6 +577,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
     public var codec: String?
     /// `video` (register): the poster frame, an upright image blob; nil (absent) is none.
     public var poster: BlobRef?
+    /// `math`: the equation (register).
+    public var math: MathContent?
 
     /// Fields this reader does not know, re-emitted unchanged.
     public var extra: [String: JSONValue]
@@ -587,12 +588,13 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
                 clocks: [String: String]? = nil, text: TextContent? = nil, blob: BlobRef? = nil,
                 pixelSize: Size? = nil, orientation: Int? = nil, crop: Rect? = nil, pageIndex: Int? = nil,
                 pageSize: Size? = nil, duration: Double? = nil, videoRotation: Int? = nil, codec: String? = nil,
-                poster: BlobRef? = nil, extra: [String: JSONValue] = [:]) {
+                poster: BlobRef? = nil, math: MathContent? = nil, extra: [String: JSONValue] = [:]) {
         self.id = id; self.kind = kind; self.layer = layer; self.frame = frame; self.rotation = rotation; self.z = z
         self.parent = parent; self.rec = rec; self.origin = origin; self.clocks = clocks
         self.text = text; self.blob = blob; self.pixelSize = pixelSize; self.orientation = orientation
         self.crop = crop; self.pageIndex = pageIndex; self.pageSize = pageSize
         self.duration = duration; self.videoRotation = videoRotation; self.codec = codec; self.poster = poster
+        self.math = math
         self.extra = extra
     }
 
@@ -650,6 +652,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         case .image: return ["blob", "pixelSize", "orientation", "crop"]
         case .pdfPage: return ["blob", "pageIndex", "pageSize", "crop"]
         case .video: return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"]
+        case .math: return ["math"]
         default: return []
         }
     }
@@ -671,7 +674,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
                                      ("orientation", orientation != nil), ("crop", crop != nil),
                                      ("pageIndex", pageIndex != nil), ("pageSize", pageSize != nil),
                                      ("duration", duration != nil), ("videoRotation", videoRotation != nil),
-                                     ("codec", codec != nil), ("poster", poster != nil)]
+                                     ("codec", codec != nil), ("poster", poster != nil),
+                                     ("math", math != nil)]
         for (field, isSet) in set where isSet && !mine.contains(field) {
             return "\(kind) item has no field \(field)"
         }
@@ -691,6 +695,9 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
             if !pixelSize.isPositive { return "pixelSize must be positive" }
             if !(duration.isFinite && duration >= 0) { return "duration must be finite and not negative" }
             if let videoRotation, !Self.videoRotations.contains(videoRotation) { return "videoRotation must be 0, 90, 180 or 270" }
+        case .math:
+            guard let math else { return "math item without math" }
+            if let why = math.validationError { return why }
         default: break
         }
         return nil
@@ -728,6 +735,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         } else {
             poster = nil
         }
+        math = try field("math", MathContent.self)
         extra = try c.extra(excluding: Self.commonFields.union(mine))
         if let why = validationError {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: why))
@@ -760,6 +768,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         try c.encodeIfPresent(videoRotation, "videoRotation")
         try c.encodeIfPresent(codec, "codec")
         try c.encodeIfPresent(poster, "poster")
+        try c.encodeIfPresent(math, "math")
         try c.encodeExtra(extra, excluding: Self.commonFields.union(Self.kindFields(kind)))
     }
 }
@@ -777,6 +786,8 @@ public enum ItemChange: Hashable, Sendable {
     case crop(Rect?)
     /// A video's poster frame (format.md §8.2.7); nil resets it to absent (no poster).
     case poster(BlobRef?)
+    /// A math item's equation (format.md §8.2.8).
+    case math(MathContent)
     /// A field this reader does not know. Never a known or immutable field
     /// (use `init(field:value:)`, which routes those).
     case other(field: String, value: JSONValue)
@@ -790,12 +801,13 @@ public enum ItemChange: Hashable, Sendable {
         case .text: return "text"
         case .crop: return "crop"
         case .poster: return "poster"
+        case .math: return "math"
         case .other(let field, _): return field
         }
     }
 
     /// The registers with a typed case.
-    static let typedFields: Set<String> = ["frame", "rotation", "z", "text", "crop", "poster"]
+    static let typedFields: Set<String> = ["frame", "rotation", "z", "text", "crop", "poster", "math"]
 
     /// Parses a `setItem` (format.md §8.2.2). Throws `ItemChangeError` for
     /// an immutable field, for `null` where a register is required (`frame`,
@@ -826,6 +838,9 @@ public enum ItemChange: Hashable, Sendable {
             self = .crop(r)
         case "poster":
             self = .poster(value.isNull ? nil : try typed(BlobRef.self))
+        case "math":
+            guard !value.isNull else { throw ItemChangeError.nullNotAllowed(field) }
+            self = .math(try typed(MathContent.self))
         default:
             self = .other(field: field, value: value)
         }
@@ -836,6 +851,7 @@ public enum ItemChange: Hashable, Sendable {
         switch self {
         case .frame(let r): return r.hasPositiveSize ? nil : .invalidValue("frame")
         case .crop(let r): return r.map { $0.hasPositiveSize ? nil : .invalidValue("crop") } ?? nil
+        case .math(let m): return m.validationError == nil ? nil : .invalidValue("math")
         case .other(let field, _):
             if Item.immutableFields.contains(field) { return .immutableField(field) }
             if Self.typedFields.contains(field) { return .invalidValue(field) }
