@@ -34,14 +34,6 @@ struct SceneRestorationTests {
         #expect(MenuRouting.settingsSceneID == SceneRestoration.Kind.settings.sceneID)
     }
 
-    /// The model, library and keys a window gets (`appEnvironment`), with fakes.
-    static func environment<V: View>(_ view: V, model: AppModel) -> some View {
-        view.appEnvironment(model: model,
-                            library: VaultLibrary(storeURL: FileManager.default.temporaryDirectory
-                                .appendingPathComponent(UUID().uuidString).appendingPathComponent("recents.json")),
-                            keys: RememberedKeys(store: FakeKeyStore()))
-    }
-
     static func lay<V: View>(_ view: V) {
         let controller = UIHostingController(rootView: view)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 768))
@@ -51,16 +43,25 @@ struct SceneRestorationTests {
         window.isHidden = true
     }
 
-    /// Each window's own root, with nothing but `appEnvironment`: a view that
-    /// reads an environment object the window lacks traps here (TestFlight:
-    /// the Settings window restored in the iPad build on a Mac).
+    /// The root each window gets (`WindowRoot`, which `SempereApp` builds every
+    /// `WindowGroup` from), with fakes: a view that reads an environment object
+    /// the window lacks traps here (TestFlight: the Settings window restored in
+    /// the iPad build on a Mac had no remembered keys).
     @Test func everyWindowRootLaysOutWithTheSharedEnvironment() {
         let model = AppModel()
-        Self.lay(Self.environment(RootView(), model: model))
-        Self.lay(Self.environment(SettingsView(showsDone: false), model: model))
-        Self.lay(Self.environment(KeysWindowView(), model: model))
-        Self.lay(Self.environment(RestoredScene(kind: .settings) { SettingsView(showsDone: false) }, model: model))
-        Self.lay(Self.environment(RestoredScene(kind: .keys) { KeysWindowView() }, model: model))
+        let library = VaultLibrary(storeURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("recents.json"))
+        let keys = RememberedKeys(store: FakeKeyStore())
+        var kinds: [SceneRestoration.Kind] = [.library, .settings, .keys]
+        // A note window without its note closes itself and opens the library on
+        // the Mac: lay it out only where it shows the library instead.
+        if !UIApplication.shared.supportsMultipleScenes { kinds.append(.note) }
+        for kind in kinds {
+            Self.lay(WindowRoot(kind: kind, model: model, library: library, keys: keys))
+        }
+        // Each window's own content too, whatever the host's scene support.
+        Self.lay(SettingsView(showsDone: false).appEnvironment(model: model, library: library, keys: keys))
+        Self.lay(KeysWindowView().appEnvironment(model: model, library: library, keys: keys))
         #expect(model.phase == .noVault)
     }
 }

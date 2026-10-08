@@ -80,6 +80,37 @@ extension View {
     }
 }
 
+/// What a window of each `SceneRestoration.Kind` shows, with the whole app
+/// environment (`appEnvironment`). Every `WindowGroup` of `SempereApp` is built
+/// from it, so `SceneRestorationTests` lays out exactly the roots the windows get.
+struct WindowRoot: View {
+    let kind: SceneRestoration.Kind
+    /// The note of a note window; nil when it was restored without one.
+    var note: NoteWindowValue?
+    let model: AppModel
+    let library: VaultLibrary
+    let keys: RememberedKeys
+
+    var body: some View {
+        content.appEnvironment(model: model, library: library, keys: keys)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch kind {
+        case .library:
+            RootView()
+        case .note:
+            RestoredScene(kind: .note, hasValue: note != nil) {
+                if let note { NoteWindowView(value: note) }
+            }
+        case .settings:
+            RestoredScene(kind: .settings) { SettingsView(showsDone: false) }
+        case .keys:
+            RestoredScene(kind: .keys) { KeysWindowView() }
+        }
+    }
+}
+
 /// The root of a window of `kind`: its own content, or the library, or a
 /// window that closes itself (`SceneRestoration.shows`).
 struct RestoredScene<Content: View>: View {
