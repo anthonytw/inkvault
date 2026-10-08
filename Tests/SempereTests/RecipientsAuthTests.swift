@@ -670,7 +670,7 @@ enum FixtureVault {
         let url = dest.appendingPathComponent("vault.json")
         var m = try VaultManifest.decode(Data(contentsOf: url))
         m.recipientsTag = nil
-        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature || $0 == VaultManifest.signedLinkFeature }
         try m.encoded().write(to: url)
         return dest
     }

@@ -60,9 +60,10 @@ extension AppModel {
     }
 
     /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`,
-    /// excluded from backups: a record's `linkKey` can make a `secretLink`, and
-    /// a backup may be readable by the same provider that stores the vault
-    /// (security review 2026-10, R2).
+    /// excluded from backups. Records hold only public keys now, but a legacy
+    /// one (until the upgrade at unlock replaces it) held an HMAC key that could
+    /// make a `secretLink`, and a backup may be readable by the same provider
+    /// that stores the vault (security review 2026-10, R2).
     nonisolated static var defaultRecipientsTrust: any RecipientsTrustStore {
         prepareCacheDirectory(defaultTrustDirectory)
         return FileRecipientsTrustStore(directory: defaultTrustDirectory)

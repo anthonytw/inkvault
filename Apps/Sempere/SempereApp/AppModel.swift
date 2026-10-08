@@ -638,6 +638,23 @@ final class AppModel {
                 recipientsNotice = RecipientsAlert.upgradeNotice(opened.recipients)
             }
         }
+        if !opened.isLegacy, !opened.isReadOnly, opened.recipientsStatus.problem == nil,
+           opened.secretLinkStatus.needsUpgrade {
+            // Signed secret links (format.md §2.1): this device's record keeps
+            // public keys only, and the vault drops its legacy HMAC link. Once,
+            // quietly; a vault that cannot be written now is retried next unlock.
+            let start = opened
+            if let upgraded = try? await Task.detached(priority: .userInitiated, operation: { () throws -> Vault in
+                try CloudVault.coordinatedWrite(coordinate) { () throws -> Vault in
+                    var v = start
+                    try v.upgradeSecretLink()
+                    return v
+                }
+            }).value {
+                try ensureCurrent(gen)
+                opened = upgraded
+            }
+        }
         vault = opened
         unlockIdentities = identities
         recipientsAlert = opened.recipientsStatus.problem.map { RecipientsAlert(problem: $0, entries: opened.recipients) }
