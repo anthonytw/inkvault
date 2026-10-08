@@ -40,15 +40,12 @@ struct SidebarView: View {
                             .accessibilityIdentifier("sidebar-notebook-\(node.path)")
                             .sidebarDropTarget(.notebook(node.path))
                             // The drag and the context menu come from one UIKit view (`NotebookDragSource`).
-                            .notebookDragSource(node.path, menu: [
-                                NotebookRowAction(title: "Rename or Move…", systemImage: "pencil") {
-                                    newName = node.path
-                                    renaming = node.path
-                                },
-                                NotebookRowAction(title: "Move Notebook To…", systemImage: "folder") {
-                                    movingNotebook = MovingNotebook(path: node.path)
-                                },
-                            ])
+                            .notebookDragSource(node.path, menu: NotebookRowAction.notebookMenu(rename: {
+                                newName = node.path
+                                renaming = node.path
+                            }, move: {
+                                movingNotebook = MovingNotebook(path: node.path)
+                            }))
                             .swipeActions {
                                 Button("Rename", systemImage: "pencil") { newName = node.path; renaming = node.path }
                             }

@@ -48,12 +48,23 @@ struct NotebookTransfer: Codable, Transferable, Sendable {
     }
 }
 
-/// One entry of a notebook row's context menu.
+/// One entry of a notebook row's context menu. The title is a resource, not
+/// a `String`: the menu is built by UIKit (`UIAction`) as well as SwiftUI, and
+/// a plain `String` would never be looked up in the catalog.
 struct NotebookRowAction: Identifiable, Sendable {
-    let title: String
+    let title: LocalizedStringResource
     let systemImage: String
     let perform: @MainActor @Sendable () -> Void
-    var id: String { title }
+    var id: String { title.key }
+    /// The title in the app's language.
+    var localizedTitle: String { String(localized: title) }
+
+    /// A notebook row's menu: Rename or Move…, Move Notebook To….
+    static func notebookMenu(rename: @escaping @MainActor @Sendable () -> Void,
+                             move: @escaping @MainActor @Sendable () -> Void) -> [NotebookRowAction] {
+        [NotebookRowAction(title: "Rename or Move…", systemImage: "pencil", perform: rename),
+         NotebookRowAction(title: "Move Notebook To…", systemImage: "folder", perform: move)]
+    }
 }
 
 extension View {
@@ -92,7 +103,7 @@ private struct NotebookDragSourceModifier: ViewModifier {
 
     @ViewBuilder private var menuButtons: some View {
         ForEach(menu) { action in
-            Button(action.title, systemImage: action.systemImage) { action.perform() }
+            Button(action.localizedTitle, systemImage: action.systemImage) { action.perform() }
         }
     }
 }
@@ -193,7 +204,7 @@ private struct UIKitDragHandle: UIViewRepresentable {
             guard !actions.isEmpty else { return nil }
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
                 UIMenu(children: actions.map { action in
-                    UIAction(title: action.title, image: UIImage(systemName: action.systemImage)) { _ in
+                    UIAction(title: action.localizedTitle, image: UIImage(systemName: action.systemImage)) { _ in
                         MainActor.assumeIsolated { action.perform() }
                     }
                 })
