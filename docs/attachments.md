@@ -1200,8 +1200,9 @@ is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
 - **Selected state.** A solid outline over a faint tint, white handles and
   the item's menu next to it. A text box's height follows its lines
   (format.md §8.2.4), so it has side handles that set its wrapping width;
-  every other kind has corner handles and keeps its proportions
-  (`ItemFrames.handles`, `keepsAspect`). A drag inside moves the item, a drag
+  every other kind has corner handles and keeps its proportions, except an
+  audio card, whose label is laid out in its frame (a taller card shows more
+  transcript), so it resizes freely (`ItemFrames.handles`, `keepsAspect`). A drag inside moves the item, a drag
   on a handle resizes it; one delta and one undo step per gesture.
 - **Taps.** The first tap selects; a tap on the selected item shows its menu
   again, or types in it for a text box, so a double tap edits a box from
