@@ -34,7 +34,7 @@ recordings with on-device transcripts, and the link between ink and audio
 ("tap a stroke to hear what was said").
 
 Reserved for later, with names and blob machinery fixed now so that they need
-no format change (`format.md` §8.2.8): `math` items (LaTeX equations).
+no format change (`format.md` §8.2.9): `math` items (LaTeX equations).
 `video` items are defined (`format.md` §8.2.7, task G2). Also later: localization of the app's interface (§14, task L).
 
 Not in scope: typed-text *documents* (reflowing text with ink anchored to
@@ -519,7 +519,7 @@ text as you write in a text box).
 
 ### Math (reserved, later)
 
-A `math` item kind is reserved (`format.md` §8.2.8): an equation stored as
+A `math` item kind is reserved (`format.md` §8.2.9): an equation stored as
 LaTeX source, shown typeset, edited as text (tap to edit the source, the
 typeset result updates live). The item also stores a rendered PDF of the
 result (a blob, `render`), so the CLI and older readers draw it without a
@@ -1653,7 +1653,7 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
 
 ### G. Future item kinds (not scheduled)
 
-- **G1 — `math` items.** Define `format.md` §8.2.8 `math` fully; typeset
+- **G1 — `math` items.** Define `format.md` §8.2.9 `math` fully; typeset
   with SwiftMath (MIT; MathJax as fallback, §6) on device; edit as LaTeX
   source in the text editor with a live preview; store the rendered PDF
   blob for other renderers; exports embed that PDF as a Form XObject (C3's

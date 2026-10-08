@@ -58,7 +58,7 @@ extension Item {
         guard kind == other.kind, layer == other.layer, rec == other.rec, blob == other.blob,
               pixelSize == other.pixelSize, orientation == other.orientation, pageIndex == other.pageIndex,
               pageSize == other.pageSize, duration == other.duration, videoRotation == other.videoRotation,
-              codec == other.codec else { return false }
+              codec == other.codec, recording == other.recording else { return false }
         let fixed = Self.immutableFields
         return extra.filter { fixed.contains($0.key) } == other.extra.filter { fixed.contains($0.key) }
     }
