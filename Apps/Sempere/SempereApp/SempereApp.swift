@@ -56,10 +56,19 @@ struct SempereApp: App {
         // does not fit (another build's scene, a note window without its value)
         // shows the library or closes (`SceneRestoration`).
         WindowGroup("Note", id: SceneRestoration.Kind.note.sceneID, for: NoteWindowValue.self) { $value in
-            root(.note, note: value)
+            RestoredScene(kind: .note, hasValue: value != nil) {
+                if let value { NoteWindowView(value: value) }
+            }
+            .appEnvironment(model: model, library: library, keys: keys)
         }
-        WindowGroup("Settings", id: SceneRestoration.Kind.settings.sceneID) { root(.settings) }
-        WindowGroup("Vault Keys", id: SceneRestoration.Kind.keys.sceneID) { root(.keys) }
+        WindowGroup("Settings", id: SceneRestoration.Kind.settings.sceneID) {
+            RestoredScene(kind: .settings) { SettingsView(showsDone: false) }
+                .appEnvironment(model: model, library: library, keys: keys)
+        }
+        WindowGroup("Vault Keys", id: SceneRestoration.Kind.keys.sceneID) {
+            RestoredScene(kind: .keys) { KeysWindowView() }
+                .appEnvironment(model: model, library: library, keys: keys)
+        }
     }
 
     /// The library window. It has the same id in the Catalyst and the iPad
@@ -75,10 +84,7 @@ struct SempereApp: App {
         #endif
     }
 
-    private var libraryContent: some View { root(.library) }
-
-    /// A window's root (`WindowRoot`): its content and the whole app environment.
-    private func root(_ kind: SceneRestoration.Kind, note: NoteWindowValue? = nil) -> WindowRoot {
-        WindowRoot(kind: kind, note: note, model: model, library: library, keys: keys)
+    private var libraryContent: some View {
+        RootView().appEnvironment(model: model, library: library, keys: keys)
     }
 }
