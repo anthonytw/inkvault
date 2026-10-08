@@ -1755,8 +1755,8 @@ is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 ### 8.2 Placed items
 
 A page's `items` (§5.5) are text boxes, images, PDF page backgrounds, video
-clips and recordings placed on the page, in page coordinates (points, origin
-top-left, y down).
+clips, equations and recordings placed on the page, in page coordinates
+(points, origin top-left, y down).
 
 #### 8.2.1 Common fields
 
