@@ -379,9 +379,12 @@ final class RenderCache: @unchecked Sendable {
     /// around it (bounds: the rotated frame's, page points). Nil when it cannot be drawn.
     static func drawPreview(_ item: Item, document: PDFDocumentBox, scale: Double) -> Picture? {
         let bounds = ItemFrames.bounds(item.frame, rotation: item.rotation)
-        let w = Int((bounds.w * scale).rounded(.up)), h = Int((bounds.h * scale).rounded(.up))
-        guard w > 0, h > 0, w * h <= maxPreviewPixels * 2,
+        // Sizes as Double first: a frame from the vault can be huge (or make the
+        // bounds infinite or NaN), and Int(_:) traps on any of those.
+        let wd = (bounds.w * scale).rounded(.up), hd = (bounds.h * scale).rounded(.up)
+        guard wd.isFinite, hd.isFinite, wd > 0, hd > 0, wd * hd <= Double(maxPreviewPixels * 2),
               let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let w = Int(wd), h = Int(hd)
         let rotated = (item.rotation ?? 0).truncatingRemainder(dividingBy: 360) != 0
         let info = rotated ? CGImageAlphaInfo.premultipliedLast.rawValue : CGImageAlphaInfo.noneSkipLast.rawValue
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
