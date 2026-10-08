@@ -89,16 +89,14 @@ final class MathModels {
         guard downloads[entry.id] == nil else { return }
         status[entry.id] = .downloading(done: 0, total: entry.downloadBytes)
         let root = self.root, session = self.session
+        let progress: @Sendable (Int64) -> Void = { [weak self] done in
+            let models = self
+            Task { @MainActor in models?.progressed(entry, done: done) }
+        }
         downloads[entry.id] = Task { [weak self] in
             let result: Status
             do {
-                try await MathModelDownload.run(entry, root: root, session: session) { done in
-                    Task { @MainActor [weak self] in
-                        if case .downloading = self?.status[entry.id] {
-                            self?.status[entry.id] = .downloading(done: done, total: entry.downloadBytes)
-                        }
-                    }
-                }
+                try await MathModelDownload.run(entry, root: root, session: session, progress: progress)
                 result = .installed
             } catch is CancellationError {
                 result = .notInstalled
@@ -110,6 +108,12 @@ final class MathModels {
             guard let self else { return }
             self.downloads[entry.id] = nil
             self.status[entry.id] = result
+        }
+    }
+
+    private func progressed(_ entry: MathModelCatalogEntry, done: Int64) {
+        if case .downloading = status[entry.id] {
+            status[entry.id] = .downloading(done: done, total: entry.downloadBytes)
         }
     }
 
