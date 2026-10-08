@@ -56,6 +56,12 @@ ENTITLEMENTS_ALLOWED = {
     "com.apple.security.files.bookmarks.app-scope",      # recent vaults across launches
     "com.apple.security.print",                          # printing the recovery kit
     "com.apple.security.device.audio-input",             # recording audio into notes
+    "com.apple.security.application-groups",             # quick voice status for the widgets (iOS app + widget)
+}
+
+# The only value an entitlement on the allow-list may take, where it has one.
+ENTITLEMENT_VALUES = {
+    "com.apple.security.application-groups": ["group.io.github.anthonytw.sempere"],
 }
 
 # Apple's approved reasons per required-reason API category (TN3183 /
@@ -227,6 +233,9 @@ for p in sorted(ent_files):
     except Exception as e:
         errors.append(f"{rel(p)}: not a valid plist ({e})")
         continue
+    for k, want in ENTITLEMENT_VALUES.items():
+        if k in ents and ents[k] != want:
+            errors.append(f"{rel(p)}: {k} must be exactly {want} (docs/release/app-store.md \"Entitlements\")")
     for k in sorted(set(ents) - ENTITLEMENTS_ALLOWED):
         errors.append(f"{rel(p)}: entitlement {k} is not in the allow-list (scripts/release-check.sh, "
                       "docs/release/app-store.md \"Entitlements\")")
