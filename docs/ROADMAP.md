@@ -3,7 +3,7 @@
 Where every feature sits, by component. Status: ✅ done on `main` (with the PR number) · 🚧 in progress (open PR number) ·
 📋 planned (next) · 💡 future. A note "not yet tried on the iPad" means it is on `main` and
 passed CI, but nobody has used it on a device. Statuses last checked against `main` at
-`c53cf67` (#99) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
+`9594c34` (#104) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
 details in `docs/attachments.md` §14. `docs/HANDOFF.md` has the current
 working state.
 
@@ -83,6 +83,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
 | `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | ✅ #72 | ✅ #72 |
 | Items: `items crop` (the app's Crop: the visible part stays in place) | ✅ #81 | ✅ #81 |
+| Items: `items replace` (the app's Replace Image: one delta, the new picture fitted into the old frame, `parent`) | ✅ #104 | ✅ #104 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | ✅ #87 |
@@ -105,7 +106,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | `attach video` (pure-Swift probe; poster from `--poster`, or from the clip on macOS), `items poster`, `export --videos attach` / `--attachments`, clips linked in Markdown/HTML (G2) | ✅ #93 (no poster without `--poster`) | ✅ #93 |
 | Equations (G1): `attach math` (`--latex`, `--inline`, `--size`, `--color`, `--render` a PDF typeset elsewhere), `items math`, `items list`/`notes show`/`search` over the LaTeX source; exports draw the stored rendering (PDF form; SVG/PNG via Poppler as coverage of its colour), else the source as monospace text with a warning; `$$…$$` in Markdown/HTML | ✅ #96 | ✅ #96 |
-| `items replace`, `recordings list\|place\|rename\|delete`, `attach recording --place`, `vault summaries` | 🚧 #104, #103, #100 | 🚧 #104, #103, #100 |
+| `recordings list\|place\|rename\|delete`, `attach recording --place`, `vault summaries` | 🚧 #103, #100 | 🚧 #103, #100 |
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | ✅ #94 | ✅ #94 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
@@ -148,13 +149,13 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | ✅ #87 (not yet tried on the iPad; recordings tried on an iPhone and a Mac in build 7, feedback in 🚧 #103) |
 | Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | ✅ #89; tried on an iPhone in build 7, fixes ✅ #106, 🚧 #107 |
 | Attachments | Unused-attachment index (E7): Settings → Storage "Unused Attachments" list | 🚧 #95 |
-| Attachments | Selecting images, text boxes and PDFs on the canvas, Replace Image, text colour swatches, Insert menu sections (build 7 feedback) | 🚧 #104 |
+| Attachments | Selecting items (build 7 feedback): one selection model for every kind; Select always in the toolbar; while drawing, a lasso tap, a held finger or a right-click picks an item; outline, handles (text boxes by their sides) and menu on selection; text boxes: tap selects, tap again or double-tap edits; Replace Image… (Photos or Files); text colour swatches from the pen palette; Insert menu grouped, with "Insert PDF Pages After Page N…" (also in the Add Page menu) | ✅ #104 (not yet tried on the iPad) |
 | Attachments | Audio items on the page, Recordings list on the Mac (build 7 feedback) | 🚧 #103 |
 | Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | ✅ #96 (not yet tried on the iPad) |
 | Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💡 |
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | ✅ #93 (not yet tried on the iPad) |
 | Release | TestFlight | ✅ builds 6 and 7 (internal group) |
-| Release | App Store submission | 📋 |
+| Release | App Store submission prep (export compliance, privacy manifests for the app and widget, App Privacy / age rating / review notes / listing, privacy policy page, `scripts/release-check.sh` in CI; `docs/release/`) | ✅ #113; the submission itself is 📋 (the maintainer submits) |
 | Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | ✅ #53 |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
@@ -179,7 +180,7 @@ behaviour and testing on a real Mac.
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); notes, a notebook or the vault to a folder (resumable) or a zip, shared with `export --all`: 🚧 #109 |
 | Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing 💡 |
-| Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+| Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
 
 ## Future: iPhone and web

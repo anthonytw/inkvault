@@ -75,8 +75,8 @@ goes first; after it, the rest run in parallel along the dependencies in
 `docs/attachments.md` §14. G1 (part 1) and G2 are done and L is in review; none blocks anything.
 
 Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `c53cf67` (#99) on 2026-10-08. Beyond this table, the
-build 7 follow-ups are open: selecting items and Replace Image (#104), audio items on the page (#103),
+💡 future. Checked against `main` at `9594c34` (#104) on 2026-10-08. Beyond this table, the
+build 7 follow-ups are open (selecting items and Replace Image, #104, is ✅ merged): audio items on the page (#103),
 sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#107; #106 ✅ merged), bulk export (#109) and backups in the app (#110).
 
 | # | Task | Owner target | Depends on | Done when (summary) |
