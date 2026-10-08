@@ -103,6 +103,7 @@ private struct NotebookDragSourceModifier: ViewModifier {
         }
     }
 
+    // help-lint: titled
     @ViewBuilder private var menuButtons: some View {
         ForEach(menu) { action in
             Button(action.localizedTitle, systemImage: action.systemImage) { action.perform() }

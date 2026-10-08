@@ -163,6 +163,7 @@ struct TitlePatternField: View {
                     }
                 }
                 .labelStyle(.iconOnly)
+                .help("Insert a date field into the pattern")
             }
             switch TitlePatternField.status(of: pattern) {
             case .preview(let title):

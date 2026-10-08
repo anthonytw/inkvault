@@ -5417,6 +5417,18 @@
         }
       }
     },
+    "Insert a date field into the pattern" : {
+      "comment" : "Tooltip of the Insert menu next to the custom title pattern (Settings ▸ New Notes)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar un campo de fecha en el patrón"
+          }
+        }
+      }
+    },
     "Into notebook (blank: top level)" : {
       "comment" : "Notebook field placeholder when moving a notebook",
       "extractionState" : "manual",
