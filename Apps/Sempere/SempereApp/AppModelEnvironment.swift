@@ -24,11 +24,61 @@ struct AppModelEnvironment: DynamicProperty {
         guard let shared = AppModel.current else {
             preconditionFailure("No AppModel in the environment at \(site):\(line), and none created yet")
         }
-        Self.log.fault("AppModel not in the environment at \(String(describing: self.site), privacy: .public):\(self.line); using the app's")
+        Self.fallbacks += 1
+        environmentLog.fault("AppModel not in the environment at \(String(describing: self.site), privacy: .public):\(self.line); using the app's")
         return shared
     }
 
-    private static let log = Logger(subsystem: "io.github.anthonytw.sempere", category: "environment")
+    /// Reads that found no injected model and used `AppModel.current`. The
+    /// test host's `SempereApp.init` sets `current`, so a view a test forgot
+    /// to inject no longer traps there: tests check this count instead.
+    static var fallbacks = 0
+}
+
+private let environmentLog = Logger(subsystem: "io.github.anthonytw.sempere", category: "environment")
+
+/// The other app-wide objects every window injects (`appModels`): one
+/// instance each in the app (`current`, set in `SempereApp.init`).
+@MainActor
+protocol AppWideObject: AnyObject, Observable {
+    static var current: Self? { get }
+}
+
+extension VaultLibrary: AppWideObject {
+    /// The app's vault library (`SempereApp.init`); nil in tests that build their own.
+    @MainActor static var current: VaultLibrary?
+}
+
+extension RememberedKeys: AppWideObject {
+    /// The app's remembered keys (`SempereApp.init`); nil in tests that build their own.
+    @MainActor static var current: RememberedKeys?
+}
+
+/// `@Environment(VaultLibrary.self)` / `@Environment(RememberedKeys.self)`
+/// that cannot trap, as `AppModelEnvironment` does for the model: a view
+/// updated outside its window's environment reads all three (`SidebarView`
+/// reads the model and the keys in one body), so all three fall back.
+@MainActor
+@propertyWrapper
+struct AppEnvironmentObject<Object: AppWideObject>: DynamicProperty {
+    @Environment(Object.self) private var injected: Object?
+    private let site: StaticString
+    private let line: UInt
+
+    init(file: StaticString = #fileID, line: UInt = #line) {
+        site = file
+        self.line = line
+    }
+
+    var wrappedValue: Object {
+        if let injected { return injected }
+        guard let shared = Object.current else {
+            preconditionFailure("No \(Object.self) in the environment at \(site):\(line), and none created yet")
+        }
+        AppModelEnvironment.fallbacks += 1
+        environmentLog.fault("\(String(describing: Object.self), privacy: .public) not in the environment at \(String(describing: self.site), privacy: .public):\(self.line); using the app's")
+        return shared
+    }
 }
 
 extension AppModel {

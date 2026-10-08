@@ -142,7 +142,7 @@ struct BackupSettingsSection: View {
 /// restore it into a new vault (never over the open one) and open it.
 struct RestoreBackupView: View {
     @AppModelEnvironment private var model
-    @Environment(VaultLibrary.self) private var library
+    @AppEnvironmentObject private var library: VaultLibrary
     @Environment(\.dismiss) private var dismiss
 
     private enum Location: Hashable { case onDevice, folder }

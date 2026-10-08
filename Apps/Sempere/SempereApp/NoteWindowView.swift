@@ -8,7 +8,7 @@ import SwiftUI
 struct NoteWindowView: View {
     let value: NoteWindowValue
     @AppModelEnvironment private var model
-    @Environment(VaultLibrary.self) private var library
+    @AppEnvironmentObject private var library: VaultLibrary
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.scenePhase) private var scenePhase

@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// Creates a vault: name, location, and where the key comes from.
 struct NewVaultView: View {
     @AppModelEnvironment private var model
-    @Environment(VaultLibrary.self) private var library
+    @AppEnvironmentObject private var library: VaultLibrary
     @Environment(\.dismiss) private var dismiss
 
     private enum Location: Hashable { case onDevice, folder }

@@ -446,6 +446,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the Catalyst build runs on `main` only (or `gh workflow run CI --ref <branch>`).
   Only the `.commands` line and the entitlements/scene build settings are
   Catalyst-only.
+- Views read the app-wide objects with `@AppModelEnvironment` (the model) and
+  `@AppEnvironmentObject` (`VaultLibrary`, `RememberedKeys`), never
+  `@Environment(X.self)`: a view updated outside its window's environment
+  then falls back to the app's instance (`.current`) and logs a fault
+  (category `environment`) instead of trapping (Mac launch crash, #120).
+  Tests still inject their own; `AppModelEnvironment.fallbacks` counts
+  fallbacks, since the test host sets `.current`.
 - The Mac menu bar starts from UIKit's own (New Window ⌘N, Open… ⌘O, Find…
   ⌘F, document commands). UIKit drops a whole SwiftUI command group if one of
   its shortcuts is taken (log: "Replacement elements conflict"), so a new

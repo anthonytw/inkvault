@@ -6,7 +6,7 @@ import SwiftUI
 /// the key (`RememberedKeys`).
 struct UnlockView: View {
     @AppModelEnvironment private var model
-    @Environment(RememberedKeys.self) private var keys
+    @AppEnvironmentObject private var keys: RememberedKeys
     @State private var passphrase = ""
     @State private var identityText = ""
     @State private var failure: String?
@@ -88,7 +88,7 @@ struct UnlockView: View {
 /// optionally, in iCloud Keychain (default off).
 private struct RememberKeyView: View {
     @AppModelEnvironment private var model
-    @Environment(RememberedKeys.self) private var keys
+    @AppEnvironmentObject private var keys: RememberedKeys
     let offer: RememberedKeys.Offer
     @State private var remember = true
     @State private var sync = false
