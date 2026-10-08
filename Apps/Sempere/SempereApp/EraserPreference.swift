@@ -20,20 +20,43 @@ import PencilKit
 /// entry first and this preference decides the eraser; the other tools keep
 /// PencilKit's saved state. If PencilKit stores something else there, nothing
 /// is removed and the picker shows PencilKit's choice.
+///
+/// The preference is one of two modes, object or pixel. Which pixel eraser
+/// type a picker keeps differs by platform: the iPadOS 26 picker turns a
+/// `.bitmap` item into `.fixedWidthBitmap`, and the Mac Catalyst picker on
+/// macOS 27 does not keep a `.fixedWidthBitmap` item (the maintainer's
+/// Catalyst run of `EraserPreferenceTests`, after TestFlight build 7). So the
+/// stored mode is canonical (`canonical`: any pixel type is `pixelType`) and
+/// `makeToolPicker` gives the picker the pixel type this platform keeps
+/// (`pixelPickerType`, probed once). If the platform's picker keeps no pixel
+/// eraser item at all, the picker starts with the object eraser: the user's
+/// last choice cannot be shown there, and the picker's own eraser menu still
+/// switches modes.
 enum EraserPreference {
     /// `UserDefaults` key holding the last-used eraser mode.
     static let defaultsKey = "Sempere.eraserType"
     /// The mode a canvas starts with when nothing is stored.
     static var defaultType: PKEraserTool.EraserType { .vector }
 
-    /// The stored eraser mode, or `defaultType`.
-    static func load(from defaults: UserDefaults = .standard) -> PKEraserTool.EraserType {
-        defaults.string(forKey: defaultsKey).flatMap(type(named:)) ?? defaultType
+    /// The canonical pixel mode: what `load` returns for any pixel eraser.
+    static var pixelType: PKEraserTool.EraserType { .fixedWidthBitmap }
+
+    /// Whether `type` erases pixels (either bitmap type) rather than strokes.
+    static func isPixel(_ type: PKEraserTool.EraserType) -> Bool { type != .vector }
+
+    /// `type` as one of the two modes: `.vector`, or `pixelType` for any pixel eraser.
+    static func canonical(_ type: PKEraserTool.EraserType) -> PKEraserTool.EraserType {
+        isPixel(type) ? pixelType : .vector
     }
 
-    /// Remembers `type` as the last-used eraser mode.
+    /// The stored eraser mode (`.vector` or `pixelType`), or `defaultType`.
+    static func load(from defaults: UserDefaults = .standard) -> PKEraserTool.EraserType {
+        defaults.string(forKey: defaultsKey).flatMap(type(named:)).map(canonical) ?? defaultType
+    }
+
+    /// Remembers `type`'s mode (object or pixel) as the last-used eraser mode.
     static func save(_ type: PKEraserTool.EraserType, to defaults: UserDefaults = .standard) {
-        defaults.set(name(of: type), forKey: defaultsKey)
+        defaults.set(name(of: canonical(type)), forKey: defaultsKey)
     }
 
     /// Stable names for the stored value (the raw values are not API).
@@ -80,15 +103,48 @@ enum EraserPreference {
     }
 
     /// A tool picker with the system's tools, except that its eraser starts
-    /// as `eraser`. The user can still switch the eraser's mode in the picker.
+    /// in `eraser`'s mode: the object eraser, or this platform's pixel eraser
+    /// (`pixelPickerType`; the object eraser where the picker keeps none). The
+    /// user can still switch the eraser's mode in the picker.
     @MainActor
     static func makeToolPicker(eraser: PKEraserTool.EraserType = load()) -> PKToolPicker {
+        picker(eraserItem: isPixel(eraser) ? (pixelPickerType() ?? .vector) : .vector)
+    }
+
+    /// A picker with the system's tools and an eraser item of exactly `type`.
+    @MainActor
+    static func picker(eraserItem type: PKEraserTool.EraserType) -> PKToolPicker {
         forgetPencilKitEraser()
         let items = PKToolPicker().toolItems.map { item -> PKToolPickerItem in
             guard item is PKToolPickerEraserItem else { return item }
-            return PKToolPickerEraserItem(type: eraser)
+            return PKToolPickerEraserItem(type: type)
         }
         return PKToolPicker(toolItems: items)
+    }
+
+    /// The pixel eraser types tried, in order, for a pixel eraser item.
+    /// (Computed: `PKEraserTool.EraserType` is not `Sendable`, so no stored static.)
+    static var pixelCandidates: [PKEraserTool.EraserType] { [.fixedWidthBitmap, .bitmap] }
+
+    @MainActor private static var probedPixelType: PKEraserTool.EraserType??
+
+    /// The first of `pixelCandidates` that a picker keeps as a pixel eraser
+    /// on this platform, nil when it keeps neither. Probed once per launch.
+    @MainActor
+    static func pixelPickerType() -> PKEraserTool.EraserType? {
+        if let probed = probedPixelType { return probed }
+        let found = pixelCandidates.first { candidate in
+            let kept = eraserType(in: picker(eraserItem: candidate))
+            return kept.map(isPixel) ?? false
+        }
+        probedPixelType = .some(found)
+        return found
+    }
+
+    /// The type of `picker`'s eraser item, if it has one.
+    @MainActor
+    static func eraserType(in picker: PKToolPicker) -> PKEraserTool.EraserType? {
+        picker.toolItems.lazy.compactMap { $0 as? PKToolPickerEraserItem }.first?.eraserTool.eraserType
     }
 
     /// The eraser mode of `tool`, if it is an eraser.

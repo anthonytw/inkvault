@@ -19,6 +19,8 @@ enum MacMenus {
     static let pruned: [UIMenu.Identifier] = [.newScene, .document]
     /// Edit > Find Notes when UIKit built no Find menu to turn into it.
     static let findMenu = UIMenu.Identifier("io.github.anthonytw.sempere.find")
+    /// The app menu's Settings… when UIKit built no preferences menu to turn into it.
+    static let settingsMenu = UIMenu.Identifier("io.github.anthonytw.sempere.settings")
 
     /// Whether `element` is one of the app's own commands (SwiftUI's
     /// `Commands`, which UIKit sees as commands with SwiftUI's private
@@ -63,6 +65,19 @@ enum MacMenus {
             let menu = UIMenu(title: "", identifier: findMenu, options: .displayInline, children: [nativeItem(.find)])
             builder.insertChild(menu, atEndOfMenu: .edit)
             built.append("Find Notes added")
+        }
+        if builder.menu(for: .preferences) != nil {
+            // UIKit's Settings… (⌘,) opens Catalyst's generated pane (touch alternatives): the app's instead.
+            builder.replaceChildren(ofMenu: .preferences) { _ in [nativeItem(.showSettings)] }
+            built.append("preferences → Settings…")
+        } else if builder.menu(for: .application) != nil, builder.menu(for: settingsMenu) == nil {
+            let menu = UIMenu(title: "", identifier: settingsMenu, options: .displayInline, children: [nativeItem(.showSettings)])
+            if builder.menu(for: .about) != nil {
+                builder.insertSibling(menu, afterMenu: .about)
+            } else {
+                builder.insertChild(menu, atStartOfMenu: .application)
+            }
+            built.append("Settings… added")
         }
         for identifier in pruned {
             guard let menu = builder.menu(for: identifier) else { continue }
@@ -115,6 +130,8 @@ enum MacMenus {
 @MainActor
 final class MenuRouting {
     static let shared = MenuRouting()
+    /// `WindowGroup` id of the app's settings window (`SempereApp`).
+    static let settingsSceneID = "settings"
 
     private var routers: [ObjectIdentifier: CommandRouter] = [:]
 
@@ -126,9 +143,19 @@ final class MenuRouting {
         scene.flatMap { routers[ObjectIdentifier($0)] }
     }
 
+    /// Opens a scene by its `WindowGroup` id, kept from the last window that
+    /// appeared (`OpenScenePublisher`): Settings… works with no window focused.
+    var openScene: ((String) -> Void)?
+
     /// Runs `command` in `scene`'s window if it is enabled there; false when it is not.
+    /// Settings… needs no window: it opens the app's settings window (device
+    /// settings need no vault either).
     @discardableResult
     func perform(_ command: MenuCommand, in scene: UIWindowScene?) -> Bool {
+        if command == .showSettings, let openScene {
+            openScene(Self.settingsSceneID)
+            return true
+        }
         guard let router = router(for: scene), command.isEnabled(in: router.context) else { return false }
         router.perform(command)
         return true
@@ -178,10 +205,22 @@ private struct MenuRouterPublisher: UIViewRepresentable {
     }
 }
 
+/// Keeps the window's `openWindow` in `MenuRouting.openScene`.
+private struct OpenScenePublisher: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+
+    func body(content: Content) -> some View {
+        content.onAppear {
+            let open = openWindow
+            MenuRouting.shared.openScene = { id in open(id: id) }
+        }
+    }
+}
+
 extension View {
     /// Publishes `router` for the UIKit menu items of this window (Mac).
     func menuRouter(_ router: CommandRouter) -> some View {
-        background(MenuRouterPublisher(router: router))
+        background(MenuRouterPublisher(router: router)).modifier(OpenScenePublisher())
     }
 }
 
@@ -194,6 +233,13 @@ final class SempereAppDelegate: UIResponder, UIApplicationDelegate {
     @MainActor static var lastTree: [String] = []
     /// The menu tree is logged once per launch (DEBUG).
     @MainActor private static var dumped = false
+
+    /// A UIKit menu item of the app chosen with no window focused (the
+    /// responder chain ends here): only Settings… runs without one.
+    @objc func sempereMenuCommand(_ sender: UICommand) {
+        guard let name = sender.propertyList as? String, let command = MenuCommand(rawValue: name) else { return }
+        MenuRouting.shared.perform(command, in: nil)
+    }
 
     override func buildMenu(with builder: UIMenuBuilder) {
         super.buildMenu(with: builder)

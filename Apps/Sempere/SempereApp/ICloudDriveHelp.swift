@@ -39,6 +39,7 @@ struct ICloudDriveHelpButton: View {
         if ICloudDriveHelp.isShown {
             Button("Don’t see iCloud Drive?", systemImage: "icloud.slash") { showing = true }
                 .sheet(isPresented: $showing) { ICloudDriveHelpView() }
+                .help("How to make iCloud Drive appear in the folder picker")
         }
     }
 }

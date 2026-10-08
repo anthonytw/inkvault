@@ -36,6 +36,7 @@ struct SettingsView: View {
                     withAnimation { proxy.scrollTo(scrollTo, anchor: .top) }
                 }
             }
+            .accessibilityIdentifier("settingsForm")
             .voiceNoteBanner()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

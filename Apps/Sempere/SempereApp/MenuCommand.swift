@@ -11,6 +11,7 @@ import Foundation
 enum MenuCommand: String, CaseIterable, Sendable {
     // File
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
+    case importPDF, importNotability, insertPDFPages, insertPhoto, exportNotes
     case bulkExport
     // Note
     case renameNote, editTags, changePaper, saveVersion, showRecordings, deleteNote, restoreNote
@@ -47,11 +48,14 @@ enum MenuCommand: String, CaseIterable, Sendable {
     }
 
     /// Commands whose shortcut UIKit's own menu bar already uses on a Mac
-    /// (⌘O for "Open…", ⌘F for "Find…"). UIKit refuses a SwiftUI menu group
-    /// holding such a shortcut, and with it every other command of the group
-    /// (TestFlight build 6: the File and Edit commands were missing), so these
-    /// are not SwiftUI commands: `MacMenus` turns UIKit's own items into them.
-    static let nativeOnMac: [MenuCommand] = [.openVault, .find]
+    /// (⌘O for "Open…", ⌘F for "Find…", ⌘, for the app menu's "Settings…").
+    /// UIKit refuses a SwiftUI menu group holding such a shortcut, and with it
+    /// every other command of the group (TestFlight build 6: the File and Edit
+    /// commands were missing), so these are not SwiftUI commands: `MacMenus`
+    /// turns UIKit's own items into them. UIKit's Settings… opened Catalyst's
+    /// generated preferences pane (touch alternatives only), not the app's
+    /// settings (TestFlight build 7).
+    static let nativeOnMac: [MenuCommand] = [.openVault, .find, .showSettings]
 
     /// Who handles the command.
     enum Provider: Sendable {
@@ -79,6 +83,11 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return String(localized: "Reopen Last Vault")
         case .closeVault: return String(localized: "Close Vault")
         case .reloadVault: return String(localized: "Reload Vault")
+        case .importPDF: return String(localized: "Import PDF as New Note…")
+        case .importNotability: return String(localized: "Import from Notability…")
+        case .insertPDFPages: return String(localized: "Insert PDF Pages…")
+        case .insertPhoto: return String(localized: "Insert Photo…")
+        case .exportNotes: return String(localized: "Export…", comment: "File menu: open the export sheet")
         case .bulkExport: return String(localized: "Export Notes…")
         case .renameNote: return String(localized: "Rename Note…")
         case .editTags: return String(localized: "Edit Tags…")
@@ -125,6 +134,12 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return Shortcut("t", shift)
         case .closeVault: return Shortcut("w", shift)
         case .reloadVault: return Shortcut("r", cmd)
+        // ⌘I is UIKit's Italic (Format menu); ⌘E its "Use Selection for Find".
+        case .importPDF: return Shortcut("i", shift)
+        case .importNotability: return nil
+        case .insertPDFPages: return nil
+        case .insertPhoto: return Shortcut("i", option)
+        case .exportNotes: return Shortcut("e", shift)
         case .bulkExport: return nil
         case .renameNote: return Shortcut("r", shift)
         case .editTags: return Shortcut("t", option)
@@ -169,6 +184,12 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var noteDeleted = false
         /// A note is open on a canvas that accepts input.
         var canEditNote = false
+        /// The open note is pageless (one infinite page): PDF pages cannot be inserted.
+        var notePageless = false
+        /// The vault opened read-only (a newer format version, format.md §7.3).
+        var vaultReadOnly = false
+        /// The notes File > Export acts on (`CommandRouter.exportIDs`) are not empty.
+        var hasExportTargets = false
         /// The canvas has a page to show.
         var hasPage = false
         var pageIndex = 0
@@ -201,6 +222,12 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .renameNote, .editTags, .saveVersion: return unlocked && context.hasNote && !context.noteDeleted
         case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted && !context.editingText
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
+        // The importers and their sheets are per window (`WindowSheets`): any window with a vault.
+        case .importPDF, .importNotability: return unlocked && !context.vaultReadOnly && context.window != .other
+        // The Insert menu's own rule (`InsertMenu`): an editable note with a page. On a pageless note
+        // Insert PDF Pages… switches it to pages once a PDF is picked (`InsertOptions.pdfImport`).
+        case .insertPhoto, .insertPDFPages: return context.canEditNote && context.hasPage
+        case .exportNotes: return unlocked && context.hasExportTargets
         case .changePaper: return context.canEditNote && context.hasPage
         // The note's recordings, read-only notes included (they can still be played).
         case .showRecordings: return unlocked && context.hasPage
@@ -226,8 +253,10 @@ enum MenuLayout {
     static let file: [[MenuCommand]] = [
         [.newNote, .openNoteInWindow],
         [.newVault, .openVault, .reopenVault, .closeVault],
+        [.importPDF, .importNotability],
+        [.insertPDFPages, .insertPhoto],
+        [.exportNotes, .bulkExport],
         [.reloadVault],
-        [.bulkExport],
     ]
     static let note: [[MenuCommand]] = [
         [.renameNote, .editTags, .changePaper],

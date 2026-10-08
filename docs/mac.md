@@ -50,9 +50,23 @@ built menu bar on Catalyst (the app's File and Edit commands are there,
 UIKit's duplicates are not, no shortcut twice), and `MacWindowUITests` checks
 it in the running app.
 
-File > Export acts on the focused window's notes (`CommandRouter.exportIDs`:
+File > Export… (⇧⌘E) acts on the focused window's notes (`CommandRouter.exportIDs`:
 the list's selection in a library window, its note in a note window), and its
-sheet opens in that window (`ExportRequest.window`). With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
+sheet opens in that window (`ExportRequest.window`) with PDF chosen; the sheet
+picks the format. (The iPad keeps the Export submenu, `ExportMenuCommands`, in
+its keyboard menu.)
+
+The File menu's import and insert commands (TestFlight build 7) open the same
+pickers as the toolbars: Import PDF as New Note… sets the flag the note list's
+Import PDF… button sets (`WindowUI.importingPDF`), Import from Notability… the
+flag of the note list's Import from Notability… button (`importingNotability`;
+the iPad, which has no File menu, uses that button); both importers live in
+`WindowSheets`, so they work with the note list hidden and in note windows.
+Insert Photo… and Insert PDF Pages… send `WindowUI.insertRequest` to the
+window's editor, which opens its Insert menu's picker (`InsertState.open`);
+they follow the Insert menu's enabling (an editable note with a page); on a
+pageless note Insert PDF Pages… switches it to pages once a PDF is picked, as
+the Insert menu's entry does (#104). Imports file new notes under the sidebar's notebook. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
 
 | Menu | Command | Shortcut |
 | --- | --- | --- |
@@ -63,6 +77,11 @@ sheet opens in that window (`ExportRequest.window`). With no window, only View >
 | File | Open Recent | submenu of the recent vaults |
 | File | Reopen Last Vault | ⇧⌘T |
 | File | Close Vault | ⇧⌘W |
+| File | Import PDF as New Note… | ⇧⌘I |
+| File | Import from Notability… | (none) |
+| File | Insert PDF Pages… | (none) |
+| File | Insert Photo… | ⌥⌘I |
+| File | Export… | ⇧⌘E |
 | File | Reload Vault | ⌘R |
 | File | Export Notes… (the ticked notes, else the sidebar's notebook, else the vault, into a chosen folder or a zip; docs/io.md "Bulk export") | (none) |
 | Edit | Undo, Redo | ⌘Z, ⇧⌘Z (the system's: the canvas's undo manager, or the text field being edited) |
@@ -84,7 +103,7 @@ sheet opens in that window (`ExportRequest.window`). With no window, only View >
 | View | Hide or Show Note List | ⌥⌘L |
 | View | Library (opens a library window when none is open) | ⌥⌘0 |
 | View | Vault Keys (the key window) | ⌥⌘K |
-| View | Settings… (the settings window; at the end of the View menu, since Catalyst has no app-menu placement for it) | ⌘, |
+| Sempere (app menu) | Settings… (the app's settings window; UIKit's own item, which opened Catalyst's generated pane, is replaced) | ⌘, |
 
 ⌘W closes a window as usual; it never closes the vault (⇧⌘W does). Zoom
 steps are 1, 1.25, 1.5, 2, 2.5, 3 and 4 times the fitted page width
@@ -92,6 +111,19 @@ steps are 1, 1.25, 1.5, 2, 2.5, 3 and 4 times the fitted page width
 canvas's range. Tool commands select the tool in the system palette
 (`PageCanvasHost.select(tool:)`); the compact palette has no pencil, so that
 command does nothing there.
+
+**Settings… (fixed after build 7).** UIKit also builds the app menu's
+Settings… (⌘,), which opens a pane Catalyst generates (touch alternatives and
+system items only), while the sidebar's gear opened the app's settings. Settings…
+is now one of the `nativeOnMac` commands: `MacMenus` replaces UIKit's
+preferences item with the app's, so it sits where a Mac user looks for it, and it
+is no longer at the end of the View menu. It needs no window: `MenuRouting`
+opens the settings window through the `openWindow` of the last window that
+appeared (`openScene`), and the app delegate takes the command when no window
+is in the responder chain. `MacCatalystTests.settingsInTheAppMenuAreTheApps`
+checks the built menu bar (one Settings… on ⌘,, no `orderFrontPreferencesPanel:`)
+and `MacWindowUITests.testCommandCommaOpensTheAppsSettings` presses ⌘, in the
+running app.
 
 Placed items (images, text boxes, PDF pages, videos, recordings' cards): the mouse always draws,
 so a right-click (or two-finger click) on an item selects it and shows its
@@ -167,8 +199,54 @@ others): two canvases on one editor would each report a drawing without the
 other's new strokes, which the ledger takes as erasures. A window's editor reads
 handwriting like the pane's (the model's `recognizer` reaches it), and notes
 open in a window are left out of "Recognize N Notes Now". Restored note windows
-ask for at most one library window (`shouldOpenLibraryWindow`). Note > Move to
+ask for at most one library window (`shouldOpenLibraryWindow`). A double-click
+on a row of the note list opens the note's window too (`OpenOnDoubleClick`, Mac
+only). A SwiftUI tap gesture on the row never fires there, because the list's
+collection view takes the clicks for selection, and `primaryAction` is a
+single click in the iPad idiom. So a `DoubleClickRecognizer` sits on the row's
+cell (`DoubleClick.swift`, one per cell, its handler following the row shown).
+It fires when a touch ends with `tapCount` ≥ 2, so the work the first click
+starts (selecting the note, opening it) cannot break the pair, and it never
+delays or cancels touches. It acts for
+the same notes as the menu (`AppModel.noteWindowValue`: listed, downloaded,
+not in Recently Deleted). Note > Move to
 Recently Deleted (⌘⌫) is off while a search, rename or tag field may have focus.
+
+## Tooltips
+
+Toolbar buttons show no title on a Mac, so every icon-only control has a
+`.help("…")` tooltip (TestFlight build 7). `scripts/check-help.py` (run by the
+`app` CI job, with `--self-test` for its own cases) fails on a `Button`,
+`Menu`, `Toggle`, `ShareLink` or `PhotosPicker` that shows an icon outside a
+menu, list, form, picker or dialog and has no `.help`. A view builder whose
+controls only appear in menus is marked `// help-lint: titled`; a deliberate
+exception carries `// help-lint: ignore (why)`. The scan cannot see a
+`.labelStyle(.iconOnly)` set on a container, so give those buttons `.help` by
+hand (the recording bar's do).
+
+## Opening PDFs from the Finder
+
+Sempere declares PDFs (`com.adobe.pdf`) as a document type it can view, at rank
+Alternate (`SempereInfo.plist`): it is offered under Open With (and on an
+iPad in the share sheet and Files' Open In), never made the default PDF app.
+An opened PDF is not a vault (before build 8 it was opened as one): `onOpenURL`
+(library and note windows, `AppModel.handleOpened`) copies it into the work
+folder at once, since its security scope ends with the call, and queues it
+(`openedPDFs`, app state, not the vault's). Then (`OpenedFile.stage`):
+
+* no vault open: a bar under the welcome screen says the PDFs wait for one
+  (Discard drops them);
+* a vault opening, locked or migrating: the same bar, until it is unlocked;
+* unlocked: a sheet in the window with the canvas, "Import PDF" into the
+  named vault, with the notebook (the sidebar's by default). Import makes one
+  note per PDF through `importPDF(copy:to:password:)`, the Import PDF path
+  (a protected PDF asks for its password); Choose Another Vault… closes the
+  vault and the PDFs wait for the next one; Cancel discards them;
+* a read-only vault (`format.md` §7.3): the sheet says so and offers only
+  another vault or Cancel.
+
+Work copies are plaintext: they are removed after the import, on Discard or
+Cancel, and at launch (`PDFPreparation.purge`).
 
 ## Drag a note out as PDF
 
@@ -276,6 +354,13 @@ There is no Pencil, so on a Mac:
 * The **object eraser takes the pointer** (`ObjectEraserController.pressTouchTypes`).
   It replaces PencilKit's gesture, and used to listen for the Pencil and
   fingers only, so on a Mac the default eraser did nothing.
+* **The remembered eraser mode** (object or pixel, `EraserPreference`) holds
+  on the Mac too. macOS 27's Catalyst picker does not keep a
+  `.fixedWidthBitmap` eraser item, the iPadOS 26 one's pixel eraser, so the
+  picker gets whichever pixel type this platform keeps (`pixelPickerType`,
+  probed once per launch; `EraserPreferenceTests` print what each type comes
+  back as, `ERASER-PROBE`). Where none is kept, a canvas starts with the
+  object eraser.
 * The pointer over the canvas is a circle the size of the ink tool's stroke at
   the current zoom (`PointerCursor.diameter`, 6 to 64 pt); the object eraser
   keeps its own cursor, the lasso and the pixel eraser the system arrow.
@@ -315,8 +400,18 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 6. New Note: type part of a notebook name; open the list with the chevron.
 7. Add a key (paste and generate), remove it, print the recovery kit.
 8. Draw with the mouse and trackpad, with each tool; erase with the object eraser.
-9. Record (Recordings menu), stop: the card appears where you were looking;
-   click its play button (no ink is drawn), move and resize it in selection
-   mode, delete it; Note > Recordings… lists the recording, Place on This Page
-   puts it back. Export the note as "PDF + attachments", then Share… and
-   Save…: no crash, the PDF lists the audio in Preview's attachments.
+9. Double-click a note in the list: its window opens. Hover over every toolbar
+   button: each shows a tooltip.
+10. File > Import PDF as New Note…, Import from Notability… (a `.note` and a
+    backup zip), Insert Photo…, Insert PDF Pages… (on a pageless note it
+    switches to pages), Export…, with and without an open note.
+11. In the Finder, right-click a PDF > Open With > Sempere: with the app quit,
+    with no vault open, with the vault locked, and unlocked. Sempere must not
+    become the default app for PDFs.
+12. ⌘, and Sempere > Settings… open the app's Settings window, with and without
+    a window open; there is no other Settings window.
+13. Record (Recordings menu), stop: the card appears where you were looking;
+    click its play button (no ink is drawn), move and resize it in selection
+    mode, delete it; Note > Recordings… lists the recording, Place on This Page
+    puts it back. Export the note as "PDF + attachments", then Share… and
+    Save…: no crash, the PDF lists the audio in Preview's attachments.

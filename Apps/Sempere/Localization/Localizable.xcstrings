@@ -741,6 +741,150 @@
         }
       }
     },
+    "%lld notes failed:" : {
+      "comment" : "Notability import result, followed by one line per note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld note failed:"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notes failed:"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas con error:"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld nota con error:"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notas con error:"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld notes imported." : {
+      "comment" : "Notability import result: notes written",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld note imported."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notes imported."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas importadas."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld nota importada."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notas importadas."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld notes skipped (already in the vault, or a copy of a note imported from another file)." : {
+      "comment" : "Notability import result",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld note skipped (already in the vault, or a copy of a note imported from another file)."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notes skipped (already in the vault, or a copy of a note imported from another file)."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas omitidas (ya estaban en la bóveda o eran copias de notas importadas de otro archivo)."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld nota omitida (ya estaba en la bóveda o era una copia de una nota importada de otro archivo)."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notas omitidas (ya estaban en la bóveda o eran copias de notas importadas de otro archivo)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld notes were left as they are (open, not downloaded or unreadable)." : {
       "comment" : "Thinning summary, after the main sentence",
       "extractionState" : "manual",
@@ -2086,6 +2230,30 @@
         }
       }
     },
+    "Add a page after this one; press and hold to duplicate, delete or add at the end" : {
+      "comment" : "Help tag of Add Page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir una página después de esta; mantener pulsado para duplicar, eliminar o añadir al final"
+          }
+        }
+      }
+    },
+    "Add a page at the end of the note" : {
+      "comment" : "Help tag in the page strip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir una página al final de la nota"
+          }
+        }
+      }
+    },
     "Add photos, a picture from the clipboard, or pages of a PDF" : {
       "comment" : "Help for the Insert menu",
       "extractionState" : "manual",
@@ -2404,6 +2572,18 @@
         }
       }
     },
+    "Becomes a new note in “%@”, one page per PDF page, to write on. The PDF is stored encrypted in the vault." : {
+      "comment" : "Sheet for a PDF opened with Sempere; the value is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se convierte en una nota nueva en «%@», con una página por cada página del PDF, para escribir encima. El PDF se guarda cifrado en la bóveda."
+          }
+        }
+      }
+    },
     "Black" : {
       "comment" : "Text colour",
       "extractionState" : "manual",
@@ -2452,6 +2632,18 @@
         }
       }
     },
+    "Bring back the page deleted last" : {
+      "comment" : "Help tag in the page strip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recuperar la última página eliminada"
+          }
+        }
+      }
+    },
     "Bring to Front" : {
       "comment" : "Undo action name (Edit ▸ Undo …) or item menu command",
       "extractionState" : "manual",
@@ -2460,6 +2652,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Traer al frente"
+          }
+        }
+      }
+    },
+    "Browse earlier versions of the note and restore one" : {
+      "comment" : "Help tag of Version History…",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver versiones anteriores de la nota y restaurar una"
           }
         }
       }
@@ -2668,6 +2872,18 @@
         }
       }
     },
+    "Choose Another Vault…" : {
+      "comment" : "Button: close this vault so the PDFs go into another one",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir otra bóveda…"
+          }
+        }
+      }
+    },
     "Choose Folder and Export…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2698,6 +2914,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elige una carpeta fuera de la bóveda: las notas exportadas no están cifradas."
+          }
+        }
+      }
+    },
+    "Choose the paper (ruling, colour) of this page or all pages" : {
+      "comment" : "Help tag of Paper…",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir el papel (pauta, color) de esta página o de todas"
           }
         }
       }
@@ -2782,6 +3010,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cerrar ventana"
+          }
+        }
+      }
+    },
+    "Close the player" : {
+      "comment" : "Help tag in the player",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar el reproductor"
+          }
+        }
+      }
+    },
+    "Close the vault (⇧⌘W)" : {
+      "comment" : "Help tag in the sidebar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar la bóveda (⇧⌘W)"
+          }
+        }
+      }
+    },
+    "Close this vault; the PDFs wait until you open and unlock another one" : {
+      "comment" : "Help tag of Choose Another Vault…",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar esta bóveda; los PDF esperan hasta que abras y desbloquees otra"
           }
         }
       }
@@ -3021,6 +3285,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido cargar la foto: %@"
+          }
+        }
+      }
+    },
+    "Could not open “%@”. %@" : {
+      "comment" : "A file opened with Sempere: its name, then a sentence saying why",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido abrir «%@». %@"
           }
         }
       }
@@ -3540,6 +3816,18 @@
         }
       }
     },
+    "Discard" : {
+      "comment" : "Button: forget the PDFs waiting to be imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descartar"
+          }
+        }
+      }
+    },
     "Dismiss" : {
       "comment" : "Button: hide a recording error message",
       "extractionState" : "manual",
@@ -3548,6 +3836,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cerrar"
+          }
+        }
+      }
+    },
+    "Dismiss this message" : {
+      "comment" : "Help tag of the close button on the voice-note banner",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar este mensaje"
           }
         }
       }
@@ -3814,6 +4114,18 @@
         }
       }
     },
+    "Each PDF becomes a new note in “%@”, one page per PDF page, to write on. The PDFs are stored encrypted in the vault." : {
+      "comment" : "Sheet for several PDFs opened with Sempere; the value is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada PDF se convierte en una nota nueva en «%@», con una página por cada página del PDF, para escribir encima. Los PDF se guardan cifrados en la bóveda."
+          }
+        }
+      }
+    },
     "Earlier revisions were compacted away or cannot be read, so this version cannot be rebuilt." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3881,6 +4193,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Editar texto"
+          }
+        }
+      }
+    },
+    "Edit the note's tags" : {
+      "comment" : "Help tag of Tags",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar las etiquetas de la nota"
           }
         }
       }
@@ -4129,6 +4453,18 @@
         }
       }
     },
+    "Export as PDF, PNG pages or text" : {
+      "comment" : "Help tag of the Export menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar como PDF, páginas PNG o texto"
+          }
+        }
+      }
+    },
     "Export failed" : {
       "comment" : "Export sheet: the export failed",
       "extractionState" : "manual",
@@ -4171,6 +4507,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Las exportaciones no están cifradas. Cualquiera que reciba los archivos puede leer las notas."
+          }
+        }
+      }
+    },
+    "Export…" : {
+      "comment" : "File menu: open the export sheet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar…"
           }
         }
       }
@@ -4351,6 +4699,18 @@
         }
       }
     },
+    "Forget the PDFs waiting to be imported" : {
+      "comment" : "Help tag of Discard",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Olvidar los PDF pendientes de importar"
+          }
+        }
+      }
+    },
     "Forget this vault's key?" : {
       "comment" : "Confirmation title",
       "extractionState" : "manual",
@@ -4470,6 +4830,18 @@
         }
       }
     },
+    "Go to another page, or add one" : {
+      "comment" : "Help tag of the Pages menu (iPhone)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ir a otra página o añadir una"
+          }
+        }
+      }
+    },
     "Green" : {
       "comment" : "Text colour",
       "extractionState" : "manual",
@@ -4537,6 +4909,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La escritura a mano se lee en este dispositivo; el texto se guarda cifrado en la bóveda para que todos los dispositivos puedan buscar en él."
+          }
+        }
+      }
+    },
+    "Handwriting recognition: read notes so their handwriting can be searched" : {
+      "comment" : "Help tag of the Handwriting menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconocimiento de escritura a mano: leer las notas para poder buscar en su escritura"
           }
         }
       }
@@ -4661,6 +5045,18 @@
         }
       }
     },
+    "How to make iCloud Drive appear in the folder picker" : {
+      "comment" : "Help tag of “Don’t see iCloud Drive?”",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo hacer que iCloud Drive aparezca en el selector de carpetas"
+          }
+        }
+      }
+    },
     "I Saved the Key" : {
       "comment" : "Button: confirm the secret key was saved",
       "extractionState" : "manual",
@@ -4709,6 +5105,102 @@
         }
       }
     },
+    "Import" : {
+      "comment" : "Button: import the PDFs opened with Sempere",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar"
+          }
+        }
+      }
+    },
+    "Import %lld PDFs" : {
+      "comment" : "Title of the sheet for PDFs opened with Sempere",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import PDF"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import %lld PDFs"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Importar %lld de PDF"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Importar PDF"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Importar %lld PDF"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Import Finished with Errors" : {
+      "comment" : "Alert title after a Notability import",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importación terminada con errores"
+          }
+        }
+      }
+    },
+    "Import Notability notes or a Notability backup (.note, .ntb, folders or zips) into this vault" : {
+      "comment" : "Help tag of Import from Notability…",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar notas o una copia de seguridad de Notability (.note, .ntb, carpetas o zip) a esta bóveda"
+          }
+        }
+      }
+    },
+    "Import PDF as New Note…" : {
+      "comment" : "File menu (Mac)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar PDF como nota nueva…"
+          }
+        }
+      }
+    },
     "Import PDF…" : {
       "comment" : "Toolbar button: make a note from a PDF",
       "extractionState" : "manual",
@@ -4717,6 +5209,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importar PDF…"
+          }
+        }
+      }
+    },
+    "Import from Notability…" : {
+      "comment" : "File menu (Mac) and the note list's toolbar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar de Notability…"
+          }
+        }
+      }
+    },
+    "Importing from Notability…" : {
+      "comment" : "Progress while a Notability import runs",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importando de Notability…"
           }
         }
       }
@@ -4853,6 +5369,18 @@
         }
       }
     },
+    "Insert Photo…" : {
+      "comment" : "File menu (Mac): add a photo to the open note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar foto…"
+          }
+        }
+      }
+    },
     "Into notebook (blank: top level)" : {
       "comment" : "Notebook field placeholder when moving a notebook",
       "extractionState" : "manual",
@@ -4944,6 +5472,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "«Pantalla siempre activa» impide que la pantalla se bloquee mientras haya una nota abierta. El reconocimiento de escritura a mano permite buscar en lo escrito a mano; se hace en este dispositivo y nada sale de él."
+          }
+        }
+      }
+    },
+    "Keep the screen awake while this note is open" : {
+      "comment" : "Help tag of Keep Screen On",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantener la pantalla encendida mientras esta nota esté abierta"
           }
         }
       }
@@ -5165,6 +5705,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grosor de línea"
+          }
+        }
+      }
+    },
+    "List this note's recordings" : {
+      "comment" : "Tooltip of the note toolbar's Recordings… button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver las grabaciones de esta nota"
           }
         }
       }
@@ -5565,6 +6117,18 @@
         }
       }
     },
+    "New note (⌘N)" : {
+      "comment" : "Help tag of New Note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota nueva (⌘N)"
+          }
+        }
+      }
+    },
     "New notebook “%@”" : {
       "comment" : "Under the notebook field: the typed notebook does not exist yet (its path)",
       "extractionState" : "manual",
@@ -5613,6 +6177,54 @@
         }
       }
     },
+    "Next match (⌘G)" : {
+      "comment" : "Help tag in the search bar over the canvas",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coincidencia siguiente (⌘G)"
+          }
+        }
+      }
+    },
+    "Next page" : {
+      "comment" : "Help tag of the next-page button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Página siguiente"
+          }
+        }
+      }
+    },
+    "Next page (⌘])" : {
+      "comment" : "Help tag with its keyboard shortcut",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Página siguiente (⌘])"
+          }
+        }
+      }
+    },
+    "Next page of this version" : {
+      "comment" : "Help tag in Version History",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Página siguiente de esta versión"
+          }
+        }
+      }
+    },
     "Next time, %@ opens after %@, and only %@: the passcode cannot read the saved key. If %@ is locked out after failed attempts, turned off, or re-enrolled, unlock with the key or the passphrase instead. The key stays in this device's Keychain and is not included in backups." : {
       "comment" : "Unlock sheet footer; the first value is the vault name, the others the biometry (Face ID, Touch ID)",
       "extractionState" : "manual",
@@ -5633,6 +6245,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La próxima vez, %@ se abrirá tras el código del dispositivo. La clave se queda en el Llavero de este dispositivo y no se incluye en las copias de seguridad."
+          }
+        }
+      }
+    },
+    "No Notability notes (.note or .ntb files, or a zip of them) were found in what you picked." : {
+      "comment" : "Notability import result",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se han encontrado notas de Notability (archivos .note o .ntb, o un zip con ellos) en lo que has elegido."
           }
         }
       }
@@ -5890,6 +6514,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En ninguna página"
+          }
+        }
+      }
+    },
+    "Notability Import" : {
+      "comment" : "Alert title after a Notability import",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importación de Notability"
           }
         }
       }
@@ -6371,6 +7007,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abrir bóveda…"
+          }
+        }
+      }
+    },
+    "Open a vault to import %lld PDFs as new notes." : {
+      "comment" : "Bar under the welcome screen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Open a vault to import the PDF as a new note."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Open a vault to import %lld PDFs as new notes."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Abre una bóveda para importar %lld de PDF como notas nuevas."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Abre una bóveda para importar el PDF como nota nueva."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Abre una bóveda para importar %lld PDF como notas nuevas."
+                }
+              }
+            }
           }
         }
       }
@@ -6970,6 +7654,18 @@
         }
       }
     },
+    "Pause the recording" : {
+      "comment" : "Help tag in the recording bar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausar la grabación"
+          }
+        }
+      }
+    },
     "Paused" : {
       "comment" : "Recording bar status",
       "extractionState" : "manual",
@@ -7112,6 +7808,18 @@
         }
       }
     },
+    "Place, transcribe, rename or delete this recording" : {
+      "comment" : "Tooltip of a recording's actions menu in the Recordings list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar, transcribir, renombrar o eliminar esta grabación"
+          }
+        }
+      }
+    },
     "Play" : {
       "comment" : "Button: play a recording",
       "extractionState" : "manual",
@@ -7132,6 +7840,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reproducir %@"
+          }
+        }
+      }
+    },
+    "Play or pause the recording" : {
+      "comment" : "Help tag in the player",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reproducir o pausar la grabación"
           }
         }
       }
@@ -7207,6 +7927,54 @@
         }
       }
     },
+    "Previous match (⇧⌘G)" : {
+      "comment" : "Help tag in the search bar over the canvas",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coincidencia anterior (⇧⌘G)"
+          }
+        }
+      }
+    },
+    "Previous page" : {
+      "comment" : "Help tag of the previous-page button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Página anterior"
+          }
+        }
+      }
+    },
+    "Previous page (⌘[)" : {
+      "comment" : "Help tag with its keyboard shortcut",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Página anterior (⌘[)"
+          }
+        }
+      }
+    },
+    "Previous page of this version" : {
+      "comment" : "Help tag in Version History",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Página anterior de esta versión"
+          }
+        }
+      }
+    },
     "Print Recovery Kit…" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -7239,6 +8007,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Imprimir…"
+          }
+        }
+      }
+    },
+    "Protected PDFs not imported (open them again to enter their passwords): %@" : {
+      "comment" : "The value lists file names",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF protegidos no importados (ábrelos de nuevo para introducir sus contraseñas): %@"
           }
         }
       }
@@ -7966,6 +8746,18 @@
         }
       }
     },
+    "Remove this tag from the note" : {
+      "comment" : "Help tag in the tag editor",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar esta etiqueta de la nota"
+          }
+        }
+      }
+    },
     "Remove “%@”" : {
       "comment" : "Button: remove a device key; the value is its label",
       "extractionState" : "manual",
@@ -8129,6 +8921,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Renombrar o mover…"
+          }
+        }
+      }
+    },
+    "Rename the note" : {
+      "comment" : "Help tag",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renombrar la nota"
+          }
+        }
+      }
+    },
+    "Rename the note (or press and hold)" : {
+      "comment" : "Help tag of the note's title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renombrar la nota (o mantener pulsado)"
           }
         }
       }
@@ -8321,6 +9137,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reanudar"
+          }
+        }
+      }
+    },
+    "Resume the recording" : {
+      "comment" : "Help tag in the recording bar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reanudar la grabación"
           }
         }
       }
@@ -8584,6 +9412,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guardar la clave de «%@»"
+          }
+        }
+      }
+    },
+    "Save this version of the note under a name; saved versions are never thinned" : {
+      "comment" : "Help tag of Save Version…",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar esta versión de la nota con un nombre; las versiones guardadas nunca se reducen"
           }
         }
       }
@@ -8960,6 +9800,18 @@
         }
       }
     },
+    "Settings for this device" : {
+      "comment" : "Help tag of the sidebar's gear",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes de este dispositivo"
+          }
+        }
+      }
+    },
     "Settings…" : {
       "comment" : "View menu: open Settings",
       "extractionState" : "manual",
@@ -9080,6 +9932,30 @@
         }
       }
     },
+    "Show or hide the tool palette; press and hold for the compact palette" : {
+      "comment" : "Help tag of the tool palette button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar u ocultar la paleta de herramientas; mantener pulsado para la paleta compacta"
+          }
+        }
+      }
+    },
+    "Show the existing notebooks" : {
+      "comment" : "Help tag of the notebook field's chevron",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar los cuadernos existentes"
+          }
+        }
+      }
+    },
     "Show the note list" : {
       "comment" : "Tooltip",
       "extractionState" : "manual",
@@ -9088,6 +9964,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostrar la lista de notas"
+          }
+        }
+      }
+    },
+    "Show the recording's transcript" : {
+      "comment" : "Help tag in the player",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar la transcripción de la grabación"
           }
         }
       }
@@ -9258,6 +10146,18 @@
         }
       }
     },
+    "Sort the notes by date or title" : {
+      "comment" : "Help tag of Sort",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordenar las notas por fecha o título"
+          }
+        }
+      }
+    },
     "Space between staves" : {
       "comment" : "Paper parameter",
       "extractionState" : "manual",
@@ -9408,6 +10308,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Detener y guardar"
+          }
+        }
+      }
+    },
+    "Stop and save the recording" : {
+      "comment" : "Help tag in the recording bar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detener y guardar la grabación"
           }
         }
       }
@@ -10822,6 +11734,18 @@
         }
       }
     },
+    "This vault is read-only: it was written by a newer version of Sempere." : {
+      "comment" : "Sheet for PDFs opened with Sempere",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta bóveda es de solo lectura: la escribió una versión más reciente de Sempere."
+          }
+        }
+      }
+    },
     "This vault's device list was changed without its key" : {
       "comment" : "Alert title: vault.json's recipients were edited without the vault key",
       "extractionState" : "manual",
@@ -10830,6 +11754,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La lista de dispositivos de esta bóveda se ha cambiado sin su clave"
+          }
+        }
+      }
+    },
+    "This vault's key on this device: forget it or keep it in iCloud Keychain" : {
+      "comment" : "Help tag of the Vault Key menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La clave de esta bóveda en este dispositivo: olvidarla o guardarla en el Llavero de iCloud"
           }
         }
       }
@@ -11413,6 +12349,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Desbloquea antes la bóveda."
+          }
+        }
+      }
+    },
+    "Unlock the vault to import %lld PDFs as new notes." : {
+      "comment" : "Bar under the locked vault",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Unlock the vault to import the PDF as a new note."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Unlock the vault to import %lld PDFs as new notes."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Desbloquea la bóveda para importar %lld de PDF como notas nuevas."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Desbloquea la bóveda para importar el PDF como nota nueva."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Desbloquea la bóveda para importar %lld PDF como notas nuevas."
+                }
+              }
+            }
           }
         }
       }
@@ -12295,6 +13279,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "«Sin título»"
+          }
+        }
+      }
+    },
+    "…and %lld more." : {
+      "comment" : "After the first failed notes of a Notability import [not-plural]",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "…y %lld más."
           }
         }
       }

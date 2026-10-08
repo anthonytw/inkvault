@@ -75,12 +75,13 @@ struct ExportMenu: View {
             }
         }
         .disabled(ids.isEmpty || model.phase != .unlocked)
+        .help("Export as PDF, PNG pages or text")
     }
 }
 
-/// The same actions in the Mac menu bar (Catalyst), for the notes of the
-/// focused window (`CommandRouter.exportIDs`): the list's selection in a
-/// library window, its note in a note window.
+/// The same actions in the iPad's keyboard menu (⌘ held), for the notes of
+/// the focused window (`CommandRouter.exportIDs`). The Mac's File menu has
+/// `MenuCommand.exportNotes` (Export…, ⇧⌘E) instead, whose sheet picks the format.
 struct ExportMenuCommands: Commands {
     let model: AppModel
     @FocusedValue(\.commandRouter) private var router

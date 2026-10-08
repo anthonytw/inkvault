@@ -40,13 +40,16 @@ struct NoteWindowView: View {
                     if let note {
                         ToolbarItem(placement: .secondaryAction) {
                             Button("Rename…", systemImage: "pencil") { ui.renameNoteID = note.id }
+                                .help("Rename the note")
                         }
                         ToolbarItem(placement: .secondaryAction) {
                             Button("Save Version…", systemImage: "bookmark") { ui.saveVersionNoteID = note.id }
                                 .disabled(note.deleted)
+                                .help("Save this version of the note under a name; saved versions are never thinned")
                         }
                         ToolbarItem(placement: .primaryAction) {
                             Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
+                                .help("Edit the note's tags")
                         }
                     }
                 }
@@ -57,6 +60,15 @@ struct NoteWindowView: View {
         .windowSheets(ui)
         .focusedSceneValue(\.commandRouter, router)
         .menuRouter(router)
+        // A URL opened while this window is in front: routed as in the library window
+        // (`RootView`): quick-voice links go to the model, files to `handleOpened`.
+        .onOpenURL { url in
+            switch VoiceNoteLink.route(url) {
+            case .link(let link): model.quickCapture.pendingLink = link
+            case .ignore: break
+            case .file: Task { await model.handleOpened(url, library: library) }
+            }
+        }
         .task(id: LoadKey(ready: ready, epoch: model.keyEpoch)) { await load() }
         .task {
             // Restored without the library window: bring it up to open and unlock the vault.
@@ -133,9 +145,12 @@ struct NoteWindowView: View {
         context.hasRecents = !library.recents.isEmpty
         context.editingText = ui.renameNoteID != nil || ui.tagsNoteID != nil || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: editor)
+        let exportIDs = note.map { [$0.id] } ?? []
+        WindowCommands.fill(&context, model: model, exportIDs: exportIDs)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible, exportIDs: note.map { [$0.id] } ?? [], windowID: ui.id) { command in
+                             paletteVisible: paletteVisible, exportIDs: exportIDs, windowID: ui.id) { command in
             guard !EditorCommands.perform(command, editor: editor, ui: ui) else { return }
+            guard !WindowCommands.perform(command, model: model, ui: ui, exportIDs: exportIDs) else { return }
             switch command {
             case .renameNote: ui.renameNoteID = value.noteID
             case .editTags: ui.tagsNoteID = value.noteID

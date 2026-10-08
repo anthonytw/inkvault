@@ -66,6 +66,18 @@ final class MacWindowUITests: XCTestCase {
         assertOneNoteWindow(app, "context menu")
     }
 
+    /// A double-click on a row of the note list opens the note in its own
+    /// window, as the context menu does (TestFlight build 7: it did nothing).
+    @MainActor
+    func testADoubleClickOpensANoteWindow() throws {
+        let app = launch()
+        defer { app.terminate() }
+        let row = app.cells.containing(NSPredicate(format: "label == %@", "Cellular Respiration")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 60))
+        row.doubleClick()
+        assertOneNoteWindow(app, "double-click")
+    }
+
     /// The File menu has no system New Window or Open… beside the app's commands.
     @MainActor
     func testTheFileMenuHasNoSystemDuplicates() throws {
@@ -84,6 +96,12 @@ final class MacWindowUITests: XCTestCase {
         XCTAssertTrue(titles.contains("New Note…"))
         XCTAssertTrue(titles.contains("Open Vault…"))
         XCTAssertTrue(titles.contains("Open Note in New Window"))
+        // Build 7: import, insert and export, the same paths as the toolbars.
+        for title in ["Import PDF as New Note…", "Import from Notability…", "Insert PDF Pages…", "Insert Photo…", "Export…"] {
+            XCTAssertTrue(titles.contains(title), "File has \(title): \(titles)")
+        }
+        XCTAssertEqual(titles.filter { $0 == "Export…" }.count, 1, "one Export… item")
+        XCTAssertFalse(titles.contains("Export"), "not the iPad's Export submenu too (Export Notes… is the bulk export, #109)")
         XCTAssertFalse(identifiers.contains("new_window"), "no system New Window")
         XCTAssertFalse(identifiers.contains("duplicate:"), "no document commands")
         XCTAssertFalse(identifiers.contains("open:"), "no system Open…")
@@ -143,6 +161,20 @@ final class MacWindowUITests: XCTestCase {
         var count = 0
         for i in stride(from: 0, to: w * h * 4, by: 4) where p[i] > 200 && p[i + 1] < 70 && p[i + 2] < 70 { count += 1 }
         return count
+    }
+
+    /// ⌘, opens the app's Settings (TestFlight build 7: Catalyst's generated
+    /// pane with touch alternatives only), and the app menu has one Settings….
+    @MainActor
+    func testCommandCommaOpensTheAppsSettings() throws {
+        let app = launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
+        app.typeKey(",", modifierFlags: .command)
+        let opened = app.descendants(matching: .any)["settingsForm"].waitForExistence(timeout: 20)
+        if !opened { dump(app, "settings") }
+        XCTAssertTrue(opened, "the app's Settings window opened")
+        XCTAssertFalse(app.staticTexts["Touch Alternatives"].exists, "not Catalyst's generated pane")
     }
 
     /// The new-note sheet's notebook field lists matching notebooks while typing.
