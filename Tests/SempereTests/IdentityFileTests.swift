@@ -86,4 +86,14 @@ final class IdentityFileTests: VaultTestCase {
             XCTAssertEqual($0 as? VaultError, .identityMismatch(other))
         }
     }
+
+    func testExportFileName() {
+        XCTAssertEqual(IdentityFile.exportFileName(label: "Anna's iPad"), "Sempere key - Anna's iPad.txt")
+        XCTAssertEqual(IdentityFile.exportFileName(label: ""), "Sempere key.txt")
+        XCTAssertEqual(IdentityFile.exportFileName(label: " \n\t "), "Sempere key.txt")
+        XCTAssertEqual(IdentityFile.exportFileName(label: "../a/b:c\nd"), "Sempere key - .. a b c d.txt")
+        XCTAssertEqual(IdentityFile.exportFileName(label: "x\u{0}y"), "Sempere key - x y.txt")
+        let long = IdentityFile.exportFileName(label: String(repeating: "é", count: 200))
+        XCTAssertEqual(long, "Sempere key - \(String(repeating: "é", count: 60)).txt")
+    }
 }
