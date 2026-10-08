@@ -363,13 +363,23 @@ public struct FileRecipientsTrustStore: RecipientsTrustStore {
         return r
     }
 
+    /// Writes the record atomically, created mode 0600 in a 0700 folder:
+    /// its `linkKey` can make a `secretLink` as well as check one (an HMAC
+    /// key), so it is kept private (security review 2026-10, R2).
     public func save(_ record: RecipientsTrustRecord) throws {
         try FileIO.createDirectory(directory)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(record)
         let url = fileURL(record.vaultId)
-        try FileIO.writeAtomically(try enc.encode(record), to: url, replacing: true)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let tmp = FileIO.tempURL(in: directory)
+        try FileIO.writeNewFile(tmp) { write in try write(data) }
+        guard rename(tmp.path, url.path) == 0 else {
+            let code = errno
+            try? FileManager.default.removeItem(at: tmp)
+            throw VaultError.io("rename to \(url.path): errno \(code)")
+        }
     }
 }
 

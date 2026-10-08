@@ -622,6 +622,15 @@ final class RecipientsAuthTests: VaultTestCase {
         #if !os(Windows)
         let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
         XCTAssertEqual(mode, 0o600)
+        // Security review 2026-10 (R2): the folder is private too, and a
+        // replaced record is created private (never world-readable first).
+        let dirMode = try FileManager.default.attributesOfItem(atPath: dir.path)[.posixPermissions] as? Int
+        XCTAssertEqual(dirMode, 0o700)
+        let next = RecipientsTrustRecord(vaultId: record.vaultId, secret: .random(), recipients: [a.recipient.string])
+        try store.save(next)
+        XCTAssertEqual(store.record(for: record.vaultId), next)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [file.lastPathComponent], "no temporary left")
         #endif
         XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("vaultSecret"))
         for junk in ["{", #"{"format":"x"}"#, #"{"format":"sempere-trust/1","vaultId":"\#(record.vaultId.uuidString.lowercased())","linkKey":"00","recipients":[]}"#] {

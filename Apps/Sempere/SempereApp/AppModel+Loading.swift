@@ -53,9 +53,13 @@ extension AppModel {
         DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("Trust", isDirectory: true)
     }
 
-    /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`.
+    /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`,
+    /// excluded from backups: a record's `linkKey` can make a `secretLink`, and
+    /// a backup may be readable by the same provider that stores the vault
+    /// (security review 2026-10, R2).
     nonisolated static var defaultRecipientsTrust: any RecipientsTrustStore {
-        FileRecipientsTrustStore(directory: defaultTrustDirectory)
+        prepareCacheDirectory(defaultTrustDirectory)
+        return FileRecipientsTrustStore(directory: defaultTrustDirectory)
     }
 
     nonisolated static var defaultSummaryCacheDirectory: URL? {
