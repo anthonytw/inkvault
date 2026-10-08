@@ -114,8 +114,8 @@ struct AppCommands: Commands {
 
     private func run(_ command: MenuCommand) {
         switch command {
-        case .showKeys: openWindow(id: "keys")
-        case .showLibrary: openWindow(id: "library")
+        case .showKeys: openWindow(id: SceneRestoration.keysSceneID)
+        case .showLibrary: openWindow(id: SceneRestoration.librarySceneID)
         case .showSettings: openWindow(id: MenuRouting.settingsSceneID)
         default: router?.perform(command)
         }

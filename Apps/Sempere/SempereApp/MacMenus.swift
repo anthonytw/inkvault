@@ -131,7 +131,7 @@ enum MacMenus {
 final class MenuRouting {
     static let shared = MenuRouting()
     /// `WindowGroup` id of the app's settings window (`SempereApp`).
-    static let settingsSceneID = "settings"
+    static let settingsSceneID = SceneRestoration.settingsSceneID
 
     private var routers: [ObjectIdentifier: CommandRouter] = [:]
 

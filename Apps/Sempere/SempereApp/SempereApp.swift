@@ -52,40 +52,39 @@ struct SempereApp: App {
 
     var body: some Scene {
         libraryScene
-        WindowGroup("Note", id: NoteWindowValue.sceneID, for: NoteWindowValue.self) { $value in
-            if let value {
-                NoteWindowView(value: value)
-                    .environment(model)
-                    .environment(library)
-                    .environment(keys)
+        // Every window gets the whole app environment, and one restored where it
+        // does not fit (another build's scene, a note window without its value)
+        // shows the library or closes (`SceneRestoration`).
+        WindowGroup("Note", id: SceneRestoration.Kind.note.sceneID, for: NoteWindowValue.self) { $value in
+            RestoredScene(kind: .note, hasValue: value != nil) {
+                if let value { NoteWindowView(value: value) }
             }
+            .appEnvironment(model: model, library: library, keys: keys)
         }
-        WindowGroup("Settings", id: MenuRouting.settingsSceneID) {
-            SettingsView(showsDone: false)
-                .environment(model)
-                .environment(library)
+        WindowGroup("Settings", id: SceneRestoration.Kind.settings.sceneID) {
+            RestoredScene(kind: .settings) { SettingsView(showsDone: false) }
+                .appEnvironment(model: model, library: library, keys: keys)
         }
-        WindowGroup("Vault Keys", id: "keys") {
-            KeysWindowView()
-                .environment(model)
+        WindowGroup("Vault Keys", id: SceneRestoration.Kind.keys.sceneID) {
+            RestoredScene(kind: .keys) { KeysWindowView() }
+                .appEnvironment(model: model, library: library, keys: keys)
         }
     }
 
+    /// The library window. It has the same id in the Catalyst and the iPad
+    /// build, so a window either saved is the library in the other.
     @SceneBuilder private var libraryScene: some Scene {
         #if targetEnvironment(macCatalyst)
-        WindowGroup("Sempere", id: "library") { libraryContent }
+        WindowGroup("Sempere", id: SceneRestoration.Kind.library.sceneID) { libraryContent }
             // File > Export… is a `MenuCommand` on the Mac (`AppCommands`); the iPad keeps the submenu.
             .commands { AppCommands() }
         #else
-        WindowGroup { libraryContent }
+        WindowGroup(id: SceneRestoration.Kind.library.sceneID) { libraryContent }
             .commands { ExportMenuCommands(model: model) }
         #endif
     }
 
     private var libraryContent: some View {
-        RootView()
-            .environment(model)
-            .environment(library)
-            .environment(keys)
+        RootView().appEnvironment(model: model, library: library, keys: keys)
     }
 }
