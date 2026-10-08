@@ -277,6 +277,22 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertNil(backoff.entries(vault: vault.vaultId)[name])
     }
 
+    /// Security review 2026-10 (C2): a capture's title and notebook come from
+    /// whoever holds the capture key; the note gets them bounded and on one line.
+    func testCaptureTitleAndNotebookAreBounded() throws {
+        let (identity, profile, locked) = try setUp(notebook: "Voice\nNotes")
+        let id = UUID()
+        let long = String(repeating: "é", count: 5000) + "\u{1B}[2J"
+        try CaptureWriter.store(try CaptureWriter(profile: profile).seal(audio: audio, started: started, title: long, id: id),
+                                in: locked.inboxURL)
+        let vault = try Vault.open(at: locked.url, identities: [identity])
+        XCTAssertNil(vault.adoptCapture(id, deviceState: deviceState(), app: "test/1").error)
+        let meta = try vault.reconstruct(noteId: CaptureAdoption.ids(for: id).note).meta
+        XCTAssertEqual(meta.title.count, CaptureAdoption.maxNameLength)
+        XCTAssertEqual(meta.notebook, "Voice Notes")
+        XCTAssertEqual(CaptureAdoption.boundedName("a\u{1B}b\tc"), "a b c")
+    }
+
     /// C5: a transcript file has a much smaller bound than a capture, checked
     /// from its size before anything is decrypted; and a capture's tag is
     /// checked streamed before the file is read whole.

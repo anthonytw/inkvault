@@ -40,16 +40,16 @@ File:line references are to this branch.
 | W4 | Medium | WebDAV | UTF-16 PROPFIND bypasses the pre-checks; FoundationXML segfaults (reproduced) | Fixed |
 | N1 | Medium | newer format | `blobs repair` renames and deletes blobs of a note with newer revisions (reproduced) | Fixed |
 | V1 | Medium | video | A huge `duration` traps Markdown and HTML exports and the player title (reproduced) | Fixed |
-| P1 | Medium | app keys (#99) | "New Key…" and adding a pasted recipient need no owner check, unlike "Save Key…" | Open |
-| W2 | Medium | sync | Downloaded revisions and blobs are placed unverified; one junk snapshot blocks every edit to a note | Open |
+| P1 | Medium | app keys (#99) | "New Key…" and adding a pasted recipient need no owner check, unlike "Save Key…" | Fixed (#114) |
+| W2 | Medium | sync | Downloaded revisions and blobs are placed unverified; one junk snapshot blocks every edit to a note | Fixed (#114) |
 | V2 | Low | video | Location kept with a second `moov`, a top-level `udta` or a truncated trailing `meta` (reproduced) | Fixed |
-| N2 | Low | newer format | `inbox capture` and `inbox transcript` write into a read-only vault's `inbox/` (reproduced, CLI) | Fixed (CLI); app open |
-| C2 | Low | capture | Forged captures choose any notebook and title, and are written as the adopting device | Docs fixed; open |
+| N2 | Low | newer format | `inbox capture` and `inbox transcript` write into a read-only vault's `inbox/` (reproduced, CLI) | Fixed (CLI; app in #114) |
+| C2 | Low | capture | Forged captures choose any notebook and title, and are written as the adopting device | Title and notebook bounded (#114); attribution open |
 | C3 | Low | capture | A removed device's captures are adopted while its rewrap is unfinished | Docs fixed; open |
 | C4 | Low | capture | Anyone holding the locked iPad (after first unlock) can add voice notes | Docs fixed |
-| C5 | Low | capture | Inbox files are decrypted fully before the tag check, and failing ones are re-read forever | Open |
-| R5 | Low | recipients | The trust store fails open: an unreadable record reads as "first use" | Open |
-| W5 | Low | sync | No overall bound on notes, entries, bytes or time per sync run | Open |
+| C5 | Low | capture | Inbox files are decrypted fully before the tag check, and failing ones are re-read forever | Fixed (#114) |
+| R5 | Low | recipients | The trust store fails open: an unreadable record reads as "first use" | Fixed (#114) |
+| W5 | Low | sync | No overall bound on notes, entries, bytes or time per sync run | Fixed (#114) |
 | N3 | Low (design) | newer format | `format` and `features` in `vault.json` are not authenticated | Open |
 | R6, C6–C9, N4, N5, V3, W6 | Info | various | See below | — |
 
@@ -241,6 +241,90 @@ These are the user's own files, so this is a privacy promise not kept rather tha
 - At the top level, only `mdat` (or a first box, which is "not a video") may be cut short (`:218`).
 - `format.md` §8.2.7 is updated.
 - Test: `VideoTests.testLocationOutsideTheWalkedBoxesIsNeverKept`.
+
+## Fixed in the follow-up (#114)
+
+Each fix has a regression test; the names are given.
+
+### P1: owner check for key changes and the recovery kit
+
+`AppModel.addDeviceKey` and `generateDeviceKey` (New Key…, a pasted public key) now call
+`requireOwner` first, the same `OwnerAuthenticator` check as Save Key… (Face ID or Touch ID when
+enrolled, no passcode fallback after a lockout; the passcode or the Mac's password only without
+biometrics). The key window's Recovery Kit… (`recoveryKitPDF`), which prints the secret key, asks too.
+A failed, cancelled or overtaken check (another vault opened, or this one locked, meanwhile:
+`KeyError.vaultChanged`) changes nothing. The policy is the one Save Key… already had; the maintainer may
+still choose another. Tests: `OwnerCheckTests` (app).
+
+### W2: downloads are checked before they are placed
+
+- `Vault.checkIncomingRevision` / `checkIncomingBlob` (`Sources/Sempere/IncomingCheck.swift`): unlocked,
+  exactly the checks of a read (decrypt, tag, note and name; a blob decrypted whole with framing, padding,
+  hash and keyed name). Locked, the age structure only (a header that parses, stanza types and count of
+  the vault's recipients, a payload). A first pull with `--identity` checks under the `vault.json` it
+  pulls, and a `vault.json` replaced during the run (a rotation) is re-opened before the files after it
+  are checked.
+- A file that fails is quarantined outside the vault (`<sync state>.quarantine/<path>`, 0600), listed in
+  `SyncReport.quarantined` (exit 1), and not fetched again while it, the local `vault.json` and the lock
+  state are unchanged (`--retry-quarantined`). Nothing is deleted.
+- **One bad file never blocks a note:** `nextSeq` skips a snapshot whose tag does not verify. It
+  decrypted with the device's key but was not framed under the vault secret, so no writer made it and its
+  coverage is void; skipping it can never reuse a `seq`. A snapshot that does not decrypt may be a real
+  one and still stops it. That is the case the review left to the maintainer, and it is unchanged; with
+  the sync check it can no longer come from a WebDAV server while unlocked, and locked runs refuse
+  anything that is not well-formed age to the vault's recipients.
+- format.md §9.1 is new; docs/io.md and docs/cli.md describe it.
+- Tests: `IncomingCheckSyncTests` (forged snapshot, replayed name, locked structure, planted blob,
+  rotation arriving in the same run), `VaultStoreTests.testForgedSnapshotNeverBlocksNextSeq`.
+
+### W5: bounds per sync run
+
+`SyncLimits`: 100 000 note folders, 10⁶ listed entries, 64 GiB downloaded and 12 hours by default,
+`--max-notes`, `--max-entries`, `--max-download-mib`, `--max-minutes`. Reaching one stops the run with an
+error naming the flag (`stoppedEarly`); what was done is recorded and the next run continues. Tests:
+`IncomingCheckSyncTests.testTooManyNotes…`, `…DownloadBudget…`, `…EntryAndTimeLimits`,
+`CLIWebDAVTests.testRunLimitsAreValidated`.
+
+### N2 (app): no captures into a read-only vault
+
+`QuickCapture.deliver` and `flushQueue` write into `inbox/` only when `vault.json` does not mark the vault
+as newer (`acceptsCaptures`); otherwise the sealed note stays in the local queue. Test:
+`QuickCaptureTests.aReadOnlyVaultGetsNoCaptures` (app).
+
+### C5: inbox tag first, per-kind bounds, back-off
+
+- `verifyInboxFile` streams each inbox file through age and the tag's HMAC in constant memory; only a file
+  that verifies is read whole. Its size is checked first against its kind: 256 MiB of plaintext for a
+  capture, about 64 MiB for a transcript (one JSON line and a hash).
+- `InboxBackoff`: a file that fails is not read again for an hour, then twice as long after each failure
+  up to a week, unless it changes (CLI `$XDG_STATE_HOME/sempere/inbox-backoff.json`, app next to its
+  device state). I/O failures are not recorded. `inbox import --retry` (or naming the capture) reads it
+  now. The app no longer clears a capture's failure report at the end of the same pass.
+- Tests: `CaptureInboxTests.testFailingInboxFilesBackOff`, `…testInboxFileSizeIsBoundedByItsKind`,
+  `CLIInboxTests.testCaptureNeedsAProfileAndForgeriesAreRefused`.
+
+### R5: the trust store fails closed
+
+`RecipientsTrustStore.record(for:)` throws for a record that exists but does not read (or names another
+vault). The list is then `tampered(.recordUnreadable)` unless it already failed its tag, writes exit 6,
+and the record is not replaced; `recipients confirm` (app: Trust This List in the recipients alert)
+writes it again, only for a list whose tag verifies. A record that cannot be saved now stops the write
+and is retried by the next one. Tests: `RecipientsAuthTests.testUnreadableTrustRecordFailsClosed`,
+`…testTrustRecordSaveFailureStopsTheWrite`, `CLIRecipientsAuthTests.testUnreadableTrustRecordFailsClosed`.
+
+### C2 (part): bounded title and notebook
+
+Adoption writes a capture's title and notebook as at most 300 characters, control characters replaced by
+spaces (`CaptureAdoption.boundedName`). Still open: the capturing device is not stored, and the notebook
+is still the manifest's (a format change and a policy choice). Test:
+`CaptureInboxTests.testCaptureTitleAndNotebookAreBounded`.
+
+### C3: left open
+
+Restricting old-key captures to the names present at the rotation needs that list authenticated: the
+journal is plaintext that a removed device (which holds the old capture key) could also edit, so the list
+would have to be MACed under the new secret. That is a format change to the journal and the rewrap, not a
+small fix; the window stays documented in `quick-capture.md`.
 
 ## Open findings (reported, not fixed here)
 

@@ -2807,7 +2807,9 @@ iCloud) are not recorded.
   `id` must equal `<captureId>` and `vault` the vault's `vaultId`. `audio` is
   a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
   `device` is the capturing device's id (§5). `title`, `notebook` (absent:
-  `Inbox`) and the informational fields become the note's.
+  `Inbox`) and the informational fields become the note's; the title and
+  the notebook as at most 300 characters, control characters replaced by
+  spaces (any holder of the capture key writes them, §11.3).
 - **`transcript`**: the payload is the 64 lowercase hex digits of the
   capture's audio SHA-256 (its manifest's `audio.sha256`). That binds the
   transcript to the audio: the capture key is on every capturing device and

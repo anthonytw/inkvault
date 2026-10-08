@@ -467,6 +467,22 @@ public enum CaptureAdoption {
     /// is nothing to add (a transcript whose capture has not arrived yet waits).
     /// A transcript is only added to the recording whose audio it is bound to
     /// (`PendingCapture.transcriptAudio`, format.md §11.2).
+    /// Longest title or notebook a capture gives its note, in characters.
+    public static let maxNameLength = 300
+
+    /// A manifest's title or notebook as the note gets it (format.md §11.3):
+    /// control characters (newlines included) become spaces, and it is cut
+    /// at `maxNameLength` characters. The manifest's own limit is only its
+    /// 64 MiB line, and any capture-key holder writes it (security review
+    /// 2026-10, C2).
+    public static func boundedName(_ name: String) -> String {
+        var out = ""
+        for ch in name.prefix(maxNameLength) {
+            out.append(ch.unicodeScalars.contains { $0.properties.generalCategory == .control } ? " " : ch)
+        }
+        return out
+    }
+
     public static func ops(_ pending: PendingCapture, audio: BlobRef?, transcript: BlobRef?, current: NoteState?,
                            paper: Paper = .ruled, pageSize: PageSize = .letter) -> [Op] {
         let ids = ids(for: pending.id)
@@ -478,8 +494,8 @@ public enum CaptureAdoption {
         }
         guard let m = pending.manifest, let audio else { return [] }
         let transcript = m.audio.sha256 == pending.transcriptAudio ? transcript : nil
-        var ops = NoteOps.newNote(title: m.title, paper: paper, pageSize: pageSize,
-                                  notebook: m.notebook ?? CaptureProfile.defaultNotebook, pageId: ids.page)
+        var ops = NoteOps.newNote(title: boundedName(m.title), paper: paper, pageSize: pageSize,
+                                  notebook: boundedName(m.notebook ?? CaptureProfile.defaultNotebook), pageId: ids.page)
         var recording = NoteOps.recording(blob: audio, started: m.started, info: m.info, id: ids.recording)
         recording.transcript = transcript
         ops.append(.addRecording(recording))
