@@ -15,6 +15,7 @@ import UIKit
 /// - `SEMPERE_DEBUG_ZOOM`: zoom as a multiple of the fit-width zoom.
 /// - `SEMPERE_DEBUG_SNAPSHOT`: path to write a PNG of the canvas to, once shown.
 /// - `SEMPERE_DEMO`: a synthetic vault for the App Store screenshots (`DemoLaunch`).
+/// - `SEMPERE_DEBUG_FRESH`: start as a first launch (`resetForFreshLaunch`).
 ///
 /// Release builds compile none of this.
 enum DebugLaunch {
@@ -30,6 +31,39 @@ enum DebugLaunch {
     /// recent one, `SEMPERE_DEBUG_RECENT=1`).
     static var isActive: Bool { environment["SEMPERE_DEBUG_VAULT"] != nil || environment["SEMPERE_DEBUG_RECENT"] != nil
         || DemoLaunch.isActive }
+
+    /// `SEMPERE_DEBUG_FRESH`: deletes the app's own state before anything reads
+    /// it, so the launch is a first one (launch smoke tests, `LaunchSmokeUITests`):
+    /// the preferences domain (column layout, recent vaults, tool and eraser
+    /// choices) and the app container's Application Support, Caches, tmp and
+    /// saved window state (device clock, trust records, summary, drawing, blob
+    /// and render caches, staged exports). Keychain items stay (unsigned test
+    /// builds have none). Files are removed only inside an app container (the
+    /// simulator, a device, the sandboxed Mac build), never an unsandboxed Mac
+    /// build's real home. Called first thing in `SempereApp.init`.
+    static func resetForFreshLaunch() {
+        guard environment["SEMPERE_DEBUG_FRESH"] != nil else { return }
+        if let domain = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
+        // Only inside the app's container: an unsandboxed Mac build's home is the user's own.
+        guard NSHomeDirectory().contains("/Containers/") else {
+            NSLog("SempereDebug fresh launch: removed the preferences; files kept (no app container)")
+            return
+        }
+        let fm = FileManager.default
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let folders = ["Library/Application Support", "Library/Caches", "Library/Saved Application State", "tmp"]
+            .map { home.appendingPathComponent($0, isDirectory: true) }
+            + [URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)]
+        var removed = 0
+        for folder in folders {
+            for item in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+                if (try? fm.removeItem(at: item)) != nil { removed += 1 }
+            }
+        }
+        NSLog("SempereDebug fresh launch: removed the preferences and %d items", removed)
+    }
 
     /// Page y to scroll to after a note opens, if requested.
     static var scrollY: Double? { environment["SEMPERE_DEBUG_SCROLL_Y"].flatMap(Double.init) }

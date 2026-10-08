@@ -10,12 +10,16 @@ import UIKit
 ///
 /// - `SEMPERE_DEMO`: any value; builds the vault in the temporary directory and opens it.
 /// - `SEMPERE_DEMO_LOCKED`: leave it locked, so the unlock screen shows.
+/// - `SEMPERE_DEMO_PASSPHRASE`: store the key in the vault under this passphrase and leave
+///   it locked: a UI test unlocks it through the unlock sheet, as a user does (`LaunchSmokeUITests`).
+///   The sidebar and note choices apply once it is unlocked.
 /// - `SEMPERE_DEMO_NOTE`: a `DemoVault.Spec.key` (`respiration`, `atlas`, …) to open.
 /// - `SEMPERE_DEMO_SIDEBAR`: `all`, `notebook:School/Physics` or `tag:lecture`.
 /// - `SEMPERE_DEMO_PAPER_PICKER`: open the paper picker over the note.
 /// - `SEMPERE_DEMO_PDF`: also import a synthetic PDF as a new note and open it (Mac UI tests).
 /// - `SEMPERE_DEMO_MAC_WINDOW`: `WIDTHxHEIGHT` in points, Mac Catalyst only.
-/// - `SEMPERE_DEBUG_COLUMNS`: `all`, `doubleColumn` or `detailOnly` (`DebugLaunch`).
+/// - `SEMPERE_DEBUG_COLUMNS`: `all`, `doubleColumn`, `detailOnly`, or `stored` to keep the
+///   stored (with `SEMPERE_DEBUG_FRESH`, the default) layout (`DebugLaunch`).
 enum DemoLaunch {
     static var isActive: Bool { DebugLaunch.environment["SEMPERE_DEMO"] != nil }
 
@@ -36,15 +40,41 @@ enum DemoLaunch {
         let env = DebugLaunch.environment
         forceLight(sceneWindows)
         applyWindowSize(env["SEMPERE_DEMO_MAC_WINDOW"])
+        let passphrase = env["SEMPERE_DEMO_PASSPHRASE"]
         await model.report {
             let dir = directory
-            let built = try await Task.detached { try await DemoVault.build(in: dir) }.value
+            let built = try await Task.detached { try await DemoVault.build(in: dir, passphrase: passphrase) }.value
             try await model.openVault(at: built.url)
+            if passphrase != nil {
+                // Unlocked by the test through the unlock sheet; then the choices below.
+                await selectAfterUnlock(model, built: built, env: env)
+                return
+            }
             if env["SEMPERE_DEMO_LOCKED"] == nil { try await model.unlock(identityText: built.identityText) }
-            if let side = env["SEMPERE_DEMO_SIDEBAR"] { model.sidebarSelection = sidebarItem(side) }
-            if let key = env["SEMPERE_DEMO_NOTE"], let id = built.notes[key] { model.selectedNoteID = id }
+            select(model, built: built, env: env)
         }
         if env["SEMPERE_DEMO_PDF"] != nil, env["SEMPERE_DEMO_LOCKED"] == nil { await importDemoPDF(model) }
+    }
+
+    /// The `SEMPERE_DEMO_SIDEBAR` and `SEMPERE_DEMO_NOTE` choices.
+    @MainActor
+    static func select(_ model: AppModel, built: DemoVault.Built, env: [String: String]) {
+        if let side = env["SEMPERE_DEMO_SIDEBAR"] { model.sidebarSelection = sidebarItem(side) }
+        if let key = env["SEMPERE_DEMO_NOTE"], let id = built.notes[key] { model.selectedNoteID = id }
+    }
+
+    /// `SEMPERE_DEMO_PASSPHRASE`: waits (at most five minutes) until the vault
+    /// is unlocked and the chosen note is listed, then makes the choices.
+    @MainActor
+    static func selectAfterUnlock(_ model: AppModel, built: DemoVault.Built, env: [String: String]) async {
+        let note = env["SEMPERE_DEMO_NOTE"].flatMap { built.notes[$0] }
+        for _ in 0..<1500 {
+            if model.phase == .unlocked, note.map({ id in model.notes.contains { $0.id == id } }) ?? true {
+                select(model, built: built, env: env)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
     }
 
     /// `SEMPERE_DEMO_PDF`: a synthetic two-page PDF (a red square at each

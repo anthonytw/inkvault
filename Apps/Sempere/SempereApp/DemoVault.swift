@@ -60,8 +60,11 @@ enum DemoVault {
     }
 
     /// Creates the vault in `directory` (replacing an older copy), with a
-    /// fresh post-quantum key, and writes every demo note.
-    static func build(in directory: URL, specs: [Spec] = DemoVault.specs) async throws -> Built {
+    /// fresh post-quantum key, and writes every demo note. With a
+    /// `passphrase` the key is also stored in the vault's `keys/` (scrypt work
+    /// factor 15, the lowest a writer allows), so it unlocks the way a user
+    /// unlocks a real vault: the passphrase typed into the unlock sheet.
+    static func build(in directory: URL, specs: [Spec] = DemoVault.specs, passphrase: String? = nil) async throws -> Built {
         let fm = FileManager.default
         if fm.fileExists(atPath: directory.path) { try fm.removeItem(at: directory) }
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -70,6 +73,10 @@ enum DemoVault {
         let vault = try Vault.create(at: vaultURL, recipients: [identity.recipient], labels: ["Demo key"],
                                      identities: [identity], created: anchor.addingTimeInterval(-40 * 86_400))
         let text = IdentityFile.render(identity, created: anchor.addingTimeInterval(-40 * 86_400))
+        if let passphrase {
+            try vault.writeIdentityFile(identity, passphrase: passphrase, workFactor: 15,
+                                        created: anchor.addingTimeInterval(-40 * 86_400))
+        }
         let clock = try DeviceClock(url: directory.appendingPathComponent("device.json"))
         var ids: [String: UUID] = [:]
         for spec in specs {

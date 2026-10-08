@@ -183,6 +183,7 @@ struct RestoreBackupView: View {
                     Text(failure).foregroundStyle(.red)
                 }
             }
+            .accessibilityIdentifier("restoreBackupSheet")
             .disabled(working)
             .overlay { if working { ProgressView(model.backupProgress?.headline ?? "") } }
             .navigationTitle("Restore from Backup")

@@ -26,6 +26,7 @@ struct KeysWindowView: View {
                                            description: Text("Open and unlock a vault in the library window to manage its keys."))
                 }
             }
+            .accessibilityIdentifier("keysWindow")
             .navigationTitle(model.vaultName.map { String(localized: "Keys of “\($0)”", comment: "Key window title; the value is the vault name") }
                              ?? String(localized: "Vault Keys", comment: "Key window title when the vault has no name"))
         }

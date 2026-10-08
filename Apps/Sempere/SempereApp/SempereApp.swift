@@ -14,10 +14,16 @@ struct SempereApp: App {
     /// Builds the Mac menu bar without the system's duplicates (`MacMenus`).
     @UIApplicationDelegateAdaptor(SempereAppDelegate.self) private var appDelegate
     @State private var model: AppModel
-    @State private var library = VaultLibrary()
-    @State private var keys = RememberedKeys()
+    @State private var library: VaultLibrary
+    @State private var keys: RememberedKeys
 
     init() {
+        #if DEBUG
+        // A scripted first launch: nothing below may read state from an earlier run.
+        DebugLaunch.resetForFreshLaunch()
+        #endif
+        _library = State(initialValue: VaultLibrary())
+        _keys = State(initialValue: RememberedKeys())
         let model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
                              summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
                              drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,

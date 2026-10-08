@@ -1,0 +1,352 @@
+import Foundation
+import XCTest
+
+/// Every window of the app gets the whole app environment. A view that reads
+/// an `@Environment` object its window was not given traps at once ("No
+/// Observable object of type AppModel found"), and a shipped build did on the
+/// Mac. The app only builds in the CI `app` job, so this reads the sources
+/// (on Linux too, in every `swift test`): every scene the app declares
+/// (`WindowGroup`, `Window`, `Settings`, …) must put the `AppModel`, the
+/// `VaultLibrary` and the `RememberedKeys` of the `App` into its root view's
+/// environment, either through `.environment(…)` each or through the shared
+/// `appEnvironment(model:library:keys:)` modifier, which must itself inject
+/// all three. A new window cannot miss one.
+final class AppSceneEnvironmentTests: XCTestCase {
+    static let appSources = LocalizationCatalogTests.apps.appendingPathComponent("SempereApp")
+
+    override func setUpWithError() throws {
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: Self.appSources.path),
+                          "the app sources are not part of this checkout")
+    }
+
+    func testEveryWindowGetsTheAppEnvironment() throws {
+        let sources = try Self.loadSources()
+        let report = try SceneEnvironmentCheck(sources: sources).run()
+        XCTAssertGreaterThanOrEqual(report.scenes.count, 4, "library, note, Settings and Vault Keys at least: \(report.scenes)")
+        XCTAssertEqual(report.problems, [], "every scene injects AppModel, VaultLibrary and RememberedKeys")
+    }
+
+    // MARK: - The checker on synthetic sources
+
+    static let goodApp = """
+        @main
+        struct DemoApp: App {
+            @State private var model: AppModel
+            @State private var library = VaultLibrary()
+            @State private var keys: RememberedKeys
+            var body: some Scene {
+                WindowGroup { content }   // "WindowGroup { Nothing() }" in a comment
+                WindowGroup("Note", id: "note", for: NoteWindowValue.self) { $value in
+                    if let value { NoteWindowView(value: value).appEnvironment(model: model, library: library, keys: keys) }
+                }
+                Settings {
+                    SettingsView().environment(model).environment(library).environment(keys)
+                }
+            }
+            private var content: some View {
+                RootView().appEnvironment(model: model, library: library, keys: keys)
+            }
+        }
+        """
+    static let goodModifier = """
+        struct AppEnvironment: ViewModifier {
+            let model: AppModel
+            let library: VaultLibrary
+            let keys: RememberedKeys
+            func body(content: Content) -> some View {
+                content.environment(model).environment(library).environment(keys)
+            }
+        }
+        extension View {
+            func appEnvironment(model: AppModel, library: VaultLibrary, keys: RememberedKeys) -> some View {
+                modifier(AppEnvironment(model: model, library: library, keys: keys))
+            }
+        }
+        """
+
+    func testTheCheckerAcceptsAnAppThatInjectsEverything() throws {
+        let report = try SceneEnvironmentCheck(sources: ["App.swift": Self.goodApp, "Env.swift": Self.goodModifier]).run()
+        XCTAssertEqual(report.scenes.count, 3)
+        XCTAssertEqual(report.problems, [])
+    }
+
+    func testTheCheckerFindsAWindowMissingAnObject() throws {
+        let app = Self.goodApp.replacingOccurrences(of: ".environment(library).environment(keys)", with: ".environment(library)")
+        let report = try SceneEnvironmentCheck(sources: ["App.swift": app, "Env.swift": Self.goodModifier]).run()
+        XCTAssertEqual(report.problems.count, 1, "\(report.problems)")
+        XCTAssertTrue(report.problems.first?.contains("RememberedKeys") == true, "\(report.problems)")
+    }
+
+    func testTheCheckerFindsAWindowWithoutAnyEnvironment() throws {
+        let app = Self.goodApp.replacingOccurrences(of: "Settings {", with: "Window(\"Keys\", id: \"keys\") { KeysWindowView() }\n        Settings {")
+        let report = try SceneEnvironmentCheck(sources: ["App.swift": app, "Env.swift": Self.goodModifier]).run()
+        XCTAssertEqual(report.scenes.count, 4)
+        XCTAssertEqual(report.problems.count, 1, "\(report.problems)")
+    }
+
+    func testTheCheckerFindsAModifierThatDropsAnObject() throws {
+        let modifier = Self.goodModifier.replacingOccurrences(of: ".environment(keys)", with: "")
+        let report = try SceneEnvironmentCheck(sources: ["App.swift": Self.goodApp, "Env.swift": modifier]).run()
+        // The two scenes that use the modifier; the one with `.environment` each is fine.
+        XCTAssertEqual(report.problems.count, 2, "\(report.problems)")
+    }
+
+    func testTheCheckerFindsAScenesOutsideTheAppStruct() throws {
+        let other = "extension DemoApp { var extra: some Scene { WindowGroup(id: \"x\") { Text(\"x\") } } }"
+        let report = try SceneEnvironmentCheck(sources: ["App.swift": Self.goodApp, "Env.swift": Self.goodModifier,
+                                                         "Extra.swift": other]).run()
+        XCTAssertEqual(report.scenes.count, 4)
+        XCTAssertEqual(report.problems.count, 1, "\(report.problems)")
+    }
+
+    func testTheCheckerFailsWithoutAnApp() {
+        XCTAssertThrowsError(try SceneEnvironmentCheck(sources: ["Env.swift": Self.goodModifier]).run())
+    }
+
+    static func loadSources() throws -> [String: String] {
+        var out: [String: String] = [:]
+        let names = try FileManager.default.contentsOfDirectory(atPath: appSources.path)
+        for name in names where name.hasSuffix(".swift") {
+            out[name] = try String(contentsOf: appSources.appendingPathComponent(name), encoding: .utf8)
+        }
+        return out
+    }
+}
+
+/// Reads Swift sources textually (comments and string contents blanked) and
+/// checks each scene's root view for the app environment.
+struct SceneEnvironmentCheck {
+    struct Failure: Error, CustomStringConvertible { let description: String }
+    struct Report { var scenes: [String] = []; var problems: [String] = [] }
+
+    /// The environment objects, by type.
+    static let types = ["AppModel", "VaultLibrary", "RememberedKeys"]
+    /// Scene types that take a content closure.
+    static let sceneTypes = ["WindowGroup", "Window", "UtilityWindow", "DocumentGroup", "Settings", "MenuBarExtra"]
+
+    /// File name → code with comments and string literal contents blanked.
+    let code: [String: String]
+
+    init(sources: [String: String]) {
+        code = sources.mapValues(Self.mask)
+    }
+
+    func run() throws -> Report {
+        guard let (appFile, appBody) = appStruct() else { throw Failure(description: "no `struct …: App` in the sources") }
+        // The App's property names for each environment type.
+        var names: [String: String] = [:]
+        for type in Self.types {
+            let decl = "@State\\s+(?:private\\s+)?var\\s+(\\w+)\\s*(?::\\s*\(type)\\b|=\\s*\(type)\\s*\\()"
+            guard let name = Self.firstGroup(decl, in: appBody) else {
+                throw Failure(description: "\(appFile): the App keeps no @State \(type)")
+            }
+            names[type] = name
+        }
+        let modifierInjects = Set(modifierTypes())
+        var report = Report()
+        for (file, text) in code.sorted(by: { $0.key < $1.key }) {
+            for scene in scenes(in: text) {
+                let label = "\(file): \(scene.head)"
+                report.scenes.append(label)
+                let content = expand(scene.content, appBody: appBody)
+                var missing: [String] = []
+                for type in Self.types {
+                    let name = names[type] ?? type
+                    let direct = Self.matches("\\.environment\\(\\s*(?:self\\.)?\(name)\\s*\\)", in: content)
+                    let shared = Self.matches("\\.appEnvironment\\([^)]*\\b\(Self.label(type)):\\s*(?:self\\.)?\(name)\\b", in: content)
+                        && modifierInjects.contains(type)
+                    if !direct && !shared { missing.append(type) }
+                }
+                if !missing.isEmpty { report.problems.append("\(label) does not inject \(missing.joined(separator: ", "))") }
+            }
+        }
+        return report
+    }
+
+    /// `appEnvironment(model:library:keys:)`'s argument label for an environment type.
+    static func label(_ type: String) -> String {
+        switch type {
+        case "AppModel": return "model"
+        case "VaultLibrary": return "library"
+        default: return "keys"
+        }
+    }
+
+    /// The `@main` App struct: its file and body.
+    private func appStruct() -> (String, String)? {
+        for (file, text) in code.sorted(by: { $0.key < $1.key }) {
+            guard let range = text.range(of: "struct\\s+\\w+\\s*:\\s*App\\s*\\{", options: .regularExpression) else { continue }
+            let open = text.index(before: range.upperBound)
+            if let body = Self.braced(text, from: open) { return (file, body) }
+        }
+        return nil
+    }
+
+    /// The environment types the `appEnvironment` modifier injects (empty without one).
+    private func modifierTypes() -> [String] {
+        for text in code.values {
+            guard let range = text.range(of: "func\\s+appEnvironment\\s*\\(", options: .regularExpression),
+                  let open = text[range.upperBound...].firstIndex(of: "{"),
+                  let body = Self.braced(text, from: open) else { continue }
+            var injected = body
+            // `modifier(SomeModifier(…))`: that modifier's struct is where the work is.
+            if let name = Self.firstGroup("modifier\\(\\s*(\\w+)\\s*\\(", in: body) {
+                for other in code.values {
+                    guard let s = other.range(of: "struct\\s+\(name)\\b[^{]*\\{", options: .regularExpression),
+                          let structBody = Self.braced(other, from: other.index(before: s.upperBound)) else { continue }
+                    injected += structBody
+                }
+            }
+            // `.environment(model)` where `model` is a property or parameter of that type.
+            return Self.types.filter { type in
+                let property = Self.firstGroup("(?:let|var)\\s+(\\w+)\\s*:\\s*\(type)\\b", in: injected)
+                    ?? Self.firstGroup("(\\w+)\\s*:\\s*\(type)\\b", in: injected)
+                guard let property else { return false }
+                return Self.matches("\\.environment\\(\\s*(?:self\\.)?\(property)\\s*\\)", in: injected)
+            }
+        }
+        return []
+    }
+
+    /// Every scene declaration: its head (`WindowGroup("Note", …)`) and content closure.
+    private func scenes(in text: String) -> [(head: String, content: String)] {
+        var out: [(String, String)] = []
+        let pattern = "(?<![\\w.])(\(Self.sceneTypes.joined(separator: "|")))\\s*(?=[({<])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = text as NSString
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            guard let start = Range(match.range, in: text) else { continue }
+            var i = start.upperBound
+            // Generic arguments, then the argument list, then the trailing closure.
+            if i < text.endIndex, text[i] == "<", let close = Self.balanced(text, from: i, open: "<", close: ">") {
+                i = text.index(after: close)
+            }
+            while i < text.endIndex, text[i].isWhitespace { i = text.index(after: i) }
+            if i < text.endIndex, text[i] == "(", let close = Self.balanced(text, from: i, open: "(", close: ")") {
+                i = text.index(after: close)
+            }
+            while i < text.endIndex, text[i].isWhitespace { i = text.index(after: i) }
+            guard i < text.endIndex, text[i] == "{", let body = Self.braced(text, from: i) else {
+                // A type mention (`Settings` the enum case, say) rather than a scene with content.
+                continue
+            }
+            let head = String(text[start.lowerBound..<i]).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            out.append((head.trimmingCharacters(in: .whitespaces), body))
+        }
+        return out
+    }
+
+    /// `content` with each App property it names (`libraryContent`) inlined, a few levels deep.
+    private func expand(_ content: String, appBody: String) -> String {
+        var text = content
+        var seen: Set<String> = []
+        for _ in 0..<4 {
+            var added = ""
+            for name in Self.allGroups("\\b([a-z]\\w*)\\b", in: text) where !seen.contains(name) {
+                guard let range = appBody.range(of: "var\\s+\(name)\\s*:\\s*some\\s+View\\s*\\{", options: .regularExpression),
+                      let body = Self.braced(appBody, from: appBody.index(before: range.upperBound)) else { continue }
+                seen.insert(name)
+                added += "\n" + body
+            }
+            if added.isEmpty { break }
+            text += added
+        }
+        return text
+    }
+
+    // MARK: - Text helpers
+
+    /// The text inside the braces opening at `open`, or nil if they never close.
+    static func braced(_ text: String, from open: String.Index) -> String? {
+        guard let close = balanced(text, from: open, open: "{", close: "}") else { return nil }
+        return String(text[text.index(after: open)..<close])
+    }
+
+    /// The index of the delimiter closing the one at `from`.
+    static func balanced(_ text: String, from: String.Index, open: Character, close: Character) -> String.Index? {
+        var depth = 0
+        var i = from
+        while i < text.endIndex {
+            if text[i] == open { depth += 1 } else if text[i] == close {
+                depth -= 1
+                if depth == 0 { return i }
+            }
+            i = text.index(after: i)
+        }
+        return nil
+    }
+
+    static func matches(_ pattern: String, in text: String) -> Bool {
+        text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    static func firstGroup(_ pattern: String, in text: String) -> String? {
+        allGroups(pattern, in: text).first
+    }
+
+    static func allGroups(_ pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = text as NSString
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap {
+            $0.numberOfRanges > 1 && $0.range(at: 1).location != NSNotFound ? ns.substring(with: $0.range(at: 1)) : nil
+        }
+    }
+
+    /// Blanks comments and the contents of string literals (quotes kept), so
+    /// braces and words inside them are not code.
+    static func mask(_ source: String) -> String {
+        let s = Array(source)
+        var out = s
+        var i = 0
+        func blank(_ k: Int) { if out[k] != "\n" { out[k] = " " } }
+        while i < s.count {
+            if s[i] == "/", i + 1 < s.count, s[i + 1] == "/" {
+                while i < s.count, s[i] != "\n" { blank(i); i += 1 }
+            } else if s[i] == "/", i + 1 < s.count, s[i + 1] == "*" {
+                var depth = 0
+                while i < s.count {
+                    if s[i] == "/", i + 1 < s.count, s[i + 1] == "*" { depth += 1; blank(i); blank(i + 1); i += 2; continue }
+                    if s[i] == "*", i + 1 < s.count, s[i + 1] == "/" {
+                        depth -= 1; blank(i); blank(i + 1); i += 2
+                        if depth == 0 { break }
+                        continue
+                    }
+                    blank(i); i += 1
+                }
+            } else if s[i] == "\"" {
+                let triple = i + 2 < s.count && s[i + 1] == "\"" && s[i + 2] == "\""
+                i += triple ? 3 : 1
+                while i < s.count {
+                    if s[i] == "\\" {
+                        // An interpolation stays code: its parentheses balance on their own.
+                        if i + 1 < s.count, s[i + 1] == "(" , let close = closeParen(s, from: i + 1) {
+                            i = close + 1; continue
+                        }
+                        blank(i); if i + 1 < s.count { blank(i + 1) }
+                        i += 2; continue
+                    }
+                    if triple, s[i] == "\"", i + 2 < s.count, s[i + 1] == "\"", s[i + 2] == "\"" { i += 3; break }
+                    if !triple, s[i] == "\"" { i += 1; break }
+                    if !triple, s[i] == "\n" { break }
+                    blank(i); i += 1
+                }
+            } else {
+                i += 1
+            }
+        }
+        return String(out)
+    }
+
+    private static func closeParen(_ s: [Character], from: Int) -> Int? {
+        var depth = 0
+        var i = from
+        while i < s.count {
+            if s[i] == "(" { depth += 1 } else if s[i] == ")" {
+                depth -= 1
+                if depth == 0 { return i }
+            }
+            i += 1
+        }
+        return nil
+    }
+}

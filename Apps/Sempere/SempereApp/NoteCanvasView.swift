@@ -27,6 +27,8 @@ struct NoteCanvasView: View {
                     }
                 } else if let editor = model.editor, editor.noteID == note.id {
                     EditorView(editor: editor)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("noteEditor")
                         .navigationTitle(NoteTitle.display(note.title))
                 } else if let failure = model.editorFailure, failure.id == note.id {
                     ContentUnavailableView {
