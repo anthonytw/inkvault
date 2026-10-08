@@ -25,6 +25,11 @@ public struct MemoryBlobSource: BlobSource {
         return d
     }
 
+    /// True when content with the reference's hash and size is held.
+    public func isAvailable(_ ref: BlobRef) -> Bool {
+        blobs[ref.sha256].map { Int64($0.count) == ref.size } ?? false
+    }
+
     /// The content in a private temporary file (mode 0600, created
     /// exclusively), deleted afterwards, like `Vault.withBlobFile`.
     public func withFile<T>(for ref: BlobRef, _ body: (URL) throws -> T) throws -> T {

@@ -8,7 +8,12 @@ import { imageInfo, imageLimits, stripMetadata } from "../render/images.ts";
 import {
   type PreparedItem, after, imageTransform, intersect, maxItemsPerPage, pdfCrop, placement, posterTransform, prepareItem, translate,
 } from "../render/items.ts";
-import { type ItemDraw, placeholderNodes, playMarkNodes, rasterNode, resolveItems, textNode } from "../render/itemsvg.ts";
+import {
+  type ItemDraw, audioCardNodes, audioDraw, audioLabelNode, placeholderNodes, playMarkNodes, rasterNode, resolveItems, textNode,
+} from "../render/itemsvg.ts";
+import { type Transcript, decodeTranscript, maxTranscriptBytes } from "../format/transcript.ts";
+import type { JSONObject } from "../format/json.ts";
+import { asBlobRef } from "../vault/blobs.ts";
 import { cmpItems } from "../format/registers.ts";
 import { PreparedPage, chunkHeight, defaultRenderOptions, elementSpec } from "../render/page.ts";
 import { RenderLimits } from "../render/primitives.ts";
@@ -127,16 +132,22 @@ export class NoteView {
   readonly problemsEl = h("details", { class: "warning item-problems" });
   private destroyed = false;
   private rerender?: ReturnType<typeof setTimeout>;
-  /** Video items on drawn pages, for taps (page-local rotated frames). */
-  private readonly videos: { slot: Slot; it: PreparedItem }[] = [];
+  /**
+   * Video and audio items on drawn pages, for taps (page-local rotated frames), in drawing order:
+   * a tap plays the topmost one under it, whichever kind (§8.2.7, §8.2.9).
+   */
+  private readonly playables: Playable[] = [];
+  /** Transcripts read for audio cards, by recording id (read once, verified). */
+  private readonly transcripts = new Map<string, Promise<Transcript>>();
   private tap?: { x: number; y: number; id: number };
 
   /**
    * `blobs` reads the note's attachments; without it every image and PDF page is a placeholder.
-   * `playVideo` is called with a video item's id when it is tapped (§8.2.7).
+   * `playVideo` is called with a video item's id when it is tapped (§8.2.7),
+   * `playAudio` with the recording id of an audio item (§8.2.9).
    */
   constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs,
-    private readonly playVideo?: (itemId: string) => void) {
+    private readonly playVideo?: (itemId: string) => void, private readonly playAudio?: (recordingId: string) => void) {
     this.content = h("div", { class: "pages" });
     this.viewport = h("div", { class: "viewport", attrs: { tabindex: "0", role: "region", "aria-label": "Note pages" } }, this.content);
     this.zoomLabel = h("span", { class: "zoom-label" });
@@ -226,7 +237,7 @@ export class NoteView {
         for (const c of prepared.strokeCommands(true)) { const e = elementSpec(c); items.append(s(e.tag, e.attrs)); }
       };
       let n = 0;
-      for (const r of resolveItems(prepared, canvasMeasure)) {
+      for (const r of resolveItems(prepared, canvasMeasure, this.state.recordings)) {
         if (n++ === under) drawUnder();
         if (r.fill) items.append(s(r.fill.tag, r.fill.attrs));
         const d = r.draw;
@@ -249,7 +260,20 @@ export class NoteView {
               for (const n of placeholderNodes(d.it)) g.append(svgTree(n));
             }
             for (const n of playMarkNodes(d.it)) items.append(svgTree(n));
-            this.videos.push({ slot, it: d.it });
+            const id = String(d.it.item.id);
+            this.playables.push({ slot, it: d.it, play: () => this.playVideo?.(id) });
+            break;
+          }
+          case "audio": {
+            // The card now; the transcript joins the label once it is read (§8.2.9).
+            for (const n of audioCardNodes(d.it)) items.append(svgTree(n));
+            const label = s("g");
+            const node = audioLabelNode(d);
+            if (node) label.append(svgTree(node));
+            items.append(label);
+            const recording = String(d.recording.id);
+            this.playables.push({ slot, it: d.it, play: () => this.playAudio?.(recording) });
+            this.addTranscript(slot, d.it, d.recording, label);
             break;
           }
           default: {
@@ -271,6 +295,26 @@ export class NoteView {
     } catch (e) {
       slot.el.replaceChildren(h("div", { class: "page-error", text: `Page ${slot.index + 1} cannot be drawn: ${e instanceof Error ? e.message : String(e)}` }));
     }
+  }
+
+  /** Reads the transcript of an audio card's recording and redraws its label with it. */
+  private addTranscript(slot: Slot, it: PreparedItem, recording: JSONObject, label: SVGElement): void {
+    const ref = asBlobRef(recording.transcript);
+    if (!ref || !this.blobs) return;
+    const blobs = this.blobs;
+    const id = String(recording.id);
+    let pending = this.transcripts.get(id);
+    if (!pending) {
+      pending = blobs.get(ref, maxTranscriptBytes).then(async (b) => decodeTranscript(new Uint8Array(await b.arrayBuffer()), id));
+      this.transcripts.set(id, pending);
+    }
+    pending.then((t) => {
+      if (this.destroyed) return;
+      const node = audioLabelNode(audioDraw(it, recording, canvasMeasure, t));
+      label.replaceChildren(...(node ? [svgTree(node)] : []));
+    }).catch((e: unknown) => {
+      if (!this.destroyed) this.report(slot, it, `the recording's transcript is not shown: ${why(e)}`);
+    });
   }
 
   /** Pixels per point a PDF crop needs at the current zoom (at least 2, at most 8). */
@@ -528,16 +572,10 @@ export class NoteView {
     });
   }
 
-  /** A tap at viewport point `p`: plays the topmost video under it. */
+  /** A tap at viewport point `p`: plays the topmost video or recording under it. */
   private tapAt(p: { x: number; y: number }): void {
-    if (!this.playVideo) return;
     const x = (p.x - this.x) / this.z, y = (p.y - this.y) / this.z;
-    for (const v of [...this.videos].reverse()) {
-      if (insidePolygon({ x: x - v.slot.left, y: y - v.slot.top }, v.it.corners)) {
-        this.playVideo(String(v.it.item.id));
-        return;
-      }
-    }
+    topmostPlayable(this.playables, x, y)?.play();
   }
 
   /** Scrolls so page `number` (1-based) is at the top. */
@@ -548,6 +586,25 @@ export class NoteView {
     this.clampPan();
     this.schedule();
   }
+}
+
+/** A video or audio item drawn on a page, and what a tap on it plays. */
+export interface Playable {
+  slot: { left: number; top: number };
+  it: { corners: { x: number; y: number }[] };
+  play: () => void;
+}
+
+/**
+ * The playable item a tap at content point (`x`, `y`) hits: the last drawn (topmost) one whose
+ * rotated frame holds the point, so a video drawn over an audio card plays, and the other way round.
+ */
+export function topmostPlayable<T extends Playable>(playables: readonly T[], x: number, y: number): T | undefined {
+  for (let i = playables.length - 1; i >= 0; i--) {
+    const p = playables[i];
+    if (p && insidePolygon({ x: x - p.slot.left, y: y - p.slot.top }, p.it.corners)) return p;
+  }
+  return undefined;
 }
 
 /** True when `p` lies inside the convex polygon `c` (a rotated frame, either winding). */

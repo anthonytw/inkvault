@@ -13,7 +13,8 @@ struct ItemsCommand: ParsableCommand {
         commandName: "items",
         abstract: "List, move, resize, rotate, crop, replace, reorder, delete, duplicate and copy a note's placed items; set a video's poster; change an equation.",
         discussion: """
-            Placed items are text boxes, images, PDF pages, video clips and equations (format.md §8.2). An item is named by its
+            Placed items are text boxes, images, PDF pages, video clips, equations and recordings shown on the page \
+            (audio; format.md §8.2; `recordings place` adds one). An item is named by its
             id or an id prefix of at least 4 characters, as `items list` prints it. Each edit writes one
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
@@ -74,6 +75,8 @@ struct ItemsList: ParsableCommand {
             var duration: Double?; var poster: BlobRef?
             /// An equation (format.md §8.2.8): its source, style and rendering.
             var math: MathContent?
+            /// Audio items: the recording shown, and whether the note has it (format.md §8.2.9).
+            var recording: String?; var recordingMissing: Bool?
         }
         var rows: [Row] = []
         for (i, p) in state.pages.enumerated() where page == nil || page == i + 1 {
@@ -81,7 +84,8 @@ struct ItemsList: ParsableCommand {
                 rows.append(Row(page: i + 1, id: item.id.uuidString.lowercased(), kind: item.kind.rawValue,
                                 layer: "\(item.layer)", frame: item.frame, rotation: item.rotation, z: item.z,
                                 blob: item.blob ?? item.math?.render, crop: item.crop, duration: item.duration, poster: item.poster,
-                                math: item.math))
+                                math: item.math, recording: item.recording?.uuidString.lowercased(),
+                                recordingMissing: item.kind == .audio ? state.recording(shownBy: item) == nil : nil))
             }
         }
         if output.json { try output.emitJSON(rows); return }
@@ -92,6 +96,9 @@ struct ItemsList: ParsableCommand {
             let n = AttachmentListing.number
             let place: String = n(f.x) + "," + n(f.y) + " " + n(f.w) + "x" + n(f.h)
             var blob: String = r.blob.map(AttachmentListing.blob) ?? "-"
+            if r.kind == ItemKind.audio.rawValue {
+                blob = "recording " + (r.recording.map { String($0.prefix(8)) } ?? "-") + (r.recordingMissing == true ? " (missing)" : "")
+            }
             if r.kind == ItemKind.video.rawValue {
                 blob += " " + AttachmentListing.number(r.duration ?? 0) + " s" + (r.poster == nil ? " (no poster)" : " +poster")
             }
@@ -442,8 +449,15 @@ struct ItemsCopy: ParsableCommand {
         let source = try vault.resolveNote(note)
         let target = try vault.resolveNote(to)
         let (_, found) = try findItems(items, in: try vault.reconstruct(try vault.loadNote(source)))
-        let copied = found.sorted(by: Item.drawsBefore)
+        var copied = found.sorted(by: Item.drawsBefore)
         if source != target {
+            // A recording belongs to its note: its audio items cannot show it in another one (format.md §8.2.9).
+            let kept = NoteOps.copyableToOtherNote(copied)
+            if kept.count < copied.count {
+                printStderr("sempere: warning: \(copied.count - kept.count) audio item(s) not copied: their recordings belong to this note")
+            }
+            copied = kept
+            guard !copied.isEmpty else { throw CLIError.failure("nothing to copy: audio items stay with their note's recordings") }
             for ref in NoteOps.blobs(of: copied) { try vault.copyBlob(ref, from: source, to: target) }
         }
         let r = try editNote(vault, target) { state in
