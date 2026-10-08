@@ -582,7 +582,9 @@ struct AttachRecording: ParsableCommand {
             sample rate, channels and average bit rate are read from its header; the options override them. \
             Another audio format needs --type (it is stored and listed, but the app may not play it). --started \
             is the wall time of the first sample (RFC 3339); by default the file's modification time minus its \
-            duration. Prints the new recording's id.
+            duration. --place (or --page, --frame, --at, --width) also puts it on a page as an audio item, \
+            in the same delta, as the app does when a recording stops (format.md §8.2.8). Prints the new \
+            recording's id (and the item's, before it, when placed).
             """
     )
 
@@ -616,6 +618,11 @@ struct AttachRecording: ParsableCommand {
     @Option(name: .customLong("bit-rate"), help: ArgumentHelp("Average bit rate in bits per second.", valueName: "bps"))
     var bitRate: Int?
 
+    @Flag(name: .long, help: "Also place it on a page as an audio item (page 1 unless --page).")
+    var place = false
+
+    @OptionGroup var placement: AudioPlacementOptions
+
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
 
@@ -626,6 +633,7 @@ struct AttachRecording: ParsableCommand {
         }
         if let type, !type.lowercased().hasPrefix("audio/") { throw ValidationError("--type must be an audio/… media type") }
         if let started, RFC3339.parse(started) == nil { throw ValidationError("--started is not an RFC 3339 time: \(started)") }
+        try placement.validate()
     }
 
     func run() throws {
@@ -658,14 +666,25 @@ struct AttachRecording: ParsableCommand {
         }
         let before = try liveState(vault, id)
         guard before.recordings.count < NoteOps.Limits.recordingsPerNote else { throw CLIError.failure("\(AttachmentOpsError.tooManyRecordings)") }
+        let placing = place || placement.isGiven
+        if placing { _ = try targetPage(before, placement.page) }
         let ref = try translating { try vault.writeBlob(note: id, contentsOf: url, type: mediaType) }
         let recording = NoteOps.recording(blob: ref, started: when, info: info, title: title)
+        var placed: (number: Int, placement: ItemPlacement)?
         let revision = try editNote(vault, id) { state in
             try requireLive(state)
-            return try translating { try NoteOps.addRecording(recording, to: state.recordings) }
+            var ops = try translating { try NoteOps.addRecording(recording, to: state.recordings) }
+            if placing {
+                placed = try placement.place(recording, in: state, recordings: state.recordings + [recording])
+                ops += placed?.placement.ops ?? []
+            }
+            return ops
         }
-        let out = AttachJSON(note: id.uuidString.lowercased(), file: revision?.name.filename, dryRun: false, blob: ref,
+        var out = AttachJSON(note: id.uuidString.lowercased(), file: revision?.name.filename, dryRun: false, blob: ref,
                              recording: recording)
+        if let placed {
+            out.items = [AttachmentListing.PlacedItem(page: placed.number, pageId: placed.placement.page, item: placed.placement.item)]
+        }
         try report(out, output: output, summary: "recording (\(info.duration.map { AttachmentListing.number($0) + " s" } ?? "unknown length"), \(mediaType))")
     }
 }

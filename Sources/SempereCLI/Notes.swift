@@ -214,6 +214,7 @@ enum AttachmentListing {
         case .video:
             what = (i.blob.map(blob) ?? "") + " \(number(i.duration ?? 0)) s"
                 + (i.pixelSize.map { " \(number($0.w))×\(number($0.h))" } ?? "") + (i.poster == nil ? " (no poster)" : " +poster")
+        case .audio: what = "recording " + (i.recording.map { String($0.uuidString.lowercased().prefix(8)) } ?? "-")
         default: what = i.blob.map(blob) ?? (i.kind.isDefined ? "" : "(unknown kind)")
         }
         if let r = i.rotation, r != 0 { what += " rotated \(number(r))°" }
