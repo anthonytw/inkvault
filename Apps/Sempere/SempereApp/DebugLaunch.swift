@@ -15,6 +15,7 @@ import UIKit
 /// - `SEMPERE_DEBUG_ZOOM`: zoom as a multiple of the fit-width zoom.
 /// - `SEMPERE_DEBUG_SNAPSHOT`: path to write a PNG of the canvas to, once shown.
 /// - `SEMPERE_DEMO`: a synthetic vault for the App Store screenshots (`DemoLaunch`).
+/// - `SEMPERE_DEBUG_FRESH`: start as a first launch (`resetForFreshLaunch`).
 ///
 /// Release builds compile none of this.
 enum DebugLaunch {
@@ -31,15 +32,57 @@ enum DebugLaunch {
     static var isActive: Bool { environment["SEMPERE_DEBUG_VAULT"] != nil || environment["SEMPERE_DEBUG_RECENT"] != nil
         || DemoLaunch.isActive }
 
+    /// `SEMPERE_DEBUG_FRESH`: deletes the app's own state before anything reads
+    /// it, so the launch is a first one (launch smoke tests, `LaunchSmokeUITests`):
+    /// the preferences domain (column layout, recent vaults, tool and eraser
+    /// choices), the app's own `Sempere…` folders in Application Support,
+    /// Caches and tmp (device clock, recents, trust records, summary, drawing,
+    /// blob and render caches, staged exports) and the saved window state.
+    /// The system's files in the container (keyboard and UIKit caches) stay:
+    /// they are not the app's state, and wiping them on every launch was the
+    /// suspect when the iPad simulator stopped answering UI tests for minutes
+    /// in CI. Keychain items stay (unsigned test builds have none). Files
+    /// are removed only inside an app container (the simulator, a device, the
+    /// sandboxed Mac build), never an unsandboxed Mac build's real home. Called
+    /// first thing in `SempereApp.init`.
+    static func resetForFreshLaunch() {
+        guard environment["SEMPERE_DEBUG_FRESH"] != nil else { return }
+        if let domain = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
+        // Only inside the app's container: an unsandboxed Mac build's home is the user's own.
+        guard NSHomeDirectory().contains("/Containers/") else {
+            NSLog("SempereDebug fresh launch: removed the preferences; files kept (no app container)")
+            return
+        }
+        let fm = FileManager.default
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let folders = ["Library/Application Support", "Library/Caches", "tmp"]
+            .map { home.appendingPathComponent($0, isDirectory: true) }
+            + [URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)]
+        var removed = 0
+        for folder in folders {
+            for item in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            where item.lastPathComponent.hasPrefix("Sempere") {
+                if (try? fm.removeItem(at: item)) != nil { removed += 1 }
+            }
+        }
+        // Mac: the windows an earlier run saved.
+        if (try? fm.removeItem(at: home.appendingPathComponent("Library/Saved Application State", isDirectory: true))) != nil {
+            removed += 1
+        }
+        NSLog("SempereDebug fresh launch: removed the preferences and %d items", removed)
+    }
+
     /// Page y to scroll to after a note opens, if requested.
     static var scrollY: Double? { environment["SEMPERE_DEBUG_SCROLL_Y"].flatMap(Double.init) }
 
     /// Opens what the environment names; errors land in `model.errorMessage`.
     @MainActor
-    static func run(_ model: AppModel, library: VaultLibrary) async {
+    static func run(_ model: AppModel, library: VaultLibrary, keys: RememberedKeys? = nil) async {
         let env = environment
         if DemoLaunch.isActive {
-            await DemoLaunch.run(model)
+            await DemoLaunch.run(model, keys: keys)
             return
         }
         if env["SEMPERE_DEBUG_RECENT"] != nil {

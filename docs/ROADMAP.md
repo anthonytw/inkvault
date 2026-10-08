@@ -3,7 +3,7 @@
 Where every feature sits, by component. Status: ✅ done on `main` (with the PR number) · 🚧 in progress (open PR number) ·
 📋 planned (next) · 💡 future. A note "not yet tried on the iPad" means it is on `main` and
 passed CI, but nobody has used it on a device. Statuses last checked against `main` at
-`b1a4a58` (#118) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
+`ecc62ec` (#119) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
 details in `docs/attachments.md` §14. `docs/HANDOFF.md` has the current
 working state.
 
@@ -191,7 +191,6 @@ behaviour and testing on a real Mac.
 | --- | --- |
 | Builds and launches under Catalyst (CI `app` job) | ✅ |
 | Launch without trapping: every window gets the whole environment and survives scenes restored from the other build (the iPad build on a Mac) (#116); views read the model through `@AppModelEnvironment` / `@AppEnvironmentObject` and, outside their window's environment, fall back to the app's instance and log a fault instead of trapping (the Mac launch crash of macOS build 5) (#120) | ✅ #116, #120 (not yet tried on a Mac) |
-| Launch smoke tests: fresh state, unlock through the UI, every column layout and window kind, and a check that every scene gets the environment | 🚧 #119 |
 | Everything in the iPad table | same status as the iPad |
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
 | Saved folder access in a sandboxed Mac build | ✅ #46, #85: access check, entitlements and a DEBUG probe on main; reopen after relaunch under the sandbox is on the by-hand list (`docs/mac.md`), not confirmed here |
@@ -204,6 +203,7 @@ behaviour and testing on a real Mac.
 | Finder Open With on a PDF: imported as a new note (vault chosen, unlocked first) | ✅ #101; needs a hand test on a Mac |
 | PDF page attachments on the canvas | ✅ #85 (blank in build 6; tile redraw on scale change fixed, checked on Catalyst in CI); iCloud vault needs a hand test |
 | App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
+| Launch smoke tests: fresh state, unlock sheet, every column layout, every window and sheet (`LaunchSmokeUITests`, `test-mac-smoke`; iPad layouts in `test-ui`); every scene injects the app environment (`AppSceneEnvironmentTests`, Linux) | ✅ #119, CI on every run (not yet tried on a Mac) |
 | Multiple windows (one note per window), state restoration | ✅ #46 (`docs/mac.md`); note windows checked on Catalyst in CI; restoration needs a hand test; double-click opens a window ✅ #101 |
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): ✅ #109 (not yet tried on a Mac) |

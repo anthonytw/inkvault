@@ -84,11 +84,13 @@ All of it is `#if DEBUG`; release builds contain none of it.
 | --- | --- |
 | `SEMPERE_DEMO` | Build the demo vault and open it. |
 | `SEMPERE_DEMO_LOCKED` | Leave it locked (the unlock screen). |
+| `SEMPERE_DEMO_PASSPHRASE` | Store the key in the vault's `keys/` under this passphrase and leave it locked; the sidebar and note choices apply after the unlock (launch smoke tests). |
+| `SEMPERE_DEBUG_FRESH` | Start as a first launch: the preferences, the app's own `Sempere…` folders in Application Support, Caches and tmp, and the saved windows are deleted first (`DebugLaunch.resetForFreshLaunch`; files only inside an app container). |
 | `SEMPERE_DEMO_NOTE` | Open the note with this key: `atlas`, `respiration`, `sprint`, `weekly`, `optics`, `quantum`, `photosynthesis`, `lisbon`, `vocabulario`, `books`, `groceries`, `thoughts`. |
 | `SEMPERE_DEMO_SIDEBAR` | `all`, `notebook:School/Physics` or `tag:lecture`. |
 | `SEMPERE_DEMO_PAPER_PICKER` | Open the paper picker over the note. |
 | `SEMPERE_DEMO_MAC_WINDOW` | `WIDTHxHEIGHT` in points (Mac Catalyst). |
-| `SEMPERE_DEBUG_COLUMNS` | `all`, `doubleColumn` or `detailOnly` (see `DebugLaunch.swift`). |
+| `SEMPERE_DEBUG_COLUMNS` | `all`, `doubleColumn`, `detailOnly`, or `stored` to keep the stored layout (see `DebugLaunch.swift`). |
 
 ## Before uploading
 

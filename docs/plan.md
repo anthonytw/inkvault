@@ -34,7 +34,7 @@ finger annotation behind a button, tests at iPhone sizes, 6.9" screenshots. Stat
 
 Same target via Catalyst: menus, keyboard shortcuts, multi-window, drag and
 drop export, key management, pointer input (`docs/mac.md`). Status: ✅ #46, #85 (bulk export from the app: #42); several items
-need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish ✅ #101 and the launch fixes ✅ #116, #120 are not yet tried on a Mac; launch smoke tests 🚧 #119.
+need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish ✅ #101 and the launch fixes ✅ #116, #120 are not yet tried on a Mac; launch smoke tests ✅ #119 (CI on every run).
 
 ## Phase 3 — nice to have
 
@@ -78,7 +78,7 @@ goes first; after it, the rest run in parallel along the dependencies in
 `docs/attachments.md` §14. G1 (both parts; part 2 has no model yet), G2, E7 and L are done; none blocks anything.
 
 Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `b1a4a58` (#118) on 2026-10-08. Beyond this table, the
+💡 future. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
 build 7 follow-ups are all ✅ merged, none yet tried on a device: selecting items and Replace Image (#104), audio items on the page (#103),
 sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#106, #107), bulk export (#109) and backups in the app (#110).
 
