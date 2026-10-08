@@ -19,6 +19,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `sempere restore DIR --to NEW --dry-run` (what a restore would bring back, and whether `NEW` can take it).
   `restore` refuses a target that is, holds or lies inside the vault named by `--vault` / `$SEMPERE_VAULT`.
 
+- App Store submission preparation (`docs/release/`): export compliance answers with sources,
+  privacy manifests for the app and the widget extension, App Privacy and age rating answers, App
+  Review notes, listing drafts, the Mac App Store (universal purchase) steps, and a privacy policy page
+  for GitHub Pages (`docs/privacy/`). `scripts/release-check.sh` (run by CI) fails on mismatched
+  version or build numbers, a committed signing team, a missing or incomplete privacy manifest, or an
+  entitlement outside the allow-list.
 - Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
   A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
   into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to

@@ -61,15 +61,15 @@ struct ItemLayerTests {
         #expect(model.drag(at: .init(x: 150, y: 150), items: items, zoom: 1) == .move(image.id))
         #expect(model.drag(at: .init(x: 500, y: 500), items: items, zoom: 1) == nil, "empty page: scroll")
         model.selected = image.id
-        #expect(model.drag(at: .init(x: 298, y: 199), items: items, zoom: 1) == .resize(image.id, .bottomRight))
-        #expect(model.drag(at: .init(x: 102, y: 101), items: items, zoom: 1) == .resize(image.id, .topLeft))
+        #expect(model.drag(at: .init(x: 298, y: 199), items: items, zoom: 1) == .resize(image.id, .corner(.bottomRight)))
+        #expect(model.drag(at: .init(x: 102, y: 101), items: items, zoom: 1) == .resize(image.id, .corner(.topLeft)))
         // Handles are a screen size: at 4× zoom a page point 10 away is 40 screen points away.
         #expect(model.drag(at: .init(x: 290, y: 190), items: items, zoom: 4) == .move(image.id))
         #expect(ItemSelectionModel.hit(.init(x: 50, y: 30), items: items, zoom: 1)?.id == text.id)
         // Pictures keep their proportions when resized; text boxes do not.
-        let bigger = ItemSelectionModel.frame(for: .resize(image.id, .bottomRight), item: image, dx: 100, dy: 0)
+        let bigger = ItemSelectionModel.frame(for: .resize(image.id, .corner(.bottomRight)), item: image, dx: 100, dy: 0)
         #expect(bigger == Rect(x: 100, y: 100, w: 300, h: 150))
-        let wider = ItemSelectionModel.frame(for: .resize(text.id, .bottomRight), item: text, dx: 100, dy: 0)
+        let wider = ItemSelectionModel.frame(for: .resize(text.id, .edge(.right)), item: text, dx: 100, dy: 0)
         #expect(wider == Rect(x: 10, y: 10, w: 300, h: 40))
         #expect(ItemSelectionModel.frame(for: .move(text.id), item: text, dx: 5, dy: -5) == Rect(x: 15, y: 5, w: 200, h: 40))
     }
