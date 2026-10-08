@@ -78,9 +78,11 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items crop` (the app's Crop: the visible part stays in place) | 🔀 #81 | 🔀 #81 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
+| `recognize --recent [--days N]`: the shared "Recently Recognized" (`meta.recognized`, written by every `recognize` run and the app's "Recognize All") | 🔀 #102 | 🔀 #102 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
 | `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | 🔀 #87 | 🔀 #87 |
 | `notes new` without a title: named after the date and time, `--title-format` (the app's default title) | 🔀 #84 | 🔀 #84 |
+| `notes new --title-format`: strftime too, validated with the app's messages (exit 2), `SEMPERE_TITLE_FORMAT` as this machine's default | 🔀 #102 | 🔀 #102 |
 | `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | 🔀 quick capture PR | 🔀 quick capture PR |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
@@ -105,6 +107,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Area | Feature | Status |
 | --- | --- | --- |
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
+| Vaults | Background sync (iOS): a sync in flight finishes off screen (`beginBackgroundTask`); `BGProcessingTask` / `BGAppRefreshTask` continue it when iOS grants them (`docs/io.md` "Background sync") | 🔀 #102 (not yet tried on a device) |
 | Vaults | Keys in the Keychain / password manager | ✅ #24 |
 | Vaults | Vaults of a newer format version open read-only: banner over the list, notes open read-only with what was skipped, New Note / Import / Recognize disabled, no autosave, thinning, inbox adoption or transcripts (`format.md` §7.3) | 🔀 #94 |
 | Vaults | Authenticated device list (`format.md` §2.1): blocking alert "This vault's device list was changed without its key" naming the unknown devices, Remove (restore the last checked list, rotate, rewrap) or Cancel (read only); one-time "Device List Protected" notice when an older vault is tagged at unlock; quick capture never takes an unchecked list; the web viewer reports the status | 🔀 #98 (not yet tried on the iPad) |
@@ -122,10 +125,13 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
 | Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | ✅ #72 |
 | Search | "Recognize All Notes" results: a "Recently Recognized" sidebar section like Recently Deleted (notes read in the last 7 days, kept across launches, gone when empty); recent searches as the search field's suggestions, with Clear | ✅ #72, 🔀 #84 |
+| Search | "Recently Recognized" shared by every device (each note's `meta.recognized`, `format.md` §5.4, synced like the trash) and listed under All Notes with the smart lists | 🔀 #102 (not yet tried on the iPad) |
 | Search | A running search follows the sidebar: choosing a notebook or tag keeps the query and scopes it there (scope bar "In “Math”" / All Notes) | 🔀 #84 |
 | Notes | Notebook combo box (new note, move note); drag notes and notebooks onto the sidebar (move, nest, un-nest), "Move Notebook To…", one commit and one undo step per drop | ✅ #72 |
-| Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | 🔀 #84 (not yet tried on the iPad) |
+| Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | 🔀 #84 (still broken in build 7) |
+| Notes | Drops on the sidebar, build 7: see #102 for the cause; real-drag UI tests on the iPad simulator (every app CI run) and Mac Catalyst | 🔀 #102 (not yet tried on the iPad) |
 | Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | 🔀 #84 |
+| Notes | Title presets (date and time, date, year-month-day time, weekday) and a custom pattern (Unicode or strftime) checked as it is typed, with a live preview, the reason it is refused and an Insert menu of fields | 🔀 #102 (not yet tried on the iPad) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | ✅ #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | ✅ #74 (not yet tried on the iPad) |

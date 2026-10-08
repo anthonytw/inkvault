@@ -1107,6 +1107,7 @@ match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
 
 ```
 sempere recognize (ID|TITLE... | --all) [--missing-only | --force] [--dry-run]
+sempere recognize --recent [--days N]
 ```
 
 Reads the handwriting of notes with Apple's Vision, on this machine (nothing
@@ -1144,6 +1145,17 @@ list per note the pages `read` and `cleared` and the `file` written; `--json`
 gives `{dryRun, notes: [{note, title, read, cleared, language, file, error}]}`
 (`language`: the note's `lang`, absent when Vision detects it). A note
 that cannot be read or written is reported and the exit code is 1.
+
+Each note a run writes recognition for also gets `meta.recognized` in the
+same delta (`format.md` §5.4: the time of the run, the note's page count and
+how many pages were written), which puts it in the app's "Recently
+Recognized" on every device for 7 days; a note found current is not written
+to. `--recent` lists the notes whose `recognized` is within the last 7 days
+(`--days`, 1 to 3650), newest first, whichever device's run wrote it: text
+lines `ID  TIME  TITLE: read M of N page(s)`, or `--json`
+`{days, notes: [{note, title, notebook, at, pages, read}]}`. It reads only
+summaries, writes nothing and works on Linux. `notes show --json` gives the
+register as `recognized` (`{at, pages, read}`, absent when never set).
 
 ### Transcription
 

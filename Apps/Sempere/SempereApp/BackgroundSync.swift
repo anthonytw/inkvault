@@ -104,7 +104,7 @@ struct BackgroundTaskToken: Hashable, Sendable {
 @MainActor
 protocol BackgroundTaskRunning: AnyObject {
     /// Nil when iOS gives no time (the app is about to be suspended anyway).
-    func begin(name: String, expired: @escaping @MainActor () -> Void) -> BackgroundTaskToken?
+    func begin(name: String, expired: @escaping @MainActor @Sendable () -> Void) -> BackgroundTaskToken?
     func end(_ token: BackgroundTaskToken)
 }
 
@@ -123,7 +123,7 @@ protocol BackgroundSyncScheduling: AnyObject {
 
 @MainActor
 final class UIKitBackgroundTasks: BackgroundTaskRunning {
-    func begin(name: String, expired: @escaping @MainActor () -> Void) -> BackgroundTaskToken? {
+    func begin(name: String, expired: @escaping @MainActor @Sendable () -> Void) -> BackgroundTaskToken? {
         let id = UIApplication.shared.beginBackgroundTask(withName: name) {
             MainActor.assumeIsolated { expired() }
         }

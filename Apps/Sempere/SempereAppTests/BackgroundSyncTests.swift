@@ -10,10 +10,10 @@ final class FakeBackgroundTasks: BackgroundTaskRunning {
     var grant = true
     private(set) var begun: [BackgroundTaskToken] = []
     private(set) var ended: [BackgroundTaskToken] = []
-    private var expiry: (@MainActor () -> Void)?
+    private var expiry: (@MainActor @Sendable () -> Void)?
     private var next = 1
 
-    func begin(name: String, expired: @escaping @MainActor () -> Void) -> BackgroundTaskToken? {
+    func begin(name: String, expired: @escaping @MainActor @Sendable () -> Void) -> BackgroundTaskToken? {
         guard grant else { return nil }
         let token = BackgroundTaskToken(raw: next)
         next += 1

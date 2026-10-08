@@ -144,7 +144,7 @@ struct TitlePatternField: View {
                     .onChange(of: pattern) { NewNoteSettings.setTitlePattern(pattern) }
                     .accessibilityLabel("Title pattern")
                 Menu("Insert", systemImage: "plus.circle") {
-                    ForEach(TitlePatternField.fields, id: \.pattern) { field in
+                    ForEach(TitlePatternField.fields, id: \.self) { field in
                         Button("\(field.name) (\(DefaultTitle.title(at: Date(), format: field.pattern)))") {
                             pattern += (pattern.isEmpty || pattern.hasSuffix(" ") ? "" : " ") + field.pattern
                         }
@@ -167,10 +167,17 @@ struct TitlePatternField: View {
         }
     }
 
+    struct Field: Hashable, Sendable {
+        let name: String
+        let pattern: String
+    }
+
     /// The fields the Insert menu offers.
-    static let fields: [(name: String, pattern: String)] = [
-        ("Year", "yyyy"), ("Month", "MMMM"), ("Month (number)", "MM"), ("Day", "d"), ("Weekday", "EEEE"),
-        ("Time", "HH:mm"), ("Time (12-hour)", "h:mm a"), ("Text", "'Note'"),
+    static let fields: [Field] = [
+        Field(name: "Year", pattern: "yyyy"), Field(name: "Month", pattern: "MMMM"),
+        Field(name: "Month (number)", pattern: "MM"), Field(name: "Day", pattern: "d"),
+        Field(name: "Weekday", pattern: "EEEE"), Field(name: "Time", pattern: "HH:mm"),
+        Field(name: "Time (12-hour)", pattern: "h:mm a"), Field(name: "Text", pattern: "'Note'"),
     ]
 
     enum Status: Equatable {

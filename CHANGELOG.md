@@ -9,6 +9,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- "Recently Recognized" is shared by every device, like the trash: a recognition run ("Recognize All
+  Notes", `sempere recognize`) marks each note it writes recognition for with the time of the run
+  (`meta.recognized`, `format.md` §5.4), which syncs with the note. The sidebar lists it under All Notes
+  with the smart lists. CLI: `sempere recognize --recent [--days N] [--json]`; `notes show --json` gives
+  `recognized`. Builds before this one reject a revision carrying the new register (pre-1.0).
+- New-note titles: presets (Date and Time, Date, Year-Month-Day Time, Weekday and Date) and a custom
+  pattern, a Unicode date pattern or a strftime format, checked as it is typed with a live preview, the
+  reason it is refused and an Insert menu of fields. CLI: `notes new --title-format` takes strftime too
+  and refuses a format it cannot use (exit 2) with the same reason; `SEMPERE_TITLE_FORMAT` sets the default.
+- iPhone and iPad: an iCloud sync in flight when the device locks or the app leaves the screen finishes
+  in the background time iOS gives, and scheduled background tasks continue it when iOS allows
+  (`docs/io.md` "Background sync" lists the limits).
+
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
