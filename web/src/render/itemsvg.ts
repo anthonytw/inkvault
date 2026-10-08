@@ -11,6 +11,8 @@ import {
   svgMatrix,
 } from "./items.ts";
 import { type PreparedPage, type SVGElementSpec, elementSpec } from "./page.ts";
+import type { Transcript } from "../format/transcript.ts";
+import { audioCardCommands, audioCardLayout, audioLabel, clipLines, recordingShownBy } from "./audio.ts";
 import { fmt, paint, paintHex } from "./primitives.ts";
 import { type Measure, type TextContent, type TextLayout, approximateMeasure, fontStacks, layoutText, lineAnchor, textContent } from "./text.ts";
 
@@ -28,7 +30,9 @@ export type ItemDraw =
   | { kind: "image"; it: PreparedItem; ref: BlobRef }
   | { kind: "pdf"; it: PreparedItem; ref: BlobRef; pageIndex: number; pageSize: { w: number; h: number } }
   /** A video clip (§8.2.7): its poster (none: a placeholder) under the play mark; the clip plays on request. */
-  | { kind: "video"; it: PreparedItem; clip: BlobRef; poster?: BlobRef; duration?: number };
+  | { kind: "video"; it: PreparedItem; clip: BlobRef; poster?: BlobRef; duration?: number }
+  /** A recording on the page (§8.2.8): the card, its label laid out without the transcript (fetched later). */
+  | { kind: "audio"; it: PreparedItem; recording: JSONObject; content: TextContent; layout?: TextLayout };
 
 export interface ResolvedItem {
   /** A background item's paper fill (§8.2.3), drawn first. */
@@ -43,15 +47,15 @@ function size(v: unknown): { w: number; h: number } | undefined {
 }
 
 /** Decides what each item becomes; text is laid out with `measure` when its breaks cannot be used. */
-export function resolveItems(prepared: PreparedPage, measure: Measure = approximateMeasure): ResolvedItem[] {
+export function resolveItems(prepared: PreparedPage, measure: Measure = approximateMeasure, recordings: JSONObject[] = []): ResolvedItem[] {
   return prepared.items.map((it) => {
-    const out: ResolvedItem = { draw: resolveItem(it, measure) };
+    const out: ResolvedItem = { draw: resolveItem(it, measure, recordings) };
     if (it.fillsBackground && prepared.options.paper) out.fill = elementSpec(backgroundFill(it, prepared.drawnPaper));
     return out;
   });
 }
 
-function resolveItem(it: PreparedItem, measure: Measure): ItemDraw {
+function resolveItem(it: PreparedItem, measure: Measure, recordings: JSONObject[]): ItemDraw {
   const item: JSONObject = it.item;
   switch (it.kind) {
     case "text": {
@@ -77,9 +81,37 @@ function resolveItem(it: PreparedItem, measure: Measure): ItemDraw {
       const duration = typeof item.duration === "number" ? item.duration : undefined;
       return { kind: "video", it, clip, ...(poster ? { poster } : {}), ...(duration !== undefined ? { duration } : {}) };
     }
+    case "audio": {
+      const recording = recordingShownBy(item, recordings);
+      if (!recording) return { kind: "placeholder", it, reason: "recording missing" };
+      return audioDraw(it, recording, measure);
+    }
     default:
       return { kind: "placeholder", it, reason: `${it.kind} items are not drawn by the viewer` };
   }
+}
+
+/** An audio item's card with its label laid out (with the transcript once it is read). */
+export function audioDraw(it: PreparedItem, recording: JSONObject, measure: Measure = approximateMeasure,
+  transcript?: Transcript): Extract<ItemDraw, { kind: "audio" }> {
+  const card = audioCardLayout(it.frame);
+  const content = audioLabel(recording, transcript);
+  const out: Extract<ItemDraw, { kind: "audio" }> = { kind: "audio", it, recording, content };
+  if (card.labelFrame) out.layout = clipLines(layoutText(content, card.labelFrame, measure), card.labelBottom);
+  return out;
+}
+
+/** The card and icon of an audio item. */
+export function audioCardNodes(it: PreparedItem): SVGNode[] {
+  return audioCardCommands(it.frame, it.rotation).map((c) => spec(elementSpec(c)));
+}
+
+/** An audio item's label, turned with the card (about the card's centre, not the label's). */
+export function audioLabelNode(d: Extract<ItemDraw, { kind: "audio" }>): SVGNode | undefined {
+  const frame = audioCardLayout(d.it.frame).labelFrame;
+  if (!frame || !d.layout) return undefined;
+  const inner = textNode({ ...d.it, frame, rotation: 0 }, d.content, d.layout);
+  return d.it.rotation === 0 ? inner : { tag: "g", attrs: [["transform", svgMatrix(rotate(d.it.frame, d.it.rotation))]], children: [inner] };
 }
 
 function spec(e: SVGElementSpec): SVGNode {

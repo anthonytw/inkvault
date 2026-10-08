@@ -230,13 +230,14 @@ export function kindFields(kind: string): string[] {
     case "image": return ["blob", "pixelSize", "orientation", "crop"];
     case "pdfPage": return ["blob", "pageIndex", "pageSize", "crop"];
     case "video": return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"];
+    case "audio": return ["recording"];
     default: return [];
   }
 }
 
 /** Fields `setItem` may not name (§8.2.2): immutable fields of every kind, and `origin`, `clocks`. */
 export const immutableItemFields: ReadonlySet<string> = new Set(["id", "kind", "layer", "parent", "rec", "origin", "clocks",
-  "blob", "pixelSize", "orientation", "pageIndex", "pageSize", "duration", "videoRotation", "codec"]);
+  "blob", "pixelSize", "orientation", "pageIndex", "pageSize", "duration", "videoRotation", "codec", "recording"]);
 
 /** The `videoRotation` values §8.2.7 allows. */
 const videoRotations: ReadonlySet<number> = new Set([0, 90, 180, 270]);
@@ -273,6 +274,7 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
   if (has("codec")) optWith(o, "codec", path, str);
   // `poster: null` is the reset register (absent).
   if (has("poster")) optWith(o, "poster", path, (b, p) => blobRef(b, p, fc));
+  const recording = has("recording") ? optWith(o, "recording", path, uuid) : undefined;
   extra(o, new Set([...commonItemFields, ...mine]), path, c.depth, budget);
 
   // `Item.validationError` (§8.2.1, §8.2.4–§8.2.6).
@@ -297,6 +299,9 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
       if (!positive(pixelSize.w, pixelSize.h)) fail(path, "pixelSize must be positive");
       if (!(Number.isFinite(duration) && duration >= 0)) fail(path, "duration must be finite and not negative");
       if (videoRotation !== undefined && !videoRotations.has(videoRotation)) fail(path, "videoRotation must be 0, 90, 180 or 270");
+      break;
+    case "audio":
+      if (recording === undefined) fail(path, "audio item without recording");
       break;
   }
   return o;

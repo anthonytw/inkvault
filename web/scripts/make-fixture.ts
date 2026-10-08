@@ -450,6 +450,35 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
   ]));
 }
 
+// --- Note 8: recordings on the page (format.md §8.2.8): a card with a transcript, a rotated card and a
+// small one showing it, a recording without title or transcript, and a card whose recording is missing.
+{
+  const note = "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c";
+  const pid = id(0xa00);
+  const tone = await blob(note, readFileSync(join(media, "tone.m4a")), "audio/mp4");
+  const rec1 = id(0xa80), rec2 = id(0xa81);
+  const transcript = await blob(note, enc.encode(JSON.stringify({
+    format: "sempere-transcript/1", recording: rec1, engine: "synthetic-1", language: "en-US", created: wall(61),
+    segments: [{ start: 0, end: 0.5, text: "A synthetic tone." }],
+  })), "application/vnd.sempere.transcript+json");
+  const card = (n: number, recording: string, frame: number[], z: string, extra: Json = {}) =>
+    ({ id: id(n), kind: "audio", layer: 100, frame, z, recording, ...extra });
+  await write(note, delta(note, devA, 1, 60, [
+    { op: "setMeta", field: "title", value: "Recordings on the page" },
+    { op: "setMeta", field: "paper", value: { kind: "blank", background: "#FFFFFFFF" } },
+    { op: "setMeta", field: "pageSize", value: letter },
+    { op: "addPage", page: { id: pid, order: "a0", strokes: [] } },
+    { op: "addRecording", recording: { id: rec1, blob: tone, started: wall(60), duration: 1, codec: "aac", title: "Lecture", transcript } },
+    { op: "addRecording", recording: { id: rec2, blob: tone, started: wall(62), duration: 75.4 } },
+    { op: "addItem", page: pid, item: card(0xa01, rec1, [72, 72, 300, 96], "a0", { rec: { id: rec1, at: 0 } }) },
+    { op: "addItem", page: pid, item: card(0xa02, rec1, [320, 220, 240, 80], "a1", { rotation: 15 }) },
+    { op: "addItem", page: pid, item: card(0xa03, rec1, [72, 360, 200, 30], "a2") },
+    { op: "addItem", page: pid, item: card(0xa04, rec2, [72, 440, 260, 96], "a3") },
+    { op: "addItem", page: pid, item: card(0xa05, id(0xaff), [360, 440, 200, 60], "a4") },
+    { op: "addStroke", page: pid, stroke: stroke(0xa06, "pen", "#1A1A1AFF", 2, wave(72, 600, 400), { rec: { id: rec1, at: 0.5 } }) },
+  ]));
+}
+
 const manifest = {
   format: "sempere/1",
   vaultId: "5a3b1e00-1000-4000-8000-000000000002",

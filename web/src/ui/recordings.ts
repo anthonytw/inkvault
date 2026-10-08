@@ -35,12 +35,23 @@ export class RecordingsPanel {
   readonly root: HTMLElement;
   private readonly urls: string[] = [];
   private destroyed = false;
+  /** Plays each recording from its start (by id), for audio items on the page (§8.2.8). */
+  private readonly players = new Map<string, { row: HTMLElement; play: () => void }>();
 
   constructor(recordings: JSONObject[], private readonly blobs?: NoteBlobs) {
     this.root = h("details", { class: "recordings" },
       h("summary", { text: `${recordings.length} recording${recordings.length === 1 ? "" : "s"}` }),
       h("ul", {}, ...recordings.map((r) => this.row(r))));
     this.root.hidden = recordings.length === 0;
+  }
+
+  /** Opens the list at recording `id` and plays it (a tap on its card on the page). */
+  play(id: string): void {
+    const p = this.players.get(id.toLowerCase());
+    if (!p) return;
+    (this.root as HTMLDetailsElement).open = true;
+    p.row.scrollIntoView?.({ block: "nearest" });
+    p.play();
   }
 
   destroy(): void {
@@ -131,12 +142,16 @@ export class RecordingsPanel {
       },
     }) : null;
 
-    return h("li", { class: "recording" },
+    const row = h("li", { class: "recording" },
       h("div", { class: "rec-head" },
         h("span", { class: "title", text: title }),
         h("span", { class: "sub", text: [formatDate(started), duration].filter(Boolean).join(" · ") })),
       h("div", { class: "rec-actions" }, player, showTranscript),
       status, transcriptEl);
+    this.players.set(String(rec.id).toLowerCase(), {
+      row, play: () => void loadAudio().then((a) => a?.play().catch(() => undefined)),
+    });
+    return row;
   }
 }
 

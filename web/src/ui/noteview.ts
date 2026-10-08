@@ -8,7 +8,12 @@ import { imageInfo, imageLimits, stripMetadata } from "../render/images.ts";
 import {
   type PreparedItem, after, imageTransform, intersect, maxItemsPerPage, pdfCrop, placement, posterTransform, prepareItem, translate,
 } from "../render/items.ts";
-import { type ItemDraw, placeholderNodes, playMarkNodes, rasterNode, resolveItems, textNode } from "../render/itemsvg.ts";
+import {
+  type ItemDraw, audioCardNodes, audioDraw, audioLabelNode, placeholderNodes, playMarkNodes, rasterNode, resolveItems, textNode,
+} from "../render/itemsvg.ts";
+import { type Transcript, decodeTranscript, maxTranscriptBytes } from "../format/transcript.ts";
+import type { JSONObject } from "../format/json.ts";
+import { asBlobRef } from "../vault/blobs.ts";
 import { cmpItems } from "../format/registers.ts";
 import { PreparedPage, chunkHeight, defaultRenderOptions, elementSpec } from "../render/page.ts";
 import { RenderLimits } from "../render/primitives.ts";
@@ -129,14 +134,19 @@ export class NoteView {
   private rerender?: ReturnType<typeof setTimeout>;
   /** Video items on drawn pages, for taps (page-local rotated frames). */
   private readonly videos: { slot: Slot; it: PreparedItem }[] = [];
+  /** Audio items on drawn pages, for taps: the recording each shows (§8.2.8). */
+  private readonly audios: { slot: Slot; it: PreparedItem; recording: string }[] = [];
+  /** Transcripts read for audio cards, by recording id (read once, verified). */
+  private readonly transcripts = new Map<string, Promise<Transcript>>();
   private tap?: { x: number; y: number; id: number };
 
   /**
    * `blobs` reads the note's attachments; without it every image and PDF page is a placeholder.
-   * `playVideo` is called with a video item's id when it is tapped (§8.2.7).
+   * `playVideo` is called with a video item's id when it is tapped (§8.2.7),
+   * `playAudio` with the recording id of an audio item (§8.2.8).
    */
   constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs,
-    private readonly playVideo?: (itemId: string) => void) {
+    private readonly playVideo?: (itemId: string) => void, private readonly playAudio?: (recordingId: string) => void) {
     this.content = h("div", { class: "pages" });
     this.viewport = h("div", { class: "viewport", attrs: { tabindex: "0", role: "region", "aria-label": "Note pages" } }, this.content);
     this.zoomLabel = h("span", { class: "zoom-label" });
@@ -226,7 +236,7 @@ export class NoteView {
         for (const c of prepared.strokeCommands(true)) { const e = elementSpec(c); items.append(s(e.tag, e.attrs)); }
       };
       let n = 0;
-      for (const r of resolveItems(prepared, canvasMeasure)) {
+      for (const r of resolveItems(prepared, canvasMeasure, this.state.recordings)) {
         if (n++ === under) drawUnder();
         if (r.fill) items.append(s(r.fill.tag, r.fill.attrs));
         const d = r.draw;
@@ -252,6 +262,17 @@ export class NoteView {
             this.videos.push({ slot, it: d.it });
             break;
           }
+          case "audio": {
+            // The card now; the transcript joins the label once it is read (§8.2.8).
+            for (const n of audioCardNodes(d.it)) items.append(svgTree(n));
+            const label = s("g");
+            const node = audioLabelNode(d);
+            if (node) label.append(svgTree(node));
+            items.append(label);
+            this.audios.push({ slot, it: d.it, recording: String(d.recording.id) });
+            this.addTranscript(slot, d.it, d.recording, label);
+            break;
+          }
           default: {
             const g = s("g");
             items.append(g);
@@ -271,6 +292,26 @@ export class NoteView {
     } catch (e) {
       slot.el.replaceChildren(h("div", { class: "page-error", text: `Page ${slot.index + 1} cannot be drawn: ${e instanceof Error ? e.message : String(e)}` }));
     }
+  }
+
+  /** Reads the transcript of an audio card's recording and redraws its label with it. */
+  private addTranscript(slot: Slot, it: PreparedItem, recording: JSONObject, label: SVGElement): void {
+    const ref = asBlobRef(recording.transcript);
+    if (!ref || !this.blobs) return;
+    const blobs = this.blobs;
+    const id = String(recording.id);
+    let pending = this.transcripts.get(id);
+    if (!pending) {
+      pending = blobs.get(ref, maxTranscriptBytes).then(async (b) => decodeTranscript(new Uint8Array(await b.arrayBuffer()), id));
+      this.transcripts.set(id, pending);
+    }
+    pending.then((t) => {
+      if (this.destroyed) return;
+      const node = audioLabelNode(audioDraw(it, recording, canvasMeasure, t));
+      label.replaceChildren(...(node ? [svgTree(node)] : []));
+    }).catch((e: unknown) => {
+      if (!this.destroyed) this.report(slot, it, `the recording's transcript is not shown: ${why(e)}`);
+    });
   }
 
   /** Pixels per point a PDF crop needs at the current zoom (at least 2, at most 8). */
@@ -523,10 +564,18 @@ export class NoteView {
     });
   }
 
-  /** A tap at viewport point `p`: plays the topmost video under it. */
+  /** A tap at viewport point `p`: plays the topmost video or recording under it. */
   private tapAt(p: { x: number; y: number }): void {
-    if (!this.playVideo) return;
     const x = (p.x - this.x) / this.z, y = (p.y - this.y) / this.z;
+    if (this.playAudio) {
+      for (const a of [...this.audios].reverse()) {
+        if (insidePolygon({ x: x - a.slot.left, y: y - a.slot.top }, a.it.corners)) {
+          this.playAudio(a.recording);
+          return;
+        }
+      }
+    }
+    if (!this.playVideo) return;
     for (const v of [...this.videos].reverse()) {
       if (insidePolygon({ x: x - v.slot.left, y: y - v.slot.top }, v.it.corners)) {
         this.playVideo(String(v.it.item.id));
