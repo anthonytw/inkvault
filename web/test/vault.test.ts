@@ -41,7 +41,7 @@ describe("manifest", () => {
   it("rejects other formats, garbage and duplicate recipients", () => {
     const m = JSON.parse(readFileSync(join(fixtures, "sample.sempere", "vault.json"), "utf8")) as Record<string, unknown>;
     const bad = (v: unknown) => () => parseManifest(enc.encode(JSON.stringify(v)));
-    expect(bad({ ...m, format: "sempere/2" })).toThrow(/unsupported vault format/);
+    expect(bad({ ...m, format: "sempere/0" })).toThrow(/unsupported vault format/);
     expect(bad({ ...m, recipients: [] })).toThrow(/no recipients/);
     expect(bad({ ...m, recipients: [{ key: "age1nope", label: "", added: "2026-10-04T16:20:00Z" }] })).toThrow(/invalid recipient/);
     const r = (m.recipients as unknown[])[0];

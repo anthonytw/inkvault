@@ -69,4 +69,32 @@ final class RecoveryInteropTests: VaultTestCase {
         let secret = try shell("\(quote(age.path)) -d -i \(quote(keyFile.path)) \(quote(secretFile.path))")
         XCTAssertEqual(secret, vault.secret?.bytes)
     }
+
+    /// The stock-CLI recovery path reads revisions a newer version wrote
+    /// (format.md §7.6): `newer.sempere` is post-quantum, so this needs
+    /// `age` 1.3 or later (CI sets SEMPERE_REQUIRE_AGE_PQ).
+    func testStockAgeRecoversNewerRevisions() throws {
+        let required = ProcessInfo.processInfo.environment["SEMPERE_REQUIRE_AGE_PQ"] != nil
+        guard let age = Self.which("age") else {
+            if required { XCTFail("SEMPERE_REQUIRE_AGE_PQ set but age is not on PATH") }
+            throw XCTSkip("age not on PATH")
+        }
+        let version = String(decoding: try shell("\(quote(age.path)) --version"), as: UTF8.self)
+        let parts = version.trimmingCharacters(in: .whitespacesAndNewlines).drop { $0 == "v" }
+            .split(separator: ".").prefix(2).compactMap { Int($0) }
+        guard postQuantumAvailable, parts.count == 2, parts[0] > 1 || (parts[0] == 1 && parts[1] >= 3) else {
+            if required { XCTFail("SEMPERE_REQUIRE_AGE_PQ set but age is \(version)") }
+            throw XCTSkip("age \(version) predates post-quantum recipients (needs 1.3)")
+        }
+        let key = try FixtureTests.bundled("sample.key")
+        let vault = try Vault.open(at: FixtureTests.bundled("newer.sempere"),
+                                   identities: [try IdentityFile.parse(String(contentsOf: key, encoding: .utf8))])
+        let note = NewerFixture.mixed
+        for name in try vault.revisionNames(of: note) {
+            let file = vault.noteURL(note).appendingPathComponent(name.filename)
+            let json = try shell("\(quote(age.path)) -d -i \(quote(key.path)) \(quote(file.path)) | tail -c +38 | gunzip")
+            XCTAssertEqual(try InkJSON.decoder().decode(Revision.self, from: json),
+                           try vault.readRevision(noteId: note, name: name))
+        }
+    }
 }

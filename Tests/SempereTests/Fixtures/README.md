@@ -62,3 +62,22 @@ identity) and rewrites `sample.sempere/` and `legacy.sempere/`. age encryption i
 the vault secret change on every regeneration; names, ids, clocks and the
 decrypted JSON do not. `testFixtureOpensAndReconstructs` checks that a fresh
 generation decrypts to the same revisions as the committed one.
+
+## `newer.sempere`: a vault of a later format version
+
+A synthetic vault as a future Sempere might write it (format.md §7), encrypted
+to `sample.key`: `vault.json` says `format: "sempere/2"` and `features:
+["tables"]`, so this version opens it read-only. Vault id
+`5a3b1e00-1000-4000-8000-000000000002`; device `0e0e0e0e` is the "newer" writer.
+Written by `NewerFixture.generate` (`Tests/SempereTests/NewerFormatTests.swift`;
+regenerate with `SEMPERE_REGENERATE_FIXTURE=1 swift test --filter
+NewerFormatTests/testRegenerateNewerFixture`).
+
+| Note | Revisions | What this version shows |
+| --- | --- | --- |
+| `33333333-…` | a version-1 delta; a delta marked `sempere/2` with `moveStroke` (unknown op), `setMeta` of `color` (unknown register), an `addStroke` that does not decode, an item of kind `hologram`, an unknown envelope field | title "Newer fixture, edited by v2", tag `v2`, 2 strokes, a placeholder item; 3 ops skipped |
+| `44444444-…` | one snapshot marked with the unknown feature `tables`, holding a stroke with a bad id, a page without id, unknown `state`, `meta` and page members | title "Newer snapshot", 1 page with 1 stroke; 2 elements skipped |
+| `55555555-…` | a version-1 delta; a delta with body version 2 | the first delta only; one unreadable newer revision |
+
+`web/test/golden/newer` holds the CLI's export of these notes, which the web
+viewer must reproduce.

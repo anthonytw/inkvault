@@ -132,7 +132,7 @@ public enum BlobName {
     /// `blobName = hex(HMAC-SHA256(vaultSecret, "sempere/1" ‖ 0 ‖ "blob" ‖ 0 ‖ sha256))`,
     /// with `sha256` the 32 raw bytes of the content hash.
     public static func name(digest: Data, secret: VaultSecret) -> String {
-        var m = Data(SempereFormat.identifier.utf8)
+        var m = Data(SempereFormat.tagLabel.utf8)
         m.append(0)
         m += Data("blob".utf8)
         m.append(0)
@@ -160,7 +160,7 @@ public enum BlobName {
     /// one of `secrets`; returns the index of the secret that matched.
     static func verify(_ name: String, digest: Data, secrets: [VaultSecret]) -> Int? {
         guard let given = SHA256Hex.bytes(name) else { return nil }
-        var m = Data(SempereFormat.identifier.utf8)
+        var m = Data(SempereFormat.tagLabel.utf8)
         m.append(0)
         m += Data("blob".utf8)
         m.append(0)

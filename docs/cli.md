@@ -41,6 +41,7 @@ printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
 | 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: sempere vault recipients replace OLD NEW`. |
 | 6 | Untrusted device list: `vault.json`'s recipients do not check (`format.md` §2.1: changed without the vault's key, its tag removed, or the vault secret replaced in a way this machine cannot confirm). Every command that would encrypt to the list refuses (nothing is written), `vault verify` reports it, and `sync webdav` exits 6 when it rejected a remote `vault.json`. The message names the unexpected keys and `sempere vault recipients repair`. Reading notes still works. |
+| 7 | Read-only vault: it holds content of a newer format version (format.md §7), so this version may read it but not change it. The message says why (`format`, `features`, or notes a newer version wrote). |
 
 **Legacy vaults** (format.md §3.3.2) are migrate-only. On a vault that lists a
 classic X25519 recipient, alone or next to post-quantum ones, only these run:
@@ -55,6 +56,39 @@ are allowed too: they copy the encrypted files without decrypting anything,
 and a copy before migrating is a good idea. `restore` is refused because it
 would hand back a legacy vault; migrate the backup folder (itself a vault)
 first. `keys generate` and `keys show` do not touch a vault.
+
+**Vaults of a newer format version** (format.md §7) open read-only. A vault
+whose `vault.json` names a later `format` (`sempere/2`) or a format extension
+this version does not know (`features`) prints one warning on stderr
+(`sempere: warning: read-only: …`) and every reading command works: `vault
+info`, `vault verify`, `notes list`/`show`/`search`/`history`, `search`,
+`export`, `recover`, `blobs list`/`verify`/`extract`, `backup`. What a newer
+version wrote is shown as far as this version understands it: unknown ops,
+fields and snapshot elements are skipped, a revision with a later body version
+is left out, and every such thing is reported. Every command that would write
+(`notes new`/`rename`/`tag`/`move`/`paper`/`delete`/…, `pages`, `items`,
+`attach`, `import`, `snapshot`, `compact`, `blobs add`/`copy`/`gc`/`repair`,
+`vault recipients …`, `vault rewrap-resume`, `inbox enable`/`import`,
+`recognize`, `transcribe`) exits 7 without changing a file. `vault index`
+exits 7 too unless it writes elsewhere (`--out FILE` or `-`), and no command
+refreshes the vault's `sempere-index.json` any more. Newer
+*revisions* in a version-1 vault (a sync can deliver them before the new
+`vault.json`) make the run read-only from the moment it reads them: a write to
+such a note, and any write after it in the same run, exits 7.
+
+`--json` says so:
+
+- `vault info --json` adds `format`, `features`, `readOnly` (bool) and
+  `readOnlyReasons` (sentences), from `vault.json` alone;
+- `vault verify --json` adds `readOnly` and `readOnlyReasons` after reading
+  everything; each newer revision is a file with status `newer` (healthy) and
+  a detail saying what was skipped;
+- every note object (`notes list`, `notes show`, …) has `readOnly` (the vault
+  or the note is read-only) and, for a note a newer version wrote, `newer`:
+  `{revisions, unreadable, skippedOps: {name: count}, skippedElements,
+  formats: {id: count}, features: {name: count}}` (names cut to 64 characters,
+  at most 32 distinct, the rest under `…`); `notes show --json` also has
+  top-level `readOnly` and `readOnlyReasons`.
 
 Errors go to stderr, one line each, prefixed `sempere:`.
 
