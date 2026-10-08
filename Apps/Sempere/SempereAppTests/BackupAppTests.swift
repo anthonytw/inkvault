@@ -113,9 +113,10 @@ struct BackupAppTests {
         let drive = try scratch.folder("Drive")
         let backup = drive.appendingPathComponent("Notes Backup")
         _ = try Backup.run(source: try Vault.open(at: fixture), to: backup)
-        #expect(try BackupLocation.restoreSource(backup) == backup)
-        #expect(try BackupLocation.restoreSource(drive) == backup)
-        #expect(try BackupLocation.restoreSource(fixture) == fixture)
+        // Compared by path: a folder found inside the pick is a directory URL (trailing slash).
+        #expect(try BackupLocation.restoreSource(backup).path == backup.path)
+        #expect(try BackupLocation.restoreSource(drive).path == backup.path)
+        #expect(try BackupLocation.restoreSource(fixture).path == fixture.path)
         _ = try Backup.run(source: try Vault.open(at: fixture), to: drive.appendingPathComponent("Other"))
         #expect(throws: BackupLocation.Problem.severalBackups(["Notes Backup", "Other"])) {
             _ = try BackupLocation.restoreSource(drive)
@@ -316,7 +317,7 @@ struct BackupAppTests {
         let before = try FileManager.default.subpathsOfDirectory(atPath: url.path).sorted()
 
         let found = try await model.previewRestore(from: backup)
-        #expect(found.source == backup)
+        #expect(found.source.path == backup.path)
         #expect(found.preview.revisions == 7)
         #expect(found.preview.attachments == 1)
         #expect(found.preview.newestRevision != nil)
