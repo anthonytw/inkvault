@@ -95,6 +95,12 @@ expect "unknown package product" fail "package product Mystery is linked but not
 fresh; edit "Apps/Sempere/Sempere.entitlements" 's.replace("</dict>", "\t<key>com.apple.security.network.client</key>\n\t<true/>\n</dict>")'
 expect "entitlement outside the allow-list" fail "com.apple.security.network.client is not in the allow-list"
 
+fresh; edit "Apps/Sempere/SempereWidgets.entitlements" 's.replace("group.io.github.anthonytw.sempere", "group.io.github.other")'
+expect "App Group other than the app's own" fail "application-groups must be exactly"
+
+fresh; edit "Apps/Sempere/SempereiOS.entitlements" 's.replace("<string>group.io.github.anthonytw.sempere</string>", "<string>group.io.github.anthonytw.sempere</string>\n\t\t<string>group.io.github.anthonytw.extra</string>")'
+expect "a second App Group" fail "application-groups must be exactly"
+
 fresh; edit "Apps/Sempere/Sempere.entitlements" 's.replace("<key>com.apple.security.app-sandbox</key>\n\t<true/>", "<key>com.apple.security.app-sandbox</key>\n\t<false/>")'
 expect "Mac build not sandboxed" fail "must set com.apple.security.app-sandbox to true"
 

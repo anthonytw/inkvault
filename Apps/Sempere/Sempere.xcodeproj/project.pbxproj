@@ -455,6 +455,8 @@
 		A10000000000000000008003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = SempereiOS.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = SempereiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sempere.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -492,6 +494,8 @@
 		A10000000000000000008004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = SempereiOS.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = SempereiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Sempere.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -591,6 +595,7 @@
 		A10000000000000000008009 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SempereWidgets.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SempereWidgetsInfo.plist;
@@ -614,6 +619,7 @@
 		A1000000000000000000800A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SempereWidgets.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SempereWidgetsInfo.plist;

@@ -82,6 +82,19 @@
 			</array>
 		</dict>
 	</array>
+	<!-- sempere://quick-voice/settings and …/recording: the widgets, the Control Center control and the
+	     Live Activity open the app there (VoiceNoteLink, docs/quick-capture.md). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>io.github.anthonytw.sempere</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sempere</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<!-- Recording keeps running with the screen locked or the app in the background (docs/attachments.md §13). -->
