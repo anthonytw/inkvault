@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// The rename alert and the tag sheet that menu commands (and the toolbars)
 /// open through `WindowUI`, for the window they are attached to.
 struct WindowSheets: ViewModifier {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     let ui: WindowUI
     @State private var title = ""
     @State private var versionName = ""
@@ -136,7 +136,7 @@ extension WindowSheets {
 /// with the notebook to file them in. Another vault: close this one and open
 /// that one; the PDFs wait (the welcome screen says so).
 struct OpenedPDFsView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     let ui: WindowUI
     @State private var notebook = ""
     @State private var importing = false
@@ -213,7 +213,7 @@ struct OpenedPDFsView: View {
 /// Under the welcome screen or the locked vault: PDFs opened with Sempere
 /// wait for a vault to be opened and unlocked.
 struct OpenedPDFsWaitingBar: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
 
     var body: some View {
         let count = model.openedPDFs.count

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// The welcome screen until a vault is open, then three columns: sidebar
 /// (notebooks, tags), note list, and the note itself.
 struct RootView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(VaultLibrary.self) private var library
     @Environment(RememberedKeys.self) private var keys
     @State private var pickingVault = false

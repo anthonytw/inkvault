@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// Creates a vault: name, location, and where the key comes from.
 struct NewVaultView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(VaultLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 

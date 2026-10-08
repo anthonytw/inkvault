@@ -9,7 +9,7 @@ struct SidebarView: View {
         var id: String { path }
     }
 
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(RememberedKeys.self) private var keys
     /// The window's UI state: "Export Notes…" opens its sheet in this window.
     @Environment(WindowUI.self) private var ui: WindowUI?

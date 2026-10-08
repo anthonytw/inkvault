@@ -21,7 +21,7 @@ struct VideoPlayRequest: Identifiable {
 /// A clip without a poster gets one from its first frames.
 struct VideoPlayerSheet: View {
     let request: VideoPlayRequest
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var failure: String?

@@ -18,7 +18,7 @@ enum RecordingClock {
 /// transcript).
 struct RecordingBar: View {
     let editor: NoteEditor
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Binding var showingTranscript: Recording?
 
     var body: some View {
@@ -115,7 +115,7 @@ struct RecordingBar: View {
 /// play, transcribe, show the transcript, rename and delete.
 struct RecordingsMenu: View {
     let editor: NoteEditor
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Binding var showingTranscript: Recording?
     @Binding var renaming: Recording?
     @Environment(WindowUI.self) private var ui
@@ -229,7 +229,7 @@ struct RenameRecordingSheet: View {
 struct TranscriptView: View {
     let editor: NoteEditor
     let recording: Recording
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var loaded: Transcript?
     @State private var failed = false
@@ -363,7 +363,7 @@ struct RecordingsListView: View {
     let editor: NoteEditor
     /// Opens a recording's transcript (after this list is dismissed).
     let showTranscript: (Recording) -> Void
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var renaming: Recording?
     @State private var newTitle = ""

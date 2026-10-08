@@ -27,6 +27,7 @@ struct SempereApp: App {
                              automaticThinning: true,
                              recipientsTrust: AppModel.defaultRecipientsTrust,
                              backupNotifier: UserNotificationBackupNotifier())
+        AppModel.current = model
         _model = State(initialValue: model)
         // Background sync (iOS): the launch handlers of the scheduled tasks, registered before launch ends.
         BackgroundSync.register(model: model)
@@ -55,19 +56,16 @@ struct SempereApp: App {
         WindowGroup("Note", id: NoteWindowValue.sceneID, for: NoteWindowValue.self) { $value in
             if let value {
                 NoteWindowView(value: value)
-                    .environment(model)
-                    .environment(library)
-                    .environment(keys)
+                    .appModels(model, library, keys)
             }
         }
         WindowGroup("Settings", id: MenuRouting.settingsSceneID) {
             SettingsView(showsDone: false)
-                .environment(model)
-                .environment(library)
+                .appModels(model, library, keys)
         }
         WindowGroup("Vault Keys", id: "keys") {
             KeysWindowView()
-                .environment(model)
+                .appModels(model, library, keys)
         }
     }
 
@@ -84,8 +82,14 @@ struct SempereApp: App {
 
     private var libraryContent: some View {
         RootView()
-            .environment(model)
-            .environment(library)
-            .environment(keys)
+            .appModels(model, library, keys)
+    }
+}
+
+extension View {
+    /// The app-wide models every window needs: one place, so a new window
+    /// cannot miss one (a missing one is a launch crash on the Mac).
+    func appModels(_ model: AppModel, _ library: VaultLibrary, _ keys: RememberedKeys) -> some View {
+        environment(model).environment(library).environment(keys)
     }
 }

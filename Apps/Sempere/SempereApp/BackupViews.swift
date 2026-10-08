@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// Verify Backup, the last backup, the reminder and Restore from Backup.
 /// The work is `AppModel+Backup`, on the same core as `sempere backup`.
 struct BackupSettingsSection: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var record = BackupRecord()
     @State private var picking = false
     @State private var restoring = false
@@ -141,7 +141,7 @@ struct BackupSettingsSection: View {
 /// Restore from Backup: choose a backup folder, see what it holds, then
 /// restore it into a new vault (never over the open one) and open it.
 struct RestoreBackupView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(VaultLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 

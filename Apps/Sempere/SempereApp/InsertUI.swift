@@ -227,7 +227,7 @@ struct EditorInsert: ViewModifier {
     let editor: NoteEditor
     let state: InsertState
     let ui: WindowUI
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
 
     func body(content: Content) -> some View {
         @Bindable var state = state
