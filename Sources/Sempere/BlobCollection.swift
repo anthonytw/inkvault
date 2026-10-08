@@ -293,12 +293,27 @@ extension Vault {
                              retention: TimeInterval = CompactionPlanner.defaultRetention,
                              dryRun: Bool = false) throws -> BlobCollectionReport {
         let key = note.uuidString.lowercased()
-        var report = BlobCollectionReport(note: note, dryRun: dryRun)
         if state.vaultId != vaultId { state = BlobCollectorState(vaultId: vaultId) }
+        var records = state.notes[key] ?? [:]
+        defer { state.notes[key] = records.isEmpty ? nil : records }
+        return try collectBlobs(note: note, records: &records, now: now, retention: retention, dryRun: dryRun)
+    }
+
+    /// `collectBlobs(note:state:…)` with the note's rule-4 records kept by
+    /// the caller (blob file name → first seen unreferenced; the app keeps
+    /// them in its attachment index, `AttachmentIndexEntry.unusedSince`).
+    ///
+    /// - Parameter only: when given, only these blob file names may be
+    ///   deleted (Settings' per-item Delete); every unreferenced file is
+    ///   still recorded and reported.
+    public func collectBlobs(note: UUID, records: inout [String: Date], only: Set<String>? = nil, now: Date = Date(),
+                             retention: TimeInterval = CompactionPlanner.defaultRetention,
+                             dryRun: Bool = false) throws -> BlobCollectionReport {
+        var report = BlobCollectionReport(note: note, dryRun: dryRun)
         if !dryRun { try requireWritable() }
         guard !pendingRewrap else {
             report.blocked = "a recipient change is unfinished (rule 2): run `sempere vault rewrap-resume`"
-            state.notes[key] = nil
+            records = [:]
             return report
         }
         let inv = try blobInventory(note: note)
@@ -308,21 +323,19 @@ extension Vault {
             let names = inv.unreadable.keys.sorted().map(\.filename)
             report.blocked = inv.listingProblem.map { "cannot list the note (rule 1): \($0)" }
                 ?? "unreadable revision(s) (rule 1): \(names.joined(separator: ", "))"
-            state.notes[key] = nil
+            records = [:]
             return report
         }
         let secret = try requireSecret()
         let referenced = inv.referencedHashes
         report.referenced = inv.files.count - inv.unreferenced.count
-        var records = state.notes[key] ?? [:]
-        var kept: [String: Date] = [:]
+        var kept = BlobRetention.observe(unreferenced: inv.unreferenced.map(\.fileName), records: records, now: now)
         for file in inv.unreferenced {
-            let first = records[file.fileName] ?? now
-            kept[file.fileName] = first
+            let first = kept[file.fileName] ?? now
             let entry = UnusedBlob(fileName: file.fileName, kind: file.kind, bytes: file.bytes, firstSeen: first,
-                                   deletableFrom: first.addingTimeInterval(retention))
+                                   deletableFrom: BlobRetention.deletableFrom(first, retention: retention))
             report.unused.append(entry)
-            guard now >= entry.deletableFrom else { continue }
+            guard now >= entry.deletableFrom, only?.contains(file.fileName) ?? true else { continue }
             // Only a blob that verifies in full (every chunk, framing, hash,
             // a name under the current secret) is ever deleted, and rule 3
             // is checked once more against the hash in its own header.
@@ -342,7 +355,6 @@ extension Vault {
             report.deleted.append(file.fileName)
         }
         records = kept
-        state.notes[key] = records.isEmpty ? nil : records
         return report
     }
 

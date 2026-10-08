@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Unused attachments (E7): the app keeps a per-note index of each note's attachment files on the device,
+  updated only for the note that changed (an edit, or a revision arriving by sync or iCloud). Settings →
+  Storage shows "Unused Attachments: N items, X MB" and "Held by History" (files only older versions
+  show); the list groups them by note with a preview, what each was (a recording's duration and title),
+  since when it is unused, a link to the note's history at the version that last used it, and Delete,
+  which stays disabled until 30 days after the file was first found unused ("Delete All Eligible" does
+  every one that is). Deleting reads the note again and never removes a file any version uses; in iCloud
+  Drive nothing is decided while a version of the note is not downloaded. CLI: `sempere blobs unused`
+  reports the same numbers (`--json`: totals, items with `firstSeen`, `deletableFrom`, `eligible`,
+  `held`), and `sempere blobs gc --file NAME` deletes one eligible blob.
 - Recordings on the page (`format.md` §8.2.9, an `audio` item kind). Stopping a recording in the app
   places it on the page you were looking at as a card with a microphone icon, a play/pause button,
   its length and its transcript; move, resize or delete it like any item. Every recording of a note

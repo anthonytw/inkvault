@@ -2645,13 +2645,20 @@ are checked against the revisions read from the vault before they are drawn
 on. It is limited in size (least recently used entries go first) and deleted
 when the vault is closed on that device.
 
-It keeps three more, under the same derivation:
+It keeps four more, under the same derivation:
 
 - the **render cache** (purpose `render-cache`, magic `SMPI` ‖ `0x01`):
   pictures of image items and previews of PDF page items as drawn on that
   device, labelled by everything the pixels depend on (the item's drawing
   fields, the blob reference, the scale), sealed as above; limited in size and
   deleted when the vault is closed;
+- the **attachment index** (purpose `attachment-index`, magic `SMPX` ‖
+  `0x01`, one entry per note named `entryName("note|<note id>")` plus
+  `.idx`, in Application Support): per note, the blob files of `att/`, the
+  blob references of each revision by file name, the hashes the current
+  state shows, and this device's first-seen-unreferenced times for §8.1.6
+  rule 4 (`docs/attachments.md` §4). Losing it only restarts those windows;
+  collection reads the note again before deleting anything;
 - the **activity** file (purpose `activity`, magic `SMPA` ‖ `0x01`, one entry
   named `activity`, not keyed by `entryName`): the notes "Recognize All" read in
   the last seven days and the recent search queries, kept across launches;

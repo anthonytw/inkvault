@@ -341,8 +341,8 @@ sempere blobs verify [NOTE ...]
 sempere blobs extract NOTE SHA256 [--out FILE]
 sempere blobs add NOTE FILE --type MEDIA/TYPE
 sempere blobs copy SHA256 --from NOTE --to NOTE
-sempere blobs unused [NOTE ...] [--retention DAYS]
-sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS]
+sempere blobs unused [NOTE ...] [--retention DAYS] [--no-cache]
+sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS] [--file NAME ...] [--no-cache]
 sempere blobs repair [NOTE ...]
 ```
 
@@ -370,8 +370,24 @@ another note's blobs. NOTE is an id or a title; without one, every note.
   to `vault.json`.
 - `copy` copies a blob that NOTE `--from` references into NOTE `--to` (a byte
   copy, verified as it is read), before a revision there uses it.
-- `unused` lists blobs no revision of their note references, with the date
-  each may be collected. Read only.
+- `unused` shows what the app's Settings → Storage shows, from the same code
+  (`AttachmentStorageReport`, `docs/attachments.md` §4): blobs no revision of
+  their note references, each with the date this device first found it
+  unused, the date it may be deleted (that plus `--retention` days) and
+  whether it may be deleted now; and the blobs only older revisions use
+  ("held by history", freed when compaction drops those revisions). Text:
+  one row per blob and the line `Unused attachments: N item(s), X (M
+  deletable now, Y); held by history: K item(s), Z`. `--json` emits
+  `retentionDays`, the totals `unused`, `eligible` and `heldByHistory`
+  (`{count, bytes}`), `items` (`note`, `title`, `file`, `kind`, `bytes`,
+  `firstSeen`, `deletableFrom`, `eligible`, `lastUse`: the newest revision
+  that used it, with its `wall` and a recording's `duration` and `title`),
+  `held` (`note`, `title`, `file`, `kind`, `bytes`, `sha256`, `revisions`)
+  and `unchecked` (note → why nothing could be decided: an unreadable
+  revision, a pending rewrap). Read only: the dates come from this device's
+  record without updating it, so a blob never seen before shows today. Exit 3
+  when a note could not be checked. The app keeps its own record, so the
+  dates can differ between the app and the CLI on one Mac.
 - `gc` deletes those that have been unreferenced for `--retention` days
   (default 30), per `format.md` §8.1.6: per note, only when every revision of
   the note was read and verified, no recipient change is pending, no revision
@@ -379,7 +395,10 @@ another note's blobs. NOTE is an id or a title; without one, every note.
   this device first found it so at least the window ago. The first sighting
   is recorded in `$XDG_STATE_HOME/sempere/blobs/<vaultId>.json` (default
   `~/.local/state/...`), never in the vault; a blob that becomes referenced
-  again loses its record. A blob is decrypted and verified in full before it
+  again loses its record. `--file NAME` (repeatable) deletes only those blob
+  files, as the app's per-item Delete does; the window still applies. After
+  collecting it prints the `unused` line (`--json`: `{"notes": [...],
+  "storage": <as unused>}`). A blob is decrypted and verified in full before it
   is deleted; one that cannot be is reported and kept. `--dry-run` deletes
   and records nothing. Exit 3 when a note could not be collected (unreadable
   revision, pending rewrap) or a blob could not be verified.
