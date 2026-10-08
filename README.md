@@ -52,4 +52,4 @@ Tagged releases publish the CLI for Linux (static, x86_64 and aarch64) and macOS
 with checksums and build provenance; see [CHANGELOG.md](CHANGELOG.md) and
 [docs/releasing.md](docs/releasing.md). To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md)
 (licence, DCO sign-off, no CLA); to report a vulnerability, [SECURITY.md](SECURITY.md).
-Homebrew formula template: `packaging/homebrew/`. App Store preparation drafts: `docs/appstore/`.
+Homebrew formula template: `packaging/homebrew/`. App Store submission: `docs/release/` (checks: `scripts/release-check.sh`).

@@ -34,11 +34,14 @@ enum VideoPreparation {
 
         var description: String {
             switch self {
-            case .unreadable: return "This file is not a video Sempere can read."
+            case .unreadable: return String(localized: "This file is not a video Sempere can read.")
             case .tooLarge(let n):
-                return "This video is too large to add (\(ByteCountFormatter.string(fromByteCount: n, countStyle: .file)); "
-                    + "at most \(ByteCountFormatter.string(fromByteCount: VideoIngestRules.maxBytes, countStyle: .file))). Trim it first."
-            case .cannotConvert(let why): return "This video could not be converted to MP4 (\(why))."
+                let size = ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
+                let limit = ByteCountFormatter.string(fromByteCount: VideoIngestRules.maxBytes, countStyle: .file)
+                return String(localized: "This video is too large to add (\(size); at most \(limit)). Trim it first.",
+                              comment: "The values are file sizes")
+            case .cannotConvert(let why):
+                return String(localized: "This video could not be converted to MP4 (\(why)).", comment: "The value is a technical reason")
             }
         }
     }

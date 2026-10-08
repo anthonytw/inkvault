@@ -3,9 +3,13 @@
 <plist version="1.0">
 <dict>
 	<!-- Merged with the generated Info.plist (INFOPLIST_KEY_* build settings). -->
-	<!-- Mirrors the maintainer's App Store Connect answer (build 2): standard, mass-market
-	     encryption that qualifies for the exemption, so no per-build question
-	     (docs/appstore/export-compliance.md). -->
+	<!-- Export compliance (docs/release/export-compliance.md). The app implements standard
+	     encryption (age: ML-KEM-768 + X25519, ChaCha20-Poly1305, HKDF, HMAC, scrypt) beyond the
+	     OS's: under the EAR it is mass-market 5D992.c, self-classified under License Exception
+	     ENC 740.17(b)(1), with no report or BIS filing. NO here is Apple's "exempt from export
+	     compliance documentation": standard algorithms need only the French declaration, and
+	     France is excluded from availability. Adding France means YES plus the
+	     ITSEncryptionExportComplianceCode Apple issues for the approved declaration. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UTExportedTypeDeclarations</key>

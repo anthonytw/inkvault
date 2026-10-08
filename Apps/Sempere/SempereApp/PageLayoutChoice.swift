@@ -15,10 +15,10 @@ enum NewNoteLayout: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .letter: return "Pages – Letter"
-        case .a4: return "Pages – A4"
-        case .pagelessLetter: return "Pageless – Letter width"
-        case .pagelessA4: return "Pageless – A4 width"
+        case .letter: return String(localized: "Pages – Letter", comment: "Layout of new notes: paged or pageless, and the paper size")
+        case .a4: return String(localized: "Pages – A4", comment: "Layout of new notes: paged or pageless, and the paper size")
+        case .pagelessLetter: return String(localized: "Pageless – Letter width", comment: "Layout of new notes: paged or pageless, and the paper size")
+        case .pagelessA4: return String(localized: "Pageless – A4 width", comment: "Layout of new notes: paged or pageless, and the paper size")
         }
     }
 

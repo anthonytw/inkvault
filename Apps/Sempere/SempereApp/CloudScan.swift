@@ -71,7 +71,9 @@ struct CloudProgress: Equatable, Sendable, CustomStringConvertible {
     var fractionCompleted: Double { total == 0 ? 1 : Double(downloaded) / Double(total) }
 
     var description: String {
-        "Downloading from iCloud… \(downloaded)/\(total) file\(total == 1 ? "" : "s")"
+        let files = String(localized: "\(total) files", comment: "A number of files")
+        return String(localized: "Downloading from iCloud… \(downloaded)/\(files)",
+                      comment: "Progress; %@ is a number of files, e.g. “3/6 files”")
     }
 }
 

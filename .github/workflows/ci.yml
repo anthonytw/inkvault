@@ -32,8 +32,10 @@ jobs:
     outputs:
       package: ${{ steps.f.outputs.package }}
       app: ${{ steps.f.outputs.app }}
+      localization: ${{ steps.f.outputs.localization }}
       web: ${{ steps.f.outputs.web }}
       webgolden: ${{ steps.f.outputs.webgolden }}
+      release: ${{ steps.f.outputs.release }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,7 +45,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != pull_request ]; then
             echo "package=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"
-            echo "web=true" >> "$GITHUB_OUTPUT"; echo "webgolden=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "web=true" >> "$GITHUB_OUTPUT"; echo "webgolden=true" >> "$GITHUB_OUTPUT"
+            echo "localization=true" >> "$GITHUB_OUTPUT"; echo "release=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}")"
           echo "$files"
@@ -56,6 +59,9 @@ jobs:
           # tests open the package's fixture vault; CLI, importer and WebDAV changes
           # cannot affect it.
           app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
+          # The string catalogs against the app sources (LocalizationCatalogTests reads Apps/ and
+          # runs on Linux): an app-only change runs just that test, not the macOS package job.
+          localization=$(has '^(Apps/Sempere/(Localization|SempereApp|SempereShared|SempereWidgets|Sempere\.xcodeproj)/|Apps/Sempere/SempereInfo\.plist$|Tests/SempereTests/LocalizationCatalogTests\.swift$)')
           # Web viewer (web/): its own job; app changes do not run it.
           web=$(has '^(web/|\.github/workflows/ci\.yml$)')
           # The goldens are the CLI's JSON and SVG export of the fixture vaults: a
@@ -64,9 +70,15 @@ jobs:
           webgolden=$(has '^(web/|Sources/(Age|Sempere|SempereRender|SempereCLI|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|\.github/workflows/ci\.yml$)')
           echo "package=$package" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "localization=$localization" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
+          # App Store release checks (scripts/release-check.sh, docs/release/app-store.md): the
+          # project, plists and privacy manifests under Apps/, the Sources/ the app links (the
+          # required-reason API scan) and the privacy policy pages. Linux, seconds.
+          release=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|SemperePDF|SempereSpeech|CZlib)/|scripts/(test-)?release-check\.sh$|docs/privacy/|docs/appstore/privacy-policy\.md$|\.github/workflows/ci\.yml$)')
           echo "webgolden=$webgolden" >> "$GITHUB_OUTPUT"
-          echo "package=$package app=$app web=$web webgolden=$webgolden"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "package=$package app=$app web=$web webgolden=$webgolden release=$release"
 
   linux:
     name: Linux (swift:6.4-noble)
@@ -133,6 +145,28 @@ jobs:
           name: sempere-linux-x86_64
           path: .build/release/sempere
           if-no-files-found: ignore
+
+  localization:
+    name: Localization catalogs (Linux)
+    needs: changes
+    # The Linux job runs this test too; this one is for changes that only touch Apps/.
+    if: needs.changes.outputs.localization == 'true' && needs.changes.outputs.package != 'true'
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zlib headers
+        run: apt-get update -q && apt-get install -y -q zlib1g-dev
+      - id: cachekey
+        name: Cache key (toolchain + resolved packages)
+        run: echo "key=linux-$(echo "$GITHUB_WORKSPACE" | cksum | cut -d" " -f1)-$(swift --version 2>&1 | head -1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+          restore-keys: ${{ steps.cachekey.outputs.key }}-
+      - name: Test the catalogs against the app sources
+        run: swift test --filter LocalizationCatalogTests
 
   macos:
     name: macOS
@@ -233,6 +267,18 @@ jobs:
         with:
           path: .build/xcode
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
+
+  release:
+    name: App Store release checks
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release checks (versions, signing team, privacy manifests, entitlements)
+        run: scripts/release-check.sh --list
+      - name: Tests of the release checks
+        run: scripts/test-release-check.sh
 
   web:
     name: Web viewer (lint, typecheck, tests, build)

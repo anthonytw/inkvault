@@ -22,7 +22,7 @@ struct NewNoteView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 Form {
-                    TextField(NewNoteSettings.title(NewNoteSettings.titleFormat()).isEmpty ? "Title" : NewNoteSettings.title(NewNoteSettings.titleFormat()), text: $title)
+                    TextField(NewNoteSettings.title(NewNoteSettings.titleFormat()).isEmpty ? String(localized: "Title", comment: "Text field placeholder: a note title") : NewNoteSettings.title(NewNoteSettings.titleFormat()), text: $title)
                     Button { choosingPaper = true } label: {
                         HStack(spacing: 12) {
                             Image(uiImage: PaperImage.image(for: paper, size: CGSize(width: 44, height: 57), scale: displayScale))
@@ -32,7 +32,7 @@ struct NewNoteView: View {
                                 .overlay(Rectangle().stroke(SwiftUI.Color.secondary.opacity(0.5), lineWidth: 1))
                             VStack(alignment: .leading) {
                                 Text("Paper").foregroundStyle(.primary)
-                                Text(paper.kind.title).foregroundStyle(.secondary)
+                                Text(paper.kind.localizedTitle).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)

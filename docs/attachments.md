@@ -35,7 +35,7 @@ recordings with on-device transcripts, and the link between ink and audio
 
 Added later on the same machinery, without a format bump: `video` items
 (`format.md` §8.2.7, task G2) and `math` items (LaTeX equations, §8.2.8,
-task G1). Also later: localization of the app's interface (§14, task L).
+task G1). Localization of the app's interface is task L (§14, `docs/localization.md`).
 
 Not in scope: typed-text *documents* (reflowing text with ink anchored to
 it), arbitrary file attachments, shapes, links, collaboration. The open item
@@ -1170,6 +1170,54 @@ for its note (§4).
   gesture end, not per frame. Copy, cut and paste of items across notes
   copy their blobs (`NoteWriter.copyBlob`).
 
+### Selecting items
+
+One selection model for every item kind (text boxes, images, PDF pages,
+videos, math and kinds this version does not know), whichever way the item
+is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
+`ItemSelectionModel`, `ItemMenu` and `ItemFrames` in `Sources/Sempere/ItemOps.swift`):
+
+- **Ways in.** *Select* in the editor toolbar (always shown on an editable
+  note) turns selection mode on: a tap selects the topmost item, content
+  before backgrounds. While drawing, an item is picked without changing
+  tools by a tap with PencilKit's **lasso** (the lasso still lassoes ink),
+  by **holding a finger** on it when fingers do not draw (with the Pencil,
+  the default on an iPad), or by a **secondary click** (right-click,
+  two-finger click; a Mac's mouse always draws, so this is its way). Such a
+  pick is a transient selection: drawing is off while the item is selected
+  and comes back as soon as nothing is (a tap beside it, Delete) or a tool is
+  picked. A finger *tap* on a video still plays it.
+- **Selected state.** A solid outline over a faint tint, white handles and
+  the item's menu next to it. A text box's height follows its lines
+  (format.md §8.2.4), so it has side handles that set its wrapping width;
+  every other kind has corner handles and keeps its proportions
+  (`ItemFrames.handles`, `keepsAspect`). A drag inside moves the item, a drag
+  on a handle resizes it; one delta and one undo step per gesture.
+- **Taps.** The first tap selects; a tap on the selected item shows its menu
+  again, or types in it for a text box, so a double tap edits a box from
+  scratch; a tap beside the selection clears it; only a tap on the empty
+  page with nothing selected is the page's (Paste in selection mode, a new
+  box with the text tool). The text tool is the same selection limited to
+  text boxes: tap selects a box (to move it or set its width), tap again or
+  double-tap edits, tap on the page starts a new box.
+- **Menu** (`ItemMenu`): Play (video), Edit Text (text), Copy, Duplicate,
+  Edit Equation… (math), Crop… (images, PDF pages), Replace Image ▸ From Photos… / From Files…
+  (images), Bring to Front, Delete; Paste when the clipboard holds items.
+- **Replace Image.** An image's blob is immutable (format.md §8.2.2): the
+  new picture is stored first (photo privacy setting applies), then one delta
+  removes the old image and adds a new one whose `parent` names it, in the
+  largest frame of the new picture's proportions inside the old frame,
+  centred, with its rotation and stacking (`NoteOps.replaceImage`, CLI
+  `sempere items replace`). Undo puts the old picture back the same way.
+- **Insert menu** (pictures and video, a text box, PDF): the PDF entry says
+  where the pages go ("Insert PDF Pages After Page N…", "…at the End…"; also
+  in the Add Page menu). On a pageless note it reads "Switch to Pages and
+  Insert PDF…": the note is switched to pages (one delta) only once a PDF is
+  picked, so cancelling the picker changes nothing.
+- **Text colour** is a row of swatches (the pen palette: black, blue, green,
+  yellow, red, and the pen's current colour first when it is another one)
+  plus the system colour picker, as the pen's colour wheel opens.
+
 ### Export options
 
 The export sheet offers **PDF** and **PDF + attachments** side by side (plus
@@ -1740,7 +1788,8 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
   Play in the selection menu or a finger tap, `AVPlayer` from the blob cache,
   poster backfill; web viewer: poster, play mark, tap or Play to play.
 
-### L. Localization (future; contributions welcome)
+
+### L. Localization (contributions welcome; Spanish done in #92)
 
 Localize the app's interface with String Catalogs (`.xcstrings`): move every
 user-visible string into a catalog, add plural and device variants, check
@@ -1748,6 +1797,11 @@ layouts with the pseudo-languages (double length, right to left). **Spanish
 first**; other languages from contributors, with a short guide in
 `CONTRIBUTING` on adding one. The CLI's messages stay English. This is
 interface text only; note content was already full Unicode (§6).
+
+**Status:** the catalogs, the Spanish translation, the glossary and the
+checks are in `docs/localization.md` (rules, conventions, tooling). Data the
+app writes into a vault (default titles, the voice-note notebook) is not
+localized, so that devices with different languages agree.
 
 ### Dependencies
 
@@ -1827,7 +1881,7 @@ All decisions are final (maintainer review, 2026-10-05).
 7. **Changed:** full Unicode; system fonts in the app; font subsets embedded
    in exports; Noto in the CLI plus optional font packs with a clear
    missing-script report; consistent layout from fixed vertical metrics and
-   stored line breaks. Future: UI localization (Spanish first), reserved
+   stored line breaks. UI localization (Spanish first, task L), reserved
    `math` item.
 8. AAC-LC, mono, 48 kHz, 64 kbit/s by default; **changed:** configurable in
    Settings; reserved `video` item.
