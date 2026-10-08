@@ -117,12 +117,7 @@ private struct UIKitDragHandle: UIViewRepresentable {
         let drag = UIDragInteraction(delegate: context.coordinator)
         drag.isEnabled = true
         view.addInteraction(drag)
-        #if DEBUG
-        let withMenu = ProcessInfo.processInfo.environment["SEMPERE_DEBUG_NOTEBOOK_MENU"] != "0"
-        #else
-        let withMenu = true
-        #endif
-        if withMenu { view.addInteraction(UIContextMenuInteraction(delegate: context.coordinator)) }
+        view.addInteraction(UIContextMenuInteraction(delegate: context.coordinator))
         view.addInteraction(UIDropInteraction(delegate: context.coordinator))
         return view
     }
