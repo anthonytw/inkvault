@@ -232,7 +232,7 @@ jobs:
             echo "== $f"
             grep -E "✘|↳|error:|DROPDEBUG|Failing tests|SempereMenus|SempereMenuTree|PDF-SCALE|Executed [0-9]+ test|Test run with" "$f" | cut -c1-2000 | tail -400
             # UI test dumps of the windows (several lines each).
-            awk '/MACUIDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
+            awk '/MACUIDEBUG|DROPDEBUG tree/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
           done
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'

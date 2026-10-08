@@ -37,6 +37,7 @@ struct SidebarView: View {
                     OutlineGroup(tree, children: \.childrenOrNil) { node in
                         Label(node.name, systemImage: node.children.isEmpty ? "book.closed" : "books.vertical")
                             .tag(SidebarItem.notebook(node.path))
+                            .accessibilityIdentifier("sidebar-notebook-\(node.path)")
                             .sidebarDropTarget(.notebook(node.path))
                             .onDrag {
                                 // Dropped on another notebook it nests there; on All Notes it goes to the top level.

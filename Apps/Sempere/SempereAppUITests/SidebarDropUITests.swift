@@ -35,10 +35,21 @@ final class SidebarDropUITests: XCTestCase {
         print("DROPDEBUG \(tag): \(label.exists ? label.label : "(no trace label)")")
     }
 
-    /// A sidebar row by its exact title.
+    /// A sidebar notebook row by its path (`sidebar-notebook-<path>`).
     @MainActor
-    private func sidebarRow(_ app: XCUIApplication, _ title: String) -> XCUIElement {
-        app.staticTexts.matching(NSPredicate(format: "label == %@", title)).firstMatch
+    private func sidebarRow(_ app: XCUIApplication, _ path: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "sidebar-notebook-\(path)").firstMatch
+    }
+
+    /// Waits for `element`; on a miss prints the window tree (`DROPDEBUG`) so the log says what was there.
+    @MainActor
+    private func require(_ element: XCUIElement, _ what: String, in app: XCUIApplication, timeout: TimeInterval = 20,
+                         file: StaticString = #filePath, line: UInt = #line) {
+        if element.waitForExistence(timeout: timeout) { return }
+        for (i, window) in app.windows.allElementsBoundByIndex.enumerated() {
+            print("DROPDEBUG tree \(what) window \(i):\n\(window.debugDescription.prefix(12000))")
+        }
+        XCTFail("\(what) not found", file: file, line: line)
     }
 
     /// A row of the note list by its note's title.
@@ -69,7 +80,9 @@ final class SidebarDropUITests: XCTestCase {
     /// `expected` (a note known to be in it) and no longer shows `outside`.
     @MainActor
     private func show(_ app: XCUIApplication, notebook title: String, expected: String, outside: String) {
-        select(sidebarRow(app, title))
+        let row = sidebarRow(app, title)
+        require(row, "sidebar row \(title)", in: app)
+        select(row)
         XCTAssertTrue(noteRow(app, expected).waitForExistence(timeout: 20), "\(title) lists \(expected)")
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: noteRow(app, outside))
         wait(for: [gone], timeout: 20)
@@ -81,9 +94,9 @@ final class SidebarDropUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         let note = noteRow(app, "Grocery list")
-        XCTAssertTrue(note.waitForExistence(timeout: 90))
+        require(note, "note row", in: app, timeout: 90)
         let personal = sidebarRow(app, "Personal")
-        XCTAssertTrue(personal.waitForExistence(timeout: 20))
+        require(personal, "sidebar row Personal", in: app)
         sleep(2)   // let the list settle
         drag(note, onto: personal)
         sleep(3)   // the move is one commit, then the list re-reads the note
@@ -97,10 +110,10 @@ final class SidebarDropUITests: XCTestCase {
     func testDroppingANotebookOnANotebookNestsIt() throws {
         let app = launch()
         defer { app.terminate() }
-        XCTAssertTrue(noteRow(app, "Grocery list").waitForExistence(timeout: 90))
+        require(noteRow(app, "Grocery list"), "note row", in: app, timeout: 90)
         let work = sidebarRow(app, "Work"), personal = sidebarRow(app, "Personal")
-        XCTAssertTrue(work.waitForExistence(timeout: 20))
-        XCTAssertTrue(personal.waitForExistence(timeout: 20))
+        require(work, "sidebar row Work", in: app)
+        require(personal, "sidebar row Personal", in: app)
         sleep(2)
         drag(work, onto: personal)
         sleep(3)
