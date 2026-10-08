@@ -25,8 +25,21 @@ final class SidebarDropUITests: XCTestCase {
         env["SEMPERE_DEMO_MAC_WINDOW"] = "1100x760"
         #endif
         app.launchEnvironment = env
+        #if !targetEnvironment(macCatalyst)
+        // Landscape: in portrait an iPad mini (CI's newest simulator) collapses the sidebar.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        #endif
         app.launch()
         return app
+    }
+
+    /// Opens the sidebar if the split view collapsed it.
+    @MainActor
+    private func showSidebar(_ app: XCUIApplication) {
+        #if !targetEnvironment(macCatalyst)
+        let toggle = app.buttons["Show Sidebar"].firstMatch
+        if !sidebarRow(app, "Personal").waitForExistence(timeout: 3), toggle.exists { toggle.tap() }
+        #endif
     }
 
     @MainActor
@@ -93,8 +106,10 @@ final class SidebarDropUITests: XCTestCase {
     func testDroppingANoteOnANotebookMovesIt() throws {
         let app = launch()
         defer { app.terminate() }
-        let note = noteRow(app, "Grocery list")
+        // The newest note: at the top of the list, on screen.
+        let note = noteRow(app, "Sync design sketch")
         require(note, "note row", in: app, timeout: 90)
+        showSidebar(app)
         let personal = sidebarRow(app, "Personal")
         require(personal, "sidebar row Personal", in: app)
         sleep(2)   // let the list settle
@@ -102,7 +117,7 @@ final class SidebarDropUITests: XCTestCase {
         sleep(3)   // the move is one commit, then the list re-reads the note
         trace(app, "note onto notebook")
         show(app, notebook: "Personal", expected: "Lisbon itinerary", outside: "Quick thoughts")
-        XCTAssertTrue(noteRow(app, "Grocery list").waitForExistence(timeout: 20), "the dropped note is in Personal")
+        XCTAssertTrue(noteRow(app, "Sync design sketch").waitForExistence(timeout: 20), "the dropped note is in Personal")
     }
 
     /// A notebook dragged onto another notebook nests there (with its notes).
@@ -111,6 +126,7 @@ final class SidebarDropUITests: XCTestCase {
         let app = launch()
         defer { app.terminate() }
         require(noteRow(app, "Grocery list"), "note row", in: app, timeout: 90)
+        showSidebar(app)
         let work = sidebarRow(app, "Work"), personal = sidebarRow(app, "Personal")
         require(work, "sidebar row Work", in: app)
         require(personal, "sidebar row Personal", in: app)
