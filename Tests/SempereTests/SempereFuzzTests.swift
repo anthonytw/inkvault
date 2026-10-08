@@ -387,8 +387,13 @@ final class SempereFuzzTests: VaultTestCase {
         let recordJSON = try JSONEncoder().encode(record)
         let keys = vault.recipients.map(\.key)
         assertClean(Fuzz.run("recipients-tag", seeds: [manifest, recordJSON], quick: 600, text: true) { input in
-            if let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: input), r.linkKey.count != 32 {
-                return "a trust record with a \(r.linkKey.count)-byte link key"
+            if let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: input) {
+                switch r.anchor {
+                case .legacy(let k) where k.count != 32: return "a legacy trust record with a \(k.count)-byte link key"
+                case .signed(let k) where k.ed25519.count != 32 || k.mldsa65.count != 1952:
+                    return "a trust record with \(k.ed25519.count) + \(k.mldsa65.count)-byte public keys"
+                default: break
+                }
             }
             guard let m = try? Vault.readManifest(input) else {
                 _ = Vault.incomingManifestProblem(input, local: manifest, vault: vault)

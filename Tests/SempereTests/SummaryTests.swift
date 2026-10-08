@@ -456,7 +456,8 @@ final class LocalCacheKeyTests: XCTestCase {
     /// vault secret, other than §10.1's own, is listed here.
     func testNoPurposeDerivesAVaultWideKey() throws {
         let vaultWide = [SummaryCache.keyInfo, SummaryCache.nameInfo, RecipientsAuth.recipientsInfo,
-                         RecipientsAuth.linkInfo, RecipientsAuth.secretIdInfo, CaptureKey.info]
+                         RecipientsAuth.legacyLinkInfo, RecipientsAuth.linkEd25519Info,
+                         RecipientsAuth.linkMLDSA65Info, RecipientsAuth.secretIdInfo, CaptureKey.info]
         for info in vaultWide {
             XCTAssertTrue(info.hasPrefix("sempere/1 "), info)
             let rest = info.dropFirst("sempere/1 ".count)
