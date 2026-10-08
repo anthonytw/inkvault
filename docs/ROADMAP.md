@@ -76,6 +76,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
 | `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | ✅ #72 | ✅ #72 |
 | Items: `items crop` (the app's Crop: the visible part stays in place) | 🔀 #81 | 🔀 #81 |
+| Items: `items replace` (the app's Replace Image: one delta, the new picture fitted into the old frame, `parent`) | 🔀 #104 | 🔀 #104 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
@@ -138,13 +139,14 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Plumbing (E0): items drawn between paper and ink (placeholders for missing blobs), select/move/resize/delete/duplicate/copy-paste with undo, blob cache, lazy per-kind iCloud download | ✅ #68 |
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | 🔀 #81 (not yet tried on the iPad) |
 | Attachments | Text boxes (E2): text tool (tap to add or edit), selection's Edit Text, style bar (bold, italic, underline, strikethrough, size, colour, font, alignment, direction), any script incl. right to left, Scribble; `breaks` from TextKit stored with every edit and resize; CoreText layout on the canvas and in the app's PDF/SVG/PNG (`CoreTextShaper`, glyph outlines embedded); same lines as `sempere export` (shared fixtures) | 🔀 #82 (not yet tried on the iPad) |
+| Attachments | Selecting items (build 7 feedback): one selection model for every kind; Select always in the toolbar; while drawing, a lasso tap, a held finger or a right-click picks an item; outline, handles (text boxes by their sides) and menu on selection; text boxes: tap selects, tap again or double-tap edits; Replace Image… (Photos or Files); text colour swatches from the pen palette; Insert menu grouped, with "Insert PDF Pages After Page N…" (also in the Add Page menu) | 🔀 #104 (not yet tried on the iPad) |
 | Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | 🔀 #87 (not yet tried on the iPad) |
 | Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | 🔀 quick capture PR (not yet tried on a device) |
 | Attachments | Unused-attachment index (E7): per-note device-local index updated by every write and arrival, Settings → Storage list (previews, history links, 30-day Delete, Delete All Eligible, held by history); `blobs unused`/`gc` show the same numbers | 🔀 #95 |
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | 🔀 #93 (not yet tried on the iPad) |
 | Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | 🔀 #96 (not yet tried on the iPad) |
 | Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💭 |
-| Release | TestFlight, then App Store | 📋 after the rename |
+| Release | TestFlight, then App Store: submission prep (export compliance, privacy manifests for the app and widget, App Privacy / age rating / review notes / listing, privacy policy page, `scripts/release-check.sh` in CI; `docs/release/`) | 🔀 #113; the maintainer submits |
 | Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | ✅ #53 |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
@@ -169,7 +171,7 @@ behaviour and testing on a real Mac.
 | Bulk export from the app | 📋 with the share/export work (the CLI has it) |
 | Key management window (recipients, add/remove device key, paper kit) | 🔀 `docs/mac.md` |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | 🔀 `docs/mac.md`; mouse stroke smoothing 💭 |
-| Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
+| Mac App Store build (same bundle, universal purchase) | 🔀 #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
 
 ## Future: iPhone and web
