@@ -139,6 +139,27 @@ describe("placement (§8.5.1)", () => {
     expect(resolved.map((r) => [r.draw.kind, r.fill !== undefined])).toEqual([["placeholder", true], ["placeholder", false]]);
   });
 
+  it("draws an equation's render as a transparent PDF page, else its source as monospace text (§8.2.8)", () => {
+    const meta = { pageSize: { width: 300, height: 200, infinite: false }, paper: { kindName: "blank", background: "#FFFFFFFF" } } as unknown as NoteMeta;
+    const render = { sha256: "ab".repeat(32), size: 10, type: "application/pdf" };
+    const page = { id: "p", order: "a", strokes: [], items: [
+      { id: "a", kind: "math", frame: [10, 10, 120, 24], z: "a", math: { latex: "x^2+1", display: true, size: 14, color: "#1A1A1AFF" } },
+      { id: "b", kind: "math", frame: [10, 60, 60, 24], z: "b", rotation: 90,
+        math: { latex: "y", display: false, size: 12, color: "#B00020FF", render, renderSize: [30, 12] } },
+    ] } as unknown as Page;
+    const [a, b] = resolveItems(new PreparedPage(page, meta)).map((r) => r.draw);
+    if (a?.kind !== "text" || b?.kind !== "pdf") throw new Error(`${a?.kind} ${b?.kind}`);
+    expect(a.content.font).toBe("mono");
+    expect(a.content.color).toBe("#1A1A1AFF");
+    expect(a.layout.lines.map((l) => l.text)).toEqual(["x^2+1"]);
+    expect(b.pageIndex).toBe(0);
+    expect(b.pageSize).toEqual({ w: 30, h: 12 });
+    expect(b.ref.sha256).toBe("ab".repeat(32));
+    expect(b.it.rotation).toBe(90);
+    expect(b.math?.content.runs.map((r) => r.t)).toEqual(["y"]);
+    expect(b.math?.content.size).toBe(12);
+  });
+
   it("counts items toward the extent: infinite pages, and below a finite page", () => {
     const item = { id: "a", kind: "image", frame: [0, 900, 10, 10], z: "a", rotation: 45 };
     const meta = (infinite: boolean) => ({ pageSize: { width: 100, height: 200, infinite }, paper: { kindName: "blank", background: "#FFFFFFFF" } }) as unknown as NoteMeta;
