@@ -281,6 +281,25 @@ jobs:
             # UI test dumps of the windows (several lines each).
             awk '/MACUIDEBUG|DROPDEBUG tree|SMOKEDEBUG/{n=120} n>0{print; n--}' "$f" | cut -c1-300 | head -1500
           done
+          # A crash in a Mac test ("crashed in <external symbol>"): the newest report's crashing thread.
+          report=$(ls -t ~/Library/Logs/DiagnosticReports/Sempere*.ips 2>/dev/null | head -1 || true)
+          if [ -n "$report" ]; then
+            echo "== $report"
+            /usr/bin/python3 - "$report" <<'PY' || head -c 6000 "$report"
+          import json, sys
+          text = open(sys.argv[1]).read()
+          header, _, body = text.partition("\n")
+          crash = json.loads(body)
+          print(json.dumps(crash.get("exception"), indent=None), crash.get("asi"))
+          images = crash.get("usedImages", [])
+          for thread in crash.get("threads", []):
+              if not thread.get("triggered"):
+                  continue
+              for frame in thread.get("frames", [])[:40]:
+                  image = images[frame["imageIndex"]] if frame.get("imageIndex", -1) < len(images) else {}
+                  print(image.get("name", "?"), frame.get("symbol", hex(frame.get("imageOffset", 0))))
+          PY
+          fi
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'
         with:

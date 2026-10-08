@@ -241,6 +241,7 @@ final class LaunchSmokeUITests: XCTestCase {
         XCTFail("\(what) not found (app state \(app.state.rawValue))", file: file, line: line)
     }
 
+    @MainActor
     private func dump(_ app: XCUIApplication, _ tag: String) {
         for (i, window) in app.windows.allElementsBoundByIndex.enumerated() {
             print("SMOKEDEBUG \(tag) window \(i):\n\(window.debugDescription.prefix(10000))")
