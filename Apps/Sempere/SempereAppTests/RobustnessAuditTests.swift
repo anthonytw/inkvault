@@ -131,4 +131,25 @@ struct RobustnessAuditTests {
         #expect(ContinuousClock.now - start < .seconds(30))
         #expect(never.isCancelled, "the preparation is given up too")
     }
+
+    /// The real case: main-actor work that cannot run does not end when it is
+    /// cancelled. The request must still fail at the timeout, not when the
+    /// preparation finally ends (here released after 5 s, in the app never).
+    @Test func aDragOutFailsAtTheTimeoutEvenIfThePreparationIgnoresCancellation() async throws {
+        let stuck = Task<PreparedExport, any Error> {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global().asyncAfter(deadline: .now() + 5) { c.resume() }
+            }
+            throw CancellationError()
+        }
+        let start = ContinuousClock.now
+        let error: (any Error)? = await withCheckedContinuation { c in
+            NoteFileDrag.load(stuck, timeout: .milliseconds(200)) { url, error in
+                c.resume(returning: url == nil ? error : nil)
+            }
+        }
+        #expect(error is NoteFileDrag.DragError)
+        #expect(ContinuousClock.now - start < .seconds(3), "failed at the timeout, not when the preparation ended")
+        #expect(stuck.isCancelled)
+    }
 }

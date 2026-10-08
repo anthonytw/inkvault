@@ -53,16 +53,7 @@ enum NoteFileDrag {
         let progress = Progress(totalUnitCount: 1)
         Task.detached(priority: .userInitiated) {
             do {
-                let prepared = try await withThrowingTaskGroup(of: PreparedExport?.self) { group in
-                    group.addTask { try await prepare.value }
-                    group.addTask { try await Task.sleep(for: timeout); return nil }
-                    defer { group.cancelAll() }
-                    guard let first = try await group.next(), let prepared = first else {
-                        prepare.cancel()
-                        throw DragError.timedOut
-                    }
-                    return prepared
-                }
+                let prepared = try await firstOf(prepare, timeout: timeout)
                 try Task.checkCancellation()
                 completion(try prepared.write(), nil)
             } catch {
@@ -72,5 +63,42 @@ enum NoteFileDrag {
         }
         progress.cancellationHandler = { prepare.cancel() }
         return progress
+    }
+
+    /// `prepare`'s value, or `DragError.timedOut` after `timeout` (then
+    /// `prepare` is cancelled). Nothing structured awaits `prepare`: a task
+    /// group would, at its end, wait for a child still awaiting `prepare.value`,
+    /// and main-actor work that cannot run ends only once the main thread is
+    /// free, which is never while the system holds it for this very file.
+    static func firstOf(_ prepare: Task<PreparedExport, any Error>,
+                        timeout: Duration) async throws -> PreparedExport {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<PreparedExport, any Error>) in
+            let once = Once()
+            let timer = Task.detached {
+                try? await Task.sleep(for: timeout)
+                guard once.claim() else { return }
+                prepare.cancel()
+                continuation.resume(throwing: DragError.timedOut)
+            }
+            Task.detached {
+                let result = await prepare.result
+                guard once.claim() else { return }
+                timer.cancel()
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    /// Lets only the first of the two racers resume the continuation.
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var claimed = false
+
+        func claim() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if claimed { return false }
+            claimed = true
+            return true
+        }
     }
 }
