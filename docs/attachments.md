@@ -613,8 +613,17 @@ can draw annotation appearances into a new page).
 ### Recording item
 
 A recording belongs to the note (`format.md` §8.3.1), not to a page:
-Notability shows recordings per note, a recording usually spans many pages,
-and nothing is drawn for it.
+Notability shows recordings per note, and a recording usually spans many
+pages. *Changed after TestFlight build 7:* a recording that was only in a
+menu could not be found (on the Mac not at all), so an **audio item**
+(`format.md` §8.2.8) shows a recording on a page: a card with a microphone
+icon, the title and length, and the transcript, which the app plays from a
+play/pause button on it. The app places one on the page being looked at when
+a recording stops, in the same delta as the recording. The item only names
+the recording (immutable `recording`), so title, length and transcript stay
+the recording's; deleting the card keeps the recording (the Recordings list
+offers it again), deleting the recording removes its cards. A new item kind,
+not a new op: older readers draw a placeholder for it (§7.5) and keep it.
 
 ### Codec (decided: AAC-LC default, configurable)
 
@@ -887,7 +896,8 @@ the real characters for selection and search.
 
 ### Audio in exports
 
-Pages never show recordings. Options for the PDF (decided):
+Pages show a recording only where an audio item places it: its card
+(`format.md` §8.2.8), drawn by every exporter. Options for the PDF (decided):
 
 - default: nothing; the export report says "2 recordings not exported";
 - app: the export sheet has **PDF** and, next to it, **PDF + attachments**,

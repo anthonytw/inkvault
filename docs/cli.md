@@ -373,6 +373,7 @@ sempere attach video NOTE FILE [--page N] [--frame ... | --at ... --width ...] [
                              [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
 sempere attach recording NOTE FILE [--title T] [--started TIME] [--type MEDIA/TYPE] [--duration S]
                              [--codec NAME] [--sample-rate HZ] [--channels N] [--bit-rate BPS]
+                             [--place] [--page N] [--frame X,Y,W,H | --at X,Y [--width W]]
 sempere attach transcript NOTE RECORDING FILE [--dry-run]
 ```
 
@@ -467,7 +468,13 @@ exit 2).
   Another format needs `--type audio/…` (stored and listed, perhaps not playable
   in the app). `--started` is the wall time of the first sample (RFC 3339);
   without it the file's modification time minus its duration. At most 1 000
-  recordings per note. `--rec ID` on `image` and `text` links an item to a
+  recordings per note. `--place` (or any of `--page`, `--frame`, `--at`,
+  `--width`) also puts it on a page as an **audio item** (`format.md` §8.2.8)
+  in the same delta, as the app does when a recording stops: a 300 × 96 point
+  card (narrower on a narrow page), centred across the page a margin from its
+  top, above the page's other items; standard output is then the item's id,
+  then the recording's, and `--json` lists the item in `items`. `recordings
+  place` places one later. `--rec ID` on `image` and `text` links an item to a
   recording (id, id prefix of 4+ characters or exact title) at `--rec-at` seconds
   (`format.md` §8.3.3).
 - `transcript` sets a recording's transcript from a `sempere-transcript/1` JSON
@@ -475,6 +482,41 @@ exit 2).
   times, confidences, and that it names the recording by id); it replaces any
   transcript the recording has, in one `setRecording` delta.
 
+
+#### Recordings
+
+```
+sempere recordings list NOTE
+sempere recordings place NOTE RECORDING [--page N] [--frame X,Y,W,H | --at X,Y [--width W]] [--dry-run]
+sempere recordings rename NOTE RECORDING TITLE
+sempere recordings delete NOTE RECORDING
+```
+
+A recording belongs to its note (`format.md` §8.3); an **audio item** shows it
+on a page (§8.2.8), where the app plays it from a card with its title,
+length and transcript. RECORDING is an id, an id prefix of at least 4
+characters or an exact title. Each change is one delta through the same
+`NoteOps` the app uses.
+
+- `list` prints each recording's start, length, title, whether it has a
+  transcript and the pages that show it (`p1,p3`; `-` when it is on no page),
+  and warns about audio items whose recording is missing. `--json`:
+  `{recordings: [{recording, items: [{page, pageId, item}]}], missing: [...]}`.
+- `place` adds an audio item for the recording (`addItem`): a 300 × 96 point
+  card centred across page 1 (or `--page`) a margin from its top, or at
+  `--at`/`--width`, or `--frame`. A recording may be placed any number of
+  times. Output as for `attach` (the new item's id; `--json` the `attach` form).
+- `rename` sets the title (`setRecording`); an empty title clears it.
+- `delete` removes the recording and, in the same delta, every audio item
+  that shows it (`NoteOps.removeRecording`). To take a recording off a page
+  but keep it, delete its audio item with `items delete`. The audio and
+  transcript blobs stay until `blobs gc`.
+
+Exports draw an audio item as its card (`format.md` §8.2.8: the microphone
+icon, the title and length, and the start of the transcript, cut at the
+card's bottom); one whose recording is missing is a placeholder, reported as
+"recording missing". `--recordings attach` embeds each recording once,
+however many cards show it.
 
 ### Backup and restore
 
@@ -893,6 +935,13 @@ sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
 sempere items copy ID|TITLE ITEM... --to ID|TITLE [--page N]
 sempere items poster ID|TITLE ITEM (IMAGE | --from-clip [--poster-time S] | --remove) [--dry-run]
 ```
+
+Recordings on the page (audio items, `format.md` §8.2.8) are placed with
+`recordings place` or `attach recording --place`; `list` shows them with the
+recording they show (`--json`: `recording`, and `recordingMissing` when the
+note has no such recording), and they move, resize, rotate, reorder,
+duplicate and delete like any item. `copy` to another note leaves them out
+(with a warning): the recording belongs to its note.
 
 The app's gestures on placed items (text boxes, images, PDF pages, video clips;
 `docs/format.md` §8.2), one delta each, built by the same `NoteOps` item

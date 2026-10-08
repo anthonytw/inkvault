@@ -74,7 +74,7 @@ struct ExportSheet: View {
     /// (`ExportHandOff`): hosted inside a SwiftUI sheet, as on the iPad, they
     /// have no anchor there (TestFlight build 7: the export of a note with a
     /// recording crashed on the Mac when it was shared or saved).
-    private func handOff(_ outcome: ExportJob.Outcome, save: Bool) {
+    private func deliver(_ outcome: ExportJob.Outcome, save: Bool) {
         handOff = outcome.items
         guard Platform.isMac, let view = anchor.view else {
             if save { saving = true } else { sharing = true }
@@ -161,9 +161,9 @@ struct ExportSheet: View {
             }
         }
         Section {
-            Button("Share…", systemImage: "square.and.arrow.up") { handOff(outcome, save: false) }
+            Button("Share…", systemImage: "square.and.arrow.up") { deliver(outcome, save: false) }
                 .background(PresentationAnchor(box: anchor))
-            Button(Platform.isMac ? "Save…" : "Save to Files…", systemImage: "folder") { handOff(outcome, save: true) }
+            Button(Platform.isMac ? "Save…" : "Save to Files…", systemImage: "folder") { deliver(outcome, save: true) }
         } footer: {
             Text("The files are deleted from the app when you close this sheet.")
         }
@@ -206,11 +206,12 @@ struct ExportSheet: View {
 /// The system share sheet (AirDrop, Messages, Mail, Save to Files, ...) for files and folders.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [URL]
-    let done: @MainActor @Sendable () -> Void
+    let done: () -> Void
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        controller.completionWithItemsHandler = ExportHandOff.completion(done)
+        let callback = MainCallback(done)
+        controller.completionWithItemsHandler = ExportHandOff.completion { callback.run() }
         return controller
     }
 
@@ -220,9 +221,12 @@ struct ShareSheet: UIViewControllerRepresentable {
 /// "Save to Files": the document picker in export mode, copying `items` to the folder the user picks.
 struct SaveToFiles: UIViewControllerRepresentable {
     let items: [URL]
-    let done: @MainActor @Sendable () -> Void
+    let done: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+    func makeCoordinator() -> Coordinator {
+        let callback = MainCallback(done)
+        return Coordinator { callback.run() }
+    }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forExporting: items, asCopy: true)
@@ -242,6 +246,13 @@ struct SaveToFiles: UIViewControllerRepresentable {
             ExportHandOff.onMain(done)
         }
     }
+}
+
+/// A main-actor callback carried through a `@Sendable` closure: it is only
+/// ever run on the main actor (`ExportHandOff.onMain`).
+struct MainCallback: @unchecked Sendable {
+    let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
 }
 
 /// Handing a finished export to the system (docs/mac.md "Export").

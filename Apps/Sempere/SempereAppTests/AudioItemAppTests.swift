@@ -5,6 +5,12 @@ import Testing
 import UIKit
 @testable import SempereApp
 
+/// What a card's button asked for.
+@MainActor
+final class ToggleLog {
+    var ids: [UUID] = []
+}
+
 /// Recordings on the page in the app (format.md §8.2.8, TestFlight build 7
 /// feedback): stopping a recording places its card in the same delta,
 /// deleting a recording takes its cards, the card is drawn and has a
@@ -98,8 +104,8 @@ struct AudioItemAppTests {
         let recording = Recording(blob: BlobRef(content: Data("x".utf8), type: "audio/mp4"), started: Date(), title: "Talk")
         let card = Item.audio(recording: recording.id, frame: Rect(x: 0, y: 0, w: 300, h: 96), z: "a")
         let orphan = Item.audio(recording: UUID(), frame: Rect(x: 0, y: 200, w: 300, h: 96), z: "b")
-        var toggled: [UUID] = []
-        controls.layout([card, orphan], recordings: [recording], playing: nil, zoom: 2, hidden: nil) { toggled.append($0) }
+        let toggled = ToggleLog()
+        controls.layout([card, orphan], recordings: [recording], playing: nil, zoom: 2, hidden: nil) { toggled.ids.append($0) }
         let button = try #require(controls.shownButtons[card.id])
         #expect(controls.shownButtons.count == 1, "no button for a missing recording")
         #expect(button.superview === canvas)
@@ -108,9 +114,9 @@ struct AudioItemAppTests {
         // Over the icon's lower right, in canvas points at zoom 2.
         #expect(abs(button.center.x - 2 * 29.6) < 0.001 && abs(button.center.y - 2 * 29.6) < 0.001)
         button.sendActions(for: .primaryActionTriggered)
-        #expect(toggled == [recording.id])
+        #expect(toggled.ids == [recording.id])
         controls.layout([card], recordings: [recording], playing: AudioPlayState(recording: recording.id, isPlaying: true),
-                        zoom: 1, hidden: nil) { toggled.append($0) }
+                        zoom: 1, hidden: nil) { toggled.ids.append($0) }
         #expect(controls.shownButtons[card.id]?.isPlaying == true)
         #expect(controls.shownButtons[card.id]?.accessibilityLabel == "Pause Talk")
         // Selection mode (no toggle) and a card being edited show none.

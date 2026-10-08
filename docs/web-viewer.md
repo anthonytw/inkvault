@@ -136,6 +136,11 @@ poster and says to extract it with the CLI), and at most 1 MiB of padding beyond
 what a writer adds. Each blob is read once per open note however many items
 use it.
 
+**Recordings on the page** (§8.2.8) are drawn as their card (the CLI's
+elements, cross-checked with its SVG): the microphone icon, the title and
+length, and the transcript once it is read (lazily, verified). A tap on a
+card plays its recording in the list below.
+
 **Recordings** (§8.3) are listed above the pages (title, start, length). Play
 decrypts the audio into an `<audio>` element (AAC in MPEG-4 plays in every
 current browser except Chromium builds without proprietary codecs; ALAC only

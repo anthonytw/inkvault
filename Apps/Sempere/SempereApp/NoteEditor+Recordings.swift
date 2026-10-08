@@ -142,7 +142,7 @@ extension NoteEditor {
     /// ("Place on Page" in the Recordings list): one `addItem`.
     @discardableResult
     func placeRecording(_ id: UUID) -> Item? {
-        guard canEditItems, let recording = recording(id), let placed = audioPlacement(for: recording),
+        guard canEditItems, let shown = self.recording(id), let placed = audioPlacement(for: shown),
               let page = pages.first(where: { $0.id == placed.page }),
               let edit = try? NoteOps.addItems([placed.item], to: page), applyItemEdit(edit) else { return nil }
         return placed.item
