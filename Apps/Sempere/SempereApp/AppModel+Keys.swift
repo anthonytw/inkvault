@@ -19,7 +19,9 @@ struct DeviceKey: Identifiable, Equatable, Sendable {
 
     /// `age1pq1abcdefg…` (1959 characters in full) with its SHA-256 fingerprint,
     /// as printed on the recovery kit.
-    var summary: String {
+    var summary: String { Self.abbreviated(recipient) }
+
+    static func abbreviated(_ recipient: String) -> String {
         recipient.count > 40 ? "\(recipient.prefix(14))…  SHA-256 \(PaperKey.fingerprint(recipient))" : recipient
     }
 }
@@ -85,6 +87,8 @@ extension AppModel {
     struct GeneratedKey: Sendable {
         var secret: String
         var problem: String?
+        /// The key as a file (`sempere keys generate`), with its label.
+        var file: KeyFile
     }
 
     /// Encrypts the vault to another device's public key. `expectedVault`:
@@ -126,9 +130,9 @@ extension AppModel {
             let problem = error is CancellationError
                 ? String(localized: "The vault was closed before the change finished. It finishes when the vault is opened and its keys are changed again.")
                 : "\(error)"
-            return GeneratedKey(secret: identity.string, problem: problem)
+            return GeneratedKey(secret: identity.string, problem: problem, file: KeyFile(identity: identity, label: name))
         }
-        return GeneratedKey(secret: identity.string)
+        return GeneratedKey(secret: identity.string, file: KeyFile(identity: identity, label: name))
     }
 
     /// Stops encrypting the vault to `recipient` and re-encrypts every note
@@ -148,14 +152,18 @@ extension AppModel {
     /// The recovery kit (docs/cli.md "Keys"): the key this vault was unlocked
     /// with as a QR code and checked text. The PDF holds the secret key.
     func recoveryKitPDF(a4: Bool = false) throws -> Data {
-        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
-        let listed = Set(vault.recipients.map(\.key))
-        guard let identity = unlockIdentities.compactMap({ $0 as? NativeIdentity })
-            .first(where: { $0.isPostQuantum && listed.contains($0.recipient.string) }) else { throw KeyError.noIdentity }
+        guard vault != nil, phase == .unlocked else { throw KeyError.notUnlocked }
+        guard let identity = heldIdentity else { throw KeyError.noIdentity }
+        return try recoveryKit(secret: identity.string, recipient: identity.recipient.string, a4: a4)
+    }
+
+    /// The recovery kit PDF of one of the open vault's keys.
+    func recoveryKit(secret: String, recipient: String, a4: Bool) throws -> Data {
+        guard let vault else { throw KeyError.notUnlocked }
         var info = RecoveryKit.VaultInfo(name: vaultName ?? "vault", id: vault.vaultId.uuidString.lowercased(),
                                          created: vault.manifest.created, recipientCount: vault.recipients.count)
         info.name = vaultName ?? info.name
-        var kit = RecoveryKit(secret: .identity(identity.string), recipient: identity.recipient.string,
+        var kit = RecoveryKit(secret: .identity(secret), recipient: recipient,
                               vault: info, printed: Date())
         if a4 {
             kit.pageWidth = 595.28

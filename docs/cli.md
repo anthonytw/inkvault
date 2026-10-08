@@ -167,6 +167,24 @@ sempere keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [--
   whatever the file name, so the hash-named key files of post-quantum recipients
   (`age1pq-<64 hex>.key.age`) are included.
 
+**The app's key actions and the CLI.** Settings → Device Keys in the app
+does the same with the same code (`IdentityFile.render`, `RecoveryKit`,
+`Vault.addRecipient`):
+
+| App | CLI |
+| --- | --- |
+| Save Key… (this device's key, after Face ID) to Files or the share sheet | the identity file you unlock with, or `sempere keys export --vault V --out key.txt` from the vault's passphrase-wrapped copy |
+| Save Key… → Print Recovery Kit / Save as PDF | `sempere keys paper --identity key.txt --vault V --out kit.pdf` |
+| New Key… (label) | `sempere keys generate --out new.txt`, then `sempere vault recipients add --vault V "$(sempere keys show new.txt)" --label LABEL` |
+| New Key… → Save to Files / Share / Recovery Kit | `new.txt` itself; `sempere keys paper --identity new.txt --vault V --out kit.pdf` |
+
+The app's key file is the CLI's (`age-keygen` style: `# created`, `# public
+key`, the `AGE-SECRET-KEY-PQ-1…` line), named `Sempere key - <label>.txt`.
+The app never writes it except where the user chooses: "Save to Files" writes
+it only into the picked folder, and the share sheet gets a copy in the app's
+temporary folder (file protection complete, mode 0600) that is deleted when
+the share sheet closes, when the sheet goes away, and at the next launch.
+
 ### Vault
 
 ```

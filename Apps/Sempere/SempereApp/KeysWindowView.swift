@@ -170,7 +170,7 @@ private struct AddDeviceKeyView: View {
     @State private var mode = Mode.paste
     @State private var label = ""
     @State private var recipient = ""
-    @State private var generated: String?
+    @State private var generated: KeyFile?
     @State private var working: String?
     @State private var failure: String?
     /// The vault this sheet was opened for: switching vaults meanwhile must not add a key to another.
@@ -183,13 +183,14 @@ private struct AddDeviceKeyView: View {
                     Section {
                         // Not selectable: ⌘C would put the secret on the clipboard with no
                         // expiry and let Universal Clipboard sync it; Copy Key below does not.
-                        Text(generated).font(.caption.monospaced())
-                        Button("Copy Key", systemImage: "doc.on.doc") { copy(generated) }
+                        Text(generated.secret).font(.caption.monospaced())
+                        Button("Copy Key", systemImage: "doc.on.doc") { SecretPasteboard.copy(generated.secret) }
                     } header: {
-                        Text("Secret key for “\(AppModel.cleanLabel(label))”")
+                        Text("Secret key for “\(generated.label)”")
                     } footer: {
-                        Text("Shown once. Put it on the other device now (paste it when it asks for the key); nothing here can show it again. The clipboard is cleared after three minutes.")
+                        Text("Shown once. Put it on the other device now (paste it when it asks for the key) or save it below; nothing here can show it again. The clipboard is cleared after three minutes.")
                     }
+                    KeyFileActions(key: generated)
                 } else {
                     Picker("Key", selection: $mode) {
                         ForEach(Mode.allCases) { Text($0.title).tag($0) }
@@ -252,17 +253,12 @@ private struct AddDeviceKeyView: View {
                 working = String(localized: "Generating the key and re-encrypting every note…")
                 defer { working = nil }
                 let key = try await model.generateDeviceKey(label: name, expectedVault: vaultID)
-                generated = key.secret
+                generated = key.file
                 failure = key.problem
             }
         } catch is CancellationError {
         } catch {
             failure = "\(error)"
         }
-    }
-
-    private func copy(_ text: String) {
-        UIPasteboard.general.setItems([[UTType.plainText.identifier: text]],
-                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(180)])
     }
 }
