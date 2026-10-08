@@ -167,6 +167,7 @@ extension AppModel {
     /// counts the notes done.
     func thinVault(rule: ThinningRule, dryRun: Bool, skipOpen: Bool = false, now: Date = Date()) async throws -> ThinningReport {
         guard let vault, phase == .unlocked else { throw ModelError.noVaultOpen }
+        try requireWritableVault()   // format.md §7.3: no thinning, not even a preview
         let gen = generation
         let open = Set([editor?.noteID].compactMap { $0 } + windowEditors.keys)
         if !skipOpen {
@@ -256,7 +257,8 @@ extension AppModel {
     /// vault in the last day (`ThinningPreference`). Only an `AppModel` built
     /// with `automaticThinning` does this, so tests write nothing unasked.
     func thinIfDue(now: Date = Date()) {
-        guard automaticThinning, phase == .unlocked, let id = vault?.vaultId else { return }
+        // Never in a vault of a newer format version (format.md §7.3).
+        guard automaticThinning, phase == .unlocked, !isVaultReadOnly, let id = vault?.vaultId else { return }
         #if DEBUG
         // Scripted runs (screenshots, device probes) must not change the vault they open.
         if DemoLaunch.isActive || DebugLaunch.isActive { return }

@@ -70,6 +70,7 @@ struct CompactCommand: ParsableCommand {
 
     func run() throws {
         let vault = try access.openVault(.required)
+        try vault.requireWritable()   // format.md §7.3: exit 7
         let ids = try note.map { [try vault.resolveNote($0)] } ?? vault.noteIDs()
         let mode: CompactionMode
         var rule: ThinningRule?
@@ -92,6 +93,7 @@ struct CompactCommand: ParsableCommand {
             ? DeviceState(device: .random()) : try DeviceState.loadOrCreate(at: stateURL)
         var items: [Item] = []
         var failures = 0
+        var readOnly: String?
         let now = Date()
         let summaries = cache.cache(for: vault)
         defer { if summaries?.hasChanges == true { try? summaries?.save() } }
@@ -118,7 +120,9 @@ struct CompactCommand: ParsableCommand {
                                   bytesDeleted: prepared.bytesDeleted, bytesAdded: prepared.bytesAdded))
             } catch {
                 failures += 1
-                printError("\(name): \(CLIError.from(error).message)")
+                let e = CLIError.from(error)
+                if case .readOnly(let m) = e { readOnly = m }
+                printError("\(name): \(e.message)")
             }
         }
         if let rule, !output.json { output.info("\(rule.title)\(dryRun ? " (dry run)" : ""). \(rule.explanation)") }
@@ -137,6 +141,9 @@ struct CompactCommand: ParsableCommand {
             output.info("\(dryRun ? "Would delete" : "Deleted") \(total) file(s), \(Format.bytes(freed)); "
                         + "\(dryRun ? "would add" : "added") \(items.reduce(0) { $0 + $1.snapshots.count }) snapshot(s), \(Format.bytes(added)).")
         }
+        // A note read on the way may have been newer (format.md §7.3).
+        do { try vault.requireWritable() } catch { readOnly = readOnly ?? CLIError.from(error).message }
+        if let readOnly { throw CLIError.readOnly(readOnly) }
         if failures > 0 { throw CLIError.failure("\(failures) note(s) could not be compacted") }
     }
 

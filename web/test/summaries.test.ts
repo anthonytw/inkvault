@@ -26,7 +26,8 @@ describe("published summaries", () => {
     expect(new TextDecoder().decode(await openSummaries(file, [key], "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c"))).toBe("{}");
   });
 
-  for (const [name, dir] of [["sample", join(fixtures, "sample.sempere")], ["render", join(webFixtures, "render.sempere")]] as const) {
+  for (const [name, dir] of [["sample", join(fixtures, "sample.sempere")], ["render", join(webFixtures, "render.sempere")],
+    ["newer", join(fixtures, "newer.sempere")]] as const) {
     it(`equals the Swift summaries of ${name} for every note it lists`, async () => {
       const { source, vault } = await unlockFixture(dir);
       const want = JSON.parse(readFileSync(join(golden, `${name}.summaries.json`), "utf8")) as { vaultId: string; notes: Record<string, unknown> };
@@ -36,8 +37,8 @@ describe("published summaries", () => {
       for (const id of await source.listNotes()) {
         const note = await loadNote(source, vault, id);
         const entry = entries.get(id);
-        // Swift publishes exactly the notes that read cleanly.
-        expect(entry !== undefined, id).toBe(note.failures.length === 0 && note.state !== undefined);
+        // Swift publishes exactly the notes that read cleanly and hold nothing of a newer version.
+        expect(entry !== undefined, id).toBe(note.failures.length === 0 && note.state !== undefined && note.newer === undefined);
         if (!entry) continue;
         expect(entry.revisions).toEqual(await source.listRevisions(id));
         const mine = summarize(note);

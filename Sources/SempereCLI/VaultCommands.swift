@@ -119,11 +119,17 @@ struct VaultInfo: ParsableCommand {
             },
             notes: noteCount, keyFiles: keyFiles, pendingRewrap: vault.pendingRewrap,
             journalProblem: vault.journalProblem, unlocked: !vault.isLocked,
+            format: vault.manifest.format, features: vault.manifest.features, readOnly: vault.isReadOnly,
+            readOnlyReasons: vault.readOnlyReasons.descriptions,
             recipientsAuth: RecipientsStatusOutput(vault))
         if output.json { try output.emitJSON(info); return }
         print("Vault:          \(info.path)")
         print("Vault id:       \(info.vaultId)")
         print("Created:        \(Format.local(info.created))")
+        print("Format:         \(info.format)" + (info.features.isEmpty ? "" : " (\(info.features.joined(separator: ", ")))"))
+        if info.readOnly {
+            print("Read-only:      YES: \(info.readOnlyReasons.joined(separator: "; ")); update Sempere to change it")
+        }
         print("Notes:          \(info.notes)")
         print("Recipients:     \(info.recipients.count)")
         for r in info.recipients {
@@ -167,6 +173,12 @@ struct VaultInfo: ParsableCommand {
         var pendingRewrap: Bool
         var journalProblem: String?
         var unlocked: Bool
+        /// `vault.json`'s `format` and `features` (format.md §2, §7.1).
+        var format: String
+        var features: [String]
+        /// True when this version may read but not change the vault (format.md §7.3).
+        var readOnly: Bool
+        var readOnlyReasons: [String]
         var recipientsAuth: RecipientsStatusOutput
     }
 }
@@ -551,6 +563,9 @@ struct VaultVerify: ParsableCommand {
             let counts = VerifyReport.Status.allCases.compactMap { s in
                 report.counts[s].map { "\(s.rawValue): \($0)" }
             }
+            if vault.isReadOnly {
+                print("READ-ONLY  " + vault.readOnlyReasons.descriptions.joined(separator: "; "))
+            }
             print("\(report.files.count) file(s)" + (counts.isEmpty ? "" : " (" + counts.joined(separator: ", ") + ")")
                 + (report.isHealthy ? ": healthy" : ": UNHEALTHY"))
         }
@@ -566,9 +581,13 @@ struct VaultVerify: ParsableCommand {
         var journalProblem: String?
         var counts: [String: Int]
         var files: [File]
+        var readOnly: Bool
+        var readOnlyReasons: [String]
         var recipientsAuth: RecipientsStatusOutput
 
         init(_ r: VerifyReport, _ vault: Vault) {
+            readOnly = vault.isReadOnly
+            readOnlyReasons = vault.readOnlyReasons.descriptions
             recipientsAuth = RecipientsStatusOutput(vault)
             healthy = r.isHealthy
             manifestProblems = r.manifestProblems

@@ -50,6 +50,9 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var favorite = false
     /// When the note was created (`meta.created`); nil when it could not be reconstructed.
     public var created: Date?
+    /// What the note holds that a newer version wrote, and what could not be
+    /// shown (format.md §7.4); nil when nothing. The vault is then read-only.
+    public var newer: NewerContent?
 
     public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
                 strokes: Int, modified: Date?, problem: String?) {
@@ -202,6 +205,7 @@ extension Vault {
         if !loaded.failures.isEmpty {
             s.problem = "\(loaded.failures.count) unreadable revision(s)"
         }
+        s.newer = loaded.newer
         do {
             let state = try NoteReducer.reconstruct(loaded.revisions)
             s.title = state.meta.title

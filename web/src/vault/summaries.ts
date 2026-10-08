@@ -175,7 +175,7 @@ export function entryMatches(e: SummaryEntry, files: string[]): boolean {
 export function entrySummary(id: string, e: SummaryEntry): NoteSummary {
   const s: NoteSummary = {
     id, title: e.title, tags: e.tags, favorite: e.favorite, deleted: e.deleted, created: e.created,
-    modified: e.modified, pageCount: e.pages, pageTexts: e.pageTexts, failures: 0, hasAttachments: false,
+    modified: e.modified, pageCount: e.pages, pageTexts: e.pageTexts, failures: 0, hasAttachments: false, newer: false,
   };
   if (e.notebook !== undefined) s.notebook = e.notebook;
   return s;

@@ -49,9 +49,11 @@ public enum PublishedSummaries {
         }
 
         /// The entry for a summary made from `revisions`; nil when the summary
-        /// has a problem (unreadable revisions, no state), which is never published.
+        /// has a problem (unreadable revisions, no state) or holds content of a
+        /// newer format version (format.md §7.4), which this writer cannot
+        /// summarise in full: such notes are never published.
         public init?(summary s: NoteSummary, revisions: [String]) {
-            guard s.problem == nil, !revisions.isEmpty, let created = s.created, let modified = s.modified,
+            guard s.problem == nil, s.newer == nil, !revisions.isEmpty, let created = s.created, let modified = s.modified,
                   RFC3339.string(from: created) != nil, RFC3339.string(from: modified) != nil else { return nil }
             self.init(revisions: revisions.sorted(), title: s.title, tags: s.tags, notebook: s.notebook,
                       favorite: s.favorite, deleted: s.deleted, created: created, modified: modified, pages: s.pages,

@@ -47,6 +47,9 @@ Unknown files and directories must be ignored, never deleted.
 }
 ```
 
+- `format`: the format identifier, `sempere/<major>` (§7.1); `sempere/1`
+  for this version. A reader opens a vault of a later major read-only or not
+  at all (§7.3).
 - `recipients[].key`: an age MLKEM768-X25519 recipient (§3.1, Bech32, HRP
   `age1pq`). At least one. Writers MUST NOT create a vault with, or add, an
   X25519 recipient (HRP `age`). A vault that lists any X25519 recipient
@@ -60,7 +63,7 @@ Unknown files and directories must be ignored, never deleted.
 - `features` (optional, *new: attachments*): array of strings naming format
   extensions the vault uses. A writer adds `"attachments"` before it writes
   the first blob or attachment op (§8). A writer that finds a feature it does
-  not implement must not write to the vault (it may still read it, §7).
+  not implement must not write to the vault (it may still read it: read-only access, §7.3).
   Absent means `[]`. `"recipients-tag"` (*new: authenticated recipients*)
   says the vault carries `recipientsTag` (§2.1).
 - `recipientsTag`, `secretLink` (optional, *new: authenticated recipients*):
@@ -375,7 +378,12 @@ Tag = HMAC-SHA256(key = vaultSecret,
 message = `"sempere/1" ‖ 0x00 ‖ noteId ‖ 0x00 ‖ filename ‖ 0x00 ‖ gzipBytes`),
 where `filename` is the file's base name (e.g. `00017596...-a1b2c3d4-12.delta.age`)
 and `noteId` is the note directory name. Binding the file name stops a
-revision being replayed under another note or name.
+revision being replayed under another note or name. The label `sempere/1`
+names this framing (body version `0x01`), not the vault's `format`: it stays
+the same in a vault of a later major (§7.6).
+
+A body version higher than the reader implements is newer content (§7.2):
+the file is reported as newer, not as corrupt.
 
 Readers must verify the tag when the vault secret is available and must
 report, not silently drop, files that fail. Recovery without the app:
@@ -445,6 +453,13 @@ JSON type or form as absent; it never rejects the revision for it.
 | `session` | delta | string, 1 to 64 characters from `[0-9a-z-]` | the editing session that wrote the delta (§5.8.2) |
 | `checkpoint` | delta | object, optionally with `name` (a string) | the note as of this delta is a version the user saved (§5.8.1) |
 | `asOf` | snapshot | `"<hlc>-<device>-<seq>"` | the snapshot holds the note as of that revision (§5.8.3) |
+
+*New: versioning.* Two more optional fields mark a revision written by a
+later version (§7.1): `format`, a format identifier (`"sempere/2"`), and
+`features`, an array of extension names (§2). Writers of this version write
+neither. Unlike the fields above, a malformed value rejects the revision
+(§7.2), and a newer value makes the reader read the revision as §7.4 says and
+keep the vault read-only (§7.3).
 
 ```json
 { "type": "delta", "noteId": "…", "device": "a1b2c3d4", "seq": 13,
@@ -608,7 +623,7 @@ notes may share a title, in one notebook or several.
 
 `lang` and `markersBehindText` were added after the first snapshots were
 written (*new: Notability import*). Readers that predate them reject a
-revision with a `setMeta` naming them (§7; pre-1.0) and ignore them in a
+revision with a `setMeta` naming them (§7.4; pre-1.0) and ignore them in a
 snapshot. A snapshot that holds neither a value nor a clock for one of them
 never had it set, and does not compete with a `setMeta` it does not cover
 (as `recognitionClock`, §5.5); a snapshot writes their clocks only once they
@@ -737,7 +752,7 @@ snapshot without `tagSet` was written before this rule: its `meta.tags`, with
 Merging is still a union of commutative parts (instances, removals, the LWW
 legacy register), so reconstruction stays order-independent (§5.3) and
 correct through any compaction. Readers that do not know `addTag` and
-`removeTag` reject revisions holding them (§7): such a reader must be
+`removeTag` reject revisions holding them (§7.4): such a reader must be
 updated, not silently miss tags.
 
 #### 5.4.2 Paper
@@ -809,7 +824,7 @@ lines (the plain background, as before).
 **Unknown kinds.** A reader that does not know a `kind` treats the paper as
 `blank` (keeping `background`), so a note written by a newer app still opens
 and renders its strokes. (Readers older than this section reject the paper
-and so the whole revision, as §7 says of anything unknown; this section
+and so the whole revision, as §7.4 says of anything unknown; this section
 predates 1.0.) Such a reader keeps the unknown `kind` name and the fields
 it knows when it rewrites `paper` (a snapshot or a restore), so compaction
 on an older device does not turn the paper into `blank`; fields it does not
@@ -1137,7 +1152,7 @@ point twice writes nothing the second time. Strokes and items are matched
 only on the page that corresponds to theirs (the same id, or the re-created
 page), so an item moved to another page since R (`removeItem` plus `addItem`
 with `parent`, §8.2.2) is put back on its page as of R and its copy on the
-other page is removed. An unknown field (§7) that an item or recording has now
+other page is removed. An unknown field (§7.5) that an item or recording has now
 but did not have as of R is left as it is: no op makes a field absent again
 (`null` is a value of it, §8.2.2). Restoring never needs a blob the vault has deleted: a blob
 referenced by any surviving revision of its note is never collected (§8.1.6). The delta's `hlc` is issued after observing every revision of the
@@ -1319,14 +1334,122 @@ Numbers in `points` are plain JSON numbers.
 
 ## 7. Versioning
 
-`format` in `vault.json` and the body version byte identify the format.
-A reader that sees a higher major version must refuse to write and may
-offer read-only access if it can parse the files.
+### 7.1 Version markers
+
+The format is identified by four markers:
+
+| marker | where | this version |
+| --- | --- | --- |
+| `format` | `vault.json` (§2) | `"sempere/1"` |
+| `features` | `vault.json` (§2) | `"attachments"` and `"recipients-tag"` are the extensions defined |
+| body version byte | offset 4 of every revision body (§4) | `0x01` |
+| `format`, `features` | a revision's JSON (§5.1), both optional | absent; absent `format` means `"sempere/1"`, absent `features` means `[]` |
+
+A format identifier is `sempere/<major>`, where `<major>` is a decimal
+integer from 1 to 999 999 999 without leading zeros. This document defines
+major 1. A reader that implements major N reads every major up to N as
+written; this section is about what it does with a higher one.
+
+### 7.2 Newer content
+
+A reader has seen **newer content** when any of these holds:
+
+1. `vault.json`'s `format` names a higher major than it implements;
+2. `vault.json`'s `features` lists an extension it does not implement;
+3. a revision body's version byte is higher than it implements;
+4. a revision's `format` names a higher major, or its `features` lists an
+   extension it does not implement (a *newer revision*).
+
+A `vault.json` whose `format` is not a format identifier, or names major 0,
+is not a vault this reader can open: it refuses it (`unsupportedFormat`).
+So does a reader that cannot decode a newer `vault.json` well enough to
+decrypt `vaultSecret` (§2: `vaultId`, `recipients`, `vaultSecret`). A
+revision whose `format` is present but not a format identifier (or names
+major 0), or whose `features` is present but not an array of strings, is
+invalid and rejected like any undecodable revision (§5).
+
+Markers 1 and 2 are seen when the vault is opened; 3 and 4 only when the
+revision is read, which may be later (a sync may deliver new revisions
+before the new `vault.json`).
+
+### 7.3 Read-only access
+
+A reader that has seen newer content may offer **read-only access**
+instead of refusing the vault, and must then never write to it. From the
+moment it has seen newer content, for the rest of the time it has the vault
+open (and, for markers 1 and 2, whenever it opens it), it:
+
+- writes no revision: no delta (edits, imports, recognition, restores,
+  checkpoints) and no snapshot;
+- deletes no revision: no compaction and no thinning (§5.3, §5.8.4);
+- writes, copies, renames, collects or repairs no blob (§8.1);
+- starts, resumes or finishes no recipient change and rewraps nothing
+  (§3.3), and writes no identity file (§3.2);
+- does not change `vault.json` (not even `features`, §2), so it never tags
+  an untagged vault (§2.1), and keeps no trust record for it;
+- writes nothing to and deletes nothing from `inbox/` (§11): it adopts no
+  capture and enables no capture profile.
+
+It still may: read, verify and report on everything; export and render;
+write per-device data outside the vault (caches, §10); and copy the vault's
+files byte for byte without changing or deleting any by its own decision
+(a backup, a sync that mirrors another replica's files).
+
+The rule holds per vault, not per note: a newer revision in one note makes
+the whole vault read-only. A reader must at least refuse every write to a
+note whose revisions it has read and found newer, and every vault-wide
+change (recipients, `vault.json`, `inbox/`) once it has seen newer content
+anywhere. A reader that offers no read-only access refuses to open a vault
+with marker 1, and treats a revision with marker 3 or 4 as unreadable
+(reported, §4); it must still never write to a vault with marker 2 (§2).
+
+### 7.4 Reading newer content
+
+A read-only reader shows everything it understands and reports the rest. In
+a **newer revision** (marker 4):
+
+- An op whose `op` it does not know is skipped; the revision's other ops
+  still apply, in order.
+- An op it knows that does not decode or validate (a value of the wrong
+  type, a `setMeta` or `setRecording` of a field it does not know, a
+  `setItem` it would reject, §8.2.2) is skipped the same way.
+- In a snapshot, an element of `pages`, of a page's `strokes` or `items`, or
+  of `recordings` that does not decode is skipped; members of `state`,
+  `meta` or a page that it does not know are ignored. If the envelope (§5.1),
+  `included` or `state` itself does not decode, the whole revision is
+  unreadable.
+- Everything else follows the rules for any revision: unknown item kinds
+  are drawn as placeholders (§7.5, §8.5.2), unknown fields are ignored or
+  kept (§7.5), unknown ink tools render as `pen` (§5.6).
+
+A file with a higher body version (marker 3) cannot be verified or decoded:
+it is unreadable, reported as newer rather than corrupt, and the note is
+reconstructed from its other revisions (§5.3).
+
+In a revision that is **not** newer, an unknown op type or `setMeta` field
+is invalid and the revision is rejected (fail closed), never applied in
+part; this was the rule before read-only access existed and still holds,
+so that a damaged or hostile file never passes for a newer one. A newer
+revision gains nothing else: it is still decrypted, its tag (§4) verified
+and its name checked (§5) like any other.
+
+The state a read-only reader shows is approximate: a skipped op or element
+may have removed, moved or replaced something it still shows (a snapshot
+that covers a revision but holds none of an element it skipped hides that
+element, §5.3). That is why such a state is only shown, never written.
+
+The reader reports, per vault, why it is read-only (the vault's `format`,
+its unknown `features`, and the notes holding newer content), and, per
+note, what it could not show: the count of newer revisions, of unreadable
+newer revisions, of skipped ops by `op` name (and `setMeta` fields by
+name), and of skipped snapshot elements. Names are reported cut to 64
+characters, at most 32 distinct names per note, the rest counted together
+(§9).
+
+### 7.5 Open extensions within a version
 
 Until the first tagged release the format is pre-1.0: it may change without
-a version bump or a migration path. Throughout, readers reject a revision
-holding an op type they do not know (fail closed, reported like any other
-unreadable revision); they never silently drop the op and apply the rest.
+a version bump or a migration path.
 
 *New: attachments.* Inside the item and recording ops the format is open,
 so new item kinds and fields can be added without a version bump:
@@ -1351,9 +1474,33 @@ reading, and the `"recipients-tag"` feature keeps older writers from writing
 (§4, §8.1.7, §11.2) works as before.
 
 A future change that older readers must not merge blindly (new merge
-semantics, not just a new kind of placed content) still needs a new op type,
-so that older readers fail closed, or a `features` entry (§2), so that older
-writers stay read-only.
+semantics, not just a new kind of placed content) still needs a new op type
+in a newer revision, so that older readers skip it and stay read-only
+(§7.4), or a `features` entry (§2), so that older writers stay read-only.
+
+### 7.6 Writers of a later major
+
+So that readers of this version can offer read-only access, a writer that
+implements a later major N:
+
+- sets `vault.json`'s `format` to `sempere/N` before it writes the first
+  revision a major-1 reader would misread, and writes `"format":
+  "sempere/N"` in every revision it writes from then on (a revision that
+  uses an extension, `features`, lists it in the revision's `features`
+  too);
+- keeps `vaultId`, `recipients` and `vaultSecret` in `vault.json` (§2), and
+  `recipientsTag` and `secretLink` as §2.1 defines them (a reader of this
+  version that finds the tag removed reports tampering, §2.1), the key files
+  (§3), the revision file names (§5) and the envelope fields of
+  §5.1, with their meaning;
+- keeps the body framing of §4, version byte `0x01` and tag label
+  `sempere/1`, unless it must change them: the label names the framing, not
+  the vault's format. A new body version makes its files unreadable to
+  older readers (marker 3), and breaks the stock-CLI recovery path, which
+  must then be documented anew.
+
+The recovery path of §4 (`age -d … | tail -c +38 | gunzip | jq .`) and of
+§8.1.7 therefore reads newer revisions too.
 
 ## 8. Attachments
 
@@ -1382,10 +1529,10 @@ Revisions name a blob with a *blob reference*:
 - `type`: its media type. Defined: `image/jpeg`, `image/png`, `image/heic`
   (§8.2.5), `application/pdf` (§8.2.6), `video/mp4` and `video/quicktime`
   (§8.2.7), `audio/mp4` (§8.3.1), `application/vnd.sempere.transcript+json`
-  (§8.3.2). Others are kept (§7).
+  (§8.3.2). Others are kept (§7.5).
 
 Every blob reference in a revision is a JSON object with these three keys
-(and possibly unknown ones, §7); no other object in a revision body has a
+(and possibly unknown ones, §7.5); no other object in a revision body has a
 `sha256` key. Collection (§8.1.6) relies on this to find references inside
 item kinds and fields it does not know.
 
@@ -1632,7 +1779,7 @@ plus the fields of its kind (§8.2.4–§8.2.7).
 
 - `id`: UUID.
 - `kind`: `text`, `image`, `pdfPage` or `video`; `math` is reserved
-  (§8.2.8); others per §7.
+  (§8.2.8); others per §7.5.
 - `layer`: integer z-layer, 0 to 65 535 (§8.2.3). Defined: `0` background,
   `100` content. Absent means `100`. Writers write only defined values;
   readers order by any value in range and treat a value out of range or not
@@ -1658,7 +1805,7 @@ side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
 `size` outside its range, a `duration` negative or not finite, a
 `videoRotation` other than 0, 90, 180 or 270) is invalid like a bad common field: the revision is
 rejected. A field of another kind on an item (an image with `pageIndex`) is
-an unknown field there and kept (§7); so are all fields beyond the common ones
+an unknown field there and kept (§7.5); so are all fields beyond the common ones
 on an item of an unknown kind.
 
 #### 8.2.2 Registers, ops and merge
@@ -1681,7 +1828,7 @@ and never changed.
   as is a value of the wrong type or out of range for a register in the table.
   `value: null` (or no `value`) resets an optional register (`rotation`,
   `crop`, `poster`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
-  the reader does not know is a register (§7), and `null` is a value of it
+  the reader does not know is a register (§7.5), and `null` is a value of it
   like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
   Writers name the item's own page in `setItem`; readers key the registers by
@@ -1844,7 +1991,7 @@ aspect ratio equal to the crop's; renderers scale the axes independently.
   search take `text` (beside `recognition` and text boxes, §5.5, §8.2.4);
   a value that is not such an object (or whose `text` is longer than the
   limit) is ignored as if absent, never rejected. Older readers keep it as
-  an unknown field and register (§7). It is never drawn.
+  an unknown field and register (§7.5). It is never drawn.
 
 The crop rectangle is drawn onto the frame (§8.5.1). The PDF's annotations
 (`/Annots`) are not drawn; a writer that wants them flattens them into the
@@ -1938,7 +2085,7 @@ attachments embeds the clip as an embedded file (`docs/attachments.md` §10).
 
 This kind name is reserved for a planned feature (`docs/attachments.md`
 §14, task G1) and is not defined yet. Writers must not write it until this
-section defines it; readers treat it as an unknown kind (§7), drawing a
+section defines it; readers treat it as an unknown kind (§7.5), drawing a
 placeholder.
 
 - `math`: an equation, edited as LaTeX source and drawn typeset. Planned
@@ -1981,7 +2128,7 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
   snapshots. Every other field is immutable: a `setRecording` naming one, or
   `origin` or `clocks`, or giving `title` a non-string or `transcript` a value
   that is not a blob reference, is invalid (the revision is rejected); `null`
-  resets `title` to absent. Unknown fields as in §7; like an item's (§8.2.2)
+  resets `title` to absent. Unknown fields as in §7.5; like an item's (§8.2.2)
   they are registers, set by `setRecording` and stamped in `clocks`.
 - Recordings merge as sets like items, with permanent tombstones (§5.4).
 
@@ -2102,7 +2249,7 @@ point `(a, b)` in PDF user space, with the visible box (CropBox ∩ MediaBox)
 #### 8.5.2 Missing and unknown content
 
 An item whose blob is missing, unreadable, invalid (§8.1.4) or of a type the
-renderer cannot draw, and an item of an unknown or reserved kind (§7,
+renderer cannot draw, and an item of an unknown or reserved kind (§7.5,
 §8.2.8), is drawn as a placeholder: its frame (rotated) outlined 1 pt in
 `#9AA0A6FF` with both diagonals. A background placeholder still fills its
 frame (§8.2.3). The export goes on and reports each placeholder; it never
@@ -2190,7 +2337,8 @@ where the table says how they degrade.
 | `backup.json`, export manifest (`.sempere-export-*.json`) | 256 MiB | `BoundedRead` |
 | files read at all | regular files only (no FIFOs or devices; symlinks followed in a vault, not in an imported package) | `BoundedRead` |
 | JSON nesting | 512 levels (Foundation's decoder) | |
-| unknown fields kept verbatim (§7, §8) | 24 levels deep from the document root; 16 384 values per file | `JSONValue.maxDepth`, `.maxValues` |
+| names of skipped ops, fields and features reported (§7.4) | 64 characters each; 32 distinct per note (or vault), the rest counted together | `NewerContent.maxNameLength`, `.maxNames` |
+| unknown fields kept verbatim (§7.5, §8) | 24 levels deep from the document root; 16 384 values per file | `JSONValue.maxDepth`, `.maxValues` |
 | `seq`, `included` `upTo` / `extra` | 1 … 2^53 − 1 | `RevisionName.maxSeq` |
 | age header | 2 MiB, 1024 stanzas | Age `HeaderCodec` |
 | scrypt work factor (identity files) | 2^20 by default (1 GiB), at most 2^22 | `IdentityFile` |
@@ -2522,7 +2670,8 @@ file = 534d505501a0a1a2a3a4a5a6a7a8a9aaabb466bcf027fe45b94f3fe195f6e0b57d9c6e
   another value of either is ignored.
 - `notes` maps a note id (a lowercase UUID, the note's directory name) to its
   entry. A writer includes only notes whose listed revisions it read
-  completely and could reconstruct (§5.3); a note with an unreadable revision
+  completely and could reconstruct (§5.3); a note with an unreadable revision,
+  or with content of a newer format version it does not understand (§7.4),
   has no entry.
 - `revisions`: the file names of every revision of the note the summary was
   made from (canonical names, §5), sorted, at least one.

@@ -19,6 +19,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   summaries`; unlocked commands keep an existing file current; `sync webdav` keeps the server's copy
   current and `--web-viewer` creates it and `sempere-index.json` there. On 200 synthetic notes over a
   40 ms link: 7.3 s to a listed vault before, 0.3 s with summaries and the index.
+- Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
+  names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
+  newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
+  and snapshot elements are skipped, a later body version is left out, each reported) and never writes.
+  CLI: reading commands report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every
+  write exits 7. App: a read-only banner, notes open read-only, no autosave, thinning, inbox adoption or
+  transcripts. The web viewer opens such vaults too.
+
 - CLI: `sempere sync webdav --push-only [--delete-extraneous]`, a one-way mirror for a server that is not
   trusted to write back. It uploads, overwrites the server's `vault.json` / `rewrap-journal.json` from the local
   copy, and follows local compaction and blob collection with deletions on the server; it never downloads and

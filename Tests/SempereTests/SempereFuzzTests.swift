@@ -136,6 +136,47 @@ final class SempereFuzzTests: VaultTestCase {
         })
     }
 
+    /// Newer revisions (format.md §7.4): unknown ops, fields and snapshot
+    /// elements, decoded leniently. Whatever the input, decoding gives a typed
+    /// error or a revision whose report stays within its bounds.
+    static func newerSeeds() throws -> [Data] {
+        let note = UUID(uuidString: "7e57c0de-0000-4000-8000-0000000000ff")!
+        var d = NewerFixture.envelope(note, NewerFixture.devN, 1, 1000, "delta")
+        d["features"] = ["tables"]
+        d["ops"] = [
+            ["op": "addPage", "page": ["id": NewerFixture.id(1), "order": "a0"]],
+            ["op": "addStroke", "page": NewerFixture.id(1), "stroke": NewerFixture.stroke(1)],
+            ["op": "warp", "page": NewerFixture.id(1), "by": [1, 2]],
+            ["op": "setMeta", "field": "color", "value": "#FF0000FF"],
+            ["op": "setItem", "page": NewerFixture.id(1), "itemId": NewerFixture.id(2), "field": "id", "value": 1],
+        ] as [Any]
+        var s = NewerFixture.envelope(note, NewerFixture.devN, 2, 2000, "snapshot")
+        s["included"] = [NewerFixture.devN.rawValue: ["upTo": 1, "extra": []]]
+        s["state"] = [
+            "deleted": false, "tables": [1],
+            "meta": ["title": "t", "tags": [], "favorite": false, "created": NewerFixture.wall(0),
+                     "paper": ["kind": "ruled"], "pageSize": ["width": 612, "height": 792, "infinite": false]],
+            "pages": [["id": NewerFixture.id(1), "order": "a0", "strokes": [NewerFixture.stroke(1), ["id": 3]]],
+                      ["order": "b"]],
+            "recordings": [["nope": true]],
+        ] as [String: Any]
+        return try [d, s].map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+    }
+
+    func testFuzzNewerRevisionJSON() throws {
+        let log = try Self.seedLog()
+        assertClean(Fuzz.run("newer-revision-json", seeds: try Self.newerSeeds(), quick: 1200, text: true) { input in
+            _ = RevisionMarkers.peekNewer(input)
+            if let problem = Self.exerciseRevision(input, log: log) { return problem }
+            guard let rev = try? InkJSON.decoder().decode(Revision.self, from: input), let n = rev.newer else { return nil }
+            for map in [n.skippedOps, n.formats, n.features] {
+                if map.count > NewerContent.maxNames + 1 { return "\(map.count) names kept" }
+                if map.keys.contains(where: { $0.count > NewerContent.maxNameLength }) { return "long name kept" }
+            }
+            return n.revisions == 1 ? nil : "revisions \(n.revisions)"
+        })
+    }
+
     /// Revisions with attachments (format.md §8): every attachment op, a
     /// snapshot holding items of each kind, recordings and their tombstones,
     /// open fields. Besides the usual merge exercise, anything that decodes

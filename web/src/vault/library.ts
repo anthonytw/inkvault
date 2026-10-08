@@ -3,6 +3,7 @@
 // reported with the note (format.md §4), never silently dropped.
 
 import { type NoteState, type Revision } from "../format/model.ts";
+import { type NewerContent, emptyNewer, mergeNewer } from "../format/newer.ts";
 import { type JSONObject } from "../format/json.ts";
 import { itemText } from "../format/registers.ts";
 import { NoteLogError, reconstruct } from "../format/reducer.ts";
@@ -26,6 +27,8 @@ export interface LoadedNote {
   modified?: number;
   /** The note holds items or recordings (format.md §8). */
   hasAttachments: boolean;
+  /** What a newer version wrote and what could not be shown (format.md §7.4). */
+  newer?: NewerContent;
 }
 
 export interface NoteSummary {
@@ -43,6 +46,8 @@ export interface NoteSummary {
   failures: number;
   error?: string;
   hasAttachments: boolean;
+  /** The note holds content a newer version wrote (format.md §7.4). */
+  newer: boolean;
 }
 
 function holdsAttachments(r: Revision): boolean {
@@ -77,6 +82,7 @@ function message(e: unknown): string {
 export async function loadNote(source: VaultSource, vault: UnlockedVault, id: string, width = 6, listed?: string[]): Promise<LoadedNote> {
   const files = listed ?? await source.listRevisions(id);
   const failures: RevisionFailure[] = [];
+  const newer = emptyNewer();
   const revs = await mapLimited(files, width, async (file) => {
     const path = `notes/${id}/${file}`;
     try {
@@ -88,6 +94,7 @@ export async function loadNote(source: VaultSource, vault: UnlockedVault, id: st
         return await vault.readRevision(id, file, await source.read(path, limits.revisionBytes));
       }
     } catch (e) {
+      if (e instanceof RevisionReadError && e.code === "newer") newer.unreadable++;
       if (e instanceof SourceError || e instanceof RevisionReadError) {
         failures.push({ file, message: message(e) });
         return undefined;
@@ -100,6 +107,8 @@ export async function loadNote(source: VaultSource, vault: UnlockedVault, id: st
   const note: LoadedNote = {
     id, failures, revisionCount: files.length, hasAttachments: readable.some(holdsAttachments),
   };
+  for (const r of readable) if (r.newer) mergeNewer(newer, r.newer);
+  if (newer.revisions > 0 || newer.unreadable > 0) note.newer = newer;
   if (readable.length > 0) note.modified = Math.max(...readable.map((r) => r.wall));
   if (readable.length === 0) {
     note.error = files.length === 0 ? "the note has no revisions" : "no revision of the note could be read";
@@ -134,7 +143,7 @@ export function summarize(n: LoadedNote): NoteSummary {
         .filter((t) => t.length > 0);
       return parts.length > 0 ? [{ number: i + 1, text: parts.join("\n") }] : [];
     }),
-    failures: n.failures.length, hasAttachments: n.hasAttachments,
+    failures: n.failures.length, hasAttachments: n.hasAttachments, newer: n.newer !== undefined,
   };
   if (s?.meta.notebook !== undefined) out.notebook = s.meta.notebook;
   if (n.modified !== undefined) out.modified = n.modified;

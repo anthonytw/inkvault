@@ -12,6 +12,7 @@ import {
   parseTagInstance, originString,
 } from "./ids.ts";
 import { parseRFC3339 } from "./rfc3339.ts";
+import { type NewerContent, countName, emptyNewer, isNewerFormat, knownFeatures, revisionMarkersNewer } from "./newer.ts";
 import { Budget, checkItemChange, checkRecordingChange, decodeItem, decodeRecording } from "./attachments.ts";
 
 export const inkTools = ["pen", "pencil", "marker", "monoline", "fountainPen", "watercolor", "crayon"] as const;
@@ -206,6 +207,31 @@ export interface Revision {
   wall: number;
   app: string;
   body: RevisionBody;
+  /**
+   * Set when the revision was written by a newer version (its `format` or
+   * `features`, format.md §7.1) and decoded leniently: what was skipped (§7.4).
+   */
+  newer?: NewerContent;
+}
+
+/** Lenient decoding of a newer revision (§7.4): counts what is skipped. */
+interface Lenient {
+  newer: NewerContent;
+}
+
+/** `arrayOf`, but in a newer revision an element that does not decode is skipped and counted. */
+function elements<T>(v: unknown, path: string, lenient: Lenient | undefined, f: (v: unknown, path: string) => T): T[] {
+  if (!lenient) return arrayOf(v, path, f);
+  const out: T[] = [];
+  arr(v, path).forEach((e, i) => {
+    try {
+      out.push(f(e, `${path}[${i}]`));
+    } catch (err) {
+      if (!(err instanceof DecodeError)) throw err;
+      lenient.newer.skippedElements++;
+    }
+  });
+  return out;
 }
 
 export function revisionName(r: Revision): RevisionName {
@@ -368,13 +394,13 @@ function decodePageSize(v: unknown, path: string): PageSize {
   return s;
 }
 
-export function decodePage(v: unknown, path: string, budget: Budget): Page {
+export function decodePage(v: unknown, path: string, budget: Budget, lenient?: Lenient): Page {
   const o = obj(v, path);
   const p: Page = {
     id: reqWith(o, "id", path, uuid),
     order: reqWith(o, "order", path, str),
-    strokes: optWith(o, "strokes", path, (s, q) => arrayOf(s, q, decodeStroke)) ?? [],
-    items: optWith(o, "items", path, (s, q) => arrayOf(s, q, (e, r) => decodeItem(e, r, budget))) ?? [],
+    strokes: optWith(o, "strokes", path, (s, q) => elements(s, q, lenient, decodeStroke)) ?? [],
+    items: optWith(o, "items", path, (s, q) => elements(s, q, lenient, (e, r) => decodeItem(e, r, budget))) ?? [],
   };
   const orderClock = optWith(o, "orderClock", path, str);
   if (orderClock !== undefined) p.orderClock = orderClock;
@@ -460,13 +486,14 @@ function decodeClocks(v: unknown, path: string): Record<string, string> {
   return out;
 }
 
-export function decodeState(v: unknown, path: string, budget: Budget): NoteState {
+export function decodeState(v: unknown, path: string, budget: Budget, lenient?: Lenient): NoteState {
   const o = obj(v, path);
   const s: NoteState = {
     deleted: reqWith(o, "deleted", path, bool),
     meta: reqWith(o, "meta", path, decodeMeta),
-    pages: reqWith(o, "pages", path, (a, p) => arrayOf(a, p, (e, q) => decodePage(e, q, budget))),
-    recordings: optWith(o, "recordings", path, (a, p) => arrayOf(a, p, (e, q) => decodeRecording(e, q, budget))) ?? [],
+    pages: reqWith(o, "pages", path, (a, p) => elements(a, p, lenient, (e, q) => decodePage(e, q, budget, lenient))),
+    recordings: optWith(o, "recordings", path,
+      (a, p) => elements(a, p, lenient, (e, q) => decodeRecording(e, q, budget))) ?? [],
   };
   const clocks = optWith(o, "clocks", path, decodeClocks);
   if (clocks) s.clocks = clocks;
@@ -566,9 +593,20 @@ export function decodeOp(v: unknown, path: string, budget: Budget): Op {
       return { op, recordingId, field, value };
     }
     default:
-      // Fail closed on an op this reader does not know (format.md §7).
+      // Fail closed on an op this reader does not know, outside a newer revision (format.md §7.4).
       fail(`${path}.op`, `unknown op ${op}`);
   }
+}
+
+/** The name a skipped op is counted under (§7.4): its `op`, `setMeta.<field>` and the like. */
+function skippedOpName(v: unknown): string {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return "?";
+  const o = v as JSONObject;
+  if (typeof o.op !== "string") return "?";
+  if ((o.op === "setMeta" || o.op === "setItem" || o.op === "setRecording") && typeof o.field === "string") {
+    return `${o.op}.${o.field}`;
+  }
+  return o.op;
 }
 
 /** Decodes a revision's JSON (already parsed). */
@@ -586,20 +624,53 @@ export function decodeRevision(v: unknown): Revision {
     wall: reqWith(o, "wall", path, date),
     app: reqWith(o, "app", path, str),
   };
+  // Version markers (format.md §7.1): a newer revision decodes leniently (§7.4).
+  let isNewer: boolean;
+  try {
+    isNewer = revisionMarkersNewer(o);
+  } catch (e) {
+    fail(`${path}.format`, e instanceof Error ? e.message : String(e));
+  }
+  let lenient: Lenient | undefined;
+  if (isNewer) {
+    const newer = emptyNewer();
+    newer.revisions = 1;
+    if (typeof o.format === "string" && isNewerFormat(o.format)) countName(newer.formats, o.format);
+    if (Array.isArray(o.features)) {
+      for (const f of o.features as string[]) if (!knownFeatures.has(f)) countName(newer.features, f);
+    }
+    lenient = { newer };
+  }
   const type = reqWith(o, "type", path, str);
   let body: RevisionBody;
   if (type === "delta") {
-    body = { type, ops: reqWith(o, "ops", path, (a, p) => arrayOf(a, p, (e, q) => decodeOp(e, q, budget))) };
+    body = {
+      type, ops: reqWith(o, "ops", path, (a, p) => {
+        if (!lenient) return arrayOf(a, p, (e, q) => decodeOp(e, q, budget));
+        const ops: Op[] = [];
+        arr(a, p).forEach((e, i) => {
+          try {
+            ops.push(decodeOp(e, `${p}[${i}]`, budget));
+          } catch (err) {
+            if (!(err instanceof DecodeError)) throw err;
+            countName(lenient.newer.skippedOps, skippedOpName(e));
+          }
+        });
+        return ops;
+      }),
+    };
   } else if (type === "snapshot") {
     body = {
       type,
       included: reqWith(o, "included", path, decodeIncluded),
-      state: reqWith(o, "state", path, (s, p) => decodeState(s, p, budget)),
+      state: reqWith(o, "state", path, (s, p) => decodeState(s, p, budget, lenient)),
     };
   } else {
     fail(`${path}.type`, `unknown revision type ${type}`);
   }
-  return { ...r, body };
+  const rev: Revision = { ...r, body };
+  if (lenient) rev.newer = lenient.newer;
+  return rev;
 }
 
 export function isDecodeError(e: unknown): e is DecodeError {

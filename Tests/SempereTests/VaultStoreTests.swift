@@ -65,8 +65,8 @@ final class VaultStoreTests: VaultTestCase {
         let m = try Vault.readManifest(Data(json.utf8))
         XCTAssertEqual(m.recipients.map(\.label), ["Anthony's iPad"])
         XCTAssertEqual(m.vaultId, UUID(uuidString: "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c"))
-        XCTAssertThrowsError(try Vault.readManifest(Data(json.replacingOccurrences(of: "sempere/1", with: "sempere/2").utf8))) {
-            XCTAssertEqual($0 as? VaultError, .unsupportedFormat("sempere/2"))
+        XCTAssertThrowsError(try Vault.readManifest(Data(json.replacingOccurrences(of: "sempere/1", with: "sempere/0").utf8))) {
+            XCTAssertEqual($0 as? VaultError, .unsupportedFormat("sempere/0"))
         }
     }
 

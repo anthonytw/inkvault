@@ -112,6 +112,12 @@ public struct VaultManifest: Hashable, Sendable, Codable {
         return try e.encode(self) + Data("\n".utf8)
     }
 
+    /// `format` alone, from bytes that may not decode as a whole manifest.
+    static func peekFormat(_ data: Data) -> String? {
+        struct Format: Decodable { var format: String }
+        return try? JSONDecoder().decode(Format.self, from: data).format
+    }
+
     /// Parses `vault.json` bytes.
     public static func decode(_ data: Data) throws -> VaultManifest {
         try InkJSON.decoder().decode(VaultManifest.self, from: data)
