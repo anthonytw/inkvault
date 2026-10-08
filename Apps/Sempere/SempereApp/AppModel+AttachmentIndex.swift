@@ -300,10 +300,11 @@ extension AppModel {
 }
 
 extension NoteEditor {
-    /// The content hashes the note shows now (items' blobs, recordings'
-    /// audio and transcripts), as `NoteState.blobReferences` gives them.
+    /// The content hashes the note shows now (items' blobs and video
+    /// posters, recordings' audio and transcripts), as
+    /// `NoteState.blobReferences` gives them.
     var blobHashes: Set<String> {
-        Set(pages.flatMap { $0.items.compactMap(\.blob?.sha256) }
+        Set(pages.flatMap { $0.items.flatMap { [$0.blob, $0.poster].compactMap { $0?.sha256 } } }
             + recordings.flatMap { [$0.blob.sha256] + ($0.transcript.map { [$0.sha256] } ?? []) })
     }
 }
