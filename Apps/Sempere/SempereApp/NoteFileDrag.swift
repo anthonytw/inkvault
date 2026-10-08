@@ -32,16 +32,37 @@ enum NoteFileDrag {
         }
     }
 
+    /// The drop's file request gave up on the preparation (`load`).
+    enum DragError: Error, LocalizedError {
+        case timedOut
+        var errorDescription: String? { "The note took too long to get ready to export. Try dragging it again." }
+    }
+
+    /// How long a file request waits for the preparation.
+    static let prepareTimeout: Duration = .seconds(20)
+
     /// What a drop's request for the file runs: waits for `prepare`, renders
     /// and writes the PDF on a background task and hands its URL (or the
     /// error) to `completion`, on that task. Never needs the main thread.
+    /// `prepare` is main-actor work: if the system holds the main thread for
+    /// the file before it ends, it never could, so the request fails with
+    /// `DragError.timedOut` after `timeout` instead of freezing the app.
     @discardableResult
-    static func load(_ prepare: Task<PreparedExport, any Error>,
+    static func load(_ prepare: Task<PreparedExport, any Error>, timeout: Duration = prepareTimeout,
                      completion: @escaping @Sendable (URL?, (any Error)?) -> Void) -> Progress {
         let progress = Progress(totalUnitCount: 1)
         Task.detached(priority: .userInitiated) {
             do {
-                let prepared = try await prepare.value
+                let prepared = try await withThrowingTaskGroup(of: PreparedExport?.self) { group in
+                    group.addTask { try await prepare.value }
+                    group.addTask { try await Task.sleep(for: timeout); return nil }
+                    defer { group.cancelAll() }
+                    guard let first = try await group.next(), let prepared = first else {
+                        prepare.cancel()
+                        throw DragError.timedOut
+                    }
+                    return prepared
+                }
                 try Task.checkCancellation()
                 completion(try prepared.write(), nil)
             } catch {
