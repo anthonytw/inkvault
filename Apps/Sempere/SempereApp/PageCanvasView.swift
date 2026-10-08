@@ -127,7 +127,7 @@ struct PageCanvasView: UIViewRepresentable {
             host.drawingSuspended = content.drawingSuspended
             host.apply(paper: content.paper, pageSize: content.pageSize)
             let pageItems = editor.items(on: pageID)
-            // Audio items show the note's recordings (format.md §8.2.8).
+            // Audio items show the note's recordings (format.md §8.2.9).
             host.itemLayer.show(pageItems, note: editor.noteID, paper: content.paper, source: content.itemSource,
                                 recordings: editor.recordings)
             let overText = MarkerOrder.textOverlay(pageItems, meta: editor.meta)

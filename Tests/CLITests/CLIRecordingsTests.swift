@@ -3,7 +3,7 @@ import Foundation
 import Sempere
 import XCTest
 
-/// Recordings on the page (`audio` items, format.md §8.2.8) from the command
+/// Recordings on the page (`audio` items, format.md §8.2.9) from the command
 /// line: `attach recording --place`, `recordings list|place|rename|delete`,
 /// `items list`, `notes show`, `items copy` across notes, and exports that
 /// draw the card and attach the audio ("PDF + attachments").

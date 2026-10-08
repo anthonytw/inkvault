@@ -1755,8 +1755,8 @@ is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 ### 8.2 Placed items
 
 A page's `items` (§5.5) are text boxes, images, PDF page backgrounds, video
-clips and recordings placed on the page, in page coordinates (points, origin
-top-left, y down).
+clips, equations and recordings placed on the page, in page coordinates
+(points, origin top-left, y down).
 
 #### 8.2.1 Common fields
 
@@ -1775,11 +1775,11 @@ top-left, y down).
 }
 ```
 
-plus the fields of its kind (§8.2.4–§8.2.8).
+plus the fields of its kind (§8.2.4–§8.2.9).
 
 - `id`: UUID.
-- `kind`: `text`, `image`, `pdfPage`, `video` or `audio`; `math` is
-  reserved (§8.2.9); others per §7.5.
+- `kind`: `text`, `image`, `pdfPage`, `video` (§8.2.7), `math` (§8.2.8) or
+  `audio` (§8.2.9); others per §7.5.
 - `layer`: integer z-layer, 0 to 65 535 (§8.2.3). Defined: `0` background,
   `100` content. Absent means `100`. Writers write only defined values;
   readers order by any value in range and treat a value out of range or not
@@ -1797,7 +1797,7 @@ plus the fields of its kind (§8.2.4–§8.2.8).
 
 Numbers are rounded to at most 3 decimals by writers.
 
-The fields of a defined kind (§8.2.4–§8.2.8) are required unless that section
+The fields of a defined kind (§8.2.4–§8.2.9) are required unless that section
 says what their absence means (`rotation`, `crop`, `orientation`, `family`,
 `lang`, `poster`, …). An item of a defined kind that lacks one, holds one of the wrong
 type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
@@ -1822,6 +1822,7 @@ and never changed.
 | `image` | `crop` | `blob`, `pixelSize`, `orientation` |
 | `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
 | `video` | `poster` | `blob`, `pixelSize`, `duration`, `videoRotation`, `codec` |
+| `math` | `math` | |
 | `audio` | | `recording` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
@@ -1829,7 +1830,7 @@ and never changed.
   snapshot-only `origin` or `clocks`, is invalid (the revision is rejected),
   as is a value of the wrong type or out of range for a register in the table.
   `value: null` (or no `value`) resets an optional register (`rotation`,
-  `crop`, `poster`) to absent; `null` for `frame`, `z` or `text` is invalid. A field
+  `crop`, `poster`) to absent; `null` for `frame`, `z`, `text` or `math` is invalid. A field
   the reader does not know is a register (§7.5), and `null` is a value of it
   like any other.
 - `setItem` on a removed item, or an item on a removed page, is a no-op.
@@ -2083,7 +2084,104 @@ picture fitted inside it (aspect kept). A reader that cannot play the clip
 mark as above and may offer the clip as a file. A `pdf` export with
 attachments embeds the clip as an embedded file (`docs/attachments.md` §10).
 
-#### 8.2.8 Audio
+#### 8.2.8 Math
+
+*New: math items.* An equation, edited as LaTeX source and drawn typeset:
+
+```json
+{ "kind": "math", "layer": 100, "frame": [72, 300, 163.25, 41.5], "z": "a3",
+  "math": {
+    "latex": "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
+    "display": true, "size": 20, "color": "#1A1A1AFF",
+    "render": { "sha256": "…", "size": 5120, "type": "application/pdf" },
+    "renderSize": [163.25, 41.5], "engine": "swiftmath-1.7.3" } }
+```
+
+`math` is the item's only register of its own, and it is replaced whole
+(like `text`, §8.2.4): the rendering belongs to the exact source, style,
+size and colour it was typeset from, so concurrent edits never pair one
+device's source with another's rendering. Its fields:
+
+- `latex`: the source, in LaTeX math mode without delimiters (no `$`, `\[`
+  or `\begin{equation}` around it): at most 8 192 UTF-8 bytes of Unicode
+  scalar values, no C0 controls other than `\n` and `\t`. Writers store it
+  as the user typed it (NFC) and do not write an empty source (they remove
+  the item instead); an empty one is valid and draws nothing.
+- `display`: `true` for display style (large operators, limits above and
+  below, full-size fractions, as in `\[…\]`), `false` for text (inline)
+  style (as in `$…$`). The item is placed freely either way.
+- `size`: the font size of the typeset result in points (1 em), greater than
+  0 and at most 1000. `color`: `#RRGGBBAA`, the colour of every mark.
+- `render`: optional, a blob reference (§8.1.1) to the typeset result: a PDF
+  (`application/pdf`, kind `pdf`; versions 1.0–2.0, no `/Encrypt`, as for
+  `pdfPage`, §8.2.6) whose first page's effective page (§8.2.6) is the
+  typeset box, in points at `size`, with the margin the writer chose. It
+  draws only marks in `color` (alpha included) on a transparent page: no
+  page fill, no other colour. Absent: no typesetter has rendered this value
+  yet (a writer without one, such as the reference CLI, writes none).
+- `renderSize`: `[w, h]`, the size in points of `render`'s effective page,
+  both positive; present exactly when `render` is (else the item is
+  invalid). Informational like `pageSize` (§8.2.6): renderers that parse the
+  PDF use its own boxes; writers use it to keep the frame's scale.
+- `engine`: optional, informational: the typesetter and its version that
+  made `render` (e.g. `swiftmath-1.7.3`, `tectonic-0.15`).
+- Unknown fields of `math` are kept (§7.5) and belong to the value: a writer
+  that changes the source drops the ones it does not understand.
+
+A writer that changes `latex`, `display`, `size` or `color` writes a new
+`render` (or none) in the same value; a value whose `render` was typeset
+from something else is a writer bug that readers cannot detect. When it
+stores a new `render` it also sets `frame` in the same delta: the same
+top-left corner, the render's page size times the scale the frame had to the
+previous render (`frame.w / renderSize.w` of the old value; 1 when there
+was none). Writers keep the frame's aspect
+ratio equal to the render's; renderers scale the axes independently.
+
+**Drawing.** A renderer draws the first of these it can:
+
+1. `render`: page 1 of the PDF (`pageIndex` 0) mapped onto the frame and
+   rotated exactly like a `pdfPage` item without `crop` (§8.5.1), clipped to
+   the frame. A renderer that rasterizes the page onto an opaque white
+   background (the CLI's Poppler, Core Graphics as the app uses it) recovers
+   the coverage from the known `color`: a pixel `p` of channel `k`, where `k`
+   maximises `255 − color_k`, has coverage `(255 − p_k) / (255 − color_k)`
+   (clamped to 0…1), drawn in `color`; when every channel of `color` is
+   above 250 the page is drawn as rasterized.
+2. Its own typesetting of `latex` (the app, when there is no `render` yet),
+   within the limits below.
+3. The source as text: a text item (§8.2.4) with `font` `mono`, the math
+   `size` and `color`, the frame, and one run holding `latex`, laid out by
+   §8.5.3 without stored breaks. The export reports it like a placeholder.
+4. The placeholder of §8.5.2.
+
+**Limits of typesetting.** `latex` is untrusted input (§9). Before a
+typesetter parses it, readers check it and treat a source that fails as one
+they cannot typeset (step 3): more than 4 096 tokens (a token is a control
+sequence, `\` plus letters or `\` plus one character, or any other
+character that is not white space); a group closed by the wrong kind or
+never closed (`{…}`, `\left…\right`, `\begin{…}…\end{…}`, and `[…]`
+right after `\sqrt`, its degree, closed by the next `]` of the same level);
+or a nesting deeper than 64, where each open group counts one level and so
+does each control sequence, `^` or `_` in a run of them (the arguments a
+typesetter would parse recursively; `\sqrt\sqrt\frac` is three levels, any
+other token ends the run). A group opened after a run sits below it and was
+an argument: the run goes on after it closes (`\frac{a}\frac{b}\frac{c}d`
+nests each `\frac` in the one before). `\over`, `\atop`, `\choose`,
+`\brack` and `\brace` add one level for the rest of their group, the
+denominator (`a\over b\over c` is two). Writers never store a `render` for such a source.
+
+**Text, search and export.** `latex` is part of the page's searchable text,
+beside `recognition`, text boxes and `pageText` (§5.5); it is never copied
+into `recognition`. Text exports (Markdown, HTML) write it as `$$latex$$`
+for display style and `$latex$` for text style. A device that converts
+handwriting into an equation writes one delta that removes the strokes and
+adds the `math` item (`docs/attachments.md` §6, task G1).
+
+Readers that predate this section keep a `math` item as an unknown kind
+(§7.5): `math` is then an unknown field and register on it, `render` is found
+by collection (§8.1.6), and they draw a placeholder.
+
+#### 8.2.9 Audio
 
 *New: recordings on the page (build 7 feedback).* A recording belongs to the
 note (§8.3.1); an `audio` item shows one on a page, where it can be played
@@ -2153,19 +2251,6 @@ item is tapped or its play control used, and may show the position and the
 transcript as it plays (§8.3.2). A reader that cannot play shows the card.
 A `pdf` export with attachments embeds the recording once however many
 items show it (`docs/attachments.md` §10).
-
-#### 8.2.9 Reserved kinds
-
-This kind name is reserved for a planned feature (`docs/attachments.md`
-§14, task G1) and is not defined yet. Writers must not write it until this
-section defines it; readers treat it as an unknown kind (§7.5), drawing a
-placeholder.
-
-- `math`: an equation, edited as LaTeX source and drawn typeset. Planned
-  fields: `latex` (register, the source), `display` (register, display or
-  inline style), `size` and `color` as for text, and `render` (register, a
-  blob reference to a one-page PDF of the typeset result, so renderers
-  without a math typesetter still draw it).
 
 ### 8.3 Recordings
 
@@ -2279,6 +2364,7 @@ Writers must stay within, and readers may reject anything beyond:
 | blob content (any kind, including video) | 1 GiB (2^30 bytes) |
 | transcript content | 64 MiB |
 | text of one item | 65 536 UTF-8 bytes, 1 000 runs, 10 000 `breaks` |
+| LaTeX source of a `math` item | 8 192 UTF-8 bytes; typeset only within 4 096 tokens and 64 levels (§8.2.8) |
 | items per page | 10 000 |
 | recordings per note | 1 000 |
 | image to decode | 100 000 000 pixels (renderers draw a placeholder beyond) |
@@ -2322,9 +2408,9 @@ point `(a, b)` in PDF user space, with the visible box (CropBox ∩ MediaBox)
 #### 8.5.2 Missing and unknown content
 
 An item whose blob is missing, unreadable, invalid (§8.1.4) or of a type the
-renderer cannot draw, an `audio` item whose recording is missing (§8.2.8),
-and an item of an unknown or reserved kind (§7.5, §8.2.9), is drawn as a
-placeholder: its frame (rotated) outlined 1 pt in
+renderer cannot draw, an `audio` item whose recording is missing (§8.2.9),
+and an item of an unknown kind (§7.5), is drawn as a
+placeholder (a `math` item falls back to its source first, §8.2.8): its frame (rotated) outlined 1 pt in
 `#9AA0A6FF` with both diagonals. A background placeholder still fills its
 frame (§8.2.3). The export goes on and reports each placeholder; it never
 fails because of one.
@@ -2435,6 +2521,7 @@ where the table says how they degrade.
 | font file (font packs, render) | 64 MiB; 512 tables; composite glyphs 8 levels and 65 536 points; CFF subroutines 10 levels, 65 536 charstring operations, 48 operands; layout substitutions 2^20 steps, nested lookups 8 levels; any failure falls back to another font | `OpenTypeFont`, `CFFFont`, `GSUBApplier` |
 | font-pack scan | 20 000 font files, 64 faces per collection | `FontLibrary` |
 | notebook levels shown | 64 | `NotebookNode.maxDepth` |
+| LaTeX source (`math`, §8.2.8) | 8 192 UTF-8 bytes (else the revision is rejected); typeset only within 4 096 tokens, balanced groups and 64 levels of nesting (else drawn as source text) | `MathSource.check` |
 | PDF attachment (export, `SemperePDF`) | 1 GiB file; 10⁶ objects; 256 MiB per decoded stream, 1 GiB decoded per file; nesting and page-tree depth 64; 32 reference hops; 4 096 cross-reference sections; 16 filters per stream; encrypted files refused | `PDFLimits` |
 | PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |

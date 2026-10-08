@@ -5,7 +5,7 @@ import XCTest
 
 @testable import SempereRender
 
-/// `audio` items in exports (format.md §8.2.8): the card, the icon and the
+/// `audio` items in exports (format.md §8.2.9): the card, the icon and the
 /// label (title, duration, transcript) in PDF, SVG and PNG; the placeholder
 /// for a missing recording; a transcript that cannot be read; the label cut
 /// at the card's bottom; and "PDF + attachments" of a note with an audio item.

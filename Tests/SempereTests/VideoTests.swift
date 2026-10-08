@@ -254,7 +254,7 @@ final class VideoItemTests: XCTestCase {
         XCTAssertFalse(p.contains("videoRotation"))
         XCTAssertFalse(p.contains("poster"))
         XCTAssertTrue(ItemKind.video.isDefined)
-        XCTAssertFalse(ItemKind.math.isDefined)
+        XCTAssertTrue(ItemKind.math.isDefined)
     }
 
     func testInvalidVideoItemsAreRejected() throws {

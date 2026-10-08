@@ -337,8 +337,8 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
 // --- Note 5: attachments. Images (orientation, crop, rotation), PDF pages
 // (background and figure, CropBox and /Rotate), text boxes (stored breaks,
 // invalid breaks, runs, alignment, direction, rotation), placeholders
-// (unknown and reserved kinds, missing, tampered and HEIC blobs), and
-// recordings with a transcript.
+// (an unknown kind, missing, tampered and HEIC blobs), equations (with and
+// without a rendering, §8.2.9), and recordings with a transcript.
 {
   const note = "77777777-7777-4777-8777-777777777777";
   const p1 = id(0x700), p2 = id(0x701);
@@ -353,6 +353,10 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
   // A valid blob file stored under another content's name: the name binding fails.
   const forged = await blob(note, readFileSync(join(media, "dot.png")).subarray(0, 100), "image/png", { skip: true });
   await blob(note, readFileSync(join(media, "dot.png")), "image/png", { asName: blobName(Buffer.from(forged.sha256, "hex")) });
+  // An equation's rendering: one page, marks only in the equation's colour, no page fill (§8.2.8).
+  const equation = await blob(note, makePDF([
+    { media: [0, 0, 60, 24], content: "0.102 0.102 0.102 rg 4 10 26 4 re f 36 2 20 20 re f" },
+  ]), "application/pdf");
   const heic = await blob(note, Uint8Array.from([0, 0, 0, 24, ...enc.encode("ftypheic"), 0, 0, 0, 0, ...enc.encode("mif1heic")]), "image/heic");
   const tone = await blob(note, readFileSync(join(media, "tone.m4a")), "audio/mp4");
   const rec1 = id(0x980), rec2 = id(0x981);
@@ -390,7 +394,10 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
       { t: "Right to left paragraph   " }, { t: "\nend aligned" }], { dir: "rtl", font: "mono", size: 12 }) }) },
     { op: "addItem", page: p1, item: item(0x717, "text", 100, [400, 360, 140, 30], "a6", { text: text([{ t: "Right" }], { align: "right", color: "#0D47A180" }) }) },
     { op: "addItem", page: p1, item: item(0x718, "sticker", 100, [72, 460, 60, 60], "a7", { emoji: "star" }) },
-    { op: "addItem", page: p1, item: item(0x719, "math", 100, [150, 460, 60, 60], "a8", { latex: "e^{i\\pi}" }) },
+    { op: "addItem", page: p1, item: item(0x719, "math", 100, [72, 525, 200, 26], "a8", {
+      math: { latex: "e^{i\\pi}+1=0", display: true, size: 14, color: "#1A1A1AFF" } }) },
+    { op: "addItem", page: p1, item: item(0x71d, "math", 100, [450, 520, 90, 36], "aC", {
+      math: { latex: "x^2", display: false, size: 12, color: "#1A1A1AFF", render: equation, renderSize: [60, 24], engine: "synthetic-1" } }) },
     { op: "addItem", page: p1, item: item(0x71a, "image", 100, [230, 460, 60, 60], "a9", { blob: missing, pixelSize: [10, 10] }) },
     { op: "addItem", page: p1, item: item(0x71b, "image", 100, [310, 460, 60, 60], "aA", { blob: forged, pixelSize: [20, 12] }) },
     { op: "addItem", page: p1, item: item(0x71c, "image", 100, [390, 460, 60, 60], "aB", { blob: heic, pixelSize: [10, 10] }) },
@@ -450,7 +457,7 @@ function makePDF(pages: { media: number[]; crop?: number[]; rotate?: number; con
   ]));
 }
 
-// --- Note 8: recordings on the page (format.md §8.2.8): a card with a transcript, a rotated card and a
+// --- Note 8: recordings on the page (format.md §8.2.9): a card with a transcript, a rotated card and a
 // small one showing it, a recording without title or transcript, and a card whose recording is missing.
 {
   const note = "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c";

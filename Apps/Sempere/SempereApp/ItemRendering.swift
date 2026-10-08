@@ -43,7 +43,7 @@ struct ItemRenderKey: Hashable, Sendable {
     /// Background items are filled with the paper (format.md §8.2.3).
     var paper: Paper?
     /// An `audio` item: the recording it shows (title, duration and
-    /// transcript are drawn, format.md §8.2.8); nil when it is missing.
+    /// transcript are drawn, format.md §8.2.9); nil when it is missing.
     var recording: Recording?
 
     init(_ item: Item, scale: Double, paper: Paper, recording: Recording? = nil) {
@@ -83,6 +83,12 @@ enum ItemRendering {
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
+        // An equation no typesetter has rendered yet (the CLI's): typeset here (format.md §8.2.8 step 2).
+        if item.kind == .math, let math = item.math, math.render == nil {
+            return MathTypesetter.picture(math, frame: item.frame, rotation: item.rotation, scale: key.scale)
+                .map { ItemPicture.image($0.0, bounds: $0.1) }
+                ?? .placeholder(.unavailable("the equation cannot be typeset"))
+        }
         if item.kind == .audio { return await audioPicture(key, note: note, cache: cache) }
         let interval = Perf.begin(.itemPicture)
         let label = renders == nil ? nil : RenderCache.pictureLabel(key)
@@ -95,9 +101,9 @@ enum ItemRendering {
         }
         defer { Perf.end(interval, "drawn") }
         var files: [String: URL] = [:]
-        // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7).
-        let drawn = item.kind == .video ? item.poster : item.blob
-        let blobs = drawn.map { [$0] } ?? []
+        // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7);
+        // anything else from its own blobs (an equation from its render, §8.2.8).
+        let blobs = item.kind == .video ? (item.poster.map { [$0] } ?? []) : item.blobReferences
         if let cache {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {
@@ -134,7 +140,7 @@ enum ItemRendering {
         }
     }
 
-    /// An `audio` item's card (format.md §8.2.8), drawn as exports draw it:
+    /// An `audio` item's card (format.md §8.2.9), drawn as exports draw it:
     /// SempereRender's card and icon, the label laid out by CoreText. The
     /// transcript comes from the cache; while it cannot be had (iCloud), the
     /// card is drawn without it. A missing recording is a placeholder.

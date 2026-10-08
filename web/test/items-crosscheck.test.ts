@@ -9,7 +9,7 @@
 // without Poppler; the viewer draws them with pdf.js, so only their rotated
 // frames are compared here. Video items (§8.2.7) are their poster, placed
 // like an image (or a placeholder without one), under the play mark, which
-// is compared element for element. Audio items (§8.2.8) are their card and
+// is compared element for element. Audio items (§8.2.9) are their card and
 // icon, element for element, and their label's lines (title, duration and
 // the transcript, read from its blob) like a text box's.
 
@@ -132,8 +132,20 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
           const corners = pointsAttr(d.it.corners);
           switch (d.kind) {
             case "placeholder":
-            case "pdf":
               got.placeholders.push(corners);
+              break;
+            case "pdf":
+              // Goldens are made with --pdf-renderer none: a PDF page is a placeholder there, and an
+              // equation's render falls back to its source as text (§8.2.8), drawn like a text box.
+              if (!d.math) {
+                got.placeholders.push(corners);
+                break;
+              }
+              for (const line of d.math.layout.lines) {
+                if (line.text.trim().length === 0) continue;
+                got.lines.push({ y: fmt(line.baseline), size: fmt(line.size), text: line.text, rtl: line.rtl,
+                  x: fmt(lineAnchor(d.math.content.align, line.rtl, d.it.frame).x) });
+              }
               break;
             case "image": {
               try {

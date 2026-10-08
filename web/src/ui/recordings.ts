@@ -35,7 +35,7 @@ export class RecordingsPanel {
   readonly root: HTMLElement;
   private readonly urls: string[] = [];
   private destroyed = false;
-  /** Plays each recording from its start (by id), for audio items on the page (§8.2.8). */
+  /** Plays each recording from its start (by id), for audio items on the page (§8.2.9). */
   private readonly players = new Map<string, { row: HTMLElement; play: () => void }>();
 
   constructor(recordings: JSONObject[], private readonly blobs?: NoteBlobs) {

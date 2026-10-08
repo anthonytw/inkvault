@@ -134,7 +134,7 @@ export class NoteView {
   private rerender?: ReturnType<typeof setTimeout>;
   /** Video items on drawn pages, for taps (page-local rotated frames). */
   private readonly videos: { slot: Slot; it: PreparedItem }[] = [];
-  /** Audio items on drawn pages, for taps: the recording each shows (§8.2.8). */
+  /** Audio items on drawn pages, for taps: the recording each shows (§8.2.9). */
   private readonly audios: { slot: Slot; it: PreparedItem; recording: string }[] = [];
   /** Transcripts read for audio cards, by recording id (read once, verified). */
   private readonly transcripts = new Map<string, Promise<Transcript>>();
@@ -143,7 +143,7 @@ export class NoteView {
   /**
    * `blobs` reads the note's attachments; without it every image and PDF page is a placeholder.
    * `playVideo` is called with a video item's id when it is tapped (§8.2.7),
-   * `playAudio` with the recording id of an audio item (§8.2.8).
+   * `playAudio` with the recording id of an audio item (§8.2.9).
    */
   constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs,
     private readonly playVideo?: (itemId: string) => void, private readonly playAudio?: (recordingId: string) => void) {
@@ -263,7 +263,7 @@ export class NoteView {
             break;
           }
           case "audio": {
-            // The card now; the transcript joins the label once it is read (§8.2.8).
+            // The card now; the transcript joins the label once it is read (§8.2.9).
             for (const n of audioCardNodes(d.it)) items.append(svgTree(n));
             const label = s("g");
             const node = audioLabelNode(d);
@@ -391,7 +391,7 @@ export class NoteView {
         const shown = intersect(crop, { x: 0, y: 0, w: eff.w, h: eff.h });
         if (!shown) throw new Error("the crop lies outside the PDF page");
         const scale = this.pdfScale(p);
-        const canvas = await this.pdfs.render(page, shown, scale);
+        const canvas = await this.pdfs.render(page, shown, scale, d.math !== undefined);
         const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
         if (!png) throw new Error("the PDF page cannot be drawn");
         url = this.url(png);
@@ -418,6 +418,11 @@ export class NoteView {
         return;
       }
       p.scale = undefined;
+      // An equation whose render cannot be drawn shows its source (§8.2.8).
+      if (d.kind === "pdf" && d.math) {
+        p.g.replaceChildren(svgTree(textNode(d.it, d.math.content, d.math.layout)));
+        return;
+      }
       p.g.replaceChildren(...placeholderNodes(d.it).map(svgTree));
       this.report(slot, d.it, why(e));
     }

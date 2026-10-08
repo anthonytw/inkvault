@@ -20,6 +20,7 @@ extension Item {
         if mine.contains("text"), let text { r["text"] = .text(text) }
         if mine.contains("crop") { r["crop"] = .crop(crop) }
         if mine.contains("poster") { r["poster"] = .poster(poster) }
+        if mine.contains("math"), let math { r["math"] = .math(math) }
         for (k, v) in extra where !Self.immutableFields.contains(k) { r[k] = .other(field: k, value: v) }
         return r
     }
@@ -41,6 +42,8 @@ extension Item {
             if mine.contains("crop") { crop = v } else { extra["crop"] = v.flatMap { try? JSONValue(encoding: $0) } ?? .null }
         case .poster(let v):
             if mine.contains("poster") { poster = v } else { extra["poster"] = v.flatMap { try? JSONValue(encoding: $0) } ?? .null }
+        case .math(let v):
+            if mine.contains("math") { math = v } else { extra["math"] = (try? JSONValue(encoding: v)) ?? .null }
         case .other(let field, let value):
             if mine.contains(field) || Self.commonFields.contains(field) {
                 guard let typed = try? ItemChange(field: field, value: value) else { return }
@@ -127,6 +130,7 @@ extension ItemChange: RegisterChange {
         case .text(let v): return try? JSONValue(encoding: v)
         case .crop(let v): return v.map { try? JSONValue(encoding: $0) } ?? .null
         case .poster(let v): return v.map { try? JSONValue(encoding: $0) } ?? .null
+        case .math(let v): return try? JSONValue(encoding: v)
         case .other(_, let v): return v
         }
     }
@@ -147,12 +151,13 @@ extension RecordingChange: RegisterChange {
 }
 
 extension NoteState {
-    /// The blobs this state references: every live item's `blob` and
-    /// `poster`, and every recording's `blob` and `transcript`, one per
-    /// content hash (the first in that order), sorted by `sha256`.
+    /// The blobs this state references: every live item's `blob`, a video's
+    /// `poster` and a math item's `render`, and every
+    /// recording's `blob` and `transcript`, one per content hash (the first
+    /// in that order), sorted by `sha256`.
     public var blobReferences: [BlobRef] {
         var seen: [String: BlobRef] = [:]
-        let refs = pages.flatMap { $0.items.flatMap { [$0.blob, $0.poster].compactMap { $0 } } }
+        let refs = pages.flatMap { $0.items.flatMap(\.blobReferences) }
             + recordings.flatMap { [$0.blob] + ($0.transcript.map { [$0] } ?? []) }
         for r in refs where seen[r.sha256] == nil { seen[r.sha256] = r }
         return seen.values.sorted { $0.sha256 < $1.sha256 }

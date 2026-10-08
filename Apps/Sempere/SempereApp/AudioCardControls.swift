@@ -8,7 +8,7 @@ struct AudioPlayState: Hashable {
     var isPlaying: Bool
 }
 
-/// The play/pause buttons of a page's audio cards (format.md §8.2.8): one
+/// The play/pause buttons of a page's audio cards (format.md §8.2.9): one
 /// real button per card, a subview of the canvas like the page footer's, so
 /// a click, a tap (finger or Pencil), the keyboard and VoiceOver all reach
 /// it. It sits over the lower right of the card's microphone icon

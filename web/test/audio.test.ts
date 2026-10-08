@@ -1,4 +1,4 @@
-// Audio items (format.md §8.2.8): decoding, the immutable `recording`, the
+// Audio items (format.md §8.2.9): decoding, the immutable `recording`, the
 // recording an item shows (through a restored copy's `parent`), the card's
 // layout and label, and clipping the label to the card. The drawing itself
 // is cross-checked with the Swift CLI (items-crosscheck).
@@ -21,7 +21,7 @@ function transcript(texts: string[], language = "en-US"): Transcript {
   return { recording: recId, engine: "t", language, created: 0, segments: texts.map((text, i) => ({ start: i, end: i + 1, text })) };
 }
 
-describe("audio items (§8.2.8)", () => {
+describe("audio items (§8.2.9)", () => {
   it("decodes the format's example and rejects what Swift rejects", () => {
     const base = `{"id":"${itemId}","kind":"audio","frame":[72,144,300,96],"z":"a3"`;
     expect(decode(`${base},"recording":"${recId}"}`).recording).toBe(recId);

@@ -1,4 +1,4 @@
-// Audio items (format.md §8.2.8): a recording of the note shown on a page as
+// Audio items (format.md §8.2.9): a recording of the note shown on a page as
 // a card — fill and outline, a microphone icon, and a label with the title,
 // the duration and the transcript, clipped to the card. Mirrors
 // Sources/Sempere/AudioItems.swift (`AudioCard`) and
@@ -57,7 +57,7 @@ function hexPaint(hex: string): Paint {
 
 const white: Paint = { r: 255, g: 255, b: 255, alpha: 1 };
 
-/** The card and the icon (§8.2.8 steps 1–2), turned with the item's rotation. */
+/** The card and the icon (§8.2.9 steps 1–2), turned with the item's rotation. */
 export function audioCardCommands(frame: Rect, degrees: number): DrawCommand[] {
   const r = rotate(frame, degrees);
   const f = frame;
@@ -142,7 +142,7 @@ export function transcriptExcerpt(t: Transcript): string | undefined {
   return scalars(parts.join(" "), audioCard.transcriptLimit);
 }
 
-/** The label's content (§8.2.8 step 3). */
+/** The label's content (§8.2.9 step 3). */
 export function audioLabel(recording: JSONObject, transcript?: Transcript): TextContent {
   const base = { size: audioCard.titleSize, color: audioCard.titleColor, bold: false, italic: false, underline: false, strike: false };
   const runs: TextContent["runs"] = [{ t: oneLine(audioTitle(recording)), style: { ...base, bold: true } }];

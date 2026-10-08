@@ -3,7 +3,7 @@ import Foundation
 import Sempere
 
 // `sempere recordings …`: a note's recordings and where they are placed on
-// its pages (`audio` items, format.md §8.2.8): what the app's Recordings list
+// its pages (`audio` items, format.md §8.2.9): what the app's Recordings list
 // and the item on the page do, one delta per change, through the same
 // `NoteOps` builders.
 
@@ -12,7 +12,7 @@ struct RecordingsCommand: ParsableCommand {
         commandName: "recordings",
         abstract: "List a note's recordings and where they are on its pages; place, rename or delete one.",
         discussion: """
-            A recording belongs to the note; an audio item shows it on a page (format.md §8.2.8), where the app \
+            A recording belongs to the note; an audio item shows it on a page (format.md §8.2.9), where the app \
             plays it. A recording is named by its id, an id prefix of at least 4 characters or its exact title. \
             Add one with `attach recording` (with --place to put it on a page in the same delta).
             """,

@@ -26,7 +26,7 @@ public enum ItemRaster {
     /// has at most `maxPixels`), transparent around it. A background item
     /// (layer below `content`) is first filled with `paper`'s colour when
     /// given, as on the page (format.md §8.2.3). An `audio` item is drawn
-    /// with the note's `recordings` (format.md §8.2.8); without them it is a
+    /// with the note's `recordings` (format.md §8.2.9); without them it is a
     /// placeholder.
     ///
     /// - Throws: `RenderError.invalidGeometry` for a non-finite or empty

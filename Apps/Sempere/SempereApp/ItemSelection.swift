@@ -119,11 +119,13 @@ struct ItemCommands {
     var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
     /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
     var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
-    /// Plays the recording an audio item shows, or pauses it when it plays (format.md §8.2.8); nil: the
+    /// Plays the recording an audio item shows, or pauses it when it plays (format.md §8.2.9); nil: the
     /// card's control and its Play in the menu do nothing.
     var toggleRecording: (@MainActor (_ recording: UUID) -> Void)?
     /// Opens a recording's transcript; nil: no Show Transcript in the menu.
     var showTranscript: (@MainActor (_ recording: UUID) -> Void)?
+    /// Opens the equation sheet for a math item; nil: no Edit Equation in the menu.
+    var editMath: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
 
 /// Selecting, moving, resizing and deleting items on the canvas while
@@ -143,7 +145,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     private let pan = UIPanGestureRecognizer()
     /// Outside selection mode: a finger tap on a video item plays it, when fingers do not draw.
     private let videoTap = UITapGestureRecognizer()
-    /// The play/pause buttons of the page's audio cards (format.md §8.2.8).
+    /// The play/pause buttons of the page's audio cards (format.md §8.2.9).
     private let audioControls = AudioCardControls()
     /// The note's recordings and what the player plays, for the cards' buttons (`PageCanvasView.Coordinator.apply`).
     var recordings: [Recording] = []
@@ -226,7 +228,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         refresh()
     }
 
-    /// The recording audio item `item` shows (format.md §8.2.8: by id, else a restored copy), if the note has it.
+    /// The recording audio item `item` shows (format.md §8.2.9: by id, else a restored copy), if the note has it.
     private func shownRecording(_ item: Item) -> UUID? {
         NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)), pages: [], recordings: recordings)
             .recording(shownBy: item)?.id
@@ -389,6 +391,12 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                     self.select(new.id)
                 })
+                if let editMath = commands.editMath, item.kind == .math, item.math != nil, let actions {
+                    elements.append(UIAction(title: "Edit Equation…", image: UIImage(systemName: "function")) { [weak self] _ in
+                        self?.select(nil)
+                        editMath(item, pageID, actions)
+                    })
+                }
                 if let crop = commands.crop, item.cropBounds != nil, let actions {
                     elements.append(UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in
                         crop(item, pageID, actions)

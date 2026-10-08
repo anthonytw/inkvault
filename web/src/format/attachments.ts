@@ -218,6 +218,38 @@ function textContent(v: unknown, path: string, c: Ctx): JSONObject {
   return o;
 }
 
+// MARK: - Math (§8.2.8)
+
+/** Most UTF-8 bytes of a LaTeX source (Swift `MathSource.maxBytes`). */
+export const mathMaxBytes = 8_192;
+const mathKeys: ReadonlySet<string> = new Set(["latex", "display", "size", "color", "render", "renderSize", "engine"]);
+
+/** The media type's essence is `application/pdf` (Swift `BlobKind(mediaType:) == .pdf`). */
+function isPDFType(type: string): boolean {
+  return (type.split(";")[0] ?? "").trim().replace(/[A-Z]/g, (ch) => ch.toLowerCase()) === "application/pdf";
+}
+
+/** A math item's `math` value (Swift `MathContent`): source, style, size, colour, optional render. */
+function mathContent(v: unknown, path: string, c: Ctx): JSONObject {
+  const o = obj(v, path);
+  const latex = reqWith(o, "latex", path, str);
+  reqWith(o, "display", path, bool);
+  const sz = reqWith(o, "size", path, num);
+  reqWith(o, "color", path, color);
+  const render = optWith(o, "render", path, (b, p) => blobRef(b, p, child(c)));
+  const renderSize = optWith(o, "renderSize", path, size);
+  optWith(o, "engine", path, str);
+  extra(o, mathKeys, path, c.depth, c.budget);
+  // `MathContent.validationError`.
+  if (utf8Length(latex) > mathMaxBytes) fail(path, `LaTeX source longer than ${mathMaxBytes} bytes`);
+  if (!isValidRunText(latex)) fail(path, "LaTeX source holds a control character");
+  if (!isValidTextSize(sz)) fail(path, "math size out of range");
+  if ((render === undefined) !== (renderSize === undefined)) fail(path, "math render and renderSize go together");
+  if (render && !isPDFType(String(render.type))) fail(path, "math render is not a PDF");
+  if (renderSize && !positive(renderSize.w, renderSize.h)) fail(path, "math renderSize must be positive");
+  return o;
+}
+
 // MARK: - Items (§8.2)
 
 /** The fields every kind has (§8.2.1). */
@@ -231,6 +263,7 @@ export function kindFields(kind: string): string[] {
     case "pdfPage": return ["blob", "pageIndex", "pageSize", "crop"];
     case "video": return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"];
     case "audio": return ["recording"];
+    case "math": return ["math"];
     default: return [];
   }
 }
@@ -275,9 +308,10 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
   // `poster: null` is the reset register (absent).
   if (has("poster")) optWith(o, "poster", path, (b, p) => blobRef(b, p, fc));
   const recording = has("recording") ? optWith(o, "recording", path, uuid) : undefined;
+  const math = has("math") ? optWith(o, "math", path, (m, p) => mathContent(m, p, fc)) : undefined;
   extra(o, new Set([...commonItemFields, ...mine]), path, c.depth, budget);
 
-  // `Item.validationError` (§8.2.1, §8.2.4–§8.2.6).
+  // `Item.validationError` (§8.2.1, §8.2.4–§8.2.9).
   if (!positive(frame.w, frame.h)) fail(path, "frame width and height must be positive");
   if (crop && !positive(crop.w, crop.h)) fail(path, "crop width and height must be positive");
   switch (kind) {
@@ -302,6 +336,9 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
       break;
     case "audio":
       if (recording === undefined) fail(path, "audio item without recording");
+      break;
+    case "math":
+      if (!math) fail(path, "math item without math");
       break;
   }
   return o;
@@ -340,6 +377,10 @@ export function checkItemChange(field: string, value: unknown, path: string, bud
     case "text":
       if (value === null) fail(path, "text cannot be null");
       textContent(value, path, c);
+      return;
+    case "math":
+      if (value === null) fail(path, "math cannot be null");
+      mathContent(value, path, c);
       return;
     case "crop": {
       if (value === null) return;

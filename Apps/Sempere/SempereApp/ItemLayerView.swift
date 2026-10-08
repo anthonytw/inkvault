@@ -25,7 +25,7 @@ struct ItemLayerSource {
 /// note opens and launches), so a PDF note opened before shows its pages at
 /// once, sharpening as the tiles are drawn; image pictures come from the
 /// same cache.
-/// A recording on the page (format.md §8.2.8) is its card, drawn like the
+/// A recording on the page (format.md §8.2.9) is its card, drawn like the
 /// other items from the note's recordings; its play/pause control is a
 /// button over the card (`AudioCardControls`).
 /// Not interactive: selection is `ItemSelectionController`'s.

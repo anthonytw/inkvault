@@ -11,7 +11,7 @@ final class ToggleLog {
     var ids: [UUID] = []
 }
 
-/// Recordings on the page in the app (format.md §8.2.8, TestFlight build 7
+/// Recordings on the page in the app (format.md §8.2.9, TestFlight build 7
 /// feedback): stopping a recording places its card in the same delta,
 /// deleting a recording takes its cards, the card is drawn and has a
 /// play/pause button, the Recordings list command, and the export of a

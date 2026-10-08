@@ -25,7 +25,7 @@ Collaboration between people, real-time sync, Android, Windows, typed text
 documents (reflowing text with ink anchored to it; text boxes placed on a page
 are in scope). Video clips are items too
 (`format.md` §8.2.7); typeset equations are reserved in the format for
-later (§8.2.9).
+later (§8.2.8).
 
 ## Architecture
 
