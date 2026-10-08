@@ -22,13 +22,18 @@ What it does:
   changed ("Opening fast").
 - **Unlock** with the `AGE-SECRET-KEY-PQ-1…` identity, pasted as the bare line
   or the whole `age-keygen -pq` key file. Legacy (X25519) vaults are refused
-  (`format.md` §3.3.2), as are classic `AGE-SECRET-KEY-1…` keys. Or, on a
+  (`format.md` §3.3.2), as are classic `AGE-SECRET-KEY-1…` keys. Or with a
+  passphrase: the vault's own passphrase-wrapped key file, or a recovery
+  kit's passphrase-locked copy ("Unlocking with a passphrase"). Or, on a
   device where you chose to, with one passkey prompt (below).
 - **Browse** notebooks (the `/` hierarchy of §5.4), tags (one spelling per tag
   key, §5.4.1), favorites and deleted notes; **search** titles, tags,
   notebooks and recognised handwriting (the same rules as the app's
   `NoteSearch`: case, accents and width ignored, every word must match,
-  `#word` matches tags only), with a snippet and a jump to the matching page.
+  `#word` matches tags only), with a snippet and a jump to the matching page;
+  and, when asked, the recordings' transcripts (the CLI's `search
+  --transcripts` rules), with a jump to the recording and time ("Searching
+  transcripts").
 - **Read** a note: pages stacked vertically, or one tall infinite page, with
   pan and zoom (wheel or trackpad, Ctrl/⌘-wheel or pinch to zoom, drag,
   arrow keys, `+` `-` `0` `1`). Paper (every kind of §5.4.2, page-level paper,
@@ -86,6 +91,90 @@ current Chrome and Edge with Google Password Manager or a FIDO2 security key
 with `hmac-secret`, Safari 18 or later with iCloud Keychain); support varies by
 platform, which is why the viewer checks at run time. WebAuthn needs a secure
 context: HTTPS, or `http://localhost`.
+
+## Unlocking with a passphrase
+
+A vault may keep its key locked with a passphrase (`format.md` §3.2:
+`keys/<name>.key.age`, an age file with one scrypt recipient whose plaintext is
+the identity file), and `sempere keys paper --passphrase` prints a recovery
+kit whose QR code and text are the same kind of file, armored. The viewer opens
+both (`web/src/vault/keyfile.ts`, `web/src/ui/passphrase.ts`):
+
+- **The vault's stored key.** After `vault.json` is read, the viewer looks for
+  `keys/<name>.key.age` of each current recipient (the name computed as the
+  CLI does: `age1pq-` and the SHA-256 of the recipient string), as the CLI and
+  the app offer only current recipients' key files. When one is there, the
+  unlock screen shows "Unlock with your passphrase" (a choice of key when there
+  are several). A file that is not a passphrase file is not offered.
+- **A recovery kit's locked copy, or a key file.** The paste field takes the
+  armored text (`-----BEGIN AGE ENCRYPTED FILE-----`, from the kit's QR code or
+  typed from its lines; surrounding spaces, blank lines and CRLF are tolerated,
+  and a damaged line says to check the kit's per-line checksums), and "Choose a
+  key file…" takes a `.key.age` file (binary or armored) or a plain key file.
+  A locked key shows a passphrase field.
+
+The header is checked before any work: exactly one recipient, scrypt, work
+factor at most 20 (`format.md` §3.2 lets readers stop there; 2^20 needs
+1 GiB). Anything else is refused with its reason (a larger work factor points
+to `sempere keys export`). Then typage's scrypt identity decrypts the file in a
+**worker** (`web/src/ui/keyworker.ts`), so the page stays responsive for the
+second or so it takes at the writers' work factors (15 to 18), and the
+worker is terminated afterwards, which frees scrypt's memory; a worker that
+dies (out of memory on a small device) is reported. The plaintext (at most
+16 KiB, strict UTF-8) must hold one post-quantum identity, parsed like a pasted
+key, and the identity must then unlock the vault as usual.
+
+The passphrase is read from its field once, the field is cleared, and the
+string goes to the worker in a message: it is never stored, logged, put in a
+URL or sent, and neither is the decrypted key (held in memory like a pasted
+one). With "Remember this key on this device with a passkey" ticked, what is
+remembered is the **identity**, encrypted under the passkey as above, never the
+passphrase; the next visit unlocks with the passkey alone.
+
+The worker is a file of the viewer, created through a second Trusted Types
+policy, `sempere-key-worker`, which admits exactly its URL (as
+`sempere-pdf-worker` does for pdf.js), so the CSP keeps `worker-src 'self'`
+and `require-trusted-types-for 'script'`.
+
+## Searching transcripts
+
+The search box finds notes by titles, tags, notebooks and page text, as the
+app does. Under it, "Also search recording transcripts" (off by default) adds
+the recordings' transcripts (`format.md` §8.3.2), which live in encrypted
+blobs: like `sempere search --transcripts`, ticking it reads every note that
+is not deleted and decrypts every transcript blob, verified as any blob
+(`web/src/ui/transcriptsearch.ts`), four notes at a time, with the progress
+under the box ("Reading transcripts: 12 of 200 notes…", then "N transcripts
+searched"). Encrypted files come from the browser's cache when they are there;
+the decrypted transcripts are kept in the tab's memory until Lock, never
+stored. A transcript that cannot be read (missing, failing verification, or
+naming another recording) is listed by note and recording, as the CLI warns
+about it; a note that cannot be read is counted.
+
+Matches are the CLI's (`web/src/format/occurrences.ts`,
+`web/src/format/phrasesearch.ts`, ports of `RecognitionSearch` in
+`Sources/SempereCLI/Search.swift`): the trimmed query is one phrase, found in
+each segment's text ignoring case and accents the way Foundation's
+`range(of:options: [.caseInsensitive, .diacriticInsensitive])` does on Linux
+(CFString's search): grapheme extenders ignored, a precomposed letter whose
+decomposition starts below U+0510 matching its base (é matches e, が does not
+match か), full case folding (ß matches ss, ﬁ matches fi, but a match never
+splits one character's folding, so ß does not match s), no width folding
+(Ａ does not match A); non-overlapping occurrences; the CLI's snippet (30
+characters on each side, lines joined, `…` where cut). This differs from the
+note search on purpose: the note search takes words, the transcript search
+takes a phrase, as the CLI's `notes search` and `search` do.
+
+Notes found by the note search come first, in its order; notes found only in
+a transcript follow (by title, as the CLI sorts). Under each note, up to five
+matching segments are listed with the recording's title, the time and the
+snippet with the match marked; a click opens the note, opens its recording,
+shows the transcript with that segment marked and scrolled into view, and cues
+the audio at the segment's start (playing waits for Play). The other filters
+(notebook, tag, favorites) apply to transcript matches as to the rest.
+
+Each segment's folded text is made once, at the first search, so later
+queries run the full matching only on segments that can contain the phrase.
 
 ## How it reads a vault
 
@@ -292,12 +381,13 @@ note id, file name and body, §4), and cannot make the viewer run code:
   img-src 'self' data: blob:; media-src blob:; connect-src 'self' [vault
   origins]; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src
   'none'; worker-src 'self'; manifest-src 'none'; require-trusted-types-for
-  'script'; trusted-types sempere-pdf-worker`. No inline script or style, no
+  'script'; trusted-types sempere-pdf-worker sempere-key-worker`. No inline script or style, no
   `eval`, no WebAssembly, no third-party origin. `blob:` URLs are created by
   the page only, from verified blobs with a type the viewer sets (`image/jpeg`,
   `image/png`, PNGs it rendered itself, `audio/*`); the DOM builder refuses
-  any other image reference. The one Trusted Types policy admits exactly the
-  URL of the bundled pdf.js worker.
+  any other image reference. Each of the two Trusted Types policies admits
+  exactly one URL: the bundled pdf.js worker, and the key worker that runs
+  scrypt for a passphrase-wrapped key.
 - **Attachments are untrusted too.** A blob is used only after it verified
   (above); a hostile writer who holds a vault key can still store a crafted
   image, PDF or audio file under a valid name. Those reach the browser's own
@@ -336,13 +426,24 @@ note id, file name and body, §4), and cannot make the viewer run code:
   read: it names the vault's URL and listing and whether other vaults may be
   opened. One that exists but cannot be read or parsed stops the viewer
   (fail closed) rather than falling back to ad-hoc loading.
+- **Stored key files** (`keys/`, "Unlocking with a passphrase") come from the
+  server too. One the server swapped can only fail: without the passphrase it
+  cannot make a file that your passphrase decrypts, and a key it chose would
+  still have to be one of the vault's recipients to unlock anything. Its
+  header is checked first (one scrypt recipient, work factor at most 20, so at
+  most 1 GiB in a worker that is then terminated), and its plaintext is
+  bounded. Whoever holds the file (the server, a backup) can guess the
+  passphrase offline, as with any copy of the vault: the viewer adds nothing
+  there; choose a long passphrase.
 - **Names are validated** before use: note directories must be lowercase
   UUIDs and revision files canonical `<hlc>-<device>-<seq>.<kind>.age` names;
   anything else is ignored (§1), so a listing cannot point the viewer at
   another path.
 
 **The key:** pasted into a text area, read once, and held only in the
-`Decrypter` object in memory. Unless the user asks for a passkey (below), it
+`Decrypter` object in memory (a key unlocked with a passphrase likewise; the
+passphrase itself is read once, handed to the key worker and dropped, never
+stored or sent). Unless the user asks for a passkey (below), it
 is not stored (no cookies, `localStorage`, IndexedDB or service worker); it is
 never put in the URL, never logged, and never sent:
 the only requests the viewer makes are `GET` and `PROPFIND` for vault files,
@@ -488,7 +589,7 @@ notes.example.org {
 		notes <bcrypt hash>
 	}
 	header {
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'none'; require-trusted-types-for 'script'; trusted-types sempere-pdf-worker"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'none'; require-trusted-types-for 'script'; trusted-types sempere-pdf-worker sempere-key-worker"
 		Referrer-Policy no-referrer
 		X-Content-Type-Options nosniff
 		Strict-Transport-Security "max-age=31536000"
@@ -555,15 +656,23 @@ are missing: download the vault first.
   browser with module workers (every current one); the pdf.js build used is
   the "legacy" one, which polyfills recent JavaScript for older browsers.
   Blobs are held in memory while their note is open (no temporary files in a
-  browser). Transcripts are not searched (the CLI's `search --transcripts`
-  is), and ink is not linked to audio (`rec`) yet.
+  browser). Ink is not linked to audio (`rec`) yet.
 - **Ink** is drawn like `SempereRender`: flat colour per stroke (mean opacity
   times a tool factor), no pencil grain, watercolour bleed or nib angle; the
   same approximations as the CLI's PDF and SVG exports.
 - **Legacy vaults** (any X25519 recipient) are refused: migrate first.
-- **Passphrase-wrapped keys** (`keys/*.key.age`) are not offered: paste the
-  key itself. (Typage can decrypt scrypt files; supporting it means scrypt
-  with work factor up to 2^20, 1 GiB, in the browser.)
+- **Passphrase-wrapped keys** with a scrypt work factor over 20 are refused
+  (`format.md` §3.2 allows readers to stop there; writers use 15 to 18): use
+  `sempere keys export`. At 20 scrypt needs 1 GiB, which a phone's browser may
+  not give a worker; the viewer then says so.
+- **Transcript search** reads and decrypts every transcript of the vault the
+  first time it is ticked in a tab (seconds for hundreds of notes; the
+  encrypted files are cached, decryption is not), and keeps them in memory
+  until Lock. The matching is the CLI's, as Foundation does it on Linux; in
+  rare corner cases (a phrase that starts with a combining mark or a variation
+  selector, full-width letters followed by variation selectors) where a match
+  ends can differ by those marks. Matches are not highlighted in the audio
+  item cards on the page.
 - **Without a summaries file**, every note is decrypted to list titles and
   tags: a vault of a few hundred notes takes seconds (four notes and up to 24
   requests at a time), on later visits too (the files then come from the
@@ -596,6 +705,9 @@ scripts/golden.sh      # rewrite test/golden from the Swift CLI (builds it)
 # browser smoke tests, Playwright + Chromium (smoke.mjs needs sempere-index.json in the vault: `sempere vault index`):
 node scripts/smoke.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-attachments.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
+# passphrase-wrapped keys (stored key file, recovery kit copy, then a passkey) and transcript search (CI's web job)
+node scripts/smoke-search-keys.mjs
+node scripts/make-search-fixture.ts   # rewrite test/fixtures/search.sempere (then scripts/golden.sh)
 # passkey: Chromium's virtual authenticator (CTAP2, UV, PRF), and one without PRF
 node scripts/smoke-passkey.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-video.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
@@ -660,13 +772,29 @@ Tests (`web/test/`, vitest, Node 22):
 - Vault and source tests: legacy refusal, wrong key, tag binding to note and
   file name, unreadable revisions reported, bounded reads and gunzip, index
   and PROPFIND parsing with hostile names.
+- Transcript search against the CLI (`phrasesearch.test.ts`): for each term
+  of `scripts/golden.sh` and each fixture vault (`sample`, `render`, and
+  `search.sempere`, written by `scripts/make-search-fixture.ts`: handwriting
+  with word boxes, text boxes, an equation, PDF page text, long and accented
+  transcripts, a deleted note, a missing transcript and one naming another
+  recording), the hits the viewer computes equal `sempere search TERM
+  --transcripts --json` (`test/golden/search/`), and so does the exit status.
+  The matching itself (`occurrences.test.ts`): `test/golden/occurrence-vectors.json`
+  is what Foundation's `range(of:)` and the CLI's snippet give for the cases
+  of `test/fixtures/occurrence-cases.json` (`scripts/occurrence-vectors.swift`,
+  run by `golden.sh`, so CI's `web-golden` job regenerates and diffs it).
+- Passphrase-wrapped keys (`keyfile.test.ts`): the sample vault's stored key
+  file and a recovery kit's armored copy, both written by the Swift CLI, a
+  sloppy paste, wrong and empty passphrases, a damaged armor line, files that
+  are not passphrase files, a work factor over 20 refused before any scrypt,
+  and decrypted files that hold no post-quantum key.
 - Passkeys (`passkey.test.ts`, mocked WebAuthn): round trip, PRF at creation
   or only on assertion, no PRF stores nothing, cancelled prompts, a missing UV
   flag, records swapped between vaults or credentials or altered, malformed
   records, forget; only ciphertext, nonce, salt and credential id are stored.
 - A seeded fuzz test of the decoders, the merge, the renderer, item layout,
-  image headers, transcripts, blob framing and the listing parsers (typed
-  errors only).
+  image headers, transcripts, blob framing, the listing parsers and key files
+  (typed errors only), and of the phrase search (ranges stay in the text).
 
 CI (`.github/workflows/ci.yml`): the `changes` job runs the `web` job (lint,
 typecheck, tests, build) only when `web/` (or the workflow) changes, and the

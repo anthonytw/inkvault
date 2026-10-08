@@ -36,7 +36,7 @@ export class RecordingsPanel {
   private readonly urls: string[] = [];
   private destroyed = false;
   /** Plays each recording from its start (by id), for audio items on the page (§8.2.9). */
-  private readonly players = new Map<string, { row: HTMLElement; play: () => void }>();
+  private readonly players = new Map<string, { row: HTMLElement; play: () => void; jump: (seconds: number) => void }>();
 
   constructor(recordings: JSONObject[], private readonly blobs?: NoteBlobs) {
     this.root = h("details", { class: "recordings" },
@@ -52,6 +52,18 @@ export class RecordingsPanel {
     (this.root as HTMLDetailsElement).open = true;
     p.row.scrollIntoView?.({ block: "nearest" });
     p.play();
+  }
+
+  /**
+   * Opens the list at recording `id`, shows its transcript with the segment
+   * starting at `seconds` marked, and cues the audio there (a transcript
+   * search result). Playing waits for the user's Play.
+   */
+  jump(id: string, seconds: number): void {
+    const p = this.players.get(id.toLowerCase());
+    if (!p) return;
+    (this.root as HTMLDetailsElement).open = true;
+    p.jump(seconds);
   }
 
   destroy(): void {
@@ -122,25 +134,50 @@ export class RecordingsPanel {
       });
     };
 
-    let transcriptLoaded = false;
+    let transcriptLoaded: Promise<void> | undefined;
+    const loadTranscript = (): Promise<void> => {
+      if (!transcriptRef || !this.blobs) return Promise.resolve();
+      transcriptLoaded ??= (async () => {
+        transcriptEl.replaceChildren(h("p", { class: "sub", text: "Decrypting…" }));
+        try {
+          const b = await this.blobs?.get(transcriptRef, maxTranscriptBytes);
+          if (!b) return;
+          const t = decodeTranscript(new Uint8Array(await b.arrayBuffer()), String(rec.id).toLowerCase());
+          transcriptEl.replaceChildren(...transcriptView(t, seek));
+        } catch (e) {
+          transcriptEl.replaceChildren(h("p", { class: "error", text: `The transcript cannot be shown: ${problem(e)}` }));
+        }
+      })();
+      return transcriptLoaded;
+    };
+    const setTranscriptOpen = (open: boolean) => {
+      transcriptEl.hidden = !open;
+      showTranscript?.setAttribute("aria-expanded", String(open));
+      if (open) void loadTranscript();
+    };
     const showTranscript = transcriptRef ? h("button", {
       text: "Transcript", attrs: { type: "button", "aria-expanded": "false" }, on: {
-        click: () => {
-          const open = transcriptEl.hidden || !transcriptLoaded;
-          transcriptEl.hidden = !open;
-          showTranscript?.setAttribute("aria-expanded", String(open));
-          if (!open || transcriptLoaded || !this.blobs) return;
-          transcriptLoaded = true;
-          transcriptEl.replaceChildren(h("p", { class: "sub", text: "Decrypting…" }));
-          void this.blobs.get(transcriptRef, maxTranscriptBytes).then(async (b) => {
-            const t = decodeTranscript(new Uint8Array(await b.arrayBuffer()), String(rec.id));
-            transcriptEl.replaceChildren(...transcriptView(t, seek));
-          }).catch((e: unknown) => {
-            transcriptEl.replaceChildren(h("p", { class: "error", text: `The transcript cannot be shown: ${problem(e)}` }));
-          });
-        },
+        click: () => setTranscriptOpen(transcriptEl.hidden !== false || transcriptLoaded === undefined),
       },
     }) : null;
+    const jump = (seconds: number) => {
+      setTranscriptOpen(true);
+      void loadTranscript().then(() => {
+        if (this.destroyed) return;
+        for (const li of transcriptEl.querySelectorAll<HTMLElement>("li.found")) li.classList.remove("found");
+        const seg = [...transcriptEl.querySelectorAll<HTMLElement>("li[data-start]")].find((li) => Number(li.dataset.start) === seconds);
+        seg?.classList.add("found");
+        (seg ?? row).scrollIntoView?.({ block: "center" });
+      });
+      void loadAudio().then((a) => {
+        if (!a) return;
+        const cue = () => {
+          a.currentTime = seconds;
+        };
+        if (a.readyState >= 1) cue();
+        else a.addEventListener("loadedmetadata", cue, { once: true });
+      });
+    };
 
     const row = h("li", { class: "recording" },
       h("div", { class: "rec-head" },
@@ -149,7 +186,7 @@ export class RecordingsPanel {
       h("div", { class: "rec-actions" }, player, showTranscript),
       status, transcriptEl);
     this.players.set(String(rec.id).toLowerCase(), {
-      row, play: () => void loadAudio().then((a) => a?.play().catch(() => undefined)),
+      row, play: () => void loadAudio().then((a) => a?.play().catch(() => undefined)), jump,
     });
     return row;
   }
@@ -171,7 +208,7 @@ function transcriptView(t: Transcript, seek: (seconds: number) => void): HTMLEle
     } else {
       text.textContent = seg.text;
     }
-    return h("li", {}, h("button", {
+    return h("li", { attrs: { "data-start": String(seg.start) } }, h("button", {
       class: "seg-time", text: formatDuration(seg.start), title: "Play from here", attrs: { type: "button" },
       on: { click: () => seek(seg.start) },
     }), text);

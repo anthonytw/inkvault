@@ -80,7 +80,7 @@ async function visit(context, label, { query = "", expectPrompt = false } = {}) 
   }
   const tKey = Date.now();
   await page.fill("textarea", key);
-  await page.click("form button[type=submit]");
+  await page.click("form:has(textarea) button[type=submit]");
   await page.waitForSelector(".note-list .title", { timeout: 60000 });
   const tFirstRow = Date.now();
   await page.waitForFunction(() => /^\d+ notes?( ·|$)/.test(document.querySelector(".status")?.textContent ?? ""), null, { timeout: 120000 });

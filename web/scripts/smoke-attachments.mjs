@@ -57,7 +57,7 @@ await page.fill("input[type=url]", `${base}/dav/`);
 await page.selectOption("select", "webdav");
 await page.click("form button[type=submit]");
 await page.fill("textarea", readFileSync(keyFile, "utf8"));
-await page.click("form button[type=submit]");
+await page.click("form:has(textarea) button[type=submit]");
 await page.waitForFunction(() => /\d+ notes?( ·|$)/.test(document.querySelector(".status")?.textContent ?? ""), null, { timeout: 30000 });
 await page.click(".note-list button.note:has(.title:text-is('Attachments'))");
 await page.waitForSelector(".page svg", { timeout: 30000 });
