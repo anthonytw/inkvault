@@ -149,6 +149,18 @@ struct MouseSmoothingTests {
         return (canvas, ink)
     }
 
+    /// Everything a stroke holds, exactly: ink, colour, transform, mask,
+    /// creation date, texture seed and every control point's fields. (The
+    /// bytes of `dataRepresentation` differ between encodes of one stroke.)
+    static func content(_ s: PKStroke) -> [String] {
+        var c = [s.ink.inkType.rawValue, "\(s.ink.color)", "\(s.transform)", "\(s.mask?.bounds as Any)",
+                 "\(s.path.creationDate.timeIntervalSinceReferenceDate)", "\(s.randomSeed)", "\(s.path.count)"]
+        for p in s.path {
+            c.append("\(p.location) \(p.timeOffset) \(p.size) \(p.opacity) \(p.force) \(p.azimuth) \(p.altitude)")
+        }
+        return c
+    }
+
     static func drag(_ ink: MouseInkController, _ samples: [S]) {
         ink.begin(at: samples[0])
         for chunk in stride(from: 1, to: samples.count, by: 4) {
@@ -164,27 +176,28 @@ struct MouseSmoothingTests {
         let (canvas, ink) = Self.canvas(pencil)
         let container = UndoContainer(frame: canvas.frame)
         container.addSubview(canvas)
-        let before = canvas.drawing.strokes.map { PKDrawing(strokes: [$0]).dataRepresentation() }
+        let before = canvas.drawing.strokes.map(Self.content)
         try Self.withLevel(.light) {
             Self.drag(ink, Self.jaggedDrag())
             #expect(!ink.isDrawing)
             let strokes = canvas.drawing.strokes
             #expect(strokes.count == 3)
-            #expect(strokes.prefix(2).map { PKDrawing(strokes: [$0]).dataRepresentation() } == before)
+            #expect(strokes.prefix(2).map(Self.content) == before)
             let added = try #require(strokes.last)
             #expect(added.ink.inkType == .pen)
             let undo = try #require(canvas.undoManager)
             #expect(undo === container.undo)
             undo.undo()
             #expect(canvas.drawing.strokes.count == 2)
-            #expect(canvas.drawing.strokes.map { PKDrawing(strokes: [$0]).dataRepresentation() } == before)
+            #expect(canvas.drawing.strokes.map(Self.content) == before)
             undo.redo()
             #expect(canvas.drawing.strokes.count == 3)
         }
     }
 
     @Test func thePreviewIsStreamlinedWhileDragging() {
-        let (_, ink) = Self.canvas([])
+        let (canvas, ink) = Self.canvas([])   // the controller holds the canvas weakly
+        defer { withExtendedLifetime(canvas) {} }
         Self.withLevel(.strong) {
             let raw = Self.jaggedDrag()
             ink.begin(at: raw[0])
