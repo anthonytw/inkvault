@@ -346,6 +346,9 @@ struct EditorView: View {
         commands.play = { item, page in
             state.playing = VideoPlayRequest(item: item, page: page, editor: editor)
         }
+        commands.editMath = { item, page, actions in
+            state.editingMath = MathRequest(editor: editor, page: page, item: item, actions: actions, visible: nil)
+        }
         return commands
     }
 

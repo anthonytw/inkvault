@@ -180,7 +180,7 @@ extension NoteOps {
     /// before the delta that adds the copies).
     public static func blobs(of items: [Item]) -> [BlobRef] {
         var seen: Set<String> = []
-        return items.flatMap { [$0.blob, $0.poster].compactMap { $0 } }.filter { seen.insert($0.sha256).inserted }
+        return items.flatMap(\.blobReferences).filter { seen.insert($0.sha256).inserted }
     }
 }
 

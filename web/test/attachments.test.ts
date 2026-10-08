@@ -75,9 +75,38 @@ describe("format.md §8 examples", () => {
   });
 });
 
+describe("math items (§8.2.8)", () => {
+  const base = `"id": "${itemId}", "kind": "math", "frame": [1, 2, 3, 4], "z": "a"`;
+  const math = (m: string) => `{ ${base}, "math": { ${m} } }`;
+  const ok = `"latex": "x^2", "display": true, "size": 12, "color": "#000000FF"`;
+  const render = `"render": { "sha256": "${hashA}", "size": 5, "type": "application/pdf" }`;
+
+  it("accepts the shape of the spec, with unknown fields", () => {
+    expect(() => item(math(ok))).not.toThrow();
+    expect(() => item(math(`${ok}, ${render}, "renderSize": [40, 20], "engine": "swiftmath-1.7.3", "future": [1]`))).not.toThrow();
+    expect(() => item(math(`"latex": "", "display": false, "size": 1000, "color": "#000000"`))).not.toThrow();
+    expect(() => item(math(`"latex": "${"x".repeat(8192)}", "display": true, "size": 12, "color": "#000000FF"`))).not.toThrow();
+  });
+
+  it("rejects what Swift rejects", () => {
+    for (const bad of [
+      `{ ${base} }`,
+      math(`"latex": "x", "display": true, "size": 0, "color": "#000000FF"`),
+      math(`"latex": "x", "display": "yes", "size": 12, "color": "#000000FF"`),
+      math(`"latex": "x", "size": 12, "color": "#000000FF"`),
+      math(`${ok}, ${render}`),
+      math(`${ok}, "renderSize": [1, 1]`),
+      math(`${ok}, "render": { "sha256": "${hashA}", "size": 5, "type": "image/png" }, "renderSize": [1, 1]`),
+      math(`${ok}, ${render}, "renderSize": [0, 1]`),
+      math(`"latex": "a\\u0001b", "display": true, "size": 12, "color": "#000000FF"`),
+      math(`"latex": "${"x".repeat(8193)}", "display": true, "size": 12, "color": "#000000FF"`),
+    ]) expect(() => item(bad), bad.slice(0, 120)).toThrow();
+  });
+});
+
 describe("open format (§7)", () => {
   it("keeps unknown kinds, fields and layers", () => {
-    expect(() => item(`{ "id": "${itemId}", "kind": "math", "layer": 250, "frame": [10.5, 20, 30, 40], "z": "b",
+    expect(() => item(`{ "id": "${itemId}", "kind": "shape", "layer": 250, "frame": [10.5, 20, 30, 40], "z": "b",
       "latex": "e^{i\\\\pi} + 1 = 0", "display": true, "size": 14.25, "color": "#112233FF",
       "text": "not a text object", "crop": "whatever", "pixelSize": [1, 2, 3],
       "render": { "sha256": "${hashA}", "size": 1000, "type": "application/pdf", "pages": 1 },

@@ -33,9 +33,9 @@ page backgrounds (annotating PDFs, Notability's 26 PDF notes), audio
 recordings with on-device transcripts, and the link between ink and audio
 ("tap a stroke to hear what was said").
 
-Reserved for later, with names and blob machinery fixed now so that they need
-no format change (`format.md` §8.2.8): `math` items (LaTeX equations).
-`video` items are defined (`format.md` §8.2.7, task G2). Also later: localization of the app's interface (§14, task L).
+Added later on the same machinery, without a format bump: `video` items
+(`format.md` §8.2.7, task G2) and `math` items (LaTeX equations, §8.2.8,
+task G1). Also later: localization of the app's interface (§14, task L).
 
 Not in scope: typed-text *documents* (reflowing text with ink anchored to
 it), arbitrary file attachments, shapes, links, collaboration. The open item
@@ -517,14 +517,16 @@ copied into `recognition`, which stays derived from ink. PencilKit's Scribble
 works in the app's text editor for free (handwriting converted to typed
 text as you write in a text box).
 
-### Math (reserved, later)
+### Math (task G1)
 
-A `math` item kind is reserved (`format.md` §8.2.8): an equation stored as
-LaTeX source, shown typeset, edited as text (tap to edit the source, the
-typeset result updates live). The item also stores a rendered PDF of the
-result (a blob, `render`), so the CLI and older readers draw it without a
-math typesetter. Typesetting runs on device with a Swift math layout library;
-candidates, all GPL-compatible:
+A `math` item (`format.md` §8.2.8) is an equation stored as LaTeX source,
+shown typeset, edited as text in a sheet with a live preview. The item also
+stores a rendered PDF of the result (a blob, `render`), so the CLI, the web
+viewer and older readers draw it without a math typesetter. The whole `math`
+object is one register, because the rendering belongs to the exact source,
+style, size and colour it was typeset from (two separate registers could pair
+one device's source with another's rendering). Typesetting runs on device with
+a Swift math layout library; candidates, all GPL-compatible:
 
 | Library | Language | License | Notes |
 | --- | --- | --- | --- |
@@ -533,13 +535,13 @@ candidates, all GPL-compatible:
 | MathJax via JavaScriptCore (e.g. LaTeXSwiftUI) | JavaScript | Apache-2.0 (MathJax), MIT (wrapper) | most complete LaTeX; heavier, a JS engine in the app |
 | KaTeX via JavaScriptCore | JavaScript | MIT | fast, broad coverage; same JS concern |
 
-Recommendation for the task: SwiftMath first (native, small, MIT), with
-MathJax as the fallback if coverage is insufficient. Apache-2.0 is
+Chosen: SwiftMath 1.7.3 (native, small, MIT, pinned exactly, in the app
+target only), with MathJax as the fallback if coverage proves insufficient. Apache-2.0 is
 compatible with GPLv3 (not with GPLv2-only, which Sempere is not).
 Handwriting → LaTeX (write an equation, get its source) is a later,
 on-device-only feature (a Core ML model; no services); the conversion would
 be one delta that removes the strokes and adds the `math` item, so the item
-shape needs nothing more for it. Not implemented now (task G1).
+shape needs nothing more for it. The research for it is in §14, G1 part 2.
 
 ## 7. Images
 
@@ -1029,7 +1031,7 @@ degraded rendering. So inside item and recording ops the format is open
 (`format.md` §7): unknown kinds and fields are kept, merged generically and
 re-emitted unchanged in snapshots; unknown setItem fields are registers;
 unknown layer numbers are ordered by value. This is what lets `math` and
-`video` (reserved, `format.md` §8.2.7), and later `shape` or `link` items,
+`video` (`format.md` §8.2.7), `math` (§8.2.8), and later `shape` or `link` items,
 arrive without making every note that uses them unreadable on an older iPad.
 Costs:
 
@@ -1199,7 +1201,7 @@ is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
   text boxes: tap selects a box (to move it or set its width), tap again or
   double-tap edits, tap on the page starts a new box.
 - **Menu** (`ItemMenu`): Play (video), Edit Text (text), Copy, Duplicate,
-  Crop… (images, PDF pages), Replace Image ▸ From Photos… / From Files…
+  Edit Equation… (equations), Crop… (images, PDF pages), Replace Image ▸ From Photos… / From Files…
   (images), Bring to Front, Delete; Paste when the clipboard holds items.
 - **Replace Image.** An image's blob is immutable (format.md §8.2.2): the
   new picture is stored first (photo privacy setting applies), then one delta
@@ -1246,7 +1248,7 @@ public struct BlobRef: Hashable, Sendable, Codable { var sha256: String; var siz
 public struct RecordingLink: Hashable, Sendable, Codable { var id: UUID; var at: Double }        // "rec"
 public struct TextRun: Hashable, Sendable, Codable { var t: String; var b, i, u, s: Bool; var color: Color?; var size: Double?; var lang: String?; var extra: [String: JSONValue] }
 public struct TextContent: Hashable, Sendable, Codable { var font: Font; var family: String?; var size: Double; var color: Color; var align: Alignment?; var dir: Direction?; var lang: String?; var runs: [TextRun]; var breaks: [Int]?; var extra: [String: JSONValue]; var string: String; var validBreaks: [Int]? }  // Font/Alignment/Direction: open sets with `.effective`
-public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable { static let text, image, pdfPage; static let math, video /* reserved */ }   // open set
+public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable { static let text, image, pdfPage; static let math, video }   // open set
 public struct ItemLayer: RawRepresentable, Hashable, Sendable, Codable, Comparable { var rawValue: Int; static let background = 0, content = 100 }  // open set
 public struct Item: Hashable, Sendable, Codable, Identifiable {
     var id: UUID; var kind: ItemKind; var layer: ItemLayer; var frame: Rect; var rotation: Double?; var z: String
@@ -1706,6 +1708,72 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
   source in the text editor with a live preview; store the rendered PDF
   blob for other renderers; exports embed that PDF as a Form XObject (C3's
   machinery). Later and separate: handwriting → LaTeX on device.
+
+  *Status (part 1, PR #96):* format §8.2.8 defined. Core: `MathContent`,
+  `MathSource` (the untrusted-input bounds: 8 192 bytes, 4 096 tokens, 64
+  levels, balanced groups; linear, no recursion, fuzzed), `NoteOps.math` /
+  `placeMath` / `setMath` / `mathFrame` (`Sources/Sempere/MathItems.swift`).
+  Render: `MathRendering.swift` (the render as a pdfPage without crop; SVG/PNG
+  through Poppler turned back into coverage of the colour; else the source as
+  monospace text with a warning). CLI: `attach math`, `items math`, `items
+  list`, `notes show`, `search`, `$$…$$` in Markdown/HTML. **How the CLI
+  renders math:** it has no typesetter (`Sources/` stays pure Swift and no
+  TeX engine is spawned); it draws the stored rendering the app wrote, else
+  the source text with a warning, and accepts a PDF typeset elsewhere with
+  `--render`. A pure-Swift subset typesetter was rejected: it would need an
+  OpenType MATH table layout engine and a math font in `Sources/`, a large
+  surface for little gain while every equation the app writes carries its
+  rendering. App: Insert → Equation…, "Edit Equation…" on a selected one
+  (`MathEditorView`, live SwiftMath preview, display/inline, size, colour),
+  `MathTypesetter` (SwiftMath → one-page PDF), render blob first then one
+  delta, undo; an equation without a render (the CLI's) is typeset on the
+  canvas. Web viewer: the render through pdf.js on a transparent page, else
+  the source.
+
+  *Part 2 — handwriting → LaTeX on device (research, 2026-10-07; not built).*
+  Constraints: on device only (no server recognition, ever); GPL-3.0 +
+  App Store exception, so code and weights must be MIT/BSD/Apache-like and
+  the weights' training data must allow distribution in a paid-or-free App
+  Store app; iPadOS 26 on the user's A12Z (6 GB RAM, a 2020 Neural
+  Engine); the input is our own vector ink, so both online (stroke) and offline
+  (rendered image, as `RecognitionImage` already makes for Vision) models fit.
+
+  | Option | Licence (code / weights / data) | Size | Accuracy (published) | Notes |
+  | --- | --- | --- | --- | --- |
+  | Apple (Math Notes in Notes/Calculator, PencilKit recognition) | system | — | good | no public API for math; PencilKit recognition is iPadOS 27+, the user's iPad is capped at 26 |
+  | TexTeller (OleehyO) | Apache-2.0 / Apache-2.0 / Tex80M, partly scraped; handwritten part ~5 % | 298 M params (~600 MB fp16, ~300 MB 8-bit) | strong on handwritten benchmarks | ViT + Transformer decoder; too large for a first version on an A12Z, and the provenance of its data is not documented well enough to ship |
+  | UniMERNet (OpenDataLab) | Apache-2.0 / Apache-2.0 / UniMER-1M (arXiv + CROHME + HME100K) | T ≈ 100 M, S ≈ 200 M, B ≈ 325 M params | good on handwritten subsets | the Tiny model is the realistic size; CROHME and HME100K terms are research-oriented |
+  | Pix2Text MFR (breezedeus) | MIT / MIT (open version) / mixed | TrOCR-style encoder-decoder, size to measure | printed first, handwriting improved in 1.5 | ONNX exports exist; Core ML conversion straightforward |
+  | Texo (2025 paper) | unverified | ~20 M params | near UniMERNet-T | the size to aim for; licence and weights to check |
+  | BTTR / CoMER / TAMER / PosFormer (CROHME research models) | BTTR MIT; CoMER, TAMER no licence file; PosFormer academic use only | 6–10 M params | ~55–65 % ExpRate on CROHME 2014–2019 | small enough for any iPad, but only BTTR's code is usable, and all are trained on CROHME |
+  | Our own small model on MathWriting (Google, 230 k human + 400 k synthetic online inks) | — / ours / **CC BY-NC-SA 4.0** | ~10 M params | the paper reports baselines on it | the best data, but non-commercial and share-alike: not usable for weights shipped in the App Store |
+
+  Findings. Every strong handwritten-math model is trained at least partly on
+  CROHME, HME100K or MathWriting, whose terms are research-only or
+  non-commercial; the code and weight licences (MIT, Apache-2.0) do not
+  settle that. The models with clean code licences that are small enough for
+  an A12Z (≤ 100 M parameters, ≤ 100 MB on disk after 8-bit palettization,
+  well under a second per equation on the Neural Engine with a cached
+  encoder pass and a 256-token decoder limit) are UniMERNet-T and Pix2Text
+  MFR; both need a Core ML conversion of an encoder plus an autoregressive
+  decoder (coremltools 8+, stateful KV cache, iOS 18+ APIs, all available on
+  iPadOS 26).
+
+  Recommendation. (1) Do not ship a model until the maintainer decides on
+  the data question (a lawyer's reading of "trained on non-commercial data"
+  for an app that is free and GPL but distributed through the App Store).
+  (2) Prototype behind a DEBUG flag with UniMERNet-T converted to Core ML
+  (8-bit, model downloaded on first use with Background Assets so the app
+  does not grow), recognising the strokes of a lasso selection rendered by
+  `RecognitionImage`, and measure on the user's own handwriting and on
+  CROHME 2019 test: accept only if ExpRate ≥ 50 % and latency ≤ 1 s on the
+  A12Z. (3) The clean long-term path is our own ~10–20 M parameter online
+  model trained on data we can license (synthetic ink from permissively
+  licensed symbol inks plus volunteered, explicitly licensed samples).
+  (4) In every case the result goes through the same `MathSource.check` and
+  SwiftMath parse before it is offered, the user confirms it in the
+  equation sheet, and the conversion is one delta that removes the strokes
+  and adds the `math` item (rendered first), as §6 says.
 - **G2 — `video` items.** Define `format.md` §8.2.7 `video` fully; record
   or pick a clip, poster frame, `AVPlayer` playback, 1 GiB cap, "PDF +
   attachments" embeds the clip, SVG/PNG draw the poster.

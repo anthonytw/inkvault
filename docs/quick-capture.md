@@ -119,6 +119,15 @@ the widget extension compile. They always run in the app's process
 (`AudioRecordingIntent`, `LiveActivityIntent`); the extension only shows
 buttons.
 
+The Live Activity belongs to the process that started it, but iOS keeps it
+across app restarts and reboots. A new process cannot reach the old
+recording, so it ends every voice note Live Activity that started before it
+launched. Stop on an activity it does not know also ends it, without an
+error. `start()` claims the recorder before its first suspension, so two
+intents firing together cannot start two recordings. With Live Activities
+off, iOS ends an intent's recording, so `start()` refuses with an
+explanation (also shown in Settings).
+
 ## Not verified yet
 
 - On a device: the Lock Screen path (intent launch while locked, Keychain

@@ -75,6 +75,12 @@ enum ItemRendering {
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
+        // An equation no typesetter has rendered yet (the CLI's): typeset here (format.md §8.2.8 step 2).
+        if item.kind == .math, let math = item.math, math.render == nil {
+            return MathTypesetter.picture(math, frame: item.frame, rotation: item.rotation, scale: key.scale)
+                .map { ItemPicture.image($0.0, bounds: $0.1) }
+                ?? .placeholder(.unavailable("the equation cannot be typeset"))
+        }
         let interval = Perf.begin(.itemPicture)
         let label = renders == nil ? nil : RenderCache.pictureLabel(key)
         if let renders, let label {
@@ -86,9 +92,9 @@ enum ItemRendering {
         }
         defer { Perf.end(interval, "drawn") }
         var files: [String: URL] = [:]
-        // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7).
-        let drawn = item.kind == .video ? item.poster : item.blob
-        let blobs = drawn.map { [$0] } ?? []
+        // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7);
+        // anything else from its own blobs (an equation from its render, §8.2.8).
+        let blobs = item.kind == .video ? (item.poster.map { [$0] } ?? []) : item.blobReferences
         if let cache {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {
