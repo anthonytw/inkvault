@@ -53,6 +53,15 @@ struct VoiceNoteStatusTests {
         #expect(VoiceNoteLink(url: URL(fileURLWithPath: "/tmp/My.sempere")) == nil, "a vault opened from Files")
     }
 
+    /// Any other `sempere:` URL (a page or another app can open one) is
+    /// ignored, never taken for a vault to open (which failed with an alert).
+    @Test func otherAppLinksAreIgnoredNotOpenedAsVaults() throws {
+        #expect(VoiceNoteLink.route(VoiceNoteLink.settings.url) == .link(.settings))
+        #expect(VoiceNoteLink.route(try #require(URL(string: "sempere://quick-voice/other"))) == .ignore)
+        #expect(VoiceNoteLink.route(try #require(URL(string: "SEMPERE://elsewhere"))) == .ignore)
+        #expect(VoiceNoteLink.route(URL(fileURLWithPath: "/tmp/My.sempere")) == .file)
+    }
+
     @Test func resultsSayWhereTheNoteWent() {
         #expect(QuickCapture.result(for: .vault) == .savedToInbox)
         #expect(QuickCapture.result(for: .queued) == .savedOnDevice)

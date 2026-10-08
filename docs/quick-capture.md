@@ -167,7 +167,9 @@ the sealed file is in the inbox (before any transcript), "Saved to Inbox"
 ("Saved on This Device" when it went to the queue, "Not Saved" on failure),
 and is dismissed 5 seconds later (12 for a failure). The app's banner says
 the same when the app is open. Opening the app from the Live Activity
-(`sempere://quick-voice/recording`) lands on the banner.
+(`sempere://quick-voice/recording`) lands on the banner. Any other `sempere:` URL is
+ignored (`VoiceNoteLink.route`): anyone can open one, and it is never taken
+for a vault.
 
 ## Not verified yet
 

@@ -99,12 +99,15 @@ struct RootView: View {
             }
         }
         .onOpenURL { url in
-            // A widget, the control or the Live Activity (`sempere://quick-voice/…`).
-            if let link = VoiceNoteLink(url: url) {
+            switch VoiceNoteLink.route(url) {
+            case .link(let link):
+                // A widget, the control or the Live Activity (`sempere://quick-voice/…`).
                 model.quickCapture.pendingLink = link
-                return
+            case .ignore:
+                break   // another `sempere:` link: not a vault
+            case .file:
+                Task { await open(url) }   // a vault tapped in Files
             }
-            Task { await open(url) }   // a vault tapped in Files
         }
         .onChange(of: model.quickCapture.pendingLink, initial: true) { _, link in
             // `.recording` is the banner's (`VoiceNoteBanner`), which is always there.

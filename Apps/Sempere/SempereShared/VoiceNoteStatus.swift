@@ -120,6 +120,22 @@ enum VoiceNoteLink: String, CaseIterable, Equatable, Sendable {
         URL(string: "\(Self.scheme)://\(Self.host)/\(rawValue)") ?? URL(fileURLWithPath: "/")
     }
 
+    /// What the app does with a URL it is opened with (`RootView.onOpenURL`).
+    enum Route: Equatable {
+        /// A quick voice link.
+        case link(VoiceNoteLink)
+        /// Another `sempere:` URL (a link from a newer version, or typed or
+        /// sent by anyone): ignored, never opened as a vault.
+        case ignore
+        /// Anything else: a file (a vault tapped in Files).
+        case file
+    }
+
+    static func route(_ url: URL) -> Route {
+        if let link = VoiceNoteLink(url: url) { return .link(link) }
+        return url.scheme?.lowercased() == scheme ? .ignore : .file
+    }
+
     /// The link `url` names, or nil for any other URL (a vault opened from Files).
     init?(url: URL) {
         guard url.scheme?.lowercased() == Self.scheme, url.host?.lowercased() == Self.host else { return nil }
