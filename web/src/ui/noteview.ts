@@ -132,10 +132,11 @@ export class NoteView {
   readonly problemsEl = h("details", { class: "warning item-problems" });
   private destroyed = false;
   private rerender?: ReturnType<typeof setTimeout>;
-  /** Video items on drawn pages, for taps (page-local rotated frames). */
-  private readonly videos: { slot: Slot; it: PreparedItem }[] = [];
-  /** Audio items on drawn pages, for taps: the recording each shows (§8.2.8). */
-  private readonly audios: { slot: Slot; it: PreparedItem; recording: string }[] = [];
+  /**
+   * Video and audio items on drawn pages, for taps (page-local rotated frames), in drawing order:
+   * a tap plays the topmost one under it, whichever kind (§8.2.7, §8.2.8).
+   */
+  private readonly playables: Playable[] = [];
   /** Transcripts read for audio cards, by recording id (read once, verified). */
   private readonly transcripts = new Map<string, Promise<Transcript>>();
   private tap?: { x: number; y: number; id: number };
@@ -259,7 +260,8 @@ export class NoteView {
               for (const n of placeholderNodes(d.it)) g.append(svgTree(n));
             }
             for (const n of playMarkNodes(d.it)) items.append(svgTree(n));
-            this.videos.push({ slot, it: d.it });
+            const id = String(d.it.item.id);
+            this.playables.push({ slot, it: d.it, play: () => this.playVideo?.(id) });
             break;
           }
           case "audio": {
@@ -269,7 +271,8 @@ export class NoteView {
             const node = audioLabelNode(d);
             if (node) label.append(svgTree(node));
             items.append(label);
-            this.audios.push({ slot, it: d.it, recording: String(d.recording.id) });
+            const recording = String(d.recording.id);
+            this.playables.push({ slot, it: d.it, play: () => this.playAudio?.(recording) });
             this.addTranscript(slot, d.it, d.recording, label);
             break;
           }
@@ -567,21 +570,7 @@ export class NoteView {
   /** A tap at viewport point `p`: plays the topmost video or recording under it. */
   private tapAt(p: { x: number; y: number }): void {
     const x = (p.x - this.x) / this.z, y = (p.y - this.y) / this.z;
-    if (this.playAudio) {
-      for (const a of [...this.audios].reverse()) {
-        if (insidePolygon({ x: x - a.slot.left, y: y - a.slot.top }, a.it.corners)) {
-          this.playAudio(a.recording);
-          return;
-        }
-      }
-    }
-    if (!this.playVideo) return;
-    for (const v of [...this.videos].reverse()) {
-      if (insidePolygon({ x: x - v.slot.left, y: y - v.slot.top }, v.it.corners)) {
-        this.playVideo(String(v.it.item.id));
-        return;
-      }
-    }
+    topmostPlayable(this.playables, x, y)?.play();
   }
 
   /** Scrolls so page `number` (1-based) is at the top. */
@@ -592,6 +581,25 @@ export class NoteView {
     this.clampPan();
     this.schedule();
   }
+}
+
+/** A video or audio item drawn on a page, and what a tap on it plays. */
+export interface Playable {
+  slot: { left: number; top: number };
+  it: { corners: { x: number; y: number }[] };
+  play: () => void;
+}
+
+/**
+ * The playable item a tap at content point (`x`, `y`) hits: the last drawn (topmost) one whose
+ * rotated frame holds the point, so a video drawn over an audio card plays, and the other way round.
+ */
+export function topmostPlayable<T extends Playable>(playables: readonly T[], x: number, y: number): T | undefined {
+  for (let i = playables.length - 1; i >= 0; i--) {
+    const p = playables[i];
+    if (p && insidePolygon({ x: x - p.slot.left, y: y - p.slot.top }, p.it.corners)) return p;
+  }
+  return undefined;
 }
 
 /** True when `p` lies inside the convex polygon `c` (a rotated frame, either winding). */

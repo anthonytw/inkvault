@@ -9,6 +9,7 @@ import { DecodeError, type JSONObject } from "../src/format/json.ts";
 import type { Transcript } from "../src/format/transcript.ts";
 import { audioCardCommands, audioCardLayout, audioLabel, clipLines, clock, recordingShownBy, transcriptExcerpt } from "../src/render/audio.ts";
 import { layoutText } from "../src/render/text.ts";
+import { topmostPlayable } from "../src/ui/noteview.ts";
 
 const itemId = "6f1c2d4e-0000-4000-8000-000000000003";
 const recId = "0d9e5c1a-0000-4000-8000-000000000001";
@@ -68,5 +69,25 @@ describe("audio items (§8.2.8)", () => {
     expect(cut.lines.length).toBeGreaterThan(1);
     expect(cut.lines.length).toBeLessThan(full.lines.length);
     for (const line of cut.lines) expect(line.baseline + 0.25 * line.size).toBeLessThanOrEqual(52 + 1e-6);
+  });
+});
+
+describe("taps on cards and videos", () => {
+  const square = (x: number, y: number, w: number, h: number) =>
+    [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+
+  it("play the topmost item under the tap, whichever its kind", () => {
+    const played: string[] = [];
+    const slot = { left: 0, top: 100 };
+    // Drawing order: an audio card, then a video over part of it.
+    const card = { slot, it: { corners: square(0, 0, 300, 96) }, play: () => played.push("audio") };
+    const video = { slot, it: { corners: square(200, 50, 200, 100) }, play: () => played.push("video") };
+    const list = [card, video];
+    topmostPlayable(list, 250, 160)?.play();   // over both: the video is drawn above the card
+    topmostPlayable(list, 50, 140)?.play();    // the card alone
+    expect(topmostPlayable(list, 50, 50)).toBeUndefined();   // above the page slot's items
+    // The other way round: a card drawn over a video wins.
+    topmostPlayable([video, card], 250, 160)?.play();
+    expect(played).toEqual(["video", "audio", "audio"]);
   });
 });
