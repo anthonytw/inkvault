@@ -637,6 +637,21 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   SwiftMath is in the app target only (exact 1.7.3), never in `Sources/`; the CLI has no typesetter
   and draws the stored render, else the source text. The app writes the render blob before the delta
   (`NoteEditor.insertMath` / `setItemMath`); undo restores old values without re-typesetting.
+- Handwriting → math (G1 part 2, `docs/research/handwriting-to-latex.md`): the pick (`InkLasso`), the
+  conversion (`NoteOps.convertInk`: ONE delta of `removeStroke`s and the math item's `addItem`, render
+  blob first), the model's image (`MathInkImage`, pure Swift in the app too, never PencilKit), the
+  vocabulary, beam search and clean-up are shared by the app's Convert to Math and `sempere
+  recognize-math`; the model runs only behind `MathRecognizing` (`CoreMLMathRecognizer`, `#if
+  canImport(CoreML)`; tests use fakes and the tiny random model `Fixtures/math-tiny`, made by
+  `tools/math-model/convert.py --tiny`). Models are `sempere-math-model/1` folders whose every file
+  is checked against the manifest's SHA-256 (`MathModelStore`) before use; the app's catalogue
+  (`MathModelCatalog.entries`) pins each manifest's hash and is EMPTY until the maintainer settles the
+  training-data question, so the app's downloader (`MathModels`, its only network code) never runs;
+  offering a model also needs the Mac `network.client` entitlement and a privacy-policy change. The
+  app removes converted ink through the ledger (`NoteEditor.takeInk` / `putInkBack`, like an erase),
+  never by editing `pages` directly; undo and redo of a conversion pass `keepUndo` so `reloadInk`
+  does not clear the undo manager in the middle of an undo. Our own lasso (`MathLassoController`):
+  PencilKit's selection has no API on iPadOS 26.
 - Localization (`docs/localization.md`, task L): every interface string is in
   `Apps/Sempere/Localization/Localizable.xcstrings` (plus `InfoPlist`, `AppShortcuts`), a
   synchronized group of the app and widget targets. SwiftUI literals localize themselves;

@@ -578,7 +578,8 @@ compatible with GPLv3 (not with GPLv2-only, which Sempere is not).
 Handwriting → LaTeX (write an equation, get its source) is a later,
 on-device-only feature (a Core ML model; no services); the conversion would
 be one delta that removes the strokes and adds the `math` item, so the item
-shape needs nothing more for it. The research for it is in §14, G1 part 2.
+shape needs nothing more for it. The research for it is in §14, G1 part 2, and
+`docs/research/handwriting-to-latex.md` (with what was built).
 
 ## 7. Images
 
@@ -1778,7 +1779,11 @@ PDF page sizes). Not done: recordings in exports (C4), editing or removing a pla
   canvas. Web viewer: the render through pdf.js on a transparent page, else
   the source.
 
-  *Part 2 — handwriting → LaTeX on device (research, 2026-10-07; not built).*
+  *Part 2 — handwriting → LaTeX on device.* Updated research (2026-10-08, with
+  measurements) and the pipeline built behind a setting (#118): `docs/research/handwriting-to-latex.md`.
+  The first research note follows, as it was.
+
+  *Research, 2026-10-07.*
   Constraints: on device only (no server recognition, ever); GPL-3.0 +
   App Store exception, so code and weights must be MIT/BSD/Apache-like and
   the weights' training data must allow distribution in a paid-or-free App

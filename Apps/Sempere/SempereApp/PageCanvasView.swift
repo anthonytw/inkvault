@@ -157,6 +157,16 @@ struct PageCanvasView: UIViewRepresentable {
             } else {
                 host.inkTapHandler = nil
             }
+            // "Convert to Math": the lasso picks ink on this page (`NoteEditor+MathInk`).
+            if editor.mathLassoActive {
+                host.mathLassoHandler = { [weak editor] loop, undo in
+                    editor?.mathLassoFinished(pageID: pageID, loop: loop, undoManager: undo)
+                }
+                host.onMathLassoEnded = { [weak editor] in editor?.endMathLasso() }
+            } else {
+                host.mathLassoHandler = nil
+                host.onMathLassoEnded = nil
+            }
         }
 
         /// The canvas goes back to the stack's spares: no page, no ink, no
@@ -176,6 +186,8 @@ struct PageCanvasView: UIViewRepresentable {
             host.itemSelectionActive = false
             host.endTransientSelection()
             host.inkTapHandler = nil
+            host.mathLassoHandler = nil
+            host.onMathLassoEnded = nil
             host.setHighlights([])
             host.textOverlay.isHidden = true   // a spare canvas shows no note's text
             isLoading = true
@@ -229,13 +241,16 @@ struct PageCanvasView: UIViewRepresentable {
             loadTask = nil
             loadToken &+= 1
             host.cancelErasing()
-            show(drawing, host: host, editor: editor, partial: false)
+            show(drawing, host: host, editor: editor, partial: false, keepUndo: editor.reloadKeepsUndo)
         }
 
-        private func show(_ drawing: PKDrawing, host: PageCanvasHost, editor: NoteEditor, partial: Bool) {
+        /// `keepUndo`: the change is itself an undo or redo step (of "Convert to
+        /// Math"): the undo manager is in the middle of it and must not be cleared.
+        private func show(_ drawing: PKDrawing, host: PageCanvasHost, editor: NoteEditor, partial: Bool,
+                          keepUndo: Bool = false) {
             isLoading = true
             host.canvas.drawing = drawing
-            host.canvas.undoManager?.removeAllActions()   // undo must not cross pages or notes
+            if !keepUndo { host.canvas.undoManager?.removeAllActions() }   // undo must not cross pages or notes
             isLoading = false
             host.isPreparing = false
             host.inkDidChange()
@@ -374,6 +389,21 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         }
     }
     private lazy var inkTap = UITapGestureRecognizer(target: self, action: #selector(inkTapped(_:)))
+    /// "Convert to Math": while set, PencilKit's drawing is off and a lasso
+    /// (`MathLassoController`) hands its loop over in page points, with the
+    /// canvas's undo manager.
+    var mathLassoHandler: (([CGPoint], UndoManager?) -> Void)? {
+        didSet {
+            mathLasso.onFinish = mathLassoHandler.map { handler in
+                { [weak self] loop in handler(loop, self?.canvas.undoManager) }
+            }
+            guard (mathLassoHandler == nil) != (oldValue == nil) else { return }
+            updateEraser()
+        }
+    }
+    /// Called when picking a tool ends the lasso.
+    var onMathLassoEnded: (() -> Void)?
+    private let mathLasso = MathLassoController()
     /// Search highlights (`NoteEditor+SearchHighlight.swift`), above the paper and the items, below the ink.
     private let highlightView = UIView()
     private(set) var highlights: [HighlightBox] = []
@@ -501,6 +531,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
+        mathLasso.attach(to: canvas)
         itemSelection.attach(to: canvas, itemLayer: itemLayer)
         textEditor.attach(to: canvas, itemLayer: itemLayer)
         textEditor.actions = { [weak self] in self?.itemSelection.actions }
@@ -602,6 +633,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         }
         if itemSelectionActive { onItemSelectionEnded?() }   // picking a tool is picking drawing
         if textToolActive { onTextToolEnded?() }
+        if mathLassoHandler != nil { onMathLassoEnded?() }
         endTransientSelection()
         updateEraser()
         cursorInteraction?.invalidate()
@@ -629,7 +661,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     /// Whether the canvas draws now: nothing selects, types or plays, and the note can be edited.
     var drawingEditable: Bool {
         !isReadOnly && !isPreparing && !drawingSuspended && !itemSelectionActive && !textToolActive && !transientSelection
-            && !textEditor.isEditing && inkTapHandler == nil
+            && !textEditor.isEditing && inkTapHandler == nil && mathLassoHandler == nil
     }
 
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
@@ -638,6 +670,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         let editable = drawingEditable
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
+        mathLasso.setActive(mathLassoHandler != nil && !isReadOnly && !isPreparing && !drawingSuspended)
         canvas.drawingGestureRecognizer.isEnabled = editable && !ours
     }
 
