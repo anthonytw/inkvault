@@ -469,18 +469,33 @@ public enum CaptureAdoption {
     /// (`PendingCapture.transcriptAudio`, format.md §11.2).
     /// Longest title or notebook a capture gives its note, in characters.
     public static let maxNameLength = 300
+    /// ... and in Unicode scalars: one character (grapheme cluster) has no
+    /// length limit, a letter followed by any number of combining marks.
+    public static let maxNameScalars = 4 * maxNameLength
 
     /// A manifest's title or notebook as the note gets it (format.md §11.3):
     /// control characters (newlines included) become spaces, and it is cut
-    /// at `maxNameLength` characters. The manifest's own limit is only its
-    /// 64 MiB line, and any capture-key holder writes it (security review
-    /// 2026-10, C2).
+    /// at `maxNameLength` characters and `maxNameScalars` scalars (whole
+    /// characters, except one that alone is longer than that). The manifest's
+    /// own limit is only its 64 MiB line, and any capture-key holder writes
+    /// it (security review 2026-10, C2).
     public static func boundedName(_ name: String) -> String {
-        var out = ""
-        for ch in name.prefix(maxNameLength) {
-            out.append(ch.unicodeScalars.contains { $0.properties.generalCategory == .control } ? " " : ch)
+        var out = String.UnicodeScalarView()
+        var characters = 0, scalars = 0
+        for ch in name {
+            guard characters < maxNameLength, scalars < maxNameScalars else { break }
+            let s = ch.unicodeScalars
+            if s.contains(where: { $0.properties.generalCategory == .control }) {
+                out.append(" "); scalars += 1
+            } else if scalars + s.count <= maxNameScalars {
+                out.append(contentsOf: s); scalars += s.count
+            } else {
+                if characters == 0 { out.append(contentsOf: s.prefix(maxNameScalars)) }
+                break
+            }
+            characters += 1
         }
-        return out
+        return String(out)
     }
 
     public static func ops(_ pending: PendingCapture, audio: BlobRef?, transcript: BlobRef?, current: NoteState?,

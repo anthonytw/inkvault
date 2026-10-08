@@ -293,6 +293,21 @@ final class CaptureInboxTests: VaultTestCase {
         XCTAssertEqual(CaptureAdoption.boundedName("a\u{1B}b\tc"), "a b c")
     }
 
+    /// C2: one grapheme cluster has no length limit (a base letter and any
+    /// number of combining marks), so a cap in characters alone lets a
+    /// megabyte title through as "one character". Scalars are capped too.
+    func testBoundedNameCapsOneHugeGraphemeCluster() {
+        let huge = "a" + String(repeating: "\u{301}", count: 200_000)
+        XCTAssertEqual(huge.count, 1)
+        let bounded = CaptureAdoption.boundedName(huge)
+        XCTAssertLessThanOrEqual(bounded.unicodeScalars.count, CaptureAdoption.maxNameScalars)
+        XCTAssertEqual(bounded.unicodeScalars.first, "a")
+        // Ordinary text is unchanged: emoji with modifiers stay whole.
+        XCTAssertEqual(CaptureAdoption.boundedName("Meeting 👍🏽 notes"), "Meeting 👍🏽 notes")
+        let manyEmoji = String(repeating: "👨‍👩‍👧‍👦", count: 400)
+        XCTAssertLessThanOrEqual(CaptureAdoption.boundedName(manyEmoji).unicodeScalars.count, CaptureAdoption.maxNameScalars)
+    }
+
     /// C5: a transcript file has a much smaller bound than a capture, checked
     /// from its size before anything is decrypted; and a capture's tag is
     /// checked streamed before the file is read whole.

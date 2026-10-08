@@ -314,7 +314,7 @@ and is retried by the next one. Tests: `RecipientsAuthTests.testUnreadableTrustR
 
 ### C2 (part): bounded title and notebook
 
-Adoption writes a capture's title and notebook as at most 300 characters, control characters replaced by
+Adoption writes a capture's title and notebook as at most 300 characters (and 1200 Unicode scalars), control characters replaced by
 spaces (`CaptureAdoption.boundedName`). Still open: the capturing device is not stored, and the notebook
 is still the manifest's (a format change and a policy choice). Test:
 `CaptureInboxTests.testCaptureTitleAndNotebookAreBounded`.
