@@ -51,8 +51,8 @@ final class LaunchSmokeUITests: XCTestCase {
         requireRunning(app, "double column")
     }
 
-    /// The note alone; then the note list (⌥⌘L on the Mac, the toolbar
-    /// button on the iPad) and the sidebar brought in.
+    /// The note alone; on the Mac then the note list (⌥⌘L) and the sidebar
+    /// brought in (the iPad runs only the sidebar and list layouts, `test-ui`).
     @MainActor
     func testFreshLaunchDetailOnly() throws {
         let app = launchUnlocked(columns: "detailOnly")
