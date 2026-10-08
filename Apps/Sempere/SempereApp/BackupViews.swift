@@ -90,7 +90,8 @@ struct BackupSettingsSection: View {
     private var footer: String {
         var s = "A backup is a copy of the vault's encrypted files, kept up to date: each run copies only what is new. "
             + "Choose a folder on another drive or another cloud service. Nothing is decrypted: a backup is useless "
-            + "without your key, so keep the key (or its recovery kit) somewhere safe as well."
+            + "without your key: save it with Settings → Device Keys → Save Key… (with its paper recovery kit) and "
+            + "keep it somewhere safe as well."
         if notificationsOff {
             s += " Notifications are off for Sempere, so the reminder shows here only; allow them in Settings → Notifications."
         }

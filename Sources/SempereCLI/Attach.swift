@@ -13,7 +13,7 @@ import SempereRender
 struct AttachCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "attach",
-        abstract: "Add an image, PDF pages, text, a video, a recording or a transcript to a note (one delta each).",
+        abstract: "Add an image, PDF pages, text, an equation, a video, a recording or a transcript to a note (one delta each).",
         discussion: """
             The file's bytes are stored as an encrypted blob of the note (format.md §8.1) and one delta places \
             them: an image, video clip or text box at a frame of a page, PDF pages as new pages (backgrounds) or as a figure, \
@@ -21,8 +21,8 @@ struct AttachCommand: ParsableCommand {
             points from the page's top-left. Nothing in the note is changed by a command that fails; a blob \
             stored before a failure is unreferenced and collected by `blobs gc`.
             """,
-        subcommands: [AttachImage.self, AttachPDF.self, AttachText.self, AttachVideo.self, AttachRecording.self,
-                      AttachTranscript.self]
+        subcommands: [AttachImage.self, AttachPDF.self, AttachText.self, AttachMath.self, AttachVideo.self,
+                      AttachRecording.self, AttachTranscript.self]
     )
 }
 
@@ -207,7 +207,7 @@ func readInput(_ path: String, limit: Int, what: String) throws -> Data {
     }
 }
 
-private func fail(_ error: Error) -> CLIError {
+func fail(_ error: Error) -> CLIError {
     switch error {
     case let e as AttachmentOpsError: return .failure("\(e)")
     case let e as ImageIngestError: return .failure("\(e)")
@@ -720,5 +720,156 @@ struct AttachTranscript: ParsableCommand {
         }
         out.recording = updated
         try report(out, output: output, summary: "transcript to recording \(target.id.uuidString.lowercased().prefix(8))")
+    }
+}
+
+// MARK: - attach math
+
+/// The LaTeX source of an equation: `--latex` or `--file` (- is standard input).
+struct LatexInput: ParsableArguments {
+    @Option(name: .long, help: ArgumentHelp("The LaTeX source, math mode, without $ delimiters.", valueName: "source"))
+    var latex: String?
+
+    @Option(name: .customLong("latex-file"), help: ArgumentHelp("Read the source from this UTF-8 file; - is standard input.", valueName: "file"))
+    var latexFile: String?
+
+    var given: Bool { latex != nil || latexFile != nil }
+
+    func validate(required: Bool) throws {
+        if latex != nil && latexFile != nil { throw ValidationError("give --latex or --latex-file, not both") }
+        if required && !given { throw ValidationError("give the equation with --latex SOURCE or --latex-file PATH") }
+    }
+
+    /// The source given; nil when none was.
+    func read() throws -> String? {
+        if let latex { return latex }
+        guard let latexFile else { return nil }
+        let limit = MathSource.maxBytes + 1
+        let data: Data
+        if latexFile == "-" {
+            data = (try? FileHandle.standardInput.read(upToCount: limit)) ?? Data()
+        } else {
+            data = try readInput(latexFile, limit: limit, what: "source (an equation takes at most \(MathSource.maxBytes) bytes)")
+        }
+        guard let s = String(data: data, encoding: .utf8) else { throw CLIError.failure("the source is not valid UTF-8") }
+        return s.hasSuffix("\n") ? String(s.dropLast()) : s
+    }
+}
+
+/// A typeset rendering from `--render FILE` (format.md §8.2.8 `render`).
+struct MathRenderInput {
+    var data: Data
+    var ref: BlobRef
+    var size: Size
+
+    init(path: String) throws {
+        data = try readInput(path, limit: MathRenderIngest.maxBytes, what: "rendering")
+        let data = self.data
+        size = try translating { try MathRenderIngest.pageSize(data) }
+        ref = BlobRef(content: data, type: MathContent.renderType)
+    }
+
+    func content(_ math: MathContent, engine: String?) -> MathContent {
+        var m = math
+        m.render = ref; m.renderSize = size; m.engine = engine
+        return m
+    }
+}
+
+struct AttachMath: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "math",
+        abstract: "Add an equation (LaTeX) to a page.",
+        discussion: """
+            The source is LaTeX in math mode without delimiters (--latex '\\frac{a}{b}', or --latex-file). It \
+            is stored as NFC and checked against format.md §8.2.8: at most 8192 bytes, balanced groups, at most \
+            4096 symbols and 64 levels of nesting. The CLI has no math typesetter: without --render the item has \
+            no rendering, exports draw its source in a monospace font (and say so), and the app typesets it when \
+            the equation is edited there. --render takes a one-page PDF of the typeset equation made elsewhere \
+            (e.g. with LaTeX and `pdfcrop`), drawn only in the equation's colour on a transparent page; the \
+            frame is then its size (or --width, keeping the aspect). Without it the frame is estimated from \
+            the source. Equations are searchable (`sempere search`). Prints the new item's id.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @OptionGroup var source: LatexInput
+
+    @OptionGroup var placement: PlacementOptions
+
+    @Flag(name: .long, help: "Text (inline) style instead of display style.")
+    var inline = false
+
+    @Option(name: .long, help: ArgumentHelp("Font size in points (default 20).", valueName: "pt"))
+    var size: Double = 20
+
+    @Option(name: .long, help: ArgumentHelp("Colour as #RRGGBB or #RRGGBBAA (default black).", valueName: "hex"))
+    var color: ColorArgument?
+
+    @Option(name: .long, help: ArgumentHelp("A one-page PDF of the typeset equation, stored as its rendering.", valueName: "file"))
+    var render: String?
+
+    @Option(name: .long, help: ArgumentHelp("What typeset --render, e.g. tectonic-0.15 (informational).", valueName: "name"))
+    var engine: String?
+
+    @Option(name: .long, help: ArgumentHelp("content (default) or background.", valueName: "layer"))
+    var layer: LayerChoice = .content
+
+    @Flag(name: .customLong("dry-run"), help: "Check the source and the placement and say what would be added; write nothing.")
+    var dryRun = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func validate() throws {
+        try placement.validate()
+        try source.validate(required: true)
+        guard size.isFinite, size > 0, size <= TextContent.Limits.size else {
+            throw ValidationError("--size must be greater than 0 and at most \(Int(TextContent.Limits.size))")
+        }
+        if engine != nil && render == nil { throw ValidationError("--engine names what made --render") }
+    }
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let latex = try source.read() ?? ""
+        var content = try translating { try NoteOps.math(latex, display: !inline, size: size, color: color?.color ?? .black) }
+        let rendering = try render.map { try MathRenderInput(path: $0) }
+        if let rendering { content = rendering.content(content, engine: engine) }
+        let before = try liveState(vault, id)
+        let target = try targetPage(before, placement.page)
+        func place(_ state: NoteState, _ page: Page) throws -> ItemPlacement {
+            try translating {
+                try NoteOps.placeMath(content, on: page, pageSize: state.meta.pageSize, frame: placement.frame?.rect,
+                                      at: placement.at.map { ($0.x, $0.y) }, width: placement.width, layer: layer.layer,
+                                      rec: try link(placement, in: state))
+            }
+        }
+        var placed = try place(before, target.page)
+        var number = target.number
+        var out = AttachJSON(note: id.uuidString.lowercased(), dryRun: dryRun, blob: rendering?.ref)
+        if !dryRun {
+            if let rendering {
+                let stored = try translating { try vault.writeBlob(note: id, rendering.data, type: MathContent.renderType) }
+                guard stored == rendering.ref else { throw CLIError.failure("internal error: the stored blob differs from its reference") }
+            }
+            let pageID = target.page.id
+            let revision = try editNote(vault, id) { state in
+                try requireLive(state)
+                let current = try pageWithID(pageID, in: state)
+                number = current.number
+                placed = try place(state, current.page)
+                return placed.ops
+            }
+            out.file = revision?.name.filename
+        }
+        out.items = [.init(page: number, pageId: target.page.id, item: placed.item)]
+        if rendering == nil && !output.json && !output.quiet {
+            printStderr("Note: no rendering stored; exports draw the source until the equation is typeset in the app (or use --render).")
+        }
+        try report(out, output: output, summary: "equation (\(content.latex.unicodeScalars.count) characters\(rendering == nil ? "" : ", typeset")) to page \(number)")
     }
 }
