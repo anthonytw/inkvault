@@ -56,7 +56,7 @@ Done from this list:
   `DESIGN.md` "Recovery"): `sempere keys paper` prints the key (or the
   passphrase-wrapped key file) as a QR code and checked text with stock-tool
   recovery steps; `sempere backup` (incremental folder or tar), `backup
-  verify`, `restore`. Still to do: the same kit and a backup button in the app (🚧 #110: back up, verify, reminder, restore into a new vault; the kit from Settings → Device Keys is 🚧 #99).
+  verify`, `restore`. Still to do: the same kit and a backup button in the app (🚧 #110: back up, verify, reminder, restore into a new vault; the kit from Settings → Device Keys is ✅ #99).
 
 - **History and restore, core + CLI** (`Sources/Sempere/History.swift`,
   `format.md` §5.7, `docs/cli.md`): restore points per revision, the note as of
@@ -75,7 +75,7 @@ goes first; after it, the rest run in parallel along the dependencies in
 `docs/attachments.md` §14. G1 (part 1) and G2 are done and L is in review; none blocks anything.
 
 Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `7395be0` (#96) on 2026-10-08. Beyond this table, the
+💡 future. Checked against `main` at `c53cf67` (#99) on 2026-10-08. Beyond this table, the
 build 7 follow-ups are open: selecting items and Replace Image (#104), audio items on the page (#103),
 sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#107; #106 ✅ merged), bulk export (#109) and backups in the app (#110).
 

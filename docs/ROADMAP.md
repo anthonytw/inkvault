@@ -3,7 +3,7 @@
 Where every feature sits, by component. Status: ✅ done on `main` (with the PR number) · 🚧 in progress (open PR number) ·
 📋 planned (next) · 💡 future. A note "not yet tried on the iPad" means it is on `main` and
 passed CI, but nobody has used it on a device. Statuses last checked against `main` at
-`7395be0` (#96) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
+`c53cf67` (#99) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
 details in `docs/attachments.md` §14. `docs/HANDOFF.md` has the current
 working state.
 
@@ -114,6 +114,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | --- | --- | --- |
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
 | Vaults | Keys in the Keychain / password manager | ✅ #24 |
+| Vaults | Save Key… (this device's key after Face ID, to Files / the share sheet / a password manager, with the paper kit) and New Key… (a key for another device) in Settings → Device Keys | ✅ #99 (not yet tried on the iPad) |
 | Vaults | Vaults of a newer format version open read-only: banner over the list, notes open read-only with what was skipped, New Note / Import / Recognize disabled, no autosave, thinning, inbox adoption or transcripts (`format.md` §7.3) | ✅ #94 (not yet tried on the iPad) |
 | Vaults | Authenticated device list (`format.md` §2.1): blocking alert "This vault's device list was changed without its key" naming the unknown devices, Remove (restore the last checked list, rotate, rewrap) or Cancel (read only); one-time "Device List Protected" notice when an older vault is tagged at unlock; quick capture never takes an unchecked list; the web viewer reports the status | ✅ #98 (not yet tried on the iPad) |
 | Vaults | Fast opening: background listing with "Opening vault: n of m", list fills in as notes are read, encrypted summary cache for instant reopen, empty list always explained | ✅ #54 |
@@ -149,7 +150,6 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Unused-attachment index (E7): Settings → Storage "Unused Attachments" list | 🚧 #95 |
 | Attachments | Selecting images, text boxes and PDFs on the canvas, Replace Image, text colour swatches, Insert menu sections (build 7 feedback) | 🚧 #104 |
 | Attachments | Audio items on the page, Recordings list on the Mac (build 7 feedback) | 🚧 #103 |
-| Keys | Save Key…, New Key… in Settings → Device Keys (Face ID gated) | 🚧 #99 |
 | Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | ✅ #96 (not yet tried on the iPad) |
 | Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💡 |
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | ✅ #93 (not yet tried on the iPad) |
@@ -177,7 +177,7 @@ behaviour and testing on a real Mac.
 | Multiple windows (one note per window), state restoration | ✅ #46 (`docs/mac.md`); note windows checked on Catalyst in CI; restoration needs a hand test; double-click opens a window 🚧 #101 |
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); notes, a notebook or the vault to a folder (resumable) or a zip, shared with `export --all`: 🚧 #109 |
-| Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions 🚧 #99 |
+| Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing 💡 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
@@ -188,7 +188,7 @@ behaviour and testing on a real Mac.
 | --- | --- | --- |
 | iPhone: "Don't see iCloud Drive?" help (iCloud Drive's per-device sync setting, Files' hidden locations; `docs/iphone.md`) | ✅ #84 | The picker needs no entitlement; the cause is a device setting. |
 | iPhone app as a reader | ✅ #65 (`docs/iphone.md`) | Same SwiftUI target, device family 1,2. Compact stack (vault, notebooks and tags, list, note); read-first note view (pan, zoom, page bar, finger annotation behind a pencil button); search, export, history and Face ID unlock shared with the iPad; tests at iPhone sizes run on an iPhone simulator in the `app` job; 6.9" screenshots (`scripts/screenshots.sh iphone`). Not yet tried on a physical iPhone. |
-| Web viewer with in-browser decryption | ✅ #63; attachments ✅ #75 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Attachments (#75): images, text boxes (stored `breaks`), PDF pages (pinned pdf.js), placeholders, recordings with playback and transcripts; blobs fetched lazily and verified (hash and keyed name). Newer-format vaults and revisions (`format.md` §7) open and show what this version understands (✅ #94). In progress: remembering the key behind a passkey (🚧 #99), fast opening with `config.json`, published summaries and a ciphertext cache (🚧 #100). Later: transcript search, passphrase-wrapped keys. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
+| Web viewer with in-browser decryption | ✅ #63; attachments ✅ #75 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Attachments (#75): images, text boxes (stored `breaks`), PDF pages (pinned pdf.js), placeholders, recordings with playback and transcripts; blobs fetched lazily and verified (hash and keyed name). Newer-format vaults and revisions (`format.md` §7) open and show what this version understands (✅ #94). Opt-in passkey (WebAuthn PRF) to remember the key on a device ✅ #99. In progress: fast opening with `config.json`, published summaries and a ciphertext cache (🚧 #100). Later: transcript search, passphrase-wrapped keys. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
 | WebDAV mirror for the viewer | ✅ CLI part #97 (`sync webdav --push-only`); the push-only mirror and Caddy are set up on the maintainer's side | A WebDAV share on the NAS behind Caddy, plus a macOS `launchd` agent running `sempere sync webdav --push-only` every few minutes from the iCloud vault, so the NAS can never feed back a changed recipient list. #63 documents the Caddy + `sync webdav` setup (`docs/web-viewer.md`); static hosts use `sempere vault index`. The setup itself lives in the sysadmin repo, outside this one. |
 | WebDAV as a vault location in the app | 💡 low priority | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
 | Other Files-app providers (Google Drive, Proton Drive, Dropbox, OneDrive, Nextcloud) | 💡 test on demand | They probably already work through the folder picker. The download checks are tuned for iCloud, so each provider needs a test pass. |
