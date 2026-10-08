@@ -37,7 +37,7 @@ struct AppModelEnvironment: DynamicProperty {
 
 private let environmentLog = Logger(subsystem: "io.github.anthonytw.sempere", category: "environment")
 
-/// The other app-wide objects every window injects (`appModels`): one
+/// The other app-wide objects every window injects (`appEnvironment`): one
 /// instance each in the app (`current`, set in `SempereApp.init`).
 @MainActor
 protocol AppWideObject: AnyObject, Observable {

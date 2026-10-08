@@ -441,7 +441,11 @@ In order; none of this can be done from the repository.
    `https://anthonytw.github.io/sempere/privacy/`, then switch the Privacy Policy URL to it.
 4. [ ] Pricing and Availability: Free; every territory except France (and no embargoed
    territories). Check "Make available on Mac" settings: with a native Catalyst build, the iPad
-   app is not offered on Apple silicon Macs as "Designed for iPad".
+   app is not offered on Apple silicon Macs as "Designed for iPad". If it still shows up on a
+   Mac (TestFlight installed the iPad build on one in build 7), untick "iPhone and iPad Apps on
+   Apple Silicon Macs" there; no build setting does it (`LSRequiresIPhoneOS` does not), and the
+   app copes with either build restoring the other's windows (docs/mac.md "Windows restored
+   from another build").
 5. [ ] Export compliance: nothing to upload while France is excluded
    ([export-compliance.md](export-compliance.md)). Read the EAR sources once (its TODO).
 

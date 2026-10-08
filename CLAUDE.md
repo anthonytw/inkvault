@@ -446,6 +446,10 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the Catalyst build runs on `main` only (or `gh workflow run CI --ref <branch>`).
   Only the `.commands` line and the entitlements/scene build settings are
   Catalyst-only.
+- Every `WindowGroup` gets `appEnvironment(model:library:keys:)` and every
+  non-library window's root is a `RestoredScene` (`SceneRestoration.swift`): the
+  iPad build on a Mac shares the Catalyst build's container and is handed its
+  saved windows. A new window scene gets both and a `SceneRestoration.Kind`.
 - Views read the app-wide objects with `@AppModelEnvironment` (the model) and
   `@AppEnvironmentObject` (`VaultLibrary`, `RememberedKeys`), never
   `@Environment(X.self)`: a view updated outside its window's environment
