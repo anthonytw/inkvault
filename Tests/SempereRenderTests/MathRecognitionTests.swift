@@ -238,6 +238,18 @@ final class MathRecognitionTests: XCTestCase {
         XCTAssertNotNil(manifest(files: Array(good.dropLast())).problem, "no vocabulary")
         XCTAssertNotNil(manifest(files: [good[0], good[2]]).problem, "no decoder files")
         var m = manifest(files: good)
+        m.decoder.lengths = [4, 8, 16]
+        XCTAssertNil(m.problem)
+        XCTAssertEqual(m.decoder.length(for: 1), 4)
+        XCTAssertEqual(m.decoder.length(for: 5), 8)
+        XCTAssertEqual(m.decoder.length(for: 16), 16)
+        XCTAssertNil(m.decoder.length(for: 17))
+        for bad in [[4, 8], [8, 4, 16], [4, 4, 16], [0, 16], []] {
+            m.decoder.lengths = bad
+            XCTAssertNotNil(m.problem, "\(bad)")
+        }
+        m = manifest(files: good)
+        XCTAssertEqual(m.decoder.length(for: 3), 16, "no lengths: maxLength only")
         m.decoder.end = 10
         XCTAssertNotNil(m.problem)
         m = manifest(files: good)

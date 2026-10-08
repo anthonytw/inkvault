@@ -85,6 +85,9 @@ def main():
     p.add_argument("--max-ink-height", type=float)
     p.add_argument("--centre", action="store_true", help="centre the ink (default: left-aligned)")
     p.add_argument("--max-length", type=int, default=64)
+    p.add_argument("--lengths", type=int, nargs="+",
+                   help="token lengths the decoder accepts (default: 16, 32, ... up to --max-length); each step pads "
+                        "to the shortest that fits, so short equations decode several times faster than at --max-length")
     p.add_argument("--beam-width", type=int, default=3)
     p.add_argument("--joining", choices=["byteLevel", "words"], default="byteLevel")
     p.add_argument("--compute-units", default="cpuAndGPU", choices=["all", "cpuAndGPU", "cpuOnly", "cpuAndNeuralEngine"])
@@ -142,6 +145,10 @@ def main():
             # Core ML inputs are int32; embeddings index with int64.
             return self.m.decoder(input_ids=tokens.long(), encoder_hidden_states=encoder_states, use_cache=False).logits
 
+    lengths = sorted(set(a.lengths or [n for n in (16, 32, 64, 128, 256, 512, 1024, 2048, 4096) if n < a.max_length]
+                                       + [a.max_length]))
+    if lengths[-1] != a.max_length or lengths[0] < 2:
+        sys.exit("--lengths must end at --max-length and start at 2 or more")
     image = torch.zeros(1, a.channels, a.height, a.width)
     enc = Encoder(model)
     with torch.no_grad():
@@ -153,13 +160,19 @@ def main():
         reference = dec(tokens, states)
         # torch.export, not torch.jit.trace: traced shape arithmetic in the
         # decoders' masks becomes aten::Int on tensors, which coremltools rejects.
-        traced_dec = torch.export.export(dec, (tokens, states)).run_decompositions({})
+        seq = torch.export.Dim("seq", min=2, max=a.max_length)
+        traced_dec = torch.export.export(dec, (tokens, states),
+                                         dynamic_shapes={"tokens": {1: seq}, "encoder_states": None}).run_decompositions({})
     precision = ct.precision.FLOAT32 if a.fp32 else ct.precision.FLOAT16
     target = ct.target.iOS17
     ml_enc = ct.convert(traced_enc, outputs=[ct.TensorType(name="encoder_states", dtype=np.float32)],
                         minimum_deployment_target=target, compute_precision=precision, convert_to="mlprogram")
     ml_enc.save(os.path.join(a.out, "encoder.mlpackage"))
     ml_dec = ct.convert(traced_dec,
+                        inputs=[ct.TensorType(name="tokens", dtype=np.int32,
+                                              shape=ct.EnumeratedShapes(shapes=[[1, n] for n in lengths],
+                                                                        default=[1, a.max_length])),
+                                ct.TensorType(name="encoder_states", shape=states.shape, dtype=np.float32)],
                         outputs=[ct.TensorType(name="logits", dtype=np.float32)],
                         minimum_deployment_target=target, compute_precision=precision, convert_to="mlprogram")
     ml_dec.save(os.path.join(a.out, "decoder.mlpackage"))
@@ -180,7 +193,7 @@ def main():
                   "strokeWidth": a.stroke_width, "maxInkHeight": a.max_ink_height, "alignLeft": not a.centre,
                   "invert": a.invert, "mean": a.mean, "std": a.std},
         "vocabulary": {"file": "tokenizer.json", "joining": a.joining},
-        "decoder": {"start": int(start), "end": int(end), "pad": int(pad), "maxLength": a.max_length,
+        "decoder": {"start": int(start), "end": int(end), "pad": int(pad), "maxLength": a.max_length, "lengths": lengths,
                     "vocabularySize": int(vocab_size), "beamWidth": a.beam_width},
         "coreml": {"encoder": "encoder.mlpackage", "decoder": "decoder.mlpackage", "image": "image",
                    "encoderOutput": "encoder_states", "tokens": "tokens", "encoderStates": "encoder_states",

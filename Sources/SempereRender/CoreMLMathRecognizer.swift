@@ -88,10 +88,19 @@ public final class CoreMLMathRecognizer: MathRecognizing, @unchecked Sendable {
             throw Failure.missingFeature(c.encoderOutput)
         }
         let d = manifest.decoder
-        let tokens = try MLMultiArray(shape: [1, NSNumber(value: d.maxLength)], dataType: .int32)
+        // One token input per accepted length, reused across steps.
+        var inputs: [Int: MLMultiArray] = [:]
         let hypotheses = try MathBeamSearch.search(start: d.start, end: d.end, vocabularySize: d.vocabularySize,
                                                    width: d.beamWidth, maxLength: d.maxLength - 1) { prefix in
-            try self.nextLogits(prefix: prefix, tokens: tokens, states: states)
+            guard let length = d.length(for: prefix.count) else { throw Failure.badShape("prefix of \(prefix.count) tokens") }
+            let tokens: MLMultiArray
+            if let reused = inputs[length] {
+                tokens = reused
+            } else {
+                tokens = try MLMultiArray(shape: [1, NSNumber(value: length)], dataType: .int32)
+                inputs[length] = tokens
+            }
+            return try self.nextLogits(prefix: prefix, tokens: tokens, states: states)
         }
         let candidates = hypotheses.map { h in
             MathCandidate(latex: LaTeXCleanup.clean(vocabulary.text(h.tokens)), score: h.meanLogProbability)
@@ -107,9 +116,10 @@ public final class CoreMLMathRecognizer: MathRecognizing, @unchecked Sendable {
     private func nextLogits(prefix: [Int], tokens: MLMultiArray, states: MLMultiArray) throws -> [Float] {
         let d = manifest.decoder
         let c = manifest.coreml
-        guard !prefix.isEmpty, prefix.count <= d.maxLength else { throw Failure.badShape("prefix of \(prefix.count) tokens") }
+        let length = tokens.count
+        guard !prefix.isEmpty, prefix.count <= length else { throw Failure.badShape("prefix of \(prefix.count) tokens") }
         tokens.withUnsafeMutableBufferPointer(ofType: Int32.self) { buffer, _ in
-            for i in 0..<d.maxLength { buffer[i] = Int32(i < prefix.count ? prefix[i] : d.pad) }
+            for i in 0..<length { buffer[i] = Int32(i < prefix.count ? prefix[i] : d.pad) }
         }
         let out = try decoder.prediction(from: MLDictionaryFeatureProvider(dictionary: [
             c.tokens: MLFeatureValue(multiArray: tokens), c.encoderStates: MLFeatureValue(multiArray: states),

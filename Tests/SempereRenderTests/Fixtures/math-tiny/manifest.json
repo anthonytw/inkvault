@@ -12,6 +12,11 @@
   "decoder": {
     "beamWidth": 3,
     "end": 2,
+    "lengths": [
+      16,
+      32,
+      64
+    ],
     "maxLength": 64,
     "pad": 1,
     "start": 0,
@@ -20,37 +25,37 @@
   "files": [
     {
       "path": "decoder.mlpackage/Data/com.apple.CoreML/model.mlmodel",
-      "sha256": "3daadca3238463310adaa77d6fc0b208f25565302626350efdd38d53b865525a",
-      "size": 49339
+      "sha256": "60907190d3da01f2123af1d3dd4abca7b9223ef8677d9bb2ae446ba86aee0166",
+      "size": 57072
     },
     {
       "path": "decoder.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
-      "sha256": "59dabf421524a4fa3f5cf83e01d7112a920c650a8869b17356319009485c9f51",
-      "size": 247056
+      "sha256": "64792a97facc3e10d288a40cfd7c15cab6c1ad8e8f57643dec1b67c02b3a7cc4",
+      "size": 296400
     },
     {
       "path": "decoder.mlpackage/Manifest.json",
-      "sha256": "156d6816515a1ee7e32a82d1e4ff6d0b7a95aaa8b391fc057f8ddb0bbbfd8185",
+      "sha256": "ffcd9e0f299232ad298fe44e21ebe808c8e39254c0b6730f672f55b266d8d994",
       "size": 617
     },
     {
       "path": "decoder.mlpackage/executorch_debug_handle_mapping.json",
-      "sha256": "c7cbdde53479a87e8c48620a801b458b3b876f953188ba9cc2b1a26a250352e8",
-      "size": 45400
+      "sha256": "2b5a54245175c3f4e5faa6c381116e76bfb84616e2aab8de1c9ea846671ecba7",
+      "size": 54563
     },
     {
       "path": "encoder.mlpackage/Data/com.apple.CoreML/model.mlmodel",
-      "sha256": "53c62d0acb3ebf02bbc425735f6db9f480601a38803547d9c46f5db562bfe43e",
+      "sha256": "edd46571824167de1e2f0646ff2f63fb5bd21b4540cdc35c0ae738b39b441d98",
       "size": 27127
     },
     {
       "path": "encoder.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
-      "sha256": "14c8f5bb3d46ad94a9cea9b2b201beb897642723791515708b20b8d3d7f97514",
+      "sha256": "25e24cee399b782c2a5aaffa8d341ce9e7a425bcf4352c1703e0c7bd070c3895",
       "size": 177664
     },
     {
       "path": "encoder.mlpackage/Manifest.json",
-      "sha256": "f09ff8878369246b9a5641caaf6d49b4778c4687832a5210f1d308f7edd36e59",
+      "sha256": "a9a715aa321c07617c56d9b62579287a0f9c0183a03d5253bf3ada250f5666e7",
       "size": 617
     },
     {

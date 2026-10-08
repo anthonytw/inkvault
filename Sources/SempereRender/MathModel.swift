@@ -33,13 +33,25 @@ public struct MathModelManifest: Hashable, Sendable, Codable {
         public var start: Int
         public var end: Int
         public var pad: Int
-        /// Most tokens decoded, and the length of the decoder's token input.
+        /// Most tokens decoded, and the longest token input of the decoder.
         public var maxLength: Int
+        /// The token input lengths the decoder accepts (Core ML enumerated
+        /// shapes), ascending, the last `maxLength`; nil: `maxLength` only. Each
+        /// step pads to the shortest that fits (`length(for:)`): the decoder
+        /// has no KV cache, so its cost per step grows with this length.
+        public var lengths: [Int]?
         public var vocabularySize: Int
         public var beamWidth: Int
-        public init(start: Int, end: Int, pad: Int, maxLength: Int, vocabularySize: Int, beamWidth: Int = 3) {
-            self.start = start; self.end = end; self.pad = pad; self.maxLength = maxLength
+        public init(start: Int, end: Int, pad: Int, maxLength: Int, lengths: [Int]? = nil, vocabularySize: Int,
+                    beamWidth: Int = 3) {
+            self.start = start; self.end = end; self.pad = pad; self.maxLength = maxLength; self.lengths = lengths
             self.vocabularySize = vocabularySize; self.beamWidth = beamWidth
+        }
+
+        /// The token input length for a prefix of `count` tokens: the shortest
+        /// accepted length that holds it; nil when none does.
+        public func length(for count: Int) -> Int? {
+            (lengths ?? [maxLength]).first { $0 >= count }
         }
     }
 
@@ -144,6 +156,12 @@ public struct MathModelManifest: Hashable, Sendable, Codable {
         if let why = image.problem { return why }
         let d = decoder
         guard (1...4_096).contains(d.maxLength) else { return "maxLength out of range" }
+        if let lengths = d.lengths {
+            guard !lengths.isEmpty, lengths.count <= 32, lengths.last == d.maxLength,
+                  zip(lengths, lengths.dropFirst()).allSatisfy({ $0 < $1 }), lengths[0] >= 1 else {
+                return "lengths must ascend to maxLength"
+            }
+        }
         guard (2...MathVocabulary.maxTokens).contains(d.vocabularySize) else { return "vocabularySize out of range" }
         guard [d.start, d.end, d.pad].allSatisfy({ (0..<d.vocabularySize).contains($0) }) else { return "special token out of range" }
         guard (1...16).contains(d.beamWidth) else { return "beamWidth out of range" }
