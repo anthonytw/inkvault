@@ -3669,6 +3669,40 @@
         }
       }
     },
+    "Encrypted. It becomes a note the next time you unlock the vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cifrada. Pasará a ser una nota la próxima vez que desbloquees la bóveda."
+          }
+        }
+      }
+    },
+    "Encrypted. It moves to the vault's inbox when Sempere can reach the vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cifrada. Pasará a la bandeja de entrada de la bóveda cuando Sempere pueda acceder a ella."
+          }
+        }
+      }
+    },
+    "Encrypting…" : {
+      "comment" : "Widget subtitle while a voice note is encrypted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cifrando…"
+          }
+        }
+      }
+    },
     "End" : {
       "comment" : "Text alignment: trailing edge",
       "extractionState" : "manual",
@@ -4835,6 +4869,18 @@
         }
       }
     },
+    "Live Activities Off" : {
+      "comment" : "Widget and control title: iOS needs Live Activities to record",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actividades en directo desactivadas"
+          }
+        }
+      }
+    },
     "Live Activities are off for Sempere, and iOS needs one to record a voice note: turn them on in Settings → Sempere → Live Activities." : {
       "comment" : "Error from the quick voice note intents, also shown in Settings: Live Activities are turned off for the app",
       "extractionState" : "manual",
@@ -5095,6 +5141,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nombre (opcional)"
+          }
+        }
+      }
+    },
+    "Needed to record" : {
+      "comment" : "Widget subtitle under Live Activities Off",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Necesarias para grabar"
           }
         }
       }
@@ -5461,6 +5519,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ahora no"
+          }
+        }
+      }
+    },
+    "Not Saved" : {
+      "comment" : "Live Activity and banner: a voice note could not be saved",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No guardada"
           }
         }
       }
@@ -5936,6 +6006,29 @@
         }
       }
     },
+    "Open Sempere for details." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre Sempere para ver los detalles."
+          }
+        }
+      }
+    },
+    "Open Sempere's Settings" : {
+      "comment" : "Button: open Sempere's page in the system Settings app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir los ajustes de Sempere"
+          }
+        }
+      }
+    },
     "Open Settings › your name › iCloud › iCloud Drive and turn on “Sync this %@”. (On older versions the switch is called iCloud Drive.)" : {
       "comment" : "iCloud Drive help step; %@ is iPhone or iPad. Use the system's own names of these settings.",
       "extractionState" : "manual",
@@ -5978,6 +6071,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abre y desbloquea la bóveda en la ventana de la biblioteca."
+          }
+        }
+      }
+    },
+    "Open and unlock the vault that voice notes should go to, then turn this on." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre y desbloquea la bóveda a la que deben ir las notas de voz y luego activa esta opción."
           }
         }
       }
@@ -7248,6 +7352,18 @@
         }
       }
     },
+    "Record or Stop a Voice Note" : {
+      "comment" : "App Intent title (the Control Center control's action)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabar o detener una nota de voz"
+          }
+        }
+      }
+    },
     "Record with the microphone button in the toolbar." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7279,6 +7395,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grabación %@"
+          }
+        }
+      }
+    },
+    "Recording voice note" : {
+      "comment" : "In-app banner while a voice note records",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabando nota de voz"
           }
         }
       }
@@ -7325,6 +7453,18 @@
         }
       }
     },
+    "Recording…" : {
+      "comment" : "Widget and control subtitle: a voice note is being recorded",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabando…"
+          }
+        }
+      }
+    },
     "Records a voice note into your Sempere vault's inbox, encrypted on this device, without unlocking the vault." : {
       "comment" : "App Intent description",
       "extractionState" : "manual",
@@ -7333,6 +7473,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Graba una nota de voz en la bandeja de entrada de tu bóveda de Sempere, cifrada en este dispositivo, sin desbloquear la bóveda."
+          }
+        }
+      }
+    },
+    "Records a voice note into your Sempere vault's inbox, or stops the one being recorded." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graba una nota de voz en la bandeja de entrada de tu bóveda de Sempere, o detiene la que se está grabando."
           }
         }
       }
@@ -8175,6 +8326,30 @@
         }
       }
     },
+    "Saved on This Device" : {
+      "comment" : "Live Activity and banner: the vault was out of reach, the voice note waits on the device",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardada en este dispositivo"
+          }
+        }
+      }
+    },
+    "Saved to Inbox" : {
+      "comment" : "Live Activity and banner: where a voice note went (short: widget width)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En la bandeja de entrada"
+          }
+        }
+      }
+    },
     "Saved version" : {
       "comment" : "History: kind of a restore point (a checkpoint)",
       "extractionState" : "manual",
@@ -8206,6 +8381,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guardar…"
+          }
+        }
+      }
+    },
+    "Saving Voice Note" : {
+      "comment" : "Widget and control title while a stopped voice note is encrypted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardando nota de voz"
+          }
+        }
+      }
+    },
+    "Saving voice note…" : {
+      "comment" : "In-app banner while a stopped voice note is encrypted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardando la nota de voz…"
           }
         }
       }
@@ -8389,6 +8588,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Serif"
+          }
+        }
+      }
+    },
+    "Set Up Voice Notes" : {
+      "comment" : "Widget and control title when quick voice notes are not set up",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configurar notas de voz"
           }
         }
       }
@@ -8879,6 +9090,18 @@
         }
       }
     },
+    "Stop and save the voice note" : {
+      "comment" : "Stop button (VoiceOver) of the banner and the widget",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detener y guardar la nota de voz"
+          }
+        }
+      }
+    },
     "Stop the Voice Note" : {
       "comment" : "App Intent title",
       "extractionState" : "manual",
@@ -9186,6 +9409,18 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Tap to record" : {
+      "comment" : "Widget subtitle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca para grabar"
           }
         }
       }
@@ -10649,6 +10884,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reintentar"
+          }
+        }
+      }
+    },
+    "Turn on in Sempere" : {
+      "comment" : "Widget subtitle: quick voice notes are off; turn them on in the app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actívalas en Sempere"
           }
         }
       }
