@@ -14,9 +14,11 @@ struct BulkExportRequest: Identifiable, Equatable {
     /// "3 Notes", "Notebook “School”", "All Notes".
     var title: String {
         switch scope {
-        case .notes(let ids): return ids.count == 1 ? "1 Note" : "\(ids.count) Notes"
-        case .notebook(let path): return "Notebook “\(NotebookPath.components(path).last ?? path)”"
-        case .vault: return "All Notes"
+        case .notes(let ids): return String(localized: "\(ids.count) Notes")
+        case .notebook(let path):
+            let name = NotebookPath.components(path).last ?? path
+            return String(localized: "Notebook “\(name)”")
+        case .vault: return String(localized: "All Notes")
         }
     }
 
@@ -83,7 +85,7 @@ struct BulkExportProgress: Equatable, Sendable {
     var fraction: Double { total > 0 ? min(1, Double(done) / Double(total)) : 0 }
 
     var description: String {
-        done >= total ? "Finishing…" : "Exporting note \(done + 1) of \(total)…"
+        done >= total ? String(localized: "Finishing…") : String(localized: "Exporting note \(done + 1) of \(total)…")
     }
 }
 
@@ -230,7 +232,7 @@ final class BulkExportRun {
         discard()
         let jobs = model.bulkExportJobs(request.scope, options: options)
         guard !jobs.isEmpty else {
-            state = .failed("There are no notes to export.")
+            state = .failed(String(localized: "There are no notes to export."))
             return
         }
         let destination: BulkExportSession.Destination
@@ -240,7 +242,7 @@ final class BulkExportRun {
         case .folder(let url, let scoped):
             // Plaintext never goes into the vault folder (it syncs wherever the vault does).
             if model.isInsideVault(url) {
-                state = .failed("Choose a folder outside the vault: exported notes are not encrypted.")
+                state = .failed(String(localized: "Choose a folder outside the vault: exported notes are not encrypted."))
                 return
             }
             destination = .folder(url)

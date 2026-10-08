@@ -43,8 +43,11 @@ struct BulkExportSheet: View {
                     Section {
                         Button("Stop Export", role: .destructive) { run.cancel() }
                     } footer: {
-                        Text(asZip ? "Stopping deletes the unfinished archive."
-                             : "Notes already written stay in the folder; exporting again into it skips them.")
+                        if asZip {
+                            Text("Stopping deletes the unfinished archive.")
+                        } else {
+                            Text("Notes already written stay in the folder; exporting again into it skips them.")
+                        }
                     }
                 case .finished(let result):
                     finished(result)
@@ -86,7 +89,11 @@ struct BulkExportSheet: View {
     @ViewBuilder
     private var settings: some View {
         Section {
-            LabeledContent(request.title, value: noteCount == 1 ? "1 note" : "\(noteCount) notes")
+            LabeledContent {
+                Text("\(noteCount) notes")
+            } label: {
+                Text(request.title)
+            }
         }
         Section("Format") {
             Picker("Format", selection: $options.format) {
@@ -114,11 +121,13 @@ struct BulkExportSheet: View {
             Text(Self.shape(options, zip: asZip))
         }
         Section {
-            Button(asZip ? "Export" : "Choose Folder and Export…", systemImage: ExportCommand.menuImage) {
+            Group {
                 if asZip {
-                    run.start(model: model, request: request, options: options, target: .zip)
+                    Button("Export", systemImage: ExportCommand.menuImage) {
+                        run.start(model: model, request: request, options: options, target: .zip)
+                    }
                 } else {
-                    pickingFolder = true
+                    Button("Choose Folder and Export…", systemImage: ExportCommand.menuImage) { pickingFolder = true }
                 }
             }
             .disabled(noteCount == 0)
@@ -136,8 +145,7 @@ struct BulkExportSheet: View {
     @ViewBuilder
     private func finished(_ result: BulkExportResult) -> some View {
         Section {
-            let exported = result.exported.count
-            Label(exported == 1 ? "1 note exported" : "\(exported) notes exported", systemImage: "checkmark.circle")
+            Label("\(result.exported.count) notes exported", systemImage: "checkmark.circle")
                 .foregroundStyle(.green)
             if !result.skipped.isEmpty {
                 Label("\(result.skipped.count) already in the folder, unchanged (skipped)", systemImage: "arrow.uturn.forward")
@@ -170,16 +178,17 @@ struct BulkExportSheet: View {
             ? .zip : .folder
     }
 
-    /// One sentence on what the export writes.
+    /// What the export writes, in two sentences.
     static func shape(_ options: BulkExportOptions, zip: Bool) -> String {
-        let each: String
+        var each: String
         switch options.format {
-        case .pdf: each = "One PDF per note"
-        case .pdfAttachments: each = "One PDF per note, with its recordings, transcripts and videos attached"
-        case .png: each = "A folder of PNG pages per note"
+        case .pdf: each = String(localized: "One PDF per note.")
+        case .pdfAttachments: each = String(localized: "One PDF per note, with its recordings, transcripts and videos attached.")
+        case .png: each = String(localized: "A folder of PNG pages per note.")
         }
-        let tree = options.layout == .notebooks ? ", in folders like your notebooks" : ""
-        let where_ = zip ? " in one zip archive." : ". Exporting again into the same folder skips notes already there unchanged (same name, size and version)."
-        return each + tree + where_
+        if options.layout == .notebooks { each += " " + String(localized: "Folders follow your notebooks.") }
+        let destination = zip ? String(localized: "Everything goes into one zip archive.")
+            : String(localized: "Exporting again into the same folder skips notes already there unchanged (same name, size and version).")
+        return each + " " + destination
     }
 }
