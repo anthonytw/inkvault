@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Handwriting → LaTeX on device (G1 part 2), behind a setting and without a model yet: research with
+  licences, sizes, accuracy and measured decoder costs in `docs/research/handwriting-to-latex.md`. CLI:
+  `sempere recognize-math` picks ink (`--strokes`, `--rect`, `--lasso`, `--all-ink`), reads it with a
+  converted Core ML model on macOS (`--model DIR`, every file checked against its manifest's SHA-256) or
+  takes `--latex`, and with `--place replace|beside` turns it into an equation in one delta. App:
+  Settings → Handwritten Math (off by default; a model is downloaded only on request, its size shown
+  first) and Insert → Equation from Handwriting…: circle the ink, check the LaTeX the model read (with the
+  SwiftMath preview), then replace the ink or place the equation beside it, with undo.
+  `tools/math-model/convert.py` converts a Hugging Face image-to-LaTeX model into the model folder format.
 - Web viewer: transcript search and passphrase-wrapped keys (`docs/web-viewer.md`). "Also search
   recording transcripts" (off by default, like `sempere search --transcripts`) reads and decrypts every
   transcript in the tab and lists the matching segments under their notes; a match opens the recording

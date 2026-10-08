@@ -23,6 +23,7 @@ struct SettingsView: View {
                     NewNoteSettingsSection()
                     RecordingSettingsSection()
                     TranscriptionSettingsSection()
+                    MathRecognitionSettingsSection()
                     QuickCaptureSettingsSection()
                     PhotoSettingsSection()
                     HistorySettingsSection()

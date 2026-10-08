@@ -2977,6 +2977,17 @@
         }
       }
     },
+    "Cancel Download" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelar la descarga"
+          }
+        }
+      }
+    },
     "Cancel Export" : {
       "comment" : "Button: stop a running export",
       "extractionState" : "manual",
@@ -3117,6 +3128,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Buscar adjuntos sin usar"
+          }
+        }
+      }
+    },
+    "Check the LaTeX below: recognition makes mistakes. Replace Ink removes the strokes you circled; undo brings them back." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revisa el LaTeX de abajo: el reconocimiento comete errores. Sustituir la tinta elimina los trazos que has rodeado; deshacer los recupera."
           }
         }
       }
@@ -3340,6 +3362,18 @@
         }
       }
     },
+    "Circle the handwritten equation to convert it." : {
+      "comment" : "Convert to Math: the lasso's hint",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rodea la ecuación escrita a mano para convertirla."
+          }
+        }
+      }
+    },
     "Classic" : {
       "comment" : "Badge: a classic (not post-quantum) key; adjective for “key” (feminine in Spanish)",
       "extractionState" : "manual",
@@ -3504,6 +3538,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Contenido"
+          }
+        }
+      }
+    },
+    "Convert Handwriting to Math" : {
+      "comment" : "Settings toggle: Convert to Math feature",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Convertir escritura en fórmulas"
+          }
+        }
+      }
+    },
+    "Convert to Math" : {
+      "comment" : "Sheet title and undo action name: handwriting becomes an equation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Convertir en fórmula"
           }
         }
       }
@@ -4382,6 +4440,18 @@
         }
       }
     },
+    "Download (%@)" : {
+      "comment" : "Settings: download a handwriting model; the placeholder is its size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargar (%@)"
+          }
+        }
+      }
+    },
     "Download Language Model" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -4745,6 +4815,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ecuación"
+          }
+        }
+      }
+    },
+    "Equation from Handwriting…" : {
+      "comment" : "Insert menu: circle handwriting to turn it into an equation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ecuación a partir de escritura a mano…"
           }
         }
       }
@@ -5418,6 +5500,18 @@
         }
       }
     },
+    "Handwritten Math (Experimental)" : {
+      "comment" : "Settings section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fórmulas a mano (experimental)"
+          }
+        }
+      }
+    },
     "Healthy, %@" : {
       "comment" : "Settings ▸ Backups ▸ Last Check; %@ is how long ago",
       "extractionState" : "manual",
@@ -5906,6 +6000,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Insertar un campo de fecha en el patrón"
+          }
+        }
+      }
+    },
+    "Insert ▸ Equation from Handwriting reads the ink you circle as LaTeX, with a model that runs on this device: no ink leaves it. A model is downloaded only when you ask, checked against its published fingerprint and kept on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar ▸ Ecuación a partir de escritura a mano lee como LaTeX la tinta que rodeas, con un modelo que se ejecuta en este dispositivo: ninguna tinta sale de él. El modelo solo se descarga cuando lo pides, se comprueba con su huella publicada y se guarda en este dispositivo."
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "comment" : "Settings: a handwriting model is on this device",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalado"
           }
         }
       }
@@ -6969,6 +7086,39 @@
         }
       }
     },
+    "No handwriting inside the loop. Circle the equation again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay escritura dentro del lazo. Vuelve a rodear la ecuación."
+          }
+        }
+      }
+    },
+    "No handwriting model is installed. Download one in Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ningún modelo de escritura instalado. Descarga uno en Ajustes."
+          }
+        }
+      }
+    },
+    "No handwriting model is offered for this version of Sempere yet." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta versión de Sempere aún no ofrece ningún modelo de escritura."
+          }
+        }
+      }
+    },
     "No key is saved for this vault." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7351,6 +7501,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Las notas no se han descifrado (la bóveda está bloqueada)."
+          }
+        }
+      }
+    },
+    "Nothing could be read. Type the equation below." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido leer nada. Escribe la ecuación abajo."
           }
         }
       }
@@ -8503,6 +8664,30 @@
         }
       }
     },
+    "Place" : {
+      "comment" : "Convert to Math sheet: picker label (verb), where the equation goes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar"
+          }
+        }
+      }
+    },
+    "Place Beside" : {
+      "comment" : "Convert to Math sheet: the equation goes next to the strokes, which stay",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar al lado"
+          }
+        }
+      }
+    },
     "Place on This Page" : {
       "comment" : "Recordings list: put the recording's card on the page being looked at",
       "extractionState" : "manual",
@@ -8953,6 +9138,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leyendo la nota %lld de %lld…"
+          }
+        }
+      }
+    },
+    "Reading the handwriting on this device…" : {
+      "comment" : "Convert to Math sheet: the model is running",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leyendo la escritura en este dispositivo…"
           }
         }
       }
@@ -9465,6 +9662,18 @@
         }
       }
     },
+    "Remove Model" : {
+      "comment" : "Settings: delete the downloaded handwriting model",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar el modelo"
+          }
+        }
+      }
+    },
     "Remove Tag" : {
       "comment" : "Context submenu: remove one of the note's tags",
       "extractionState" : "manual",
@@ -9772,6 +9981,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sustituir imagen"
+          }
+        }
+      }
+    },
+    "Replace Ink" : {
+      "comment" : "Convert to Math sheet: the equation replaces the circled strokes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir la tinta"
           }
         }
       }
@@ -12001,6 +12222,18 @@
         }
       }
     },
+    "The handwriting could not be read: %@ Type the equation below." : {
+      "comment" : "Convert to Math; the error text (English) is the placeholder",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido leer la escritura: %@ Escribe la ecuación abajo."
+          }
+        }
+      }
+    },
     "The key could not be prepared for sharing: %@" : {
       "comment" : "Error; %@ is the reason",
       "extractionState" : "manual",
@@ -12623,6 +12856,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este dispositivo"
+          }
+        }
+      }
+    },
+    "This device cannot run the handwriting model." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este dispositivo no puede ejecutar el modelo de escritura."
           }
         }
       }

@@ -1,4 +1,5 @@
 import Sempere
+import SempereRender
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,9 @@ struct MathRequest: Identifiable {
     let actions: ItemActions?
     /// What is on screen (page points), where a new equation goes.
     let visible: CGRect?
+    /// Handwriting to convert ("Convert to Math"): the sheet reads it first
+    /// and the equation replaces it or goes beside it.
+    var conversion: MathConversionRequest? = nil
 }
 
 /// The style a new equation starts with: the last one used on this device.
@@ -47,6 +51,11 @@ struct MathEditorView: View {
     @State private var color: SwiftUI.Color
     @State private var saving = false
     @State private var failure: String?
+    // Conversion of handwriting (`request.conversion`).
+    @State private var reading = false
+    @State private var candidates: [MathCandidate] = []
+    @State private var readFailure: String?
+    @State private var placement = MathPlacement.replace
 
     init(request: MathRequest) {
         self.request = request
@@ -69,6 +78,7 @@ struct MathEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if request.conversion != nil { handwriting }
                 Section("Preview") {
                     preview
                         .frame(maxWidth: .infinity, minHeight: 72)
@@ -103,16 +113,76 @@ struct MathEditorView: View {
                     Section { Text(failure).foregroundStyle(.red) }
                 }
             }
-            .navigationTitle(request.item == nil ? "New Equation" : "Edit Equation")
+            .navigationTitle(request.conversion != nil ? "Convert to Math" : request.item == nil ? "New Equation" : "Edit Equation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(request.item == nil ? "Add" : "Done") { save() }
-                        .disabled(isEmpty || problem != nil || saving)
+                    Button(request.conversion != nil ? "Convert" : request.item == nil ? "Add" : "Done") { save() }
+                        .disabled(isEmpty || problem != nil || saving || reading)
                 }
             }
             .interactiveDismissDisabled(saving)
+            .task { await read() }
+        }
+    }
+
+    /// The handwriting's readings and where the equation goes (conversion only).
+    @ViewBuilder private var handwriting: some View {
+        Section {
+            if reading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Reading the handwriting on this device…")
+                }
+            } else if let readFailure {
+                Text(readFailure).foregroundStyle(.secondary)
+            } else if candidates.count > 1 {
+                ForEach(Array(candidates.enumerated()), id: \.offset) { _, candidate in
+                    Button {
+                        latex = candidate.latex
+                    } label: {
+                        HStack {
+                            Text(verbatim: candidate.latex).font(.system(.body, design: .monospaced)).lineLimit(2)
+                            Spacer()
+                            if candidate.latex == latex { Image(systemName: "checkmark").accessibilityHidden(true) }
+                        }
+                    }
+                    .accessibilityIdentifier("mathCandidate")
+                }
+            }
+            Picker("Place", selection: $placement) {
+                Text("Replace Ink").tag(MathPlacement.replace)
+                Text("Place Beside").tag(MathPlacement.beside)
+            }
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Handwriting")
+        } footer: {
+            Text("Check the LaTeX below: recognition makes mistakes. Replace Ink removes the strokes you circled; undo brings them back.")
+        }
+    }
+
+    /// Reads the circled ink with the installed model, off the main actor,
+    /// and starts the source with the best reading.
+    private func read() async {
+        guard let conversion = request.conversion, candidates.isEmpty, !reading else { return }
+        reading = true
+        defer { reading = false }
+        do {
+            let recognizer = try await MathModels.shared.recognizer()
+            let strokes = conversion.strokes
+            let result = try await Task.detached(priority: .userInitiated) { try recognizer.recognize(strokes: strokes) }.value
+            candidates = result?.candidates ?? []
+            if let best = candidates.first {
+                if latex.isEmpty { latex = best.latex }
+            } else {
+                readFailure = String(localized: "Nothing could be read. Type the equation below.",
+                                     comment: "Convert to Math: the model read nothing")
+            }
+        } catch {
+            readFailure = String(localized: "The handwriting could not be read: \(String(describing: error)) Type the equation below.",
+                                 comment: "Convert to Math; the error text follows (English)")
         }
     }
 
@@ -139,7 +209,15 @@ struct MathEditorView: View {
             do {
                 let value = try NoteOps.math(latex, display: display, size: size, color: content.color)
                 MathDefaults.remember(value)
-                if let item = request.item {
+                if let conversion = request.conversion {
+                    let (item, ink) = try await request.editor.convertInk(conversion, to: value, placement: placement)
+                    if let undo = conversion.undoManager {
+                        if request.editor.conversionActions?.undoManager !== undo {
+                            request.editor.conversionActions = ItemActions(editor: request.editor, undoManager: undo)
+                        }
+                        request.editor.conversionActions?.converted(item, ink: ink, on: conversion.page)
+                    }
+                } else if let item = request.item {
                     if let actions = request.actions {
                         try await actions.setMath(item.id, to: value, on: request.page)
                     } else {

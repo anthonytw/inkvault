@@ -318,3 +318,47 @@ final class TextFuzzTests: XCTestCase {
     }
 
 }
+
+/// Seeded mutation fuzzing of what a math model folder holds (docs/research/
+/// handwriting-to-latex.md): `manifest.json` and the tokenizer may come from
+/// any folder given to `sempere recognize-math --model`. Each parses or fails
+/// with its typed error; a parsed manifest's checks hold; decoding any ids of
+/// a parsed vocabulary never traps; the clean-up keeps sources the format accepts.
+final class MathModelFuzzTests: XCTestCase {
+    static func seeds() throws -> [Data] {
+        let folder = try T.fixtureURL("math-tiny")
+        let manifest = try Data(contentsOf: folder.appendingPathComponent("manifest.json"))
+        let small = Data(#"{"model": {"vocab": {"<s>": 0, "</s>": 1, "\\frac": 2, "Ġx": 3}}, "added_tokens": [{"id": 0, "content": "<s>", "special": true}]}"#.utf8)
+        return [manifest, small, Data(#"["<sos>", "x", "^", "{", "2", "}"]"#.utf8)]
+    }
+
+    func testFuzzManifestAndVocabulary() throws {
+        let report = Fuzz.run("math-model", seeds: try Self.seeds(), quick: 400, text: true, maxSize: 64 << 10) { input in
+            do {
+                let m = try MathModelManifest.parse(input)
+                if let why = m.problem { return "parsed a manifest that fails its own check: \(why)" }
+                for f in m.files where !MathModelManifest.isSafePath(f.path) { return "unsafe path \(f.path)" }
+                _ = m.decoder.length(for: m.decoder.maxLength)
+            } catch is MathModelManifest.Failure {
+            } catch { return "untyped manifest error \(type(of: error))" }
+            for joining in [MathVocabulary.Joining.byteLevel, .words] {
+                do {
+                    let v = try MathVocabulary.parse(input, joining: joining)
+                    let ids = [-1, 0, 1, 2, v.tokens.count - 1, v.tokens.count, Int.max, Int.min]
+                    let text = v.text(ids)
+                    _ = LaTeXCleanup.clean(text)
+                } catch is MathVocabulary.Failure {
+                } catch { return "untyped vocabulary error \(type(of: error))" }
+            }
+            if let s = String(data: input, encoding: .utf8) {
+                let cleaned = LaTeXCleanup.clean(s)
+                if MathSource.formatViolation(s) == nil, MathSource.formatViolation(cleaned) != nil {
+                    return "clean-up made a valid source invalid"
+                }
+            }
+            return nil
+        }
+        XCTAssertGreaterThan(report.cases, 0)
+        for f in report.failures { XCTFail("\(f)") }
+    }
+}

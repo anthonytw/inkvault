@@ -145,6 +145,20 @@ final class NoteEditor {
     /// The last recognition failure; cleared by the next success.
     private(set) var recognitionError: String?
 
+    // Handwriting → math (`NoteEditor+MathInk.swift`, docs/attachments.md §14 G1 part 2).
+    /// "Convert to Math" is picking ink: the canvases draw a lasso instead of ink.
+    var mathLassoActive = false
+    /// Ink picked for conversion, waiting in the equation sheet.
+    var mathConversion: MathConversionRequest?
+    /// Why the last lasso picked nothing (shown with the lasso's hint).
+    var mathLassoMessage: String?
+    /// Set while ink changed by an undo or redo step is shown again: the
+    /// canvases keep their undo stacks (`takeInk`, `putInkBack`).
+    @ObservationIgnored private(set) var reloadKeepsUndo = false
+    /// The undo steps of conversions, held for as long as the editor (the
+    /// undo manager does not retain its targets).
+    @ObservationIgnored var conversionActions: ItemActions?
+
     // Recordings (`NoteEditor+Recordings.swift`, format.md §8.3, docs/attachments.md §9).
     /// The note's recordings in their order (format.md §5.4). Changed only by
     /// `NoteEditor+Recordings` (one delta per change).
@@ -1325,5 +1339,112 @@ extension NoteEditor {
         recognitionsWritten += current.count
         if !failed { recognitionError = nil }
         onRecognized?(noteID)
+    }
+}
+
+
+// MARK: - Ink converted to math (`NoteEditor+MathInk.swift`)
+
+/// Canvas strokes a conversion took off a page, as the ledger held them:
+/// what undo puts back. Immutable; held by undo closures (like the eraser's
+/// `DrawingBox`), hence `@unchecked Sendable`.
+final class ConvertedInk: @unchecked Sendable {
+    let page: UUID
+    /// The ledger entries removed: fingerprints and stored strokes.
+    let entries: [StrokeLedger.Entry]
+    /// The canvas strokes they were shown as.
+    let canvasStrokes: [PKStroke]
+
+    init(page: UUID, entries: [StrokeLedger.Entry], canvasStrokes: [PKStroke]) {
+        self.page = page; self.entries = entries; self.canvasStrokes = canvasStrokes
+    }
+
+    /// Every stored stroke taken.
+    var strokes: [Stroke] { entries.flatMap(\.strokes) }
+}
+
+extension NoteEditor {
+    /// The page's ledger and the drawing its canvases show, one canvas stroke
+    /// per ledger entry (re-converted from the live strokes when they are not).
+    private func alignedInk(_ pageID: UUID) -> (StrokeLedger, PKDrawing)? {
+        if ledgers[pageID] == nil || canvasDrawings[pageID]?.strokes.count != ledgers[pageID]?.entries.count {
+            _ = drawing(for: pageID)
+        }
+        guard let l = ledgers[pageID], let shown = canvasDrawings[pageID], shown.strokes.count == l.entries.count else {
+            return nil
+        }
+        return (l, shown)
+    }
+
+    /// Takes every canvas stroke holding one of `ids` off page `pageID`, as an
+    /// erase would: the ledger retires them, so their `removeStroke` ops go
+    /// into the next save (with whatever else is pending: one delta), and the
+    /// canvases showing the page show the rest in this main-actor turn
+    /// (`RemoteInkView.reloadInk`, which also clears the canvas's own undo
+    /// steps). Nil when nothing was taken.
+    func takeInk(_ ids: Set<UUID>, from pageID: UUID, keepUndo: Bool = false) -> ConvertedInk? {
+        guard !isReadOnly, !isShutDown, !ids.isEmpty, let (ledger, shown) = alignedInk(pageID) else { return nil }
+        var l = ledger
+        var keep: [StrokeLedger.Item] = []
+        var kept: [PKStroke] = []
+        var taken: [StrokeLedger.Entry] = []
+        var takenCanvas: [PKStroke] = []
+        for (i, e) in l.entries.enumerated() {
+            if e.strokes.contains(where: { ids.contains($0.id) }) {
+                taken.append(e)
+                takenCanvas.append(shown.strokes[i])
+            } else {
+                let strokes = e.strokes
+                keep.append(StrokeLedger.Item(info: e.info, make: { strokes }))
+                kept.append(shown.strokes[i])
+            }
+        }
+        guard !taken.isEmpty else { return nil }
+        let change = l.update(keep)
+        ledgers[pageID] = l
+        showChangedInk(PKDrawing(strokes: kept), change: change, on: pageID, keepUndo: keepUndo)
+        return ConvertedInk(page: pageID, entries: taken, canvasStrokes: takenCanvas)
+    }
+
+    /// Puts ink `takeInk` took back on its page, above the rest (undo). The
+    /// ledger revives the strokes: their own ids while the removal is not
+    /// saved, new ids with `parent` once it is (format.md §5.2). Returns
+    /// the ids the strokes have now; nil when the page is gone or the note
+    /// cannot be edited.
+    @discardableResult
+    func putInkBack(_ ink: ConvertedInk, keepUndo: Bool = false) -> [UUID]? {
+        let pageID = ink.page
+        guard !isReadOnly, !isShutDown, pages.contains(where: { $0.id == pageID }),
+              let (ledger, shown) = alignedInk(pageID) else { return nil }
+        var l = ledger
+        var items = l.entries.map { e -> StrokeLedger.Item in
+            let strokes = e.strokes
+            return StrokeLedger.Item(info: e.info, make: { strokes })
+        }
+        for e in ink.entries {
+            let strokes = e.strokes
+            items.append(StrokeLedger.Item(info: e.info, make: { strokes }))
+        }
+        let change = l.update(items)
+        ledgers[pageID] = l
+        let drawing = PKDrawing(strokes: shown.strokes + ink.canvasStrokes)
+        showChangedInk(drawing, change: change, on: pageID, keepUndo: keepUndo)
+        return l.entries.suffix(ink.entries.count).flatMap(\.strokes).map(\.id)
+    }
+
+    /// The page's ink changed outside its canvas: the drawing its canvases
+    /// show, saved like a canvas change (dirty, recognised again).
+    private func showChangedInk(_ drawing: PKDrawing, change: StrokeLedger.Change, on pageID: UUID, keepUndo: Bool) {
+        canvasDrawings[pageID] = drawing
+        if !change.isEmpty {
+            inkRevisions[pageID, default: 0] &+= 1
+            dirtyPages.insert(pageID)
+            touchedPages.insert(pageID)
+            scheduleRecognition()
+        }
+        reloadKeepsUndo = keepUndo
+        defer { reloadKeepsUndo = false }
+        for view in inkViews.compactMap(\.view) where view.shownPageID == pageID { view.reloadInk(from: self) }
+        inkViews.removeAll { $0.view == nil }
     }
 }

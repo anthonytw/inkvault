@@ -30,6 +30,10 @@ public enum AttachmentOpsError: Error, Hashable, Sendable {
     case noSuchImage(String)
     /// The LaTeX source or the math item's content cannot be stored or typeset (format.md §8.2.8).
     case invalidMath(String)
+    /// Strokes named for a conversion are not on the page (ids, lowercase).
+    case noSuchStrokes([String])
+    /// A conversion was given no strokes with ink.
+    case noInk
 }
 
 extension AttachmentOpsError: CustomStringConvertible {
@@ -51,6 +55,8 @@ extension AttachmentOpsError: CustomStringConvertible {
         case .invalidVideo(let why): return "invalid video: \(why)"
         case .noSuchImage(let i): return "no image \(i) on this page"
         case .invalidMath(let why): return "invalid equation: \(why)"
+        case .noSuchStrokes(let ids): return "no stroke \(ids.joined(separator: ", ")) on this page"
+        case .noInk: return "no strokes with ink were selected"
         }
     }
 }
