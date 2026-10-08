@@ -1168,6 +1168,49 @@ for its note (§4).
   gesture end, not per frame. Copy, cut and paste of items across notes
   copy their blobs (`NoteWriter.copyBlob`).
 
+### Selecting items
+
+One selection model for every item kind (text boxes, images, PDF pages,
+videos, math and kinds this version does not know), whichever way the item
+is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
+`ItemSelectionModel`, `ItemMenu` and `ItemFrames` in `Sources/Sempere/ItemOps.swift`):
+
+- **Ways in.** *Select* in the editor toolbar (always shown on an editable
+  note) turns selection mode on: a tap selects the topmost item, content
+  before backgrounds. While drawing, an item is picked without changing
+  tools by a tap with PencilKit's **lasso** (the lasso still lassoes ink),
+  by **holding a finger** on it when fingers do not draw (with the Pencil,
+  the default on an iPad), or by a **secondary click** (right-click,
+  two-finger click; a Mac's mouse always draws, so this is its way). Such a
+  pick is a transient selection: drawing is off while the item is selected
+  and comes back as soon as nothing is (a tap beside it, Delete) or a tool is
+  picked. A finger *tap* on a video still plays it.
+- **Selected state.** A solid outline over a faint tint, white handles and
+  the item's menu next to it. A text box's height follows its lines
+  (format.md §8.2.4), so it has side handles that set its wrapping width;
+  every other kind has corner handles and keeps its proportions
+  (`ItemFrames.handles`, `keepsAspect`). A drag inside moves the item, a drag
+  on a handle resizes it; one delta and one undo step per gesture.
+- **Taps.** The first tap selects; a tap on the selected item shows its menu
+  again, or types in it for a text box, so a double tap edits a box from
+  scratch; a tap beside the selection clears it; only a tap on the empty
+  page with nothing selected is the page's (Paste in selection mode, a new
+  box with the text tool). The text tool is the same selection limited to
+  text boxes: tap selects a box (to move it or set its width), tap again or
+  double-tap edits, tap on the page starts a new box.
+- **Menu** (`ItemMenu`): Play (video), Edit Text (text), Copy, Duplicate,
+  Crop… (images, PDF pages), Replace Image ▸ From Photos… / From Files…
+  (images), Bring to Front, Delete; Paste when the clipboard holds items.
+- **Replace Image.** An image's blob is immutable (format.md §8.2.2): the
+  new picture is stored first (photo privacy setting applies), then one delta
+  removes the old image and adds a new one whose `parent` names it, in the
+  largest frame of the new picture's proportions inside the old frame,
+  centred, with its rotation and stacking (`NoteOps.replaceImage`, CLI
+  `sempere items replace`). Undo puts the old picture back the same way.
+- **Text colour** is a row of swatches (the pen palette: black, blue, green,
+  yellow, red, and the pen's current colour first when it is another one)
+  plus the system colour picker, as the pen's colour wheel opens.
+
 ### Export options
 
 The export sheet offers **PDF** and **PDF + attachments** side by side (plus
