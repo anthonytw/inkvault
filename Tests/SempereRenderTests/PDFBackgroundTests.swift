@@ -94,7 +94,7 @@ final class PDFBackgroundTests: XCTestCase {
         let notPDF = blobs.add(Data("hello".utf8))
         let encrypted = blobs.add(try PDFFixture.data("encrypted.pdf"))
         let text = Item.text(TextContent(size: 12, color: .black, runs: [TextRun("hi")]), frame: Rect(x: 5, y: 5, w: 50, h: 10), z: "t")
-        let unknown = Item(kind: ItemKind(rawValue: "math"), frame: Rect(x: 5, y: 50, w: 20, h: 20), z: "u")
+        let unknown = Item(kind: ItemKind(rawValue: "shape"), frame: Rect(x: 5, y: 50, w: 20, h: 20), z: "u")
         let note = PDFFixture.note(size: (400, 300), items: [
             item(missing, size: (10, 10), frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "1"),
             item(notPDF, size: (10, 10), frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "2"),
@@ -111,7 +111,7 @@ final class PDFBackgroundTests: XCTestCase {
         XCTAssertEqual(reasons[2], .pdfUnreadable("the PDF is encrypted (remove the password first)"))
         guard case .pdfUnreadable = reasons[3] else { return XCTFail("\(reasons[3])") }
         XCTAssertTrue(reasons.contains(.unsupportedKind("text")))
-        XCTAssertTrue(reasons.contains(.unsupportedKind("math")))
+        XCTAssertTrue(reasons.contains(.unsupportedKind("shape")))
         // Placeholders: frame outline plus diagonals in #9AA0A6.
         XCTAssertTrue(T.contains(pdf, "0.604 0.627 0.651 RG"))
     }

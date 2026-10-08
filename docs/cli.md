@@ -368,6 +368,9 @@ sempere attach text NOTE (TEXT | --file FILE|-) [--page N] [--frame ... | --at .
                              [--font sans|serif|mono] [--size PT] [--color #RRGGBB[AA]]
                              [--align start|center|end|left|right] [--bold] [--italic] [--lang TAG]
                              [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
+sempere attach math NOTE (--latex SOURCE | --latex-file FILE|-) [--page N] [--frame ... | --at ... --width ...]
+                             [--inline] [--size PT] [--color #RRGGBB[AA]] [--render FILE.pdf [--engine NAME]]
+                             [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
 sempere attach video NOTE FILE [--page N] [--frame ... | --at ... --width ...] [--rotation DEG]
                              [--poster IMAGE | --poster-time S | --no-poster] [--keep-metadata]
                              [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
@@ -409,6 +412,25 @@ exit 2).
   `--rotation` is degrees clockwise. Items stack in the order they are added
   (each gets a `z` above the layer's others); `--layer background` puts the image
   under the page's other items.
+- `math` adds an equation (`format.md` §8.2.8): LaTeX in math mode without
+  `$` delimiters, from `--latex` or `--latex-file` (`-` is standard input; one
+  trailing newline is dropped), stored as NFC, display style unless
+  `--inline`, `--size` 20 and black by default. The source is refused (exit 1,
+  nothing written) beyond 8 192 bytes, with an unbalanced group (`{…}`,
+  `\left…\right`, `\begin…\end`), more than 4 096 symbols or nesting deeper
+  than 64 levels (`MathSource.check`). **The CLI has no math typesetter**
+  (`Sources/` stays pure Swift): without `--render` the item has no rendering,
+  its frame is estimated from the source (0.6 em per character of the longest
+  line, 1.6 em per line, within the margins), exports draw the source in a
+  monospace font and say so on stderr, and the app typesets it the next time
+  the equation is edited there. `--render` stores a one-page, unencrypted PDF of
+  the typeset equation made elsewhere (for example `pdflatex` on a `standalone`
+  document, or `tectonic`, then `pdfcrop`) as its rendering, drawn only in the
+  equation's colour on a transparent page; the frame is then the PDF's page
+  size (`--width` scales it, keeping the aspect), and `--engine` records what
+  made it. The equation is searchable (`sempere search`), and Markdown and HTML
+  exports keep its source as `$$…$$` (display) or `$…$` (inline). `items math`
+  changes it later.
 - `pdf` stores the PDF once and places pages of it (`--pages`, default all;
   the list keeps its order). By default each selected page becomes a **new note
   page** with the PDF page as a background that fills it (layer 0; fitted and
@@ -887,6 +909,8 @@ sempere items list ID|TITLE [--page N]
 sempere items move ID|TITLE ITEM --frame x,y,w,h
 sempere items rotate ID|TITLE ITEM --degrees D
 sempere items crop ID|TITLE ITEM (--crop x,y,w,h | --clear) [--keep-frame]
+sempere items math ID|TITLE ITEM [--latex SOURCE | --latex-file FILE|-] [--display | --no-display]
+                                 [--size PT] [--color #RRGGBB[AA]] [--render FILE.pdf [--engine NAME]]
 sempere items front ID|TITLE ITEM
 sempere items delete ID|TITLE ITEM...
 sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
@@ -894,15 +918,17 @@ sempere items copy ID|TITLE ITEM... --to ID|TITLE [--page N]
 sempere items poster ID|TITLE ITEM (IMAGE | --from-clip [--poster-time S] | --remove) [--dry-run]
 ```
 
-The app's gestures on placed items (text boxes, images, PDF pages, video clips;
+The app's gestures on placed items (text boxes, images, PDF pages, video clips, equations;
 `docs/format.md` §8.2), one delta each, built by the same `NoteOps` item
 builders as the app's canvas and computed from the note as it is on disk when
 the delta is written. An item is named by its id or an id prefix of at least
 4 characters (an ambiguous prefix is refused); the items of one command must
 be on one page. `list` prints page, id prefix, kind, frame and attachment
 (`--json`: `page`, `id`, `kind`, `layer`, `frame`, `rotation`, `z`, `blob`, `crop`,
-and for a video `duration` and `poster`; the table shows a video's length and
-`+poster` or `(no poster)`). `poster` sets a video's poster frame (a JPEG or
+and for a video `duration` and `poster`, for an equation `math`, its whole
+value, with `blob` its rendering; the table shows a video's length and
+`+poster` or `(no poster)`, and an equation's source, marked `(not typeset)`
+without a rendering). `poster` sets a video's poster frame (a JPEG or
 PNG, stored upright without metadata; `--from-clip` on macOS takes it from the
 clip at `--poster-time`, default 0.5 s) or removes it (`--remove`): one
 `setItem` of the `poster` register (`format.md` §8.2.7), nothing when the video
@@ -915,7 +941,13 @@ part of an image or PDF page shown (`--crop` in the source's coordinates:
 pixels of the upright image, or points on the PDF page's visible box; clamped
 to the source; `--clear` shows all of it): the frame follows so the part that
 stays visible keeps its place and size on the page, as the app's Crop, unless
-`--keep-frame` (`NoteOps.setCrop`; a text box is refused), `front`
+`--keep-frame` (`NoteOps.setCrop`; a text box is refused), `math` writes an
+equation's whole value (`NoteOps.setMath`, `format.md` §8.2.8): the options
+given replace the source, style, size or colour, checked as `attach math`
+does; any such change drops the rendering (the CLI cannot typeset) unless
+`--render` gives one for the new value, and a new rendering also sets the
+frame (same top-left corner, its size times the scale the frame had to the
+previous rendering, 1 without one), `front`
 draws the item above the others of its layer, `delete` removes items (their
 attachments stay until `blobs gc`), `duplicate` copies them on their page
 shifted by 20 points (or `--dx`, `--dy`), and `copy` copies them to a page of
@@ -1068,19 +1100,21 @@ sempere search TERM [--transcripts]
 
 Case-insensitive, accent-insensitive substring search over every page's
 recognised handwriting text (the Notability import, on-device recognition),
-**the text of every text box and the stored text of every PDF page**
+**the text of every text box, the LaTeX source of every equation and the
+stored text of every PDF page**
 (`pageText`, see `import pdf`), in all notes except deleted ones. With
 `--transcripts` it also searches the transcript of every recording, which means
 decrypting each transcript blob (a transcript that cannot be read is reported
 on stderr and makes the exit code 1). Human output is one row per hit: note
-title, where (`p3` handwriting on page 3, `p3 text` a text box, `p3 pdf p7`
+title, where (`p3` handwriting on page 3, `p3 text` a text box, `p3 math` an
+equation, `p3 pdf p7`
 page 7 of a PDF shown on note page 3, `rec 12:03 Title` a transcript segment
 at that time) and a snippet. `--json` emits a list
 of hits with `noteId`, `title`, `notebook`, `snippet`, `matches`, `source`
-(`handwriting`, `text`, `pdf` or `transcript`) and per source: `page` (1-based),
+(`handwriting`, `text`, `math`, `pdf` or `transcript`) and per source: `page` (1-based),
 `pageId`, `engine` and `words` (the recognised words containing the term with
 their `[x, y, w, h]` boxes) for handwriting; `page`, `pageId`, `itemId` and `box`
-(the text box's frame) for text; `page`, `pageId`, `itemId`, `box` (the PDF
+(the text box's or equation's frame) for text and math; `page`, `pageId`, `itemId`, `box` (the PDF
 page item's frame), `pdfPage` (1-based page of the PDF) and `engine` (what
 extracted the text) for pdf; `recordingId`, `recordingTitle`, `start`,
 `end` (seconds), `engine` for a transcript (no `page`). No match prints `No
@@ -1354,6 +1388,26 @@ rotation); images are clipped to their frame, under the ink.
   megapixels (§8.4) or over 64 MiB; unknown item kinds. The export still
   succeeds; with `--json` each note's `placeholders` counts them. `markdown`
   and `html` exports draw images too.
+
+#### Equations in exports
+
+Equations (`math` items, `docs/format.md` §8.2.8) are drawn from their stored
+rendering, a one-page PDF the app (or `attach math --render`) wrote: `pdf`
+copies it as a Form XObject (exact vectors, transparent around the marks);
+`svg` and `png` rasterize it with Poppler as for PDF pages above and turn the
+white page back into coverage of the equation's colour, so the paper shows
+around it. An equation without a rendering (written by `attach math` alone),
+or whose rendering cannot be drawn (missing, damaged, no Poppler for SVG or
+PNG), is drawn as its LaTeX source in a monospace font at its size and colour,
+with one warning per equation:
+
+```
+sempere: warning: 0d1c6a1e: page 1: equation 5e2b9c1d is drawn as its LaTeX source (no typeset rendering stored; typeset it in the app)
+```
+
+Only when the source cannot be laid out either is it a placeholder. `markdown`
+and `html` exports also list each page's equations as `$$source$$` (display)
+or `$source$` (inline) text.
 
 #### Text in exports
 

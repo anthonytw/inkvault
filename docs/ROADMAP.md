@@ -3,7 +3,7 @@
 Where every feature sits, by component. Status: ✅ done on `main` (with the PR number) · 🚧 in progress (open PR number) ·
 📋 planned (next) · 💡 future. A note "not yet tried on the iPad" means it is on `main` and
 passed CI, but nobody has used it on a device. Statuses last checked against `main` at
-`2144cc1` (#106) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
+`7395be0` (#96) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
 details in `docs/attachments.md` §14. `docs/HANDOFF.md` has the current
 working state.
 
@@ -15,7 +15,7 @@ working state.
 | 2 | Rename sweep to Sempere (one PR; touches every file) | new feature branches; start them after this to avoid conflicts | ✅ (2026-10-05) |
 | 3 | Rebuild the test vault (post-quantum key, full import) → first TestFlight | device testing | ✅ (TestFlight builds 6 and 7 are out) |
 | 4 | iPad round 2 and attachments A0 (in parallel) | the rest of attachments | ✅ |
-| 5 | Attachments, batches of 3–4 cloud sessions along the §14 dependencies | math, video | 🚧 video ✅ #93; math 🚧 #96; E7 🚧 #95 |
+| 5 | Attachments, batches of 3–4 cloud sessions along the §14 dependencies | math, video | 🚧 video ✅ #93; math ✅ #96; E7 🚧 #95 |
 | 6 | Mac polish → App Store submission (iPad + Mac) → `/ultrareview` | public release | 📋 |
 
 ## Shared library (`Sources/`: Age, Sempere, SempereRender, SempereImport, SempereWebDAV)
@@ -56,8 +56,8 @@ working state.
 | Sync | WebDAV push-only mirror: server never feeds back (`PushOnlySync.swift`) | ✅ #97 |
 | Sync | WebDAV: HTTPS server trust left to the system (sync failed on macOS) | ✅ #105 |
 | Vault | Attachment index and unused-attachment report (E7, `format.md` §10.1) | 🚧 #95 |
-| Vault | Math items (G1, `format.md` §8.2.8): LaTeX source, `MathSource.check`, `NoteOps.placeMath` | 🚧 #96 |
-| Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2.8) | 🚧 #103 |
+| Vault | Math items (G1, `format.md` §8.2.8): LaTeX source, `MathSource.check`, `NoteOps.placeMath` | ✅ #96 |
+| Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2, a new item kind) | 🚧 #103 |
 | Vault | Recently Recognized shared across devices (stored in the vault) | 🚧 #102 (draft) |
 | Render | Video in exports: poster with a play mark in PDF/SVG/PNG, clips embedded in "PDF + attachments" streamed from the vault (`PDFWriter.write(to:)`), clips written next to Markdown/HTML and linked | ✅ #93 |
 
@@ -104,7 +104,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Text boxes: `attach text` stores the `breaks` of its layout (`--no-breaks` to leave wrapping to renderers), `items move` lays a text box out again at a new width (E2) | ✅ #82 | ✅ #82 |
 | PDF backgrounds in export (PDF exact; SVG/PNG via Poppler if installed, `--pdf-renderer`) | ✅ #61 | ✅ #61 (Poppler too; the app uses PDFKit) |
 | `attach video` (pure-Swift probe; poster from `--poster`, or from the clip on macOS), `items poster`, `export --videos attach` / `--attachments`, clips linked in Markdown/HTML (G2) | ✅ #93 (no poster without `--poster`) | ✅ #93 |
-| Math in exports, `attach math` | 🚧 #96 | 🚧 #96 |
+| Equations (G1): `attach math` (`--latex`, `--inline`, `--size`, `--color`, `--render` a PDF typeset elsewhere), `items math`, `items list`/`notes show`/`search` over the LaTeX source; exports draw the stored rendering (PDF form; SVG/PNG via Poppler as coverage of its colour), else the source as monospace text with a warning; `$$…$$` in Markdown/HTML | ✅ #96 | ✅ #96 |
 | `items replace`, `recordings list\|place\|rename\|delete`, `attach recording --place`, `vault summaries` | 🚧 #104, #103, #100 | 🚧 #104, #103, #100 |
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | ✅ #94 | ✅ #94 |
 
@@ -150,7 +150,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Selecting images, text boxes and PDFs on the canvas, Replace Image, text colour swatches, Insert menu sections (build 7 feedback) | 🚧 #104 |
 | Attachments | Audio items on the page, Recordings list on the Mac (build 7 feedback) | 🚧 #103 |
 | Keys | Save Key…, New Key… in Settings → Device Keys (Face ID gated) | 🚧 #99 |
-| Attachments | Math (G1): LaTeX typing, typeset on device (SwiftMath); handwriting → LaTeX stays 💡 | 🚧 #96 (typing); 💡 handwriting |
+| Attachments | Equations (G1): Insert → Equation, a LaTeX sheet with a live SwiftMath preview (display/inline, size, colour), the rendered PDF stored before the delta, drawn on the item layer, edit/move/resize/undo like other items | ✅ #96 (not yet tried on the iPad) |
+| Future | Handwriting → LaTeX on device (G1 part 2; research and recommendation in `docs/attachments.md` §14 G1) | 💡 |
 | Attachments | Video (G2): record with the camera, pick from Photos or Files, drag in; poster from the clip (AVAssetImageGenerator); tap to play (AVPlayer from a verified temporary file); location removed by the photo privacy setting; clip downloaded from iCloud only when played; item gestures and undo; "PDF + attachments" embeds clips | ✅ #93 (not yet tried on the iPad) |
 | Release | TestFlight | ✅ builds 6 and 7 (internal group) |
 | Release | App Store submission | 📋 |

@@ -26,6 +26,8 @@ public enum AttachmentOpsError: Error, Hashable, Sendable {
     case invalidPoster(String)
     /// The clip is not one a `video` item may hold (format.md §8.2.7): why.
     case invalidVideo(String)
+    /// The LaTeX source or the math item's content cannot be stored or typeset (format.md §8.2.8).
+    case invalidMath(String)
 }
 
 extension AttachmentOpsError: CustomStringConvertible {
@@ -45,6 +47,7 @@ extension AttachmentOpsError: CustomStringConvertible {
         case .noSuchRecording(let r): return "no recording \(r) in this note"
         case .invalidPoster(let why): return "invalid poster: \(why)"
         case .invalidVideo(let why): return "invalid video: \(why)"
+        case .invalidMath(let why): return "invalid equation: \(why)"
         }
     }
 }
