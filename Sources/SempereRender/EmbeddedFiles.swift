@@ -120,8 +120,11 @@ struct EmbeddedFiles {
     }
 
     /// Adds `note`'s recordings, in their order (format.md §5.4), each
-    /// followed by its transcript as text when it has one. A recording that
-    /// cannot be read, or would pass the size limit, is left out and reported.
+    /// followed by its transcript as text when it has one. Audio over 16 MiB
+    /// is streamed from its blob when the PDF is written, never held whole (a
+    /// recording may be up to 1 GiB). A recording that cannot be read (or,
+    /// streamed, is not available), or would pass the size limit, is left out
+    /// and reported.
     mutating func add(recordingsOf note: NoteState, blobs: (any BlobSource)?, report: inout RenderReport) {
         let title = note.meta.title.isEmpty ? "Untitled" : note.meta.title
         for r in note.recordings.sorted(by: Recording.sortsBefore) {
@@ -131,29 +134,41 @@ struct EmbeddedFiles {
                 report.warn("recordings were not embedded: no attachments were available to the export")
                 continue
             }
-            guard r.blob.size >= 0, bytes + Int(clamping: r.blob.size) <= limit else {
+            guard r.blob.size >= 0, Int64(bytes) + r.blob.size <= Int64(limit) else {
                 report.recordingsOmitted += 1
                 report.warn("recordings over \(limit >> 20) MiB in one PDF were left out")
                 continue
             }
-            let audio: Data
-            do { audio = try blobs.data(for: r.blob, maxBytes: limit - bytes) } catch {
-                report.recordingsOmitted += 1
-                report.warn("a recording of \(title) could not be read: \(error)")
-                continue
+            // Up to 16 MiB (about 35 minutes at the default 64 kbit/s) is read now, so one that
+            // cannot be read is left out; a longer one is streamed when the PDF is written.
+            let content: File.Content
+            if r.blob.size <= Int64(Vault.maxInMemoryBlobBytes) {
+                do { content = .data(try blobs.data(for: r.blob, maxBytes: Vault.maxInMemoryBlobBytes)) } catch {
+                    report.recordingsOmitted += 1
+                    report.warn("a recording of \(title) could not be read: \(error)")
+                    continue
+                }
+            } else {
+                guard blobs.isAvailable(r.blob) else {
+                    report.recordingsOmitted += 1
+                    report.warn("a recording of \(title) is not available (missing or not downloaded)")
+                    continue
+                }
+                content = .blob(r.blob, blobs)
             }
-            bytes += audio.count
+            bytes += Int(r.blob.size)
             let base = Self.safe(label).isEmpty ? "Recording" : Self.safe(label)
             let audioName = uniqueName(base, ext: Self.fileExtension(r.blob.type))
             var desc = "\(label) – \(title), \(EmbeddedFormat.utcShort(r.started))"
             if let d = r.duration, d.isFinite { desc += ", \(Transcript.clock(d))" }
             files.append(File(name: audioName, mimeType: r.blob.type.split(separator: ";").first.map(String.init) ?? "audio/mp4",
-                              description: desc, content: .data(audio), compress: false))
+                              description: desc, content: content, compress: false))
             report.recordingsAttached += 1
             if let ref = r.transcript,
                let content = try? blobs.data(for: ref, maxBytes: Transcript.maxSize),
                let transcript = try? Transcript.decode(content), transcript.recording == r.id {
                 let text = Data(transcript.plainText.utf8)
+                guard Int64(bytes) + Int64(text.count) <= Int64(limit) else { continue }
                 bytes += text.count
                 files.append(File(name: uniqueName(base, ext: "txt"), mimeType: "text/plain",
                                   description: "Transcript of \(label) (\(transcript.language), \(transcript.engine))",

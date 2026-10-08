@@ -107,6 +107,8 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
     /// A video item without a poster frame (format.md §8.2.7): drawn as a
     /// placeholder with the play mark; nothing is missing.
     case noPoster
+    /// An `audio` item whose recording is not in the note (format.md §8.2.8).
+    case recordingMissing
 
     /// A short English description, for reports.
     public var description: String {
@@ -121,6 +123,7 @@ public enum PlaceholderReason: Error, Hashable, Sendable {
         case .imageUnreadable(let why): return why
         case .textUnavailable(let why): return why
         case .noPoster: return "video without a poster frame"
+        case .recordingMissing: return "recording missing"
         }
     }
 }
@@ -322,6 +325,8 @@ enum RasterItems {
         case image(PlacedImage)
         /// Laid-out text and its rotation about the frame's centre.
         case text(ShapedText, rotation: Affine)
+        /// An `audio` item's card (format.md §8.2.8).
+        case card(AudioCardDraw)
         case placeholder(PlaceholderReason)
     }
 
@@ -334,6 +339,11 @@ enum RasterItems {
             if it.item.kind == .text {
                 switch TextItems.shape(it, shaper: shaper, report: &report) {
                 case .success(let (shaped, rotation)): d = .text(shaped, rotation: rotation)
+                case .failure(let reason): d = .placeholder(reason)
+                }
+            } else if it.item.kind == .audio {
+                switch AudioCards.resolve(it, sources: images.audio, shaper: shaper, report: &report) {
+                case .success(let card): d = .card(card)
                 case .failure(let reason): d = .placeholder(reason)
                 }
             } else if it.item.kind == .image || it.item.kind == .video {
@@ -406,11 +416,15 @@ final class ImageStore {
     private var loaded: [String: Result<LoadedImage, PlaceholderReason>] = [:]
     private var decoded: [String: Result<RGBAImage, PlaceholderReason>] = [:]
     private var reduced: [String: Result<RGBAImage, PlaceholderReason>] = [:]
+    /// The note's recordings for `audio` items (format.md §8.2.8); nil when
+    /// drawing a page without its note (its audio items are placeholders).
+    let audio: AudioSources?
 
-    init(options: RenderOptions, blobs: (any BlobSource)? = nil) {
+    init(options: RenderOptions, blobs: (any BlobSource)? = nil, recordings: [Recording]? = nil) {
         self.blobs = blobs ?? options.blobs
         decoder = options.imageDecoder
         maxPixels = options.maxImagePixels
+        audio = recordings.map { AudioSources(recordings: $0, blobs: blobs ?? options.blobs) }
     }
 
     /// Where an image item's pixels land, or why it is a placeholder. A video

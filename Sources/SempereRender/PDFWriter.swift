@@ -149,7 +149,7 @@ public enum PDFWriter {
                 report.videosOmitted += Set(note.pages.flatMap { $0.items.filter { $0.kind == .video }.compactMap(\.blob?.sha256) }).count
             }
             let backgrounds = PDFBackgrounds(blobs: source, rasterizer: options.pdfRasterizer)
-            let images = ImageStore(options: options, blobs: source)
+            let images = ImageStore(options: options, blobs: source, recordings: note.recordings)
             var copiers: [String: PDFFormCopier] = [:]
             for page in note.pages {
                 pageNumber += 1
@@ -160,6 +160,11 @@ public enum PDFWriter {
                     let d: ItemDraw
                     switch it.item.kind {
                     case .image, .video: d = drawImage(it, images: images, objects: &imageObjects, doc: doc, options: options)
+                    case .audio:
+                        switch AudioCards.resolve(it, sources: images.audio, shaper: options.shaper, report: &report) {
+                        case .success(let card): d = .card(card)
+                        case .failure(let reason): d = .placeholder(reason)
+                        }
                     case .text:
                         switch TextItems.shape(it, shaper: options.shaper, report: &report) {
                         case .success(let (shaped, rotation)): d = .text(shaped, rotation)
@@ -194,6 +199,11 @@ public enum PDFWriter {
                             xobjects.append(num)
                         case .text(let shaped, let rotation):
                             cs.text(shaped, transform: Affine.translate(0, -chunk.yOffset).after(rotation), fonts: &fonts)
+                        case .card(let card):
+                            for c in card.shapes { cs.emit(c.translated(dy: -chunk.yOffset)) }
+                            if let label = card.label {
+                                cs.text(label, transform: Affine.translate(0, -chunk.yOffset).after(card.rotation), fonts: &fonts)
+                            }
                         case .placeholder:
                             for c in it.placeholder { cs.emit(c.translated(dy: -chunk.yOffset)) }
                         }
@@ -297,6 +307,8 @@ public enum PDFWriter {
         case image(Int, Affine)
         /// Laid-out text and its rotation about the frame's centre.
         case text(ShapedText, Affine)
+        /// An `audio` item's card (format.md §8.2.8).
+        case card(AudioCardDraw)
         case placeholder(PlaceholderReason)
     }
 
