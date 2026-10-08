@@ -201,7 +201,8 @@ struct ItemCommands {
     /// Opens the crop sheet for an image or PDF page; nil: no Crop in the menu.
     var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
     /// Picks another picture for an image (Replace Image); nil: not in the menu.
-    var replace: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions, _ from: ReplaceSource) -> Void)?
+    var replace: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions, _ from: ReplaceSource,
+                              _ done: @escaping @MainActor (Item) -> Void) -> Void)?
     /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
     var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
 }
@@ -606,11 +607,13 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             return UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in crop(item, pageID, actions) }
         case .replaceImage:
             guard let replace = commands.replace, let actions else { return nil }
-            return UIMenu(title: "Replace Image", image: UIImage(systemName: "photo.badge.arrow.down"), children: [
-                UIAction(title: "From Photos…", image: UIImage(systemName: "photo.on.rectangle")) { _ in
-                    replace(item, pageID, actions, .photos)
+            return UIMenu(title: "Replace Image", image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: [
+                UIAction(title: "From Photos…", image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in
+                    replace(item, pageID, actions, .photos) { self?.pick($0.id) }
                 },
-                UIAction(title: "From Files…", image: UIImage(systemName: "folder")) { _ in replace(item, pageID, actions, .files) },
+                UIAction(title: "From Files…", image: UIImage(systemName: "folder")) { [weak self] _ in
+                    replace(item, pageID, actions, .files) { self?.pick($0.id) }
+                },
             ])
         case .bringToFront:
             return UIAction(title: "Bring to Front", image: UIImage(systemName: "square.3.layers.3d.top.filled")) { [weak self] _ in

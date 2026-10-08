@@ -147,4 +147,6 @@ struct PickedMovie: Transferable {
 /// Which file the editor's file importer is choosing.
 enum EditorFileImport {
     case pdf, video
+    /// A picture to replace an image with (Replace Image from Files).
+    case image
 }

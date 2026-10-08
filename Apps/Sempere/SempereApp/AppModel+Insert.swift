@@ -56,6 +56,27 @@ extension AppModel {
         }
     }
 
+    /// Replaces the image `item` on `page` with picture bytes (Replace
+    /// Image), stored as the photo privacy setting says; one undo step on
+    /// `actions`. Returns the new image.
+    @discardableResult
+    func replaceImage(_ item: UUID, on page: UUID, with data: Data, in editor: NoteEditor, actions: ItemActions?,
+                      privacy: Bool = PhotoPrivacy.isOn()) async -> Item? {
+        do {
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                try ImagePreparation.prepare(data, privacy: privacy)
+            }.value
+            let (old, new) = try await editor.replaceImage(item, with: prepared, on: page)
+            actions?.replaced(old, by: new, on: page)
+            return new
+        } catch is CancellationError {
+            return nil
+        } catch {
+            errorMessage = "Could not replace the image. \(Self.describe(error))"
+            return nil
+        }
+    }
+
     // MARK: PDFs
 
     /// Imports the PDF the user picked (security-scoped: copied first) into
