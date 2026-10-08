@@ -169,7 +169,7 @@ final class ItemSelectionView: UIView {
             handles.append(h)
         }
         let d = Self.handleSize
-        let angle = CGFloat((rotation ?? 0) * .pi / 180)
+        let angle = CGFloat(ItemFrames.radians(rotation))
         for (i, h) in handles.enumerated() {
             guard i < shown.count else { h.isHidden = true; continue }
             h.isHidden = false
