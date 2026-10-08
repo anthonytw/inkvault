@@ -55,7 +55,7 @@ struct VideoPlayerSheet: View {
         guard let d = request.item.duration, d.isFinite, d >= 0 else {
             return String(localized: "Video", comment: "Title of the video player when the clip's length is unknown")
         }
-        let t = Int(d.rounded())
+        let t = Int(min(d, 1e9).rounded())   // untrusted (format.md §9): never trap
         let length = t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
             : String(format: "%d:%02d", t / 60, t % 60)
         return String(localized: "Video · \(length)", comment: "Title of the video player; the value is the clip's length, such as 1:05")

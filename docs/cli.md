@@ -341,8 +341,8 @@ sempere blobs verify [NOTE ...]
 sempere blobs extract NOTE SHA256 [--out FILE]
 sempere blobs add NOTE FILE --type MEDIA/TYPE
 sempere blobs copy SHA256 --from NOTE --to NOTE
-sempere blobs unused [NOTE ...] [--retention DAYS]
-sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS]
+sempere blobs unused [NOTE ...] [--retention DAYS] [--no-cache]
+sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS] [--file NAME ...] [--no-cache]
 sempere blobs repair [NOTE ...]
 ```
 
@@ -370,8 +370,24 @@ another note's blobs. NOTE is an id or a title; without one, every note.
   to `vault.json`.
 - `copy` copies a blob that NOTE `--from` references into NOTE `--to` (a byte
   copy, verified as it is read), before a revision there uses it.
-- `unused` lists blobs no revision of their note references, with the date
-  each may be collected. Read only.
+- `unused` shows what the app's Settings → Storage shows, from the same code
+  (`AttachmentStorageReport`, `docs/attachments.md` §4): blobs no revision of
+  their note references, each with the date this device first found it
+  unused, the date it may be deleted (that plus `--retention` days) and
+  whether it may be deleted now; and the blobs only older revisions use
+  ("held by history", freed when compaction drops those revisions). Text:
+  one row per blob and the line `Unused attachments: N item(s), X (M
+  deletable now, Y); held by history: K item(s), Z`. `--json` emits
+  `retentionDays`, the totals `unused`, `eligible` and `heldByHistory`
+  (`{count, bytes}`), `items` (`note`, `title`, `file`, `kind`, `bytes`,
+  `firstSeen`, `deletableFrom`, `eligible`, `lastUse`: the newest revision
+  that used it, with its `wall` and a recording's `duration` and `title`),
+  `held` (`note`, `title`, `file`, `kind`, `bytes`, `sha256`, `revisions`)
+  and `unchecked` (note → why nothing could be decided: an unreadable
+  revision, a pending rewrap). Read only: the dates come from this device's
+  record without updating it, so a blob never seen before shows today. Exit 3
+  when a note could not be checked. The app keeps its own record, so the
+  dates can differ between the app and the CLI on one Mac.
 - `gc` deletes those that have been unreferenced for `--retention` days
   (default 30), per `format.md` §8.1.6: per note, only when every revision of
   the note was read and verified, no recipient change is pending, no revision
@@ -379,7 +395,10 @@ another note's blobs. NOTE is an id or a title; without one, every note.
   this device first found it so at least the window ago. The first sighting
   is recorded in `$XDG_STATE_HOME/sempere/blobs/<vaultId>.json` (default
   `~/.local/state/...`), never in the vault; a blob that becomes referenced
-  again loses its record. A blob is decrypted and verified in full before it
+  again loses its record. `--file NAME` (repeatable) deletes only those blob
+  files, as the app's per-item Delete does; the window still applies. After
+  collecting it prints the `unused` line (`--json`: `{"notes": [...],
+  "storage": <as unused>}`). A blob is decrypted and verified in full before it
   is deleted; one that cannot be is reported and kept. `--dry-run` deletes
   and records nothing. Exit 3 when a note could not be collected (unreadable
   revision, pending rewrap) or a blob could not be verified.
@@ -1345,7 +1364,7 @@ and the exit code is 1.
 ```
 sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key once)
 sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
-sempere inbox transcript CAPTURE JSON [--profile PATH]
+sempere inbox transcript CAPTURE JSON --audio FILE [--profile PATH]
 sempere inbox list
 sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
 ```
@@ -1363,7 +1382,10 @@ only `vault.json` and the profile, no identity or passphrase. It seals the
 audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
 with the capture key) and prints the capture id. `--transcript` seals a
 `sempere-transcript/1` file with it, and `transcript` seals one later; either
-way its recording id is replaced by the capture's. `list` shows the inbox:
+way its recording id is replaced by the capture's, and it is bound to the
+capture's audio (`format.md` §11.2): `transcript` needs that audio file
+(`--audio`, the bytes that were captured), and a transcript bound to other
+audio is never adopted. Both refuse (exit 7) a vault of a newer format. `list` shows the inbox:
 ids and file kinds without a key, titles and whether each verifies with one.
 `import` adopts each capture as a note in the capture's notebook ("Inbox"),
 titled from its date: the audio and transcript as blobs, then one delta as this

@@ -456,6 +456,17 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   changes rewrap them by `RewrapPolicy`. References are found structurally (any
   object with `sha256`) with `JSONSerialization`, whose `NSNumber` says `is Bool`
   for 0 and 1: test `objCType == "c"` for booleans instead.
+- Unused-attachments index (task E7, `docs/attachments.md` §4): per-note
+  `AttachmentIndexEntry` (core `AttachmentIndex.swift`), updated by
+  `AttachmentIndexer.update` for the changed note only (writes via
+  `DeviceClock`'s write hook, arrivals via `readSummaries`/`refresh` →
+  `summariesRead`); never add a whole-vault pass outside Settings' explicit
+  "Check". Numbers come from `AttachmentStorageReport` (app and `sempere blobs
+  unused` alike). Delete only through `collectBlobs(note:records:only:)` with the
+  entry's `unusedSince`; iCloud notes not local decide nothing (`local: false`).
+  Bump `AttachmentIndexEntry.schemaVersion` when the entry changes. App tests
+  set `attachmentIndexDelay = .zero`, `attachmentNow`, and count reads with an
+  `attachmentIndexSource`.
 - Placed items on the canvas (task E0, `docs/attachments.md` §14): build item ops
   with the `NoteOps` item builders (`Sources/Sempere/ItemOps.swift`), apply them in
   the app through `NoteEditor+Items` (`applyItemEdit`: one delta per gesture) and
