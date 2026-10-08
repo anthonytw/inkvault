@@ -129,7 +129,7 @@ final class AudioCardButton: UIButton {
     }
 
     private func updateLabel() {
-        accessibilityLabel = isPlaying ? "Pause \(title)" : "Play \(title)"
+        accessibilityLabel = isPlaying ? String(localized: "Pause \(title)", comment: "Audio card button: pause the recording named") : String(localized: "Play \(title)", comment: "Audio card button: play the recording named")
         toolTip = accessibilityLabel
     }
 }

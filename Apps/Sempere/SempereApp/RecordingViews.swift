@@ -362,8 +362,8 @@ struct RecordingsListView: View {
             Group {
                 if editor.recordings.isEmpty {
                     ContentUnavailableView("No Recordings", systemImage: "waveform",
-                                           description: Text(editor.isReadOnly ? "This note has no recordings."
-                                                             : "Record with the microphone button in the toolbar."))
+                                           description: editor.isReadOnly ? Text("This note has no recordings.")
+                                               : Text("Record with the microphone button in the toolbar."))
                 } else {
                     List(editor.recordings) { r in row(r) }
                 }

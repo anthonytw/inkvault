@@ -163,7 +163,7 @@ struct ExportSheet: View {
         Section {
             Button("Share…", systemImage: "square.and.arrow.up") { deliver(outcome, save: false) }
                 .background(PresentationAnchor(box: anchor))
-            Button(Platform.isMac ? "Save…" : "Save to Files…", systemImage: "folder") { deliver(outcome, save: true) }
+            Button(Platform.isMac ? LocalizedStringKey("Save…") : LocalizedStringKey("Save to Files…"), systemImage: "folder") { deliver(outcome, save: true) }
         } footer: {
             Text("The files are deleted from the app when you close this sheet.")
         }
