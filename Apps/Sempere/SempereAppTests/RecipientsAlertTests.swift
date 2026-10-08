@@ -64,6 +64,28 @@ struct RecipientsAlertTests {
         return (url, keyText)
     }
 
+    /// Security review 2026-10 (R5): this device's record unreadable is not
+    /// "first use": the alert offers Trust This List (not Remove), and
+    /// confirming writes the record again and closes the alert.
+    @Test func anUnreadableTrustRecordAsksToTrustTheList() async throws {
+        let trust = MemoryRecipientsTrustStore()
+        let (url, keyText) = try await Self.preparedVault(trust: trust)
+        let vaultId = try Vault.open(at: url).vaultId
+        trust.markUnreadable(vaultId, "damaged")
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), recipientsTrust: trust)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: keyText)
+        let alert = try #require(model.recipientsAlert)
+        #expect(alert.problem.reason == .recordUnreadable)
+        #expect(alert.canConfirm)
+        #expect(!alert.canRemove)
+        #expect(alert.message.contains("Trust This List"))
+        try await model.confirmRecipientsList()
+        #expect(model.recipientsAlert == nil)
+        #expect(try trust.record(for: vaultId)?.recipients.count == 2)
+        model.close()
+    }
+
     @Test func tamperedListsRaiseTheAlertAndBlockWrites() async throws {
         for kind in Tamper.allCases {
             let trust = MemoryRecipientsTrustStore()

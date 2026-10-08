@@ -97,13 +97,26 @@ extension AppModel {
     /// Trust This List in the alert (an unreadable trust record): records
     /// the current list again after the user checked it. Nothing in the
     /// vault changes unless the list was untagged (it is tagged then).
+    /// As a key change (editors closed first, `keyEpoch` bumped), but
+    /// without downloading the vault: no file under `notes/` changes.
     func confirmRecipientsList() async throws {
-        guard let alert = recipientsAlert, alert.canConfirm else { return }
-        try await changeRecipients { vault in
-            try vault.confirmRecipients()
-            return Vault.RewrapReport()
+        guard let alert = recipientsAlert, alert.canConfirm, let start = vault, phase == .unlocked else { return }
+        await editGate.acquire()
+        defer { editGate.release() }
+        let gen = generation
+        try await openEditor(for: nil)   // saved, and closed: it holds the tampered status
+        await closeWindowEditors()
+        try ensureCurrent(gen)
+        let coordinate = coordinationURL
+        let next = try await offMain { () throws -> Vault in
+            try CloudVault.coordinatedWrite(coordinate) { () throws -> Vault in
+                var copy = start
+                try copy.confirmRecipients()
+                return copy
+            }
         }
-        if vault?.recipientsStatus.problem == nil { recipientsAlert = nil }
+        try ensureCurrent(gen)
+        adoptRewrapped(next)
     }
 
     /// Cancel in the alert: the vault stays open for reading; writes keep
