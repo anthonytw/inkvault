@@ -149,4 +149,7 @@ enum EditorFileImport {
     case pdf, video
     /// A picture to replace an image with (Replace Image from Files).
     case image
+    /// PDF pages for a pageless note: the note is switched to pages only
+    /// once a PDF is picked, so cancelling the picker changes nothing.
+    case pdfSwitchingToPages
 }
