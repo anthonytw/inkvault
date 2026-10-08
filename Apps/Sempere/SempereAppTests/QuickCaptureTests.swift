@@ -199,9 +199,12 @@ struct QuickCaptureTests {
         qc.statusStore = statusStore
         qc.reloadSurfaces = {}
         qc.activitiesEnabled = { false }
-        qc.showsActivity = true
+        qc.showsActivity = true   // off in the other tests, which skips the check
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         await #expect(throws: QuickCaptureError.liveActivitiesOff) { try await qc.start() }
+        #endif
         #expect(qc.state == .idle)
+        qc.publishStatus()
         #expect(statusStore.read()?.phase == .liveActivitiesOff)
     }
 

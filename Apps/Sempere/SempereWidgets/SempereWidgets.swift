@@ -196,7 +196,7 @@ struct VoiceNoteLiveActivity: Widget {
                 }
             } compactLeading: {
                 if let result = state.result {
-                    Image(systemName: result.symbol).foregroundStyle(result == .failed ? .orange : .green)
+                    Image(systemName: result.symbol).foregroundStyle(result == .failed ? Color.orange : Color.green)
                 } else {
                     RecordDot(active: state.isRecording)
                 }
@@ -204,7 +204,7 @@ struct VoiceNoteLiveActivity: Widget {
                 ElapsedTime(state: state).frame(maxWidth: 52)
             } minimal: {
                 if let result = state.result {
-                    Image(systemName: result.symbol).foregroundStyle(result == .failed ? .orange : .green)
+                    Image(systemName: result.symbol).foregroundStyle(result == .failed ? Color.orange : Color.green)
                 } else {
                     RecordDot(active: state.isRecording)
                 }

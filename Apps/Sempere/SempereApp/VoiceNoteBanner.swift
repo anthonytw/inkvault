@@ -91,7 +91,7 @@ struct VoiceNoteBanner: View {
         .accessibilityIdentifier("voiceNoteRecordingBanner")
     }
 
-    private func bar(tint: Color, @ViewBuilder content: () -> some View) -> some View {
+    private func bar<Content: View>(tint: Color, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 12) { content() }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)

@@ -61,11 +61,10 @@ enum VoiceNoteDestination: String, AppEnum {
     case settings
     case recording
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Voice Note Screen"
-    static let caseDisplayRepresentations: [VoiceNoteDestination: DisplayRepresentation] = [
-        .settings: "Quick Voice Notes Settings",
-        .recording: "Voice Note Being Recorded",
-    ]
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Voice Note Screen" }
+    static var caseDisplayRepresentations: [VoiceNoteDestination: DisplayRepresentation] {
+        [.settings: "Quick Voice Notes Settings", .recording: "Voice Note Being Recorded"]
+    }
 
     var link: VoiceNoteLink {
         switch self {
