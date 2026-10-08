@@ -211,7 +211,9 @@ describe("reading blobs from a vault", async () => {
     const secretId = Buffer.from(hkdfSync("sha256", currentSecret, Buffer.alloc(0), "sempere/1 secret id", 32));
     const secretLink = createHmac("sha256", linkKey).update(Buffer.concat([enc.encode("sempere/1"), Uint8Array.of(0),
       enc.encode("secret link"), Uint8Array.of(0), enc.encode(manifest.vaultId), Uint8Array.of(0), secretId])).digest("hex");
-    const rewrapping = await UnlockedVault.unlock({ ...manifest, secretLink }, sampleIdentity(), journal);
+    // A legacy (HMAC) link, as an older writer left it: a reader holding both secrets may check it.
+    const rewrapping = await UnlockedVault.unlock({ ...manifest, secretLink: { kind: "legacy", hex: secretLink } },
+      sampleIdentity(), journal);
     const [current, old] = await rewrapping.blobNames(hexToBytes(r.sha256));
     expect(await rewrapping.derivedKeys("sempere/1 test", gcm, ["decrypt"])).toHaveLength(2);
     expect(old).toBe(createHmac("sha256", previous).update(Buffer.concat([enc.encode("sempere/1"), Uint8Array.of(0), enc.encode("blob"), Uint8Array.of(0), hexToBytes(r.sha256)])).digest("hex"));
