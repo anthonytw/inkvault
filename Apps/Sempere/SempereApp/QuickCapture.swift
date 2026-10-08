@@ -182,6 +182,9 @@ final class QuickCapture {
     @ObservationIgnored var reloadSurfaces: @MainActor () -> Void = QuickCapture.reloadSystemSurfaces
     #if os(iOS) && !targetEnvironment(macCatalyst)
     @ObservationIgnored private var activity: Activity<VoiceNoteAttributes>?
+    /// The last update or end sent to `activity`: each waits for the one before
+    /// (an end overtaking the "Saving" update would leave the activity saving).
+    @ObservationIgnored private var activityWork: Task<Void, Never>?
     #endif
 
     /// The Data Protection class of recordings in progress. Not `completeUnlessOpen`: its files
@@ -501,8 +504,10 @@ final class QuickCapture {
     /// Shows `state` on the recording's Live Activity (stopped, saving).
     private func updateActivity(_ state: VoiceNoteAttributes.ContentState) {
         guard let id = activity?.id else { return }
+        let previous = activityWork
         // `Activity` is not Sendable: reach it by id from a nonisolated task.
-        Task.detached {
+        activityWork = Task.detached {
+            await previous?.value
             for a in Activity<VoiceNoteAttributes>.activities where a.id == id {
                 await a.update(ActivityContent(state: state, staleDate: nil))
             }
@@ -515,7 +520,9 @@ final class QuickCapture {
         guard let id = activity?.id else { return }
         activity = nil
         let dismissal = Date().addingTimeInterval(seconds)
-        Task.detached {
+        let previous = activityWork
+        activityWork = Task.detached {
+            await previous?.value
             for a in Activity<VoiceNoteAttributes>.activities where a.id == id {
                 await a.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .after(dismissal))
             }

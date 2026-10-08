@@ -108,9 +108,10 @@ transcription on. That transcript goes through the normal path: a blob, then
 | --- | --- |
 | Siri, Shortcuts | `StartVoiceNoteIntent` (an `AudioRecordingIntent`) and `StopVoiceNoteIntent`, phrases in `VoiceNoteShortcuts` |
 | Action button | Any of the above, or the control |
-| Control Center | `VoiceNoteControl` (`ControlWidget`, iOS 18+) |
-| Lock Screen, Home Screen | `VoiceNoteWidget` (circular, rectangular, small) |
-| While recording | `VoiceNoteLiveActivity`: timer and Stop, on the Lock Screen and in the Dynamic Island (required for `AudioRecordingIntent`) |
+| Control Center | `VoiceNoteControl` (`ControlWidget`, iOS 18+): records when ready, stops while recording, opens the setup otherwise |
+| Lock Screen, Home Screen | `VoiceNoteWidget` (circular, rectangular, small): the same three actions |
+| While recording | `VoiceNoteLiveActivity`: pulsing record dot, elapsed time and a large Stop, on the Lock Screen and in the Dynamic Island (required for `AudioRecordingIntent`); then where the voice note went |
+| In the app | `VoiceNoteBanner`: a red bar with the time and Stop at the top of the window (and of the unlock and Settings sheets) while recording, then where the voice note went |
 | Mac | Shortcuts and Siri (no widgets in the Catalyst build; a menu bar item is future work) |
 | CLI | `sempere inbox enable`, `capture`, `transcript`, `list`, `import` (`docs/cli.md`) |
 
@@ -128,6 +129,46 @@ intents firing together cannot start two recordings. With Live Activities
 off, iOS ends an intent's recording, so `start()` refuses with an
 explanation (also shown in Settings).
 
+## What the widgets and the control show
+
+The widget extension cannot ask the app anything, so the app writes a small
+status (`VoiceNoteStatus`, `SempereShared/VoiceNoteStatus.swift`) into the
+App Group container `group.io.github.anthonytw.sempere` after every change
+(recorder state, quick voice notes turned on or off, the app becoming active,
+Live Activities switched in Settings) and reloads the widgets
+(`WidgetCenter`) and the control (`ControlCenter`) when it changed. The
+status holds only the phase and the start time of a recording in progress: no
+key, no vault, no note.
+
+| Phase | Shows | A tap |
+| --- | --- | --- |
+| Not set up | mic slashed, "Set Up Voice Notes" | opens the app at Settings ▸ Quick Voice Notes (`sempere://quick-voice/settings`, or `OpenVoiceNotesIntent` for the control) |
+| Live Activities off | mic slashed, "Live Activities Off" | the same; the section explains and links to the app's page in Settings |
+| Ready | mic | records (`StartVoiceNoteIntent`) |
+| Recording | stop, the elapsed time | stops and saves (`StopVoiceNoteIntent`) |
+| Saving | "Saving Voice Note" | opens the app at the banner |
+
+The file is protected until the first unlock after boot. Before it, the
+extension cannot read it (and nothing can record: the capture profile is a
+Keychain item readable only after the first unlock), and the widget shows
+the plain mic button. The widget uses only system symbols and is marked
+`unredacted()`: the placeholder iOS shows before the first unlock is
+otherwise redacted to an empty grey box (build 7). Without the App Group (an
+unsigned build) the widgets show the plain mic button, as before.
+
+A stale status cannot trap anyone: the app rewrites it at launch, and Stop on
+a recording the process does not know ends the orphaned Live Activity quietly
+(#106).
+
+## After Stop
+
+The Live Activity shows "Saving" while the audio is sealed, then, as soon as
+the sealed file is in the inbox (before any transcript), "Saved to Inbox"
+("Saved on This Device" when it went to the queue, "Not Saved" on failure),
+and is dismissed 5 seconds later (12 for a failure). The app's banner says
+the same when the app is open. Opening the app from the Live Activity
+(`sempere://quick-voice/recording`) lands on the banner.
+
 ## Not verified yet
 
 - On a device: the Lock Screen path (intent launch while locked, Keychain
@@ -136,3 +177,11 @@ explanation (also shown in Settings).
 - The widget extension's code signing in a TestFlight build: it needs the
   bundle id `io.github.anthonytw.sempere.widgets` (automatic signing creates
   it).
+- The App Group `group.io.github.anthonytw.sempere` on both the app and the
+  widget extension (`SempereiOS.entitlements`, `SempereWidgets.entitlements`):
+  automatic signing should register it; if the group is missing from a
+  provisioning profile, the widgets fall back to the plain mic button.
+- On a device: the control and the widgets switching between Set Up, record
+  and Stop; the Live Activity's pulse, its final "Saved to Inbox" state and
+  its dismissal; the Lock Screen widget after a reboot, before the first
+  unlock.

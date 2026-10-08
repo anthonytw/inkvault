@@ -122,6 +122,7 @@ struct QuickCaptureTests {
         try await qc.start()
         let outcome = try await qc.stop()
         #expect(outcome.delivery == .queued)
+        #expect(qc.notice?.result == .savedOnDevice, "the banner says the note is on this device, not in the vault yet")
         let vaultID = stored.profile.vaultId
         #expect(Self.leftovers(qc.queueFolder(vaultID)) == [CaptureFile.name(outcome.id, .capture)])
         #expect(Self.inbox(url).isEmpty)
@@ -148,6 +149,72 @@ struct QuickCaptureTests {
         #expect(qc.state == .recording)
         _ = try await qc.stop()
         #expect(qc.state == .idle)
+    }
+
+    /// The widgets and the control read what `publishStatus` writes into the
+    /// App Group: set up or not, ready, recording (with its start), and back.
+    /// Widgets are reloaded only when the status changed.
+    @Test func statusFollowsSetupAndTheRecorder() async throws {
+        let (url, _, _, qc, _) = try Self.setUp(transcribe: false)
+        let statusStore = VoiceNoteStatusStore(directory: Self.temp("qc-status"))
+        let reloads = ReloadCounter()
+        qc.statusStore = statusStore
+        qc.activitiesEnabled = { true }
+        qc.reloadSurfaces = { reloads.count += 1 }
+
+        qc.publishStatus()
+        #expect(statusStore.read() == VoiceNoteStatus(phase: .ready))
+        #expect(reloads.count == 1)
+        qc.publishStatus()
+        #expect(reloads.count == 1, "an unchanged status reloads nothing")
+
+        try await qc.start()
+        let recording = try #require(statusStore.read())
+        #expect(recording.phase == .recording)
+        #expect(recording.started == qc.started)
+        #expect(recording.action == .stop)
+
+        let outcome = try await qc.stop()
+        #expect(outcome.delivery == .vault)
+        #expect(statusStore.read() == VoiceNoteStatus(phase: .ready))
+        #expect(qc.notice?.result == .savedToInbox, "the banner says where the voice note went")
+        #expect(Self.inbox(url).count == 1)
+
+        qc.activitiesEnabled = { false }
+        qc.publishStatus()
+        #expect(statusStore.read()?.phase == .liveActivitiesOff)
+        #expect(statusStore.read()?.action == .open(.settings))
+
+        try qc.store.delete()
+        qc.publishStatus()
+        #expect(statusStore.read()?.phase == .notSetUp)
+        #expect(statusStore.read()?.action == .open(.settings))
+    }
+
+    /// Live Activities off: iOS would end an intent's recording, so nothing
+    /// starts, and the status sends the next tap to Settings.
+    @Test func liveActivitiesOffRefusesAndShowsInTheStatus() async throws {
+        let (_, _, _, qc, _) = try Self.setUp(transcribe: false)
+        let statusStore = VoiceNoteStatusStore(directory: Self.temp("qc-status"))
+        qc.statusStore = statusStore
+        qc.reloadSurfaces = {}
+        qc.activitiesEnabled = { false }
+        qc.showsActivity = true
+        await #expect(throws: QuickCaptureError.liveActivitiesOff) { try await qc.start() }
+        #expect(qc.state == .idle)
+        #expect(statusStore.read()?.phase == .liveActivitiesOff)
+    }
+
+    /// A failed seal says so (and why) instead of "Saved".
+    @Test func aStopWithoutAProfileSaysNotSaved() async throws {
+        let (_, _, _, qc, _) = try Self.setUp(transcribe: false)
+        try await qc.start()
+        try qc.store.delete()   // turned off while recording
+        await #expect(throws: QuickCaptureError.notSetUp) { try await qc.stop() }
+        #expect(qc.notice?.result == .failed)
+        #expect(qc.notice?.error == QuickCaptureError.notSetUp.description)
+        qc.dismissNotice()
+        #expect(qc.notice == nil)
     }
 
     @Test func nothingStartsWithoutAProfile() async throws {
@@ -294,4 +361,9 @@ struct QuickCaptureTests {
         #expect(Self.inbox(url) == [CaptureFile.name(id, .capture)])
         #expect(Self.leftovers(qc.root).isEmpty)
     }
+}
+
+@MainActor
+final class ReloadCounter {
+    var count = 0
 }
