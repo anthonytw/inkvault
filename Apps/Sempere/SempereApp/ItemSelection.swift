@@ -205,6 +205,8 @@ struct ItemCommands {
                               _ done: @escaping @MainActor (Item) -> Void) -> Void)?
     /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
     var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
+    /// Opens the equation sheet for a math item; nil: no Edit Equation in the menu.
+    var editMath: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
 
 /// Where Replace Image takes the new picture from.
@@ -216,12 +218,12 @@ enum ReplaceSource: Equatable {
 /// entries whichever way the item was selected.
 enum ItemMenu {
     enum Entry: Equatable {
-        case play, editText, copy, duplicate, crop, replaceImage, bringToFront, delete, paste
+        case play, editText, copy, duplicate, editMath, crop, replaceImage, bringToFront, delete, paste
     }
 
     /// The entries for `item` (nil: nothing selected), in order.
     static func entries(for item: Item?, editable: Bool, canPlay: Bool, canCrop: Bool, canReplace: Bool,
-                        canPaste: Bool) -> [Entry] {
+                        canPaste: Bool, canEditMath: Bool = false) -> [Entry] {
         var out: [Entry] = []
         if let item {
             if item.kind == .video, canPlay { out.append(.play) }
@@ -229,6 +231,7 @@ enum ItemMenu {
             out.append(.copy)
             if editable {
                 out.append(.duplicate)
+                if canEditMath, item.kind == .math, item.math != nil { out.append(.editMath) }
                 if canCrop, item.cropBounds != nil { out.append(.crop) }
                 if canReplace, item.kind == .image { out.append(.replaceImage) }
                 out.append(.bringToFront)
@@ -569,7 +572,8 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         let editable = editor?.canEditItems == true
         let item = model.selected.flatMap { id in pageID.flatMap { editor?.item(id, on: $0) } }
         let entries = ItemMenu.entries(for: item, editable: editable, canPlay: commands.play != nil, canCrop: commands.crop != nil,
-                                       canReplace: commands.replace != nil, canPaste: commands.canPaste())
+                                       canReplace: commands.replace != nil, canPaste: commands.canPaste(),
+                                       canEditMath: commands.editMath != nil)
         let elements = entries.compactMap { menuElement($0, item: item) }
         return elements.isEmpty ? nil : UIMenu(children: elements)
     }
@@ -601,6 +605,12 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
             return UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
                 guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                 self.select(new.id)
+            }
+        case .editMath:
+            guard let editMath = commands.editMath, let actions else { return nil }
+            return UIAction(title: "Edit Equation…", image: UIImage(systemName: "function")) { [weak self] _ in
+                self?.select(nil)
+                editMath(item, pageID, actions)
             }
         case .crop:
             guard let crop = commands.crop, let actions else { return nil }

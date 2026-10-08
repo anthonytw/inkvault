@@ -109,6 +109,11 @@ struct CanvasSelectionTests {
         #expect(entries(pdf) == [.copy, .duplicate, .crop, .bringToFront, .delete])
         #expect(entries(video) == [.play, .copy, .duplicate, .bringToFront, .delete])
         #expect(entries(image, editable: false, paste: true) == [.copy])
+        let math = Item.math(MathContent(latex: "x^2", display: true, size: 20, color: Sempere.Color(r: 0, g: 0, b: 0)),
+                             frame: Rect(x: 0, y: 0, w: 40, h: 20), z: "a")
+        #expect(ItemMenu.entries(for: math, editable: true, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
+                                 canEditMath: true) == [.copy, .duplicate, .editMath, .bringToFront, .delete])
+        #expect(entries(math) == [.copy, .duplicate, .bringToFront, .delete], "no equation sheet wired")
         #expect(entries(nil, paste: true) == [.paste])
         #expect(ItemMenu.entries(for: image, editable: true, canPlay: false, canCrop: false, canReplace: false, canPaste: false)
                 == [.copy, .duplicate, .bringToFront, .delete])

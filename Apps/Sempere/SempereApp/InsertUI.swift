@@ -123,6 +123,8 @@ final class InsertState {
     var replacementSelection: [PhotosPickerItem] = []
     /// The video item playing (format.md §8.2.7).
     var playing: VideoPlayRequest?
+    /// The equation being added or edited (`MathEditorView`).
+    var editingMath: MathRequest?
     /// Something is being added (a spinner in the menu's place).
     var working = 0
 }
@@ -151,9 +153,9 @@ struct ReplaceRequest {
     let done: @MainActor (Item) -> Void
 }
 
-/// The editor toolbar's Insert menu, in three groups: pictures and video
-/// (Photos, the camera, paste, a video file), a text box (the text tool),
-/// and pages of a PDF, whose entry says where they go.
+/// The editor toolbar's Insert menu, in groups: pictures and video (Photos,
+/// the camera, paste, a video file), a text box (the text tool), pages of a
+/// PDF (the entry says where they go), and an equation.
 struct InsertMenu: View {
     let editor: NoteEditor
     let state: InsertState
@@ -193,10 +195,17 @@ struct InsertMenu: View {
                     }
                 }
             }
+            Section("Equation") {
+                Button("Equation…", systemImage: "function") {
+                    guard let page = editor.currentPage?.id else { return }
+                    state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
+                                                    visible: editor.canvasTarget?.visibleRect(ofPage: page))
+                }
+            }
         } label: {
             Label("Insert", systemImage: state.working > 0 ? "hourglass" : "plus.circle")
         }
-        .help("Add photos, videos, a picture from the clipboard, a text box, or pages of a PDF")
+        .help("Add photos, videos, a picture from the clipboard, a text box, pages of a PDF, or an equation")
         .disabled(editor.isReadOnly || editor.currentPage == nil)
     }
 }
@@ -256,6 +265,9 @@ struct EditorInsert: ViewModifier {
             }
             .fullScreenCover(item: $state.playing) { request in
                 VideoPlayerSheet(request: request)
+            }
+            .sheet(item: $state.editingMath) { request in
+                MathEditorView(request: request)
             }
     }
 

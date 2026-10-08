@@ -28,6 +28,8 @@ public enum AttachmentOpsError: Error, Hashable, Sendable {
     case invalidVideo(String)
     /// The page has no image with that id (Replace Image takes images only).
     case noSuchImage(String)
+    /// The LaTeX source or the math item's content cannot be stored or typeset (format.md §8.2.8).
+    case invalidMath(String)
 }
 
 extension AttachmentOpsError: CustomStringConvertible {
@@ -48,6 +50,7 @@ extension AttachmentOpsError: CustomStringConvertible {
         case .invalidPoster(let why): return "invalid poster: \(why)"
         case .invalidVideo(let why): return "invalid video: \(why)"
         case .noSuchImage(let i): return "no image \(i) on this page"
+        case .invalidMath(let why): return "invalid equation: \(why)"
         }
     }
 }

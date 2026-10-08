@@ -214,6 +214,9 @@ enum AttachmentListing {
         case .video:
             what = (i.blob.map(blob) ?? "") + " \(number(i.duration ?? 0)) s"
                 + (i.pixelSize.map { " \(number($0.w))×\(number($0.h))" } ?? "") + (i.poster == nil ? " (no poster)" : " +poster")
+        case .math:
+            let t = (i.math?.latex ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
+            what = "$" + (t.count > 40 ? t.prefix(39) + "…" : t) + "$" + (i.math?.render == nil ? " (not typeset)" : "")
         default: what = i.blob.map(blob) ?? (i.kind.isDefined ? "" : "(unknown kind)")
         }
         if let r = i.rotation, r != 0 { what += " rotated \(number(r))°" }

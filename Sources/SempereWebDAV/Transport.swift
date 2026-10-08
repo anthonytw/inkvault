@@ -78,6 +78,22 @@ public protocol WebDAVTransport: Sendable {
 /// the request is cancelled once one exceeds `maxResponseBytes`, so a server
 /// cannot make the client buffer more than that.
 public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
+    /// `NSURLAuthenticationMethodServerTrust`. swift-corelibs-foundation marks
+    /// the constant unavailable (it has no Security framework and never sends
+    /// the challenge), so its value is spelled out there.
+    #if canImport(FoundationNetworking)
+    static let serverTrustMethod = "NSURLAuthenticationMethodServerTrust"
+    #else
+    static let serverTrustMethod = NSURLAuthenticationMethodServerTrust
+    #endif
+
+    /// How a challenge is answered: TLS server trust goes to the system's
+    /// default handling (Apple platforms deliver it to the task delegate);
+    /// HTTP authentication is cancelled, and the 401 itself is the answer.
+    static func disposition(forAuthenticationMethod method: String) -> URLSession.AuthChallengeDisposition {
+        method == serverTrustMethod ? .performDefaultHandling : .cancelAuthenticationChallenge
+    }
+
     private let session: URLSession
     private let delegate = Delegate()
 
@@ -230,10 +246,15 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
 
         /// Credentials are sent preemptively in the header; a challenge is
         /// answered with the 401 itself, never with a stored credential.
+        /// Server trust (TLS) is left to the system: Apple platforms deliver it
+        /// here, and cancelling it fails every HTTPS request.
         func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-            if let r = challenge.failureResponse as? HTTPURLResponse { lookup(task.taskIdentifier)?.set(challenged: r) }
-            completionHandler(.cancelAuthenticationChallenge, nil)
+            let disposition = URLSessionTransport.disposition(forAuthenticationMethod: challenge.protectionSpace.authenticationMethod)
+            if disposition == .cancelAuthenticationChallenge, let r = challenge.failureResponse as? HTTPURLResponse {
+                lookup(task.taskIdentifier)?.set(challenged: r)
+            }
+            completionHandler(disposition, nil)
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,

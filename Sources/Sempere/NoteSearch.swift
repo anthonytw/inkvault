@@ -13,7 +13,8 @@ public struct PageText: Hashable, Sendable, Codable {
 
     /// The pages of a note (in display order) that have searchable text: the
     /// recognised handwriting, then the text of each text box and the page
-    /// text of each PDF page in drawing order (format.md §8.2.4, §8.2.6),
+    /// text of each PDF page and the LaTeX source of each equation in drawing
+    /// order (format.md §8.2.4, §8.2.6, §8.2.8),
     /// joined by newlines.
     public static func texts(of pages: [Page]) -> [PageText] {
         pages.enumerated().compactMap { i, p in
@@ -23,6 +24,7 @@ public struct PageText: Hashable, Sendable, Codable {
                 switch item.kind {
                 case .text: if let text = item.text?.string, !text.isEmpty { parts.append(text) }
                 case .pdfPage: if let text = item.pageText?.text, !text.isEmpty { parts.append(text) }
+                case .math: if let latex = item.math?.latex, !latex.isEmpty { parts.append(latex) }
                 default: break
                 }
             }
