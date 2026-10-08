@@ -5,8 +5,8 @@ import SwiftUI
 /// `AGE-SECRET-KEY-1…`) identity. After a manual unlock it offers to remember
 /// the key (`RememberedKeys`).
 struct UnlockView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(RememberedKeys.self) private var keys
+    @AppModelEnvironment private var model
+    @AppEnvironmentObject private var keys: RememberedKeys
     @State private var passphrase = ""
     @State private var identityText = ""
     @State private var failure: String?
@@ -87,8 +87,8 @@ struct UnlockView: View {
 /// After a manual unlock: remember the key on this device (default on) and,
 /// optionally, in iCloud Keychain (default off).
 private struct RememberKeyView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(RememberedKeys.self) private var keys
+    @AppModelEnvironment private var model
+    @AppEnvironmentObject private var keys: RememberedKeys
     let offer: RememberedKeys.Offer
     @State private var remember = true
     @State private var sync = false

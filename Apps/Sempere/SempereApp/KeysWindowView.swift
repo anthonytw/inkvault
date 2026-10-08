@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// removing a device key, and the paper recovery kit. The work is
 /// `AppModel+Keys`; adding or removing a key re-encrypts every note in the vault.
 struct KeysWindowView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var adding = false
     @State private var removing: DeviceKey?
     @State private var working: String?
@@ -157,7 +157,7 @@ struct PDFFile: FileDocument {
 
 /// Add a device key: paste another device's public key, or generate one.
 private struct AddDeviceKeyView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     private enum Mode: String, CaseIterable, Identifiable {
         case paste = "Paste a Public Key"

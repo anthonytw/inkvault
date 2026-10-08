@@ -8,7 +8,7 @@ import SwiftUI
 /// build yet (recording, transcription) are stored all the same and read by
 /// that feature when it lands.
 struct SettingsView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     /// False in the Mac window, which has its own close button.
     var showsDone = true
@@ -53,7 +53,7 @@ struct SettingsView: View {
 // MARK: - General
 
 private struct GeneralSettings: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
     @AppStorage(RecognitionPreference.key) private var recognize = RecognitionPreference.defaultValue
 
@@ -357,7 +357,7 @@ private struct PhotoSettingsSection: View {
 // MARK: - Version history
 
 private struct HistorySettingsSection: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @AppStorage(ThinningPreference.key) private var days = ThinningPreference.defaultDays
     @State private var preview: PreviewBox?
     @State private var working = false
@@ -458,7 +458,7 @@ private struct HistorySettingsSection: View {
 // MARK: - Device keys
 
 private struct DeviceKeySettingsSection: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var onAdd = RewrapSettings.onAdd()
     @State private var onRemove = RewrapSettings.onRemoveOrUpgrade()
     @State private var confirming = false
@@ -509,7 +509,7 @@ private struct DeviceKeySettingsSection: View {
 // MARK: - Storage
 
 private struct StorageSettingsSection: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var sizes = CacheSizes()
 
     var body: some View {
@@ -565,7 +565,7 @@ private struct StorageSettingsSection: View {
 /// to the note's history, and Delete (only once the 30 days have passed);
 /// then the attachments only history still uses.
 struct UnusedAttachmentsView: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var deleting = false
     @State private var confirmAll = false
     @State private var message: String?

@@ -9,7 +9,7 @@ struct HistoryView: View {
     /// links to the one where an attachment was last used); ignored when it
     /// is gone or cannot be previewed.
     var revealing: String? = nil
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.dismiss) private var dismiss
     @State private var data: HistoryData?
     @State private var failure: String?
@@ -140,7 +140,7 @@ private struct HistoryPreviewView: View {
     let entry: HistoryEntry
     /// Called after a restore, to refresh the list.
     let restored: () async -> Void
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var preview: NoteEditor?
     @State private var failure: String?
     @State private var confirming = false

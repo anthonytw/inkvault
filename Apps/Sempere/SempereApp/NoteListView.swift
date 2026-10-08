@@ -12,7 +12,7 @@ struct NoteListView: View {
         model.phase == .unlocked && !model.isVaultReadOnly
     }
 
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(WindowUI.self) private var ui
     @Environment(\.openWindow) private var openWindow
     @State private var prompt: Prompt?
@@ -291,7 +291,7 @@ struct NoteListView: View {
 /// app) as a PDF (`NoteFileDrag`): prepared when the drag starts, rendered
 /// when the drop asks for it.
 private struct NoteDragOut: ViewModifier {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     let note: NoteSummary
     let enabled: Bool
 
@@ -502,7 +502,7 @@ struct CloudSyncBar: View {
 /// Notes matching the search, each with the page and the words that matched;
 /// a tap opens the note on that page.
 private struct SearchResultsList: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
 
     var body: some View {
         List {

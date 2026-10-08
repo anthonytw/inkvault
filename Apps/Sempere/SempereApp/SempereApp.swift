@@ -14,10 +14,17 @@ struct SempereApp: App {
     /// Builds the Mac menu bar without the system's duplicates (`MacMenus`).
     @UIApplicationDelegateAdaptor(SempereAppDelegate.self) private var appDelegate
     @State private var model: AppModel
-    @State private var library = VaultLibrary()
-    @State private var keys = RememberedKeys()
+    @State private var library: VaultLibrary
+    @State private var keys: RememberedKeys
 
     init() {
+        let library = VaultLibrary()
+        let keys = RememberedKeys()
+        // A view updated outside its window's environment falls back to these (`AppModelEnvironment`).
+        VaultLibrary.current = library
+        RememberedKeys.current = keys
+        _library = State(initialValue: library)
+        _keys = State(initialValue: keys)
         let model = AppModel(recognizer: RecognitionPreference.enabled ? VisionPageRecognizer() : nil,
                              summaryCacheDirectory: AppModel.defaultSummaryCacheDirectory,
                              drawingCacheRoot: AppModel.drawingCacheEnabled ? DrawingCache.defaultRoot : nil,
@@ -27,6 +34,7 @@ struct SempereApp: App {
                              automaticThinning: true,
                              recipientsTrust: AppModel.defaultRecipientsTrust,
                              backupNotifier: UserNotificationBackupNotifier())
+        AppModel.current = model
         _model = State(initialValue: model)
         // Background sync (iOS): the launch handlers of the scheduled tasks, registered before launch ends.
         BackgroundSync.register(model: model)

@@ -11,7 +11,7 @@ struct QuickCaptureSettingsSection: View {
     /// Where `SettingsView(scrollTo:)` scrolls for `sempere://quick-voice/settings`.
     static let anchor = "quickVoiceNotes"
 
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @State private var stored: StoredCaptureProfile?
     @State private var notebook = CaptureProfile.defaultNotebook
     @State private var problem: String?

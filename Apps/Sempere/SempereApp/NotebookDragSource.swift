@@ -79,7 +79,7 @@ extension View {
 }
 
 private struct NotebookDragSourceModifier: ViewModifier {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.undoManager) private var undoManager
     let path: String
     let menu: [NotebookRowAction]

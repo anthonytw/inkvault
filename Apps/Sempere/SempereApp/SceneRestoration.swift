@@ -99,7 +99,7 @@ struct RestoredScene<Content: View>: View {
 /// A window restored without what it shows: it brings the library window up
 /// (unless one is open) and closes.
 private struct ClosingWindow: View {
-    @Environment(AppModel.self) private var model
+    @AppModelEnvironment private var model
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 

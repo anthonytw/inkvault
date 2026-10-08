@@ -7,8 +7,8 @@ import SwiftUI
 /// (the library window does that, and is brought up if no window is).
 struct NoteWindowView: View {
     let value: NoteWindowValue
-    @Environment(AppModel.self) private var model
-    @Environment(VaultLibrary.self) private var library
+    @AppModelEnvironment private var model
+    @AppEnvironmentObject private var library: VaultLibrary
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.scenePhase) private var scenePhase
