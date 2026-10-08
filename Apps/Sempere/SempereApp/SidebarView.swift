@@ -30,24 +30,31 @@ struct SidebarView: View {
                         model.requestBulkExport(.vault, window: ui?.id)
                     }
                 }
+            // A smart list under All Notes: notes a recognition run on any device read
+            // in the last 7 days (`meta.recognized`, synced); gone while there are none.
+            let recognized = model.recentlyRecognizedNotes.count
+            if recognized > 0 {
+                Label("Recently Recognized", systemImage: "text.viewfinder")
+                    .badge(recognized)
+                    .tag(SidebarItem.recentlyRecognized)
+            }
             let tree = model.notebookTree
             if !tree.isEmpty {
                 Section("Notebooks") {
                     OutlineGroup(tree, children: \.childrenOrNil) { node in
                         Label(node.name, systemImage: node.children.isEmpty ? "book.closed" : "books.vertical")
                             .tag(SidebarItem.notebook(node.path))
+                            .accessibilityIdentifier("sidebar-notebook-\(node.path)")
                             .sidebarDropTarget(.notebook(node.path))
-                            .onDrag {
-                                // Dropped on another notebook it nests there; on All Notes it goes to the top level.
-                                model.beginDrag(.notebook(node.path), provider: DragPayload.notebook(node.path).provider())
-                            }
-                            .contextMenu {
-                                Button("Rename or Move…", systemImage: "pencil") { newName = node.path; renaming = node.path }
-                                Button("Move Notebook To…", systemImage: "folder") { movingNotebook = MovingNotebook(path: node.path) }
-                                Button("Export Notebook…", systemImage: ExportCommand.menuImage) {
-                                    model.requestBulkExport(.notebook(node.path), window: ui?.id)
-                                }
-                            }
+                            // The drag and the context menu come from one UIKit view (`NotebookDragSource`).
+                            .notebookDragSource(node.path, menu: NotebookRowAction.notebookMenu(rename: {
+                                newName = node.path
+                                renaming = node.path
+                            }, move: {
+                                movingNotebook = MovingNotebook(path: node.path)
+                            }, export: {
+                                model.requestBulkExport(.notebook(node.path), window: ui?.id)
+                            }))
                             .swipeActions {
                                 Button("Rename", systemImage: "pencil") { newName = node.path; renaming = node.path }
                             }
@@ -61,17 +68,12 @@ struct SidebarView: View {
                     }
                 }
             }
-            // Like Recently Deleted: notes "Recognize All" read in the last 7 days
-            // (kept across launches); the row is gone while there are none.
-            let recognized = model.recentlyRecognizedNotes.count
-            if recognized > 0 {
-                Label("Recently Recognized", systemImage: "text.viewfinder")
-                    .badge(recognized)
-                    .tag(SidebarItem.recentlyRecognized)
-            }
             Label("Recently Deleted", systemImage: "trash").tag(SidebarItem.deleted)
         }
         .onChange(of: model.recentlyRecognizedNotes.isEmpty) { model.leaveEmptyRecognizedSection() }
+        #if DEBUG
+        .overlay(alignment: .bottomLeading) { DropTraceLabel() }
+        #endif
         .navigationTitle(model.vaultName ?? "Sempere")
         .toolbar {
             ToolbarItem {

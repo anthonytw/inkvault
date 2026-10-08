@@ -48,8 +48,10 @@ struct NotesNew: ParsableCommand {
             /-separated path), the paper and page size, and one addTag per tag, in the spelling the
             vault already uses for it (as `notes tag --add`). Prints the new note's id. Titles need not
             be unique. Without a title the note is named after the date and time, as the app names a
-            new note: --title-format takes a Unicode date pattern (e.g. "yyyy-MM-dd HH:mm", literal
-            text in single quotes); the default is the locale's medium date and short time.
+            new note: --title-format (default: $SEMPERE_TITLE_FORMAT) takes a Unicode date pattern (e.g.
+            "yyyy-MM-dd HH:mm", literal text in single quotes) or a strftime format ("%Y-%m-%d %H:%M");
+            a format that cannot be used is refused (exit 2) with the reason, as the app's setting is.
+            Without one the title is the locale's medium date and short time.
             """
     )
 
@@ -79,7 +81,17 @@ struct NotesNew: ParsableCommand {
     @OptionGroup var output: OutputOptions
     @OptionGroup var cache: CacheOptions
 
-    func validate() throws { try paperOptions.check() }
+    /// The format in effect: `--title-format`, else `$SEMPERE_TITLE_FORMAT`.
+    var effectiveTitleFormat: String? {
+        titleFormat ?? ProcessInfo.processInfo.environment["SEMPERE_TITLE_FORMAT"]
+    }
+
+    func validate() throws {
+        try paperOptions.check()
+        if title == nil, let format = effectiveTitleFormat, let problem = DefaultTitle.check(format) {
+            throw ValidationError("\(titleFormat == nil ? "SEMPERE_TITLE_FORMAT" : "--title-format"): \(problem)")
+        }
+    }
 
     func run() throws {
         let vault = try access.openVault(.required)
@@ -87,7 +99,7 @@ struct NotesNew: ParsableCommand {
         let paper = try paperOptions.applied(to: Paper.template(self.paper))
         let known = NoteOps.normalizedTags(tag).isEmpty
             ? [] : NoteOps.vaultTags(try vault.summaries(of: nil, cache: cache.cache(for: vault)))
-        let title = self.title ?? DefaultTitle.title(at: Date(), format: titleFormat)
+        let title = self.title ?? DefaultTitle.title(at: Date(), format: effectiveTitleFormat)
         let ops = NoteOps.newNote(title: title.trimmingCharacters(in: .whitespacesAndNewlines), paper: paper,
                                   pageSize: pageSize.size, notebook: NotebookPath.canonical(notebook),
                                   tags: tag.map { NoteOps.tagSpelling($0, among: known) })

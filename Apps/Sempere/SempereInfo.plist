@@ -97,10 +97,18 @@
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<!-- Recording keeps running with the screen locked or the app in the background (docs/attachments.md §13). -->
+	<!-- Recording keeps running with the screen locked or the app in the background (docs/attachments.md §13).
+	     fetch and processing: the iCloud sync's scheduled tasks (BackgroundSync.swift, docs/io.md "Background sync"). -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>io.github.anthonytw.sempere.sync.refresh</string>
+		<string>io.github.anthonytw.sempere.sync.processing</string>
 	</array>
 </dict>
 </plist>

@@ -107,6 +107,21 @@ enum SidebarDrop {
         }
     }
 
+    /// The operation a sidebar row proposes for a drag over it: `.copy` when
+    /// the drop is accepted, never `.move`. The notes are moved by the app
+    /// (`AppModel.move`), not by the drag session, and the sessions SwiftUI's
+    /// `onDrag` starts from a `List` row do not allow a move operation
+    /// (`UIDropSession.allowsMoveOperation` is false on iOS; the drag source's
+    /// operation mask has no move on Mac Catalyst). UIKit turns a `.move`
+    /// proposal the session does not allow into a cancelled drop: the row is
+    /// highlighted while the finger or pointer hovers, but releasing it calls
+    /// `dropExited` and never `performDrop`. That was TestFlight builds 6 and 7
+    /// ("dropping does nothing", iPad and Mac), shown by `SidebarDropUITests`'
+    /// drop trace. `.copy` is allowed for every session.
+    static func proposedOperation(accepted: Bool) -> DropOperation {
+        accepted ? .copy : .forbidden
+    }
+
     /// The undo menu title of a drop.
     static func actionName(_ payload: DragPayload) -> String {
         switch payload {
@@ -143,33 +158,57 @@ struct SidebarDropDelegate: DropDelegate {
 
     /// Only the app's own drags (their types; the providers are `.ownProcess`):
     /// a left-over `draggedPayload` never answers a photo or text dragged in.
-    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: Self.types) }
+    func validateDrop(info: DropInfo) -> Bool {
+        let ours = info.hasItemsConforming(to: Self.types)
+        trace("validate ours=\(ours)")
+        return ours
+    }
+
+    private func trace(_ event: String) {
+        #if DEBUG
+        DropTrace.note("\(event) target=\(target) payload=\(model.draggedPayload.map { "\($0)" } ?? "nil")")
+        #endif
+    }
 
     func dropEntered(info: DropInfo) {
+        trace("entered")
         model.setDropTarget(model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info)) ? target : nil)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        trace("updated")
         let allowed = model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info))
         model.setDropTarget(allowed ? target : nil)
-        return DropProposal(operation: allowed ? .move : .forbidden)
+        return DropProposal(operation: SidebarDrop.proposedOperation(accepted: allowed))
     }
 
     func dropExited(info: DropInfo) {
+        trace("exited")
         if model.dropTarget == target { model.setDropTarget(nil) }
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        trace("perform")
+        return SidebarDropDelegate.perform(model: model, target: target, undoManager: undoManager,
+                                           carriesAppTypes: validateDrop(info: info)) { info.itemProviders(for: [$0]).first }
+    }
+
+    static let acceptedTypes = types
+
+    /// A drop on `target` (this delegate's and `NotebookDragSource`'s UIKit
+    /// one): the drag the model started, else the payload decoded from
+    /// `provider(type)`; one move and one undo step on `undoManager`.
+    static func perform(model: AppModel, target: DropTarget, undoManager: UndoManager?, carriesAppTypes ours: Bool,
+                        provider: (UTType) -> NSItemProvider?) -> Bool {
         model.setDropTarget(nil)
-        let model = model, target = target, undo = UndoBox(undoManager)
-        let ours = validateDrop(info: info)
+        let undo = UndoBox(undoManager)
         if model.draggedPayload != nil || !ours {
             guard let payload = model.takeDrop(on: target, carriesAppTypes: ours) else { return false }
             Task { @MainActor in await model.move(payload, to: target, undoManager: undo.manager) }
             return true
         }
-        for type in Self.types {
-            guard let provider = info.itemProviders(for: [type]).first else { continue }
+        for type in types {
+            guard let provider = provider(type) else { continue }
             provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
                 let payload = data.flatMap { DragPayload.decode($0, as: type) }
                 Task { @MainActor in
@@ -184,9 +223,39 @@ struct SidebarDropDelegate: DropDelegate {
     }
 }
 
+/// `NotebookDragStyle.transferable`: notebooks dropped through `dropDestination`.
+private struct TransferDropDestination: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let target: DropTarget
+    let undoManager: UndoManager?
+
+    func body(content: Content) -> some View {
+        if NotebookDragStyle.current == .transferable {
+            content.dropDestination(for: NotebookTransfer.self) { items, _ in
+                #if DEBUG
+                DropTrace.note("perform-transfer target=\(target) items=\(items.map(\.path))")
+                #endif
+                guard let path = items.first?.path, let canonical = NotebookPath.canonical(path) else { return false }
+                let payload = DragPayload.notebook(canonical)
+                guard SidebarDrop.accepts(payload, on: target, notes: model.notes) else { return false }
+                let model = model, target = target, undo = UndoBox(undoManager)
+                Task { @MainActor in await model.move(payload, to: target, undoManager: undo.manager) }
+                return true
+            } isTargeted: { on in
+                #if DEBUG
+                DropTrace.note("targeted-transfer \(on) target=\(target)")
+                #endif
+                if on { model.setDropTarget(target) } else if model.dropTarget == target { model.setDropTarget(nil) }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// Carries a window's undo manager across an item provider's callback (it is
 /// only read on the main actor); weak, so a closed window's is not kept.
-private final class UndoBox: @unchecked Sendable {
+final class UndoBox: @unchecked Sendable {
     weak var manager: UndoManager?
     init(_ manager: UndoManager?) { self.manager = manager }
 }
@@ -214,8 +283,42 @@ private struct SidebarDropRow: ViewModifier {
                 }
                 .onDrop(of: [.sempereNotes, .sempereNotebook],
                         delegate: SidebarDropDelegate(model: model, target: target, undoManager: undoManager))
+                .modifier(TransferDropDestination(target: target, undoManager: undoManager))
         } else {
             content
         }
     }
 }
+
+#if DEBUG
+/// Debug builds with `SEMPERE_DEBUG_DROPS` set: which drag and drop callbacks
+/// ran, newest last, shown in an invisible label (`drop-trace`) that
+/// `SidebarDropUITests` reads, so a UI test run tells where a drop stops.
+@MainActor @Observable
+final class DropTrace {
+    static let shared = DropTrace()
+    static var isOn: Bool { ProcessInfo.processInfo.environment["SEMPERE_DEBUG_DROPS"] != nil }
+
+    private(set) var events: [String] = []
+
+    static func note(_ event: String) {
+        guard isOn else { return }
+        shared.events.append(event)
+        if shared.events.count > 40 { shared.events.removeFirst(shared.events.count - 40) }
+    }
+}
+
+/// The trace as an accessibility label (no pixels: it must not change the screenshots).
+struct DropTraceLabel: View {
+    var body: some View {
+        if DropTrace.isOn {
+            Text(DropTrace.shared.events.joined(separator: " | "))
+                .font(.system(size: 1))
+                .opacity(0.01)
+                .accessibilityIdentifier("drop-trace")
+                .accessibilityLabel(DropTrace.shared.events.joined(separator: " | "))
+                .allowsHitTesting(false)
+        }
+    }
+}
+#endif

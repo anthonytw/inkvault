@@ -87,9 +87,11 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items replace` (the app's Replace Image: one delta, the new picture fitted into the old frame, `parent`) | ✅ #104 | ✅ #104 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
+| `recognize --recent [--days N]`: the shared "Recently Recognized" (`meta.recognized`, written by every `recognize` run and the app's "Recognize All") | 🔀 #102 | 🔀 #102 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | ✅ #87 |
 | `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | ✅ #87 | ✅ #87 |
 | `notes new` without a title: named after the date and time, `--title-format` (the app's default title) | ✅ #84 | ✅ #84 |
+| `notes new --title-format`: strftime too, validated with the app's messages (exit 2), `SEMPERE_TITLE_FORMAT` as this machine's default | 🔀 #102 | 🔀 #102 |
 | `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | ✅ #89 | ✅ #89 |
 | Fast `notes list` / `search` (parallel, summary cache in `~/.cache/sempere`) | ✅ #54 | ✅ #54 |
 | export PDF / SVG / PNG | ✅ | ✅ |
@@ -119,6 +121,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Area | Feature | Status |
 | --- | --- | --- |
 | Vaults | Open/create vaults, recents, iCloud Drive (dataless files handled), always-on sync loop with progress | ✅ |
+| Vaults | Background sync (iOS): a sync in flight finishes off screen (`beginBackgroundTask`); `BGProcessingTask` / `BGAppRefreshTask` continue it when iOS grants them (`docs/io.md` "Background sync") | 🔀 #102 (not yet tried on a device) |
 | Vaults | Keys in the Keychain / password manager | ✅ #24 |
 | Vaults | Save Key… (this device's key after Face ID, to Files / the share sheet / a password manager, with the paper kit) and New Key… (a key for another device) in Settings → Device Keys | ✅ #99 (not yet tried on the iPad) |
 | Vaults | Vaults of a newer format version open read-only: banner over the list, notes open read-only with what was skipped, New Note / Import / Recognize disabled, no autosave, thinning, inbox adoption or transcripts (`format.md` §7.3) | ✅ #94 (not yet tried on the iPad) |
@@ -137,10 +140,13 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Search | Handwriting search: Vision on rendered pages writes page recognition (`format.md` §5.5), search over text, title, notebook, tag, jump to the page | ✅ (not yet tried on the iPad) |
 | Search | Matching words highlighted on the canvas from the recognition boxes, previous/next across pages, match count (`SearchMatchCursor`) | ✅ #72 |
 | Search | "Recognize All Notes" results: a "Recently Recognized" sidebar section like Recently Deleted (notes read in the last 7 days, kept across launches, gone when empty); recent searches as the search field's suggestions, with Clear | ✅ #72, #84 |
+| Search | "Recently Recognized" shared by every device (each note's `meta.recognized`, `format.md` §5.4, synced like the trash) and listed under All Notes with the smart lists | 🔀 #102 (not yet tried on the iPad) |
 | Search | A running search follows the sidebar: choosing a notebook or tag keeps the query and scopes it there (scope bar "In “Math”" / All Notes) | ✅ #84 |
 | Notes | Notebook combo box (new note, move note); drag notes and notebooks onto the sidebar (move, nest, un-nest), "Move Notebook To…", one commit and one undo step per drop | ✅ #72 |
 | Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | ✅ #84 (not yet tried on the iPad); build 7 says drops still do nothing, so 🚧 #102 |
+| Notes | Drops on the sidebar, build 7: rows proposed a `.move` the drag session does not allow, so UIKit cancelled every drop at the release; they propose `.copy` now. Notebook rows drag from a UIKit drag interaction of their own (a list never routes its own drags to its rows), which also carries their context menu. Real-drag UI tests on the iPad simulator (every app CI run) and Mac Catalyst | 🔀 #102 (not yet tried on the iPad) |
 | Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | ✅ #84, #86 |
+| Notes | Title presets (date and time, date, year-month-day time, weekday) and a custom pattern (Unicode or strftime) checked as it is typed, with a live preview, the reason it is refused and an Insert menu of fields | 🔀 #102 (not yet tried on the iPad) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
 | App | Import from Notability in the app (the note list's toolbar, and the File menu on the Mac): `.note`/`.ntb` files, folders or backup zips through the CLI's importer (`NotabilityImporter`, same defaults: folder tags, attachments, existing notes skipped), filed in the sidebar's notebook, result alert | 🚧 #101 |
 | App | PDFs opened with Sempere (iPad share sheet / Open In; Mac Finder Open With) become new notes of the open vault, waiting for a vault to be opened and unlocked; Sempere is a PDF Viewer at rank Alternate, never the default | 🚧 #101 |

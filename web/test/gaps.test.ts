@@ -45,6 +45,24 @@ describe("lang and markersBehindText", () => {
   });
 });
 
+describe("recognized (shared Recently Recognized)", () => {
+  const at = "2026-10-08T14:05:00.000Z";
+  it("decodes, bounds and merges last writer wins", () => {
+    expect(() => setMeta("recognized", { at, pages: 1, read: 2 })).toThrow();
+    expect(() => setMeta("recognized", { at, pages: 1 })).toThrow();
+    expect(() => setMeta("recognized", true)).toThrow();
+    const log = new LogBuilder();
+    const base = log.delta(devA, 0, [op.addPage(p1, "V")]);
+    const snap = log.snapshot(devC, 50, [base]);
+    const a = log.delta(devA, 100, [setMeta("recognized", { at, pages: 1, read: 1 })]);
+    const b = log.delta(devB, 200, [setMeta("recognized", { at, pages: 1, read: 0 })]);
+    expect(reconstruct([b, a, base]).meta.recognized).toEqual({ at: Date.parse(at), pages: 1, read: 0 });
+    expect(reconstruct([snap, a]).meta.recognized?.read).toBe(1);
+    const clear = log.delta(devA, 300, [setMeta("recognized", null)]);
+    expect(reconstruct([base, a, b, clear]).meta.recognized).toBeUndefined();
+  });
+});
+
 describe("markers behind text", () => {
   function state(behind: boolean): NoteState {
     const log = new LogBuilder();

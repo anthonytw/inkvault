@@ -133,7 +133,7 @@ extension AppModel {
     /// wakes it early for those notes only. Once settled, and then every
     /// `cloudValidationInterval`, a low-priority full validation runs
     /// (`validateVault`). Paused while the app is in the background
-    /// (`pauseCloudSync`). Nothing arriving for `cloudStallTimeout` sets
+    /// (`pauseCloudSync`), once a sync in flight has finished there (`enterBackground`). Nothing arriving for `cloudStallTimeout` sets
     /// `cloudSync.problem` (shown in the list) and slows to the idle pace;
     /// the problem clears when files arrive again. Starts when the vault
     /// opens (still locked: downloads are requested before the key is
@@ -173,6 +173,11 @@ extension AppModel {
                     lastLocal = local
                     lastKnown = known
                     if pending == 0 { self.cloudSync?.problem = nil }
+                    // Off screen: done once nothing is pending (`enterBackground`).
+                    if pending == 0, self.syncingInBackground, !self.syncInFlight {
+                        self.finishBackgroundSync()
+                        return
+                    }
                     if quiet >= self.cloudSettlePasses {
                         interval = Self.idleInterval(base: self.cloudIdleInterval, max: self.cloudMaxIdleInterval,
                                                      idlePasses: idlePasses)
