@@ -810,7 +810,12 @@ directory, a canonical revision file name (format.md §5), an `att`
 collection or a canonical blob name (format.md §8.1.2) are ignored and
 listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
 and unknown files are not synced. A downloaded revision must start with the
-age header or it is rejected. Remote names are reported with control
+age header or it is rejected, and before it is placed it is checked as
+format.md §9.1 says (tag, note and name with the vault unlocked; age
+structure when locked); a file that fails is quarantined next to the sync
+state (`<state>.quarantine/`), reported, and not fetched again while it and
+the local `vault.json` are unchanged (`--retry-quarantined`). A first pull
+with `--identity` checks under the `vault.json` it pulls. Remote names are reported with control
 characters escaped, so a hostile name cannot drive the terminal. Response
 bodies are read incrementally and the request is cancelled past a limit
 (`maxFileBytes`, 256 MiB, for revisions; 16 MiB for listings, manifests and
@@ -865,7 +870,9 @@ revisions still sync, and readers draw a placeholder for it meanwhile
   1 GiB + 64 MiB, `--max-blob-mib`): a larger one is neither uploaded nor
   downloaded, and a body is cut off at the limit whatever the listing said.
   A downloaded blob must have the listed size and start with the age header,
-  or it is not written. Its content is verified when read, as for revisions.
+  or it is not written. With the vault unlocked it is then decrypted whole
+  and checked (framing, padding, hash, keyed name: format.md §9.1) before it
+  is linked into place; one that fails is quarantined, never placed.
 - *Write-once on the server.* An upload goes to `att/.sempere-tmp-<uuid>`
   (`If-None-Match: *`) and is renamed with `MOVE` and `Overwrite: F`, so no
   reader sees a partial blob under its name (a server that writes PUT bodies
@@ -951,6 +958,16 @@ folder from a new collection (or upload the rewritten vault to a new one) and
 retire the old one. `rewrap-journal.json` left on the server by a finished
 change is harmless but stays there. Syncing during an unfinished rewrap can
 copy a mix of old and new files.
+
+**Bounds per run** (`SyncLimits`, security review 2026-10, W5). Each
+request is bounded on its own; the run as a whole is bounded too: at most
+100 000 note folders listed, 10⁶ remote entries listed (root, note folders,
+`att/`), 64 GiB downloaded and 12 hours (`--max-notes`, `--max-entries`,
+`--max-download-mib`, `--max-minutes`). Time is checked before each note and
+each download, bytes before (from the listing) and after each download.
+Reaching a bound stops the run: the error says which (`stoppedEarly` in the
+JSON report), what was done is recorded in the state, and the next run
+continues from there.
 
 **State.** `$XDG_STATE_HOME/sempere/sync/<hash of URL and vault path>.json`:
 file names, hashes, ETags and snapshot coverage, no secrets. Deleting it makes

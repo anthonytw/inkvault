@@ -252,14 +252,16 @@ public struct SecretLinkStatus: Hashable, Sendable, Codable {
     /// The form of a `secretLink` or a trust record.
     public enum Form: String, Hashable, Sendable, Codable {
         case none, signed, legacy, malformed
+        /// A trust record that exists but cannot be read (security review R5).
+        case unreadable
     }
 
     /// `vault.json`'s `secretLink`.
     public var link: Form
     /// True when `features` lists `signed-secret-link`.
     public var featureListed: Bool
-    /// This device's trust record: `none`, `signed` (`sempere-trust/2`) or
-    /// `legacy` (`sempere-trust/1`).
+    /// This device's trust record: `none`, `signed` (`sempere-trust/2`),
+    /// `legacy` (`sempere-trust/1`) or `unreadable`.
     public var record: Form
 
     /// True when `Vault.upgradeSecretLink` would change something in the
@@ -280,10 +282,14 @@ extension Vault {
         case .malformed?: link = .malformed
         }
         let record: SecretLinkStatus.Form
-        switch trustStore?.record(for: vaultId)?.anchor {
-        case nil: record = .none
-        case .signed?: record = .signed
-        case .legacy?: record = .legacy
+        do {
+            switch try trustStore?.record(for: vaultId)?.anchor {
+            case nil: record = .none
+            case .signed?: record = .signed
+            case .legacy?: record = .legacy
+            }
+        } catch {
+            record = .unreadable   // recipientsStatus reports it (recordUnreadable)
         }
         return SecretLinkStatus(link: link, featureListed: manifest.features.contains(VaultManifest.signedLinkFeature),
                                 record: record)

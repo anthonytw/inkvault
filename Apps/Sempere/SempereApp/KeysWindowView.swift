@@ -52,8 +52,8 @@ struct KeysWindowView: View {
             Text("Every note is re-encrypted without it. That device can no longer open new or changed files; it keeps what it already copied.")
         }
         .confirmationDialog("Print the recovery kit?", isPresented: $confirmingKit, titleVisibility: .visible) {
-            Button("Print…") { printKit() }
-            Button("Save as PDF…") { prepareKit() }
+            Button("Print…") { Task { await printKit() } }
+            Button("Save as PDF…") { Task { await prepareKit() } }
         } message: {
             Text("The kit contains this vault's secret key. Print it and keep it somewhere safe; do not leave the PDF in cloud storage.")
         }
@@ -113,18 +113,22 @@ struct KeysWindowView: View {
         do { try await work() } catch is CancellationError {} catch { failure = "\(error)" }
     }
 
-    private func kitPDF() -> Data? {
-        do { return try model.recoveryKitPDF() } catch { failure = "\(error)"; return nil }
+    /// The kit holds the secret key: the owner authenticates first (P1).
+    private func kitPDF() async -> Data? {
+        do { return try await model.recoveryKitPDF() } catch is CancellationError { return nil } catch {
+            failure = "\(error)"
+            return nil
+        }
     }
 
-    private func prepareKit() {
-        guard let data = kitPDF() else { return }
+    private func prepareKit() async {
+        guard let data = await kitPDF() else { return }
         kitDocument = PDFFile(data: data)
         exportingKit = true
     }
 
-    private func printKit() {
-        guard let data = kitPDF() else { return }
+    private func printKit() async {
+        guard let data = await kitPDF() else { return }
         let info = UIPrintInfo(dictionary: nil)
         info.outputType = .general
         info.jobName = String(localized: "Sempere recovery kit", comment: "Default file name of the saved recovery kit PDF")

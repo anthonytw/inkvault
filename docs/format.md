@@ -220,9 +220,16 @@ cannot check nor drop the tag by rewriting `vault.json`.
    device never updates its trust record to an unconfirmed secret.
 4. The tag verifies and the device has no trust record: verified (first use
    on this device).
+5. A trust record that exists but cannot be read (it does not parse, names
+   another vault, or is not a readable file) is never taken as "no record":
+   that would make the next write a first use and replace the record. The
+   list is then tampered (**record unreadable**) unless steps 1–2 already
+   found it so, with no restore list, until the user checks it and confirms
+   it (below), which writes the record again.
 
 A writer that finds the list verified saves it as its trust record before it
-writes (a reader that only reads keeps none). A tampered list is **refused for
+writes (a reader that only reads keeps none); a record it cannot save stops
+the write, and is tried again by the next one. A tampered list is **refused for
 writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
 files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
 reports the keys that are not in the last verified list (the **unexpected**
@@ -2635,6 +2642,7 @@ where the table says how they degrade.
 | age header | 2 MiB, 1024 stanzas | Age `HeaderCodec` |
 | scrypt work factor (identity files) | 2^20 by default (1 GiB), at most 2^22 | `IdentityFile` |
 | WebDAV response | 256 MiB for a revision, 16 MiB otherwise; PROPFIND bodies must be UTF-8 with no DTD or processing instruction | `WebDAVClient` |
+| WebDAV sync run (§9.1) | 100 000 note folders, 10⁶ listed entries, 64 GiB downloaded, 12 hours; the run stops there with an error and the next one continues | `SyncLimits` |
 | zip entry (import) | 1 GiB uncompressed, CRC and size checked | `ZipArchive` |
 | binary plist (import) | 64 levels; no cycles; each object parsed once; XML plists refused | `BinaryPlist` |
 | keyed-archive UID chain | 64 hops | `KeyedArchive` |
@@ -2667,6 +2675,44 @@ crashes on an element name that is not UTF-8 or on a processing
 instruction without data. The library parses dates and binary plists
 itself and checks PROPFIND bodies before `XMLParser` sees them.
 `Tests/FuzzSupport` fuzzes every parser above on each test run.
+
+### 9.1 Received files
+
+A writer that copies revisions or blobs into `notes/` from elsewhere (a sync
+server, a shared folder it pulls from) checks each file **before** it places
+it, because a placed file is write-once and every later reader trusts its
+name:
+
+- **With the vault unlocked**, a revision must decrypt with the device's
+  identity, its tag (§4) must verify under the vault secret (or the previous
+  one of an unfinished rotation, §3.3.1), and it must decode as a revision of
+  that note and file name; a revision marked as written by a later version
+  (§7) passes, as it would when read. A blob must decrypt whole, with valid
+  framing, zero padding and content hash (§8.1.3, §8.1.4), and its file name
+  must be the keyed name of its hash (§8.1.2). The checks are those of a read
+  under the secret `vault.json` holds once any `vault.json` received in the
+  same run has been taken (§2.1), so a rotation arriving with its first
+  revisions is not mistaken for forgery.
+- **Locked** (no identity, or a first pull without one), only structure can
+  be checked: an age header that parses, whose stanzas are all of a type the
+  vault's recipients use and no more numerous than its recipients, and a
+  payload long enough for one chunk.
+
+A file that fails is **quarantined**: never placed under `notes/`, kept
+outside the vault (the reference implementation: next to the sync state,
+`<state>.quarantine/<path>`, mode 0600) and reported. It is not fetched again
+while neither it, `vault.json` nor the lock state changed (`sempere sync
+webdav --retry-quarantined` fetches it again). It is never deleted silently.
+
+**One bad file never blocks a note.** Readers already skip a revision they
+cannot read (§5, reported). A writer choosing its next `seq` (§5) skips a
+snapshot whose tag does not verify: it decrypted with the device's key but
+was not written under the vault secret, so no writer of the vault made it and
+its `included` covers nothing; skipping it can never reuse a `seq`. A
+snapshot that does not decrypt (or whose journal is unreadable) may be a real
+one whose coverage is unknown, so a writer still refuses to pick a `seq`
+until it can be read or is removed. A locked sync places such well-formed
+forgeries (it cannot tell), and they then fail only their own reads.
 
 ## 10. Per-device summary cache (outside the vault)
 
@@ -2834,7 +2880,23 @@ kind does not verify. A reader verifies the tag (under the current secret's
 capture key, or the previous secret's during an unfinished rewrap, §3.3.1)
 before it parses anything after it, and treats a file that fails as
 untrusted input (§9): reported, kept, never adopted. The whole plaintext is at
-most 256 MiB.
+most 256 MiB for a `capture` and, for a `transcript`, 37 bytes plus one JSON
+line of at most 64 MiB (§8.3.2), `0x0A` and 64 hex digits; a reader checks
+the file's size against its kind's bound before decrypting. The tag covers
+everything after it, so a reader computes it while decrypting, as a stream,
+without keeping the plaintext, and reads a file whole only once its tag
+verified: a file nobody with the capture key wrote costs one pass in constant
+memory.
+
+A file that fails is kept (it may be a real capture this device cannot check
+yet, for example sealed under a secret whose `vault.json` has not arrived),
+but a reader need not decrypt it again at every unlock. The reference
+implementation keeps a per-device record outside the vault (like §10) of
+files that failed, by vault id, name, size and modification time, and does
+not read such a file again for an hour after its first failure, then twice
+as long after each further failure, up to a week, unless it changes; a read
+that verifies clears its record. Failures to read the file at all (I/O,
+iCloud) are not recorded.
 
 - **`capture`**: the JSON is the capture manifest and the payload is the
   audio, as recorded:
@@ -2851,7 +2913,10 @@ most 256 MiB.
   `id` must equal `<captureId>` and `vault` the vault's `vaultId`. `audio` is
   a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
   `device` is the capturing device's id (§5). `title`, `notebook` (absent:
-  `Inbox`) and the informational fields become the note's.
+  `Inbox`) and the informational fields become the note's; the title and
+  the notebook as at most 300 characters (and 1200 Unicode scalars: one
+  character may hold any number of combining marks), control characters replaced by
+  spaces (any holder of the capture key writes them, §11.3).
 - **`transcript`**: the payload is the 64 lowercase hex digits of the
   capture's audio SHA-256 (its manifest's `audio.sha256`). That binds the
   transcript to the audio: the capture key is on every capturing device and

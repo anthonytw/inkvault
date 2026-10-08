@@ -249,6 +249,11 @@ public struct RecipientsProblem: Hashable, Sendable {
         /// The secret changed without a `secretLink` this device can check
         /// (whatever keys the list holds).
         case secretUnconfirmed
+        /// This device's trust record for the vault exists but cannot be
+        /// read (damaged, tampered with, or a newer record format): nothing
+        /// can be compared, so the list is not trusted for writing until the
+        /// user confirms it (security review 2026-10, R5).
+        case recordUnreadable
     }
 
     public var reason: Reason
@@ -374,8 +379,13 @@ public struct RecipientsTrustRecord: Codable, Hashable, Sendable {
 
 /// Where a device keeps its trust records.
 public protocol RecipientsTrustStore: Sendable {
-    /// The record of `vaultId`, nil when there is none (or it is unreadable).
-    func record(for vaultId: UUID) -> RecipientsTrustRecord?
+    /// The record of `vaultId`, nil when there is none.
+    ///
+    /// - Throws: when a record exists but cannot be read or does not decode
+    ///   (or names another vault). Never nil for that: a record that reads as
+    ///   absent would make the next open a first use, and the next write
+    ///   would replace it (format.md §2.1, security review 2026-10, R5).
+    func record(for vaultId: UUID) throws -> RecipientsTrustRecord?
     /// Saves (replaces) the record of its vault.
     func save(_ record: RecipientsTrustRecord) throws
 }
@@ -400,12 +410,20 @@ public struct FileRecipientsTrustStore: RecipientsTrustStore {
         directory.appendingPathComponent("\(vaultId.uuidString.lowercased()).json")
     }
 
-    public func record(for vaultId: UUID) -> RecipientsTrustRecord? {
+    public func record(for vaultId: UUID) throws -> RecipientsTrustRecord? {
         let url = fileURL(vaultId)
-        guard FileIO.exists(url),
-              let data = try? BoundedRead.contents(of: url, maxBytes: Self.maxFileBytes),
-              let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: data),
-              r.vaultId == vaultId else { return nil }
+        // Absent only when nothing is there at all (not even a dangling link).
+        guard (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil else { return nil }
+        let r: RecipientsTrustRecord
+        do {
+            let data = try BoundedRead.contents(of: url, maxBytes: Self.maxFileBytes)
+            r = try JSONDecoder().decode(RecipientsTrustRecord.self, from: data)
+        } catch {
+            throw VaultError.io("trust record \(url.path) is unreadable: \(error)")
+        }
+        guard r.vaultId == vaultId else {
+            throw VaultError.io("trust record \(url.path) names another vault")
+        }
         return r
     }
 
@@ -434,23 +452,35 @@ public struct FileRecipientsTrustStore: RecipientsTrustStore {
 public final class MemoryRecipientsTrustStore: RecipientsTrustStore, @unchecked Sendable {
     private let lock = NSLock()
     private var records: [UUID: RecipientsTrustRecord] = [:]
+    private var unreadable: [UUID: String] = [:]
 
     public init() {}
 
-    public func record(for vaultId: UUID) -> RecipientsTrustRecord? {
+    public func record(for vaultId: UUID) throws -> RecipientsTrustRecord? {
         lock.lock(); defer { lock.unlock() }
+        if let why = unreadable[vaultId] { throw VaultError.io("trust record unreadable: \(why)") }
         return records[vaultId]
     }
 
     public func save(_ record: RecipientsTrustRecord) throws {
         lock.lock(); defer { lock.unlock() }
+        unreadable[record.vaultId] = nil
         records[record.vaultId] = record
+    }
+
+    /// Makes the record of `vaultId` read as unreadable (`why`) until the
+    /// next `save`: a damaged file, for tests and dry runs.
+    public func markUnreadable(_ vaultId: UUID, _ why: String) {
+        lock.lock(); defer { lock.unlock() }
+        records[vaultId] = nil
+        unreadable[vaultId] = why
     }
 
     /// Forgets every record.
     public func removeAll() {
         lock.lock(); defer { lock.unlock() }
         records = [:]
+        unreadable = [:]
     }
 }
 
@@ -503,7 +533,10 @@ extension Vault {
         do { secret = try decryptSecret(incoming.vaultSecret, with: vault.identities) } catch {
             return "the incoming vault.json's secret does not open with this key: \(error)"
         }
-        var anchor = vault.trustStore?.record(for: vault.vaultId)
+        var anchor: RecipientsTrustRecord?
+        do { anchor = try vault.trustStore?.record(for: vault.vaultId) } catch {
+            return "this device's trust record for the vault cannot be read, so the incoming vault.json cannot be checked: \(error)"
+        }
         if anchor == nil, vault.recipientsStatus.allowsWriting, let own = vault.secret {
             anchor = try? RecipientsTrustRecord(vaultId: vault.vaultId, secret: own, recipients: vault.recipients.map(\.key))
         }

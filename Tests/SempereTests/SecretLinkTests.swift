@@ -106,7 +106,7 @@ final class SecretLinkTests: VaultTestCase {
     func testTheRecordCannotForgeALink() throws {
         let store = MemoryRecipientsTrustStore()
         let made = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a], trust: store)
-        let record = try XCTUnwrap(store.record(for: made.vaultId))
+        let record = try XCTUnwrap(try store.record(for: made.vaultId))
         let json = String(decoding: try JSONEncoder().encode(record), as: UTF8.self)
         XCTAssertEqual(record.format, "sempere-trust/2")
         XCTAssertTrue(json.contains("linkPublicKeys"))
@@ -131,7 +131,7 @@ final class SecretLinkTests: VaultTestCase {
             let v = try Vault.open(at: made.url, identities: [a], trust: store)
             XCTAssertEqual(v.recipientsStatus.problem?.reason, .secretUnconfirmed, "attempt \(i)")
             XCTAssertThrowsError(try v.requireWritable(), "attempt \(i)")
-            XCTAssertEqual(store.record(for: made.vaultId), record, "attempt \(i): the record never moves")
+            XCTAssertEqual(try store.record(for: made.vaultId), record, "attempt \(i): the record never moves")
         }
     }
 
@@ -183,7 +183,7 @@ final class SecretLinkTests: VaultTestCase {
         let store = MemoryRecipientsTrustStore()
         let vault = try Vault.create(at: vaultURL(), recipients: [a.recipient, b.recipient], identities: [a], trust: store)
         let old = try vault.requireSecret()
-        let record = try XCTUnwrap(store.record(for: vault.vaultId))
+        let record = try XCTUnwrap(try store.record(for: vault.vaultId))
         // A rotation as an old writer would make it: a genuine HMAC link, no feature.
         let new = VaultSecret.random()
         try rewrite(vault.url) { m in
@@ -196,8 +196,8 @@ final class SecretLinkTests: VaultTestCase {
         let v = try Vault.open(at: vault.url, identities: [a], trust: store)
         XCTAssertEqual(v.recipientsStatus.problem?.reason, .secretUnconfirmed)
         XCTAssertThrowsError(try v.requireWritable())
-        XCTAssertEqual(store.record(for: vault.vaultId), record)
-        XCTAssertFalse(try XCTUnwrap(store.record(for: vault.vaultId)).isLegacy, "never downgraded")
+        XCTAssertEqual(try store.record(for: vault.vaultId), record)
+        XCTAssertFalse(try XCTUnwrap(try store.record(for: vault.vaultId)).isLegacy, "never downgraded")
     }
 
     /// A legacy record confirms the same secret only: a rotation linked by a
@@ -209,7 +209,7 @@ final class SecretLinkTests: VaultTestCase {
         try makeLegacy(vault, store)
         let same = try Vault.open(at: vault.url, identities: [a], trust: store)
         XCTAssertEqual(same.recipientsStatus, .verified(.unchanged))
-        XCTAssertTrue(try XCTUnwrap(store.record(for: vault.vaultId)).isLegacy, "reading keeps the record as it is")
+        XCTAssertTrue(try XCTUnwrap(try store.record(for: vault.vaultId)).isLegacy, "reading keeps the record as it is")
         XCTAssertEqual(same.secretLinkStatus.record, .legacy)
         XCTAssertTrue(same.secretLinkStatus.needsUpgrade)
 
@@ -227,7 +227,7 @@ final class SecretLinkTests: VaultTestCase {
         XCTAssertEqual(rotated.recipientsStatus.problem?.reason, .secretUnconfirmed)
         // The explicit confirmation is the way out, and writes a signed record.
         try rotated.confirmRecipients()
-        let after = try XCTUnwrap(stale.record(for: vault.vaultId))
+        let after = try XCTUnwrap(try stale.record(for: vault.vaultId))
         XCTAssertFalse(after.isLegacy)
         XCTAssertEqual(after.anchor, .signed(try LinkPublicKeys(secret: new)))
     }
@@ -332,7 +332,7 @@ final class SecretLinkTests: VaultTestCase {
         try vault.addRecipient(b.recipient, label: "B")
         XCTAssertNil(vault.manifest.secretLink)
         XCTAssertTrue(vault.manifest.features.contains("signed-secret-link"))
-        XCTAssertFalse(try XCTUnwrap(store.record(for: vault.vaultId)).isLegacy)
+        XCTAssertFalse(try XCTUnwrap(try store.record(for: vault.vaultId)).isLegacy)
     }
 
     // MARK: - Helpers
