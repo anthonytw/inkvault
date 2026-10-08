@@ -796,6 +796,23 @@ final class NoteEditor {
         return true
     }
 
+    /// Shows item changes a delta written elsewhere already holds (a
+    /// recording's card, `NoteEditor+Recordings`): `added` items on their
+    /// pages, `removed` item ids gone from theirs. Writes nothing.
+    func showWrittenItems(added: [(page: UUID, item: Item)], removed: [(page: UUID, item: UUID)] = []) {
+        for (page, item) in added {
+            guard let i = pages.firstIndex(where: { $0.id == page }) else { continue }
+            pages[i].items.append(item)
+            pages[i].items.sort(by: Item.drawsBefore)
+            itemRevisions[page, default: 0] &+= 1
+        }
+        for (page, item) in removed {
+            guard let i = pages.firstIndex(where: { $0.id == page }) else { continue }
+            pages[i].items.removeAll { $0.id == item }
+            itemRevisions[page, default: 0] &+= 1
+        }
+    }
+
     /// Takes pages built elsewhere (a PDF's, `NoteEditor+Insert`), shows
     /// `show`, and saves them at once as one delta.
     func applyInsertedPages(_ edit: PageEdit, show: UUID?) {

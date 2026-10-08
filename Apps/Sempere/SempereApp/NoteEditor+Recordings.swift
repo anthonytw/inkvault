@@ -3,7 +3,8 @@ import Sempere
 
 /// Recordings of the open note (docs/attachments.md §9, §13; format.md
 /// §8.3): recording into the note, saving (the audio blob first, then one
-/// delta adding the recording), renaming and removing, and the ink sync of
+/// delta adding the recording and its card on the page being looked at,
+/// format.md §8.2.8), renaming and removing, and the ink sync of
 /// playback: strokes written while recording carry `rec` (stamped in
 /// `StrokeLedger.items(for:tool:stamp:)`), a tap on one plays from there,
 /// and playback highlights what was written around the current moment.
@@ -82,7 +83,7 @@ extension NoteEditor {
         RecordingSession.busy.insert(s.id)
         do {
             try await RecordingAssembly.merge(await RecordingAssembly.readable(s.segments), into: out)
-            let recording = try await addRecording(file: out, started: s.timeline.started ?? Date(), id: s.id)
+            let recording = try await addRecording(file: out, started: s.timeline.started ?? Date(), id: s.id, place: true)
             if recordingSession === s { recordingSession = nil }
             if let handOff = onRecordingSaved {
                 handOff(recording, out, s.folder)   // deletes the folder and clears `busy` when done
@@ -100,10 +101,12 @@ extension NoteEditor {
     }
 
     /// Adds the audio file `file` as a recording of this note: the blob
-    /// first, then one delta (`addRecording`). Its informational fields come
-    /// from the file's header (`AudioProbe`).
+    /// first, then one delta (`addRecording`, and with `place` the `audio`
+    /// item that shows it on the page being looked at, `audioPlacement`).
+    /// Its informational fields come from the file's header (`AudioProbe`).
     @discardableResult
-    func addRecording(file: URL, started: Date, id: UUID = UUID(), title: String? = nil) async throws -> Recording {
+    func addRecording(file: URL, started: Date, id: UUID = UUID(), title: String? = nil,
+                      place: Bool = false) async throws -> Recording {
         guard canEditItems, let writer = attachmentWriter else { throw ItemError.notEditable }
         let info = try? await Task.detached(priority: .userInitiated) { try AudioProbe.probe(file: file) }.value
         if let prepare = prepareBlobWrite {
@@ -114,11 +117,40 @@ extension NoteEditor {
         }
         let ref = try await writer.addBlob(from: file, type: "audio/mp4")
         let recording = NoteOps.recording(blob: ref, started: started, info: info, title: title, id: id)
-        let ops = try NoteOps.addRecording(recording, to: recordings)
+        var ops = try NoteOps.addRecording(recording, to: recordings)
+        await flush()   // the card goes on the page as it is after the ink still pending
+        let placed = place ? audioPlacement(for: recording) : nil
+        if let placed { ops += placed.ops }
         try await writeRecordingOps(ops)
         recordings.append(recording)
         recordings.sort(by: Recording.sortsBefore)
+        if let placed { showWrittenItems(added: [(placed.page, placed.item)]) }
         return recording
+    }
+
+    /// The card that shows `recording` on the page being looked at, inside the
+    /// part of it on screen (format.md §8.2.8; `NoteOps.placeRecording`), nil
+    /// when the note has no page or the page is full.
+    func audioPlacement(for recording: Recording) -> ItemPlacement? {
+        guard let page = currentPage ?? pages.first else { return nil }
+        let visible = (canvasTarget?.visibleRect(ofPage: page.id) ?? canvasTarget?.visiblePageRect).map { Rect($0) }
+        return try? NoteOps.placeRecording(recording.id, recordings: recordings + [recording], on: page, pageSize: pageSize,
+                                           visible: visible)
+    }
+
+    /// Places `recording` (already in the note) on the page being looked at
+    /// ("Place on Page" in the Recordings list): one `addItem`.
+    @discardableResult
+    func placeRecording(_ id: UUID) -> Item? {
+        guard canEditItems, let recording = recording(id), let placed = audioPlacement(for: recording),
+              let page = pages.first(where: { $0.id == placed.page }),
+              let edit = try? NoteOps.addItems([placed.item], to: page), applyItemEdit(edit) else { return nil }
+        return placed.item
+    }
+
+    /// The `audio` items that show recording `id`, with their pages.
+    func audioItems(showing id: UUID) -> [(page: UUID, item: Item)] {
+        NoteState(meta: meta, pages: pages, recordings: recordings).audioItems(showing: id)
     }
 
     /// Renames a recording (one `setRecording(title)`); an empty title clears it.
@@ -134,14 +166,20 @@ extension NoteEditor {
         }
     }
 
-    /// Removes a recording (one `removeRecording`; its blob stays until
-    /// collection, and history can restore it).
+    /// Removes a recording and the cards that show it on the pages (one
+    /// delta: `NoteOps.removeRecording`; its blob stays until collection, and
+    /// history can restore it).
     func removeRecording(_ id: UUID) async {
         guard recordings.contains(where: { $0.id == id }) else { return }
         if player?.recording?.id == id { player?.stop() }
         do {
-            try await writeRecordingOps([.removeRecording(recordingId: id)])
+            await flush()
+            let ops = NoteOps.removeRecording(id, in: NoteState(meta: meta, pages: pages, recordings: recordings))
+            try await writeRecordingOps(ops)
             recordings.removeAll { $0.id == id }
+            var removed: [(page: UUID, item: UUID)] = []
+            for case .removeItem(let page, let item) in ops { removed.append((page, item)) }
+            showWrittenItems(added: [], removed: removed)
             playbackHighlight = [:]
         } catch {
             recordingError = "Could not delete the recording: \(error)"

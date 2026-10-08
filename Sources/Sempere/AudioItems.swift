@@ -144,6 +144,40 @@ public struct AudioCard: Hashable, Sendable {
     /// The bottom a label line may reach: lines below it are not drawn.
     public var labelBottom: Double { frame.y + frame.h - padding }
 
+    /// Where an app draws the card's play/pause control: a disc of diameter
+    /// `0.6 d` centred at `(cx + 0.4 d, cy + 0.4 d)`, over the icon's lower
+    /// right, turned with the item's `rotation` (degrees) about the frame's
+    /// centre. Not part of the format: exports draw only the icon.
+    public func badge(rotation: Double?) -> (center: (x: Double, y: Double), diameter: Double) {
+        let d = max(iconSize, 0)
+        let (cx, cy) = iconCenter
+        return (turned(x: cx + 0.4 * d, y: cy + 0.4 * d, degrees: rotation ?? 0), 0.6 * d)
+    }
+
+    /// Whether the page point (`x`, `y`) is on the card's play control: the
+    /// icon or its badge, widened by `slack` points (a finger's or pointer's
+    /// tolerance), for an item turned by `rotation` degrees.
+    public func controlContains(x: Double, y: Double, rotation: Double?, slack: Double = 0) -> Bool {
+        guard iconSize > 0, x.isFinite, y.isFinite else { return false }
+        let p = turned(x: x, y: y, degrees: -(rotation ?? 0))   // into the frame's own axes
+        let (cx, cy) = iconCenter
+        let d = iconSize
+        func within(_ ox: Double, _ oy: Double, _ r: Double) -> Bool {
+            let dx = p.x - ox, dy = p.y - oy
+            return dx * dx + dy * dy <= (r + slack) * (r + slack)
+        }
+        return within(cx, cy, d / 2) || within(cx + 0.4 * d, cy + 0.4 * d, 0.3 * d)
+    }
+
+    /// (`x`, `y`) turned by `degrees` clockwise (y down) about the frame's centre.
+    private func turned(x: Double, y: Double, degrees: Double) -> (x: Double, y: Double) {
+        guard degrees != 0, degrees.isFinite else { return (x, y) }
+        let r = degrees * .pi / 180, c = cos(r), s = sin(r)
+        let mx = frame.x + frame.w / 2, my = frame.y + frame.h / 2
+        let dx = x - mx, dy = y - my
+        return (mx + dx * c - dy * s, my + dx * s + dy * c)
+    }
+
     /// The recording's title as the card shows it.
     public static func title(_ recording: Recording) -> String {
         let t = recording.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

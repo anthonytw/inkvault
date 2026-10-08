@@ -178,6 +178,8 @@ extension NoteEditor {
     func pasteItems(_ items: [Item], from source: UUID, on pageID: UUID, dx: Double = 0, dy: Double = 0,
                     prepare: @Sendable (BlobRef) async throws -> Void = { _ in }) async throws -> [Item] {
         _ = try page(pageID)
+        // A recording belongs to its note: its cards cannot show it in another one (format.md §8.2.8).
+        let items = source == noteID ? items : NoteOps.copyableToOtherNote(items)
         guard !items.isEmpty else { return [] }
         if source != noteID {
             guard let writer = attachmentWriter else { throw ItemError.notEditable }

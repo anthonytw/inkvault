@@ -191,3 +191,26 @@ final class AudioItemTests: XCTestCase {
         XCTAssertNil(AudioCard.excerpt(Transcript(recording: Self.recID, engine: "t", language: "", created: Date(), segments: [])))
     }
 }
+
+/// The app's play control on a card: the icon and its badge, turned with the item.
+final class AudioCardControlTests: XCTestCase {
+    func testBadgeAndHitTest() {
+        let card = AudioCard(frame: Rect(x: 0, y: 0, w: 300, h: 96))
+        let badge = card.badge(rotation: nil)
+        XCTAssertEqual(badge.center.x, 20 + 9.6, accuracy: 1e-9)
+        XCTAssertEqual(badge.center.y, 20 + 9.6, accuracy: 1e-9)
+        XCTAssertEqual(badge.diameter, 14.4, accuracy: 1e-9)
+        XCTAssertTrue(card.controlContains(x: 20, y: 20, rotation: nil))           // the icon's centre
+        XCTAssertTrue(card.controlContains(x: 32, y: 32, rotation: nil))           // on the badge, outside the icon
+        XCTAssertFalse(card.controlContains(x: 150, y: 50, rotation: nil))         // the label
+        XCTAssertFalse(card.controlContains(x: 33, y: 20, rotation: nil))
+        XCTAssertTrue(card.controlContains(x: 33, y: 20, rotation: nil, slack: 2))
+        // A half turn puts the icon at the opposite corner.
+        XCTAssertTrue(card.controlContains(x: 280, y: 76, rotation: 180))
+        XCTAssertFalse(card.controlContains(x: 20, y: 20, rotation: 180))
+        let turned = card.badge(rotation: 180)
+        XCTAssertEqual(turned.center.x, 300 - 29.6, accuracy: 1e-9)
+        XCTAssertEqual(turned.center.y, 96 - 29.6, accuracy: 1e-9)
+        XCTAssertFalse(card.controlContains(x: .nan, y: 0, rotation: nil))
+    }
+}

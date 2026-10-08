@@ -25,10 +25,20 @@ struct ItemLayerSource {
 /// note opens and launches), so a PDF note opened before shows its pages at
 /// once, sharpening as the tiles are drawn; image pictures come from the
 /// same cache.
-/// Not interactive: selection is `ItemSelectionController`'s.
+/// A recording on the page (format.md §8.2.8) is its card, drawn like the
+/// other items, with a play/pause badge over the card's icon showing whether
+/// it is the recording playing (`AudioPlayState`).
+/// Not interactive: selection, and taps on a card's control, are
+/// `ItemSelectionController`'s.
 final class ItemLayerView: UIView {
     private(set) var noteID: UUID?
     private(set) var items: [Item] = []
+    /// The note's recordings, for its audio items' cards.
+    private(set) var recordings: [Recording] = []
+    /// The recording loaded in the player, if any, and whether it plays.
+    private(set) var playing: AudioPlayState?
+    /// The play/pause badges of audio items, by item id.
+    private var badges: [UUID: AudioBadgeLayer] = [:]
     private var source = ItemLayerSource()
     private var paper = Paper.blank
     private var zoom: CGFloat = 1
@@ -76,12 +86,17 @@ final class ItemLayerView: UIView {
     /// Items on screen, by id (for tests and the selection overlay).
     var shownItemIDs: [UUID] { items.map(\.id) }
 
-    /// Shows `items` of note `note` (in any order) over `paper`.
-    func show(_ items: [Item], note: UUID, paper: Paper, source: ItemLayerSource) {
+    /// Shows `items` of note `note` (in any order) over `paper`; audio items
+    /// show their recording from `recordings`, with `playing` on their badge.
+    func show(_ items: [Item], note: UUID, paper: Paper, source: ItemLayerSource, recordings: [Recording] = [],
+              playing: AudioPlayState? = nil) {
         let sorted = items.sorted(by: Item.drawsBefore)
         let changedNote = note != noteID
-        let changed = changedNote || sorted != self.items || paper != self.paper
+        let changed = changedNote || sorted != self.items || paper != self.paper || recordings != self.recordings
+            || playing != self.playing
         self.source = source
+        self.recordings = recordings
+        self.playing = playing
         guard changed else { return }
         if changedNote {
             for task in tasks.values { task.cancel() }
@@ -107,9 +122,16 @@ final class ItemLayerView: UIView {
             tile.removeFromSuperlayer()
             tiles[id] = nil
         }
+        for (id, badge) in badges where !newIDs.contains(id) {
+            badge.removeFromSuperlayer()
+            badges[id] = nil
+        }
         previews = previews.filter { newIDs.contains($0.key) }
         layout()
     }
+
+    /// The badge of audio item `id` shows pause (its recording plays), for tests.
+    func badgeShowsPause(_ id: UUID) -> Bool? { badges[id]?.showsPause }
 
     /// The canvas zoom changed.
     func setZoom(_ zoom: CGFloat) {
@@ -131,6 +153,7 @@ final class ItemLayerView: UIView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             for (id, sub) in sublayers { sub.isHidden = id == hiddenItem }
+            for (id, badge) in badges { badge.isHidden = id == hiddenItem }
             CATransaction.commit()
         }
     }
@@ -149,6 +172,7 @@ final class ItemLayerView: UIView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let step = scaleStep
+        let shown = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)), pages: [], recordings: recordings)
         var wanted: Set<ItemRenderKey> = []
         var wantedDocuments: Set<String> = []
         var wantedPreviews: Set<String> = []
@@ -170,7 +194,9 @@ final class ItemLayerView: UIView {
             }
             sub.zPosition = CGFloat(index)
             sub.isHidden = item.id == hiddenItem
-            let key = ItemRenderKey(item, scale: step, paper: paper)
+            let recording = item.kind == .audio ? shown.recording(shownBy: item) : nil
+            if item.kind == .audio { layoutBadge(item, recording: recording, index: index) }
+            let key = ItemRenderKey(item, scale: step, paper: paper, recording: recording)
             wanted.insert(key)
             if pictures[key] == nil, let label = RenderCache.pictureLabel(key),
                let hit = source.renders?.pictureInMemory(label) {
@@ -199,6 +225,32 @@ final class ItemLayerView: UIView {
         if pictures.count > wanted.count + 16 {
             for key in pictures.keys where !wanted.contains(key) { pictures[key] = nil }
         }
+    }
+
+    /// The play/pause badge over audio item `item`'s icon (none when its
+    /// recording is missing).
+    private func layoutBadge(_ item: Item, recording: Recording?, index: Int) {
+        guard let recording else {
+            badges.removeValue(forKey: item.id)?.removeFromSuperlayer()
+            return
+        }
+        let badge: AudioBadgeLayer
+        if let existing = badges[item.id] {
+            badge = existing
+        } else {
+            badge = AudioBadgeLayer()
+            layer.addSublayer(badge)
+            badges[item.id] = badge
+        }
+        badge.zPosition = CGFloat(index) + 0.25
+        badge.isHidden = item.id == hiddenItem
+        badge.showsPause = playing.map { $0.recording == recording.id && $0.isPlaying } ?? false
+        let frame = previews[item.id] ?? item.frame
+        let control = AudioCard(frame: frame).badge(rotation: item.rotation)
+        let z = Double(zoom)
+        badge.bounds = CGRect(x: 0, y: 0, width: control.diameter * z, height: control.diameter * z)
+        badge.position = CGPoint(x: control.center.x * z, y: control.center.y * z)
+        badge.setAffineTransform(CGAffineTransform(rotationAngle: CGFloat((item.rotation ?? 0) * .pi / 180)))
     }
 
     private func draw(_ key: ItemRenderKey) {
@@ -423,6 +475,54 @@ final class ItemLayerView: UIView {
 
     /// What item `id` shows now (tests).
     func picture(of id: UUID) -> ItemPicture? { sublayers[id]?.picture }
+}
+
+/// The recording loaded in a note's player and whether it plays (the badge
+/// of its cards shows pause then).
+struct AudioPlayState: Hashable {
+    var recording: UUID
+    var isPlaying: Bool
+}
+
+/// The play/pause badge of an audio card: a white disc with the blue glyph.
+final class AudioBadgeLayer: CALayer {
+    private let glyph = CALayer()
+
+    var showsPause = false {
+        didSet { if showsPause != oldValue { updateGlyph() } }
+    }
+
+    override init() {
+        super.init()
+        backgroundColor = UIColor.white.cgColor
+        borderColor = UIColor(red: 0x1A / 255, green: 0x73 / 255, blue: 0xE8 / 255, alpha: 1).cgColor
+        actions = ["position": NSNull(), "bounds": NSNull(), "transform": NSNull(), "contents": NSNull()]
+        glyph.contentsGravity = .resizeAspect
+        glyph.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull()]
+        addSublayer(glyph)
+        updateGlyph()
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func layoutSublayers() {
+        super.layoutSublayers()
+        cornerRadius = bounds.width / 2
+        borderWidth = max(1, bounds.width / 14)
+        glyph.frame = bounds.insetBy(dx: bounds.width * 0.28, dy: bounds.height * 0.28)
+    }
+
+    private func updateGlyph() {
+        let config = UIImage.SymbolConfiguration(pointSize: 32, weight: .bold)
+        let blue = UIColor(red: 0x1A / 255, green: 0x73 / 255, blue: 0xE8 / 255, alpha: 1)
+        glyph.contents = UIImage(systemName: showsPause ? "pause.fill" : "play.fill", withConfiguration: config)?
+            .withTintColor(blue, renderingMode: .alwaysOriginal).cgImage
+    }
 }
 
 /// One item: its picture (bounds of the rotated frame), or a placeholder
