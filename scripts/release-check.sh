@@ -12,7 +12,8 @@
 #   - an entitlements file has a key outside the allow-list below, a referenced
 #     entitlements file is missing, or the Mac build is not sandboxed;
 #   - the Mac build would get its own bundle id (no universal purchase);
-#   - ITSAppUsesNonExemptEncryption is missing from the app's Info.plist.
+#   - ITSAppUsesNonExemptEncryption is missing from the app's Info.plist;
+#   - the two copies of the privacy policy (docs/privacy, docs/appstore) differ in date.
 #
 # Usage: scripts/release-check.sh [--root DIR] [--list]
 #   --root DIR  check another checkout (scripts/test-release-check.sh uses copies)
@@ -25,7 +26,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --root) root="$(cd "$2" && pwd)"; shift 2 ;;
     --list) list=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -304,6 +305,22 @@ for target, spec in SHIPPING.items():
         for cat, where in uses.items():
             for w in where:
                 print(f"{cat.replace('NSPrivacyAccessedAPICategory', '')}\t{w}")
+
+# --- Privacy policy: the Pages copy and the Markdown copy carry the same date ----------
+
+policy_dates = {}
+for p in ("docs/privacy/index.html", "docs/appstore/privacy-policy.md"):
+    path = os.path.join(root, p)
+    if not os.path.isfile(path):
+        errors.append(f"{p} is missing (the privacy policy, docs/release/app-store.md section 5)")
+        continue
+    m = re.search(r"Last updated:\s*(?:<[^>]*>)?\s*(\d{4}-\d{2}-\d{2})", read(path))
+    if not m:
+        errors.append(f"{p}: no \"Last updated: YYYY-MM-DD\"")
+        continue
+    policy_dates[p] = m.group(1)
+if len(set(policy_dates.values())) > 1:
+    errors.append(f"the two privacy policy copies differ in date ({policy_dates}): edit both")
 
 for w in warnings:
     print(f"warning: {w}", file=sys.stderr)
