@@ -129,7 +129,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Search | A running search follows the sidebar: choosing a notebook or tag keeps the query and scopes it there (scope bar "In “Math”" / All Notes) | 🔀 #84 |
 | Notes | Notebook combo box (new note, move note); drag notes and notebooks onto the sidebar (move, nest, un-nest), "Move Notebook To…", one commit and one undo step per drop | ✅ #72 |
 | Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | 🔀 #84 (still broken in build 7) |
-| Notes | Drops on the sidebar, build 7: see #102 for the cause; real-drag UI tests on the iPad simulator (every app CI run) and Mac Catalyst | 🔀 #102 (not yet tried on the iPad) |
+| Notes | Drops on the sidebar, build 7: rows proposed a `.move` the drag session does not allow, so UIKit cancelled every drop at the release; they propose `.copy` now. Real-drag UI tests on the iPad simulator (every app CI run) and Mac Catalyst | 🔀 #102 (not yet tried on the iPad) |
 | Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | 🔀 #84 |
 | Notes | Title presets (date and time, date, year-month-day time, weekday) and a custom pattern (Unicode or strftime) checked as it is typed, with a live preview, the reason it is refused and an Insert menu of fields | 🔀 #102 (not yet tried on the iPad) |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
