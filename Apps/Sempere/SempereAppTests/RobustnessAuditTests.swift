@@ -47,7 +47,8 @@ struct RobustnessAuditTests {
             #expect(!sub.position.x.isNaN && !sub.position.y.isNaN)
             #expect(!sub.bounds.width.isNaN && !sub.bounds.height.isNaN)
             let t = sub.affineTransform()
-            #expect([t.a, t.b, t.c, t.d, t.tx, t.ty].allSatisfy(\.isFinite))
+            let finite = [t.a, t.b, t.c, t.d, t.tx, t.ty].allSatisfy { $0.isFinite }
+            #expect(finite)
         }
     }
 
