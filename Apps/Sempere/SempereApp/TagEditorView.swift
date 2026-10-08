@@ -34,6 +34,7 @@ struct TagEditorView: View {
                             }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
+                            .help("Remove this tag from the note")
                         }
                     }
                 }

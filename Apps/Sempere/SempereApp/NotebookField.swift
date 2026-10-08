@@ -74,10 +74,11 @@ struct NotebookField: View {
                 .accessibilityLabel(isOpen ? "Hide Notebooks" : "Show Notebooks")
                 .accessibilityIdentifier("notebookChoices")
                 .disabled(notebooks.isEmpty)
+                .help("Show the existing notebooks")
             }
             if isOpen {
                 ForEach(rows, id: \.self) { path in
-                    Button {
+                    Button {   // help-lint: ignore (a row of the list: the notebook's name is its title)
                         text = path
                         expanded = false
                         focused = false

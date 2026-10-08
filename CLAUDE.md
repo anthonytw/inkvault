@@ -187,7 +187,11 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   that saved eraser entry before building a picker, so the object eraser is
   the default and the user's last choice (stored under `Sempere.eraserType`)
   wins. On iPadOS 26 the picker's pixel eraser is `.fixedWidthBitmap`: a
-  `.bitmap` eraser item comes back as that.
+  `.bitmap` eraser item comes back as that; macOS 27 Catalyst does not keep a
+  `.fixedWidthBitmap` item. So the preference is two modes (object, pixel:
+  `EraserPreference.canonical`) and the picker gets the pixel type the
+  platform keeps (`pixelPickerType`, probed); never compare eraser types
+  with `==` across platforms, use `isPixel`.
 - Debug builds open a vault and note from launch environment variables, for
   scripted simulator or Catalyst runs (`DebugLaunch.swift`):
   `SEMPERE_DEBUG_VAULT`, `SEMPERE_DEBUG_IDENTITY`, `SEMPERE_DEBUG_NOTE`
@@ -436,6 +440,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   signed and sandboxed) and `test-mac-ui` (`MacWindowUITests`), run by CI on
   `main` and on dispatch. A test that needs pixels on a Mac puts its view in a
   window of the host app's scene (a window without one is never drawn there).
+- Every icon-only control in the app has `.help("…")` (Mac tooltips);
+  `scripts/check-help.py` fails the `app` CI job otherwise (`docs/mac.md`
+  "Tooltips"). Menu-only view builders are marked `// help-lint: titled`.
+- PDFs opened with the app (`onOpenURL`) are imported as new notes, never
+  opened as vaults (`AppModel+OpenedFiles`, `OpenedFile.kind`). The app's
+  Notability import (`AppModel+NotabilityImport`) is the one app write that
+  does not go through `NoteWriter`: it runs the CLI's `NotabilityImporter`
+  on the model's `DeviceClock` (`withClock`) under the edit gate, never with
+  overwrite, so no open note changes under its editor.
 - The object eraser must list `indirectPointer` among its touch types on a Mac
   (`ObjectEraserController.pressTouchTypes`), or the default eraser ignores
   the mouse; PencilKit's own gesture is off while it is active.

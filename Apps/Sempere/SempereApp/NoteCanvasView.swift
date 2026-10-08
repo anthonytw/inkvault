@@ -71,9 +71,11 @@ struct NoteCanvasView: View {
                     .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in startRename(note) })
                     .accessibilityLabel("Note title: \(NoteTitle.display(note.title))")
                     .accessibilityHint("Renames the note")
+                    .help("Rename the note (or press and hold)")
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Rename…", systemImage: "pencil") { startRename(note) }
+                        .help("Rename the note")
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     ExportMenu(ids: [note.id])
@@ -81,15 +83,19 @@ struct NoteCanvasView: View {
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Save Version…", systemImage: "bookmark") { ui.saveVersionNoteID = note.id }
                         .disabled(note.deleted)
+                        .help("Save this version of the note under a name; saved versions are never thinned")
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Version History…", systemImage: "clock.arrow.circlepath") { showingHistory = true }
+                        .help("Browse earlier versions of the note and restore one")
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Toggle("Keep Screen On", systemImage: "sun.max", isOn: $keepScreenOn)
+                        .help("Keep the screen awake while this note is open")
                 }
                 ToolbarItem(placement: Platform.isPhone ? .secondaryAction : .primaryAction) {
                     Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
+                        .help("Edit the note's tags")
                 }
             }
             if !Platform.isPhone {   // the stack's back button is the way to the list
@@ -246,6 +252,12 @@ struct EditorView: View {
                 .inspectorColumnWidth(min: 150, ideal: 180, max: 260)
         }
         .modifier(EditorInsert(editor: editor, state: insert, ui: ui))
+        // File > Insert Photo… and Insert PDF Pages… (Mac menu): the Insert menu's pickers.
+        .onChange(of: ui.insertRequest) { _, request in
+            guard let request else { return }
+            ui.insertRequest = nil
+            insert.open(request, pageless: editor.isPageless)
+        }
         .onChange(of: editor.deletedPages.count) { old, new in
             undoBannerFor = new > old ? new : 0
         }
@@ -306,6 +318,7 @@ struct EditorView: View {
             ToolbarItem(placement: .secondaryAction) {
                 Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
                     .disabled(editor.currentPage == nil)
+                    .help("Choose the paper (ruling, colour) of this page or all pages")
             }
             ToolbarItem(placement: .secondaryAction) { insertMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsMenu }
@@ -321,16 +334,19 @@ struct EditorView: View {
         if annotating, editor.pages.count > 1 || !editor.isReadOnly {
             ToolbarItem(placement: .secondaryAction) {
                 Menu("Pages", systemImage: "doc.on.doc") { pageButtons }
+                    .help("Go to another page, or add one")
             }
         } else if editor.pages.count > 1 {
             ToolbarItemGroup(placement: .bottomBar) {
                 Button("Previous Page", systemImage: "chevron.left") { editor.selectPage(editor.pageIndex - 1) }
                     .disabled(editor.pageIndex == 0)
+                    .help("Previous page")
                 Spacer()
                 pageCounter
                 Spacer()
                 Button("Next Page", systemImage: "chevron.right") { editor.selectPage(editor.pageIndex + 1) }
                     .disabled(editor.pageIndex + 1 >= editor.pages.count)
+                    .help("Next page")
             }
         }
     }
@@ -368,6 +384,7 @@ struct EditorView: View {
 
     private var recordingsListButton: some View {
         Button("Recordings…", systemImage: "waveform") { ui.showingRecordings = true }
+            .help("List this note's recordings")
     }
 
     private var recordingsMenu: some View {
@@ -405,7 +422,9 @@ struct EditorView: View {
             .monospacedDigit()
     }
 
+    /// The iPhone's Pages menu (titles shown).
     @ViewBuilder
+    // help-lint: titled
     private var pageButtons: some View {
         Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
             .disabled(editor.pageIndex == 0)
@@ -439,6 +458,7 @@ struct EditorView: View {
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Paper…", systemImage: "square.grid.3x3") { ui.choosingPaper = true }
                         .disabled(editor.currentPage == nil)
+                        .help("Choose the paper (ruling, colour) of this page or all pages")
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     // Switching never deletes ink (format.md §5.4.3); it is one delta.
@@ -462,6 +482,7 @@ struct EditorView: View {
                     } primaryAction: {
                         paletteVisible.toggle()
                     }
+                    .help("Show or hide the tool palette; press and hold for the compact palette")
                 }
             }
             if !editor.isReadOnly, editor.currentPage != nil {
@@ -499,10 +520,12 @@ struct EditorView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
                         .disabled(editor.pageIndex == 0)
+                        .help("Previous page (⌘[)")
                     Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
                         .monospacedDigit()
                     Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
                         .disabled(editor.pageIndex + 1 >= editor.pages.count)
+                        .help("Next page (⌘])")
                     if !editor.isReadOnly && !editor.isPageless {
                         // Tap: a page after this one. Press and hold: the other page actions.
                         Menu {
@@ -527,6 +550,7 @@ struct EditorView: View {
                         } primaryAction: {
                             editor.addPageAfterCurrent()
                         }
+                        .help("Add a page after this one; press and hold to duplicate, delete or add at the end")
                     }
                     if !editor.isPageless {
                         Button(LocalizedStringKey(stripVisible ? "Hide Pages" : "Show Pages"), systemImage: "sidebar.right") {
@@ -564,10 +588,12 @@ struct SearchMatchBar: View {
                 .labelStyle(.iconOnly)
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(count < 2)
+                .help("Previous match (⇧⌘G)")
             Button("Next Match", systemImage: "chevron.down", action: next)
                 .labelStyle(.iconOnly)
                 .keyboardShortcut("g", modifiers: .command)
                 .disabled(count < 2)
+                .help("Next match (⌘G)")
             Button("Done", action: done)
         }
         .padding(.horizontal)
