@@ -45,7 +45,7 @@ working state.
 | Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | ✅ |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | ✅ #62 |
 | Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | ✅ #64 |
-| Render | Recordings in exports (C4): embedded in PDFs with their transcripts ("PDF + attachments") | ✅ #87 (the list page and `--format media` 📋) |
+| Render | Recordings in exports (C4): embedded in PDFs with their transcripts ("PDF + attachments") | ✅ #87 (the list page and `--format media` 🚧 C4 PR) |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds and images (D1, D2) | ✅ #70 |
 | Import | Notability typed text, recordings and stroke links (D3, D4) | ✅ #73 |
