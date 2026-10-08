@@ -1,4 +1,445 @@
-# Security review, October 2026 (work in progress)
+# Security review, October 2026
 
-Independent review of the work merged in the week of 2026-10-05: #98, #97, #105, #94, #93, #89, #106,
-and the open web viewer PRs #99 and #100. Findings follow.
+An independent review, made on 2026-10-08, of the work merged in the week of 2026-10-05:
+
+- #98: authenticated recipients (`recipientsTag`, `secretLink`, trust records);
+- #97 and #105: `sync webdav --push-only` and TLS server trust;
+- #94: read-only access to vaults of a newer format;
+- #93: video items;
+- #89 and #106: quick voice capture.
+
+The open web viewer PRs #99 (passkey) and #100 (cache and summaries) were reviewed from their branches. Their
+findings are posted as comments on those PRs and summarised at the end.
+
+Method: the code was read against `DESIGN.md`, `docs/format.md` (§2.1, §3.3, §7, §8.2.7, §9, §11),
+`docs/quick-capture.md` and `docs/web-viewer.md` "Threat model". Each finding marked *reproduced* was run
+against the real APIs or the built `sempere` binary on a copy of the fixtures. Each fixed finding has a
+regression test. The recipients tests were run against `main` and fail there; the others encode the
+reproduced inputs.
+
+Severity is from the user's point of view:
+
+- **High**: someone who should not can read notes, or plant content that passes as authentic.
+- **Medium**: a documented guarantee does not hold, or a crash or lasting damage is caused by untrusted input.
+- **Low**: defence in depth, or a narrow precondition.
+- **Info**: worth knowing; no change needed now.
+
+File:line references are to this branch.
+
+## Summary
+
+| ID | Severity | Area | Finding | Status |
+| --- | --- | --- | --- | --- |
+| R4 / W1 | High | recipients, sync | Planted `rewrap-journal.json` makes forged revisions and blobs verify (reproduced over WebDAV) | Fixed |
+| R1 | High | recipients | Subset search under an attacker's secret: a one-tap repair keeps the attacker's key | Fixed |
+| R2 | High (design) | recipients | A trust record's `linkKey` can forge a `secretLink`; docs said it "holds no secret" | Mitigated; open question |
+| R3 | Medium | recipients | A replaced secret with a stripped or bogus tag could be confirmed or repaired | Fixed |
+| C1 | Medium | capture | A capture-key holder can add a transcript to an existing voice note | Fixed |
+| W3 | Medium | sync | A locked sync accepts a `vault.json` with a swapped secret | Fixed |
+| W4 | Medium | WebDAV | UTF-16 PROPFIND bypasses the pre-checks; FoundationXML segfaults (reproduced) | Fixed |
+| N1 | Medium | newer format | `blobs repair` renames and deletes blobs of a note with newer revisions (reproduced) | Fixed |
+| V1 | Medium | video | A huge `duration` traps Markdown and HTML exports and the player title (reproduced) | Fixed |
+| W2 | Medium | sync | Downloaded revisions and blobs are placed unverified; one junk snapshot blocks every edit to a note | Open |
+| V2 | Low | video | Location kept with a second `moov`, a top-level `udta` or a truncated trailing `meta` (reproduced) | Fixed |
+| N2 | Low | newer format | `inbox capture` and `inbox transcript` write into a read-only vault's `inbox/` (reproduced, CLI) | Fixed (CLI); app open |
+| C2 | Low | capture | Forged captures choose any notebook and title, and are written as the adopting device | Docs fixed; open |
+| C3 | Low | capture | A removed device's captures are adopted while its rewrap is unfinished | Docs fixed; open |
+| C4 | Low | capture | Anyone holding the locked iPad (after first unlock) can add voice notes | Docs fixed |
+| C5 | Low | capture | Inbox files are decrypted fully before the tag check, and failing ones are re-read forever | Open |
+| R5 | Low | recipients | The trust store fails open: an unreadable record reads as "first use" | Open |
+| W5 | Low | sync | No overall bound on notes, entries, bytes or time per sync run | Open |
+| N3 | Low (design) | newer format | `format` and `features` in `vault.json` are not authenticated | Open |
+| R6, C6–C9, N4, N5, V3, W6 | Info | various | See below | — |
+
+## Fixed in this PR
+
+### R4 / W1 (High): a planted `rewrap-journal.json` gave the attacker an accepted second secret
+
+`Vault.open` decrypted `previousVaultSecret` from any `rewrap-journal.json` and accepted it as the
+outgoing secret. Revision tags (`NoteStore`), blob names (`BlobStore`) and capture tags fall back to that
+secret during a rewrap.
+
+The attack needs only the public keys. Anyone who can write the vault folder (iCloud Drive, a shared folder,
+or a WebDAV server through a normal two-way sync, even a locked one) encrypts a secret of their own to the
+public keys and plants a journal holding it, then plants revisions or blobs tagged under it. Readers accept
+them as authentic. A WebDAV PoC showed `forged revision accepted: true` and the title replaced. `vault info`
+then suggests `rewrap-resume`, which re-tags the forgeries under the real secret, so they become permanent.
+
+This defeats DESIGN.md "every plaintext carries an HMAC … to stop someone with write access to the storage
+from planting a note". The web viewer had the same flaw.
+
+**Fix:**
+- `Vault.readJournal` (`Sources/Sempere/Vault.swift:864`) accepts the journal's secret only when it equals
+  the current one (a change interrupted before `vault.json` was written), or when `vault.json`'s
+  `secretLink` verifies a rotation from it to the current secret. Otherwise the journal is reported as
+  unreadable and `resumeRewrap` refuses it.
+- The web viewer does the same: `verifySecretLink` in `web/src/vault/vault.ts:219`.
+- `format.md` §3.3.1 is updated.
+- Tests: `RecipientsAuthTests.testAPlantedJournalSecretIsNotAccepted`, and `web/test/blobs.test.ts` (a
+  journal without a link is ignored).
+
+A side effect: a journal written before §2.1 has no `secretLink`, so files it left un-rewrapped report
+failing tags. That needs an interrupted rotation from before #98, which is unlikely before 1.0.
+
+### R1 (High): the subset search trusted an attacker-chosen secret
+
+`RecipientsAuth.evaluate` ran the "up to three entries deleted" search under whatever secret `vault.json`
+carried, before it compared that secret with the trust record.
+
+The attack: an attacker writes recipients `[A, B, X, Y]`, a secret S′ of their own encrypted to all four,
+and a tag over `[A, B, X]` under S′. The device then:
+- reports a `tagMismatch` with `restore = [A, B, X]` and lists only Y as unexpected;
+- offers the app's one-tap Remove (or plain `sempere vault recipients repair`), which writes `[A, B, X]`
+  with a fresh secret and rewraps every note to X.
+
+**Fix:**
+- `evaluate` (`Sources/Sempere/RecipientsAuth.swift:120`) decides first whether the secret is the record's
+  or linked to it. A secret that is neither is `secretUnconfirmed` whatever the tag says: no restore list,
+  and repair refuses.
+- The subset search now runs only under an accepted secret, or with no record (first use, which already
+  trusts the whole list; §2.1 "Limits").
+- `format.md` §2.1 "Checking" is updated.
+- Test: `testSubsetSearchNeverRunsUnderAnUnconfirmedSecret`.
+
+### R3 (Medium): a replaced secret with a stripped or bogus tag
+
+With no tag, `evaluate` returned `tagRemoved` without looking at the secret. A tag that did not verify gave
+`tagMismatch`. That allowed two attacks:
+- `confirmRecipients` accepted `tagRemoved`, re-tagged the list under the attacker's secret and moved the
+  trust record to it. That is the "step 1" the `secretUnconfirmed` rule was written to stop.
+- A repair adopted the attacker's secret as the outgoing one, laundering files tagged under it.
+
+**Fix:**
+- Both cases are now `secretUnconfirmed` (same change as R1).
+- `confirmRecipients` (`Vault.swift:840`) requires a tag that is present and verifies before it confirms an
+  unconfirmed secret.
+- Test: `testAReplacedSecretWithTheTagStrippedIsNeitherConfirmedNorRepaired`.
+
+### W3 (Medium): a locked sync replaced the vault's secret
+
+Without the key, `incomingManifestProblem` accepted an incoming `vault.json` with the same keys and any
+tag, without comparing `vaultSecret`. A server swapped in its own secret with a dummy tag. The PoC showed:
+- `vault.json` downloaded;
+- on the next open, the list read as tampered and every revision failed its tag.
+
+The local copy lost the real secret. For a device without a trust record, this is the path to the R1 and
+R3 attacks over WebDAV.
+
+**Fix:**
+- Without the key, an incoming manifest is taken only with the same keys, the same sealed secret and the
+  same tag. Adding a tag to an untagged list is still allowed (`RecipientsAuth.swift:427`).
+- Test: `testIncomingManifestIsCheckedBeforeReplacingTheLocalOne`. It also no longer accepts a changed tag
+  while locked.
+
+### R2 (High, design): the trust record holds a forging key
+
+`secretLink` is an HMAC, so the record's `linkKey`, which verifies links, also makes them. Whoever can
+read a device's record and write the vault folder can link a secret of their own (with their key in the
+list), and that device accepts it as a rotation.
+
+The app kept records in Application Support, which iCloud Backup includes. A backup without Advanced Data
+Protection is readable by the same provider that hosts the iCloud Drive vault. The CLI wrote the record
+with the umask and only then set mode 0600. `format.md` said "it holds no secret".
+
+**Mitigation in this PR:**
+- `FileRecipientsTrustStore.save` (`RecipientsAuth.swift:398`) creates records 0600 (`O_EXCL`), in a 0700
+  folder, and renames them into place.
+- The app excludes its `Trust` folder from backups (`AppModel+Loading.swift`).
+- `format.md` §2.1 now says the record is private.
+- Test: `testTrustRecordRoundTripsAndRejectsMalformedFiles` checks the modes.
+
+**Open question for the maintainer:** make the link asymmetric, so a record holds only a verification key.
+For example, derive an Ed25519 key pair from the secret with HKDF and make `secretLink` a signature over
+`secretId(new)`. That changes the format (§2.1) and the web viewer, so it was not done here.
+
+### C1 (Medium): a transcript could be added to an existing voice note
+
+The capture key is on every capturing device, readable after first unlock, and capture ids are in the clear
+in `inbox/` file names. Adoption added any transcript that verified under the capture key to a recording
+that had none. So a holder of the key could put attacker-chosen text into a real voice note. They could also
+plant a transcript first, so the real one was silently skipped (`CaptureWriter.store` keeps the existing
+file). This contradicted `quick-capture.md`: "cannot change existing notes".
+
+**Fix:**
+- The transcript file's payload, empty until now, is the SHA-256 of the capture's audio, which only whoever
+  had the audio knows.
+- Adoption adds a transcript only to the recording with that audio, and deletes a transcript that is
+  unbound or bound to other audio once the note exists. The app transcribes the recording itself then.
+- Code:
+  - `CaptureWriter.seal(transcript:capture:audio:)` and `readCapture` in `Sources/Sempere/CaptureInbox.swift`;
+  - `CaptureAdoption.ops` and `consumed`;
+  - `sempere inbox transcript --audio FILE`;
+  - the app's `QuickCapture.seal`.
+- Docs: `format.md` §11.2 and §11.3, and `docs/cli.md`.
+- Tests: `CaptureInboxTests.testATranscriptBoundToOtherAudioIsNeverAdopted`,
+  `testAnUnboundTranscriptIsNotAdopted`, and `CLIInboxTests` (`--audio` is required).
+
+Transcripts sealed by builds from before this change are not adopted; the app transcribes the recording
+again.
+
+### W4 (Medium): UTF-16 PROPFIND bodies bypassed the pre-checks
+
+The PROPFIND pre-checks searched raw bytes for `<!DOCTYPE` and `<?`. UTF-16LE text is valid UTF-8 byte by
+byte (ASCII plus NULs), and libxml2 decodes it from the declaration. A data-less processing instruction in
+UTF-16 crashed FoundationXML with SIGSEGV on Linux (reproduced), and a DTD got past the check too.
+
+**Fix:**
+- A body with a NUL byte is refused (`Sources/SempereWebDAV/WebDAVClient.swift:431`). XML 1.0 forbids
+  U+0000, so this rules out UTF-16 and UTF-32.
+- Test: `UntrustedWebDAVTests.testUTF16BodiesAreRefused`.
+
+### N1 (Medium): `blobs repair` ignored the read-only latch
+
+`repairBlobs` checked `requireWritable` before `blobInventory`, but the inventory is what reads the note's
+revisions and sets the latch. With a `sempere/1` manifest and a newer revision in the note, `blobs repair`
+renamed and deleted blobs (reproduced). That contradicts §7.3, which says such a reader "repairs no blob".
+
+**Fix:**
+- `requireWritable` again after the inventory (`Sources/Sempere/BlobCollection.swift:371`), as
+  `collectBlobs` already did.
+- Test: `CLIReadOnlyTests.testNewerRevisionInAVersionOneVault` (exit 7).
+
+### N2 (Low): captures written into a read-only vault
+
+`sempere inbox capture` and `inbox transcript` stored files in `inbox/` of a vault whose `vault.json` names
+a newer format (reproduced). §7.3 says such a reader "writes nothing to … `inbox/`".
+
+**Fix (CLI):**
+- Both commands refuse with exit 7 before reading the profile (`Sources/SempereCLI/Inbox.swift:126,196`).
+- Test: `CLIReadOnlyTests.testWritesExitSixAndChangeNothing`.
+
+**Open (app):** `QuickCapture.deliver` and `flushQueue` (`Apps/Sempere/SempereApp/QuickCapture.swift`)
+still write into such a vault. They should queue locally while the manifest is read-only.
+
+### V1 (Medium): a huge video duration trapped
+
+`ExportVideos.clock` and the player title converted the stored `duration` with `Int(d.rounded())`.
+Validation only requires a duration that is finite and ≥ 0, and `VideoProbe` can report about 1.8e19 s. A
+revision from any recipient, or the user's own odd file, therefore crashed Markdown and HTML exports on
+every device (reproduced: SIGILL), against §9 "never by crashing".
+
+**Fix:**
+- Clamp to 1e9 s, as `Transcript.clock` does (`Sources/SempereRender/ExportVideos.swift:39`,
+  `Apps/Sempere/SempereApp/VideoViews.swift:56`).
+- Test: `VideoExportTests.testHugeDurationsDoNotTrap`.
+
+### V2 (Low): metadata stripping missed three layouts
+
+The location stayed in the stored clip (reproduced with `+48.8584+002.2945`) in three layouts:
+- a second `moov` (only the first is walked);
+- a top-level `udta` with `©xyz`;
+- a trailing top-level `meta` whose size ran past the end. It was dropped from the box list instead of
+  being refused.
+
+These are the user's own files, so this is a privacy promise not kept rather than an attack.
+
+**Fix:**
+- More than one `moov` is refused, and a top-level `udta` is blanked like `meta`
+  (`Sources/Sempere/VideoProbe.swift:153,160`).
+- At the top level, only `mdat` (or a first box, which is "not a video") may be cut short (`:218`).
+- `format.md` §8.2.7 is updated.
+- Test: `VideoTests.testLocationOutsideTheWalkedBoxesIsNeverKept`.
+
+## Open findings (reported, not fixed here)
+
+### W2 (Medium): downloaded files are placed without verification
+
+`WebDAVSync` (revisions, `WebDAVSync.swift` around the download path) and `BlobSync` check only the age
+magic, and the listed size for blobs, before linking a downloaded file in as write-once.
+
+Two attacks follow:
+- **Blocked note.** A server can add `notes/<id>/<name>.snapshot.age` holding junk. Every later edit to that
+  note fails, because `nextSeq(noteId:device:)` cannot read the snapshot's coverage
+  (reproduced: "edit FAILED"). Sync never removes the file, since unreadable files are kept.
+- **Poisoned blob copy.** The server can do the same with a blob name it has seen, before another device
+  downloads that blob.
+
+**Proposed fix:**
+- When the vault is unlocked, decrypt and verify each download (tag, note id and name; for a blob, its
+  framing and hash) before it is linked in. Refuse the ones that fail.
+- When it is locked, download into a quarantine outside `notes/`, or not at all.
+
+Changing `nextSeq` to skip unreadable snapshots would trade this DoS for a risk of reusing a seq, so it is a
+decision for the maintainer.
+
+### C2 (Low): forged captures are indistinguishable from real ones
+
+The manifest supplies `title` and `notebook` (`CaptureInbox.swift`, `CaptureAdoption.ops`). The title is
+bounded only by the 64 MiB line limit. `manifest.device` is checked but not stored, and the delta is written
+as the adopting device. The threat table claimed forged notes "show up in the inbox notebook, attributed to
+a device id"; it now describes what happens.
+
+**Proposed fix:**
+- Cap the title (for example at 300 characters).
+- Store the capturing device id on the recording.
+- Optionally confine adopted captures to the notebook the adopting device configured.
+
+### C3 (Low): a removed device's captures during an unfinished rewrap
+
+`readCapture` and `rewrapInbox` accept the previous secret's capture key for as long as the journal exists.
+The journal stays while any file fails, for example evicted iCloud files.
+
+**Proposed fix:** record the inbox file names in the journal when the secret rotates, and accept or re-tag
+old-key files only from that list. `quick-capture.md` now states the window.
+
+### C4 (Low): Lock Screen capture
+
+Anyone holding the iPad after its first unlock can add voice notes from the widget, Control Center, the
+Action button or Siri. This is the feature; the threat table now has a row for it. Optional: a setting that
+requires authentication (`authenticationPolicy`) for the intents.
+
+### C5 (Low): inbox files are read whole before the tag check
+
+`readCapture` and `rewrapInbox` decrypt each inbox file (up to 257 MiB) into memory before verifying the
+tag. A file that fails is kept and processed again at every unlock.
+
+Anyone who can write the folder can therefore cost every device about 0.5–0.8 GB of peak memory per unlock
+for each 256 MiB junk file, without any key.
+
+**Proposed fix:**
+- Stream the decryption and the HMAC.
+- Use a much smaller cap for `transcript` files.
+- Quarantine files that keep failing.
+
+### R5 (Low): the trust store fails open
+
+`FileRecipientsTrustStore.record` returns nil for an unreadable or malformed file, so `evaluate` treats the
+open as a first use and the next write replaces the record. `rememberRecipients` ignores save errors and
+does not retry them. This needs local tampering or a future record format.
+
+**Proposed fix:** return an "unreadable" state that counts as tampered.
+
+### W5 (Low): no bound per sync run
+
+Each request is bounded by size and time, but a run is not:
+- the number of note folders and entries is unlimited, and every listing stays in memory;
+- the total bytes downloaded are unlimited, so a server can fill the disk with new note ids;
+- there is no overall deadline.
+
+**Proposed fix:** caps per run, and an overall deadline.
+
+### N3 (Low, design): `format` and `features` are not authenticated
+
+`recipientsTag` covers the vault id and the keys only. A folder attacker can set `format` back to
+`sempere/1` and remove unknown features, so an old client opens the vault writable until it reads a marked
+(tagged) revision. That stays within §7.3's per-note minimum, and no data loss was found.
+
+**Options:**
+- Document this under §2.1 "Limits".
+- Bind the markers into the tag (a format change).
+- Have `rewrapNotes` stop on marked revisions.
+
+### Info
+
+- **R6:** readers keep no trust record ("reads never write"), so a device that only read a vault for months
+  is still at first use on its first write.
+- **C6:** adoption runs AVFoundation and Speech automatically on audio a capture-key holder chose. This is
+  attack surface only; no bug is known.
+- **C7:** `sempere inbox list` and `inbox import` print manifest titles unsanitised, so a capture-key holder
+  can send terminal escape sequences. Other commands print note titles the same way.
+- **C8:** a comment in `QuickCapture.swift` near line 116 says the plaintext uses `completeUnlessOpen`; the
+  code uses `completeUntilFirstUserAuthentication`, as documented.
+- **C9:** the capture-profile Keychain query does not set `kSecUseDataProtectionKeychain`, unlike
+  `VaultKeyStore`. On Mac Catalyst it may land in the file-based keychain, where `kSecAttrAccessible` is
+  ignored. Adding the flag means existing items have to move.
+- **N4:** `snapshot(loaded:)` and `compact(noteId:loaded:)` do not latch on `loaded.newer` themselves, as
+  `planCompaction` does. This is safe today because every caller loaded the note through the same `Vault`.
+- **N5:** Swift treats `"format": null` in a revision as absent; the web viewer rejects it. Both fail safe.
+- **V3:** `ByteEdit.init` is public, and `apply` traps when the replacement length differs from the range.
+  Only `strippingEdits` builds edits today. Posters and playback run AVFoundation on clips from other
+  recipients; that is the accepted Apple-only surface.
+- **W6:** `WebDAVClient` echoes the base URL in one error. A URL with credentials but no host prints them,
+  though they were typed on the command line anyway.
+
+## Checked and found sound
+
+- **Constant-time comparisons:**
+  - recipients tag and link: `RecipientsAuth.constantTimeEqual`, after `unhex` (64 lowercase digits only);
+  - capture tag: `CaptureFile.constantTimeEqual`;
+  - body tags and blob names: `HMAC.isValidAuthenticationCode`;
+  - local caches: ChaChaPoly AEAD;
+  - the new journal check and the web `verifySecretLink`: constant-time loops.
+  
+  Every remaining `==` is on public values or content hashes.
+- **Domain separation:**
+  - HKDF from the vault secret, empty salt, with these info labels:
+    - `sempere/1 recipients key`
+    - `sempere/1 secret link key`
+    - `sempere/1 secret id`
+    - `sempere/1 capture key`
+    - `sempere/1 summary-cache key` and `sempere/1 summary-cache name`
+    - `sempere/1 <purpose> key|entry|name` (`LocalCacheKey`). Purposes are hyphenated lowercase words, and
+      `recipients`, `capture` and `summary-cache` are reserved.
+  - HMAC keyed by the raw secret:
+    - body tags: `sempere/1 ‖ 0 ‖ noteId ‖ 0 ‖ filename …`;
+    - blob names: `sempere/1 ‖ 0 ‖ blob ‖ 0 ‖ digest`.
+  - No two derivations share key and label.
+  - The tag message is unambiguous: NUL-separated, keys validated as Bech32 with no duplicates, and the
+    vault id canonical.
+  - #99's passkey wrap uses its own label (`sempere-viewer/1 passkey key-wrap`), and #100's summaries their
+    own (`sempere/1 published summaries key`).
+- **Every encryption to the recipients is gated:**
+  - revisions, blobs, compaction and blob repair go through `requireWritable`;
+  - recipient changes check `requireTrustedRecipients` and then `requireWritable`;
+  - capture profiles are made only from a list that checks, and captures are sealed to the profile's list;
+  - the inbox rewrap runs only inside a recipient change.
+- **Rollback and replay:**
+  - An old `vault.json` from before a removal fails against a record at the newer secret.
+  - A rollback under the same secret can only drop keys added later (documented in §2.1 "Limits").
+  - A removed device can still forge links for devices that have not seen its removal (documented).
+- **Path traversal (WebDAV):**
+  - Note ids must be lowercase UUIDs.
+  - Revision names must round-trip through `RevisionName`, and blob names through `BlobName`.
+  
+  So `..`, `.`, `%2e%2e`, backslashes, NUL, Unicode normalisation and case variants never become paths.
+  `keys/` and `inbox/` are never synced. Hrefs are filtered by base prefix and depth, outgoing segments are
+  percent-encoded, and push-only deletions go through `safeComponent`.
+- **Capture ids:** `CaptureFile.parse` accepts only `<36-char lowercase UUID>.<capture|transcript>.age`.
+- **Write-once:**
+  - Downloads are linked in with `link(2)` and never overwrite.
+  - Only `vault.json` and the journal are replaced (both now checked, W3 and R4).
+  - Push-only never writes locally.
+- **TLS and credentials:**
+  - #105 changes only server trust to `.performDefaultHandling` (system validation), never "accept any".
+    Linux libcurl verifies certificates by default.
+  - Redirects are not followed.
+  - Plain `http` is allowed only to localhost, credentials in the URL are refused, and the password comes
+    from an environment variable, never argv.
+- **Resource limits per request:** response bodies are capped while streaming, and `Content-Range` is
+  validated.
+- **`VideoProbe`:** boxes are checked with subtraction (no overflow), 64-bit and zero sizes are handled,
+  depth is at most 8, at most 20,000 boxes, and leaf reads are at most 4 KiB. It is fuzzed (`VideoTests`).
+- **Newer formats:**
+  - The latch is shared across `Vault` copies.
+  - Every write path checks `requireWritable` (N1 was the exception).
+  - Blob collection scans references structurally, so it keeps blobs only newer revisions reference.
+  - A leniently decoded state is never written back.
+- **Secrets in logs and temp files:**
+  - Capture, inbox and speech code does not log.
+  - `Perf` and `NSLog` lines carry counts and 8-hex id prefixes only.
+  - Temporary blob files are 0600 `O_EXCL` and removed on failure (`FileIO.writeNewFile`).
+  - Sync temporary files hold ciphertext only.
+- **Keychain classes:**
+  - vault key on this device: `WhenUnlockedThisDeviceOnly` + `.biometryCurrentSet` (or `.userPresence`);
+  - vault key in iCloud Keychain: `WhenUnlocked`, synchronizable, with the app's `LAContext` gate (a
+    documented trade-off);
+  - capture profile: `AfterFirstUnlockThisDeviceOnly`, which Lock Screen capture needs; it holds no
+    reading key.
+
+## Web viewer PRs (comments posted on the PRs)
+
+**#99 (passkey):**
+- Medium: "New Key…" (and adding a pasted recipient) adds a recipient without the owner check that guards
+  "Save Key…". On an unlocked iPad, anyone can create a key the vault is then encrypted to.
+- Low: the share sheet's Copy puts the key file on the general pasteboard.
+- Low: the remembered record is chosen by an unauthenticated vault id; the doc says otherwise.
+- Info: the IndexedDB database is created before the user opts in; old passkeys are not signalled unknown
+  when a key is remembered again; #99 and #100 contradict each other in `docs/web-viewer.md`.
+- The PRF, HKDF, AES-GCM and AAD handling is sound, and nothing is stored in plaintext.
+
+**#100 (cache and summaries):**
+- Low: cached ciphertext from before a rewrap stays openable by a removed key.
+- Low: `vault summaries --plaintext --out` writes the file world-readable.
+- Info: summary rows hide damaged revisions; summaries under the previous secret are accepted during a
+  rewrap.
+- Summaries are encrypted. `vault.json` and the journal are never cached. Nothing decrypted is persisted.
