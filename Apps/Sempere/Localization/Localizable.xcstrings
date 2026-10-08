@@ -13,6 +13,18 @@
         }
       }
     },
+    "%@ A password manager that takes files or text (for example from the share sheet) is the best place. The same file from a terminal: sempere keys generate / sempere keys export." : {
+      "comment" : "Footer under Save to Files and Share of a key; %@ is the plain-text warning before it; commands are not translated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ El mejor lugar es un gestor de contraseñas que acepte archivos o texto (por ejemplo, desde el menú Compartir). El mismo archivo desde un terminal: sempere keys generate / sempere keys export."
+          }
+        }
+      }
+    },
     "%@ page" : {
       "comment" : "Accessibility label of a page colour preset; %@ is White, Cream or Dark",
       "extractionState" : "manual",
@@ -1553,6 +1565,18 @@
         }
       }
     },
+    "A printed page with the key as a QR code and checked text, and how to open the vault with stock tools (sempere keys paper). Print it and keep it somewhere safe; do not keep the PDF." : {
+      "comment" : "Footer of the paper recovery kit section; the command is not translated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una página impresa con la clave como código QR y como texto con verificación, y cómo abrir la bóveda con herramientas estándar (sempere keys paper). Imprímela y guárdala en un lugar seguro; no conserves el PDF."
+          }
+        }
+      }
+    },
     "A printed page with your key as a QR code and checked text, and how to open the vault with stock tools. The same kit from a terminal: sempere keys paper." : {
       "comment" : "“sempere keys paper” is a command, not translated",
       "extractionState" : "manual",
@@ -2812,6 +2836,30 @@
         }
       }
     },
+    "Creates a new key, adds it to this vault's keys and re-encrypts every note to it, which can take a while. Then save or print it for the other device. From a terminal: sempere keys generate, then sempere vault recipients add." : {
+      "comment" : "Footer of New Key; commands are not translated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crea una clave nueva, la añade a las claves de esta bóveda y vuelve a cifrar todas las notas para ella, lo que puede tardar un rato. Después, guárdala o imprímela para el otro dispositivo. Desde un terminal: sempere keys generate y después sempere vault recipients add."
+          }
+        }
+      }
+    },
+    "Creating the key and re-encrypting every note…" : {
+      "comment" : "Progress while New Key works",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Creando la clave y volviendo a cifrar todas las notas…"
+          }
+        }
+      }
+    },
     "Crop" : {
       "comment" : "Title of the crop sheet (verb)",
       "extractionState" : "manual",
@@ -2939,6 +2987,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eliminar página"
+          }
+        }
+      }
+    },
+    "Device" : {
+      "comment" : "Label of a key's device name in Save Key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dispositivo"
           }
         }
       }
@@ -3533,6 +3593,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Las exportaciones no están cifradas. Cualquiera que reciba los archivos puede leer las notas."
+          }
+        }
+      }
+    },
+    "Face ID or Touch ID is locked after too many attempts. Lock the device and unlock it with its passcode, then try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Face ID o Touch ID se ha bloqueado tras demasiados intentos. Bloquea el dispositivo y desbloquéalo con su código; después, vuelve a intentarlo."
           }
         }
       }
@@ -4170,6 +4241,18 @@
         }
       }
     },
+    "Key file" : {
+      "comment" : "Section header: export a key as a file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivo de clave"
+          }
+        }
+      }
+    },
     "Keychain error %d: %@" : {
       "comment" : "The values are the status code and the system's message",
       "extractionState" : "manual",
@@ -4627,6 +4710,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clave nueva"
+          }
+        }
+      }
+    },
+    "New Key…" : {
+      "comment" : "Settings → Device Keys: make a key for another device",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave nueva…"
           }
         }
       }
@@ -6123,6 +6218,18 @@
         }
       }
     },
+    "Print Recovery Kit…" : {
+      "comment" : "Button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imprimir kit de recuperación…"
+          }
+        }
+      }
+    },
     "Print the recovery kit?" : {
       "comment" : "Confirmation title",
       "extractionState" : "manual",
@@ -6143,6 +6250,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Imprimir…"
+          }
+        }
+      }
+    },
+    "Public key" : {
+      "comment" : "Label of a key's public part (age recipient)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave pública"
           }
         }
       }
@@ -7290,6 +7409,54 @@
         }
       }
     },
+    "Save Key" : {
+      "comment" : "Title of the sheet that exports this device's key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar clave"
+          }
+        }
+      }
+    },
+    "Save Key exports this device's key, after Face ID, to Files or a password manager, with its paper recovery kit. New Key makes a key for another device and encrypts the vault to it. Devices here are the keys this vault is encrypted to (this iPad, that Mac, the paper backup), not people: to share a note, export it. “Rewrite headers only” is fast but leaves old copies of an attachment openable with a key that was removed. “Re-encrypt everything” takes longer in a vault with many attachments." : {
+      "comment" : "Footer of Settings → Device Keys; button and option names as translated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar clave exporta la clave de este dispositivo, tras Face ID, a Archivos o a un gestor de contraseñas, con su kit de recuperación en papel. Clave nueva crea una clave para otro dispositivo y cifra la bóveda para ella. Los dispositivos de esta lista son las claves para las que está cifrada esta bóveda (este iPad, ese Mac, la copia en papel), no personas: para compartir una nota, expórtala. «Reescribir solo las cabeceras» es rápido, pero deja copias antiguas de un adjunto que se pueden abrir con una clave que se ha quitado. «Volver a cifrar todo» tarda más en una bóveda con muchos adjuntos."
+          }
+        }
+      }
+    },
+    "Save Key…" : {
+      "comment" : "Settings → Device Keys: export this device's key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar clave…"
+          }
+        }
+      }
+    },
+    "Save Recovery Kit as PDF…" : {
+      "comment" : "Button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar kit de recuperación como PDF…"
+          }
+        }
+      }
+    },
     "Save Version" : {
       "comment" : "Alert title: save a named version",
       "extractionState" : "manual",
@@ -7322,6 +7489,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guardar como PDF…"
+          }
+        }
+      }
+    },
+    "Save the key of “%@”" : {
+      "comment" : "Face ID prompt reason; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar la clave de «%@»"
           }
         }
       }
@@ -7486,6 +7665,17 @@
         }
       }
     },
+    "Sempere could not confirm it is you, so the key was not shown." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sempere no ha podido confirmar que eres tú, así que no se ha mostrado la clave."
+          }
+        }
+      }
+    },
     "Sempere has no access to “%@” any more (the saved permission did not come back). The system only keeps access to folders you choose yourself." : {
       "comment" : "%@ is a vault's name",
       "extractionState" : "manual",
@@ -7576,6 +7766,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Configura un código en el dispositivo para que Sempere pueda recordar claves."
+          }
+        }
+      }
+    },
+    "Set a passcode (or Face ID or Touch ID) on this device to save its key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configura un código (o Face ID o Touch ID) en este dispositivo para guardar su clave."
           }
         }
       }
@@ -7736,6 +7937,18 @@
         }
       }
     },
+    "Shown once. Put it on the other device now (paste it when it asks for the key) or save it below; nothing here can show it again. The clipboard is cleared after three minutes." : {
+      "comment" : "Footer under a newly created secret key (Mac keys window)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se muestra una sola vez. Llévala ahora al otro dispositivo (pégala cuando pida la clave) o guárdala abajo; aquí no se podrá volver a ver. El portapapeles se vacía a los tres minutos."
+          }
+        }
+      }
+    },
     "Shown once. Put it on the other device now (paste it when it asks for the key); nothing here can show it again. The clipboard is cleared after three minutes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7743,6 +7956,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Solo se muestra una vez. Ponla ahora en el otro dispositivo (pégala cuando pida la clave); aquí no se puede volver a mostrar. El portapapeles se vacía al cabo de tres minutos."
+          }
+        }
+      }
+    },
+    "Shown once: nothing here can show it again. Paste it on the other device when it asks for the key, or save it below. The clipboard is cleared after three minutes." : {
+      "comment" : "Footer under a newly created secret key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se muestra una sola vez: aquí no se podrá volver a ver. Pégala en el otro dispositivo cuando pida la clave o guárdala abajo. El portapapeles se vacía a los tres minutos."
           }
         }
       }
@@ -8543,6 +8768,18 @@
         }
       }
     },
+    "The key could not be prepared for sharing: %@" : {
+      "comment" : "Error; %@ is the reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido preparar la clave para compartirla: %@"
+          }
+        }
+      }
+    },
     "The key is not saved. Unlock with a passphrase or pasted key to save it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8585,6 +8822,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La clave está guardada en el Llavero de %@."
+          }
+        }
+      }
+    },
+    "The key this device unlocked “%@” with." : {
+      "comment" : "Footer in Save Key; %@ is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La clave con la que este dispositivo ha desbloqueado «%@»."
+          }
+        }
+      }
+    },
+    "The key was not saved: %@" : {
+      "comment" : "Error; %@ is the system's reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha guardado la clave: %@"
           }
         }
       }
@@ -9107,6 +9368,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta imagen es demasiado grande para añadirla (%lld megapíxeles como máximo)."
+          }
+        }
+      }
+    },
+    "This is the secret key in plain text. Anyone who has it can read every note in the vault. Keep it in a password manager or another place only you can open; do not leave it in a shared or synced folder, an email or a chat." : {
+      "comment" : "Warning before exporting a secret key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta es la clave secreta en texto sin cifrar. Quien la tenga puede leer todas las notas de la bóveda. Guárdala en un gestor de contraseñas o en otro lugar que solo tú puedas abrir; no la dejes en una carpeta compartida o sincronizada, un correo ni un chat."
           }
         }
       }
