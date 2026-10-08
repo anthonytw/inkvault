@@ -274,17 +274,18 @@ final class QuickCapture {
             let writer = try CaptureWriter(profile: stored.profile)
             let out = folder.appendingPathComponent("capture.m4a")
             try await RecordingAssembly.merge(await RecordingAssembly.readable(segments), into: out)
-            let sealed = try await Task.detached(priority: .userInitiated) { () throws -> SealedCapture in
+            let (sealed, audioRef) = try await Task.detached(priority: .userInitiated) { () throws -> (SealedCapture, BlobRef) in
                 let audio = try BoundedRead.contents(of: out, maxBytes: CaptureFile.maxBytes - (1 << 20))
-                return try writer.seal(audio: audio, started: started, info: try? AudioProbe.probe(audio),
-                                       title: QuickCapture.title(started), id: id)
+                return (try writer.seal(audio: audio, started: started, info: try? AudioProbe.probe(audio),
+                                        title: QuickCapture.title(started), id: id),
+                        BlobRef(content: audio, type: "audio/mp4"))
             }.value
             outcome.delivery = try deliver(sealed, stored)
             if stored.transcribe, let transcriber {
                 do {
                     let transcript = try await transcriber.transcribe(file: out, recording: CaptureAdoption.ids(for: id).recording,
                                                                       noteLanguage: nil)
-                    _ = try deliver(try writer.seal(transcript: transcript, capture: id), stored)
+                    _ = try deliver(try writer.seal(transcript: transcript, capture: id, audio: audioRef), stored)
                     outcome.transcribed = true
                 } catch {
                     // Transcribed later, once the vault is unlocked (AppModel+Inbox).
