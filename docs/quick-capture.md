@@ -49,12 +49,13 @@ vault, and the vault's integrity.
 
 | Adversary | What they get |
 | --- | --- |
-| Storage (iCloud, a WebDAV host, a stolen backup) | Inbox files are age-encrypted to the recipients. Without the capture key they cannot add a capture that verifies. They see that captures exist, their sizes and times. |
+| Storage (iCloud, a WebDAV host, a stolen backup) | Inbox files are age-encrypted to the recipients. Without the capture key they cannot add a capture that verifies. They see that captures exist, their sizes and times. A junk file costs each device one streamed pass in constant memory (the tag is checked before the file is read whole; a transcript file is bounded at about 64 MiB), and it is then not read again for an hour, doubling up to a week, while it does not change (`format.md` §11.2). |
 | Storage that rewrites `vault.json` (adds its own recipient) | A capture is sealed to the capture profile's recipients only, never to the list in `vault.json`, and a profile is only made or refreshed from a list that checks (`format.md` §2.1): a planted recipient never receives a voice note. The app refuses to enable or refresh quick capture while the list does not check. |
-| A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and no audio is on disk. |
-| Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox; they show up in the inbox notebook, attributed to a device id. They cannot read any capture, any note, or the caches, and cannot change existing notes. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
+| A thief with the locked device, before its first unlock after boot | Nothing. The profile is a Keychain item readable only after the first unlock, and audio on disk (a recording interrupted by a crash or a restart) is protected until the first unlock. |
+| Someone holding the locked device after its first unlock | They can record voice notes from the Lock Screen widget, Control Center, the Action button or Siri without unlocking (the intents need no authentication), and those notes look like the owner's. They cannot listen to any. |
+| Forensic extraction after the first unlock (or code running as the app) | The capture profile: public recipients (public anyway) and the capture key. With it they can put forged voice notes in the inbox, under any title and in any notebook (the manifest names both), written as the adopting device: nothing marks them as forged. They cannot read any capture, any note, or the caches, and cannot change existing notes: a transcript is bound to its capture's audio (`format.md` §11.2), which they never see. A voice note being recorded or sealed at that moment is plaintext in the app's container until it is sealed (seconds after it stops). |
 | Someone using the unlocked device | They can record voice notes, which is the feature. They cannot listen to past ones without unlocking the vault. |
-| A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted. The same holds for a device that is still authorized but has not unlocked the vault since the key change (its profile still has the old capture key): voice notes it records in that window stay in the inbox unadopted, readable only with the stock-CLI recipe (`format.md` §11.2). Open question: adopt them after a confirmation. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
+| A removed device (its key taken off the vault) | Removing a recipient rotates the vault secret (§3.3), so the old capture key no longer verifies. Captures already in the inbox at that moment are re-tagged and re-encrypted by the recipient change (`format.md` §3.3.1), so they are still adopted, and the removed key cannot open them any more; its later captures are reported, kept in the inbox and never adopted once the recipient change has finished (while it is unfinished, its journal keeps the outgoing secret, whose capture key still verifies). The same holds for a device that is still authorized but has not unlocked the vault since the key change (its profile still has the old capture key): voice notes it records in that window stay in the inbox unadopted, readable only with the stock-CLI recipe (`format.md` §11.2). Open question: adopt them after a confirmation. Its profile also encrypts to the old recipient list: re-enable quick capture after key changes (the app refreshes the profile at every unlock and right after a key change or a migration on that device; the CLI needs `sempere inbox enable` again). |
 
 ### Plaintext audio
 
@@ -91,7 +92,11 @@ and uploads them later. When the folder cannot be reached (the bookmark is
 stale, the folder was moved, it is another vault), the files go to a local
 queue (`Application Support/Sempere/CaptureQueue/<vaultId>/`, already
 encrypted). They move into the vault when the app becomes active and when
-the vault opens.
+the vault opens. A vault whose `vault.json` says it was written by a newer
+version (`format.md` §7.3) is read-only for this one: voice notes for it go
+to the queue too, and stay there until an updated app (or one that can write
+it again) flushes them; neither delivery nor the queue writes into its
+`inbox/` (`QuickCapture.acceptsCaptures`).
 
 ## Transcription
 

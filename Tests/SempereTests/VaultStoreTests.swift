@@ -17,7 +17,7 @@ final class VaultStoreTests: VaultTestCase {
         let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: raw) as? [String: Any])
         XCTAssertEqual(Set(obj.keys), ["format", "vaultId", "created", "recipients", "vaultSecret", "features",
                                        "recipientsTag"])
-        XCTAssertEqual(obj["features"] as? [String], ["recipients-tag"])
+        XCTAssertEqual(obj["features"] as? [String], ["recipients-tag", "signed-secret-link"])
         XCTAssertEqual((obj["recipientsTag"] as? String)?.count, 64)
         XCTAssertEqual(obj["format"] as? String, "sempere/1")
         XCTAssertEqual(obj["vaultId"] as? String, "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c")
@@ -240,5 +240,35 @@ final class VaultStoreTests: VaultTestCase {
         let m = vault.url.appendingPathComponent("vault.json")
         try Data("{".utf8).write(to: m)
         XCTAssertFalse(vault.verify().manifestOK)
+    }
+
+    /// Security review 2026-10 (W2): a snapshot whose tag does not verify
+    /// was made by someone with only the public keys and covers nothing, so
+    /// `nextSeq` skips it and the note stays editable. A snapshot that does
+    /// not decrypt may hide real coverage and still stops it.
+    func testForgedSnapshotNeverBlocksNextSeq() throws {
+        let id = pqIdentity()
+        let vault = try makeVault(id)
+        let log = sampleLog()
+        for r in log { try vault.write(r) }
+        let expected = try vault.nextSeq(noteId: testNote, device: devA)
+
+        let planted = RevisionName(hlc: HLC(millis: baseMillis + 999, counter: 0)!, device: devC, seq: 1, kind: .snapshot)
+        var forged = log[0]
+        forged.device = devC; forged.hlc = planted.hlc; forged.seq = 1
+        forged.body = .snapshot(included: Included([devA: .init(upTo: 1_000_000)]), state: try vault.reconstruct(noteId: testNote))
+        let body = try BodyFraming.frame(json: InkJSON.encoder().encode(forged), noteId: testNote.uuidString.lowercased(),
+                                         filename: planted.filename, secret: .random())
+        try AgeFile.encrypt(body, to: [id.recipient]).write(to: fileURL(vault, testNote, planted))
+        XCTAssertEqual(try vault.nextSeq(noteId: testNote, device: devA), expected, "its claimed coverage is ignored")
+        XCTAssertNoThrow(try vault.apply([.setMeta(.title("still editable"))], to: testNote,
+                                         deviceState: tmp.appendingPathComponent("dev.json"), app: "test/0"))
+
+        let damaged = RevisionName(hlc: HLC(millis: baseMillis + 1999, counter: 0)!, device: devC, seq: 2, kind: .snapshot)
+        try Data("age-encryption.org/v1\njunk".utf8).write(to: fileURL(vault, testNote, damaged))
+        XCTAssertThrowsError(try vault.nextSeq(noteId: testNote, device: devA)) { error in
+            guard case VaultError.revision(let name, _) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(name, damaged.filename)
+        }
     }
 }

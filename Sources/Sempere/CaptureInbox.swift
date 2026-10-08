@@ -33,6 +33,10 @@ public enum CaptureError: Error, Hashable, Sendable, CustomStringConvertible {
     case noRecipients
     /// A capture key that is not 32 bytes.
     case invalidKey
+    /// An inbox file that failed `failures` times before and is not read
+    /// again until `retryAfter` (unless it changes): the device-local
+    /// back-off of format.md §11.3 (security review 2026-10, C5).
+    case backedOff(failures: Int, retryAfter: Date, lastError: String)
 
     public var description: String {
         switch self {
@@ -44,6 +48,8 @@ public enum CaptureError: Error, Hashable, Sendable, CustomStringConvertible {
         case .wrongVault: return "the capture belongs to another vault"
         case .noRecipients: return "the capture profile has no usable recipient"
         case .invalidKey: return "a capture key must be 32 bytes"
+        case .backedOff(let n, let after, let last):
+            return "failed \(n) time(s) (\(last)); not read again before \(RFC3339.string(from: after) ?? "later") unless it changes"
         }
     }
 }
@@ -247,12 +253,35 @@ public enum CaptureFile {
 
     /// Computed incrementally: `rest` (up to `maxBytes`) is never copied.
     static func tag<D: DataProtocol>(_ key: CaptureKey, filename: String, rest: D) -> Data {
+        var hmac = tagHMAC(key, filename: filename)
+        hmac.update(data: rest)
+        return Data(hmac.finalize())
+    }
+
+    /// The tag's HMAC with everything before `rest` fed in.
+    static func tagHMAC(_ key: CaptureKey, filename: String) -> HMAC<SHA256> {
         var m = Data("sempere/1".utf8)
         m.append(0); m.append(contentsOf: "capture".utf8); m.append(0); m.append(contentsOf: filename.utf8); m.append(0)
         var hmac = HMAC<SHA256>(key: SymmetricKey(data: key.bytes))
         hmac.update(data: m)
-        hmac.update(data: rest)
-        return Data(hmac.finalize())
+        return hmac
+    }
+
+    /// Largest plaintext of an inbox file of `kind`: a transcript holds one
+    /// JSON line (at most `maxLineBytes`) and a 64-digit hash, so it gets a
+    /// much smaller bound than a capture's audio (security review 2026-10, C5).
+    public static func maxPlaintextBytes(_ kind: Kind) -> Int {
+        switch kind {
+        case .capture: return maxBytes
+        case .transcript: return min(maxBytes, headerSize + maxLineBytes + 1 + 64)
+        }
+    }
+
+    /// Largest file of `kind` read at all: its plaintext bound plus age's
+    /// header and per-chunk overhead (16 bytes per 64 KiB) with room to spare.
+    public static func maxSealedBytes(_ kind: Kind) -> Int {
+        let plain = maxPlaintextBytes(kind)
+        return plain + plain / 4096 + (1 << 20)
     }
 
     /// The plaintext of an inbox file named `filename`.
@@ -357,13 +386,19 @@ public struct CaptureWriter: Sendable {
     }
 
     /// Seals the transcript of capture `id` (its `recording` must be the
-    /// capture's recording id, `CaptureAdoption.ids(for:)`).
-    public func seal(transcript: Transcript, capture id: UUID) throws -> SealedCapture {
+    /// capture's recording id, `CaptureAdoption.ids(for:)`), bound to the
+    /// capture's `audio` (the manifest's reference): the payload is its
+    /// SHA-256, which only whoever had the audio knows (format.md §11.2), so
+    /// another holder of the capture key cannot attach a transcript of its
+    /// own to the voice note.
+    public func seal(transcript: Transcript, capture id: UUID, audio: BlobRef) throws -> SealedCapture {
         guard transcript.recording == CaptureAdoption.ids(for: id).recording else {
             throw CaptureError.invalidContent("the transcript names another recording")
         }
+        guard audio.isValid else { throw CaptureError.invalidContent("bad audio reference") }
         let name = CaptureFile.name(id, .transcript)
-        let plain = try CaptureFile.frame(line: try transcript.encoded(), payload: Data(), filename: name, key: key)
+        let plain = try CaptureFile.frame(line: try transcript.encoded(), payload: Data(audio.sha256.utf8), filename: name,
+                                          key: key)
         return SealedCapture(name: name, data: try Vault.encrypt(plain, to: recipients))
     }
 
@@ -393,6 +428,9 @@ public struct PendingCapture: Sendable {
     public var transcript: Transcript?
     /// Transcript content as stored (for the blob).
     public var transcriptContent: Data?
+    /// The SHA-256 (lowercase hex) of the audio the transcript is bound to
+    /// (format.md §11.2); nil when there is no usable transcript.
+    public var transcriptAudio: String?
     /// The inbox files read.
     public var files: [String]
 }
@@ -414,7 +452,8 @@ public enum CaptureAdoption {
         guard let after, !after.pages.isEmpty || !after.recordings.isEmpty else { return [] }
         var done = pending.files.filter { CaptureFile.parse(name: $0)?.kind == .capture }
         let rec = after.recordings.first { $0.id == ids(for: pending.id).recording }
-        if rec == nil || rec?.transcript != nil {
+        // A transcript that is not bound to this recording's audio is never adopted.
+        if rec == nil || rec?.transcript != nil || rec?.blob.sha256 != pending.transcriptAudio {
             done += pending.files.filter { CaptureFile.parse(name: $0)?.kind == .transcript }
         }
         return done
@@ -426,17 +465,52 @@ public enum CaptureAdoption {
     /// there is one, in one delta. A note that exists only gets the
     /// transcript, if its recording is there without one. Nothing when there
     /// is nothing to add (a transcript whose capture has not arrived yet waits).
+    /// A transcript is only added to the recording whose audio it is bound to
+    /// (`PendingCapture.transcriptAudio`, format.md §11.2).
+    /// Longest title or notebook a capture gives its note, in characters.
+    public static let maxNameLength = 300
+    /// ... and in Unicode scalars: one character (grapheme cluster) has no
+    /// length limit, a letter followed by any number of combining marks.
+    public static let maxNameScalars = 4 * maxNameLength
+
+    /// A manifest's title or notebook as the note gets it (format.md §11.3):
+    /// control characters (newlines included) become spaces, and it is cut
+    /// at `maxNameLength` characters and `maxNameScalars` scalars (whole
+    /// characters, except one that alone is longer than that). The manifest's
+    /// own limit is only its 64 MiB line, and any capture-key holder writes
+    /// it (security review 2026-10, C2).
+    public static func boundedName(_ name: String) -> String {
+        var out = String.UnicodeScalarView()
+        var characters = 0, scalars = 0
+        for ch in name {
+            guard characters < maxNameLength, scalars < maxNameScalars else { break }
+            let s = ch.unicodeScalars
+            if s.contains(where: { $0.properties.generalCategory == .control }) {
+                out.append(" "); scalars += 1
+            } else if scalars + s.count <= maxNameScalars {
+                out.append(contentsOf: s); scalars += s.count
+            } else {
+                if characters == 0 { out.append(contentsOf: s.prefix(maxNameScalars)) }
+                break
+            }
+            characters += 1
+        }
+        return String(out)
+    }
+
     public static func ops(_ pending: PendingCapture, audio: BlobRef?, transcript: BlobRef?, current: NoteState?,
                            paper: Paper = .ruled, pageSize: PageSize = .letter) -> [Op] {
         let ids = ids(for: pending.id)
         if let current, !current.recordings.isEmpty || !current.pages.isEmpty || !current.meta.title.isEmpty {
-            guard let transcript, let r = current.recordings.first(where: { $0.id == ids.recording }), r.transcript == nil
+            guard let transcript, let r = current.recordings.first(where: { $0.id == ids.recording }), r.transcript == nil,
+                  r.blob.sha256 == pending.transcriptAudio
             else { return [] }
             return [.setRecording(recordingId: ids.recording, change: .transcript(transcript))]
         }
         guard let m = pending.manifest, let audio else { return [] }
-        var ops = NoteOps.newNote(title: m.title, paper: paper, pageSize: pageSize,
-                                  notebook: m.notebook ?? CaptureProfile.defaultNotebook, pageId: ids.page)
+        let transcript = m.audio.sha256 == pending.transcriptAudio ? transcript : nil
+        var ops = NoteOps.newNote(title: boundedName(m.title), paper: paper, pageSize: pageSize,
+                                  notebook: boundedName(m.notebook ?? CaptureProfile.defaultNotebook), pageId: ids.page)
         var recording = NoteOps.recording(blob: audio, started: m.started, info: m.info, id: ids.recording)
         recording.transcript = transcript
         ops.append(.addRecording(recording))
@@ -459,7 +533,15 @@ extension Vault {
     /// capture key (the current vault secret's, or the previous one during a
     /// rewrap), the manifest and the audio's hash and size, the transcript
     /// against format.md §8.3.2 and the capture's recording id.
-    public func readCapture(_ id: UUID) throws -> PendingCapture {
+    ///
+    /// - Parameters:
+    ///   - backoff: this device's record of inbox files that failed before
+    ///     (format.md §11.3): one that failed and has not changed is not read
+    ///     again before its back-off ends (`CaptureError.backedOff`), and a new
+    ///     failure of the tag check (or decryption, framing, size) is
+    ///     recorded. Nil reads every file (tests, an explicit retry).
+    ///   - now: the clock for the back-off.
+    public func readCapture(_ id: UUID, backoff: InboxBackoff? = nil, now: Date = Date()) throws -> PendingCapture {
         try requireMigrated()
         guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
         var keys = [try captureKey()]
@@ -469,7 +551,20 @@ extension Vault {
             let name = CaptureFile.name(id, kind)
             let url = inboxURL.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            let sealed = try FileIO.read(url, maxBytes: CaptureFile.maxBytes + (1 << 20))
+            let mark = backoff == nil ? nil : InboxBackoff.FileMark(url)
+            if let backoff, let mark, let e = backoff.pending(vault: vaultId, name: name, mark: mark, now: now) {
+                throw CaptureError.backedOff(failures: e.failures, retryAfter: e.retryAfter, lastError: e.lastError)
+            }
+            do {
+                // The tag first, streamed in constant memory: only a file that
+                // verifies is then read whole (security review 2026-10, C5).
+                _ = try verifyInboxFile(url, name: name, kind: kind, keys: keys)
+            } catch let e as CaptureError {
+                if let backoff, let mark { backoff.recordFailure(vault: vaultId, name: name, mark: mark, error: e.description, now: now) }
+                throw e
+            }
+            if let backoff { backoff.clear(vault: vaultId, name: name) }
+            let sealed = try FileIO.read(url, maxBytes: CaptureFile.maxSealedBytes(kind))
             let plain: Data
             do { plain = try AgeFile.decrypt(sealed, with: identities) } catch {
                 throw CaptureError.notCapture("cannot decrypt: \(error)")
@@ -497,12 +592,72 @@ extension Vault {
                 guard t.recording == CaptureAdoption.ids(for: id).recording else {
                     throw CaptureError.invalidContent("the transcript names another recording")
                 }
-                pending.transcript = t
-                pending.transcriptContent = line
+                // Bound to the capture's audio (format.md §11.2). One that is
+                // not (an empty payload, written before the binding, or another
+                // audio's hash) is never adopted, and is deleted with the
+                // capture: the app transcribes the recording itself then.
+                let bound = String(decoding: payload, as: UTF8.self)
+                if SHA256Hex.bytes(bound) != nil, pending.manifest.map({ $0.audio.sha256 == bound }) ?? true {
+                    pending.transcript = t
+                    pending.transcriptContent = line
+                    pending.transcriptAudio = bound
+                }
             }
             pending.files.append(name)
         }
         return pending
+    }
+
+    /// Streams inbox file `url` (named `name`) through age and the tag's
+    /// HMAC under each of `keys` in constant memory, without keeping the
+    /// plaintext (format.md §11.2): its size against the bound of its kind
+    /// first, then magic, version and tag. Returns the index of the key the
+    /// tag verified under.
+    ///
+    /// - Throws: `CaptureError` (`tooLarge`, `notCapture`, `badTag`) for the
+    ///   file's own faults; `VaultError.io` when it cannot be read.
+    func verifyInboxFile(_ url: URL, name: String, kind: CaptureFile.Kind, keys: [CaptureKey]) throws -> Int {
+        let sealedCap = CaptureFile.maxSealedBytes(kind), plainCap = CaptureFile.maxPlaintextBytes(kind)
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
+           size.intValue > sealedCap {
+            throw CaptureError.tooLarge(plainCap)
+        }
+        let decryptor: AgeDecryptor, handle: FileHandle
+        do { (decryptor, handle) = try Self.openBlobFile(url, identities: identities) } catch BlobError.unreadable(let why) {
+            throw VaultError.io(why)   // I/O, not the file's fault: never backed off
+        } catch {
+            throw CaptureError.notCapture("cannot decrypt: \(error)")
+        }
+        defer { try? handle.close() }
+        var head = Data()
+        var hmacs = keys.map { CaptureFile.tagHMAC($0, filename: name) }
+        var total = 0
+        while true {
+            let chunk: Data?
+            do { chunk = try decryptor.next() } catch BlobError.unreadable(let why) { throw VaultError.io(why) } catch {
+                throw CaptureError.notCapture("cannot decrypt: \(error)")
+            }
+            guard let chunk else { break }
+            total += chunk.count
+            guard total <= plainCap else { throw CaptureError.tooLarge(plainCap) }
+            var rest = chunk[...]
+            if head.count < CaptureFile.headerSize {
+                let need = CaptureFile.headerSize - head.count
+                head += rest.prefix(need)
+                rest = rest.dropFirst(need)
+                if head.count == CaptureFile.headerSize {
+                    guard Array(head.prefix(4)) == CaptureFile.magic else { throw CaptureError.notCapture("bad magic") }
+                    guard head[4] == CaptureFile.version else { throw CaptureError.notCapture("unknown version \(head[4])") }
+                }
+            }
+            if !rest.isEmpty { for i in hmacs.indices { hmacs[i].update(data: rest) } }
+        }
+        guard head.count == CaptureFile.headerSize, total > CaptureFile.headerSize else {
+            throw CaptureError.notCapture("too short")
+        }
+        let stored = Data(head.suffix(32))
+        for (i, h) in hmacs.enumerated() where CaptureFile.constantTimeEqual(Data(h.finalize()), stored) { return i }
+        throw CaptureError.badTag
     }
 
     /// Writes the blobs `pending` brings into its note (format.md §8.1.4:
@@ -548,12 +703,13 @@ extension Vault {
     /// then deletes the inbox files it consumed. A transcript whose capture
     /// is neither in the inbox nor adopted yet stays. With `dryRun` only the
     /// reading and verifying are done.
-    public func adoptCapture(_ id: UUID, deviceState: URL, app: String, dryRun: Bool = false) -> CaptureAdoptionResult {
+    public func adoptCapture(_ id: UUID, deviceState: URL, app: String, dryRun: Bool = false,
+                             backoff: InboxBackoff? = nil, now: Date = Date()) -> CaptureAdoptionResult {
         let ids = CaptureAdoption.ids(for: id)
         var result = CaptureAdoptionResult(capture: id.uuidString.lowercased(), note: ids.note.uuidString.lowercased(),
                                            created: false, transcript: false, removed: [])
         do {
-            let pending = try readCapture(id)
+            let pending = try readCapture(id, backoff: backoff, now: now)
             result.title = pending.manifest?.title
             // A note exists once it has a revision: a folder holding only the
             // blobs of an adoption interrupted before its delta is still new.
@@ -613,9 +769,16 @@ extension Vault {
         for name in try FileIO.entries(dir) where CaptureFile.parse(name: name) != nil {
             let path = "\(CaptureFile.folderName)/\(name)"
             let file = dir.appendingPathComponent(name)
-            guard !FileIO.isDirectory(file) else { continue }
+            guard !FileIO.isDirectory(file), let kind = CaptureFile.parse(name: name)?.kind else { continue }
+            // The tag is checked streamed first: a file that verifies under
+            // neither key is skipped without being read whole (C5).
+            do { _ = try verifyInboxFile(file, name: name, kind: kind, keys: keys) } catch is CaptureError {
+                report.inboxSkipped.append(path); continue
+            } catch {
+                report.failures[path] = .unreadable("\(error)"); continue
+            }
             let data: Data
-            do { data = try FileIO.read(file, maxBytes: CaptureFile.maxBytes + (1 << 20)) } catch {
+            do { data = try FileIO.read(file, maxBytes: CaptureFile.maxSealedBytes(kind)) } catch {
                 report.failures[path] = .unreadable("\(error)"); continue
             }
             let stanzas: [String: Int]

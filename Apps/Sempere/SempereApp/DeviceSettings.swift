@@ -259,9 +259,15 @@ enum RewrapSettings {
 /// *New notes*: the title a note gets when the user gives none, the default
 /// notebook of quick voice notes, and (with `PaperPreference`) the paper.
 enum NewNoteSettings {
+    /// The title presets, and `custom` (the user's own pattern, `titlePattern`).
     enum TitleFormat: String, CaseIterable, Sendable, Identifiable {
         case dateAndTime
         case dateOnly
+        /// `2026-10-07 14:30`: sorts by date.
+        case isoDateTime
+        /// `Wednesday 7 October`.
+        case weekday
+        case custom
         case blank
 
         var id: String { rawValue }
@@ -269,12 +275,29 @@ enum NewNoteSettings {
             switch self {
             case .dateAndTime: return String(localized: "Date and Time", comment: "Settings ▸ New Notes ▸ Title: default title is the date and time")
             case .dateOnly: return String(localized: "Date", comment: "Settings ▸ New Notes ▸ Title: default title is the date")
+            case .isoDateTime: return String(localized: "Year-Month-Day Time", comment: "Settings ▸ New Notes ▸ Title: 2026-10-07 14:30")
+            case .weekday: return String(localized: "Weekday and Date", comment: "Settings ▸ New Notes ▸ Title: Wednesday 7 October")
+            case .custom: return String(localized: "Custom", comment: "Settings ▸ New Notes ▸ Title: the user's own date pattern")
             case .blank: return String(localized: "Untitled", comment: "Settings ▸ New Notes ▸ Title: new notes get no title (shown as Untitled)")
+            }
+        }
+
+        /// The pattern of a fixed preset (`DefaultTitle`); nil for the locale's styles, custom and blank.
+        var pattern: String? {
+            switch self {
+            case .isoDateTime: return "yyyy-MM-dd HH:mm"
+            case .weekday: return "EEEE d MMMM"
+            default: return nil
             }
         }
     }
 
     static let titleFormatKey = "Sempere.newNote.titleFormat"
+    /// The custom pattern (`TitleFormat.custom`): a Unicode date pattern or a
+    /// strftime format, checked by `DefaultTitle.check` (as `notes new
+    /// --title-format` is) before it is stored.
+    static let titlePatternKey = "Sempere.newNote.titlePattern"
+    static let defaultTitlePattern = "yyyy-MM-dd HH:mm"
     static let voiceNotebookKey = "Sempere.newNote.voiceNotebook"
     static let defaultTitleFormat = TitleFormat.dateAndTime
     static let defaultVoiceNotebook = "Inbox"
@@ -287,9 +310,29 @@ enum NewNoteSettings {
         defaults.set(f.rawValue, forKey: titleFormatKey)
     }
 
+    /// The stored custom pattern; the default one when none (or one that
+    /// does not check, written by an older build) is stored.
+    static func titlePattern(_ defaults: UserDefaults = .standard) -> String {
+        guard let p = defaults.string(forKey: titlePatternKey), !p.isEmpty, DefaultTitle.check(p) == nil else {
+            return defaultTitlePattern
+        }
+        return p
+    }
+
+    /// Stores `pattern` as the custom pattern when it can be used; returns why
+    /// not otherwise (nothing is stored: the last good one stays).
+    @discardableResult
+    static func setTitlePattern(_ pattern: String, in defaults: UserDefaults = .standard) -> DefaultTitle.Problem? {
+        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .blank }
+        if let problem = DefaultTitle.check(pattern) { return problem }
+        defaults.set(pattern, forKey: titlePatternKey)
+        return nil
+    }
+
     /// The title for a note made at `now` in `format`: "Oct 7, 2026 at 2:30 PM",
-    /// "Oct 7, 2026", or "" (shown as "Untitled").
-    static func title(_ format: TitleFormat, now: Date = Date(), locale: Locale = .current,
+    /// "Oct 7, 2026", "2026-10-07 14:30", "Wednesday 7 October", the custom
+    /// `pattern`'s, or "" (shown as "Untitled").
+    static func title(_ format: TitleFormat, pattern: String? = nil, now: Date = Date(), locale: Locale = .current,
                       timeZone: TimeZone = .current) -> String {
         let f = DateFormatter()
         f.locale = locale
@@ -302,14 +345,22 @@ enum NewNoteSettings {
         case .dateAndTime:
             f.dateStyle = .medium
             f.timeStyle = .short
+        case .isoDateTime, .weekday, .custom:
+            let p = format == .custom ? (pattern ?? defaultTitlePattern) : format.pattern
+            return DefaultTitle.title(at: now, format: p, locale: locale, timeZone: timeZone)
         }
         return f.string(from: now)
+    }
+
+    /// The title the stored setting gives a note made at `now`.
+    static func defaultTitle(_ defaults: UserDefaults = .standard, now: Date = Date()) -> String {
+        title(titleFormat(defaults), pattern: titlePattern(defaults), now: now)
     }
 
     /// `typed` when the user typed a title, else the stored format's.
     static func resolvedTitle(typed: String, defaults: UserDefaults = .standard, now: Date = Date()) -> String {
         let t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? title(titleFormat(defaults), now: now) : t
+        return t.isEmpty ? defaultTitle(defaults, now: now) : t
     }
 
     /// The notebook quick voice notes go to: "Inbox" until changed. A name
@@ -345,5 +396,62 @@ enum StorageText {
     static func items(_ count: Int, bytes n: Int64) -> String {
         let size = bytes(n)
         return String(localized: "\(count) items, \(size)", comment: "Settings ▸ Storage: number of unused attachments and their total size")
+    }
+
+    /// "in 3 versions": how many versions of its note still show a held attachment.
+    static func versions(_ count: Int) -> String {
+        String(localized: "in \(count) versions", comment: "Settings ▸ Storage ▸ Held by History: how many versions of the note show it")
+    }
+
+    /// "12 Oct 2026" (the day, in this device's calendar and language).
+    static func day(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    /// Where an unused attachment stands in the 30-day window at `now`:
+    /// "Unused since 7 Oct 2026" plus "can be deleted from 6 Nov 2026" until then.
+    static func window(_ item: AttachmentStorageReport.Unused, now: Date) -> String {
+        let since = day(item.firstSeen)
+        return item.isEligible(at: now) ? String(localized: "Unused since \(since)")
+            : String(localized: "Unused since \(since); can be deleted from \(day(item.deletableFrom))")
+    }
+
+    /// "Recording, 0:24" / "Image" / "PDF": what an attachment is, with an
+    /// audio item's duration and title from the last revision that had it.
+    static func describe(kind: BlobKind, lastUse: AttachmentIndexEntry.LastUse?) -> String {
+        let name: String
+        switch kind {
+        case .image: name = String(localized: "Image", comment: "Attachment kind in the unused attachments list")
+        case .pdf: name = String(localized: "PDF", comment: "Attachment kind in the unused attachments list")
+        case .audio: name = String(localized: "Recording")
+        case .video: name = String(localized: "Video")
+        case .transcript: name = String(localized: "Transcript")
+        default: name = String(localized: "File", comment: "Attachment kind in the unused attachments list: anything else")
+        }
+        var parts = [name]
+        if kind == .audio || kind == .video, let d = lastUse?.duration, d.isFinite, d >= 0, d < 1e7 {
+            let s = Int(d.rounded())
+            parts.append(s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+                                   : String(format: "%d:%02d", s / 60, s % 60))
+        }
+        if let title = lastUse?.title, !title.isEmpty { parts.append(String(localized: "“\(title)”", comment: "A recording's title in quotes")) }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// The unused attachments of Settings → Storage, by note: notes by title,
+/// each note's items biggest first.
+enum UnusedAttachmentGroups {
+    struct Group: Identifiable, Equatable {
+        var note: UUID
+        var title: String
+        var items: [AttachmentStorageReport.Unused]
+        var id: UUID { note }
+    }
+
+    static func group(_ items: [AttachmentStorageReport.Unused], title: (UUID) -> String) -> [Group] {
+        Dictionary(grouping: items, by: \.note)
+            .map { Group(note: $0.key, title: title($0.key), items: $0.value.sorted { ($1.bytes, $0.id) < ($0.bytes, $1.id) }) }
+            .sorted { ($0.title.lowercased(), $0.note.uuidString) < ($1.title.lowercased(), $1.note.uuidString) }
     }
 }

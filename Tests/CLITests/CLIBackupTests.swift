@@ -161,6 +161,46 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(again.status, 1, again.err)
     }
 
+    func testBackupStatusAndRestoreDryRun() throws {
+        let vault = try copyFixtureVault()
+        let dir = path("backup")
+        let none = try cli(["backup", "status", dir])
+        XCTAssertEqual(none.status, 1, none.err)
+        XCTAssertEqual(try cli(["backup", vault, "--to", dir, "-q"]).status, 0)
+
+        let status = try cli(["backup", "status", dir, "--json"])
+        XCTAssertEqual(status.status, 0, status.err)
+        let json = try XCTUnwrap(status.json as? [String: Any])
+        XCTAssertEqual(json["vaultId"] as? String, "5a3b1e00-1000-4000-8000-000000000001")
+        XCTAssertEqual(json["files"] as? Int, 10)
+        XCTAssertEqual(json["versionFiles"] as? Int, 0)
+        XCTAssertEqual(json["totalBytes"] as? Int, json["bytes"] as? Int)
+        XCTAssertNotNil(json["updated"] as? String)
+        XCTAssertTrue(try cli(["backup", "status", dir]).out.contains("updated"))
+
+        let target = path("restored.sempere")
+        let dry = try cli(["restore", dir, "--to", target, "--dry-run", "--json"])
+        XCTAssertEqual(dry.status, 0, dry.err)
+        let preview = try XCTUnwrap(dry.json as? [String: Any])
+        XCTAssertEqual(preview["isBackup"] as? Bool, true)
+        XCTAssertEqual(preview["revisions"] as? Int, 7)
+        XCTAssertEqual(preview["attachments"] as? Int, 1)
+        XCTAssertEqual(preview["legacy"] as? Bool, false)
+        XCTAssertNotNil(preview["newestRevision"] as? String)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target), "a dry run writes nothing")
+
+        // Never into (or inside) the vault named by --vault or $SEMPERE_VAULT.
+        let inside = vault + "/inner.sempere"
+        let refused = try cli(["restore", dir, "--to", inside, "--vault", vault])
+        XCTAssertEqual(refused.status, 1, refused.err)
+        XCTAssertTrue(refused.err.contains("open vault"), refused.err)
+        let refusedEnv = try cli(["restore", dir, "--to", inside, "--dry-run"], env: ["SEMPERE_VAULT": vault])
+        XCTAssertEqual(refusedEnv.status, 1, refusedEnv.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inside))
+        // A dry run refuses what the restore would.
+        XCTAssertEqual(try cli(["restore", dir, "--to", vault, "--dry-run"]).status, 1)
+    }
+
     func testBackupVerifyFindsDamage() throws {
         let vault = try copyFixtureVault()
         let dir = path("backup")

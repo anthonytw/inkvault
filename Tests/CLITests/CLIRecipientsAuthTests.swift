@@ -207,4 +207,26 @@ final class CLIRecipientsAuthTests: CLITestCase {
         let trust = tmp.appendingPathComponent("state/sempere/trust/\(m.vaultId.uuidString.lowercased()).json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: trust.path))
     }
+
+    /// Security review 2026-10 (R5): a damaged trust record is not "first
+    /// use": writes exit 6 and leave it as it is until `recipients confirm`.
+    func testUnreadableTrustRecordFailsClosed() throws {
+        let (vault, key, _, _) = try setUpVault()
+        let id = try Vault.open(at: URL(fileURLWithPath: vault)).vaultId
+        let trust = tmp.appendingPathComponent("state/sempere/trust/\(id.uuidString.lowercased()).json")
+        try Data("{ not json".utf8).write(to: trust)
+
+        let s = try status(vault, key)
+        XCTAssertEqual(s["status"] as? String, "tampered")
+        XCTAssertEqual(s["reason"] as? String, "recordUnreadable")
+        let write = try cli(["notes", "new", "Blocked", "--vault", vault, "--identity", key])
+        XCTAssertEqual(write.status, 6, write.err)
+        XCTAssertTrue(write.err.contains("trust record"), write.err)
+        XCTAssertEqual(try Data(contentsOf: trust), Data("{ not json".utf8), "not replaced by a write")
+
+        let confirm = try cli(["vault", "recipients", "confirm", "--vault", vault, "--identity", key])
+        XCTAssertEqual(confirm.status, 0, confirm.err)
+        XCTAssertEqual(try status(vault, key)["status"] as? String, "verified")
+        XCTAssertEqual(try cli(["notes", "new", "Fine", "--vault", vault, "--identity", key]).status, 0)
+    }
 }

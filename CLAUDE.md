@@ -297,7 +297,16 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   releases as soon as `onDrag` returns (the model holds it anyway). `onDrag`
   reports no end, so the payload of a cancelled drag lingers: only a drop that
   carries the app's own types (`carriesAppTypes`) may use it, never a photo or
-  text dragged in from another app.
+  text dragged in from another app. Rows propose `.copy`, never `.move`
+  (`SidebarDrop.proposedOperation`): `onDrag` sessions from a `List` row allow
+  no move, and UIKit cancels such a drop at the release (highlight, then
+  `dropExited`, no `performDrop`; builds 6 and 7). A `List` handles drags it
+  started itself and never asks its rows' drop delegates, so notebook rows drag
+  from a `UIDragInteraction` of their own that also carries their context menu
+  (`NotebookDragSource.swift`; one view, or the menu takes the long press on the
+  iPad); never put `onDrag`/`draggable` or a SwiftUI `contextMenu` back on them.
+  `SidebarDropUITests` drags for real (`scripts/app.sh test-ui`,
+  `SEMPERE_DEBUG_DROPS` trace, `SEMPERE_DEBUG_NOTEBOOK_DRAG` styles).
 - Per-vault device memory (`RecentActivity`, sealed, Application Support):
   "Recently Recognized" (7 days) and recent searches; `activityNow` is the test clock.
 - Timing: wrap new slow phases in `Perf` (os_signpost in every build; debug log
@@ -376,7 +385,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   See `docs/post-quantum.md`.
 - Authenticated recipients (`format.md` §2.1, `Sources/Sempere/RecipientsAuth.swift`):
   `vault.json` carries `recipientsTag` (HMAC of vault id + keys under an HKDF
-  key of the secret) and, after a rotation, `secretLink`; `Vault.open(…, trust:)`
+  key of the secret) and, after a rotation, `secretLink` (Ed25519 + ML-DSA-65
+  signatures by keys derived from the outgoing secret, `SecretLink.swift`;
+  both must verify; trust records `sempere-trust/2` hold only the public
+  keys; a legacy `sempere-trust/1` HMAC record confirms only its own secret
+  and is replaced at the first write; never accept a legacy link under a
+  record; shared vectors `Fixtures/secret-link-vectors.json`, mirrored in
+  `web/src/vault/link.ts`); `Vault.open(…, trust:)`
   classifies the list (`recipientsStatus`) against the device's trust record
   (CLI `$XDG_STATE_HOME/sempere/trust/`, app `AppModel.defaultTrustDirectory`,
   tests `MemoryRecipientsTrustStore`). `requireWritable` refuses a tampered list
@@ -469,6 +484,17 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   changes rewrap them by `RewrapPolicy`. References are found structurally (any
   object with `sha256`) with `JSONSerialization`, whose `NSNumber` says `is Bool`
   for 0 and 1: test `objCType == "c"` for booleans instead.
+- Unused-attachments index (task E7, `docs/attachments.md` §4): per-note
+  `AttachmentIndexEntry` (core `AttachmentIndex.swift`), updated by
+  `AttachmentIndexer.update` for the changed note only (writes via
+  `DeviceClock`'s write hook, arrivals via `readSummaries`/`refresh` →
+  `summariesRead`); never add a whole-vault pass outside Settings' explicit
+  "Check". Numbers come from `AttachmentStorageReport` (app and `sempere blobs
+  unused` alike). Delete only through `collectBlobs(note:records:only:)` with the
+  entry's `unusedSince`; iCloud notes not local decide nothing (`local: false`).
+  Bump `AttachmentIndexEntry.schemaVersion` when the entry changes. App tests
+  set `attachmentIndexDelay = .zero`, `attachmentNow`, and count reads with an
+  `attachmentIndexSource`.
 - Placed items on the canvas (task E0, `docs/attachments.md` §14): build item ops
   with the `NoteOps` item builders (`Sources/Sempere/ItemOps.swift`), apply them in
   the app through `NoteEditor+Items` (`applyItemEdit`: one delta per gesture) and

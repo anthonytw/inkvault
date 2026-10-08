@@ -33,7 +33,7 @@ enum RecipientsTamper: String, CaseIterable {
             let keys = try m.recipients.map { try NativeRecipient(string: $0.key) }
             m.vaultSecret = String(decoding: try AgeFile.encrypt(forged.bytes, to: keys, armor: true), as: UTF8.self)
             m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: forged)
-            m.secretLink = String(repeating: "0", count: 64)
+            m.secretLink = .legacy(String(repeating: "0", count: 64))
         }
         try m.encoded().write(to: url)
     }
@@ -61,9 +61,9 @@ final class RecipientsAuthTests: VaultTestCase {
     func touch(_ url: URL, _ store: MemoryRecipientsTrustStore, _ ids: [NativeIdentity]) throws {
         let v = try open(url, store, ids)
         XCTAssertEqual(v.recipientsStatus, .verified(.firstUse))
-        XCTAssertNil(store.record(for: v.vaultId), "reading keeps no record")
+        XCTAssertNil(try store.record(for: v.vaultId), "reading keeps no record")
         try v.requireWritable()
-        XCTAssertNotNil(store.record(for: v.vaultId))
+        XCTAssertNotNil(try store.record(for: v.vaultId))
     }
 
     // MARK: - Tag
@@ -86,12 +86,13 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertFalse(RecipientsAuth.verifyTag(expected.uppercased(), vaultId: id, keys: keys, secret: secret), "lowercase hex only")
         XCTAssertFalse(RecipientsAuth.verifyTag(String(expected.dropLast()), vaultId: id, keys: keys, secret: secret))
 
-        // The link: HMAC under the old secret's linkKey over the new secret's id.
+        // The link: both signatures by the old secret's keys over the new secret's id.
         let old = VaultSecret.random(), new = VaultSecret.random()
-        let link = RecipientsAuth.link(from: old, to: new, vaultId: id)
-        XCTAssertTrue(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: new, vaultId: id))
-        XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(new), to: new, vaultId: id))
-        XCTAssertFalse(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(old), to: .random(), vaultId: id))
+        let link = try RecipientsAuth.link(from: old, to: new, vaultId: id)
+        XCTAssertTrue(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: old), to: new, vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: new), to: new, vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: old), to: .random(), vaultId: id))
+        XCTAssertFalse(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: old), to: new, vaultId: UUID()))
     }
 
     /// Shared with web/test/vault.test.ts.
@@ -105,7 +106,7 @@ final class RecipientsAuthTests: VaultTestCase {
     func testEveryRecipientChangeWritesTagFeatureAndLink() throws {
         let store = MemoryRecipientsTrustStore()
         var vault = try Vault.create(at: vaultURL(), recipients: [a.recipient], identities: [a], trust: store)
-        XCTAssertEqual(vault.manifest.features, ["recipients-tag"])
+        XCTAssertEqual(vault.manifest.features, ["recipients-tag", "signed-secret-link"])
         XCTAssertNil(vault.manifest.secretLink)
         XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged))
         XCTAssertEqual(try open(vault.url, nil).recipientsStatus, .verified(.firstUse))
@@ -118,7 +119,7 @@ final class RecipientsAuthTests: VaultTestCase {
         let before = try XCTUnwrap(vault.secret)
         try vault.removeRecipient(b.recipient)
         let link = try XCTUnwrap(vault.manifest.secretLink)
-        XCTAssertTrue(RecipientsAuth.verifyLink(link, linkKey: RecipientsAuth.linkKey(before), to: try XCTUnwrap(vault.secret),
+        XCTAssertTrue(RecipientsAuth.verifyLink(link, keys: try LinkPublicKeys(secret: before), to: try XCTUnwrap(vault.secret),
                                                 vaultId: vault.vaultId))
         XCTAssertEqual(try open(vault.url, store).recipientsStatus, .verified(.unchanged), "this device remembered the rotation")
 
@@ -186,7 +187,7 @@ final class RecipientsAuthTests: VaultTestCase {
         let store = MemoryRecipientsTrustStore()
         let (made, _, _) = try setUpVault(store: store)
         let url = made.url.appendingPathComponent("vault.json")
-        let recordBefore = try XCTUnwrap(store.record(for: made.vaultId))
+        let recordBefore = try XCTUnwrap(try store.record(for: made.vaultId))
 
         // Step 1: the attacker's secret S1, the same keys, a tag under S1.
         let s1 = VaultSecret.random()
@@ -202,7 +203,7 @@ final class RecipientsAuthTests: VaultTestCase {
         XCTAssertThrowsError(try step1.requireWritable()) {
             guard case .untrustedRecipients = $0 as? VaultError else { return XCTFail("\($0)") }
         }
-        XCTAssertEqual(store.record(for: made.vaultId), recordBefore, "the record never moves to an unconfirmed secret")
+        XCTAssertEqual(try store.record(for: made.vaultId), recordBefore, "the record never moves to an unconfirmed secret")
 
         // Step 2: S2 to the listed keys and the attacker's, linked from S1.
         let s2 = VaultSecret.random()
@@ -210,14 +211,113 @@ final class RecipientsAuthTests: VaultTestCase {
         let all = try m.recipients.map { try NativeRecipient(string: $0.key) }
         m.vaultSecret = String(decoding: try AgeFile.encrypt(s2.bytes, to: all, armor: true), as: UTF8.self)
         m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: m.recipients.map(\.key), secret: s2)
-        m.secretLink = RecipientsAuth.link(from: s1, to: s2, vaultId: m.vaultId)
+        m.secretLink = try RecipientsAuth.link(from: s1, to: s2, vaultId: m.vaultId)
         try m.encoded().write(to: url)
 
         let step2 = try open(made.url, store)
         XCTAssertEqual(step2.recipientsStatus.problem?.reason, .secretUnconfirmed)
         XCTAssertEqual(step2.recipientsStatus.problem?.unexpected, [x.recipient.string])
         XCTAssertThrowsError(try step2.requireWritable())
-        XCTAssertEqual(store.record(for: made.vaultId), recordBefore)
+        XCTAssertEqual(try store.record(for: made.vaultId), recordBefore)
+    }
+
+    /// Security review 2026-10 (R1): the subset search must not run under a
+    /// secret this device cannot link to its record. An attacker's secret
+    /// with a tag over the real keys plus one of theirs, and a second key of
+    /// theirs that fails the tag, would otherwise make a one-tap repair keep
+    /// the first attacker key (reported as nothing unexpected) and rewrap
+    /// every note to it.
+    func testSubsetSearchNeverRunsUnderAnUnconfirmedSecret() throws {
+        let store = MemoryRecipientsTrustStore()
+        let (made, _, _) = try setUpVault(store: store)
+        let url = made.url.appendingPathComponent("vault.json")
+        let y = pqIdentity()
+        let forged = VaultSecret.random()
+        var m = try VaultManifest.decode(Data(contentsOf: url))
+        m.recipients.append(.init(key: x.recipient.string, label: "iPad", added: Date()))
+        let tagged = m.recipients.map(\.key)
+        m.recipients.append(.init(key: y.recipient.string, label: "Mac", added: Date()))
+        let keys = try m.recipients.map { try NativeRecipient(string: $0.key) }
+        m.vaultSecret = String(decoding: try AgeFile.encrypt(forged.bytes, to: keys, armor: true), as: UTF8.self)
+        m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: tagged, secret: forged)
+        try m.encoded().write(to: url)
+
+        var vault = try open(made.url, store)
+        let problem = try XCTUnwrap(vault.recipientsStatus.problem)
+        XCTAssertEqual(problem.reason, .secretUnconfirmed)
+        XCTAssertNil(problem.restore)
+        XCTAssertEqual(Set(problem.unexpected), [x.recipient.string, y.recipient.string])
+        XCTAssertThrowsError(try vault.repairRecipients()) {
+            guard case .recipientsNotRepairable = $0 as? VaultError else { return XCTFail("\($0)") }
+        }
+        XCTAssertThrowsError(try vault.confirmRecipients(), "the tag does not verify under it")
+    }
+
+    /// Security review 2026-10 (R3): a replaced secret with the tag stripped
+    /// (or bogus) is an unconfirmed secret, not a removed tag: it can be
+    /// neither confirmed (which moved the record to the attacker's secret)
+    /// nor repaired (which adopted it as the outgoing secret).
+    func testAReplacedSecretWithTheTagStrippedIsNeitherConfirmedNorRepaired() throws {
+        for bogus in [nil, String(repeating: "0", count: 64)] {
+            try FileManager.default.removeItem(at: tmp)
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let store = MemoryRecipientsTrustStore()
+            let (made, _, _) = try setUpVault(store: store)
+            let recordBefore = try XCTUnwrap(try store.record(for: made.vaultId))
+            let url = made.url.appendingPathComponent("vault.json")
+            var m = try VaultManifest.decode(Data(contentsOf: url))
+            let keys = try m.recipients.map { try NativeRecipient(string: $0.key) }
+            m.vaultSecret = String(decoding: try AgeFile.encrypt(VaultSecret.random().bytes, to: keys, armor: true), as: UTF8.self)
+            m.recipientsTag = bogus
+            m.secretLink = nil
+            try m.encoded().write(to: url)
+
+            var vault = try open(made.url, store)
+            XCTAssertEqual(vault.recipientsStatus.problem?.reason, .secretUnconfirmed, "\(String(describing: bogus))")
+            XCTAssertThrowsError(try vault.confirmRecipients())
+            XCTAssertThrowsError(try vault.repairRecipients(keeping: [a.recipient.string, b.recipient.string]))
+            XCTAssertEqual(try store.record(for: made.vaultId), recordBefore, "the record never moves to an unconfirmed secret")
+        }
+    }
+
+    /// Security review 2026-10 (R4, W1): `rewrap-journal.json` is plaintext
+    /// anyone who can write the folder (or a sync server) can plant, with a
+    /// secret of their own encrypted to the public keys. Files tagged under
+    /// it would verify, and a resumed rewrap would re-tag them under the
+    /// real secret. Its secret counts only when `secretLink` links it to the
+    /// current one (or it is the current one: a change interrupted before
+    /// vault.json was written).
+    func testAPlantedJournalSecretIsNotAccepted() throws {
+        let store = MemoryRecipientsTrustStore()
+        let (made, _, _) = try setUpVault(store: store)
+        let journal = made.url.appendingPathComponent("rewrap-journal.json")
+        func plant(_ secret: VaultSecret) throws {
+            let armored = String(decoding: try AgeFile.encrypt(secret.bytes, to: [a.recipient, b.recipient], armor: true),
+                                 as: UTF8.self)
+            let json = try JSONSerialization.data(withJSONObject: ["format": "sempere/1", "previousVaultSecret": armored])
+            try json.write(to: journal)
+        }
+        try plant(VaultSecret.random())
+        var vault = try open(made.url, store)
+        XCTAssertTrue(vault.pendingRewrap)
+        XCTAssertNil(vault.previousSecret, "a secret nothing links to is not accepted")
+        XCTAssertNotNil(vault.journalProblem)
+        XCTAssertThrowsError(try vault.resumeRewrap())
+
+        // The current secret (interrupted before vault.json changed) is fine.
+        try plant(try made.requireSecret())
+        vault = try open(made.url, store)
+        XCTAssertEqual(vault.previousSecret, try made.requireSecret())
+        XCTAssertNil(vault.journalProblem)
+
+        // A real rotation interrupted after vault.json: linked, accepted.
+        try FileManager.default.removeItem(at: journal)
+        var rotating = try open(made.url, store)
+        let outgoing = try rotating.requireSecret()
+        XCTAssertThrowsError(try rotating.removeRecipient(b.recipient, policy: RewrapPolicy(), stopAfter: 0))
+        let resumed = try open(made.url, store)
+        XCTAssertEqual(resumed.previousSecret, outgoing)
+        XCTAssertNil(resumed.journalProblem)
     }
 
     // MARK: - Tamper fixtures
@@ -292,7 +392,7 @@ final class RecipientsAuthTests: VaultTestCase {
                 let p = try XCTUnwrap(vault.recipientsStatus.problem, "\(kind)")
                 XCTAssertNil(p.restore, "\(kind): no record, no verifiable subset")
                 XCTAssertEqual(p.unexpected, vault.recipients.map(\.key), "\(kind): nothing can be confirmed")
-                XCTAssertNil(fresh.record(for: vault.vaultId), "a tampered list is never remembered")
+                XCTAssertNil(try fresh.record(for: vault.vaultId), "a tampered list is never remembered")
             }
         }
     }
@@ -358,10 +458,11 @@ final class RecipientsAuthTests: VaultTestCase {
         var vault = try Vault.open(at: fixture, identities: [id], trust: store)
         XCTAssertEqual(vault.recipientsStatus, .untagged)
         XCTAssertTrue(vault.recipientsStatus.allowsWriting)
-        XCTAssertNil(store.record(for: vault.vaultId), "nothing remembered before the upgrade")
+        XCTAssertNil(try store.record(for: vault.vaultId), "nothing remembered before the upgrade")
         XCTAssertTrue(try vault.upgradeRecipientsTag())
         XCTAssertFalse(try vault.upgradeRecipientsTag(), "once")
-        XCTAssertEqual(vault.manifest.features.last, "recipients-tag")
+        XCTAssertTrue(vault.manifest.features.contains("recipients-tag"))
+        XCTAssertTrue(vault.manifest.features.contains("signed-secret-link"), "the first writer also marks signed links")
         XCTAssertEqual(try Vault.open(at: fixture, identities: [id], trust: store).recipientsStatus, .verified(.unchanged))
         XCTAssertTrue(try Vault.open(at: fixture, identities: [id], trust: store).verify().isHealthy)
 
@@ -466,12 +567,23 @@ final class RecipientsAuthTests: VaultTestCase {
             try Data(local).write(to: manifestURL)
             XCTAssertNotNil(Vault.incomingManifestProblem(tampered, local: local, vault: vault), "\(kind)")
             if kind == .tagFromAnotherVault {
-                XCTAssertNil(Vault.incomingManifestProblem(tampered, local: local, vault: nil), "same keys: nobody new reads")
+                XCTAssertNotNil(Vault.incomingManifestProblem(tampered, local: local, vault: nil),
+                                "a changed tag cannot be checked without the key")
             } else {
                 XCTAssertNotNil(Vault.incomingManifestProblem(tampered, local: local, vault: nil), "\(kind) without a key")
             }
         }
         XCTAssertNotNil(Vault.incomingManifestProblem(Data("{".utf8), local: local, vault: vault))
+
+        // Security review 2026-10 (W3): without the key, the same keys with
+        // another sealed secret (and any tag) is not taken: it would replace
+        // the vault's real secret with one the server chose.
+        var swapped = try VaultManifest.decode(local)
+        let keys = try swapped.recipients.map { try NativeRecipient(string: $0.key) }
+        swapped.vaultSecret = String(decoding: try AgeFile.encrypt(VaultSecret.random().bytes, to: keys, armor: true), as: UTF8.self)
+        XCTAssertNotNil(Vault.incomingManifestProblem(try swapped.encoded(), local: local, vault: nil))
+        swapped.recipientsTag = String(repeating: "0", count: 64)
+        XCTAssertNotNil(Vault.incomingManifestProblem(try swapped.encoded(), local: local, vault: nil))
         vault = try Vault.open(at: vault.url, identities: [a])   // no trust store: the local vault is the anchor
         try kind(.secretReplaced)
         func kind(_ k: RecipientsTamper) throws {
@@ -505,20 +617,91 @@ final class RecipientsAuthTests: VaultTestCase {
     func testTrustRecordRoundTripsAndRejectsMalformedFiles() throws {
         let dir = tmp.appendingPathComponent("trust")
         let store = FileRecipientsTrustStore(directory: dir)
-        let record = RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
+        let record = try RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
         try store.save(record)
-        XCTAssertEqual(store.record(for: record.vaultId), record)
+        XCTAssertEqual(try store.record(for: record.vaultId), record)
         let file = dir.appendingPathComponent("\(record.vaultId.uuidString.lowercased()).json")
         #if !os(Windows)
         let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
         XCTAssertEqual(mode, 0o600)
+        // Security review 2026-10 (R2): the folder is private too, and a
+        // replaced record is created private (never world-readable first).
+        let dirMode = try FileManager.default.attributesOfItem(atPath: dir.path)[.posixPermissions] as? Int
+        XCTAssertEqual(dirMode, 0o700)
+        let next = try RecipientsTrustRecord(vaultId: record.vaultId, secret: .random(), recipients: [a.recipient.string])
+        try store.save(next)
+        XCTAssertEqual(try store.record(for: record.vaultId), next)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [file.lastPathComponent], "no temporary left")
         #endif
         XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("vaultSecret"))
-        for junk in ["{", #"{"format":"x"}"#, #"{"format":"sempere-trust/1","vaultId":"\#(record.vaultId.uuidString.lowercased())","linkKey":"00","recipients":[]}"#] {
+        let id = record.vaultId.uuidString.lowercased()
+        for junk in ["{", #"{"format":"x"}"#, #"{"format":"sempere-trust/1","vaultId":"\#(id)","linkKey":"00","recipients":[]}"#,
+                     #"{"format":"sempere-trust/2","vaultId":"\#(id)","linkPublicKeys":{"ed25519":"00","mldsa65":"00"},"recipients":[]}"#,
+                     #"{"format":"sempere-trust/2","vaultId":"\#(id)","linkKey":"\#(String(repeating: "0", count: 64))","recipients":[]}"#] {
             try Data(junk.utf8).write(to: file)
-            XCTAssertNil(store.record(for: record.vaultId), junk)
+            // Security review 2026-10 (R5): unreadable is an error, never "no record".
+            XCTAssertThrowsError(try store.record(for: record.vaultId), junk)
         }
-        XCTAssertNil(store.record(for: UUID()))
+        let other = try RecipientsTrustRecord(vaultId: UUID(), secret: .random(), recipients: [a.recipient.string])
+        try JSONEncoder().encode(other).write(to: file)
+        XCTAssertThrowsError(try store.record(for: record.vaultId), "a record of another vault")
+        XCTAssertNil(try store.record(for: UUID()))
+    }
+
+    /// Security review 2026-10 (R5): a trust record that exists but cannot be
+    /// read fails closed. The open does not read as a first use, nothing is
+    /// written (the record is not replaced), and only an explicit confirm
+    /// writes it again.
+    func testUnreadableTrustRecordFailsClosed() throws {
+        let dir = tmp.appendingPathComponent("trust-r5")
+        let store = FileRecipientsTrustStore(directory: dir)
+        let made = try Vault.create(at: tmp.appendingPathComponent("r5.sempere"), recipients: [a.recipient], identities: [a],
+                                    trust: store)
+        let file = dir.appendingPathComponent("\(made.vaultId.uuidString.lowercased()).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        try Data("{ damaged".utf8).write(to: file)
+
+        var v = try Vault.open(at: made.url, identities: [a], trust: store)
+        XCTAssertEqual(v.recipientsStatus.problem?.reason, .recordUnreadable)
+        XCTAssertNil(v.recipientsStatus.problem?.restore)
+        XCTAssertThrowsError(try v.requireWritable()) { error in
+            guard case VaultError.untrustedRecipients(let p) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(p.reason, .recordUnreadable)
+        }
+        XCTAssertThrowsError(try v.apply([], to: UUID(), deviceState: tmp.appendingPathComponent("dev.json"), app: "test"))
+        XCTAssertEqual(try Data(contentsOf: file), Data("{ damaged".utf8), "the damaged record is not replaced")
+        XCTAssertThrowsError(try v.repairRecipients(), "no list to restore without a record")
+
+        try v.confirmRecipients()
+        XCTAssertEqual(try store.record(for: made.vaultId)?.recipients, [a.recipient.string])
+        XCTAssertNoThrow(try v.requireWritable())
+        XCTAssertNil(try Vault.open(at: made.url, identities: [a], trust: store).recipientsStatus.problem)
+
+        // A list that does not check stays tagMismatch (the more serious
+        // reason), and a confirm never accepts it.
+        try Data("{ damaged".utf8).write(to: file)
+        let url = made.url.appendingPathComponent("vault.json")
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        obj["recipientsTag"] = String(repeating: "0", count: 64)
+        try JSONSerialization.data(withJSONObject: obj).write(to: url)
+        var bad = try Vault.open(at: made.url, identities: [a], trust: store)
+        XCTAssertEqual(bad.recipientsStatus.problem?.reason, .tagMismatch)
+        XCTAssertThrowsError(try bad.confirmRecipients())
+    }
+
+    /// R5: a record that cannot be saved stops the write, and is tried again.
+    func testTrustRecordSaveFailureStopsTheWrite() throws {
+        let store = FailingSaveTrustStore()
+        let made = try Vault.create(at: tmp.appendingPathComponent("r5b.sempere"), recipients: [a.recipient], identities: [a],
+                                    trust: MemoryRecipientsTrustStore())
+        let v = try Vault.open(at: made.url, identities: [a], trust: store)
+        XCTAssertEqual(v.recipientsStatus, .verified(.firstUse))
+        store.failing = true
+        XCTAssertThrowsError(try v.requireWritable())
+        store.failing = false
+        XCTAssertNoThrow(try v.requireWritable(), "retried, not memoised as saved")
+        XCTAssertEqual(store.saves, 1)
     }
 
     func testSubsetSearchIsBounded() throws {
@@ -546,12 +729,27 @@ enum FixtureVault {
         let url = dest.appendingPathComponent("vault.json")
         var m = try VaultManifest.decode(Data(contentsOf: url))
         m.recipientsTag = nil
-        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature }
+        m.features.removeAll { $0 == VaultManifest.recipientsTagFeature || $0 == VaultManifest.signedLinkFeature }
         try m.encoded().write(to: url)
         return dest
     }
 
     static func sampleIdentity() throws -> NativeIdentity {
         try IdentityFile.parse(String(contentsOf: FixtureTests.bundled("sample.key"), encoding: .utf8))
+    }
+}
+
+/// A trust store whose saves fail while `failing` is set (R5 tests).
+final class FailingSaveTrustStore: RecipientsTrustStore, @unchecked Sendable {
+    private let inner = MemoryRecipientsTrustStore()
+    var failing = false
+    var saves = 0
+
+    func record(for vaultId: UUID) throws -> RecipientsTrustRecord? { try inner.record(for: vaultId) }
+
+    func save(_ record: RecipientsTrustRecord) throws {
+        if failing { throw VaultError.io("disk full") }
+        saves += 1
+        try inner.save(record)
     }
 }

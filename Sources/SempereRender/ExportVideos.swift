@@ -33,10 +33,12 @@ public enum ExportVideos {
         return out
     }
 
-    /// `m:ss` (or `h:mm:ss`) of a duration, for link text.
+    /// `m:ss` (or `h:mm:ss`) of a duration, for link text. A stored duration
+    /// is only checked to be finite: clamped (like `Transcript.clock`) so a
+    /// huge one cannot trap in `Int(_:)`.
     public static func clock(_ seconds: Double?) -> String? {
         guard let s = seconds, s.isFinite, s >= 0 else { return nil }
-        let t = Int(s.rounded())
+        let t = Int(min(s, 1e9).rounded())
         return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60)
     }
 

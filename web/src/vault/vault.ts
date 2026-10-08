@@ -9,6 +9,7 @@ import { type Revision, decodeRevision } from "../format/model.ts";
 import { formatMajor, majorOf, manifestReadOnlyReasons, revisionMarkersNewer } from "../format/newer.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
 import { gunzip } from "./gzip.ts";
+import { type SecretLink, linkConnects, parseSecretLink } from "./link.ts";
 
 /** format.md §9 limits. */
 export const limits = {
@@ -55,6 +56,8 @@ export interface VaultManifest {
    * that is not a string reads as "" (a tag that never verifies).
    */
   recipientsTag?: string;
+  /** `secretLink` (format.md §2.1): undefined when absent or null. */
+  secretLink?: SecretLink;
 }
 
 const bech32 = /^[02-9ac-hj-np-z]+$/;
@@ -98,6 +101,8 @@ export function parseManifest(bytes: Uint8Array): VaultManifest {
       features: Array.isArray(features) ? features.filter((f): f is string => typeof f === "string") : [],
     };
     if (tag !== undefined && tag !== null) m.recipientsTag = typeof tag === "string" ? tag : "";
+    const link = parseSecretLink(opt(o, "secretLink"));
+    if (link) m.secretLink = link;
   } catch (e) {
     // A later major that does not decode cannot be opened even read-only (§7.2).
     if (isObject(json) && typeof json.format === "string" && (majorOf(json.format) ?? 0) > formatMajor) {
@@ -206,6 +211,21 @@ export async function recipientsTag(vaultId: string, keys: string[], secret: Uin
   return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, buf(concat(parts)))));
 }
 
+function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return diff === 0;
+}
+
+/**
+ * True when `link` (a `secretLink`, format.md §2.1) links the secret `previous`
+ * to `current`: the rotation from `previous` was made by a holder of it.
+ */
+export async function verifySecretLink(link: SecretLink | undefined, previous: Uint8Array, current: Uint8Array,
+  vaultId: string): Promise<boolean> {
+  return linkConnects(link, previous, current, vaultId);
+}
+
 /** Classifies the manifest's recipients under the vault secret (format.md §2.1, without a trust record). */
 export async function checkRecipients(m: VaultManifest, secret: Uint8Array): Promise<RecipientsStatus> {
   if (m.recipientsTag === undefined) {
@@ -281,9 +301,16 @@ export class UnlockedVault {
         const o = obj(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(journal)), "$");
         const p = opt(o, "previousVaultSecret");
         if (typeof p === "string") {
+          // Plaintext anyone who can write the folder can plant, with a secret
+          // anyone can encrypt to the public keys: it counts only when
+          // `secretLink` links it to the current secret, or it is the current
+          // one (security review 2026-10, R4; Vault.readJournal in Swift).
           const bytes = await decryptSecret(decrypter, p);
-          previous = await hmacKey(bytes);
-          derivation.push(await hkdfKey(bytes));
+          if (equalBytes(bytes, secretBytes)
+            || await verifySecretLink(manifest.secretLink, bytes, secretBytes, manifest.vaultId)) {
+            previous = await hmacKey(bytes);
+            derivation.push(await hkdfKey(bytes));
+          }
         }
       } catch {
         // An unreadable journal only matters for files not yet re-tagged; they

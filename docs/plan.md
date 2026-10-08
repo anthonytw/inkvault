@@ -56,7 +56,10 @@ Done from this list:
   `DESIGN.md` "Recovery"): `sempere keys paper` prints the key (or the
   passphrase-wrapped key file) as a QR code and checked text with stock-tool
   recovery steps; `sempere backup` (incremental folder or tar), `backup
-  verify`, `restore`. Still to do: the same kit and a backup button in the app (🚧 #110: back up, verify, reminder, restore into a new vault; the kit from Settings → Device Keys is ✅ #99).
+  verify`, `restore`. The app's Backups (🚧 #110, Settings → Backups): Back
+  Up Now, Verify Backup, reminder, Restore from Backup into a new vault, on
+  the same core (`backup status` and `restore --dry-run` added for it); its
+  footer points to Settings → Device Keys → Save Key… (the kit, ✅ #99).
 
 - **History and restore, core + CLI** (`Sources/Sempere/History.swift`,
   `format.md` §5.7, `docs/cli.md`): restore points per revision, the note as of
@@ -101,7 +104,7 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | E4 ✅ | App recording (configurable codec/quality) + playback + ink sync; export sheet "PDF" / "PDF + attachments". ✅ **Done (#87)**: core `RecordingSupport.swift` (format, timeline, sync); app `AudioRecorder` (session, segments, recovery), `RecordingPlayer`, `NoteEditor+Recordings`, `RecordingViews`; `ShareOptions.pdfAttachments`, CLI `export --recordings attach` | `Apps/` | E0 | interruption test; tested on the user's iPad |
 | E5 ✅ | App on-device transcription (segments + word timings/confidence, read-back highlighting). ✅ **Done (#87)**: `Sources/SempereSpeech` (SpeechTranscriber → SFSpeechRecognizer on device), core `TranscriptBuilder`, app `AppModel+Recordings`, `TranscriptView`; CLI `transcribe` (macOS) | `Apps/` | E4 | availability matrix on the user's iPad recorded |
 | E6 ✅ | ✅ **Done (#86)**: App **Settings panel**: recording format, photo privacy, transcription, device-key rewrap modes (add; remove/PQ), storage | `Apps/` | E0 (E7 for storage) | defaults match `docs/attachments.md` §15; each setting tested |
-| E7 🚧 | 🚧 **In review (#95)**: App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days) | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested |
+| E7 🚧 | 🚧 **In review (#95)**: App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days): core `AttachmentIndex.swift` (`AttachmentIndexer`, `AttachmentStorageReport`, `BlobRetention`), `AttachmentIndexStore.swift`, `collectBlobs(note:records:only:)`; app `AppModel+AttachmentIndex`, `UnusedAttachmentsView` (SettingsView), `AttachmentThumbnail`; CLI `blobs unused`/`gc` | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested |
 | F ✅ | ✅ **Done (#69)**: CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/SempereCLI` | A1, B2, C* | end-to-end CLI test |
 | G1 ✅ | `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob). ✅ **Done (#96)**: `format.md` §8.2.8; core `MathItems.swift` (`MathContent`, `MathSource` limits, `NoteOps.placeMath`/`setMath`); render `MathRendering.swift`; CLI `attach math`, `items math`; app `MathTypesetter`, `MathEditor`; web viewer. Handwriting→LaTeX (part 2) is 💡 future, researched in `docs/attachments.md` §14 G1, not built | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
 | G2 ✅ | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); ✅ **done (#93)**: format §8.2.7, CLI, exports, sync, app, web viewer | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |

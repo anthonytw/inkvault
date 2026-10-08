@@ -260,10 +260,11 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   derived from the vault secret, so nobody without the key can add a device
   (a sync server, a shared folder). `init` and every `recipients` command
   write it in the same write as the list (a secret rotation also writes
-  `secretLink`, which proves it was made with the old secret). With a key,
+  `secretLink`, Ed25519 and ML-DSA-65 signatures by the old secret's keys,
+  which prove it was made with the old secret). With a key,
   every command checks the list against this machine's trust record
   (`$XDG_STATE_HOME/sempere/trust/<vault id>.json`, mode 0600, kept by
-  commands that write; it holds no secret). A list that does not check is
+  commands that write; it holds only the two public keys that check a link). A list that does not check is
   refused for writing with exit 6 (see Exit codes); reading still works. An
   older vault without a tag is tagged by the first command that writes to it,
   which reports it once on stderr ("vault.json's device list is now
@@ -274,7 +275,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   key), `tagged`, and for `verified` a `verification` (`unchanged`,
   `firstUse`, `rotated`: a secret rotation confirmed by its `secretLink`),
   for `tampered` a `reason` (`tagMismatch`, `tagRemoved`,
-  `secretUnconfirmed`), `unexpected` (keys not in the last verified list),
+  `secretUnconfirmed`, `recordUnreadable`: this machine's trust record exists
+  but does not read, so nothing can be compared until `recipients confirm`),
+  `unexpected` (keys not in the last verified list),
   `missing` and `restore` (what `repair` would write).
 - `recipients repair` undoes a tampered list: it writes the last verified
   list (this machine's record, or the list the tag still verifies once the
@@ -288,10 +291,26 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   another device (exit 1 says so).
 - `recipients confirm` trusts the current list on this machine after you
   have checked every key: for a secret change this machine missed (it was
-  offline for two or more key changes), or an
-  untagged copy older than the tag (a restored backup), which it tags again.
+  offline for two or more key changes), an
+  untagged copy older than the tag (a restored backup), which it tags again,
+  or a trust record of this machine that no longer reads (it is written again).
   Never for a tag that does not verify. Confirming a list an attacker wrote
   lets them read what this machine writes.
+- `link` (or `link status`) shows the form of `vault.json`'s `secretLink`
+  (`none`, `signed`, `legacy` HMAC, `malformed`), whether the vault is marked
+  `signed-secret-link`, and this machine's trust record (`none`, `signed`:
+  public keys only, `legacy`: the HMAC record of earlier versions); `--json`
+  gives `link`, `featureListed`, `record`, `needsUpgrade` and `recipientsAuth`.
+  Works without a key. `link upgrade` (needs the key) does the one-time move
+  to signed links (`format.md` §2.1 "Upgrading to signed links"): it replaces
+  a legacy record by a signed one, retires a legacy link (re-signs it while
+  an interrupted rewrap still holds the old secret) and marks the vault, after
+  which older Sempere versions stop writing to it. `--json` adds `upgrade`
+  (`link`: `none`, `reSigned`, `retired`; `featureAdded`; `recordUpgraded`).
+  A second run changes nothing. A list that does not check is refused
+  (exit 6). Any write also upgrades this machine's record; a legacy record
+  never confirms a changed secret, so a machine that missed a key change
+  before upgrading runs `recipients confirm`.
 - `rewrap-resume` finishes an interrupted change; it refuses (exit 6) a list
   that does not check, so a planted journal cannot re-encrypt the vault to a
   planted key.
@@ -341,8 +360,8 @@ sempere blobs verify [NOTE ...]
 sempere blobs extract NOTE SHA256 [--out FILE]
 sempere blobs add NOTE FILE --type MEDIA/TYPE
 sempere blobs copy SHA256 --from NOTE --to NOTE
-sempere blobs unused [NOTE ...] [--retention DAYS]
-sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS]
+sempere blobs unused [NOTE ...] [--retention DAYS] [--no-cache]
+sempere blobs gc [NOTE ...] [--dry-run] [--retention DAYS] [--file NAME ...] [--no-cache]
 sempere blobs repair [NOTE ...]
 ```
 
@@ -370,8 +389,24 @@ another note's blobs. NOTE is an id or a title; without one, every note.
   to `vault.json`.
 - `copy` copies a blob that NOTE `--from` references into NOTE `--to` (a byte
   copy, verified as it is read), before a revision there uses it.
-- `unused` lists blobs no revision of their note references, with the date
-  each may be collected. Read only.
+- `unused` shows what the app's Settings → Storage shows, from the same code
+  (`AttachmentStorageReport`, `docs/attachments.md` §4): blobs no revision of
+  their note references, each with the date this device first found it
+  unused, the date it may be deleted (that plus `--retention` days) and
+  whether it may be deleted now; and the blobs only older revisions use
+  ("held by history", freed when compaction drops those revisions). Text:
+  one row per blob and the line `Unused attachments: N item(s), X (M
+  deletable now, Y); held by history: K item(s), Z`. `--json` emits
+  `retentionDays`, the totals `unused`, `eligible` and `heldByHistory`
+  (`{count, bytes}`), `items` (`note`, `title`, `file`, `kind`, `bytes`,
+  `firstSeen`, `deletableFrom`, `eligible`, `lastUse`: the newest revision
+  that used it, with its `wall` and a recording's `duration` and `title`),
+  `held` (`note`, `title`, `file`, `kind`, `bytes`, `sha256`, `revisions`)
+  and `unchecked` (note → why nothing could be decided: an unreadable
+  revision, a pending rewrap). Read only: the dates come from this device's
+  record without updating it, so a blob never seen before shows today. Exit 3
+  when a note could not be checked. The app keeps its own record, so the
+  dates can differ between the app and the CLI on one Mac.
 - `gc` deletes those that have been unreferenced for `--retention` days
   (default 30), per `format.md` §8.1.6: per note, only when every revision of
   the note was read and verified, no recipient change is pending, no revision
@@ -379,7 +414,10 @@ another note's blobs. NOTE is an id or a title; without one, every note.
   this device first found it so at least the window ago. The first sighting
   is recorded in `$XDG_STATE_HOME/sempere/blobs/<vaultId>.json` (default
   `~/.local/state/...`), never in the vault; a blob that becomes referenced
-  again loses its record. A blob is decrypted and verified in full before it
+  again loses its record. `--file NAME` (repeatable) deletes only those blob
+  files, as the app's per-item Delete does; the window still applies. After
+  collecting it prints the `unused` line (`--json`: `{"notes": [...],
+  "storage": <as unused>}`). A blob is decrypted and verified in full before it
   is deleted; one that cannot be is reported and kept. `--dry-run` deletes
   and records nothing. Exit 3 when a note could not be collected (unreadable
   revision, pending rewrap) or a blob could not be verified.
@@ -583,7 +621,8 @@ however many cards show it.
 sempere backup [V] --to DIR [--prune] [--checksum]
 sempere backup [V] --archive FILE.tar
 sempere backup verify DIR [--identity FILE]
-sempere restore DIR --to NEWPATH.sempere [--identity FILE]
+sempere backup status DIR
+sempere restore DIR --to NEWPATH.sempere [--identity FILE] [--dry-run]
 ```
 
 `V` is the vault (else `--vault` / `$SEMPERE_VAULT`). Backups only ever hold
@@ -637,6 +676,12 @@ for `--prune` and for a full `verify`.
   `rewrapPending`, `counts` and `files` (`{path, status, detail}`; index
   statuses `ok`, `missing`, `modified`, `unindexed`, plus the vault check's
   problem statuses).
+- `backup status DIR` reads `DIR/backup.json` only (no key, no other file)
+  and prints the vault id, the first (`created`) and last (`updated`) run, and
+  the `notes`, `files` and `bytes` it records, previous copies under
+  `versions/` apart (`versionFiles`, `versionBytes`; `totalBytes` is both).
+  It checks nothing: `backup verify` does. Exit 0, or 1 when `DIR` is not a
+  backup or its `backup.json` cannot be read. `--json` emits those fields.
 - `restore DIR --to NEWPATH` copies `vault.json`, `keys/` and `notes/` (not
   `versions/` or `backup.json`) into a new or empty folder ending in
   `.sempere`, checking every file against `backup.json`; a file that does not
@@ -645,7 +690,15 @@ for `--prune` and for a full `verify`.
   restore is never mistaken for a vault; the same command finishes it. The
   result is then verified: every revision with `--identity`, structure only
   without. Exit 0 ok, 1 files not restored, 2 usage (`NEWPATH` without
-  `.sempere`), 3 the restored vault is not healthy, 4 wrong key.
+  `.sempere`), 3 the restored vault is not healthy, 4 wrong key. `NEWPATH`
+  may not be, hold or lie inside the vault named by `--vault` or
+  `$SEMPERE_VAULT` (exit 1: restore never touches a vault in use).
+  `--dry-run` writes nothing: it refuses `NEWPATH` exactly as a restore would,
+  then shows what `DIR` holds, read without a key: `notes`, `revisions`,
+  `attachments`, `keyFiles`, `bytes`, `newestRevision` (the newest revision
+  file's clock, so a device whose clock ran ahead can put it in the future),
+  `isBackup`, `backupUpdated` and `legacy` (a classic-key vault, which
+  restore refuses). `--json` emits those fields with `source` and `vaultId`.
 
 #### Scheduling backups
 
@@ -713,6 +766,24 @@ A failed run exits non-zero, which cron mails, launchd logs and
 `systemctl --user status sempere-backup` shows. For an off-site copy, sync
 the backup folder (or a weekly `--archive` tar) with any tool: it holds only
 encrypted files.
+
+#### The app's Backups (parity)
+
+The iPad and Mac app (Settings → Backups, `docs/io.md` "Backups in the app")
+runs the same core code, so its backups are these backups: the app and the
+CLI can each continue the other's folder, and everything above applies.
+
+| App | CLI |
+| --- | --- |
+| Back Up Now | `backup V --to DIR` (after a failed Verify Backup, `--checksum`) |
+| Verify Backup | `backup verify DIR` (with the key when the vault is unlocked) |
+| Last Backup, Contents | `backup status DIR` |
+| Restore from Backup: preview | `restore DIR --to NEW --dry-run` |
+| Restore from Backup | `restore DIR --to NEW` (never into the open vault) |
+| Remind Me | a scheduled job (above) |
+
+The app never prunes (`--prune`) and does not write tar archives
+(`--archive`): do those with the CLI.
 
 ### Notes
 
@@ -850,9 +921,18 @@ absent).
   the spelling the vault already uses for that tag (as `tag --add` below).
   Prints the new id (the `Created …` line goes to stderr). Without a TITLE
   the note is named after the date and time, as the app names a new note
-  (`DefaultTitle`): `--title-format` takes a Unicode date pattern
-  (`"yyyy-MM-dd HH:mm"`, literal text in single quotes: `"'Lecture' EEE d MMM"`);
-  the default is the locale's medium date and short time. `""` is an empty title.
+  (`DefaultTitle`): `--title-format` (default: the `SEMPERE_TITLE_FORMAT`
+  environment variable, this machine's setting, as the app's Settings → New
+  Notes → Title is the device's) takes a Unicode date pattern
+  (`"yyyy-MM-dd HH:mm"`, literal text in single quotes: `"'Lecture' EEE d MMM"`,
+  `''` for a quote) or a strftime format (`"%Y-%m-%d %H:%M"`, `"Lecture %a %e %b"`:
+  any `%` outside quoted text makes it one, and its other characters are
+  literal; `%Y %y %m %B %b %d %e %j %A %a %u %H %I %k %l %M %S %p %F %R %T %D
+  %Z %z %%`, with `-` for no leading zero: `%-d`). A format the app's setting
+  would refuse (an unclosed quote, a letter that is no date field, an unknown
+  `%` directive, one that gives no text, over 200 characters) is refused with
+  the same reason and exit 2. Without one the title is the locale's medium date
+  and short time. `""` is an empty title.
 - `rename` sets the title (trimmed).
 - `tag` adds and removes tags in one delta. Tags match case-insensitively and
   merge per tag (`format.md` §5.4.1): `--add` writes an `addTag` unless the
@@ -1227,6 +1307,7 @@ match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
 
 ```
 sempere recognize (ID|TITLE... | --all) [--missing-only | --force] [--dry-run]
+sempere recognize --recent [--days N]
 ```
 
 Reads the handwriting of notes with Apple's Vision, on this machine (nothing
@@ -1264,6 +1345,17 @@ list per note the pages `read` and `cleared` and the `file` written; `--json`
 gives `{dryRun, notes: [{note, title, read, cleared, language, file, error}]}`
 (`language`: the note's `lang`, absent when Vision detects it). A note
 that cannot be read or written is reported and the exit code is 1.
+
+Each note a run writes recognition for also gets `meta.recognized` in the
+same delta (`format.md` §5.4: the time of the run, the note's page count and
+how many pages were written), which puts it in the app's "Recently
+Recognized" on every device for 7 days; a note found current is not written
+to. `--recent` lists the notes whose `recognized` is within the last 7 days
+(`--days`, 1 to 3650), newest first, whichever device's run wrote it: text
+lines `ID  TIME  TITLE: read M of N page(s)`, or `--json`
+`{days, notes: [{note, title, notebook, at, pages, read}]}`. It reads only
+summaries, writes nothing and works on Linux. `notes show --json` gives the
+register as `recognized` (`{at, pages, read}`, absent when never set).
 
 ### Transcription
 
@@ -1312,9 +1404,9 @@ and the exit code is 1.
 ```
 sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key once)
 sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
-sempere inbox transcript CAPTURE JSON [--profile PATH]
+sempere inbox transcript CAPTURE JSON --audio FILE [--profile PATH]
 sempere inbox list
-sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
+sempere inbox import [CAPTURE...] [--dry-run] [--retry]          (needs the key)
 ```
 
 Voice notes without the key (`format.md` §11, `docs/quick-capture.md`), the
@@ -1330,13 +1422,23 @@ only `vault.json` and the profile, no identity or passphrase. It seals the
 audio file into `inbox/<id>.capture.age` (encrypted to the recipients, tagged
 with the capture key) and prints the capture id. `--transcript` seals a
 `sempere-transcript/1` file with it, and `transcript` seals one later; either
-way its recording id is replaced by the capture's. `list` shows the inbox:
+way its recording id is replaced by the capture's, and it is bound to the
+capture's audio (`format.md` §11.2): `transcript` needs that audio file
+(`--audio`, the bytes that were captured), and a transcript bound to other
+audio is never adopted. Both refuse (exit 7) a vault of a newer format. `list` shows the inbox:
 ids and file kinds without a key, titles and whether each verifies with one.
 `import` adopts each capture as a note in the capture's notebook ("Inbox"),
 titled from its date: the audio and transcript as blobs, then one delta as this
 machine, then the inbox files are deleted. The note, page and recording ids
 derive from the capture id, so importing on two machines gives one note. A
-capture that does not verify is reported (exit 1) and kept. `--json`:
+capture that does not verify is reported (exit 1) and kept. Each file's tag
+is checked as it is decrypted, before the file is read whole, and a
+`transcript` file over about 64 MiB is refused from its size. A file that
+failed is recorded in `$XDG_STATE_HOME/sempere/inbox-backoff.json` and not
+read again for an hour, then twice as long after each failure (up to a
+week), while it does not change: `import` reports it as `failed N time(s)
+…; not read again before TIME`. Naming the capture, or `--retry`, reads it
+now. `--json`:
 `capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
 [{capture, note, title, created, transcript, file, removed, error}]}`.
 
@@ -1762,7 +1864,8 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
                          [--max-blob-mib N] [--web-viewer] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
-                         [--push-only [--delete-extraneous]]
+                         [--push-only [--delete-extraneous]] [--retry-quarantined]
+                         [--max-notes N] [--max-entries N] [--max-download-mib N] [--max-minutes N]
 ```
 
 Mirrors the vault folder with a WebDAV collection (`docs/io.md`, "WebDAV
@@ -1807,10 +1910,25 @@ local `sempere-index.json` or `sempere-summaries.sealed`.
 A remote `vault.json` whose device list changed is copied over the local one
 only when it checks (`format.md` §2.1): its tag verifies under the secret it
 carries, and that secret is the local one or a rotation confirmed by its
-`secretLink` (from this machine's trust record, else the local vault's
-secret). That needs the key; without it only a list with the same keys is
+signed `secretLink` (checked with this machine's trust record's public keys,
+else the local vault's secret). That needs the key; without it only a list with the same keys is
 taken. Anything else is reported as `rejected` (stderr line and `--json`
 `rejected: [{path, message}]`), the local copy stays, and the exit code is 6.
+Every downloaded revision and blob is checked before it is placed
+(`format.md` §9.1): with the vault unlocked (or, on a first pull, with
+`--identity`) it must decrypt, verify its tag (a blob: its keyed name and
+content hash) and name its note and file; locked, only its age structure is
+checked. A file that fails is never placed in the vault: it is kept under
+`<sync state>.quarantine/` (mode 0600, outside the vault), printed as
+`quarantined: PATH: why` on stderr, listed in the JSON `quarantined`
+(`{path, message}`), and the exit code is 1. Later runs do not fetch it
+again while it, the local `vault.json` and the lock state are unchanged (it
+is listed as skipped, `-v`); `--retry-quarantined` fetches and checks it
+again. A run is bounded as a whole (`format.md` §9 table): `--max-notes`
+(default 100000 note folders listed), `--max-entries` (1000000 remote entries
+listed in all), `--max-download-mib` (65536) and `--max-minutes` (720).
+Reaching one stops the run with an error naming the flag (exit 1, JSON
+`stoppedEarly`); what was done is kept and the next run continues.
 `--dry-run` makes no request that changes anything and writes nothing; it
 lists `would upload`, `would download` and `would delete` lines. It cannot see
 files it would first download, so it may under-report deletions.
@@ -1844,8 +1962,9 @@ Output: one line per action, then
 lines, `-v` adds skipped and ignored entries). `--json` prints the report:
 `dryRun`, `uploaded`, `downloaded`, `deleted` (`{side, path}`), `conflicts`
 (`{path, remoteCopy, detail}`), `errors` and `skipped` (`{path, message}`) and
-`ignored` (remote names that are not vault files), `rejected`, and with `--push-only` also `extraneous` and `overwritten` (both arrays are always present). One failing file does not stop the
-run. Exit 0 ok, 1 errors, 2 usage (including a refused URL), 3 conflicts, 6 a
+`ignored` (remote names that are not vault files), `rejected`, `quarantined`
+(`{path, message}`), `stoppedEarly` (only when a run bound stopped it), and with `--push-only` also `extraneous` and `overwritten` (these arrays are always present). One failing file does not stop the
+run. Exit 0 ok, 1 errors or quarantined files, 2 usage (including a refused URL), 3 conflicts, 6 a
 rejected `vault.json`.
 
 ## Worked examples

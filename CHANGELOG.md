@@ -9,6 +9,47 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Signed secret links (security review 2026-10, R2): a secret rotation's `secretLink` is now an Ed25519
+  and an ML-DSA-65 (FIPS 204) signature by keys derived from the outgoing secret, valid only when both
+  verify, and each device's trust record keeps only the two public keys, so reading a record (or a backup
+  of it) no longer lets anyone forge a link (`format.md` §2.1). Existing vaults and records are upgraded
+  in place once: `sempere vault link` shows the state and `sempere vault link upgrade` does it; the app
+  does it after unlocking; any CLI write upgrades the machine's record. An old HMAC record confirms only
+  the secret it was made for (a machine that missed a key change confirms the list). Upgraded vaults are
+  marked `signed-secret-link`, so earlier builds stop writing to them (pre-1.0). The web viewer checks
+  signed links with `@noble/post-quantum` and `@noble/curves`.
+- App: Settings → Backups. Back Up Now copies the vault's encrypted files to a folder you choose (another
+  drive, another cloud provider), only what is new each time, on the same code as `sempere backup`; Verify
+  Backup checks it (decrypting every note while the vault is unlocked) and lists what is wrong, which the next
+  backup repairs; the last backup's date and size; an optional reminder after a number of days without a
+  backup. Restore from Backup (in Settings and on the welcome screen) shows what a backup holds, then restores
+  it into a new vault, never over the open one.
+- CLI: `sempere backup status DIR` (last run, notes, files and bytes from `backup.json`) and
+  `sempere restore DIR --to NEW --dry-run` (what a restore would bring back, and whether `NEW` can take it).
+  `restore` refuses a target that is, holds or lies inside the vault named by `--vault` / `$SEMPERE_VAULT`.
+
+- "Recently Recognized" is shared by every device, like the trash: a recognition run ("Recognize All
+  Notes", `sempere recognize`) marks each note it writes recognition for with the time of the run
+  (`meta.recognized`, `format.md` §5.4), which syncs with the note. The sidebar lists it under All Notes
+  with the smart lists. CLI: `sempere recognize --recent [--days N] [--json]`; `notes show --json` gives
+  `recognized`. Builds before this one reject a revision carrying the new register (pre-1.0).
+- New-note titles: presets (Date and Time, Date, Year-Month-Day Time, Weekday and Date) and a custom
+  pattern, a Unicode date pattern or a strftime format, checked as it is typed with a live preview, the
+  reason it is refused and an Insert menu of fields. CLI: `notes new --title-format` takes strftime too
+  and refuses a format it cannot use (exit 2) with the same reason; `SEMPERE_TITLE_FORMAT` sets the default.
+- iPhone and iPad: an iCloud sync in flight when the device locks or the app leaves the screen finishes
+  in the background time iOS gives, and scheduled background tasks continue it when iOS allows
+  (`docs/io.md` "Background sync" lists the limits).
+- Unused attachments (E7): the app keeps a per-note index of each note's attachment files on the device,
+  updated only for the note that changed (an edit, or a revision arriving by sync or iCloud). Settings →
+  Storage shows "Unused Attachments: N items, X MB" and "Held by History" (files only older versions
+  show); the list groups them by note with a preview, what each was (a recording's duration and title),
+  since when it is unused, a link to the note's history at the version that last used it, and Delete,
+  which stays disabled until 30 days after the file was first found unused ("Delete All Eligible" does
+  every one that is). Deleting reads the note again and never removes a file any version uses; in iCloud
+  Drive nothing is decided while a version of the note is not downloaded. CLI: `sempere blobs unused`
+  reports the same numbers (`--json`: totals, items with `firstSeen`, `deletableFrom`, `eligible`,
+  `held`), and `sempere blobs gc --file NAME` deletes one eligible blob.
 - Recordings on the page (`format.md` §8.2.9, an `audio` item kind). Stopping a recording in the app
   places it on the page you were looking at as a card with a microphone icon, a play/pause button,
   its length and its transcript; move, resize or delete it like any item. Every recording of a note
@@ -223,6 +264,27 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   system fonts). PDF and SVG embed font subsets only, with searchable text; characters no font
   covers are reported with the script and what to install.
 
+### Security
+
+- Security review of October 2026 (`docs/security-review-2026-10.md`):
+  - A `rewrap-journal.json` planted in the vault folder, or sent by a sync server, made revisions and
+    blobs tagged under a secret of the attacker's verify, and a resumed rewrap re-tagged them under the real
+    secret. Its secret now counts only when `secretLink` links it to the vault's (Swift and the web viewer).
+  - An unconfirmed secret is now detected before the tag is looked at. A stripped or bogus tag under a
+    replaced secret can no longer be confirmed or repaired. A repair can no longer keep an attacker's key
+    found by the shorter-list search.
+  - A locked `sync webdav` no longer takes a `vault.json` whose sealed secret or tag changed.
+  - Quick capture transcripts are bound to their audio (`format.md` §11.2), so another holder of the capture
+    key cannot add one to an existing voice note. `sempere inbox transcript` takes `--audio`.
+  - Trust records are created mode 0600 in a 0700 folder, and the app keeps them out of backups.
+  - Other fixes:
+    - PROPFIND bodies with NUL bytes (UTF-16) are refused.
+    - `blobs repair` stops on a note with newer revisions.
+    - `inbox capture` and `inbox transcript` refuse vaults of a newer format.
+    - A huge video duration no longer traps Markdown and HTML exports or the player.
+    - Video metadata stripping refuses a second `moov` or a truncated box other than `mdat`, and blanks a
+      top-level `udta`.
+
 ### Changed
 
 - Exports cut pageless pages at gaps in the ink near each sheet height instead of through
@@ -258,9 +320,22 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Fixed
 
+- Dragging notes onto a notebook in the sidebar, and a notebook onto another, works on the iPad and the
+  Mac. The sidebar asked the drag for a "move" operation, which drags started from a list do not allow,
+  so the system cancelled every drop when it was released (the row still lit up while hovering). A
+  notebook dragged within the sidebar never reached the other rows at all (a list keeps its own drags):
+  notebook rows now start their drag, and show their context menu, from a view of their own.
 - Exporting a note with a recording no longer crashes on the Mac: Share… and Save… are presented
   by UIKit from the export sheet, and their callbacks are safe on any thread. Long recordings are
   streamed into "PDF + attachments" instead of being read into memory.
+
+- App crash audit (no new features): a hostile or corrupt revision can no longer crash the app when a note
+  is shown. Items whose frame overflows to NaN, or lies past 200 000 pt, are not drawn or selectable (Core
+  Animation raised on a NaN layer position); huge video durations no longer trap in the player title and the
+  Markdown/HTML exports; recorded strokes too wide to draw get no playback highlight; huge rotations are
+  reduced to one turn; PDF page previews and page-strip thumbnails have pixel budgets; a NaN audio duration
+  gives a valid scrubber. Opening a note in iCloud asks file states off the main thread, and a Mac drag-out
+  whose preparation never ends fails after 20 s instead of freezing.
 
 ## [0.5.0] - TODO(user): date of the first release
 

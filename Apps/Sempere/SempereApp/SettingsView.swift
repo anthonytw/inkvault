@@ -26,6 +26,7 @@ struct SettingsView: View {
                     QuickCaptureSettingsSection()
                     PhotoSettingsSection()
                     HistorySettingsSection()
+                    BackupSettingsSection()
                     DeviceKeySettingsSection()
                     StorageSettingsSection()
                 }
@@ -74,6 +75,8 @@ private struct GeneralSettings: View {
 
 private struct NewNoteSettingsSection: View {
     @State private var format = NewNoteSettings.titleFormat()
+    /// The custom pattern as typed (stored only while it checks).
+    @State private var pattern = NewNoteSettings.titlePattern()
     @State private var notebook = NewNoteSettings.voiceNotebook()
     @State private var paper = PaperPreference.load()
     @State private var choosingPaper = false
@@ -81,9 +84,23 @@ private struct NewNoteSettingsSection: View {
     var body: some View {
         Section {
             Picker("Title", selection: $format) {
-                ForEach(NewNoteSettings.TitleFormat.allCases) { Text($0.title).tag($0) }
+                ForEach(NewNoteSettings.TitleFormat.allCases) { f in
+                    // Each preset with what it gives today (a menu shows the second line as its subtitle).
+                    if f == .custom || f == .blank {
+                        Text(f.title).tag(f)
+                    } else {
+                        VStack(alignment: .leading) {
+                            Text(f.title)
+                            Text(NewNoteSettings.title(f)).foregroundStyle(.secondary)
+                        }
+                        .tag(f)
+                    }
+                }
             }
             .onChange(of: format) { NewNoteSettings.setTitleFormat(format) }
+            if format == .custom {
+                TitlePatternField(pattern: $pattern)
+            }
             Button { choosingPaper = true } label: {
                 HStack {
                     Text("Paper").foregroundStyle(.primary)
@@ -113,13 +130,112 @@ private struct NewNoteSettingsSection: View {
     }
 
     private var sample: String {
-        let t = NewNoteSettings.title(format)
+        let t = NewNoteSettings.title(format, pattern: NewNoteSettings.titlePattern())
         return t.isEmpty ? String(localized: "“Untitled”", comment: "Settings ▸ New Notes footer: how a note with no title is shown, in quotes") : "“\(t)”"
     }
 
     private func commitNotebook() {
         NewNoteSettings.setVoiceNotebook(notebook)
         notebook = NewNoteSettings.voiceNotebook()
+    }
+}
+
+/// The custom title pattern: a monospaced field checked as it is typed
+/// (`DefaultTitle.check`, the rules `notes new --title-format` applies), with
+/// the title it gives now or the reason it cannot be used, and a menu of
+/// fields to insert. Only a pattern that checks is stored.
+struct TitlePatternField: View {
+    @Binding var pattern: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Pattern", text: $pattern, prompt: Text(NewNoteSettings.defaultTitlePattern))
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .onChange(of: pattern) { NewNoteSettings.setTitlePattern(pattern) }
+                    .accessibilityLabel("Title pattern")
+                Menu("Insert", systemImage: "plus.circle") {
+                    ForEach(TitlePatternField.fields, id: \.self) { field in
+                        Button("\(field.name) (\(DefaultTitle.title(at: Date(), format: field.pattern)))") {
+                            pattern += (pattern.isEmpty || pattern.hasSuffix(" ") ? "" : " ") + field.pattern
+                        }
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .help("Insert a date field into the pattern")
+            }
+            switch TitlePatternField.status(of: pattern) {
+            case .preview(let title):
+                Label(title, systemImage: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Preview: \(title)")
+            case .problem(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            }
+            Text("Letters are date fields (yyyy year, MM month, d day, EEEE weekday, HH:mm time); put other text in single quotes, e.g. 'Lecture' d MMM. strftime works too: %Y-%m-%d %H:%M.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    struct Field: Hashable, Sendable {
+        let name: String
+        let pattern: String
+    }
+
+    /// The fields the Insert menu offers.
+    static let fields: [Field] = [
+        Field(name: String(localized: "Year", comment: "Title pattern Insert menu: the year field"), pattern: "yyyy"),
+        Field(name: String(localized: "Month", comment: "Title pattern Insert menu: the month name"), pattern: "MMMM"),
+        Field(name: String(localized: "Month (number)", comment: "Title pattern Insert menu: the month as a number"), pattern: "MM"),
+        Field(name: String(localized: "Day", comment: "Title pattern Insert menu: the day of the month"), pattern: "d"),
+        Field(name: String(localized: "Weekday", comment: "Title pattern Insert menu: the weekday name"), pattern: "EEEE"),
+        Field(name: String(localized: "Time", comment: "Title pattern Insert menu: 24-hour time"), pattern: "HH:mm"),
+        Field(name: String(localized: "Time (12-hour)", comment: "Title pattern Insert menu: 12-hour time"), pattern: "h:mm a"),
+        Field(name: String(localized: "Text", comment: "Title pattern Insert menu: literal text in quotes"), pattern: "'Note'"),
+    ]
+
+    enum Status: Equatable {
+        case preview(String)
+        case problem(String)
+    }
+
+    /// `problem` for the screen (`DefaultTitle.Problem.description` is the CLI's English).
+    static func message(_ problem: DefaultTitle.Problem) -> String {
+        switch problem {
+        case .tooLong:
+            let limit = String(DefaultTitle.maxFormatLength)
+            return String(localized: "The format is too long: at most \(limit) characters.",
+                          comment: "Title pattern field: the pattern is too long; the limit is always 200 [not-plural]")
+        case .unclosedQuote:
+            return String(localized: "A quote (') opens text that is never closed. Put literal text in single quotes, and write '' for a quote.",
+                          comment: "Title pattern field: unbalanced single quote")
+        case .unknownLetter(let c):
+            let letter = String(c)
+            return String(localized: "“\(letter)” is not a date field. Put literal text in single quotes, e.g. 'Lecture' d MMM.",
+                          comment: "Title pattern field: a letter outside quotes that is no date field")
+        case .unknownDirective(let d):
+            return String(localized: "“\(d)” is not a strftime directive.",
+                          comment: "Title pattern field: an unknown % directive")
+        case .blank:
+            return String(localized: "The format gives no text.", comment: "Title pattern field: the pattern produces only spaces")
+        }
+    }
+
+    /// What the field shows under `pattern` at `now`. Pure, tested.
+    static func status(of pattern: String, now: Date = Date(), locale: Locale = .current,
+                       timeZone: TimeZone = .current) -> Status {
+        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .problem(String(localized: "Type a pattern, e.g. \(NewNoteSettings.defaultTitlePattern).",
+                                   comment: "Title pattern field: the field is empty"))
+        }
+        if let problem = DefaultTitle.check(pattern, at: now, locale: locale, timeZone: timeZone) {
+            return .problem(message(problem))
+        }
+        return .preview(DefaultTitle.title(at: now, format: pattern, locale: locale, timeZone: timeZone))
     }
 }
 
@@ -395,28 +511,32 @@ private struct DeviceKeySettingsSection: View {
 private struct StorageSettingsSection: View {
     @Environment(AppModel.self) private var model
     @State private var sizes = CacheSizes()
-    @State private var unused: UnusedAttachmentReport?
-    @State private var scanning = false
-    @State private var failure: String?
 
     var body: some View {
         Section {
-            if let unused {
+            if model.phase == .unlocked {
+                // Re-derived whenever the index changes.
+                let _ = model.attachmentIndexVersion
+                let report = model.attachmentStorage()
                 NavigationLink {
-                    UnusedAttachmentsView(report: unused)
+                    UnusedAttachmentsView()
                 } label: {
-                    LabeledContent("Unused Attachments", value: StorageText.items(unused.items.count, bytes: unused.totalBytes))
+                    LabeledContent("Unused Attachments", value: StorageText.items(report.unused.count, bytes: report.unusedBytes))
                 }
-            }
-            Button {
-                Task { await scan() }
-            } label: {
-                HStack {
-                    Text(unused == nil ? "Check for Unused Attachments" : "Check Again")
-                    if scanning { Spacer(); ProgressView() }
+                LabeledContent("Held by History", value: StorageText.items(report.held.count, bytes: report.heldBytes))
+                if model.attachmentIndexPending > 0 {
+                    HStack {
+                        Text("Checking \(model.attachmentIndexPending) notes…", comment: "Settings ▸ Storage: the attachment index is being updated")
+                        Spacer()
+                        ProgressView()
+                    }
+                } else if model.notesWithoutAttachmentIndex > 0 {
+                    let n = model.notesWithoutAttachmentIndex
+                    Button("Check \(n) More Notes") { Task { await model.indexAttachments() } }
                 }
+            } else {
+                Text("Unlock a vault to see its unused attachments.").foregroundStyle(.secondary)
             }
-            .disabled(scanning || model.phase != .unlocked)
             LabeledContent("Drawing Cache", value: StorageText.bytes(sizes.drawings))
             LabeledContent("Attachment Cache", value: StorageText.bytes(sizes.attachments))
             Button("Clear Caches", role: .destructive) {
@@ -429,55 +549,164 @@ private struct StorageSettingsSection: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text(failure ?? footer)
+            Text(Self.footer)
         }
-        .task { sizes = await model.cacheSizes() }
+        .task {
+            sizes = await model.cacheSizes()
+            await model.loadAttachmentIndex()
+        }
     }
 
-    private var footer: String {
-        var s = String(localized: "Unused attachments are files no version of their note refers to. Checking only lists them; a collection (sempere blobs gc) deletes them, and only 30 days after it first found them unused. Caches speed up opening notes and can be rebuilt from the vault.",
-                       comment: "Settings ▸ Storage footer; “sempere blobs gc” is a command, not translated")
-        if let n = unused?.skippedNotes, n > 0 {
-            s += " " + String(localized: "\(n) notes were not checked (unreadable, or not downloaded).",
-                              comment: "Settings ▸ Storage footer, after the main text")
-        }
-        return s
-    }
-
-    private func scan() async {
-        scanning = true
-        failure = nil
-        defer { scanning = false }
-        do { unused = try await model.scanUnusedAttachments() } catch is CancellationError {
-        } catch {
-            failure = String(localized: "Could not check the vault: \(String(describing: error))",
-                             comment: "Settings alert; the error text follows (English)")
-        }
-    }
+    static let footer = String(localized: "Unused attachments are files no version of their note uses; they can be deleted 30 days after this device first found them unused. Held by history: files only older versions show, freed when those versions are thinned. Caches speed up opening notes and can be rebuilt from the vault.", comment: "Settings ▸ Storage footer")
 }
 
-/// The unused attachments a scan found, by note.
+/// Settings → Storage → Unused Attachments: by note, each with a preview,
+/// what it was, since when it is unused and when it may be deleted, a link
+/// to the note's history, and Delete (only once the 30 days have passed);
+/// then the attachments only history still uses.
 struct UnusedAttachmentsView: View {
-    let report: UnusedAttachmentReport
+    @Environment(AppModel.self) private var model
+    @State private var deleting = false
+    @State private var confirmAll = false
+    @State private var message: String?
+    @State private var history: HistoryLink?
+
+    /// A note's history to show, at a restore point if one is given.
+    struct HistoryLink: Identifiable {
+        var note: UUID
+        var revision: String?
+        var id: String { note.uuidString + (revision ?? "") }
+    }
 
     var body: some View {
+        let _ = model.attachmentIndexVersion
+        let report = model.attachmentStorage()
+        let now = model.attachmentNow()
+        let eligible = report.eligible(at: now)
         List {
-            if report.items.isEmpty {
-                Text("Every attachment is in use.")
-            }
-            ForEach(report.items) { item in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(NoteTitle.display(item.title)).lineLimit(1)
-                        Text(item.kind.localizedName).font(.caption).foregroundStyle(.secondary)
+            Section {
+                Button(role: .destructive) {
+                    confirmAll = true
+                } label: {
+                    HStack {
+                        Text("Delete All Eligible (\(StorageText.items(eligible.count, bytes: report.eligibleBytes(at: now))))")
+                        if deleting { Spacer(); ProgressView() }
                     }
-                    Spacer()
-                    Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                }
+                .disabled(eligible.isEmpty || deleting)
+            } footer: {
+                Text(message ?? String(localized: "An attachment can be deleted 30 days after this device first found it unused. Deleting reads its note again first and keeps anything a version still uses."))
+            }
+            if report.unused.isEmpty {
+                Text("No unused attachments.").foregroundStyle(.secondary)
+            }
+            ForEach(UnusedAttachmentGroups.group(report.unused, title: model.noteTitle)) { group in
+                Section {
+                    ForEach(group.items) { item in
+                        UnusedAttachmentRow(item: item, now: now, deleting: deleting) {
+                            Task { await delete([item]) }
+                        } showHistory: {
+                            history = HistoryLink(note: item.note, revision: item.lastUse?.revision)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text(NoteTitle.display(group.title)).lineLimit(1)
+                        Spacer()
+                        Button("History") { history = HistoryLink(note: group.note, revision: nil) }
+                            .font(.caption).textCase(nil)
+                    }
+                }
+            }
+            if !report.held.isEmpty {
+                Section {
+                    ForEach(report.held) { item in
+                        Button {
+                            history = HistoryLink(note: item.note, revision: item.lastUse?.revision)
+                        } label: {
+                            HStack {
+                                AttachmentThumbnail(note: item.note, fileName: item.fileName, kind: item.kind)
+                                VStack(alignment: .leading) {
+                                    Text(NoteTitle.display(model.noteTitle(item.note))).lineLimit(1)
+                                    Text(StorageText.describe(kind: item.kind, lastUse: item.lastUse) + " · " + StorageText.versions(item.revisions.count))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Held by History (\(StorageText.items(report.held.count, bytes: report.heldBytes)))")
+                } footer: {
+                    Text("Only older versions of these notes show these attachments. They are freed when those versions are thinned (Settings → Version History).")
+                }
+            }
+            if !report.unchecked.isEmpty {
+                Section {
+                } footer: {
+                    Text("\(report.unchecked.count) notes were not checked: a version could not be read, or is not downloaded yet.")
                 }
             }
         }
         .navigationTitle("Unused Attachments")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete \(StorageText.items(eligible.count, bytes: report.eligibleBytes(at: now)))?",
+                            isPresented: $confirmAll, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await delete(eligible) } }
+        } message: {
+            Text("These attachments have been unused for at least 30 days. This cannot be undone.")
+        }
+        .sheet(item: $history) { link in
+            HistoryView(noteID: link.note, revealing: link.revision)
+        }
+        .task { await model.loadAttachmentIndex() }
+    }
+
+    private func delete(_ items: [AttachmentStorageReport.Unused]) async {
+        deleting = true
+        defer { deleting = false }
+        do {
+            let r = try await model.deleteUnusedAttachments(items)
+            var text = String(localized: "Deleted \(StorageText.items(r.deleted, bytes: r.bytes)).")
+            if !r.problems.isEmpty { text += " " + r.problems.joined(separator: " ") }
+            message = text
+        } catch is CancellationError {
+        } catch {
+            message = String(localized: "Could not delete: \(String(describing: error))", comment: "the error text follows (English)")
+        }
+    }
+}
+
+/// One unused attachment: preview, what it was, the window, Delete.
+private struct UnusedAttachmentRow: View {
+    let item: AttachmentStorageReport.Unused
+    let now: Date
+    let deleting: Bool
+    let delete: () -> Void
+    let showHistory: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top) {
+            AttachmentThumbnail(note: item.note, fileName: item.fileName, kind: item.kind)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(StorageText.describe(kind: item.kind, lastUse: item.lastUse))
+                Text(StorageText.window(item, now: now)).font(.caption).foregroundStyle(.secondary)
+                if let used = item.lastUse {
+                    Button(used.wall.map { String(localized: "Last used \(StorageText.day($0))") } ?? String(localized: "Last used in an earlier version"),
+                           action: showHistory)
+                        .font(.caption).buttonStyle(.borderless)
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                Button("Delete", role: .destructive, action: delete)
+                    .buttonStyle(.borderless)
+                    .disabled(deleting || !item.isEligible(at: now))
+            }
+        }
     }
 }
 
@@ -588,14 +817,3 @@ extension ThinningRule {
     }
 }
 
-extension BlobKind {
-    /// The attachment kind as the Unused Attachments list shows it; other kinds keep their stored name.
-    var localizedName: String {
-        switch self {
-        case .image: return String(localized: "Image", comment: "Attachment kind in the unused attachments list")
-        case .pdf: return String(localized: "PDF", comment: "Attachment kind in the unused attachments list")
-        case .audio: return String(localized: "Audio", comment: "Attachment kind in the unused attachments list")
-        default: return rawValue
-        }
-    }
-}

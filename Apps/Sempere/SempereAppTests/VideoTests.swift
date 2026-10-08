@@ -103,6 +103,10 @@ struct VideoTests {
         // The stored note has it.
         let state = try vault.reconstruct(noteId: Self.lecture)
         #expect(state.pages.flatMap(\.items).contains { $0.id == item.id && $0.poster == poster })
+        // The unused-attachments index takes the open editor's hashes as the note's current state:
+        // the poster is in use, not held by history.
+        #expect(editor.blobHashes.contains(poster.sha256))
+        #expect(editor.blobHashes == Set(state.blobReferences.map(\.sha256)))
     }
 
     // MARK: Drawing and fetching

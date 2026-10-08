@@ -240,7 +240,7 @@ public struct Vault: Sendable {
         try requireTrustedRecipients()
         switch recipientsStatus {
         case .untagged: try tagOnDisk()
-        case .verified: rememberRecipients()   // a writer keeps a trust record (format.md §2.1)
+        case .verified: try rememberRecipients()   // a writer keeps a trust record (format.md §2.1)
         case .notChecked, .tampered: break
         }
     }
@@ -333,7 +333,7 @@ public struct Vault: Sendable {
         }
         let manifest = VaultManifest(vaultId: vaultId, created: created, recipients: entries,
                                      vaultSecret: try encryptSecret(secret, to: recipients),
-                                     features: [VaultManifest.recipientsTagFeature],
+                                     features: [VaultManifest.recipientsTagFeature, VaultManifest.signedLinkFeature],
                                      recipientsTag: RecipientsAuth.tag(vaultId: vaultId, keys: keys, secret: secret))
         try FileIO.createDirectory(url)
         try FileIO.createDirectory(url.appendingPathComponent(keysName))
@@ -341,7 +341,7 @@ public struct Vault: Sendable {
         let written = try writeManifest(manifest, to: manifestURL, replacing: false)
         var vault = Vault(url: url, manifest: written, identities: identities, secret: secret, previousSecret: nil,
                           journalProblem: nil, recipientsStatus: .verified(.firstUse), trustStore: trust)
-        vault.rememberRecipients()
+        try? vault.rememberRecipients()   // else saved by the first write (requireWritable)
         return vault
     }
 
@@ -374,8 +374,7 @@ public struct Vault: Sendable {
             throw error
         }
         if let secret = vault.secret {
-            vault.recipientsStatus = RecipientsAuth.evaluate(manifest, secret: secret,
-                                                             record: trust?.record(for: manifest.vaultId))
+            vault.recipientsStatus = Self.recipientsStatus(manifest, secret: secret, trust: trust)
         }
         if vault.pendingRewrap {
             // Recorded, not thrown: the vault stays usable, verify() and
@@ -385,6 +384,22 @@ public struct Vault: Sendable {
             }
         }
         return vault
+    }
+
+    /// `RecipientsAuth.evaluate` against this device's record in `trust`.
+    /// A record that exists but cannot be read fails closed: a list that
+    /// would otherwise be writable is `tampered(.recordUnreadable)` (security
+    /// review 2026-10, R5); one that does not check stays as it is.
+    static func recipientsStatus(_ manifest: VaultManifest, secret: VaultSecret,
+                                 trust: (any RecipientsTrustStore)?) -> RecipientsStatus {
+        let record: RecipientsTrustRecord?
+        do { record = try trust?.record(for: manifest.vaultId) } catch {
+            let status = RecipientsAuth.evaluate(manifest, secret: secret, record: nil)
+            guard status.allowsWriting else { return status }
+            return .tampered(.init(reason: .recordUnreadable, current: manifest.recipients.map(\.key),
+                                   restore: nil, record: nil))
+        }
+        return RecipientsAuth.evaluate(manifest, secret: secret, record: record)
     }
 
     /// Parses and validates manifest bytes (format, recipients).
@@ -690,6 +705,10 @@ public struct Vault: Sendable {
         }
         let method = policy.method(rotating: rotate, from: try ageRecipients(), to: ageNext)
         let newSecret = rotate ? VaultSecret.random() : current
+        // Signed before anything is written (it throws where ML-DSA is
+        // unavailable); a change that keeps the secret upgrades a legacy link.
+        let link = rotate ? try RecipientsAuth.link(from: current, to: newSecret, vaultId: onDisk.vaultId)
+                          : try upgradedLink(onDisk.secretLink).link
         let journal = RewrapJournal(format: SempereFormat.identifier,
                                     previousVaultSecret: rotate ? try Self.encryptSecret(current, to: ageNext) : nil,
                                     rekeyBlobs: method == .reencrypt)
@@ -700,12 +719,12 @@ public struct Vault: Sendable {
         m.recipients = next
         m.vaultSecret = try Self.encryptSecret(newSecret, to: ageNext)
         m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: next.map(\.key), secret: newSecret)
-        if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
-        if rotate { m.secretLink = RecipientsAuth.link(from: current, to: newSecret, vaultId: m.vaultId) }
+        Self.addAuthFeatures(&m)
+        m.secretLink = link
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
         secret = newSecret
         recipientsStatus = .verified(.unchanged)
-        rememberRecipients()
+        try? rememberRecipients()   // else saved by the next write (requireWritable)
 
         return try finishRewrap(blobs: method, stopAfter: stopAfter)
     }
@@ -713,13 +732,17 @@ public struct Vault: Sendable {
     // MARK: - Authenticated recipients (format.md §2.1)
 
     /// Saves this device's trust record for the current (verified) list.
-    /// A record that cannot be saved weakens only later checks, so it is
-    /// not an error.
-    func rememberRecipients() {
+    /// Writers keep one (format.md §2.1), so a record that cannot be read
+    /// or saved is an error, and it is tried again by the next write (only a
+    /// saved record is memoised; security review 2026-10, R5).
+    /// With `replacing`, the record is saved without reading the old one
+    /// (the user confirmed the list: an unreadable record is replaced).
+    /// A legacy (`sempere-trust/1`) record is replaced by a signed one here.
+    func rememberRecipients(replacing: Bool = false) throws {
         guard let trustStore, let secret else { return }
-        let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: manifest.recipients.map(\.key))
-        guard trustMemo.last != record else { return }
-        if trustStore.record(for: vaultId) != record { try? trustStore.save(record) }
+        let record = try RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: manifest.recipients.map(\.key))
+        guard replacing || trustMemo.last != record else { return }
+        if try replacing || trustStore.record(for: vaultId) != record { try trustStore.save(record) }
         trustMemo.last = record
     }
 
@@ -765,14 +788,54 @@ public struct Vault: Sendable {
             return m
         }
         m.recipientsTag = RecipientsAuth.tag(vaultId: m.vaultId, keys: keys, secret: secret)
-        if !m.features.contains(VaultManifest.recipientsTagFeature) { m.features.append(VaultManifest.recipientsTagFeature) }
+        m.secretLink = try upgradedLink(m.secretLink).link
+        Self.addAuthFeatures(&m)
         let written = try Self.writeManifest(m, to: manifestURL, replacing: true)
         if let trustStore {
-            let record = RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: keys)
-            try? trustStore.save(record)
+            let record = try RecipientsTrustRecord(vaultId: vaultId, secret: secret, recipients: keys)
+            try trustStore.save(record)
             trustMemo.last = record
         }
         return written
+    }
+
+    /// Upgrades this vault and device to signed secret links (format.md §2.1
+    /// "Upgrading to signed links"), once: saves this device's trust record
+    /// as `sempere-trust/2` (replacing a legacy one), and rewrites
+    /// `vault.json` with the `signed-secret-link` feature and without a
+    /// legacy link (re-signed when the outgoing secret is known from an
+    /// unfinished rewrap, else retired). Writes nothing when both are
+    /// current. Every check of `requireWritable` applies first: a tampered
+    /// list is refused and an untagged one tagged.
+    ///
+    /// - Throws: `untrustedRecipients`, `readOnly`, `locked`; `manifestCorrupt`
+    ///   when `vault.json` changed on disk since the vault was opened (open it
+    ///   again); `AgeError.postQuantumUnavailable` where ML-DSA is missing.
+    @discardableResult
+    public mutating func upgradeSecretLink() throws -> SecretLinkUpgrade {
+        let secret = try requireSecret()
+        let wasLegacyRecord = (try? trustStore?.record(for: vaultId))??.isLegacy == true
+        try requireWritable()
+        var m = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
+        guard m.recipients.map(\.key) == manifest.recipients.map(\.key), m.vaultSecret == manifest.vaultSecret,
+              let tag = m.recipientsTag,
+              RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: m.recipients.map(\.key), secret: secret) else {
+            throw VaultError.manifestCorrupt("vault.json changed since it was opened; open the vault again")
+        }
+        if case .untagged = recipientsStatus {   // `requireWritable` just tagged it on disk
+            manifest = m
+            recipientsStatus = .verified(.firstUse)
+        }
+        let recordUpgraded = try wasLegacyRecord && trustStore?.record(for: vaultId)?.isLegacy == false
+        let (link, change) = try upgradedLink(m.secretLink)
+        let featureAdded = !m.features.contains(VaultManifest.signedLinkFeature)
+        guard featureAdded || change != .none else {
+            return SecretLinkUpgrade(link: .none, featureAdded: false, recordUpgraded: recordUpgraded)
+        }
+        m.secretLink = link
+        Self.addAuthFeatures(&m)
+        manifest = try Self.writeManifest(m, to: manifestURL, replacing: true)
+        return SecretLinkUpgrade(link: change, featureAdded: featureAdded, recordUpgraded: recordUpgraded)
     }
 
     /// Repairs a tampered list (format.md §2.1 "Repair"): writes the last
@@ -808,7 +871,7 @@ public struct Vault: Sendable {
             throw VaultError.recipientsNotRepairable("a recipient change is unfinished; restore vault.json from a backup")
         }
         if let dup = Self.firstDuplicate(keys) { throw VaultError.duplicateRecipient(dup) }
-        let remembered = Set(trustStore?.record(for: vaultId)?.recipients ?? [])
+        let remembered = Set((try? trustStore?.record(for: vaultId))??.recipients ?? [])
         var next: [VaultManifest.Recipient] = []
         for k in keys {
             if let entry = manifest.recipients.first(where: { $0.key == k }) {
@@ -835,9 +898,26 @@ public struct Vault: Sendable {
         guard problem.reason != .tagMismatch else {
             throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
         }
+        // A device whose trust record is unreadable confirms only a list it
+        // can check: tagged under the secret it holds, or untagged (then
+        // tagged now), never a tag that does not verify (R5).
+        if problem.reason == .recordUnreadable, let tag = manifest.recipientsTag,
+           !RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: manifest.recipients.map(\.key), secret: try requireSecret()) {
+            throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
+        }
+        // An unconfirmed secret is confirmed only with a tag that verifies
+        // under it: never one stripped or bogus (security review 2026-10, R3).
+        if problem.reason == .secretUnconfirmed {
+            guard let tag = manifest.recipientsTag,
+                  RecipientsAuth.verifyTag(tag, vaultId: vaultId, keys: manifest.recipients.map(\.key), secret: try requireSecret())
+            else {
+                throw VaultError.recipientsNotRepairable("the vault's secret was replaced and its list carries no tag that "
+                    + "verifies: restore vault.json from a backup or another device")
+            }
+        }
         if manifest.recipientsTag == nil { manifest = try tagOnDisk() }   // a tag removed: written again for this list
         recipientsStatus = .verified(.unchanged)
-        rememberRecipients()
+        try rememberRecipients(replacing: true)   // also over an unreadable record (R5)
     }
 
     struct RewrapJournal: Codable {
@@ -857,9 +937,23 @@ public struct Vault: Sendable {
             throw VaultError.rewrapJournalUnreadable("\(error)")
         }
         guard let armored = j.previousVaultSecret else { return (j, nil) }
-        do { return (j, try Self.decryptSecret(armored, with: identities)) } catch {
+        let previous: VaultSecret
+        do { previous = try Self.decryptSecret(armored, with: identities) } catch {
             throw VaultError.rewrapJournalUnreadable("previous secret: \(error)")
         }
+        // The journal is plaintext JSON anyone who can write the folder can
+        // plant, and its secret anyone can encrypt to the public keys: it is
+        // accepted only when `secretLink` links it to the current secret (or
+        // it is the current one: a change interrupted before vault.json was
+        // written). Otherwise files tagged under it would verify, and a
+        // resumed rewrap would re-tag them under the real secret (security
+        // review 2026-10, R4).
+        if let current = secret, !RecipientsAuth.constantTimeEqual(previous.bytes, current.bytes),
+           !RecipientsAuth.linkConnects(manifest.secretLink, from: previous, to: current, vaultId: vaultId) {
+            throw VaultError.rewrapJournalUnreadable("its previous secret is not linked to the vault's (format.md §2.1 "
+                + "secretLink): not written by this vault's recipient change")
+        }
+        return (j, previous)
     }
 
     /// Re-encrypts every revision file not yet current (format.md §3.3.1).

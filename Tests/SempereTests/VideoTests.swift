@@ -202,6 +202,32 @@ final class VideoProbeTests: XCTestCase {
                        original.metadataBoxes.count)
     }
 
+    /// Security review 2026-10 (V2): layouts whose location the walk would
+    /// not see fail closed or are blanked: a second moov (refused), a
+    /// top-level udta (blanked like moov's), and a truncated box other than
+    /// mdat at the end (refused).
+    func testLocationOutsideTheWalkedBoxesIsNeverKept() throws {
+        let clip = try Self.fixture("clip-h264-faststart.mp4")
+        let gps = Self.box("udta", Self.box("\u{A9}xyz", Data("+48.8584+002.2945/".utf8)))
+        // A second moov.
+        XCTAssertThrowsError(try VideoProbe.probe(clip + Self.box("moov", gps))) {
+            guard case .malformed = $0 as? VideoProbeError else { return XCTFail("\($0)") }
+        }
+        // A top-level udta.
+        let withUdta = clip + gps
+        let info = try VideoProbe.probe(withUdta)
+        var stripped = withUdta
+        ByteEdit.apply(VideoMetadata.strippingEdits(info), to: &stripped, at: 0)
+        XCTAssertNil(stripped.range(of: Data("48.8584".utf8)))
+        XCTAssertEqual(try VideoProbe.probe(stripped).pixelSize, info.pixelSize)
+        // A trailing meta whose size runs past the end.
+        var meta = Self.box("meta", Data("+48.8584+002.2945/".utf8))
+        meta[3] &+= 64
+        XCTAssertThrowsError(try VideoProbe.probe(clip + meta)) {
+            guard case .malformed = $0 as? VideoProbeError else { return XCTFail("\($0)") }
+        }
+    }
+
     func testEditsApplyAcrossPieceBoundaries() {
         let data = Data((0..<100).map { UInt8($0) })
         let edits = [ByteEdit(range: 10..<30), ByteEdit(range: 50..<54, bytes: Data("free".utf8))]

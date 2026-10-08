@@ -168,6 +168,40 @@ struct SettingsTests {
         #expect(NewNoteSettings.title(.blank, now: now, locale: us, timeZone: utc) == "")
     }
 
+    /// TestFlight build 7: presets and a custom pattern, checked as it is
+    /// typed (the rules `notes new --title-format` applies), only a good one stored.
+    @Test func customPatternsAreCheckedAndPreviewed() {
+        let d = scratch()
+        let now = Date(timeIntervalSince1970: 1_791_383_400)   // 2026-10-07 14:30 UTC
+        let utc = TimeZone(identifier: "UTC")!
+        let posix = Locale(identifier: "en_US_POSIX")
+        #expect(NewNoteSettings.titlePattern(d) == NewNoteSettings.defaultTitlePattern)
+        #expect(NewNoteSettings.setTitlePattern("'Lecture' d MMM", in: d) == nil)
+        #expect(NewNoteSettings.titlePattern(d) == "'Lecture' d MMM")
+        #expect(NewNoteSettings.setTitlePattern("'Lecture d MMM", in: d) == .unclosedQuote)
+        #expect(NewNoteSettings.setTitlePattern("Lecture", in: d) == .unknownLetter("t"))
+        #expect(NewNoteSettings.setTitlePattern("  ", in: d) == .blank)
+        #expect(NewNoteSettings.titlePattern(d) == "'Lecture' d MMM", "the last good pattern stays")
+        d.set("'broken", forKey: NewNoteSettings.titlePatternKey)
+        #expect(NewNoteSettings.titlePattern(d) == NewNoteSettings.defaultTitlePattern)
+
+        NewNoteSettings.setTitleFormat(.custom, in: d)
+        NewNoteSettings.setTitlePattern("%Y-%m-%d", in: d)
+        #expect(NewNoteSettings.resolvedTitle(typed: "", defaults: d).count == 10)
+        #expect(NewNoteSettings.title(.custom, pattern: "'Note' yyyy", now: now, locale: posix, timeZone: utc) == "Note 2026")
+        #expect(NewNoteSettings.title(.isoDateTime, now: now, locale: posix, timeZone: utc) == "2026-10-07 14:30")
+        #expect(NewNoteSettings.title(.weekday, now: now, locale: posix, timeZone: utc) == "Wednesday 7 October")
+
+        #expect(TitlePatternField.status(of: "'Day' d, EEE", now: now, locale: posix, timeZone: utc) == .preview("Day 7, Wed"))
+        guard case .problem(let message) = TitlePatternField.status(of: "Lesson d", now: now, locale: posix, timeZone: utc) else {
+            Issue.record("no problem reported")
+            return
+        }
+        #expect(message.contains("single quotes"))
+        #expect(TitlePatternField.status(of: "", now: now) != .preview(""))
+        for field in TitlePatternField.fields { #expect(DefaultTitle.check(field.pattern) == nil, "\(field.name)") }
+    }
+
     @Test func aTypedTitleWinsOverTheFormat() {
         let d = scratch()
         NewNoteSettings.setTitleFormat(.blank, in: d)
@@ -248,27 +282,11 @@ struct SettingsTests {
         #expect(StorageText.bytes(-5) == StorageText.bytes(0))
     }
 
-    @Test func unusedAttachmentsAreListedBiggestFirst() {
-        let a = UnusedAttachment(note: UUID(), title: "A", fileName: "a", kind: .audio, bytes: 10)
-        let b = UnusedAttachment(note: UUID(), title: "B", fileName: "b", kind: .image, bytes: 30)
-        #expect(UnusedAttachmentReport.sorted([a, b]) == [b, a])
-        #expect(UnusedAttachmentReport(items: [a, b]).totalBytes == 40)
-    }
-
-    @Test func aScanFindsTheBlobsNoRevisionUses() async throws {
-        let (url, key, _, _) = try AttachmentCloudTests.vaultWithBlobs()
+    @Test func storageNeedsAnUnlockedVault() async throws {
         let model = AppModel(deviceStateURL: TS.deviceStateURL())
-        await #expect(throws: AppModel.ModelError.noVaultOpen) { _ = try await model.scanUnusedAttachments() }
-        try await model.openVault(at: url)
-        try await model.unlock(identityText: try String(contentsOf: key, encoding: .utf8))
-        let report = try await model.scanUnusedAttachments()
-        #expect(report.skippedNotes == 0)
-        // The fixture's lecture already holds one orphaned `.bin` blob; the audio blob
-        // the test wrote is the other. The referenced image is not listed.
-        #expect(Set(report.items.map(\.kind)) == [.audio, .bin])
-        #expect(report.items.count == 2)
-        #expect(report.items.allSatisfy { $0.note == AttachmentCloudTests.lecture && $0.bytes > 0 })
-        #expect(report.totalBytes == report.items.reduce(0) { $0 + $1.bytes })
+        await #expect(throws: AppModel.ModelError.noVaultOpen) { _ = try await model.deleteUnusedAttachments([]) }
+        #expect(model.attachmentStorage().unused.isEmpty)
+        // Unused attachments themselves: `AttachmentIndexAppTests`.
     }
 
     @Test func clearCachesEmptiesBothCachesAndKeepsTheVault() async throws {

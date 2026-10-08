@@ -65,7 +65,9 @@ Unknown files and directories must be ignored, never deleted.
   the first blob or attachment op (§8). A writer that finds a feature it does
   not implement must not write to the vault (it may still read it: read-only access, §7.3).
   Absent means `[]`. `"recipients-tag"` (*new: authenticated recipients*)
-  says the vault carries `recipientsTag` (§2.1).
+  says the vault carries `recipientsTag` (§2.1). `"signed-secret-link"`
+  (*new: signed secret links*) says `secretLink` is never in the legacy HMAC
+  form (§2.1 "Upgrading to signed links").
 - `recipientsTag`, `secretLink` (optional, *new: authenticated recipients*):
   §2.1.
 
@@ -85,9 +87,26 @@ not know; `recipientsTag` extends that to the recipients list, and
 
 ```
 recipientsKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 recipients key", L = 32)
-linkKey       = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link key", L = 32)
 secretId      = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret id", L = 32)
+linkEdSeed    = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link ed25519 seed", L = 32)
+linkMLSeed    = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link ml-dsa-65 seed", L = 32)
 ```
+
+and two **link signing key pairs**, deterministic functions of the secret
+(*new: signed secret links*; security review 2026-10, R2):
+
+| Key pair | Derivation | Public key | Signature |
+| --- | --- | --- | --- |
+| Ed25519 (RFC 8032, pure, no context) | private key = `linkEdSeed` (the RFC 8032 32-byte seed) | 32 bytes | 64 bytes |
+| ML-DSA-65 (FIPS 204) | `ML-DSA.KeyGen_internal(ξ = linkMLSeed)` (FIPS 204 Algorithm 16) | 1952 bytes (`pk`) | 3309 bytes |
+
+ML-DSA-65 signatures are made with `ML-DSA.Sign` (pure, hedged or
+deterministic: both verify the same) with an **empty context string**, and
+checked with `ML-DSA.Verify` with an empty context. The private keys and
+seeds are never stored; whoever holds the secret derives them again.
+`linkPublicKeys(secret)` names the pair of public keys. Test vectors (fixed
+secrets → seeds → public keys → links that verify, made by two
+implementations) are in `Tests/SempereTests/Fixtures/secret-link-vectors.json`.
 
 **Tag.** `recipientsTag` is the lowercase hex (64 digits) of
 
@@ -107,23 +126,62 @@ not verify.
 **Secret link.** Anyone can encrypt a secret of their own to public keys, so
 a forged `vault.json` could carry a fresh secret, the attacker's recipient and
 a tag that verifies under that secret. Whenever a writer rotates the secret
-(§3.3) it therefore writes `secretLink`, the lowercase hex (64 digits) of
+(§3.3) it therefore writes `secretLink`: two signatures, by the **outgoing**
+secret's link signing keys, over the link message
 
 ```
-HMAC-SHA256(key = linkKey(old secret),
-            message = "sempere/1" ‖ 0x00 ‖ "secret link" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ secretId(new secret))
+linkMessage = "sempere/1" ‖ 0x00 ‖ "secret link" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ secretId(new secret)
 ```
 
-which only a holder of the outgoing secret can compute. It is kept, unchanged,
+(`vaultId` lowercase, UTF-8; `secretId` the 32 raw bytes), as a JSON object
+of lowercase hex strings:
+
+```json
+"secretLink": { "ed25519": "…(128 hex digits)…", "mldsa65": "…(6618 hex digits)…" }
+```
+
+A link is valid only when **both** signatures verify under the public keys
+the reader holds for the outgoing secret; one valid signature alone (the
+other missing, malformed, of another message or by another key) is
+invalid. Two independent schemes are required so that the link stays
+unforgeable while either one does (Ed25519 against classical attacks,
+ML-DSA-65 against a quantum computer). Only a holder of the outgoing secret
+can make the link, and a reader checks it with public keys alone. A value
+of any other shape (a missing member, uppercase hex, a wrong length, not an
+object) never verifies, and writers drop it. `secretLink` is kept, unchanged,
 by changes that do not rotate the secret, and replaced by the next rotation.
 
+A JSON string in `secretLink` is a **legacy link**, written before signed
+links: the lowercase hex (64 digits) of
+`HMAC-SHA256(key = legacyLinkKey(old secret), message = linkMessage)` with
+`legacyLinkKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 secret link key", L = 32)`.
+That key was also what a legacy trust record kept, so whoever could read such
+a record could forge the link. A legacy link never confirms a rotation to a
+trust record (below); it is checked only to accept a rewrap journal's
+previous secret (§3.3.1), by a reader that holds both secrets (forging it
+then needs `secretId(current)`, which only holders of the current secret know).
+
 **Trust record.** A reader that writes keeps, per device and per vault,
-outside the vault and never in it (like §10): the vault id, `linkKey` of the
-last secret it verified, and the keys of the last recipients list it verified.
-The reference implementation keeps it in
-`$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI, mode 0600) and in the
-app's Application Support folder. It holds no secret: `linkKey` can only
-check a `secretLink`.
+outside the vault and never in it (like §10): the vault id,
+`linkPublicKeys` of the last secret it verified, and the keys of the last
+recipients list it verified. The reference implementation keeps it in
+`$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI) and in the app's
+Application Support folder, as
+
+```json
+{ "format": "sempere-trust/2", "vaultId": "…",
+  "linkPublicKeys": { "ed25519": "…(64 hex digits)…", "mldsa65": "…(3904 hex digits)…" },
+  "recipients": ["age1pq1…", …] }
+```
+
+It holds no secret and no key that can make a link or decrypt anything:
+whoever reads it can check a `secretLink` but not forge one. It is still
+kept private (it names the vault's devices; the CLI creates it mode 0600 in
+a 0700 folder, the app excludes it from backups) and never copied between
+devices. A **legacy record** (`"format": "sempere-trust/1"`, with a 64-digit
+hex `linkKey` = `legacyLinkKey` of the secret instead of `linkPublicKeys`)
+was written before signed links; it is read only until it is upgraded
+(below) and never written.
 
 **Writing.** Every write of `recipients` (creating a vault, adding, removing
 or replacing a recipient, a migration, finishing an interrupted change, a
@@ -141,12 +199,20 @@ cannot check nor drop the tag by rewriting `vault.json`.
    device has a trust record for the vault, the tag was removed
    (a **downgrade**) and the list is tampered; otherwise the vault is
    **untagged** (written before this section).
-3. The tag verifies and the device has a trust record: if `linkKey` of the
-   current secret equals the record's, the list is **verified**. Otherwise
-   the secret changed since the device last checked: if `secretLink` verifies
-   under the record's `linkKey`, the list is verified (a rotation by a key
-   holder). If it does not, the change is **unconfirmed** and the list is
-   tampered, whatever keys it holds: the new secret may be an attacker's,
+3. The device has a trust record: this step is decided **before** steps 1
+   and 2, whatever the tag says. If `linkPublicKeys` of the current secret
+   equal the record's (both keys), the secret is the one the device verified;
+   otherwise, if `secretLink` is a signed link whose two signatures verify
+   under the record's public keys over `linkMessage` for the current secret,
+   it is a rotation by a key holder. A legacy link never counts here. With a
+   legacy record, the secret is the one the device verified when
+   `legacyLinkKey` of the current secret equals the record's `linkKey`, and
+   **nothing else is accepted** (no rotation, legacy or signed): whoever read
+   that record could have forged a legacy link. Either way steps 1 and 2 then apply, and a list whose tag
+   verifies is **verified**. If neither holds, the change is **unconfirmed**
+   and the list is tampered, whatever keys it holds and whether its tag is
+   present, absent or wrong (a tag is never judged, and no shorter list is
+   searched, under a secret the device cannot link to its record): the new secret may be an attacker's,
    and a device that accepted it would also accept any later `secretLink`
    made under it, including one that adds the attacker's key. A device that
    missed two or more rotations therefore sees a tampered list, even when
@@ -154,9 +220,16 @@ cannot check nor drop the tag by rewriting `vault.json`.
    device never updates its trust record to an unconfirmed secret.
 4. The tag verifies and the device has no trust record: verified (first use
    on this device).
+5. A trust record that exists but cannot be read (it does not parse, names
+   another vault, or is not a readable file) is never taken as "no record":
+   that would make the next write a first use and replace the record. The
+   list is then tampered (**record unreadable**) unless steps 1–2 already
+   found it so, with no restore list, until the user checks it and confirms
+   it (below), which writes the record again.
 
 A writer that finds the list verified saves it as its trust record before it
-writes (a reader that only reads keeps none). A tampered list is **refused for
+writes (a reader that only reads keeps none); a record it cannot save stops
+the write, and is tried again by the next one. A tampered list is **refused for
 writing**: a writer encrypts nothing to it, neither revisions, blobs, inbox
 files (§11), `vaultSecret` nor rewraps (§3.3.1, which it must not resume), and
 reports the keys that are not in the last verified list (the **unexpected**
@@ -165,13 +238,42 @@ The last verified list is, when the current secret verifies a tag over the
 current list with up to three entries deleted (order kept), that shorter
 list: an attacker who only inserted keys is undone exactly, including keys
 another device added since this one last checked. Otherwise it is the trust
-record's list, if the device has one.
+record's list, if the device has one. The search runs only under a secret
+that step 3 accepted (or with no record): under an attacker's secret it
+would return a list holding the attacker's own key.
 
 An untagged vault is upgraded by the first writer that holds the secret:
 it writes the tag over the current list and the feature, and reports the
 list it now trusts. This trusts whatever the list is at that moment
 (trust on first use); a device that has a trust record never upgrades, it
 reports a downgrade.
+
+**Upgrading to signed links.** Vaults and records written before signed
+links are migrated in place, once, by a device holding the secret whose list
+checks (verified, or untagged and then tagged first):
+
+1. **Record.** At the device's first write (any write: a writer saves its
+   record before writing), its trust record is saved as `sempere-trust/2` for
+   the current secret, replacing a legacy one. A legacy record therefore
+   lives only until then, and only ever confirms the secret it was made for:
+   a device that missed a rotation while its record was legacy sees the change
+   as unconfirmed and confirms the list explicitly (below). There is no path
+   back: no writer creates a legacy record, and a signed record never accepts
+   a legacy link.
+2. **Vault**, explicitly (`sempere vault link upgrade`; the app after
+   unlocking) and as part of every write of `recipients` or of a tag, in the
+   same atomic write of `vault.json`: a legacy link is **re-signed** when the
+   outgoing secret is still known (an unfinished rewrap's journal, whose
+   secret the legacy link connects to the current one) as a signed link from
+   that secret, and otherwise **retired** (removed: it cannot be signed
+   without the outgoing secret, and no record accepts it); a malformed link
+   is removed; `"signed-secret-link"` is added to `features`, so older
+   writers, which would rotate with a legacy link that signed records refuse,
+   stop writing (§2).
+
+`features` is not authenticated (security review 2026-10, N3): an attacker
+can take the feature out or put a legacy link back, which changes nothing for
+a device with a signed record; it only lets older writers write again.
 
 **Repair.** A key holder repairs a list whose tag does not verify, or was
 removed, by writing the last verified list (keeping the labels the current
@@ -181,13 +283,17 @@ no file stays encrypted to an unexpected key. An unconfirmed secret change
 cannot be repaired this way: the files are tagged under a secret the device
 no longer holds, so the user restores `vault.json` from a backup or another
 device, or, when the device only missed a legitimate change, confirms the
-current list explicitly after checking it (the tag must verify under the
-current secret; the trust record is updated, nothing in the vault changes).
+current list explicitly after checking it (the tag must be present and verify
+under the current secret; the trust record is updated, nothing in the vault
+changes).
 An untagged copy older than the tag (a restored backup) may be confirmed the
 same way; it is then tagged again. A list whose tag does not verify is never
 confirmed, and nothing here is ever done implicitly.
 
-**Limits.** The check is only as fresh as the trust record. A device that
+**Limits.** The check is only as fresh as the trust record. Signed links
+protect against whoever reads a device's trust record (or a backup of it),
+which holds public keys only; they do not protect against whoever held the
+outgoing secret itself. A device that
 opens a vault for the first time trusts the list it finds; a removed device,
 which knew the outgoing secret, can still forge a `secretLink` for devices
 that have not seen its removal; and an attacker who removes keys from the
@@ -319,6 +425,16 @@ unfinished: a writer whose list checks (§2.1) finishes steps 3 and 4 before
 any other recipient change, and may verify tags under `previousVaultSecret` meanwhile. Readers
 that do not implement this procedure treat the journal as an unknown file
 (§1).
+
+The journal is plaintext that anyone who can write the folder can plant,
+and anyone can encrypt a secret of their own to the public keys. A reader
+therefore uses `previousVaultSecret` only when it equals the current secret
+(a change interrupted before step 2) or `vault.json`'s `secretLink` (§2.1)
+verifies a rotation from it to the current secret. Otherwise the journal is
+reported as unreadable: nothing verifies under its secret, and a writer does
+not resume from it. A journal written before §2.1 (no `secretLink`) is
+treated the same way; its files not yet rewrapped are reported as failing
+their tags until they are restored from a backup.
 
 A change may also **replace** one recipient by another in a single pass
 (steps 1–4 as for a removal: the secret rotates). Until it finishes, files
@@ -573,7 +689,8 @@ notes may share a title, in one notebook or several.
                "background": "#FFFFFFFF", "lineColor": "#D0D8E8FF" },
     "pageSize": { "width": 612, "height": 792, "infinite": false },
     "lang": "en-US",
-    "markersBehindText": true
+    "markersBehindText": true,
+    "recognized": { "at": "2026-10-08T14:05:00Z", "pages": 5, "read": 2 }
   },
   "pages": [ Page, ... ],
   "recordings": [ Recording, ... ]
@@ -621,23 +738,39 @@ notes may share a title, in one notebook or several.
   Writers omit it when false; a snapshot value that is not a boolean reads as
   `false`.
 
+- `recognized` (optional, *new: shared Recently Recognized*): the last
+  deliberate handwriting reading of the note ("Recognize All Notes" in the
+  app, `sempere recognize` in the CLI), an object
+  `{"at": RFC 3339 time, "pages": n, "read": m}`: when it ran (§6), how many
+  pages the note had and how many of them it wrote recognition for (§5.5),
+  integers with `0 ≤ read ≤ pages ≤ 100000`. It is written in the same delta
+  as that run's `setPageRecognition` ops, only when the run wrote at least
+  one (a note found current is left as it is). Apps list the notes whose
+  `at` is within the last 7 days, and not more than a day ahead of the
+  device's clock ("Recently Recognized"), on every device,
+  since the register syncs like the rest of the note; the recognition a
+  page's own editor writes as the user draws does not set it. `setMeta` with
+  `null` clears it (the note leaves the list). A `setMeta` value that does
+  not decode or breaks the bounds is invalid (the revision is rejected); such
+  a snapshot value reads as absent.
+
 `lang` and `markersBehindText` were added after the first snapshots were
-written (*new: Notability import*). Readers that predate them reject a
-revision with a `setMeta` naming them (§7.4; pre-1.0) and ignore them in a
-snapshot. A snapshot that holds neither a value nor a clock for one of them
+written (*new: Notability import*), and `recognized` later still. Readers
+that predate them reject a revision with a `setMeta` naming them (§7.4;
+pre-1.0) and ignore them in a snapshot. A snapshot that holds neither a value nor a clock for one of them
 never had it set, and does not compete with a `setMeta` it does not cover
 (as `recognitionClock`, §5.5); a snapshot writes their clocks only once they
 have been set.
 
 `State` may carry `"clocks"`, mapping each LWW register (`title`, `tags`
 (legacy, §5.4.1), `notebook`, `favorite`, `paper`, `pageSize`, `deleted`,
-`lang`, `markersBehindText`) to the stamp of the
+`lang`, `markersBehindText`, `recognized`) to the stamp of the
 op that last set it, encoded `"<hlc>-<device>"`, e.g.
 `{"title": "17596320000000003-a1b2c3d4"}`. A delta the snapshot does not
 cover wins a register only if its own `(hlc, device)` is greater than that
 stamp; between snapshots, the greater recorded stamp wins. A register with
 no clock is treated as stamped by the snapshot's own `(hlc, device)`, except
-the two optional ones above.
+the three optional ones above.
 
 `State` may carry `"tombstones": {"strokes": [uuid, ...], "pages": [uuid, ...],
 "items": [uuid, ...], "recordings": [uuid, ...]}`.
@@ -1139,7 +1272,8 @@ one delta whose ops turn the current state into the state as of R:
 - `setPageOrder`, `setPageRecognition`, `setPagePaper`, `setItem`,
   `setRecording`, `setMeta` for every page order, recognition, page paper,
   item or recording register and metadata register that differs (except
-  `tags`), and `deleteNote` or `restoreNote` if `deleted` differs;
+  `tags`, and `recognized`, which records a reading rather than content and
+  is kept as it is), and `deleteNote` or `restoreNote` if `deleted` differs;
 - `removeTag` for every tag key present now but not as of R, `addTag` for
   every key present as of R but not now, and both for a key whose spelling
   differs (§5.4.1).
@@ -2035,13 +2169,15 @@ bands of an infinite page) is its choice (`docs/attachments.md`).
   make, model, software, creation date), every top-level `meta` box, and
   every XMP `uuid` box (usertype `BE7ACFCB-97A9-42E8-9C71-999491E3AFAC`,
   which may hold `exif:GPSLatitude` and the like) at the top level or
-  directly inside `moov` or a `trak` has its type changed to `free` and
+  directly inside `moov` or a `trak`, and a top-level `udta`, has its type changed to `free` and
   its contents set to zero bytes. Positions recorded per frame in the
   samples of a timed-metadata or text track (a drone's or action camera's
   telemetry) are not removed this way. Nothing else moves, so every sample offset
   (`stco`, `co64`) stays valid and the clip plays unchanged. Exporters do the
   same to bytes they pass through into an export unless asked to keep them
-  (as for images, §8.2.5).
+  (as for images, §8.2.5). Stripping fails closed: a file with more than one
+  `moov`, or whose last top-level box other than `mdat` runs past the end, is
+  refused rather than stored with metadata the walk did not see.
 - `pixelSize` (immutable): `[w, h]`, the clip's display size in pixels: the
   video track's `tkhd` width and height, swapped when `videoRotation` is 90 or
   270. For layout and the poster's aspect; players use the decoded size.
@@ -2506,6 +2642,7 @@ where the table says how they degrade.
 | age header | 2 MiB, 1024 stanzas | Age `HeaderCodec` |
 | scrypt work factor (identity files) | 2^20 by default (1 GiB), at most 2^22 | `IdentityFile` |
 | WebDAV response | 256 MiB for a revision, 16 MiB otherwise; PROPFIND bodies must be UTF-8 with no DTD or processing instruction | `WebDAVClient` |
+| WebDAV sync run (§9.1) | 100 000 note folders, 10⁶ listed entries, 64 GiB downloaded, 12 hours; the run stops there with an error and the next one continues | `SyncLimits` |
 | zip entry (import) | 1 GiB uncompressed, CRC and size checked | `ZipArchive` |
 | binary plist (import) | 64 levels; no cycles; each object parsed once; XML plists refused | `BinaryPlist` |
 | keyed-archive UID chain | 64 hops | `KeyedArchive` |
@@ -2514,6 +2651,7 @@ where the table says how they degrade.
 | shape objects (import) | 1 curve point per byte of the `shapes` plist + 65 536 | `NotabilityShapes.pointsPerByte` |
 | duplicate detection (import) | 256 stroke comparisons per stroke + 10⁶ per copy; beyond, the copy is imported as a separate version | `NotabilityImporter.PrintIndex` |
 | page size and stroke extent (render) | 200 000 pt | `RenderLimits.maxExtent` |
+| item frame (app canvas, hit testing) | every number finite, rotated corners within 200 000 pt; other items are not drawn or selectable | `ItemFrames.isDrawable` |
 | curve samples per stroke | 64 per control point + 1024 (sparser beyond) | `RenderLimits.samplesPerPoint` |
 | outline points per page | 40 M | `RenderLimits.maxOutlinePoints` |
 | nib width | 1 000 pt (drawn no wider) | `RenderLimits.maxNibWidth` |
@@ -2537,6 +2675,44 @@ crashes on an element name that is not UTF-8 or on a processing
 instruction without data. The library parses dates and binary plists
 itself and checks PROPFIND bodies before `XMLParser` sees them.
 `Tests/FuzzSupport` fuzzes every parser above on each test run.
+
+### 9.1 Received files
+
+A writer that copies revisions or blobs into `notes/` from elsewhere (a sync
+server, a shared folder it pulls from) checks each file **before** it places
+it, because a placed file is write-once and every later reader trusts its
+name:
+
+- **With the vault unlocked**, a revision must decrypt with the device's
+  identity, its tag (§4) must verify under the vault secret (or the previous
+  one of an unfinished rotation, §3.3.1), and it must decode as a revision of
+  that note and file name; a revision marked as written by a later version
+  (§7) passes, as it would when read. A blob must decrypt whole, with valid
+  framing, zero padding and content hash (§8.1.3, §8.1.4), and its file name
+  must be the keyed name of its hash (§8.1.2). The checks are those of a read
+  under the secret `vault.json` holds once any `vault.json` received in the
+  same run has been taken (§2.1), so a rotation arriving with its first
+  revisions is not mistaken for forgery.
+- **Locked** (no identity, or a first pull without one), only structure can
+  be checked: an age header that parses, whose stanzas are all of a type the
+  vault's recipients use and no more numerous than its recipients, and a
+  payload long enough for one chunk.
+
+A file that fails is **quarantined**: never placed under `notes/`, kept
+outside the vault (the reference implementation: next to the sync state,
+`<state>.quarantine/<path>`, mode 0600) and reported. It is not fetched again
+while neither it, `vault.json` nor the lock state changed (`sempere sync
+webdav --retry-quarantined` fetches it again). It is never deleted silently.
+
+**One bad file never blocks a note.** Readers already skip a revision they
+cannot read (§5, reported). A writer choosing its next `seq` (§5) skips a
+snapshot whose tag does not verify: it decrypted with the device's key but
+was not written under the vault secret, so no writer of the vault made it and
+its `included` covers nothing; skipping it can never reuse a `seq`. A
+snapshot that does not decrypt (or whose journal is unreadable) may be a real
+one whose coverage is unknown, so a writer still refuses to pick a `seq`
+until it can be read or is removed. A locked sync places such well-formed
+forgeries (it cannot tell), and they then fail only their own reads.
 
 ## 10. Per-device summary cache (outside the vault)
 
@@ -2622,13 +2798,20 @@ are checked against the revisions read from the vault before they are drawn
 on. It is limited in size (least recently used entries go first) and deleted
 when the vault is closed on that device.
 
-It keeps three more, under the same derivation:
+It keeps four more, under the same derivation:
 
 - the **render cache** (purpose `render-cache`, magic `SMPI` ‖ `0x01`):
   pictures of image items and previews of PDF page items as drawn on that
   device, labelled by everything the pixels depend on (the item's drawing
   fields, the blob reference, the scale), sealed as above; limited in size and
   deleted when the vault is closed;
+- the **attachment index** (purpose `attachment-index`, magic `SMPX` ‖
+  `0x01`, one entry per note named `entryName("note|<note id>")` plus
+  `.idx`, in Application Support): per note, the blob files of `att/`, the
+  blob references of each revision by file name, the hashes the current
+  state shows, and this device's first-seen-unreferenced times for §8.1.6
+  rule 4 (`docs/attachments.md` §4). Losing it only restarts those windows;
+  collection reads the note again before deleting anything;
 - the **activity** file (purpose `activity`, magic `SMPA` ‖ `0x01`, one entry
   named `activity`, not keyed by `entryName`): the notes "Recognize All" read in
   the last seven days and the recent search queries, kept across launches;
@@ -2697,7 +2880,23 @@ kind does not verify. A reader verifies the tag (under the current secret's
 capture key, or the previous secret's during an unfinished rewrap, §3.3.1)
 before it parses anything after it, and treats a file that fails as
 untrusted input (§9): reported, kept, never adopted. The whole plaintext is at
-most 256 MiB.
+most 256 MiB for a `capture` and, for a `transcript`, 37 bytes plus one JSON
+line of at most 64 MiB (§8.3.2), `0x0A` and 64 hex digits; a reader checks
+the file's size against its kind's bound before decrypting. The tag covers
+everything after it, so a reader computes it while decrypting, as a stream,
+without keeping the plaintext, and reads a file whole only once its tag
+verified: a file nobody with the capture key wrote costs one pass in constant
+memory.
+
+A file that fails is kept (it may be a real capture this device cannot check
+yet, for example sealed under a secret whose `vault.json` has not arrived),
+but a reader need not decrypt it again at every unlock. The reference
+implementation keeps a per-device record outside the vault (like §10) of
+files that failed, by vault id, name, size and modification time, and does
+not read such a file again for an hour after its first failure, then twice
+as long after each further failure, up to a week, unless it changes; a read
+that verifies clears its record. Failures to read the file at all (I/O,
+iCloud) are not recorded.
 
 - **`capture`**: the JSON is the capture manifest and the payload is the
   audio, as recorded:
@@ -2714,8 +2913,19 @@ most 256 MiB.
   `id` must equal `<captureId>` and `vault` the vault's `vaultId`. `audio` is
   a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
   `device` is the capturing device's id (§5). `title`, `notebook` (absent:
-  `Inbox`) and the informational fields become the note's.
-- **`transcript`**: the JSON is a transcript (§8.3.2) whose `recording` is the
+  `Inbox`) and the informational fields become the note's; the title and
+  the notebook as at most 300 characters (and 1200 Unicode scalars: one
+  character may hold any number of combining marks), control characters replaced by
+  spaces (any holder of the capture key writes them, §11.3).
+- **`transcript`**: the payload is the 64 lowercase hex digits of the
+  capture's audio SHA-256 (its manifest's `audio.sha256`). That binds the
+  transcript to the audio: the capture key is on every capturing device and
+  capture ids are in the clear, so otherwise any holder of the key could add
+  a transcript to a voice note it never heard. A reader adds a transcript
+  only to the recording whose blob has that hash, and never one whose
+  payload is anything else (an empty payload was written before this rule):
+  such a transcript is deleted once its note exists, never adopted. The JSON
+  is a transcript (§8.3.2) whose `recording` is the
   capture's recording id (§11.3); the payload is empty.
 
 Recovery without the app (the audio of a capture):
@@ -2749,10 +2959,12 @@ itself (its own device id and clock):
   informational fields), with `transcript` set when a transcript file is
   there;
 - a note that exists gets only `setRecording(transcript)`, and only when the
-  recording is there without a transcript.
+  recording is there without a transcript and its blob is the audio the
+  transcript is bound to (§11.2).
 
 Afterwards the capture file is deleted once the note exists, and the
-transcript file once the recording has a transcript (or is gone). A
+transcript file once the recording has a transcript (or is gone, or holds
+other audio than the transcript is bound to, §11.2). A
 transcript file whose capture has not arrived yet stays.
 
 

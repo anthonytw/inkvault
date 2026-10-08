@@ -84,12 +84,13 @@ extension AppModel {
                 try await CloudVault.download(items: items.map(\.item), hooks: hooks, stallTimeout: cloudStallTimeout,
                                               pollInterval: cloudPollInterval) { _ in }
             }
+            // Cleared first, so a capture that fails below stays reported.
+            if gen == generation { inboxProblem = nil }
             var seen = Set<UUID>()
             for id in items.map(\.id) where seen.insert(id).inserted {
                 try ensureCurrent(gen)
                 if await adoptCapture(id, from: vault) { done += 1 }
             }
-            if gen == generation { inboxProblem = nil }
         } catch is CancellationError {
         } catch {
             if gen == generation {
@@ -105,9 +106,12 @@ extension AppModel {
     private func adoptCapture(_ id: UUID, from vault: Vault) async -> Bool {
         let coordinate = coordinationURL
         let ids = CaptureAdoption.ids(for: id)
+        let backoff = inboxBackoff
         do {
+            // A file that failed before is not read again until its back-off
+            // ends (it is reported below, as `backedOff`).
             let pending = try await offMain {
-                try CloudVault.coordinatedRead(coordinate) { try vault.readCapture(id) }
+                try CloudVault.coordinatedRead(coordinate) { try vault.readCapture(id, backoff: backoff) }
             }
             // The note exists once it has a revision (in iCloud Drive, once one
             // is listed, local or not); a folder holding only blobs is still new.

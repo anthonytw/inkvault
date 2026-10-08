@@ -33,7 +33,9 @@ final class AudioCardControls {
         let state = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)), pages: [], recordings: recordings)
         var keep: Set<UUID> = []
         if toggle != nil, let canvas {
-            for item in items where item.kind == .audio && item.id != hidden {
+            // A frame that overflows would put the button at NaN, which Core Animation raises on (format.md §9).
+            for item in items where item.kind == .audio && item.id != hidden
+                && ItemFrames.isDrawable(item.frame, rotation: item.rotation) {
                 guard let recording = state.recording(shownBy: item) else { continue }
                 let control = AudioCard(frame: item.frame).badge(rotation: item.rotation)
                 guard control.diameter > 0 else { continue }
@@ -45,7 +47,7 @@ final class AudioCardControls {
                 let side = control.diameter * Double(zoom)
                 button.bounds = CGRect(x: 0, y: 0, width: side, height: side)
                 button.center = CGPoint(x: control.center.x * Double(zoom), y: control.center.y * Double(zoom))
-                button.transform = CGAffineTransform(rotationAngle: CGFloat((item.rotation ?? 0) * .pi / 180))
+                button.transform = CGAffineTransform(rotationAngle: CGFloat(ItemFrames.radians(item.rotation)))
                 // The whole icon is the target: the icon's radius around the button, at least 22 points on screen.
                 button.touchSlop = max(22 - side / 2, AudioCard(frame: item.frame).iconSize * 0.7 * Double(zoom) - side / 2, 0)
                 canvas.bringSubviewToFront(button)

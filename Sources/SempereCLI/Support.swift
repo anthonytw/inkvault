@@ -378,7 +378,12 @@ func trustStore() -> FileRecipientsTrustStore {
 /// same checks, and nothing kept.
 func scratchTrustStore(for vault: URL) -> MemoryRecipientsTrustStore {
     let store = MemoryRecipientsTrustStore()
-    if let id = (try? Vault.open(at: vault))?.vaultId, let record = trustStore().record(for: id) { try? store.save(record) }
+    guard let id = (try? Vault.open(at: vault))?.vaultId else { return store }
+    do {
+        if let record = try trustStore().record(for: id) { try? store.save(record) }
+    } catch {
+        store.markUnreadable(id, "\(error)")   // the dry run fails closed as the real one would (R5)
+    }
     return store
 }
 

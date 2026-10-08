@@ -144,7 +144,7 @@ final class AppModel {
     /// The title of a note created at a date with no title typed, as Settings
     /// → New Notes says (`NewNoteSettings`; "" for Blank: the note stays
     /// untitled). Tests replace it.
-    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.title(NewNoteSettings.titleFormat(), now: $0) }
+    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.defaultTitle(now: $0) }
     /// Pause after typing before the search runs.
     @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
     /// Reads handwriting on pages as they change and when notes open; nil = off.
@@ -168,20 +168,49 @@ final class AppModel {
     var capturesAdopted = 0
     /// Why the last inbox adoption failed, if it did.
     var inboxProblem: String?
+    /// Inbox files that failed to read, so they are not decrypted again at
+    /// every unlock (format.md §11.3, security review 2026-10, C5); next to
+    /// the device state.
+    let inboxBackoff: InboxBackoff
     @ObservationIgnored var inboxAdoption: Task<Void, Never>?
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
     /// What the last "Recognize All Notes" run changed, kept (also after it
     /// ends) until the next run starts; the "Recently Recognized" filter lists it.
     var recognitionResults: RecognitionResults?
-    /// What this device remembers of the open vault between launches: notes
-    /// recognised in the last 7 days ("Recently Recognized") and recent
-    /// searches (`RecentActivity`, `AppModel+Activity`). Changing it re-derives the lists.
-    var activity = RecentActivity() { didSet { if activity.recognized != oldValue.recognized { listVersion &+= 1 } } }
+    /// What this device remembers of the open vault between launches: the
+    /// recent searches (`RecentActivity`, `AppModel+Activity`). "Recently
+    /// Recognized" is in the vault (`meta.recognized`, shared by every device).
+    var activity = RecentActivity()
     /// Where `activity` is kept (a folder per vault secret inside it).
     @ObservationIgnored var activityRoot: URL
     /// The clock "Recently Recognized" is measured with (tests move it).
     @ObservationIgnored var activityNow: () -> Date = { Date() }
+    /// The unused-attachments index (`AppModel+AttachmentIndex`, docs/attachments.md §4):
+    /// the entries read or updated this session, by note.
+    @ObservationIgnored var attachmentIndex: [UUID: AttachmentIndexEntry] = [:]
+    /// Bumped whenever `attachmentIndex` changes, so Settings re-derives its numbers.
+    var attachmentIndexVersion = 0
+    /// Notes waiting for their index update (latest current-state hashes, if known).
+    @ObservationIgnored var attachmentIndexQueue: [UUID: Set<String>?] = [:]
+    /// How many notes are queued or being indexed (Settings shows progress).
+    var attachmentIndexPending = 0
+    /// The task working through `attachmentIndexQueue`, owned by the model.
+    @ObservationIgnored var attachmentIndexTask: Task<Void, Never>?
+    /// True once every stored entry of the open vault was read (`loadAttachmentIndex`).
+    @ObservationIgnored var attachmentIndexLoaded = false
+    /// The open vault's sealed index files, made on first use.
+    @ObservationIgnored var attachmentIndexStoreCache: AttachmentIndexStore?
+    /// Where the index is kept (a folder per vault secret inside it): the app's
+    /// Application Support; without one (tests) a folder of this model alone.
+    @ObservationIgnored var attachmentIndexRoot: URL
+    /// Waited before working through queued updates, so an editor's burst of
+    /// autosaves is indexed once. Tests set zero.
+    @ObservationIgnored var attachmentIndexDelay: Duration = .seconds(2)
+    /// The clock the 30-day window is measured with (tests move it).
+    @ObservationIgnored var attachmentNow: () -> Date = { Date() }
+    /// Test seam: what an index update reads (a counting wrapper of the vault).
+    @ObservationIgnored var attachmentIndexSource: (@Sendable (Vault) -> any AttachmentIndexSource)?
     /// What is being dragged inside the app (set when a drag starts), so the
     /// sidebar can tell whether a row would accept it while the drag is still over it.
     var draggedPayload: DragPayload?
@@ -268,8 +297,24 @@ final class AppModel {
     /// The note `downloadNote` is fetching, with its files' progress.
     var noteDownload: (id: UUID, progress: CloudProgress)?
     var cloudSyncTask: Task<Void, Never>?
+    /// Background time and scheduled tasks for the sync (`AppModel+Background`); tests pass fakes.
+    @ObservationIgnored var backgroundTasks: any BackgroundTaskRunning = UIKitBackgroundTasks()
+    @ObservationIgnored var syncScheduler: any BackgroundSyncScheduling = BGTaskSyncScheduler()
+    /// The background-time assertion held while a sync in flight finishes off screen.
+    @ObservationIgnored var backgroundSyncToken: BackgroundTaskToken?
+    /// The app is off screen and the sync loop is finishing what was in flight.
+    var syncingInBackground = false
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
+    /// The running Back Up Now, Verify Backup or restore (`AppModel+Backup`),
+    /// nil when none runs.
+    var backupProgress: BackupProgress?
+    /// Cancels the running backup (`cancelBackup`).
+    @ObservationIgnored var backupControl: BackupRunControl?
+    /// Per-vault backup folders and results (`UserDefaults`; tests use a scratch suite).
+    @ObservationIgnored var backupStore = BackupStore()
+    /// Delivers backup reminders; the app installs `UserNotificationBackupNotifier`.
+    @ObservationIgnored var backupNotifier: any BackupNotifying = NoBackupNotifier()
     /// Pause between progressive passes, passes with an unchanged note set
     /// before the loop slows to `cloudIdleInterval` (doubling while nothing
     /// changes, up to `cloudMaxIdleInterval`), and how long without progress
@@ -420,21 +465,28 @@ final class AppModel {
          recognizer: (any PageRecognizing)? = nil, recognitionDelay: Duration = NoteEditor.defaultRecognitionDelay,
          summaryCacheDirectory: URL? = nil, drawingCacheRoot: URL? = nil,
          blobCacheRoot: URL? = nil, renderCacheRoot: URL? = nil,
+         attachmentIndexRoot: URL? = nil,
          automaticThinning: Bool = false,
          recipientsTrust: (any RecipientsTrustStore)? = nil,
+         backupNotifier: (any BackupNotifying)? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.recipientsTrust = recipientsTrust ?? MemoryRecipientsTrustStore()
         self.deviceStateURL = deviceStateURL
         activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
+        inboxBackoff = InboxBackoff(fileURL: deviceStateURL.deletingLastPathComponent().appendingPathComponent("InboxBackoff.json"))
         self.automaticThinning = automaticThinning
         self.summaryCacheDirectory = summaryCacheDirectory
         self.drawingCacheRoot = drawingCacheRoot
         blobCacheFolder = blobCacheRoot ?? BlobCache.legacyFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
         self.renderCacheRoot = renderCacheRoot
+        self.attachmentIndexRoot = attachmentIndexRoot
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("SempereAttachmentIndex-\(UUID().uuidString)",
+                                                                           isDirectory: true)
         self.editorDebounce = editorDebounce
         self.recognizer = recognizer
         self.recognitionDelay = recognitionDelay
         self.afterIO = afterIO
+        if let backupNotifier { self.backupNotifier = backupNotifier }
     }
 
     // MARK: - Derived
@@ -494,8 +546,7 @@ final class AppModel {
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
         case .recentlyRecognized:
-            let ids = Set(activity.recognized.recent(now: activityNow()).map(\.id))
-            return notes.filter { !$0.deleted && ids.contains($0.id) }
+            return RecentlyRecognized.notes(notes, now: activityNow())
         }
     }
 
@@ -603,6 +654,23 @@ final class AppModel {
                 recipientsNotice = RecipientsAlert.upgradeNotice(opened.recipients)
             }
         }
+        if !opened.isLegacy, !opened.isReadOnly, opened.recipientsStatus.problem == nil,
+           opened.secretLinkStatus.needsUpgrade {
+            // Signed secret links (format.md §2.1): this device's record keeps
+            // public keys only, and the vault drops its legacy HMAC link. Once,
+            // quietly; a vault that cannot be written now is retried next unlock.
+            let start = opened
+            if let upgraded = try? await Task.detached(priority: .userInitiated, operation: { () throws -> Vault in
+                try CloudVault.coordinatedWrite(coordinate) { () throws -> Vault in
+                    var v = start
+                    try v.upgradeSecretLink()
+                    return v
+                }
+            }).value {
+                try ensureCurrent(gen)
+                opened = upgraded
+            }
+        }
         vault = opened
         unlockIdentities = identities
         recipientsAlert = opened.recipientsStatus.problem.map { RecipientsAlert(problem: $0, entries: opened.recipients) }
@@ -617,6 +685,7 @@ final class AppModel {
         if awaitNotes { try await notesLoaded() }
         refreshQuickCaptureProfile()
         startInboxAdoption()
+        Task { await rescheduleBackupReminder() }
     }
 
     /// Enters the migration screen for the vault just unlocked with
@@ -895,7 +964,10 @@ final class AppModel {
 
     func deviceClockForWriting() throws -> DeviceClock {
         if let deviceClock { return deviceClock }
-        let clock = try DeviceClock(url: deviceStateURL)
+        // Every delta any `NoteWriter` writes with this clock updates that note's attachment index.
+        let clock = try DeviceClock(url: deviceStateURL) { [weak self] id in
+            Task { @MainActor in self?.noteWritten(id) }
+        }
         deviceClock = clock
         return clock
     }
@@ -908,7 +980,10 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        syncingInBackground = false
+        endBackgroundTime()
         cancelRemoteMerges()
+        backupControl?.cancel()   // it reads the vault, whose access ends here
         isCloudVault = false
         isBusy = false
         let editor = self.editor
@@ -973,6 +1048,7 @@ final class AppModel {
         recognitionTask = nil
         recognitionProgress = nil
         recognitionResults = nil
+        resetAttachmentIndex()
         activity = RecentActivity()
         draggedPayload = nil
         dragProvider = nil

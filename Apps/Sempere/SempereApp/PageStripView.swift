@@ -122,6 +122,20 @@ enum PageThumbnail {
         return image
     }
 
+    /// Most pixels a thumbnail's ink is drawn with.
+    static let maxInkPixels: CGFloat = 4_000_000
+
+    /// The scale the ink of a `page`-sized page is drawn at for a thumbnail
+    /// `width` points wide, at most `maxInkPixels` for the page: a stored page
+    /// size is not validated (a width of 0.001 asked PencilKit for a bitmap
+    /// of about 10^15 pixels).
+    static func inkScale(page: CGSize, width: CGFloat, scale: CGFloat) -> CGFloat {
+        let want = scale * width / page.width
+        let area = page.width * page.height
+        guard want.isFinite, want > 0, area.isFinite, area > 0 else { return 1 }
+        return min(want, (maxInkPixels / area).squareRoot())
+    }
+
     private static func render(strokes: [Stroke], paper: Paper, pageSize: PageSize, size: CGSize, scale: CGFloat) -> UIImage {
         let page = CGRect(x: 0, y: 0, width: CGFloat(pageSize.width.isFinite && pageSize.width > 0 ? pageSize.width : 612),
                           height: CGFloat(pageSize.sheetHeight))
@@ -130,7 +144,7 @@ enum PageThumbnail {
         if !strokes.isEmpty {
             let drawing = PKDrawing(strokes: strokes.map(StrokeConversion.pkStroke))
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
-                ink = drawing.image(from: page, scale: scale * size.width / page.width)
+                ink = drawing.image(from: page, scale: inkScale(page: page.size, width: size.width, scale: scale))
             }
         }
         let format = UIGraphicsImageRendererFormat()

@@ -73,7 +73,7 @@ struct KeyExportTests {
 
     @Test func aNewKeyIsAFileTheVaultIsEncryptedTo() async throws {
         let (model, url) = try await KeyManagementTests.unlockedModel()
-        let generated = try await model.generateDeviceKey(label: " Anna's\niPad ")
+        let generated = try await model.generateDeviceKey(label: " Anna's\niPad ", authenticator: PassingOwnerAuthenticator())
         let file = generated.file
         #expect(file.secret == generated.secret)
         #expect(file.label == "Anna's iPad")

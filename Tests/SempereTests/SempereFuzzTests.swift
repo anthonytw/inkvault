@@ -383,12 +383,24 @@ final class SempereFuzzTests: VaultTestCase {
                                      identities: [id], trust: store)
         let manifest = try Data(contentsOf: vault.url.appendingPathComponent("vault.json"))
         let secret = try XCTUnwrap(vault.secret)
-        let record = try XCTUnwrap(store.record(for: vault.vaultId))
+        let record = try XCTUnwrap(try store.record(for: vault.vaultId))
         let recordJSON = try JSONEncoder().encode(record)
         let keys = vault.recipients.map(\.key)
-        assertClean(Fuzz.run("recipients-tag", seeds: [manifest, recordJSON], quick: 600, text: true) { input in
-            if let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: input), r.linkKey.count != 32 {
-                return "a trust record with a \(r.linkKey.count)-byte link key"
+        // A manifest with a signed `secretLink` (format.md §2.1), when ML-DSA is available.
+        var seeds = [manifest, recordJSON]
+        if postQuantumAvailable {
+            var rotated = try Vault.create(at: vaultURL("Rotated"), recipients: [id.recipient, other.recipient], identities: [id])
+            try rotated.removeRecipient(other.recipient)
+            seeds.append(try Data(contentsOf: rotated.url.appendingPathComponent("vault.json")))
+        }
+        assertClean(Fuzz.run("recipients-tag", seeds: seeds, quick: 600, text: true) { input in
+            if let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: input) {
+                switch r.anchor {
+                case .legacy(let k) where k.count != 32: return "a legacy trust record with a \(k.count)-byte link key"
+                case .signed(let k) where k.ed25519.count != 32 || k.mldsa65.count != 1952:
+                    return "a trust record with \(k.ed25519.count) + \(k.mldsa65.count)-byte public keys"
+                default: break
+                }
             }
             guard let m = try? Vault.readManifest(input) else {
                 _ = Vault.incomingManifestProblem(input, local: manifest, vault: vault)

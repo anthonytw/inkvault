@@ -237,7 +237,8 @@ public enum NoteHistory {
                                   newID: () -> UUID = { UUID() }) -> [Op] {
         var ops: [Op] = []
         if current.deleted && !target.deleted { ops.append(.restoreNote) }
-        for key in NoteState.ClockKey.allCases where key != .tags {
+        // `recognized` records when a run read the note, not what it holds: a restore keeps it.
+        for key in NoteState.ClockKey.allCases where key != .tags && key != .recognized {
             guard case .meta(let want) = RegisterValue(key, in: target),
                   case .meta(let have) = RegisterValue(key, in: current), want != have else { continue }
             ops.append(.setMeta(want))

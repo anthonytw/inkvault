@@ -218,6 +218,9 @@ extension Vault {
     /// reuses a covered seq. Decrypts every snapshot of the note; callers that
     /// already hold all revisions should use `nextSeq(from:device:)`.
     ///
+    /// A snapshot whose tag does not verify (`RevisionReadError.tagMismatch`)
+    /// is skipped: no writer of the vault made it, so it covers nothing.
+    ///
     /// - Throws: `VaultError.revision` when a snapshot cannot be read (its
     ///   coverage is unknown, so no safe seq can be chosen), `.locked` /
     ///   `.noIdentities` when snapshots exist but the vault cannot read.
@@ -226,7 +229,17 @@ extension Vault {
         var top = names.filter { $0.device == device }.map(\.seq).max() ?? 0
         for n in names where n.kind == .snapshot {
             let r: Revision
-            do { r = try readRevision(noteId: noteId, name: n) } catch let e as RevisionReadError {
+            do { r = try readRevision(noteId: noteId, name: n) } catch RevisionReadError.tagMismatch {
+                // It decrypted with this vault's key but was not framed under
+                // the vault's secret (nor the previous one of an unfinished
+                // rotation, whose journal did read): written by someone who
+                // only has the public keys, never by a writer of this vault,
+                // so it covers nothing. Skipping it reuses no seq, and one
+                // planted file no longer blocks every edit to the note
+                // (format.md §5, security review 2026-10, W2). Any other
+                // failure may hide real coverage and still throws.
+                continue
+            } catch let e as RevisionReadError {
                 throw VaultError.revision(name: n.filename, e)
             }
             top = max(top, Self.nextSeq(from: [r], device: device) - 1)

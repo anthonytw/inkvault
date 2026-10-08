@@ -128,7 +128,7 @@ enum MathTypesetter {
         let image = UIGraphicsImageRenderer(size: CGSize(width: bounds.w, height: bounds.h), format: format).image { ctx in
             let cg = ctx.cgContext
             cg.translateBy(x: CGFloat(c.x - bounds.x), y: CGFloat(c.y - bounds.y))
-            cg.rotate(by: CGFloat((rotation ?? 0) * .pi / 180))
+            cg.rotate(by: CGFloat(ItemFrames.radians(rotation)))
             cg.translateBy(x: CGFloat(-frame.w / 2), y: CGFloat(-frame.h / 2))
             cg.scaleBy(x: CGFloat(frame.w) / natural.width, y: CGFloat(frame.h) / natural.height)
             draw(label, in: cg)

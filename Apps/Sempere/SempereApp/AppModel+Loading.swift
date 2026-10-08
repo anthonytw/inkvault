@@ -59,9 +59,14 @@ extension AppModel {
         DeviceClock.defaultURL.deletingLastPathComponent().appendingPathComponent("Trust", isDirectory: true)
     }
 
-    /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`.
+    /// This install's trust records (format.md §2.1), in `defaultTrustDirectory`,
+    /// excluded from backups. Records hold only public keys now, but a legacy
+    /// one (until the upgrade at unlock replaces it) held an HMAC key that could
+    /// make a `secretLink`, and a backup may be readable by the same provider
+    /// that stores the vault (security review 2026-10, R2).
     nonisolated static var defaultRecipientsTrust: any RecipientsTrustStore {
-        FileRecipientsTrustStore(directory: defaultTrustDirectory)
+        prepareCacheDirectory(defaultTrustDirectory)
+        return FileRecipientsTrustStore(directory: defaultTrustDirectory)
     }
 
     nonisolated static var defaultSummaryCacheDirectory: URL? {
@@ -221,6 +226,7 @@ extension AppModel {
             // note again (a transient failure clears; the cache never stores it either).
             for s in current { indexedNames[s.id] = s.problem == nil ? readNames[s.id] ?? listedNames[s.id] : nil }
             queueListUpdate(upserts: current)
+            summariesRead(current)   // their revisions changed: re-index their attachments
             verifiedNoteIDs.formUnion(current.map(\.id))
             onBatch?(read)
             start += batch.count

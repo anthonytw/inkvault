@@ -6,7 +6,8 @@
 #   scripts/app.sh catalyst   # Mac Catalyst build, unsigned
 #   scripts/app.sh pseudo     # layout check in the double-length, right-to-left and Spanish languages
 #   scripts/app.sh test-mac   # every app suite on Mac Catalyst, ad-hoc signed and sandboxed
-#   scripts/app.sh test-mac-ui # the Mac UI tests (MacWindowUITests) on Mac Catalyst
+#   scripts/app.sh test-mac-ui # the Mac UI tests (MacWindowUITests, SidebarDropUITests) on Mac Catalyst
+#   scripts/app.sh test-ui    # the iPad UI tests (SidebarDropUITests: real drags) on an iPad simulator
 #   scripts/app.sh simulator  # print the simulator id `test` would use
 #
 # SEMPERE_SIM_ID overrides the simulator choice.
@@ -94,10 +95,18 @@ case "${1:-}" in
     # The UI tests live in the SempereScreenshots scheme (never built by `test`).
     xcodebuild test -project "$project" -scheme SempereScreenshots -derivedDataPath "$derived" \
       -destination 'platform=macOS,variant=Mac Catalyst' -only-testing:SempereAppUITests/MacWindowUITests \
+      -only-testing:SempereAppUITests/SidebarDropUITests \
       CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
     ;;
+  test-ui)
+    # The UI tests live in the SempereScreenshots scheme (never built by `test`).
+    sim=$(pick_simulator)
+    xcodebuild test -project "$project" -scheme SempereScreenshots -derivedDataPath "$derived" \
+      -destination "platform=iOS Simulator,id=$sim" -only-testing:SempereAppUITests/SidebarDropUITests \
+      -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+    ;;
   *)
-    echo "usage: $0 test|test-phone|pseudo|catalyst|test-mac|test-mac-ui|simulator" >&2
+    echo "usage: $0 test|test-phone|test-ui|pseudo|catalyst|test-mac|test-mac-ui|simulator" >&2
     exit 2
     ;;
 esac

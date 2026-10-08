@@ -91,13 +91,33 @@ extension AppModel {
         var file: KeyFile
     }
 
-    /// Encrypts the vault to another device's public key. `expectedVault`:
-    /// the vault the request was made for (the key window's sheet).
-    func addDeviceKey(recipient text: String, label: String, expectedVault: UUID? = nil) async throws {
+    /// Asks the device owner to authenticate before a change that lets
+    /// another key read the vault (security review 2026-10, P1): the same
+    /// check as Save Key… (`SystemOwnerAuthenticator`: Face ID or Touch ID
+    /// when enrolled, else the passcode). Throws `vaultChanged` when another
+    /// vault was opened, or this one locked, while the prompt was up.
+    func requireOwner(_ authenticator: any OwnerAuthenticator, reason: String, vault vaultID: UUID) async throws {
+        let gen = generation
+        try await authenticator.authenticate(reason: reason)
+        guard gen == generation, vault?.vaultId == vaultID, phase == .unlocked else { throw KeyError.vaultChanged }
+    }
+
+    /// The vault's display name for an authentication prompt.
+    private var promptVaultName: String {
+        vaultName ?? String(localized: "Vault", comment: "Name shown for a vault that has none")
+    }
+
+    /// Encrypts the vault to another device's public key, after the owner
+    /// authenticates. `expectedVault`: the vault the request was made for
+    /// (the key window's sheet).
+    func addDeviceKey(recipient text: String, label: String, expectedVault: UUID? = nil,
+                      authenticator: any OwnerAuthenticator = SystemOwnerAuthenticator()) async throws {
         let recipient = try Self.parseRecipient(text)
         guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
         if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         guard !vault.recipients.contains(where: { $0.key == recipient.string }) else { throw KeyError.alreadyListed }
+        try await requireOwner(authenticator, reason: String(localized: "Add a device key to “\(promptVaultName)”"),
+                               vault: vault.vaultId)
         let name = Self.cleanLabel(label)
         let policy = RewrapSettings.policy()
         try await changeRecipients { try $0.addRecipient(recipient, label: name, policy: policy) }
@@ -108,10 +128,14 @@ extension AppModel {
     /// shows it once. Once the vault's manifest lists the key, the secret is
     /// returned even if the rest of the change failed or the vault was
     /// closed meanwhile (`problem` says so): otherwise the vault would be
-    /// encrypted to a key nobody has.
-    func generateDeviceKey(label: String, expectedVault: UUID? = nil) async throws -> GeneratedKey {
-        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
-        if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
+    /// encrypted to a key nobody has. The owner authenticates first.
+    func generateDeviceKey(label: String, expectedVault: UUID? = nil,
+                           authenticator: any OwnerAuthenticator = SystemOwnerAuthenticator()) async throws -> GeneratedKey {
+        guard let start = vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        if let expectedVault, expectedVault != start.vaultId { throw KeyError.vaultChanged }
+        try await requireOwner(authenticator, reason: String(localized: "Create a device key for “\(promptVaultName)”"),
+                               vault: start.vaultId)
+        guard let vault else { throw KeyError.notUnlocked }
         let identity = try NativeIdentity.generate(.postQuantum)
         guard !vault.recipients.contains(where: { $0.key == identity.recipient.string }) else { throw KeyError.alreadyListed }
         let name = Self.cleanLabel(label)
@@ -150,9 +174,14 @@ extension AppModel {
     }
 
     /// The recovery kit (docs/cli.md "Keys"): the key this vault was unlocked
-    /// with as a QR code and checked text. The PDF holds the secret key.
-    func recoveryKitPDF(a4: Bool = false) throws -> Data {
-        guard vault != nil, phase == .unlocked else { throw KeyError.notUnlocked }
+    /// with as a QR code and checked text. The PDF holds the secret key, so
+    /// the owner authenticates first, as for Save Key… (P1).
+    func recoveryKitPDF(a4: Bool = false,
+                        authenticator: any OwnerAuthenticator = SystemOwnerAuthenticator()) async throws -> Data {
+        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        guard heldIdentity != nil else { throw KeyError.noIdentity }
+        try await requireOwner(authenticator, reason: String(localized: "Print the recovery kit of “\(promptVaultName)”"),
+                               vault: vault.vaultId)
         guard let identity = heldIdentity else { throw KeyError.noIdentity }
         return try recoveryKit(secret: identity.string, recipient: identity.recipient.string, a4: a4)
     }

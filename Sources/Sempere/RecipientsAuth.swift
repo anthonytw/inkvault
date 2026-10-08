@@ -13,7 +13,6 @@ import Foundation
 /// The keys, tags and checks of format.md §2.1.
 public enum RecipientsAuth {
     static let recipientsInfo = "sempere/1 recipients key"
-    static let linkInfo = "sempere/1 secret link key"
     static let secretIdInfo = "sempere/1 secret id"
 
     /// The most entries deleted when looking for the last verified list
@@ -28,9 +27,6 @@ public enum RecipientsAuth {
     }
 
     static func bytes(_ key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) } }
-
-    /// `linkKey` of a secret: what a trust record keeps.
-    public static func linkKey(_ secret: VaultSecret) -> Data { bytes(derive(secret, linkInfo)) }
 
     /// `secretId` of a secret.
     static func secretId(_ secret: VaultSecret) -> Data { bytes(derive(secret, secretIdInfo)) }
@@ -58,30 +54,31 @@ public enum RecipientsAuth {
         hex(tagBytes(vaultId: vaultId, keys: keys, secret: secret))
     }
 
-    /// `secretLink` (lowercase hex) from the outgoing secret to the new one.
-    public static func link(from old: VaultSecret, to new: VaultSecret, vaultId: UUID) -> String {
-        hex(linkBytes(linkKey: linkKey(old), to: new, vaultId: vaultId))
-    }
-
-    static func linkBytes(linkKey: Data, to new: VaultSecret, vaultId: UUID) -> Data {
-        var m = Data("sempere/1".utf8)
-        m.append(0); m.append(contentsOf: "secret link".utf8)
-        m.append(0); m.append(contentsOf: vaultId.uuidString.lowercased().utf8)
-        m.append(0); m.append(secretId(new))
-        return Data(HMAC<SHA256>.authenticationCode(for: m, using: SymmetricKey(data: linkKey)))
-    }
-
     /// True when `tag` is 64 lowercase hex digits and verifies over `keys`.
     public static func verifyTag(_ tag: String, vaultId: UUID, keys: [String], secret: VaultSecret) -> Bool {
         guard let given = unhex(tag) else { return false }
         return constantTimeEqual(given, tagBytes(vaultId: vaultId, keys: keys, secret: secret))
     }
 
-    /// True when `link` is 64 lowercase hex digits and verifies a rotation
-    /// from the secret whose `linkKey` is `linkKey` to `new`.
-    public static func verifyLink(_ link: String?, linkKey: Data, to new: VaultSecret, vaultId: UUID) -> Bool {
-        guard let link, let given = unhex(link), linkKey.count == 32 else { return false }
-        return constantTimeEqual(given, linkBytes(linkKey: linkKey, to: new, vaultId: vaultId))
+    /// Whether `secret` is the one `record` was saved for, or a confirmed
+    /// successor of it (format.md §2.1 "Checking", step 3): nil when neither,
+    /// else true for a rotation.
+    ///
+    /// A signed record (`sempere-trust/2`) holds public keys: the secret is
+    /// the same when its keys are the record's, a successor when `link`'s
+    /// two signatures verify under them. A legacy record (`sempere-trust/1`,
+    /// an HMAC key) is read only to upgrade it: it confirms the same secret
+    /// and nothing else, since whoever read it could forge a legacy link
+    /// (security review 2026-10, R2).
+    static func confirms(_ record: RecipientsTrustRecord, secret: VaultSecret, link: SecretLink?, vaultId: UUID) -> Bool? {
+        switch record.anchor {
+        case .signed(let keys):
+            guard let mine = try? LinkPublicKeys(secret: secret) else { return nil }
+            if mine == keys { return false }
+            return verifyLink(link, keys: keys, to: secret, vaultId: vaultId) ? true : nil
+        case .legacy(let linkKey):
+            return constantTimeEqual(legacyLinkKey(secret), linkKey) ? false : nil
+        }
     }
 
     /// The longest list obtained from `keys` by deleting at most
@@ -122,6 +119,25 @@ public enum RecipientsAuth {
         let record = record?.vaultId == manifest.vaultId ? record : nil
         let keys = manifest.recipients.map(\.key)
         let id = manifest.vaultId
+        // Whether the secret is one this device verified (or a confirmed
+        // successor of it) is decided first, whatever the tag says: a tag
+        // that is missing or does not verify is otherwise judged under a
+        // secret the attacker may have chosen, and the subset search below
+        // would hand the attacker's own key to a repair as "last verified"
+        // (security review 2026-10, R1, R3).
+        var rotated = false
+        if let record {
+            guard let rotation = confirms(record, secret: secret, link: manifest.secretLink, vaultId: id) else {
+                // Unconfirmed, even when every key is one this device trusted:
+                // a secret this device cannot link to one it verified may be an
+                // attacker's, and accepting it would let a later `secretLink`
+                // made under it vouch for any list. No repair: the files are
+                // tagged under a secret this device no longer holds (format.md
+                // §2.1 "Repair").
+                return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: nil, record: record))
+            }
+            rotated = rotation
+        }
         guard let tag = manifest.recipientsTag else {
             let featured = manifest.features.contains(VaultManifest.recipientsTagFeature)
             guard featured || record != nil else { return .untagged }
@@ -131,27 +147,25 @@ public enum RecipientsAuth {
             if let found = verifiedSubset(of: keys, tag: tag, vaultId: id, secret: secret) {
                 return .tampered(.init(reason: .tagMismatch, current: keys, restore: found.kept, record: record))
             }
-            // Same secret as when the record was made, or the device would
-            // see another reason: the record's list is the last verified one.
             return .tampered(.init(reason: .tagMismatch, current: keys, restore: record?.recipients, record: record))
         }
-        guard let record else { return .verified(.firstUse) }
-        if constantTimeEqual(linkKey(secret), record.linkKey) { return .verified(.unchanged) }
-        if verifyLink(manifest.secretLink, linkKey: record.linkKey, to: secret, vaultId: id) { return .verified(.rotated) }
-        // Unconfirmed, even when every key is one this device trusted: a
-        // secret this device cannot link to one it verified may be an
-        // attacker's, and accepting it would let a later `secretLink` made
-        // under it vouch for any list. No repair: the files are tagged under a
-        // secret this device no longer holds (format.md §2.1 "Repair").
-        return .tampered(.init(reason: .secretUnconfirmed, current: keys, restore: nil, record: record))
+        guard record != nil else { return .verified(.firstUse) }
+        return .verified(rotated ? .rotated : .unchanged)
     }
 
-    static func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
+    static func hex(_ d: Data) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var out = [UInt8]()
+        out.reserveCapacity(d.count * 2)
+        for b in d { out.append(digits[Int(b >> 4)]); out.append(digits[Int(b & 0x0f)]) }
+        return String(decoding: out, as: UTF8.self)
+    }
 
-    /// 32 bytes from exactly 64 lowercase hex digits, else nil.
-    static func unhex(_ s: String) -> Data? {
+    /// `count` bytes (32 by default) from exactly `2 × count` lowercase hex
+    /// digits, else nil.
+    static func unhex(_ s: String, count: Int = 32) -> Data? {
         let u = Array(s.utf8)
-        guard u.count == 64 else { return nil }
+        guard u.count == 2 * count else { return nil }
         func nibble(_ c: UInt8) -> UInt8? {
             switch c {
             case 0x30...0x39: return c - 0x30
@@ -159,9 +173,9 @@ public enum RecipientsAuth {
             default: return nil
             }
         }
-        var out = Data(capacity: 32)
+        var out = Data(capacity: count)
         var i = 0
-        while i < 64 {
+        while i < u.count {
             guard let hi = nibble(u[i]), let lo = nibble(u[i + 1]) else { return nil }
             out.append(hi << 4 | lo)
             i += 2
@@ -235,6 +249,11 @@ public struct RecipientsProblem: Hashable, Sendable {
         /// The secret changed without a `secretLink` this device can check
         /// (whatever keys the list holds).
         case secretUnconfirmed
+        /// This device's trust record for the vault exists but cannot be
+        /// read (damaged, tampered with, or a newer record format): nothing
+        /// can be compared, so the list is not trusted for writing until the
+        /// user confirms it (security review 2026-10, R5).
+        case recordUnreadable
     }
 
     public var reason: Reason
@@ -270,40 +289,75 @@ public struct RecipientsProblem: Hashable, Sendable {
 }
 
 /// What a device remembers about a vault's recipients (format.md §2.1
-/// "Trust record"): never stored in the vault, and holding no secret.
+/// "Trust record"): never stored in the vault. A current record
+/// (`sempere-trust/2`) holds only public keys, which check a `secretLink`
+/// but cannot make one.
 public struct RecipientsTrustRecord: Codable, Hashable, Sendable {
-    public static let formatName = "sempere-trust/1"
+    /// The current record format.
+    public static let formatName = "sempere-trust/2"
+    /// Records written before signed links: an HMAC `linkKey`. Read only to
+    /// upgrade them (format.md §2.1), never written.
+    public static let legacyFormatName = "sempere-trust/1"
 
-    public var format: String
+    /// What identifies the last verified secret.
+    public enum Anchor: Hashable, Sendable {
+        /// The secret's link verification keys (`sempere-trust/2`).
+        case signed(LinkPublicKeys)
+        /// The secret's legacy HMAC `linkKey` (`sempere-trust/1`, 32 bytes).
+        case legacy(Data)
+    }
+
     public var vaultId: UUID
-    /// `linkKey` of the last verified secret (32 bytes).
-    public var linkKey: Data
+    /// The last verified secret.
+    public var anchor: Anchor
     /// The keys of the last verified list, in order.
     public var recipients: [String]
 
-    public init(vaultId: UUID, linkKey: Data, recipients: [String]) {
-        format = Self.formatName
-        self.vaultId = vaultId; self.linkKey = linkKey; self.recipients = recipients
+    /// `sempere-trust/2`, or `sempere-trust/1` for a legacy record.
+    public var format: String {
+        if case .legacy = anchor { return Self.legacyFormatName }
+        return Self.formatName
+    }
+
+    /// True for a `sempere-trust/1` record, which the next write replaces.
+    public var isLegacy: Bool { if case .legacy = anchor { return true }; return false }
+
+    public init(vaultId: UUID, anchor: Anchor, recipients: [String]) {
+        self.vaultId = vaultId; self.anchor = anchor; self.recipients = recipients
     }
 
     /// The record for a list verified under `secret`.
-    public init(vaultId: UUID, secret: VaultSecret, recipients: [String]) {
-        self.init(vaultId: vaultId, linkKey: RecipientsAuth.linkKey(secret), recipients: recipients)
+    ///
+    /// - Throws: `AgeError.postQuantumUnavailable` where the platform has no ML-DSA.
+    public init(vaultId: UUID, secret: VaultSecret, recipients: [String]) throws {
+        self.init(vaultId: vaultId, anchor: .signed(try LinkPublicKeys(secret: secret)), recipients: recipients)
     }
 
-    enum CodingKeys: String, CodingKey { case format, vaultId, linkKey, recipients }
+    enum CodingKeys: String, CodingKey { case format, vaultId, linkKey, linkPublicKeys, recipients }
+    enum KeyCodingKeys: String, CodingKey { case ed25519, mldsa65 }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        format = try c.decode(String.self, forKey: .format)
-        guard format == Self.formatName else {
+        let format = try c.decode(String.self, forKey: .format)
+        vaultId = try c.decode(LowercaseUUID.self, forKey: .vaultId).uuid
+        switch format {
+        case Self.formatName:
+            let k = try c.nestedContainer(keyedBy: KeyCodingKeys.self, forKey: .linkPublicKeys)
+            guard let ed = RecipientsAuth.unhex(try k.decode(String.self, forKey: .ed25519), count: LinkPublicKeys.ed25519Size),
+                  let ml = RecipientsAuth.unhex(try k.decode(String.self, forKey: .mldsa65), count: LinkPublicKeys.mldsa65Size),
+                  let keys = LinkPublicKeys(ed25519: ed, mldsa65: ml) else {
+                throw DecodingError.dataCorruptedError(forKey: .linkPublicKeys, in: c,
+                                                       debugDescription: "not 32 + 1952 bytes of lowercase hex")
+            }
+            anchor = .signed(keys)
+        case Self.legacyFormatName:
+            guard let key = RecipientsAuth.unhex(try c.decode(String.self, forKey: .linkKey)) else {
+                throw DecodingError.dataCorruptedError(forKey: .linkKey, in: c, debugDescription: "not 64 hex digits")
+            }
+            anchor = .legacy(key)
+        default:
             throw DecodingError.dataCorruptedError(forKey: .format, in: c, debugDescription: "not \(Self.formatName)")
         }
-        vaultId = try c.decode(LowercaseUUID.self, forKey: .vaultId).uuid
-        guard let key = RecipientsAuth.unhex(try c.decode(String.self, forKey: .linkKey)) else {
-            throw DecodingError.dataCorruptedError(forKey: .linkKey, in: c, debugDescription: "not 64 hex digits")
-        }
-        linkKey = key
         recipients = try c.decode([String].self, forKey: .recipients)
     }
 
@@ -311,15 +365,27 @@ public struct RecipientsTrustRecord: Codable, Hashable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(format, forKey: .format)
         try c.encode(LowercaseUUID(vaultId), forKey: .vaultId)
-        try c.encode(RecipientsAuth.hex(linkKey), forKey: .linkKey)
+        switch anchor {
+        case .signed(let keys):
+            var k = c.nestedContainer(keyedBy: KeyCodingKeys.self, forKey: .linkPublicKeys)
+            try k.encode(RecipientsAuth.hex(keys.ed25519), forKey: .ed25519)
+            try k.encode(RecipientsAuth.hex(keys.mldsa65), forKey: .mldsa65)
+        case .legacy(let key):
+            try c.encode(RecipientsAuth.hex(key), forKey: .linkKey)
+        }
         try c.encode(recipients, forKey: .recipients)
     }
 }
 
 /// Where a device keeps its trust records.
 public protocol RecipientsTrustStore: Sendable {
-    /// The record of `vaultId`, nil when there is none (or it is unreadable).
-    func record(for vaultId: UUID) -> RecipientsTrustRecord?
+    /// The record of `vaultId`, nil when there is none.
+    ///
+    /// - Throws: when a record exists but cannot be read or does not decode
+    ///   (or names another vault). Never nil for that: a record that reads as
+    ///   absent would make the next open a first use, and the next write
+    ///   would replace it (format.md §2.1, security review 2026-10, R5).
+    func record(for vaultId: UUID) throws -> RecipientsTrustRecord?
     /// Saves (replaces) the record of its vault.
     func save(_ record: RecipientsTrustRecord) throws
 }
@@ -344,22 +410,41 @@ public struct FileRecipientsTrustStore: RecipientsTrustStore {
         directory.appendingPathComponent("\(vaultId.uuidString.lowercased()).json")
     }
 
-    public func record(for vaultId: UUID) -> RecipientsTrustRecord? {
+    public func record(for vaultId: UUID) throws -> RecipientsTrustRecord? {
         let url = fileURL(vaultId)
-        guard FileIO.exists(url),
-              let data = try? BoundedRead.contents(of: url, maxBytes: Self.maxFileBytes),
-              let r = try? JSONDecoder().decode(RecipientsTrustRecord.self, from: data),
-              r.vaultId == vaultId else { return nil }
+        // Absent only when nothing is there at all (not even a dangling link).
+        guard (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil else { return nil }
+        let r: RecipientsTrustRecord
+        do {
+            let data = try BoundedRead.contents(of: url, maxBytes: Self.maxFileBytes)
+            r = try JSONDecoder().decode(RecipientsTrustRecord.self, from: data)
+        } catch {
+            throw VaultError.io("trust record \(url.path) is unreadable: \(error)")
+        }
+        guard r.vaultId == vaultId else {
+            throw VaultError.io("trust record \(url.path) names another vault")
+        }
         return r
     }
 
+    /// Writes the record atomically, created mode 0600 in a 0700 folder. A
+    /// current record holds only public keys; it stays private anyway: it
+    /// names the vault and its devices, and a legacy record it replaces held
+    /// an HMAC key that could make a link (security review 2026-10, R2).
     public func save(_ record: RecipientsTrustRecord) throws {
         try FileIO.createDirectory(directory)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(record)
         let url = fileURL(record.vaultId)
-        try FileIO.writeAtomically(try enc.encode(record), to: url, replacing: true)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let tmp = FileIO.tempURL(in: directory)
+        try FileIO.writeNewFile(tmp) { write in try write(data) }
+        guard rename(tmp.path, url.path) == 0 else {
+            let code = errno
+            try? FileManager.default.removeItem(at: tmp)
+            throw VaultError.io("rename to \(url.path): errno \(code)")
+        }
     }
 }
 
@@ -367,23 +452,35 @@ public struct FileRecipientsTrustStore: RecipientsTrustStore {
 public final class MemoryRecipientsTrustStore: RecipientsTrustStore, @unchecked Sendable {
     private let lock = NSLock()
     private var records: [UUID: RecipientsTrustRecord] = [:]
+    private var unreadable: [UUID: String] = [:]
 
     public init() {}
 
-    public func record(for vaultId: UUID) -> RecipientsTrustRecord? {
+    public func record(for vaultId: UUID) throws -> RecipientsTrustRecord? {
         lock.lock(); defer { lock.unlock() }
+        if let why = unreadable[vaultId] { throw VaultError.io("trust record unreadable: \(why)") }
         return records[vaultId]
     }
 
     public func save(_ record: RecipientsTrustRecord) throws {
         lock.lock(); defer { lock.unlock() }
+        unreadable[record.vaultId] = nil
         records[record.vaultId] = record
+    }
+
+    /// Makes the record of `vaultId` read as unreadable (`why`) until the
+    /// next `save`: a damaged file, for tests and dry runs.
+    public func markUnreadable(_ vaultId: UUID, _ why: String) {
+        lock.lock(); defer { lock.unlock() }
+        records[vaultId] = nil
+        unreadable[vaultId] = why
     }
 
     /// Forgets every record.
     public func removeAll() {
         lock.lock(); defer { lock.unlock() }
         records = [:]
+        unreadable = [:]
     }
 }
 
@@ -413,19 +510,35 @@ extension Vault {
         let sameKeys = incoming.recipients.map(\.key) == mine.recipients.map(\.key)
         if sameKeys, incoming.recipientsTag == mine.recipientsTag, incoming.vaultSecret == mine.vaultSecret { return nil }
         guard let vault, vault.canRead, vault.vaultId == mine.vaultId else {
-            // Without the key only the keys can be compared: the same keys
-            // (still tagged) let nobody new read; anything else waits.
-            if sameKeys, incoming.recipientsTag != nil || mine.recipientsTag == nil { return nil }
-            return sameKeys ? "the incoming vault.json drops the device list's tag (format.md §2.1); unlock (--identity) to check it"
-                : "the incoming vault.json changes the device list; unlock (--identity) so it can be checked (format.md §2.1)"
+            // Without the key only public fields can be compared: the same
+            // keys and the same sealed secret let nobody new read, and a tag
+            // may only be added. Anything else waits: a new secret under the
+            // same keys (or a changed tag) cannot be checked here, and taking
+            // it would replace the vault's real secret with one the server
+            // chose (security review 2026-10, W3).
+            guard sameKeys else {
+                return "the incoming vault.json changes the device list; unlock (--identity) so it can be checked (format.md §2.1)"
+            }
+            guard incoming.vaultSecret == mine.vaultSecret else {
+                return "the incoming vault.json changes the vault's secret; unlock (--identity) so it can be checked (format.md §2.1)"
+            }
+            if let tag = mine.recipientsTag, incoming.recipientsTag != tag {
+                return incoming.recipientsTag == nil
+                    ? "the incoming vault.json drops the device list's tag (format.md §2.1); unlock (--identity) to check it"
+                    : "the incoming vault.json changes the device list's tag; unlock (--identity) to check it (format.md §2.1)"
+            }
+            return nil
         }
         let secret: VaultSecret
         do { secret = try decryptSecret(incoming.vaultSecret, with: vault.identities) } catch {
             return "the incoming vault.json's secret does not open with this key: \(error)"
         }
-        var anchor = vault.trustStore?.record(for: vault.vaultId)
+        var anchor: RecipientsTrustRecord?
+        do { anchor = try vault.trustStore?.record(for: vault.vaultId) } catch {
+            return "this device's trust record for the vault cannot be read, so the incoming vault.json cannot be checked: \(error)"
+        }
         if anchor == nil, vault.recipientsStatus.allowsWriting, let own = vault.secret {
-            anchor = RecipientsTrustRecord(vaultId: vault.vaultId, secret: own, recipients: vault.recipients.map(\.key))
+            anchor = try? RecipientsTrustRecord(vaultId: vault.vaultId, secret: own, recipients: vault.recipients.map(\.key))
         }
         switch RecipientsAuth.evaluate(incoming, secret: secret, record: anchor) {
         case .verified, .notChecked: return nil

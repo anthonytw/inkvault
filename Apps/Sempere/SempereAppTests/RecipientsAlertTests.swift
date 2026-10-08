@@ -52,7 +52,7 @@ struct RecipientsAlertTests {
         #expect(model.recipientsNotice?.contains("now protected") == true, "the one-time upgrade is reported")
         #expect(model.recipientsAlert == nil)
         #expect(try VaultManifest.decode(Data(contentsOf: url.appendingPathComponent("vault.json"))).recipientsTag != nil)
-        try await model.addDeviceKey(recipient: try NativeIdentity.generate(.postQuantum).recipient.string, label: "Tablet")
+        try await model.addDeviceKey(recipient: try NativeIdentity.generate(.postQuantum).recipient.string, label: "Tablet", authenticator: PassingOwnerAuthenticator())
         model.close()
         // Unlocked again: verified, nothing to report.
         let again = AppModel(deviceStateURL: TS.deviceStateURL(), recipientsTrust: trust)
@@ -62,6 +62,55 @@ struct RecipientsAlertTests {
         #expect(again.recipientsAlert == nil)
         again.close()
         return (url, keyText)
+    }
+
+    /// Signed secret links (format.md §2.1): unlocking a vault an older
+    /// writer left (no `signed-secret-link`, a legacy HMAC link) upgrades it
+    /// and this device's record once, without asking.
+    @Test func unlockUpgradesToSignedSecretLinks() async throws {
+        guard postQuantumAvailable else { return }
+        let trust = MemoryRecipientsTrustStore()
+        let (url, key) = try AppModelTests.fixtureVault()
+        let keyText = try String(contentsOf: key, encoding: .utf8)
+        let manifestURL = url.appendingPathComponent("vault.json")
+        var old = try VaultManifest.decode(Data(contentsOf: manifestURL))
+        old.features.removeAll { $0 == VaultManifest.signedLinkFeature }
+        old.secretLink = .legacy(String(repeating: "cd", count: 32))
+        try old.encoded().write(to: manifestURL)
+
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), recipientsTrust: trust)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: keyText)
+        #expect(model.recipientsAlert == nil)
+        let now = try VaultManifest.decode(Data(contentsOf: manifestURL))
+        #expect(now.secretLink == nil, "the legacy link is retired")
+        #expect(now.features.contains(VaultManifest.signedLinkFeature))
+        let record = try #require(try trust.record(for: now.vaultId))
+        #expect(!record.isLegacy)
+        #expect(model.vault?.secretLinkStatus.needsUpgrade == false)
+        model.close()
+    }
+
+    /// Security review 2026-10 (R5): this device's record unreadable is not
+    /// "first use": the alert offers Trust This List (not Remove), and
+    /// confirming writes the record again and closes the alert.
+    @Test func anUnreadableTrustRecordAsksToTrustTheList() async throws {
+        let trust = MemoryRecipientsTrustStore()
+        let (url, keyText) = try await Self.preparedVault(trust: trust)
+        let vaultId = try Vault.open(at: url).vaultId
+        trust.markUnreadable(vaultId, "damaged")
+        let model = AppModel(deviceStateURL: TS.deviceStateURL(), recipientsTrust: trust)
+        try await model.openVault(at: url)
+        try await model.unlock(identityText: keyText)
+        let alert = try #require(model.recipientsAlert)
+        #expect(alert.problem.reason == .recordUnreadable)
+        #expect(alert.canConfirm)
+        #expect(!alert.canRemove)
+        #expect(alert.message.contains("Trust This List"))
+        try await model.confirmRecipientsList()
+        #expect(model.recipientsAlert == nil)
+        #expect(try trust.record(for: vaultId)?.recipients.count == 2)
+        model.close()
     }
 
     @Test func tamperedListsRaiseTheAlertAndBlockWrites() async throws {

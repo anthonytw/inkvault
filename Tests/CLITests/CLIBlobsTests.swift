@@ -91,7 +91,7 @@ final class CLIBlobsTests: CLITestCase {
         // unused, gc
         r = try cli(["blobs", "unused", "--json"] + access(vault, key))
         XCTAssertEqual(r.status, 0, r.err)
-        let unused = try XCTUnwrap(r.json as? [[String: Any]]).flatMap { ($0["unused"] as? [[String: Any]]) ?? [] }
+        let unused = try XCTUnwrap((r.json as? [String: Any])?["items"] as? [[String: Any]])
         XCTAssertEqual(unused.count, 2, "the spare blob in n1 and the copy in n2 (no reference there yet)")
         r = try cli(["blobs", "gc", "--dry-run", "--retention", "0", n1] + access(vault, key))
         XCTAssertEqual(r.status, 0, r.err)
@@ -127,6 +127,76 @@ final class CLIBlobsTests: CLITestCase {
         r = try cli(["blobs", "repair"] + access(vault, key))
         XCTAssertEqual(r.status, 0, r.err)
     }
+
+    /// `blobs unused` reports what Settings → Storage shows: unused count and
+    /// bytes, first seen and deletable-from dates, eligibility, and space
+    /// held only by history; `gc --file` deletes one eligible blob.
+    func testUnusedReportsTheStorageNumbers() throws {
+        let (vault, _, key) = try makeVault()
+        let shown = try add(vault, key, note: n1, content: Data("synthetic shown".utf8), type: "image/png")
+        let old = try add(vault, key, note: n1, content: syntheticPicture(3000), type: "image/jpeg")
+        let spareA = try add(vault, key, note: n1, content: Data("synthetic spare a".utf8), type: "application/pdf")
+        let spareB = try add(vault, key, note: n2, content: Data("synthetic spare b".utf8), type: "audio/mp4")
+        try reference(vault, note: n1, shown, seq: 1)
+        // `old` is placed, then removed: only history (revision 2) still uses it.
+        let page = UUID(), item = UUID()
+        let note = UUID(uuidString: n1)!
+        func rev(_ seq: Int, _ ops: [Op]) -> Revision {
+            Revision(noteId: note, device: DeviceID("cccccccc")!, seq: seq,
+                     hlc: HLC(millis: 1_760_000_100_000 + Int64(seq), counter: 0)!,
+                     wall: Date(timeIntervalSince1970: 1_760_000_100 + Double(seq)), app: "cli-test/1", body: .delta(ops: ops))
+        }
+        let image = Item.image(id: item, blob: old, pixelSize: Size(w: 2, h: 2), frame: Rect(x: 0, y: 0, w: 20, h: 20), z: "b")
+        try vault.write(rev(2, [.addPage(Page(id: page, order: "c")), .addItem(page: page, item: image)]))
+        try vault.write(rev(3, [.removeItem(page: page, itemId: item)]))
+        try reference(vault, note: n2, shown, seq: 1)
+        _ = spareB
+
+        var r = try cli(["blobs", "unused", "--json"] + access(vault, key))
+        XCTAssertEqual(r.status, 0, r.err)
+        var o = try XCTUnwrap(r.json as? [String: Any])
+        let items = try XCTUnwrap(o["items"] as? [[String: Any]])
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual((o["unused"] as? [String: Any])?["count"] as? Int, 2)
+        let bytes = items.compactMap { $0["bytes"] as? Int }.reduce(0, +)
+        XCTAssertEqual((o["unused"] as? [String: Any])?["bytes"] as? Int, bytes)
+        XCTAssertEqual((o["eligible"] as? [String: Any])?["count"] as? Int, 0, "30 days have not passed")
+        XCTAssertEqual(o["retentionDays"] as? Double, 30)
+        for i in items {
+            XCTAssertEqual(i["eligible"] as? Bool, false)
+            let first = try XCTUnwrap((i["firstSeen"] as? String).flatMap(RFC3339.parse))
+            let from = try XCTUnwrap((i["deletableFrom"] as? String).flatMap(RFC3339.parse))
+            XCTAssertEqual(from.timeIntervalSince(first), 30 * 86400, accuracy: 0.002)
+        }
+        let held = try XCTUnwrap(o["held"] as? [[String: Any]])
+        XCTAssertEqual(held.map { $0["sha256"] as? String }, [old.sha256])
+        XCTAssertEqual(held.first?["revisions"] as? [String], [rev(2, []).name.filename])
+        XCTAssertEqual((o["heldByHistory"] as? [String: Any])?["count"] as? Int, 1)
+        XCTAssertGreaterThan((o["heldByHistory"] as? [String: Any])?["bytes"] as? Int ?? 0, 0)
+        r = try cli(["blobs", "unused", n1] + access(vault, key))
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("Unused attachments: 1 item(s)") && r.out.contains("held by history: 1 item(s)"), r.out)
+
+        // With no window both are eligible; `--file` deletes only the one named.
+        r = try cli(["blobs", "unused", "--retention", "0", "--json"] + access(vault, key))
+        o = try XCTUnwrap(r.json as? [String: Any])
+        XCTAssertEqual((o["eligible"] as? [String: Any])?["count"] as? Int, 2)
+        let a = try vault.blobFileName(for: spareA)
+        r = try cli(["blobs", "gc", "--retention", "0", "--file", a, "--json"] + access(vault, key))
+        XCTAssertEqual(r.status, 0, r.err)
+        o = try XCTUnwrap(r.json as? [String: Any])
+        let deleted = try XCTUnwrap(o["notes"] as? [[String: Any]]).flatMap { ($0["deleted"] as? [String]) ?? [] }
+        XCTAssertEqual(deleted, [a])
+        XCTAssertEqual(((o["storage"] as? [String: Any])?["unused"] as? [String: Any])?["count"] as? Int, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vault.url.appendingPathComponent("notes/\(n1)/att/\(a)").path))
+        // A held blob is never collected.
+        r = try cli(["blobs", "gc", "--retention", "0"] + access(vault, key))
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vault.url.appendingPathComponent("notes/\(n1)/att/\(try vault.blobFileName(for: old))").path))
+        XCTAssertTrue(r.out.contains("Unused attachments: 0 item(s)"), r.out)
+    }
+
+    func syntheticPicture(_ n: Int) -> Data { Data((0..<n).map { UInt8(truncatingIfNeeded: $0 &* 13) }) }
 
     func testRecipientsRewrapOptionAndRecover() throws {
         let (vault, _, key) = try makeVault()

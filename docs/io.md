@@ -190,6 +190,50 @@ Every reload (pull to refresh) repeats this, so revisions other devices
 synced since appear as placeholders, are fetched, and then read. Vaults
 outside iCloud skip all of this: no scan, no coordination.
 
+### Background sync (iOS)
+
+The sync loop used to pause the moment the app left the screen, so locking
+an iPhone or iPad mid-sync stopped the progress until the app was opened
+again (TestFlight build 7). Now (`AppModel+Background`, `BackgroundSync.swift`):
+
+- **A sync in flight finishes.** When the app goes to the background with
+  notes still downloading or listed as placeholders (`syncInFlight`), the
+  loop keeps running under a `beginBackgroundTask` assertion and pauses as
+  before once nothing is pending (`finishBackgroundSync`). The summary cache
+  is saved when the app leaves the screen and again when it settles.
+- **When iOS takes the time back** with notes still pending (the expiration
+  handler, `backgroundTimeExpired`), or gives none, the loop pauses and a
+  `BGProcessingTask` (`io.github.anthonytw.sempere.sync.processing`,
+  network required, no external power required) is requested to continue.
+- **Otherwise** a `BGAppRefreshTask` (`…sync.refresh`, not before 15
+  minutes) is requested whenever the app leaves the screen with an iCloud
+  vault open, so revisions other devices wrote are fetched and read before
+  the app is opened again.
+- A scheduled task runs passes over every note folder
+  (`runScheduledSync`, `cloudPollInterval` apart) until nothing is pending
+  or its expiration handler cancels it, then requests the next refresh.
+
+What iOS does not allow, so the app cannot promise it:
+
+- Background time after leaving the screen is short (about 30 seconds on
+  current iOS) and is not guaranteed; a large first sync does not finish in it.
+- Scheduled tasks run when iOS decides: it weighs battery, charging, network,
+  thermal state and how often the app is used. A refresh gets about 30
+  seconds; a processing task a few minutes, usually while charging and idle.
+  Background App Refresh switched off (Settings → General, or for the app),
+  Low Power Mode, or force-quitting the app from the app switcher stop both
+  until the app is opened again. The simulator runs neither unless debugged.
+- They sync only a vault that is still open in the suspended app. A task that
+  launches the app afresh (iOS terminated it meanwhile) finds no unlocked
+  vault, since the key is behind Face ID, and ends at once; the next launch
+  syncs as usual.
+- iCloud Drive itself keeps downloading files that were already requested
+  while the app is suspended; what stops is the app asking for the next
+  window of notes and reading the ones that arrived.
+
+The Mac (Catalyst) keeps apps running when their windows are in the
+background, so it schedules nothing.
+
 ## Opening a vault fast (app)
 
 The note list is shown from a persistent local **index**: the encrypted
@@ -582,6 +626,67 @@ does for deletions. The tar writer is POSIX ustar (names up to 255 bytes via
 the prefix field); the archive is verified with a small reader before it is
 renamed into place.
 
+`Backup.status` reads `backup.json` alone (last run, notes, files, bytes,
+sizes summed with saturation since the index may be hostile);
+`Backup.preview` lists a backup or vault folder without a key (notes,
+revisions, attachments, bytes, newest revision from the file names' clocks);
+`Backup.checkRestoreTarget` refuses a target before anything is written,
+including one that is, holds or lies inside a `protecting` folder (the open
+vault). The CLI's `backup status` and `restore --dry-run` and the app use them.
+
+### Backups in the app
+
+Settings → Backups (`AppModel+Backup.swift`, `BackupSettings.swift`,
+`BackupViews.swift`) runs the CLI's core; `docs/cli.md` "The app's Backups"
+maps each control to its command.
+
+- **Folder.** The user picks a folder (another drive, another cloud
+  provider's folder in Files). The backup goes into the folder itself when it
+  is empty or already this vault's backup, else into "<vault> Backup" inside
+  it (the next free "<vault> Backup N" when that name holds something else;
+  `BackupLocation.subfolder`). A vault, another vault's backup, the open vault
+  or a folder inside it is refused. The app keeps a bookmark of the picked
+  folder (`VaultBookmark`, plain options as for vaults, see "Saved folder
+  access") plus the subfolder name, per vault and per device
+  (`BackupRecord` in `UserDefaults` under `Sempere.backup.<vault id>`); access
+  granted to the picked folder covers the subfolder. A bookmark that no longer
+  resolves, or a folder that is gone, is reported by name ("choose it again").
+- **Back Up Now** is `Backup.run` off the main actor, with the picked folder's
+  security scope held for the run. An iCloud Drive vault is made local first,
+  every note (`downloadEverything`) and every attachment blob: a placeholder
+  is not a file `Backup.run` sees, so it would be missing from the backup.
+  The run's `afterEachFile` counts files for the progress line and stops the
+  run when the user taps Stop or the vault closes (the backup holds only
+  complete files; the next run finishes it). The run counts as the last
+  backup only without file errors. After a Verify Backup found problems, the
+  next run compares every file by hash (`--checksum`), so damaged copies are
+  replaced, not skipped for having the right size.
+- **Verify Backup** is `Backup.verify` with the unlocked key (every revision
+  decrypted and checked), or hashes only when the vault is locked; the
+  problems are listed (`BackupVerifyReport.problemLines`).
+- **Reminder.** "Remind me after N days without a backup" schedules one local
+  notification per vault (`UNUserNotificationCenter`, identifier
+  `Sempere.backupReminder.<vault id>`), due N days after the last backup, or
+  after the reminder was switched on when there is none, but never sooner than
+  an hour from now. It is rescheduled after every backup, every change of the
+  setting and every unlock; Settings shows an overdue backup in red even when
+  notifications are not allowed. The text names the vault, never a note.
+- **Restore from Backup** (Settings, and the welcome screen when no vault is
+  open): pick a backup folder, a folder holding one, or any vault folder
+  (`BackupLocation.restoreSource`); the sheet shows `Backup.preview` (notes,
+  versions, attachments, size, newest change, when it was backed up) before
+  anything is written. The restore goes into a new "<name>.sempere" on this
+  device or in a chosen folder through `Backup.restore(protecting: [open
+  vault])`, coordinated in iCloud Drive; a legacy (classic-key) backup is
+  refused as in the CLI. The new vault is added to the recents and can be
+  opened from the sheet; it has the backed-up vault's id and opens with the
+  same key. The open vault is never written.
+- A backup folder in iCloud Drive is downloaded before a restore; a backup
+  *into* iCloud Drive is written with plain file writes, which iCloud uploads,
+  but an evicted file of an earlier run there reads as missing to Verify
+  Backup. Prefer a folder that stays local (an external drive) or another
+  provider.
+
 ## Listing errors
 
 A directory that does not exist lists as empty (sync tools drop empty
@@ -604,8 +709,8 @@ The only in-place rewrite. The procedure is the recommended one of
    (recipient removed) it holds the **outgoing** vault secret, age-encrypted
    to the new recipient set.
 2. Write `vault.json` with the new recipients and `vaultSecret` (fresh on
-   removal), `recipientsTag` for them and, on removal, `secretLink` from the
-   outgoing secret (format.md §2.1), in the same atomic write; then save this
+   removal), `recipientsTag` for them and, on removal, `secretLink` signed by the
+   outgoing secret's keys (format.md §2.1), in the same atomic write; then save this
    device's trust record. Before step 1 the current list must check
    (`requireWritable`): a planted list, or a planted journal next to one, is
    never resumed or rewrapped to.
@@ -705,7 +810,12 @@ directory, a canonical revision file name (format.md §5), an `att`
 collection or a canonical blob name (format.md §8.1.2) are ignored and
 listed, never downloaded, so a hostile name cannot escape the vault. `keys/`
 and unknown files are not synced. A downloaded revision must start with the
-age header or it is rejected. Remote names are reported with control
+age header or it is rejected, and before it is placed it is checked as
+format.md §9.1 says (tag, note and name with the vault unlocked; age
+structure when locked); a file that fails is quarantined next to the sync
+state (`<state>.quarantine/`), reported, and not fetched again while it and
+the local `vault.json` are unchanged (`--retry-quarantined`). A first pull
+with `--identity` checks under the `vault.json` it pulls. Remote names are reported with control
 characters escaped, so a hostile name cannot drive the terminal. Response
 bodies are read incrementally and the request is cancelled past a limit
 (`maxFileBytes`, 256 MiB, for revisions; 16 MiB for listings, manifests and
@@ -760,7 +870,9 @@ revisions still sync, and readers draw a placeholder for it meanwhile
   1 GiB + 64 MiB, `--max-blob-mib`): a larger one is neither uploaded nor
   downloaded, and a body is cut off at the limit whatever the listing said.
   A downloaded blob must have the listed size and start with the age header,
-  or it is not written. Its content is verified when read, as for revisions.
+  or it is not written. With the vault unlocked it is then decrypted whole
+  and checked (framing, padding, hash, keyed name: format.md §9.1) before it
+  is linked into place; one that fails is quarantined, never placed.
 - *Write-once on the server.* An upload goes to `att/.sempere-tmp-<uuid>`
   (`If-None-Match: *`) and is renamed with `MOVE` and `Overwrite: F`, so no
   reader sees a partial blob under its name (a server that writes PUT bodies
@@ -846,6 +958,16 @@ folder from a new collection (or upload the rewritten vault to a new one) and
 retire the old one. `rewrap-journal.json` left on the server by a finished
 change is harmless but stays there. Syncing during an unfinished rewrap can
 copy a mix of old and new files.
+
+**Bounds per run** (`SyncLimits`, security review 2026-10, W5). Each
+request is bounded on its own; the run as a whole is bounded too: at most
+100 000 note folders listed, 10⁶ remote entries listed (root, note folders,
+`att/`), 64 GiB downloaded and 12 hours (`--max-notes`, `--max-entries`,
+`--max-download-mib`, `--max-minutes`). Time is checked before each note and
+each download, bytes before (from the listing) and after each download.
+Reaching a bound stops the run: the error says which (`stoppedEarly` in the
+JSON report), what was done is recorded in the state, and the next run
+continues from there.
 
 **State.** `$XDG_STATE_HOME/sempere/sync/<hash of URL and vault path>.json`:
 file names, hashes, ETags and snapshot coverage, no secrets. Deleting it makes

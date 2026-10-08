@@ -7,7 +7,7 @@ struct BackupCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "backup",
         abstract: "Back up a vault's encrypted files to a folder or a tar archive, and check backups.",
-        subcommands: [BackupRun.self, BackupVerify.self],
+        subcommands: [BackupRun.self, BackupVerify.self, BackupStatusCommand.self],
         defaultSubcommand: BackupRun.self
     )
 }
@@ -177,6 +177,39 @@ struct BackupVerify: ParsableCommand {
     }
 }
 
+struct BackupStatusCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "status",
+        abstract: "Show when a backup folder was last brought up to date and how much it holds.",
+        discussion: """
+            Reads DIR/backup.json only (no key, no other file): the vault id, the first and the last
+            run, and the notes, files and bytes it records (previous copies under versions/ apart).
+            It does not check the files: `sempere backup verify DIR` does. Exit 0, or 1 when DIR is
+            not a backup folder or its backup.json cannot be read.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("The backup folder.", valueName: "dir"))
+    var dir: String
+
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let status = try Backup.status(at: URL(fileURLWithPath: dir))
+        if output.json {
+            try output.emitJSON(status)
+        } else {
+            let date = ISO8601DateFormatter()
+            print("vault     \(status.vaultId)")
+            print("created   \(date.string(from: status.created))")
+            print("updated   \(date.string(from: status.updated))")
+            print("notes     \(status.notes)")
+            print("files     \(status.files) (\(status.bytes) bytes)")
+            print("versions  \(status.versionFiles) (\(status.versionBytes) bytes)")
+        }
+    }
+}
+
 struct RestoreCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "restore",
@@ -189,6 +222,10 @@ struct RestoreCommand: ParsableCommand {
             same command again to finish it. The restored vault is then verified: fully with a key
             (--identity), structure only without. Exit 0 ok, 1 files could not be restored, 3 the
             restored vault is not healthy, 4 the key does not open it.
+
+            --dry-run writes nothing: it checks NEWPATH as a real restore would (refusing it the same
+            way) and prints what DIR holds: notes, revisions, attachments, bytes and the newest
+            revision's time (from file names, no key needed).
             """
     )
 
@@ -197,6 +234,9 @@ struct RestoreCommand: ParsableCommand {
 
     @Option(name: .long, help: ArgumentHelp("The new vault folder (*.sempere).", valueName: "newpath"))
     var to: String
+
+    @Flag(name: .long, help: "Show what would be restored and check NEWPATH; write nothing.")
+    var dryRun = false
 
     @OptionGroup var access: AccessOptions
     @OptionGroup var output: OutputOptions
@@ -207,9 +247,31 @@ struct RestoreCommand: ParsableCommand {
         // Restoring would hand back a legacy vault: refused before anything is
         // copied (migrate the backup folder itself, which is a vault, first).
         try Vault.open(at: source).requireMigrated()
+        // Never into (or around) the vault named by --vault / $SEMPERE_VAULT.
+        let protecting = (access.vault ?? Env.vars["SEMPERE_VAULT"]).map { [URL(fileURLWithPath: $0)] } ?? []
+        if dryRun {
+            try Backup.checkRestoreTarget(URL(fileURLWithPath: to), from: source, protecting: protecting)
+            let preview = try Backup.preview(of: source)
+            if output.json {
+                try output.emitJSON(preview)
+            } else {
+                let date = ISO8601DateFormatter()
+                print("vault        \(preview.vaultId)" + (preview.isBackup ? "" : " (a vault folder, not a backup)"))
+                if let d = preview.backupUpdated { print("backed up    \(date.string(from: d))") }
+                print("notes        \(preview.notes)")
+                print("revisions    \(preview.revisions)")
+                print("attachments  \(preview.attachments)")
+                print("key files    \(preview.keyFiles)")
+                print("bytes        \(preview.bytes)")
+                print("newest       \(preview.newestRevision.map { date.string(from: $0) } ?? "none")")
+                output.info("Nothing written; \(to) can take the restore.")
+            }
+            return
+        }
         let identities = try access.explicitIdentities()
         if !identities.isEmpty { _ = try Vault.open(at: source, identities: identities) }   // exit 4 early
-        let report = try Backup.restore(from: source, to: URL(fileURLWithPath: to), identities: identities)
+        let report = try Backup.restore(from: source, to: URL(fileURLWithPath: to), identities: identities,
+                                        protecting: protecting)
         let verify = report.verify
         let bad = (verify?.files ?? []).filter { ![.ok, .unknownFile, .notChecked].contains($0.status) }
         if output.json {
