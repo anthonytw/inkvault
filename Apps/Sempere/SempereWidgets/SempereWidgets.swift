@@ -9,7 +9,7 @@ import ActivityKit
 /// Screen and Home Screen widget, a Control Center control (also offered to
 /// the Action button), and the Live Activity of a recording. Every button
 /// runs `StartVoiceNoteIntent`, `StopVoiceNoteIntent` or
-/// `OpenVoiceNotesIntent` in the app's process; nothing here reads the vault.
+/// `VoiceNoteControlIntent` in the app's process; nothing here reads the vault.
 /// What they show comes from `VoiceNoteStatus`, which the app writes into the
 /// App Group container and reloads these after every change.
 @main
@@ -24,15 +24,6 @@ struct SempereWidgets: WidgetBundle {
 extension VoiceNoteStatus {
     /// The stored status, or `unknown` (before the first unlock, among others).
     static func current() -> VoiceNoteStatus { VoiceNoteStatusStore.shared?.read() ?? .unknown }
-}
-
-extension VoiceNoteDestination {
-    init(_ link: VoiceNoteLink) {
-        switch link {
-        case .settings: self = .settings
-        case .recording: self = .recording
-        }
-    }
 }
 
 struct VoiceNoteEntry: TimelineEntry {
@@ -138,21 +129,10 @@ struct VoiceNoteControlProvider: ControlValueProvider {
 struct VoiceNoteControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: VoiceNoteStatus.controlKind, provider: VoiceNoteControlProvider()) { status in
-            switch status.action {
-            case .start:
-                ControlWidgetButton(action: StartVoiceNoteIntent()) {
-                    Label(status.title, systemImage: status.symbol)
-                }
-            case .stop:
-                ControlWidgetButton(action: StopVoiceNoteIntent()) {
-                    Label(status.title, systemImage: status.symbol)
-                    Text(status.subtitle)
-                }
-            case .open(let link):
-                ControlWidgetButton(action: OpenVoiceNotesIntent(VoiceNoteDestination(link))) {
-                    Label(status.title, systemImage: status.symbol)
-                    Text(status.subtitle)
-                }
+            // One template: the action is decided when tapped (`VoiceNoteControlIntent`).
+            ControlWidgetButton(action: VoiceNoteControlIntent(shown: status.phase)) {
+                Label(status.title, systemImage: status.symbol)
+                Text(status.subtitle)
             }
         }
         .displayName("Sempere Voice Note")

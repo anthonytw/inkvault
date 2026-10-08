@@ -35,6 +35,19 @@ struct VoiceNoteStatusTests {
         #expect(!VoiceNoteStatus(phase: .ready).isActive)
     }
 
+    /// The control decides when tapped, from the live state; a stale Stop
+    /// (the recording's process died) never starts a new recording.
+    @Test func theControlFollowsTheLiveStateButNeverTurnsStopIntoStart() {
+        let ready = VoiceNoteStatus(phase: .ready)
+        #expect(VoiceNoteStatus.controlAction(shown: .ready, live: ready) == .start)
+        #expect(VoiceNoteStatus.controlAction(shown: nil, live: ready) == .start)
+        #expect(VoiceNoteStatus.controlAction(shown: .recording, live: ready) == .stop)
+        #expect(VoiceNoteStatus.controlAction(shown: .ready, live: VoiceNoteStatus(phase: .recording)) == .stop)
+        #expect(VoiceNoteStatus.controlAction(shown: .ready, live: VoiceNoteStatus(phase: .notSetUp)) == .open(.settings),
+                "turned off since the control was drawn: open the setup")
+        #expect(VoiceNoteStatus.controlAction(shown: .recording, live: VoiceNoteStatus(phase: .notSetUp)) == .open(.settings))
+    }
+
     /// Before the first unlock nothing can be read: the widget shows the
     /// plain record button, never an empty box.
     @Test func unknownIsThePlainRecordButton() {

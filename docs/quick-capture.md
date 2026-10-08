@@ -140,9 +140,14 @@ Live Activities switched in Settings) and reloads the widgets
 status holds only the phase and the start time of a recording in progress: no
 key, no vault, no note.
 
+The control has one action, `VoiceNoteControlIntent` (a control's template
+cannot switch on its value): it decides when tapped, from the app's live
+state, whether to record, stop, or continue in the app (iOS 26
+`continueInForeground`). The widgets switch their button per state.
+
 | Phase | Shows | A tap |
 | --- | --- | --- |
-| Not set up | mic slashed, "Set Up Voice Notes" | opens the app at Settings ▸ Quick Voice Notes (`sempere://quick-voice/settings`, or `OpenVoiceNotesIntent` for the control) |
+| Not set up | mic slashed, "Set Up Voice Notes" | opens the app at Settings ▸ Quick Voice Notes (`sempere://quick-voice/settings`; the control's `VoiceNoteControlIntent` continues in the app) |
 | Live Activities off | mic slashed, "Live Activities Off" | the same; the section explains and links to the app's page in Settings |
 | Ready | mic | records (`StartVoiceNoteIntent`) |
 | Recording | stop, the elapsed time | stops and saves (`StopVoiceNoteIntent`) |

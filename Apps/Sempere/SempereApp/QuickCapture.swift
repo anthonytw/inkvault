@@ -148,7 +148,7 @@ final class QuickCapture {
     /// (cleared after `VoiceNoteResult.shownFor`).
     private(set) var notice: Notice?
     /// A place a widget, the control or the Live Activity asked the app to
-    /// show (`sempere://quick-voice/…`, `OpenVoiceNotesIntent`); the window
+    /// show (`sempere://quick-voice/…`, `VoiceNoteControlIntent`); the window
     /// that shows it clears it.
     var pendingLink: VoiceNoteLink?
 
@@ -204,6 +204,7 @@ final class QuickCapture {
     /// their Stop button would reach a process that knows nothing of them.
     static func register() {
         VoiceNoteActions.open = { QuickCapture.shared.pendingLink = $0 }
+        VoiceNoteActions.status = { QuickCapture.shared.status }
         VoiceNoteActions.start = { try await QuickCapture.shared.start() }
         VoiceNoteActions.stop = {
             do { _ = try await QuickCapture.shared.stop() } catch QuickCaptureError.notRecording {

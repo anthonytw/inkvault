@@ -9,8 +9,10 @@ import Foundation
 enum VoiceNoteActions {
     static var start: (@MainActor () async throws -> Void)?
     static var stop: (@MainActor () async throws -> Void)?
-    /// Shows a place in the app (`OpenVoiceNotesIntent`).
+    /// Shows a place in the app (`VoiceNoteControlIntent`).
     static var open: (@MainActor (VoiceNoteLink) -> Void)?
+    /// The live status (`QuickCapture.status`): what the control's tap does.
+    static var status: (@MainActor () -> VoiceNoteStatus)?
 }
 
 /// Why a voice note intent did nothing.
@@ -56,47 +58,45 @@ struct StopVoiceNoteIntent: LiveActivityIntent {
     }
 }
 
-/// Where `OpenVoiceNotesIntent` opens the app.
-enum VoiceNoteDestination: String, AppEnum {
-    case settings
-    case recording
-
-    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Voice Note Screen" }
-    static var caseDisplayRepresentations: [VoiceNoteDestination: DisplayRepresentation] {
-        [.settings: "Quick Voice Notes Settings", .recording: "Voice Note Being Recorded"]
-    }
-
-    var link: VoiceNoteLink {
-        switch self {
-        case .settings: return .settings
-        case .recording: return .recording
-        }
-    }
-}
-
-/// Opens Sempere at Settings ▸ Quick Voice Notes or at the recording banner:
-/// what the Control Center control does while quick voice notes are not set
-/// up (or Live Activities are off), so a tap explains instead of failing.
-struct OpenVoiceNotesIntent: AppIntent {
-    static let title: LocalizedStringResource = "Open Quick Voice Notes"
+/// The Control Center control's one action (a control cannot change its
+/// action with its state: `ControlWidgetTemplateBuilder` has no `if`): records
+/// when ready, stops while recording, and otherwise (not set up, Live
+/// Activities off, still saving) continues in the app at Settings ▸ Quick
+/// Voice Notes or the recording banner, instead of failing silently (build 7).
+/// What to do is decided here, in the app's process, from its live state
+/// (`VoiceNoteActions.status`), not from the status file the control drew.
+struct VoiceNoteControlIntent: AudioRecordingIntent, LiveActivityIntent {
+    static let title: LocalizedStringResource = "Record or Stop a Voice Note"
     static var description: IntentDescription? {
-        IntentDescription("Opens Sempere at the Quick Voice Notes settings or the voice note being recorded.")
+        IntentDescription("Records a voice note into your Sempere vault's inbox, or stops the one being recorded.")
     }
-    static let openAppWhenRun = true
     static let isDiscoverable = false
+    static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
 
-    @Parameter(title: "Screen", default: .settings)
-    var destination: VoiceNoteDestination
+    /// The phase the control showed when tapped (`VoiceNoteStatus.Phase` raw value).
+    @Parameter(title: "Shown")
+    var shown: String?
 
     init() {}
 
-    init(_ destination: VoiceNoteDestination) {
-        self.destination = destination
+    init(shown: VoiceNoteStatus.Phase) {
+        self.shown = shown.rawValue
     }
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        VoiceNoteActions.open?(destination.link)
+        guard let status = VoiceNoteActions.status, let start = VoiceNoteActions.start, let stop = VoiceNoteActions.stop else {
+            throw VoiceNoteIntentError.unavailable
+        }
+        switch VoiceNoteStatus.controlAction(shown: shown.flatMap(VoiceNoteStatus.Phase.init(rawValue:)), live: status()) {
+        case .start:
+            try await start()
+        case .stop:
+            try await stop()
+        case .open(let link):
+            try await continueInForeground(alwaysConfirm: false)
+            VoiceNoteActions.open?(link)
+        }
         return .result()
     }
 }
