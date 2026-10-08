@@ -33,6 +33,15 @@ struct DragAndDropTests {
         #expect(DragPayload.decode(mixed, as: .sempereNotes) == .notes([ids[0]]))
     }
 
+    /// TestFlight builds 6 and 7: a `.move` proposal is cancelled at the
+    /// release by sessions that allow no move (SwiftUI's `onDrag` from a
+    /// `List` row), so the drop never ran. The real drag is in
+    /// `SidebarDropUITests`; this pins the rule.
+    @Test func rowsNeverProposeAMoveTheSessionMayRefuse() {
+        #expect(SidebarDrop.proposedOperation(accepted: true) == .copy)
+        #expect(SidebarDrop.proposedOperation(accepted: false) == .forbidden)
+    }
+
     @Test func onlyNotebooksAndAllNotesTakeDrops() {
         #expect(DropTarget(.allNotes) == .topLevel)
         #expect(DropTarget(.notebook(" A // B ")) == .notebook("A/B"))

@@ -107,6 +107,21 @@ enum SidebarDrop {
         }
     }
 
+    /// The operation a sidebar row proposes for a drag over it: `.copy` when
+    /// the drop is accepted, never `.move`. The notes are moved by the app
+    /// (`AppModel.move`), not by the drag session, and the sessions SwiftUI's
+    /// `onDrag` starts from a `List` row do not allow a move operation
+    /// (`UIDropSession.allowsMoveOperation` is false on iOS; the drag source's
+    /// operation mask has no move on Mac Catalyst). UIKit turns a `.move`
+    /// proposal the session does not allow into a cancelled drop: the row is
+    /// highlighted while the finger or pointer hovers, but releasing it calls
+    /// `dropExited` and never `performDrop`. That was TestFlight builds 6 and 7
+    /// ("dropping does nothing", iPad and Mac), shown by `SidebarDropUITests`'
+    /// drop trace. `.copy` is allowed for every session.
+    static func proposedOperation(accepted: Bool) -> DropOperation {
+        accepted ? .copy : .forbidden
+    }
+
     /// The undo menu title of a drop.
     static func actionName(_ payload: DragPayload) -> String {
         switch payload {
@@ -163,7 +178,7 @@ struct SidebarDropDelegate: DropDelegate {
         trace("updated")
         let allowed = model.acceptsDrop(on: target, carriesAppTypes: validateDrop(info: info))
         model.setDropTarget(allowed ? target : nil)
-        return DropProposal(operation: allowed ? .move : .forbidden)
+        return DropProposal(operation: SidebarDrop.proposedOperation(accepted: allowed))
     }
 
     func dropExited(info: DropInfo) {

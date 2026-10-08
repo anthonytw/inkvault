@@ -96,7 +96,7 @@ final class SidebarDropUITests: XCTestCase {
         let row = sidebarRow(app, title)
         require(row, "sidebar row \(title)", in: app)
         select(row)
-        XCTAssertTrue(noteRow(app, expected).waitForExistence(timeout: 20), "\(title) lists \(expected)")
+        require(noteRow(app, expected), "\(title) lists \(expected)", in: app)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: noteRow(app, outside))
         wait(for: [gone], timeout: 20)
     }
@@ -125,7 +125,7 @@ final class SidebarDropUITests: XCTestCase {
     func testDroppingANotebookOnANotebookNestsIt() throws {
         let app = launch()
         defer { app.terminate() }
-        require(noteRow(app, "Grocery list"), "note row", in: app, timeout: 90)
+        require(noteRow(app, "Sync design sketch"), "note row", in: app, timeout: 90)
         showSidebar(app)
         let work = sidebarRow(app, "Work"), personal = sidebarRow(app, "Personal")
         require(work, "sidebar row Work", in: app)
