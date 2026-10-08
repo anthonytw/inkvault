@@ -123,6 +123,7 @@ public enum ShareExport {
         var render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer, shaper: shaper)
         render.embedRecordings = options.format == .pdf && options.pdfAttachments
         render.embedVideos = options.format == .pdf && options.pdfAttachments
+        render.listAttachments = options.format == .pdf && options.pdfAttachments
         func renderOptions(for id: UUID) -> RenderOptions {
             var r = render
             r.blobs = blobs?(id)

@@ -8,7 +8,7 @@ extension PageBreaks: ExpressibleByArgument {}
 extension BulkExportLayout: ExpressibleByArgument {}
 
 enum ExportFormat: String, ExpressibleByArgument, CaseIterable {
-    case pdf, svg, png, json, markdown, html
+    case pdf, svg, png, json, markdown, html, media
 
     /// The folder-tree format (`SempereRender.TreeExporter`), nil for the per-file formats.
     var tree: TreeFormat? {
@@ -35,7 +35,7 @@ enum PDFRendererChoice: String, ExpressibleByArgument, CaseIterable {
 struct ExportCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
-        abstract: "Export notes to PDF, SVG or PNG (one file per page), JSON, or a Markdown or HTML folder tree.",
+        abstract: "Export notes to PDF, SVG or PNG (one file per page), JSON, a Markdown or HTML folder tree, or their media files.",
         discussion: """
             File names are the sanitised title plus the first 8 characters of the note id, e.g.
             Physics-week-3-0d1c6a1e.pdf. --out is a directory, except for a single note's pdf/json
@@ -75,6 +75,17 @@ struct ExportCommand: ParsableCommand {
             a PDF of 1 GiB of video takes no more memory than one without. markdown and html write
             each clip once next to the note (<name>-assets/video-N.mp4) and link it; the clip's
             location metadata is removed on the way unless --keep-image-metadata.
+
+            "PDF + attachments" (--attachments, --recordings attach, --videos attach) ends with an
+            attachment list: a page listing each recording, transcript and clip (kind, title, the pages it
+            appears on, duration, size), with a link to each embedded file and to its first page.
+            --recordings list adds that page without embedding anything.
+
+            media writes each note's recordings (and their transcripts as .txt), video clips, images and
+            PDFs as files into a folder <name>/ under --out, decrypted and verified, named
+            <title>-Recording-1-<recording title>.m4a, <title>-Image-2.jpg, ..., with a media.json manifest
+            (file, kind, title, pages, duration, start, transcript, type, size). Image and clip metadata is
+            removed unless --keep-image-metadata. With --all, notes without media are skipped.
             """
     )
 
@@ -84,7 +95,7 @@ struct ExportCommand: ParsableCommand {
     @Flag(name: .long, help: "Export every note.")
     var all = false
 
-    @Option(name: .long, help: "pdf, svg, png or json.")
+    @Option(name: .long, help: "pdf, svg, png, json, markdown, html or media.")
     var format: ExportFormat
 
     @Option(name: .long, help: ArgumentHelp("Output path (see above).", valueName: "path"))
@@ -130,8 +141,8 @@ struct ExportCommand: ParsableCommand {
           help: "Keep images' EXIF/XMP/GPS metadata in the export (removed by default).")
     var keepImageMetadata = false
 
-    @Option(name: .long, help: ArgumentHelp("pdf only: none (default) or attach: embed each note's recordings, and their transcripts as .txt, as PDF file attachments.",
-                                            valueName: "none|attach"))
+    @Option(name: .long, help: ArgumentHelp("pdf only: none (default); attach: embed each note's recordings, and their transcripts as .txt, as PDF file attachments, with a final page listing them; list: that page alone.",
+                                            valueName: "none|attach|list"))
     var recordings: RecordingsMode = .none
 
     @Option(name: .long, help: ArgumentHelp("pdf only: none (default) or attach: embed each note's video clips as PDF file attachments.",
@@ -145,14 +156,14 @@ struct ExportCommand: ParsableCommand {
                                             valueName: "dir"))
     var assets: String?
 
-    @Option(name: .long, help: ArgumentHelp("pdf/png with --all: flat (every file in --out, the default) or notebooks (a folder per notebook level).",
+    @Option(name: .long, help: ArgumentHelp("pdf/png/media with --all: flat (every file in --out, the default) or notebooks (a folder per notebook level).",
                                             valueName: "flat|notebooks"))
     var layout: BulkExportLayout = .flat
 
-    @Flag(name: .long, help: "pdf/png with --all: write one zip archive at --out (a .zip path) instead of files.")
+    @Flag(name: .long, help: "pdf/png/media with --all: write one zip archive at --out (a .zip path) instead of files.")
     var zip = false
 
-    @Flag(name: .long, help: "pdf/png with --all: render every note again, even those an earlier export into --out wrote unchanged.")
+    @Flag(name: .long, help: "pdf/png/media with --all: export every note again, even those an earlier export into --out wrote unchanged.")
     var overwrite = false
 
     @OptionGroup var access: AccessOptions
@@ -162,20 +173,24 @@ struct ExportCommand: ParsableCommand {
     func validate() throws {
         guard all != (note != nil) else { throw ValidationError("give exactly one of a note (id or title) and --all") }
         if merge && format != .pdf { throw ValidationError("--merge only applies to --format pdf") }
+        if format == .media && (noPaper || breaks != .gaps) {
+            throw ValidationError("--no-paper and --breaks do not apply to --format media")
+        }
         if at != nil && all { throw ValidationError("--at needs a single note, not --all") }
         let tree = format == .markdown || format == .html
         if images != .none && format != .markdown { throw ValidationError("--images only applies to --format markdown") }
         if assets != nil && format != .svg { throw ValidationError("--assets only applies to --format svg") }
-        if recordings == .attach && format != .pdf { throw ValidationError("--recordings attach only applies to --format pdf") }
-        if videos == .attach && format != .pdf { throw ValidationError("--videos attach only applies to --format pdf") }
+        if recordings != .none && format != .pdf { throw ValidationError("--recordings \(recordings.rawValue) only applies to --format pdf") }
+        if videos == .list || videos == .listAttach { throw ValidationError("--videos takes none or attach (--recordings list lists the clips too)") }
+        if videos != .none && format != .pdf { throw ValidationError("--videos attach only applies to --format pdf") }
         if attachments && format != .pdf { throw ValidationError("--attachments only applies to --format pdf") }
         if clean && !tree { throw ValidationError("--clean only applies to --format markdown or html") }
         if clean && !all { throw ValidationError("--clean needs --all") }
         if notebook != nil && !all { throw ValidationError("--notebook needs --all") }
         if layout != .flat || zip || overwrite {
             guard bulk else {
-                throw ValidationError("--layout, --zip and --overwrite need --all with --format pdf or png (not --merge, "
-                                      + "and --recordings and --videos together, as --attachments does)")
+                throw ValidationError("--layout, --zip and --overwrite need --all with --format pdf, png or media (not --merge "
+                                      + "or --recordings list, and --recordings and --videos together, as --attachments does)")
             }
         }
         if format == .markdown && images == .png && !(dpi.isFinite && dpi > 0 && dpi <= 2400) {
@@ -192,12 +207,18 @@ struct ExportCommand: ParsableCommand {
     /// `--all` as PDF or PNG files: one note at a time through the shared
     /// bulk export (`BulkExportSession`, the app's "Export Notes…").
     var bulk: Bool {
-        all && !merge && at == nil && (format == .png || (format == .pdf && (attachments || recordings == videos)))
+        all && !merge && at == nil
+            && (format == .png || format == .media
+                || (format == .pdf && recordings != .list && (attachments || embedRecordings == embedVideos)))
     }
 
     /// The bulk export's format.
     var bulkFormat: BulkExportFormat {
-        format == .png ? .png : (attachments || recordings == .attach ? .pdfAttachments : .pdf)
+        switch format {
+        case .png: return .png
+        case .media: return .media
+        default: return embedRecordings ? .pdfAttachments : .pdf
+        }
     }
 
     /// The rasterizer for SVG and PNG (and for PDF pages that cannot be copied).
@@ -239,8 +260,19 @@ struct ExportCommand: ParsableCommand {
     }
 
     enum RecordingsMode: String, ExpressibleByArgument, CaseIterable {
-        case none, attach
+        case none, attach, list
+        /// `list,attach` (docs/attachments.md §10): the same as `attach`, which lists them too.
+        case listAttach = "list,attach"
+
+        var embeds: Bool { self == .attach || self == .listAttach }
     }
+
+    /// Recordings are embedded (`--recordings attach`, `--attachments`).
+    var embedRecordings: Bool { attachments || recordings.embeds }
+    /// Clips are embedded (`--videos attach`, `--attachments`).
+    var embedVideos: Bool { attachments || videos.embeds }
+    /// The attachment list page: with anything embedded, or `--recordings list`.
+    var listAttachments: Bool { embedRecordings || embedVideos || recordings == .list }
 
     struct Written: Encodable {
         var note: String
@@ -295,8 +327,9 @@ struct ExportCommand: ParsableCommand {
         }
         var options = RenderOptions(paper: !noPaper, breaks: breaks, pdfRasterizer: try rasterizer(),
                                     keepImageMetadata: keepImageMetadata, shaper: DefaultTextShaper(library: fonts))
-        options.embedRecordings = recordings == .attach || attachments
-        options.embedVideos = videos == .attach || attachments
+        options.embedRecordings = embedRecordings
+        options.embedVideos = embedVideos
+        options.listAttachments = listAttachments
         var placeholders = 0
         func warn(_ report: RenderReport, note: String) {
             placeholders += report.placeholders.count
@@ -328,7 +361,7 @@ struct ExportCommand: ParsableCommand {
         }
 
         let singleFile = note != nil && (out.hasSuffix(".\(format.rawValue)") && format != .svg
-                                         && format != .markdown && format != .html)
+                                         && format != .markdown && format != .html && format != .media)
         if let treeFormat = format.tree {
             var tree = TreeExporter(root: URL(fileURLWithPath: out), format: treeFormat, images: images, options: options,
                                     png: PNGOptions(dpi: dpi), source: "sempere", clean: clean, notebookFilter: notebook,
@@ -388,6 +421,15 @@ struct ExportCommand: ParsableCommand {
                         report(s, [file], items)
                     case .markdown, .html:
                         break
+                    case .media:
+                        let folder = path(stem)
+                        let r = try MediaExport.write(state, noteId: s.id, blobs: noteOptions.blobs,
+                                                      to: URL(fileURLWithPath: folder), keepMetadata: keepImageMetadata,
+                                                      report: &items)
+                        if r.files.isEmpty {
+                            items.warnings.append("no recordings, videos, images or PDFs to export")
+                        }
+                        report(s, r.files.map { URL(fileURLWithPath: folder).appendingPathComponent($0).path }, items)
                     case .svg, .png:
                         let pages: [Data]
                         var assetFiles: [String] = []

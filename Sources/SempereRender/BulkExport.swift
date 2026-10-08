@@ -14,6 +14,10 @@ public enum BulkExportFormat: String, CaseIterable, Sendable, Codable, Identifia
     case pdfAttachments = "pdf-attachments"
     /// `<stem>/p001.png`, `p002.png`, ...
     case png
+    /// `<stem>/`: the note's recordings (and transcripts), clips, images and
+    /// PDFs as files, with `media.json` (`MediaExport`); notes without media
+    /// write nothing.
+    case media
 
     public var id: String { rawValue }
 
@@ -23,8 +27,12 @@ public enum BulkExportFormat: String, CaseIterable, Sendable, Codable, Identifia
         case .pdf: return "PDF"
         case .pdfAttachments: return "PDF + attachments"
         case .png: return "PNG Pages"
+        case .media: return "Media"
         }
     }
+
+    /// A folder per note (PNG pages, media) rather than one file.
+    public var isFolder: Bool { self == .png || self == .media }
 }
 
 /// Where a bulk export puts each note's files below the output folder.
@@ -89,6 +97,7 @@ public struct BulkExportOptions: Sendable, Equatable {
         r.keepImageMetadata = keepImageMetadata
         r.embedRecordings = format == .pdfAttachments
         r.embedVideos = format == .pdfAttachments
+        r.listAttachments = format == .pdfAttachments
         return r
     }
 }
@@ -108,9 +117,9 @@ public struct BulkExportJob: Sendable, Equatable, Identifiable {
         self.noteId = noteId; self.title = title; self.folder = folder; self.stem = stem
     }
 
-    /// The name the note takes in its folder: `<stem>.pdf`, or the folder `<stem>` of its PNG pages.
+    /// The name the note takes in its folder: `<stem>.pdf`, or the folder `<stem>` of its PNG pages or media.
     public func leaf(_ format: BulkExportFormat) -> String {
-        format == .png ? stem : stem + ".pdf"
+        format.isFolder ? stem : stem + ".pdf"
     }
 
     /// `leaf` with its folders, `/`-separated, relative to the output folder.
@@ -173,7 +182,9 @@ public enum BulkExportPlan {
     /// only on the ids, so a re-run names every note the same way.
     public static func jobs(for scope: BulkExportScope, from notes: [NoteSummary], format: BulkExportFormat,
                             layout: BulkExportLayout, includeDeleted: Bool = false) -> [BulkExportJob] {
-        let chosen = self.notes(in: scope, from: notes, includeDeleted: includeDeleted)
+        var chosen = self.notes(in: scope, from: notes, includeDeleted: includeDeleted)
+        // Notes without any audio, video, image or PDF have nothing to write.
+        if format == .media { chosen = chosen.filter(MediaExport.mayHaveMedia) }
         var folders: [String?: [String]] = [:]
         if layout == .notebooks {
             folders = TreeExporter.folders(for: chosen.map { NotebookPath.canonical($0.notebook) })
@@ -426,7 +437,7 @@ public final class BulkExportSession: @unchecked Sendable {
         let id = job.noteId.uuidString.lowercased()
         let prefix = job.path(options.format)
         let mine = manifest.files.filter { rel, e in
-            e.note == id && (options.format == .png ? rel.hasPrefix(prefix + "/") : rel == prefix)
+            e.note == id && (options.format.isFolder ? rel.hasPrefix(prefix + "/") : rel == prefix)
         }
         guard !mine.isEmpty else { return false }
         let fm = FileManager.default
@@ -462,11 +473,21 @@ public final class BulkExportSession: @unchecked Sendable {
         let root = self.root
         func url(_ rel: String) -> URL { root.appendingPathComponent(rel) }
         func removeWritten() { for rel in written { try? fm.removeItem(at: url(rel)) } }
+        /// Files an earlier, longer version of the note left in its folder (pages, media).
+        func removeEarlier(_ folder: String) {
+            guard case .folder = destination else { return }
+            for (rel, e) in manifest.files where rel.hasPrefix(folder + "/") && BulkExportManifest.isSafe(rel)
+                && e.note == job.noteId.uuidString.lowercased() {
+                try? fm.removeItem(at: url(rel))
+                manifest.files[rel] = nil
+            }
+        }
         var outcome = BulkNoteOutcome(job: job, status: .exported)
         do {
             try Task.checkCancellation()
-            let dir = url((job.folder).joined(separator: "/"))
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            if options.format != .media {   // a note without media writes nothing, not even its folders
+                try fm.createDirectory(at: url(job.folder.joined(separator: "/")), withIntermediateDirectories: true)
+            }
             switch options.format {
             case .pdf, .pdfAttachments:
                 let rel = job.path(options.format)
@@ -483,18 +504,17 @@ public final class BulkExportSession: @unchecked Sendable {
                 _ = try? fm.removeItem(at: url(rel))
                 try fm.moveItem(at: partial, to: url(rel))
                 written = [rel]
+            case .media:
+                let folder = job.path(.media)
+                removeEarlier(folder)
+                let r = try MediaExport.write(state, noteId: job.noteId, blobs: blobs, to: url(folder),
+                                              keepMetadata: options.keepImageMetadata, report: &report)
+                written = r.files.map { folder + "/" + $0 }
             case .png:
                 let pages = try PNGWriter.render(note: state, options: render, png: PNGOptions(dpi: options.dpi), report: &report)
                 let folder = job.path(.png)
                 try fm.createDirectory(at: url(folder), withIntermediateDirectories: true)
-                // Pages an earlier, longer version of the note left behind.
-                if case .folder = destination {
-                    for (rel, e) in manifest.files where rel.hasPrefix(folder + "/") && BulkExportManifest.isSafe(rel)
-                        && e.note == job.noteId.uuidString.lowercased() {
-                        try? fm.removeItem(at: url(rel))
-                        manifest.files[rel] = nil
-                    }
-                }
+                removeEarlier(folder)
                 for (i, data) in pages.enumerated() {
                     try Task.checkCancellation()
                     let rel = folder + String(format: "/p%03d.png", i + 1)
@@ -515,7 +535,8 @@ public final class BulkExportSession: @unchecked Sendable {
         outcome.placeholders = report.placeholders.count
         outcome.recordingsAttached = report.recordingsAttached
         outcome.videosAttached = report.videosAttached
-        outcome.recordingsOmitted = options.format == .png ? state.recordings.count : report.recordingsOmitted
+        outcome.recordingsOmitted = options.format == .png ? state.recordings.count
+            : options.format == .media ? 0 : report.recordingsOmitted
         outcome.report = report
         switch destination {
         case .folder:
