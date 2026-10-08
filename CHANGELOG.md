@@ -226,6 +226,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   additional permission). Contributions are licensed under the same terms and certified with a
   DCO sign-off; there is no contributor licence agreement.
 
+### Fixed
+
+- App crash audit (no new features): a hostile or corrupt revision can no longer crash the app when a note
+  is shown. Items whose frame overflows to NaN, or lies past 200 000 pt, are not drawn or selectable (Core
+  Animation raised on a NaN layer position); huge video durations no longer trap in the player title and the
+  Markdown/HTML exports; recorded strokes too wide to draw get no playback highlight; huge rotations are
+  reduced to one turn; PDF page previews and page-strip thumbnails have pixel budgets; a NaN audio duration
+  gives a valid scrubber. Opening a note in iCloud asks file states off the main thread, and a Mac drag-out
+  whose preparation never ends fails after 20 s instead of freezing.
+
 ## [0.5.0] - TODO(user): date of the first release
 
 First public release of the `sempere` CLI. Everything below was merged before
