@@ -76,6 +76,13 @@ struct WindowSheets: ViewModifier {
                                  } })) { request in
                 ExportSheet(request: request)
             }
+            .sheet(item: Binding(get: { BulkExportRequest.shown(model.bulkExportRequest, in: ui.id, canvasWindow: model.canvasWindow) },
+                                 set: { if $0 == nil, BulkExportRequest.shown(model.bulkExportRequest, in: ui.id,
+                                                                                canvasWindow: model.canvasWindow) != nil {
+                                     model.bulkExportRequest = nil
+                                 } })) { request in
+                BulkExportSheet(request: request)
+            }
     }
 }
 

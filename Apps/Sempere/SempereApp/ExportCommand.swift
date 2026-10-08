@@ -68,6 +68,11 @@ struct ExportMenu: View {
                 }
                 .disabled(!model.canExport(command.format, ids: ids))
             }
+            Divider()
+            // Several notes as files in a folder (resumable) or one zip archive (`BulkExportSheet`).
+            Button("To Folder or Zip…", systemImage: "folder") {
+                model.requestBulkExport(.notes(ids), window: ui?.id)
+            }
         }
         .disabled(ids.isEmpty || model.phase != .unlocked)
     }

@@ -26,6 +26,7 @@ struct SempereApp: App {
     init() {
         // Staged exports are plaintext copies of notes: none survives a launch.
         ExportJob.purgeStale()
+        BulkExportRun.purgeStale()
         // Plaintext PDFs dragged out in an earlier run that quit with a vault
         // open (each model empties only its own folder, when the vault closes).
         NotePDFExport.purge(olderThan: 0)

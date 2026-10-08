@@ -65,7 +65,7 @@ extension AppModel {
     /// Opens the export sheet for `ids` with the command's format.
     func requestExport(_ command: ExportCommand, ids: [UUID], window: UUID? = nil) {
         // One export at a time: replacing the request would dismiss a running sheet.
-        guard phase == .unlocked, canExport(command.format, ids: ids), exportRequest == nil else { return }
+        guard phase == .unlocked, canExport(command.format, ids: ids), exportRequest == nil, bulkExportRequest == nil else { return }
         exportRequest = ExportRequest(noteIDs: ids, format: command.format, window: window)
     }
 
@@ -89,21 +89,7 @@ extension AppModel {
             try ensureCurrent(gen)
             progress(ExportProgress(phase: .reading, done: i, total: ids.count))
             do {
-                try await downloadNote(id)
-                let coordinate = coordinationURL
-                let cloud = isCloudVault
-                let hooks = cloudHooks
-                let url = vault.url
-                let item = try await offMain {
-                    try CloudVault.coordinatedRead(coordinate) { () throws -> LoadedForExport in
-                        // As for the editor: a revision evicted or newly listed since
-                        // `downloadNote` would export an older note without a word.
-                        if cloud { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
-                        let note = try vault.loadNote(id)
-                        if cloud { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
-                        return LoadedForExport(summary: vault.summary(of: id, loaded: note), state: try vault.reconstruct(note))
-                    }
-                }
+                let item = try await loadNoteForExport(id, vault: vault)
                 try ensureCurrent(gen)
                 loaded.append((item.summary, item.state))
             } catch is CancellationError {
@@ -148,7 +134,32 @@ extension AppModel {
     }
 }
 
-private struct LoadedForExport: Sendable {
+extension AppModel {
+    /// Reads one note for an export: downloaded first in iCloud Drive, read
+    /// inside one coordinated read that checks every revision is local before
+    /// and after (an evicted or newly listed revision would export an older
+    /// note without a word).
+    func loadNoteForExport(_ id: UUID, vault: Vault) async throws -> LoadedForExport {
+        try await downloadNote(id)
+        let coordinate = coordinationURL
+        let cloud = isCloudVault
+        let hooks = cloudHooks
+        let url = vault.url
+        return try await offMain {
+            try CloudVault.coordinatedRead(coordinate) { () throws -> LoadedForExport in
+                if cloud { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
+                let note = try vault.loadNote(id)
+                if cloud { try CloudVault.requireLocal(note: id, vault: url, hooks: hooks) }
+                return LoadedForExport(summary: vault.summary(of: id, loaded: note), state: try vault.reconstruct(note),
+                                       version: BulkExportPlan.version(of: note))
+            }
+        }
+    }
+}
+
+struct LoadedForExport: Sendable {
     let summary: NoteSummary
     let state: NoteState
+    /// `BulkExportPlan.version` of the revisions read.
+    var version = ""
 }

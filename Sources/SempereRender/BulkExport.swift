@@ -156,6 +156,11 @@ public enum BulkExportPlan {
         }
     }
 
+    /// `version(of:)` of the revisions a read found (readable or not).
+    public static func version(of note: LoadedNote) -> String {
+        version(of: note.revisions.map(\.name) + Array(note.failures.keys))
+    }
+
     /// The jobs for `scope`: `notes(in:from:)` with a folder and a unique
     /// name each.
     ///
@@ -213,8 +218,13 @@ public enum BulkExportPlan {
     /// it changes whenever the note gains or loses a revision. Not a security
     /// hash; a resumed export uses it to tell an unchanged note (FNV-1a, 64 bits).
     public static func version(of revisions: [RevisionName]) -> String {
+        version(ofFileNames: revisions.map(\.filename))
+    }
+
+    /// `version(of:)` from file names (the app's listing keeps names).
+    public static func version(ofFileNames names: [String]) -> String {
         var h: UInt64 = 0xcbf2_9ce4_8422_2325
-        for name in revisions.map(\.filename).sorted() {
+        for name in names.sorted() {
             for b in name.utf8 { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
             h = (h ^ 0x0A) &* 0x100_0000_01b3
         }

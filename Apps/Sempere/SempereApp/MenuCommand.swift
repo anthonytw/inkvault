@@ -11,6 +11,7 @@ import Foundation
 enum MenuCommand: String, CaseIterable, Sendable {
     // File
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
+    case bulkExport
     // Note
     case renameNote, editTags, changePaper, saveVersion, deleteNote, restoreNote
     case previousPage, nextPage, addPage
@@ -78,6 +79,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return "Reopen Last Vault"
         case .closeVault: return "Close Vault"
         case .reloadVault: return "Reload Vault"
+        case .bulkExport: return "Export Notes…"
         case .renameNote: return "Rename Note…"
         case .editTags: return "Edit Tags…"
         case .changePaper: return "Paper…"
@@ -122,6 +124,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return Shortcut("t", shift)
         case .closeVault: return Shortcut("w", shift)
         case .reloadVault: return Shortcut("r", cmd)
+        case .bulkExport: return nil
         case .renameNote: return Shortcut("r", shift)
         case .editTags: return Shortcut("t", option)
         case .changePaper: return Shortcut("p", option)
@@ -189,6 +192,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reopenVault: return context.hasNoteList && context.vault == .none && context.hasRecents
         case .closeVault: return context.vault != .none
         case .reloadVault: return unlocked && context.hasNoteList
+        // The ticked notes, the sidebar's notebook or the vault of the library window.
+        case .bulkExport: return unlocked && context.hasNoteList
         case .newNote: return unlocked && context.hasNoteList
         case .openNoteInWindow: return unlocked && context.hasNoteList && context.hasNote && !context.noteDeleted
         case .renameNote, .editTags, .saveVersion: return unlocked && context.hasNote && !context.noteDeleted
@@ -218,6 +223,7 @@ enum MenuLayout {
         [.newNote, .openNoteInWindow],
         [.newVault, .openVault, .reopenVault, .closeVault],
         [.reloadVault],
+        [.bulkExport],
     ]
     static let note: [[MenuCommand]] = [
         [.renameNote, .editTags, .changePaper],
