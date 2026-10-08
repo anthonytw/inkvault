@@ -51,6 +51,17 @@ extension AppModel {
 
     // MARK: - Playback
 
+    /// Plays recording `id` of the editor's note, or pauses it while it plays
+    /// (the button on its card, format.md §8.2.9).
+    func toggleRecording(_ id: UUID, in editor: NoteEditor) {
+        if let player = editor.player, player.recording?.id == id {
+            player.toggle()
+            return
+        }
+        guard let recording = editor.recording(id) else { return }
+        Task { await play(recording, in: editor) }
+    }
+
     /// Plays `recording` of the editor's note, from `time` when given.
     func play(_ given: Recording, in editor: NoteEditor, from time: Double? = nil, start: Bool = true) async {
         // The note's current copy: a caller's may predate a rename or a transcript.

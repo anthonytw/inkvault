@@ -1755,8 +1755,9 @@ is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
-A page's `items` (§5.5) are text boxes, images, PDF page backgrounds and
-video clips, placed in page coordinates (points, origin top-left, y down).
+A page's `items` (§5.5) are text boxes, images, PDF page backgrounds, video
+clips, equations and recordings placed on the page, in page coordinates
+(points, origin top-left, y down).
 
 #### 8.2.1 Common fields
 
@@ -1775,11 +1776,11 @@ video clips, placed in page coordinates (points, origin top-left, y down).
 }
 ```
 
-plus the fields of its kind (§8.2.4–§8.2.8).
+plus the fields of its kind (§8.2.4–§8.2.9).
 
 - `id`: UUID.
-- `kind`: `text`, `image`, `pdfPage`, `video` (§8.2.7) or `math`
-  (§8.2.8); others per §7.5.
+- `kind`: `text`, `image`, `pdfPage`, `video` (§8.2.7), `math` (§8.2.8) or
+  `audio` (§8.2.9); others per §7.5.
 - `layer`: integer z-layer, 0 to 65 535 (§8.2.3). Defined: `0` background,
   `100` content. Absent means `100`. Writers write only defined values;
   readers order by any value in range and treat a value out of range or not
@@ -1799,13 +1800,14 @@ plus the fields of its kind (§8.2.4–§8.2.8).
 
 Numbers are rounded to at most 3 decimals by writers.
 
-The fields of a defined kind (§8.2.4–§8.2.8) are required unless that section
+The fields of a defined kind (§8.2.4–§8.2.9) are required unless that section
 says what their absence means (`rotation`, `crop`, `orientation`, `family`,
 `lang`, `poster`, …). An item of a defined kind that lacks one, holds one of the wrong
 type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
 side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
 `size` outside its range, a `duration` negative or not finite, a
-`videoRotation` other than 0, 90, 180 or 270) is invalid like a bad common field: the revision is
+`videoRotation` other than 0, 90, 180 or 270, a `recording` that is not a
+UUID) is invalid like a bad common field: the revision is
 rejected. A field of another kind on an item (an image with `pageIndex`) is
 an unknown field there and kept (§7.5); so are all fields beyond the common ones
 on an item of an unknown kind.
@@ -1824,6 +1826,7 @@ and never changed.
 | `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
 | `video` | `poster` | `blob`, `pixelSize`, `duration`, `videoRotation`, `codec` |
 | `math` | `math` | |
+| `audio` | | `recording` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
 - `setItem` with `field` naming an immutable field of any kind, or the
@@ -2181,6 +2184,76 @@ Readers that predate this section keep a `math` item as an unknown kind
 (§7.5): `math` is then an unknown field and register on it, `render` is found
 by collection (§8.1.6), and they draw a placeholder.
 
+#### 8.2.9 Audio
+
+*New: recordings on the page (build 7 feedback).* A recording belongs to the
+note (§8.3.1); an `audio` item shows one on a page, where it can be played
+from, moved, resized and deleted like any item.
+
+```json
+{ "kind": "audio", "layer": 100, "frame": [72, 144, 300, 96], "z": "a3",
+  "recording": "0d9e5c1a-…" }
+```
+
+- `recording` (immutable): the id of a recording of the same note (a UUID,
+  written lowercase). The item shows the recording with that id; if it is not
+  present, the present recording whose `parent` names it (one re-created by a
+  restore, §5.7; the first by `(started, id)` if several), as for `rec`
+  (§8.3.3); otherwise the recording is *missing*. Any number of items may
+  show one recording, on any pages.
+- The item has no registers of its own: its title, duration and transcript
+  are the recording's (§8.3.1, §8.3.2), so renaming or transcribing the
+  recording changes every item that shows it.
+
+Writers: an app that stops a recording should place one `audio` item on the
+page the user was looking at, in the same delta as the `addRecording`, so
+the recording is never off the page. Removing an `audio` item (`removeItem`)
+removes only the item: the recording stays in the note (a reader lists the
+note's recordings, §5.4, and can place it again). Removing a recording
+(`removeRecording`) should remove, in the same delta, the `audio` items of
+its note that show it; an item left showing a missing recording (a
+concurrent removal, an older writer) is drawn as below and may be removed by
+any writer.
+
+Drawing (renderers, exports, and readers before they play): with the frame
+`[fx, fy, fw, fh]`, `m = min(fw, fh)`, the padding `p = min(8, 0.1 · m)` and
+the icon size `d = min(24, m − 2p)`, everything below in frame coordinates
+and then turned with the item's `rotation` about the frame's centre:
+
+1. the *card*: the frame filled `#F1F3F4FF` and outlined 1 pt in
+   `#DADCE0FF`;
+2. the *icon*, when `d > 0`: a disc of diameter `d` filled `#1A73E8FF`
+   centred at `(cx, cy) = (fx + p + d/2, fy + p + d/2)`, and over it, in
+   `#FFFFFFFF`, a microphone: a capsule (a rectangle with semicircular ends)
+   filled, from `(cx − 0.12 d, cy − 0.3 d)` to `(cx + 0.12 d, cy + 0.08 d)`;
+   and stroked `0.06 d` wide with round caps, the lower half of a circle of
+   radius `0.2 d` centred at `(cx, cy − 0.04 d)`, a line from
+   `(cx, cy + 0.16 d)` to `(cx, cy + 0.3 d)` and a line from
+   `(cx − 0.12 d, cy + 0.3 d)` to `(cx + 0.12 d, cy + 0.3 d)`;
+3. the *label*: a text box (§8.2.4, laid out by §8.5.3) with the frame
+   `[fx + 2p + d, fy + p, fw − 3p − d, fh − 2p]` (nothing when its width or
+   height is not positive), `font` `sans`, `color` `#202124FF`, `align`
+   `start`, `dir` `auto`, no `breaks`, and the runs: the recording's
+   `title`, or `Recording` when it is empty or absent, bold, size 12; when
+   the recording has a finite `duration`, ` · ` and the duration as `m:ss`
+   (`h:mm:ss` from an hour), size 12; when it has a valid transcript (§8.3.2),
+   a line break and the text of its segments joined by single spaces, size
+   10, `color` `#5F6368FF`, `lang` the transcript's `language`, cut to its
+   first 2 000 Unicode scalar values. Unlike a text item the label is
+   clipped: a line whose bottom is below `fy + fh − p` is not drawn, nor
+   any after it.
+
+An item whose recording is missing is drawn as a placeholder (§8.5.2) and
+reported as "recording missing". A transcript that is missing, unreadable or
+invalid is left out of the label (reported); the card is still drawn. An
+`audio` item counts toward an infinite page's extent and is cut across
+export pages like an image.
+
+Playing: a reader that plays audio plays the recording (§8.3.1) when the
+item is tapped or its play control used, and may show the position and the
+transcript as it plays (§8.3.2). A reader that cannot play shows the card.
+A `pdf` export with attachments embeds the recording once however many
+items show it (`docs/attachments.md` §10).
 
 ### 8.3 Recordings
 
@@ -2338,8 +2411,9 @@ point `(a, b)` in PDF user space, with the visible box (CropBox ∩ MediaBox)
 #### 8.5.2 Missing and unknown content
 
 An item whose blob is missing, unreadable, invalid (§8.1.4) or of a type the
-renderer cannot draw, and an item of an unknown kind (§7.5), is drawn as a
-placeholder (a `math` item falls back to its source first, §8.2.8): its frame (rotated) outlined 1 pt in
+renderer cannot draw, an `audio` item whose recording is missing (§8.2.9),
+and an item of an unknown kind (§7.5), is drawn as a placeholder (a `math`
+item falls back to its source first, §8.2.8): its frame (rotated) outlined 1 pt in
 `#9AA0A6FF` with both diagonals. A background placeholder still fills its
 frame (§8.2.3). The export goes on and reports each placeholder; it never
 fails because of one.

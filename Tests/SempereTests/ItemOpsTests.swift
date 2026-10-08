@@ -205,6 +205,14 @@ final class ItemOpsTests: XCTestCase {
             XCTAssertTrue(ItemFrames.keepsAspect(kind), "\(kind)")
         }
         XCTAssertFalse(ItemFrames.keepsAspect(.text))
+        // An audio card (format.md §8.2.9) has corners but resizes freely: its label is laid out in
+        // the frame, so a taller card shows more transcript and a wider one longer lines.
+        XCTAssertEqual(ItemFrames.handles(for: .audio), ItemFrames.Corner.allCases.map { .corner($0) })
+        XCTAssertFalse(ItemFrames.keepsAspect(.audio))
+        let card = Rect(x: 0, y: 0, w: 300, h: 96)
+        let taller = ItemFrames.resized(card, rotation: nil, handle: .corner(.bottomRight), dx: 0, dy: 60,
+                                        keepAspect: ItemFrames.keepsAspect(.audio))
+        XCTAssertEqual(taller, Rect(x: 0, y: 0, w: 300, h: 156), "only the height grows")
     }
 
     func testFittedIsTheLargestFrameOfTheProportionsCentred() {

@@ -12,6 +12,11 @@ struct ExportSheet: View {
     @State private var options: ShareOptions
     @State private var sharing = false
     @State private var saving = false
+    /// The files the share sheet or the export picker were handed: theirs
+    /// until they report back, whatever the job does meanwhile.
+    @State private var handOff: [URL] = []
+    /// The view the Mac's share picker and save panel are presented from (`ExportHandOff`).
+    @State private var anchor = PresentationAnchor.Box()
 
     init(request: ExportRequest) {
         self.request = request
@@ -59,10 +64,28 @@ struct ExportSheet: View {
         .interactiveDismissDisabled(job.isRunning)
         .onDisappear { job.discard() }
         .sheet(isPresented: $sharing) {
-            if case .finished(let outcome) = job.state { ShareSheet(items: outcome.items) { sharing = false } }
+            if !handOff.isEmpty { ShareSheet(items: handOff) { sharing = false } }
         }
         .sheet(isPresented: $saving) {
-            if case .finished(let outcome) = job.state { SaveToFiles(items: outcome.items) { saving = false } }
+            if !handOff.isEmpty { SaveToFiles(items: handOff) { saving = false } }
+        }
+    }
+
+    /// Share… and Save to Files… for the finished export. On a Mac the system's
+    /// share picker and save panel are presented by UIKit from the button
+    /// (`ExportHandOff`): hosted inside a SwiftUI sheet, as on the iPad, they
+    /// have no anchor there (TestFlight build 7: the export of a note with a
+    /// recording crashed on the Mac when it was shared or saved).
+    private func deliver(_ outcome: ExportJob.Outcome, save: Bool) {
+        handOff = outcome.items
+        guard Platform.isMac, let view = anchor.view else {
+            if save { saving = true } else { sharing = true }
+            return
+        }
+        if save {
+            ExportHandOff.save(outcome.items, from: view) {}
+        } else {
+            ExportHandOff.share(outcome.items, from: view) {}
         }
     }
 
@@ -138,8 +161,9 @@ struct ExportSheet: View {
             }
         }
         Section {
-            Button("Share…", systemImage: "square.and.arrow.up") { sharing = true }
-            Button("Save to Files…", systemImage: "folder") { saving = true }
+            Button("Share…", systemImage: "square.and.arrow.up") { deliver(outcome, save: false) }
+                .background(PresentationAnchor(box: anchor))
+            Button(Platform.isMac ? LocalizedStringKey("Save…") : LocalizedStringKey("Save to Files…"), systemImage: "folder") { deliver(outcome, save: true) }
         } footer: {
             Text("The files are deleted from the app when you close this sheet.")
         }
@@ -211,7 +235,8 @@ struct ShareSheet: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        controller.completionWithItemsHandler = { _, _, _, _ in done() }
+        let callback = MainCallback(done)
+        controller.completionWithItemsHandler = ExportHandOff.completion { callback.run() }
         return controller
     }
 
@@ -223,7 +248,10 @@ struct SaveToFiles: UIViewControllerRepresentable {
     let items: [URL]
     let done: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+    func makeCoordinator() -> Coordinator {
+        let callback = MainCallback(done)
+        return Coordinator { callback.run() }
+    }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forExporting: items, asCopy: true)
@@ -234,9 +262,118 @@ struct SaveToFiles: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let done: () -> Void
-        init(done: @escaping () -> Void) { self.done = done }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { done() }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { done() }
+        let done: @MainActor @Sendable () -> Void
+        init(done: @escaping @MainActor @Sendable () -> Void) { self.done = done }
+        nonisolated func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            ExportHandOff.onMain(done)
+        }
+        nonisolated func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            ExportHandOff.onMain(done)
+        }
+    }
+}
+
+/// A main-actor callback carried through a `@Sendable` closure: it is only
+/// ever run on the main actor (`ExportHandOff.onMain`).
+struct MainCallback: @unchecked Sendable {
+    let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+}
+
+/// Handing a finished export to the system (docs/mac.md "Export").
+///
+/// The share sheet's completion handler and the document picker's delegate
+/// may be called off the main thread (on a Mac the share picker is a sharing
+/// service in another process). A closure written in a main-actor view is
+/// main-actor isolated in Swift 6, and calling it from another thread stops
+/// the app (`dispatch_assert_queue`), so these callbacks are `@Sendable`, not
+/// isolated, and hop to the main actor themselves.
+///
+/// On a Mac the share picker and the save panel are presented by UIKit from a
+/// view of the export sheet (a popover anchored to it; the picker modally),
+/// never hosted inside a SwiftUI sheet.
+@MainActor
+enum ExportHandOff {
+    /// A share sheet's completion handler that is safe on any thread: `done` runs on the main actor.
+    nonisolated static func completion(_ done: @escaping @MainActor @Sendable () -> Void)
+        -> UIActivityViewController.CompletionWithItemsHandler {
+        { @Sendable _, _, _, _ in onMain(done) }
+    }
+
+    /// Runs `done` on the main actor, from any thread.
+    nonisolated static func onMain(_ done: @escaping @MainActor @Sendable () -> Void) {
+        Task { @MainActor in done() }
+    }
+
+    /// The view controller that shows `view` (the export sheet's), to present from.
+    static func presenter(of view: UIView) -> UIViewController? {
+        var responder: UIResponder? = view
+        while let r = responder {
+            if let controller = r as? UIViewController {
+                var top = controller
+                while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+                return top
+            }
+            responder = r.next
+        }
+        return nil
+    }
+
+    /// The share picker for `items`, anchored to `view`.
+    static func share(_ items: [URL], from view: UIView, done: @escaping @MainActor @Sendable () -> Void) {
+        guard let presenter = presenter(of: view) else { return }
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.completionWithItemsHandler = completion(done)
+        controller.modalPresentationStyle = .popover
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = view.bounds
+        }
+        presenter.present(controller, animated: true)
+    }
+
+    /// The save panel (the document picker exporting copies of `items`), presented modally.
+    static func save(_ items: [URL], from view: UIView, done: @escaping @MainActor @Sendable () -> Void) {
+        guard let presenter = presenter(of: view) else { return }
+        let picker = UIDocumentPickerViewController(forExporting: items, asCopy: true)
+        // The picker holds its delegate weakly: keep it until the picker reports back.
+        let key = ObjectIdentifier(picker)
+        let delegate = SaveToFiles.Coordinator(done: {
+            ExportHandOff.pickerDelegates[key] = nil
+            done()
+        })
+        pickerDelegates[key] = delegate
+        picker.delegate = delegate
+        if let popover = picker.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = view.bounds
+        }
+        presenter.present(picker, animated: true)
+    }
+
+    /// Delegates of the save panels on screen.
+    static var pickerDelegates: [ObjectIdentifier: SaveToFiles.Coordinator] = [:]
+}
+
+/// A zero-size view in the SwiftUI hierarchy whose `UIView` UIKit presents from.
+struct PresentationAnchor: UIViewRepresentable {
+    /// Holds the view once SwiftUI made it.
+    @MainActor
+    final class Box {
+        weak var view: UIView?
+    }
+
+    let box: Box
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        box.view = view
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        box.view = view
     }
 }

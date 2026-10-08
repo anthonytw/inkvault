@@ -533,6 +533,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   by the model (`storeTranscript`: blob, then one delta through `commit`), not by the editor, so a job
   survives the note closing. App tests use `FakeCapture` / `FakePlayback` / `FakeTranscriber` and a
   serialized suite.
+- Recordings on the page (`format.md` §8.2.9): an `audio` item names a recording of its note
+  (immutable `recording`, resolved like `rec` through a restored copy's `parent`); title, length and
+  transcript are the recording's. The card's layout is `AudioCard` (Sources/Sempere/AudioItems.swift),
+  drawn by `AudioCards` (SempereRender) for every exporter and by `ItemRaster` in the app, and ported
+  in `web/src/render/audio.ts`. Stopping a recording writes `addRecording` and the card's `addItem` in
+  one delta (`NoteEditor.addRecording(place:)`); deleting a recording uses `NoteOps.removeRecording`
+  (its cards too); cards are never pasted or copied into another note (`copyableToOtherNote`). The
+  card's play/pause control is a `UIButton` in the canvas (`AudioCardControls`), never a gesture: a
+  click or Pencil tap on it must not draw.
+- Exports hand off to the system through `ExportHandOff` (ExportSheet.swift): callbacks the system
+  may call off the main thread (share completion, document picker delegate) are `@Sendable` and hop
+  to the main actor; on a Mac the share picker and save panel are presented by UIKit from an anchor
+  view, never hosted inside a SwiftUI sheet.
 - Quick capture (`format.md` §11, `docs/quick-capture.md`): voice notes are sealed WITHOUT the identity or the
   vault secret, with a capture profile (public recipients + `CaptureKey`, HKDF of the secret, which can only
   authenticate inbox files) into `inbox/<id>.capture.age`; adoption (`Vault.readCapture`, `CaptureAdoption`,

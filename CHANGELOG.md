@@ -19,6 +19,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `sempere restore DIR --to NEW --dry-run` (what a restore would bring back, and whether `NEW` can take it).
   `restore` refuses a target that is, holds or lies inside the vault named by `--vault` / `$SEMPERE_VAULT`.
 
+- Recordings on the page (`format.md` §8.2.9, an `audio` item kind). Stopping a recording in the app
+  places it on the page you were looking at as a card with a microphone icon, a play/pause button,
+  its length and its transcript; move, resize or delete it like any item. Every recording of a note
+  is listed by Recordings… (the note's menu, the Recordings menu, Note > Recordings… ⌃⌘R on the Mac).
+  CLI: `recordings list|place|rename|delete`, `attach recording --place`; exports and the web viewer
+  draw the card.
+
 - Web viewer opens fast on every visit (`docs/web-viewer.md` "Opening fast"). A `config.json` next to
   the viewer lets the server fix the vault (straight to the key prompt; no URL field, folder picker or
   `?vault=`). The note list comes at once from the vault's published summaries, `sempere-summaries.sealed`
@@ -258,6 +265,12 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 - Licence: GPL-3.0-or-later with an App Store exception (`LICENSE-EXCEPTION`, a GPLv3 section 7
   additional permission). Contributions are licensed under the same terms and certified with a
   DCO sign-off; there is no contributor licence agreement.
+
+### Fixed
+
+- Exporting a note with a recording no longer crashes on the Mac: Share… and Save… are presented
+  by UIKit from the export sheet, and their callbacks are safe on any thread. Long recordings are
+  streamed into "PDF + attachments" instead of being read into memory.
 
 ## [0.5.0] - TODO(user): date of the first release
 
