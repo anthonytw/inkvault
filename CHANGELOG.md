@@ -15,6 +15,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   for GitHub Pages (`docs/privacy/`). `scripts/release-check.sh` (run by CI) fails on mismatched
   version or build numbers, a committed signing team, a missing or incomplete privacy manifest, or an
   entitlement outside the allow-list.
+- Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
+  A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
+  into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to
+  IndexedDB. "Unlock with passkey" is one prompt; "Forget this key" deletes the record. Without PRF the
+  viewer explains why and stores nothing. App: Settings → Device Keys → "Save Key…" exports this device's
+  key after Face ID to Files or the share sheet (for a password manager), with its paper recovery kit;
+  "New Key…" makes a key for another device, encrypts the vault to it and offers the same. Key files are
+  the CLI's format (`keys generate`), written only where the user chooses; the share sheet's copy is
+  deleted when it closes.
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields

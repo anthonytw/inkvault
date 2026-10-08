@@ -3,8 +3,9 @@
 A read-only viewer for Sempere vaults that runs entirely in the browser
 (`web/`, TypeScript + Vite, no backend). It opens a vault folder of encrypted
 files, decrypts them in the page with the key the user pastes, merges the
-revisions into notes, and draws them. It never writes: not to the vault, not
-to browser storage, not to any server.
+revisions into notes, and draws them. It never writes to the vault or to any
+server, and writes to browser storage only one thing, only when asked: a key
+encrypted under a passkey ("Remembering the key with a passkey").
 
 What it does:
 
@@ -14,7 +15,8 @@ What it does:
   browser), or from a folder dropped on the page.
 - **Unlock** with the `AGE-SECRET-KEY-PQ-1…` identity, pasted as the bare line
   or the whole `age-keygen -pq` key file. Legacy (X25519) vaults are refused
-  (`format.md` §3.3.2), as are classic `AGE-SECRET-KEY-1…` keys.
+  (`format.md` §3.3.2), as are classic `AGE-SECRET-KEY-1…` keys. Or, on a
+  device where you chose to, with one passkey prompt (below).
 - **Browse** notebooks (the `/` hierarchy of §5.4), tags (one spelling per tag
   key, §5.4.1), favorites and deleted notes; **search** titles, tags,
   notebooks and recognised handwriting (the same rules as the app's
@@ -28,6 +30,55 @@ What it does:
 - **Attachments** (§8, "Attachments" below): images, text boxes and PDF pages
   in their layers under the ink, placeholders for what cannot be drawn, and
   the note's recordings with a player and their transcripts.
+
+## Remembering the key with a passkey
+
+Opt-in, per vault and per browser. Under the key field, "Remember this key on
+this device with a passkey" (off by default). When it is ticked and the pasted
+key unlocks the vault, the viewer asks for a passkey ("Create passkey", a
+fresh click because browsers allow WebAuthn only from one) and then opens the
+vault; "Not now" or any failure opens it without remembering.
+
+How (`web/src/vault/passkey.ts`):
+
+1. `navigator.credentials.create` makes a passkey for the viewer's origin
+   (RP ID: its host name), `userVerification: "required"`, `attestation:
+   "none"`, with the WebAuthn **PRF** extension evaluated on a random 32-byte
+   salt. Authenticators that evaluate PRF only on an assertion get one more
+   prompt (`get`) right after.
+2. The 32-byte PRF output goes through HKDF-SHA-256 (empty salt, info
+   `sempere-viewer/1 passkey key-wrap` ‖ 0 ‖ vault id ‖ 0 ‖ credential id) to
+   an AES-256-GCM key, which encrypts the identity text with a random 96-bit
+   nonce and additional data `sempere-viewer/1` ‖ 0 ‖ vault id ‖ 0 ‖ credential
+   id. The AES key is a non-extractable `CryptoKey`; neither it nor the PRF
+   output is kept.
+3. IndexedDB (database `sempere-viewer`, store `passkey-keys`, keyed by vault
+   id) holds `{version: 1, vaultId, credentialId, salt, iv, ciphertext,
+   created}`: nothing the key can be recovered from without the passkey. The
+   vault id and the date are readable by whoever reads that storage.
+
+Next time, the unlock screen shows "Unlock with passkey": one prompt with the
+stored credential id and salt (user verification required; the viewer also
+checks the UV flag of the authenticator data), PRF, HKDF, AES-GCM decrypt, and
+the identity goes to typage's `Decrypter` in memory as if it had been pasted.
+A record that does not decrypt (another passkey, an altered or moved record)
+or a key the vault no longer lists is an error that says to forget it and
+paste the key. "Forget this key" deletes the record; where the browser has the
+WebAuthn Signal API it also tells the passkey provider the credential is gone
+(`signalUnknownCredential`), otherwise delete the passkey ("Sempere: <vault>")
+in your passkey manager. Lock still reloads the page and keeps the record.
+
+**No PRF, no remembering.** If the browser reports no PRF
+(`getClientCapabilities`), the option is disabled with the reason; if the
+passkey turns out to have none (`prf.enabled` false, or no PRF output), the
+viewer says so, stores nothing and opens the vault. There is no fallback:
+the key is never stored in plain, under a PIN or password the page could
+guess offline, or under a key that IndexedDB itself holds. PRF needs a
+current browser and a passkey provider that implements it (for example
+current Chrome and Edge with Google Password Manager or a FIDO2 security key
+with `hmac-secret`, Safari 18 or later with iCloud Keychain); support varies by
+platform, which is why the viewer checks at run time. WebAuthn needs a secure
+context: HTTPS, or `http://localhost`.
 
 ## How it reads a vault
 
@@ -201,8 +252,9 @@ note id, file name and body, §4), and cannot make the viewer run code:
   another path.
 
 **The key:** pasted into a text area, read once, and held only in the
-`Decrypter` object in memory. It is not stored (no cookies, `localStorage`,
-IndexedDB or service worker), not put in the URL, not logged, and never sent:
+`Decrypter` object in memory. Unless the user asks for a passkey (below), it
+is not stored (no cookies, `localStorage`, IndexedDB or service worker); it is
+never put in the URL, never logged, and never sent:
 the only requests the viewer makes are `GET` and `PROPFIND` for vault files,
 which carry no key material, and (when a note has a PDF page) `GET`s of the
 viewer's own pdf.js files: the worker, standard fonts, CMaps and the
@@ -211,6 +263,42 @@ PDF needed them. **Lock** reloads the page, which drops the key and
 every decrypted note. JavaScript cannot guarantee that memory is wiped, and a
 browser extension with access to the page can read anything the page can; use
 a browser profile without such extensions for sensitive vaults.
+
+**A key remembered with a passkey** (opt-in, above). What each attacker can do:
+
+- *A malicious or compromised viewer origin, or XSS in the viewer:* exactly
+  what it can do to a pasted key, plus one thing. Code running in the page can
+  read the IndexedDB record and ask for the passkey; the user sees a passkey
+  prompt and, by approving it, hands that code the PRF output and so the key.
+  It can do so at any visit, not only when the user would have pasted the key.
+  The defence stays the same as for pasting: the strict CSP, no markup from
+  data, Trusted Types, and serving the viewer from a host you control. Approve
+  a passkey prompt only when you pressed "Unlock with passkey".
+- *Another origin* (a phishing copy of the viewer): cannot read this origin's
+  IndexedDB, and the browser refuses it the passkey (bound to the RP ID). A
+  page on another port of the same host shares the RP ID, so it could prompt
+  for the passkey, but without the record the PRF output opens nothing. Host
+  the viewer on a host name of its own.
+- *A stolen disk or a copied browser profile:* gets the record, which is
+  AES-256-GCM ciphertext under a key derived from a secret that lives in the
+  authenticator (Secure Enclave, TPM, security key, or the passkey manager's
+  vault) and is released only after user verification. Without the
+  authenticator and the user's PIN, fingerprint or face, nothing.
+- *A stolen, unlocked device:* the passkey still asks for user verification
+  (the viewer requires it and checks the UV flag).
+- *A synced passkey* (iCloud Keychain, Google Password Manager, a password
+  manager): its PRF secret syncs with it, end-to-end encrypted by that
+  service. The record does not sync: another device with the passkey but not
+  this browser's IndexedDB gets nothing, and someone who breaks into the sync
+  account still needs the record. Someone with both (the sync account and a
+  copy of this browser's storage) has the key; a device-bound passkey
+  (security key, or a provider that does not sync) avoids that.
+- *Content of the vault or the server* cannot reach any of this: the passkey
+  code never runs on vault data, and the record is keyed by the vault id the
+  user's unlock already accepted.
+
+Forgetting deletes the record; JavaScript cannot guarantee that the browser
+wipes deleted storage from disk at once.
 
 **Metadata visible to the server** (as for any storage, `docs/io.md`): note
 ids, revision file names (time, device id, sequence), blob names, kinds and
@@ -369,6 +457,8 @@ scripts/golden.sh      # rewrite test/golden from the Swift CLI (builds it)
 # browser smoke tests, Playwright + Chromium (smoke.mjs needs sempere-index.json in the vault: `sempere vault index`):
 node scripts/smoke.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-attachments.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
+# passkey: Chromium's virtual authenticator (CTAP2, UV, PRF), and one without PRF
+node scripts/smoke-passkey.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-video.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
 ```
 
@@ -414,6 +504,10 @@ Tests (`web/test/`, vitest, Node 22):
 - Vault and source tests: legacy refusal, wrong key, tag binding to note and
   file name, unreadable revisions reported, bounded reads and gunzip, index
   and PROPFIND parsing with hostile names.
+- Passkeys (`passkey.test.ts`, mocked WebAuthn): round trip, PRF at creation
+  or only on assertion, no PRF stores nothing, cancelled prompts, a missing UV
+  flag, records swapped between vaults or credentials or altered, malformed
+  records, forget; only ciphertext, nonce, salt and credential id are stored.
 - A seeded fuzz test of the decoders, the merge, the renderer, item layout,
   image headers, transcripts, blob framing and the listing parsers (typed
   errors only).
