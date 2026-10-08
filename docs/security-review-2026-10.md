@@ -210,7 +210,7 @@ a newer format (reproduced). §7.3 says such a reader "writes nothing to … `in
 - Both commands refuse with exit 7 before reading the profile (`Sources/SempereCLI/Inbox.swift:126,196`).
 - Test: `CLIReadOnlyTests.testWritesExitSixAndChangeNothing`.
 
-**Open (app):** `QuickCapture.deliver` and `flushQueue` (`Apps/Sempere/SempereApp/QuickCapture.swift`)
+**App (fixed in #114):** `QuickCapture.deliver` and `flushQueue` (`Apps/Sempere/SempereApp/QuickCapture.swift`)
 still write into such a vault. They should queue locally while the manifest is read-only.
 
 ### V1 (Medium): a huge video duration trapped
@@ -326,9 +326,11 @@ journal is plaintext that a removed device (which holds the old capture key) cou
 would have to be MACed under the new secret. That is a format change to the journal and the rewrap, not a
 small fix; the window stays documented in `quick-capture.md`.
 
-## Open findings (reported, not fixed here)
+## Open findings (reported, not fixed in the review PR)
 
-### W2 (Medium): downloaded files are placed without verification
+The original text of each finding follows; those fixed since say so in their heading.
+
+### W2 (Medium): downloaded files are placed without verification (fixed in #114, above)
 
 `WebDAVSync` (revisions, `WebDAVSync.swift` around the download path) and `BlobSync` check only the age
 magic, and the listed size for blobs, before linking a downloaded file in as write-once.
@@ -348,7 +350,7 @@ Two attacks follow:
 Changing `nextSeq` to skip unreadable snapshots would trade this DoS for a risk of reusing a seq, so it is a
 decision for the maintainer.
 
-### C2 (Low): forged captures are indistinguishable from real ones
+### C2 (Low): forged captures are indistinguishable from real ones (part fixed in #114, above)
 
 The manifest supplies `title` and `notebook` (`CaptureInbox.swift`, `CaptureAdoption.ops`). The title is
 bounded only by the 64 MiB line limit. `manifest.device` is checked but not stored, and the delta is written
@@ -374,7 +376,7 @@ Anyone holding the iPad after its first unlock can add voice notes from the widg
 Action button or Siri. This is the feature; the threat table now has a row for it. Optional: a setting that
 requires authentication (`authenticationPolicy`) for the intents.
 
-### C5 (Low): inbox files are read whole before the tag check
+### C5 (Low): inbox files are read whole before the tag check (fixed in #114, above)
 
 `readCapture` and `rewrapInbox` decrypt each inbox file (up to 257 MiB) into memory before verifying the
 tag. A file that fails is kept and processed again at every unlock.
@@ -387,7 +389,7 @@ for each 256 MiB junk file, without any key.
 - Use a much smaller cap for `transcript` files.
 - Quarantine files that keep failing.
 
-### R5 (Low): the trust store fails open
+### R5 (Low): the trust store fails open (fixed in #114, above)
 
 `FileRecipientsTrustStore.record` returns nil for an unreadable or malformed file, so `evaluate` treats the
 open as a first use and the next write replaces the record. `rememberRecipients` ignores save errors and
@@ -395,7 +397,7 @@ does not retry them. This needs local tampering or a future record format.
 
 **Proposed fix:** return an "unreadable" state that counts as tampered.
 
-### W5 (Low): no bound per sync run
+### W5 (Low): no bound per sync run (fixed in #114, above)
 
 Each request is bounded by size and time, but a run is not:
 - the number of note folders and entries is unlimited, and every listing stays in memory;
