@@ -167,6 +167,7 @@ extension Perf.Phase {
         case .itemPicture: return "item.picture"
         case .pdfOpen: return "pdf.open"
         case .pdfPreview: return "pdf.preview"
+        case .backup: return "backup"
         }
     }
 }
