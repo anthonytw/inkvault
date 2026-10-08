@@ -53,7 +53,7 @@ struct VideoPlayerSheet: View {
 
     private var title: String {
         guard let d = request.item.duration, d.isFinite, d >= 0 else { return "Video" }
-        let t = Int(d.rounded())
+        let t = Int(min(d, 1e9).rounded())   // untrusted (format.md §9): never trap
         return t >= 3600 ? String(format: "Video · %d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
             : String(format: "Video · %d:%02d", t / 60, t % 60)
     }

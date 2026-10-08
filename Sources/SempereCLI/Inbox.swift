@@ -120,8 +120,10 @@ struct InboxCapture: ParsableCommand {
     }
 
     func run() throws {
-        // The vault is opened locked: only vault.json is read.
+        // The vault is opened locked: only vault.json is read. A vault of a
+        // newer format gets nothing in inbox/ either (format.md §7.3).
         let vault = try Vault.open(at: try access.vaultURL())
+        try vault.requireNotReadOnly()
         let writer = try CaptureWriter(profile: try profile.load(vaultId: vault.vaultId))
         let url = URL(fileURLWithPath: file)
         let audio: Data
@@ -191,6 +193,7 @@ struct InboxTranscript: ParsableCommand {
     func run() throws {
         guard let id = UUID(uuidString: capture) else { throw CLIError.usage("not a capture id: \(capture)") }
         let vault = try Vault.open(at: try access.vaultURL())
+        try vault.requireNotReadOnly()   // format.md §7.3
         let writer = try CaptureWriter(profile: try profile.load(vaultId: vault.vaultId))
         let data: Data
         do { data = try BoundedRead.contents(of: URL(fileURLWithPath: file), maxBytes: Transcript.maxSize) } catch {

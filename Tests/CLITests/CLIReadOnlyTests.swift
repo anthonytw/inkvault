@@ -97,6 +97,9 @@ final class CLIReadOnlyTests: CLITestCase {
             ["blobs", "add", Self.mixed, text, "--type", "text/plain"],
             ["vault", "recipients", "add", try NativeIdentity.generate(.postQuantum).recipient.string],
             ["inbox", "enable", "--profile", path("profile")],
+            // Security review 2026-10 (N2): captures are refused before any profile is read.
+            ["inbox", "capture", text, "--profile", path("profile")],
+            ["inbox", "transcript", UUID().uuidString.lowercased(), text, "--audio", text, "--profile", path("profile")],
         ]
         for args in writes {
             let r = try cli(args + key)
@@ -129,5 +132,9 @@ final class CLIReadOnlyTests: CLITestCase {
         XCTAssertEqual(created.status, 0, "a run that has not read a newer note may write others: \(created.err)")
         let compact = try cli(["compact", "--all", "--thin-all"] + key)
         XCTAssertEqual(compact.status, 7, "compacting every note reads the newer ones: \(compact.err)")
+        // Security review 2026-10 (N1): repairing reads the note's revisions
+        // first, finds them newer, and then renames and deletes nothing.
+        let repair = try cli(["blobs", "repair", Self.mixed] + key)
+        XCTAssertEqual(repair.status, 7, repair.err)
     }
 }
