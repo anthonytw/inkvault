@@ -42,7 +42,9 @@ any third party may ship a fork there under the same conditions.
   proviso (source stays public, no new restrictions on source) is what keeps it within the spirit
   of the GPL. A lawyer may wish to narrow or reword it.
 - It covers only this repository's code. Dependencies keep their licences; they must be
-  App-Store-compatible (swift-crypto and swift-argument-parser are Apache-2.0).
+  App-Store-compatible (swift-crypto and swift-argument-parser are Apache-2.0; the app's
+  equation typesetter SwiftMath is MIT, with OpenType math fonts under the SIL Open Font
+  License or the GUST Font License).
 
 ## Consequences for the project
 

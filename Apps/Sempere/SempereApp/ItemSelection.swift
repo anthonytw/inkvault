@@ -119,6 +119,8 @@ struct ItemCommands {
     var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
     /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
     var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
+    /// Opens the equation sheet for a math item; nil: no Edit Equation in the menu.
+    var editMath: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
 }
 
 /// Selecting, moving, resizing and deleting items on the canvas while
@@ -346,6 +348,12 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
                     guard let self, let new = self.actions?.duplicate([id], on: pageID).first else { return }
                     self.select(new.id)
                 })
+                if let editMath = commands.editMath, item.kind == .math, item.math != nil, let actions {
+                    elements.append(UIAction(title: "Edit Equation…", image: UIImage(systemName: "function")) { [weak self] _ in
+                        self?.select(nil)
+                        editMath(item, pageID, actions)
+                    })
+                }
                 if let crop = commands.crop, item.cropBounds != nil, let actions {
                     elements.append(UIAction(title: "Crop…", image: UIImage(systemName: "crop")) { _ in
                         crop(item, pageID, actions)

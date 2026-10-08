@@ -38,6 +38,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink
   changed are redrawn, at the same scroll and zoom; nothing is written back for the merge. A small
   "Updated from another device" notice shows for a few seconds.
+- Equations (task G1, `format.md` §8.2.8): `math` items hold LaTeX source, display or inline style,
+  size, colour and a typeset PDF rendering. App: Insert → Equation… and "Edit Equation…" open a sheet
+  with a live SwiftMath preview; the rendering is stored, so exports, the CLI and the web viewer draw
+  the equation without a typesetter. CLI: `sempere attach math --latex '…'` (`--inline`, `--size`,
+  `--color`, `--render FILE.pdf`), `sempere items math`, equations in `items list`, `notes show` and
+  `search`; exports embed the rendering (PDF form; SVG/PNG via Poppler), else draw the source with a
+  warning, and Markdown/HTML keep the source as `$$…$$`. LaTeX sources are bounded (8 KiB, 4 096
+  symbols, 64 levels) before anything parses them.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed
