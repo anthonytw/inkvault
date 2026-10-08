@@ -160,6 +160,40 @@ struct SettingsTests {
         #expect(NewNoteSettings.title(.blank, now: now, locale: us, timeZone: utc) == "")
     }
 
+    /// TestFlight build 7: presets and a custom pattern, checked as it is
+    /// typed (the rules `notes new --title-format` applies), only a good one stored.
+    @Test func customPatternsAreCheckedAndPreviewed() {
+        let d = scratch()
+        let now = Date(timeIntervalSince1970: 1_791_383_400)   // 2026-10-07 14:30 UTC
+        let utc = TimeZone(identifier: "UTC")!
+        let posix = Locale(identifier: "en_US_POSIX")
+        #expect(NewNoteSettings.titlePattern(d) == NewNoteSettings.defaultTitlePattern)
+        #expect(NewNoteSettings.setTitlePattern("'Lecture' d MMM", in: d) == nil)
+        #expect(NewNoteSettings.titlePattern(d) == "'Lecture' d MMM")
+        #expect(NewNoteSettings.setTitlePattern("'Lecture d MMM", in: d) == .unclosedQuote)
+        #expect(NewNoteSettings.setTitlePattern("Lecture", in: d) == .unknownLetter("t"))
+        #expect(NewNoteSettings.setTitlePattern("  ", in: d) == .blank)
+        #expect(NewNoteSettings.titlePattern(d) == "'Lecture' d MMM", "the last good pattern stays")
+        d.set("'broken", forKey: NewNoteSettings.titlePatternKey)
+        #expect(NewNoteSettings.titlePattern(d) == NewNoteSettings.defaultTitlePattern)
+
+        NewNoteSettings.setTitleFormat(.custom, in: d)
+        NewNoteSettings.setTitlePattern("%Y-%m-%d", in: d)
+        #expect(NewNoteSettings.resolvedTitle(typed: "", defaults: d).count == 10)
+        #expect(NewNoteSettings.title(.custom, pattern: "'Note' yyyy", now: now, locale: posix, timeZone: utc) == "Note 2026")
+        #expect(NewNoteSettings.title(.isoDateTime, now: now, locale: posix, timeZone: utc) == "2026-10-07 14:30")
+        #expect(NewNoteSettings.title(.weekday, now: now, locale: posix, timeZone: utc) == "Wednesday 7 October")
+
+        #expect(TitlePatternField.status(of: "'Day' d, EEE", now: now, locale: posix, timeZone: utc) == .preview("Day 7, Wed"))
+        guard case .problem(let message) = TitlePatternField.status(of: "Lesson d", now: now, locale: posix, timeZone: utc) else {
+            Issue.record("no problem reported")
+            return
+        }
+        #expect(message.contains("single quotes"))
+        #expect(TitlePatternField.status(of: "", now: now) != .preview(""))
+        for field in TitlePatternField.fields { #expect(DefaultTitle.check(field.pattern) == nil, "\(field.name)") }
+    }
+
     @Test func aTypedTitleWinsOverTheFormat() {
         let d = scratch()
         NewNoteSettings.setTitleFormat(.blank, in: d)

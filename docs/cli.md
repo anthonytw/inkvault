@@ -749,9 +749,18 @@ absent).
   the spelling the vault already uses for that tag (as `tag --add` below).
   Prints the new id (the `Created …` line goes to stderr). Without a TITLE
   the note is named after the date and time, as the app names a new note
-  (`DefaultTitle`): `--title-format` takes a Unicode date pattern
-  (`"yyyy-MM-dd HH:mm"`, literal text in single quotes: `"'Lecture' EEE d MMM"`);
-  the default is the locale's medium date and short time. `""` is an empty title.
+  (`DefaultTitle`): `--title-format` (default: the `SEMPERE_TITLE_FORMAT`
+  environment variable, this machine's setting, as the app's Settings → New
+  Notes → Title is the device's) takes a Unicode date pattern
+  (`"yyyy-MM-dd HH:mm"`, literal text in single quotes: `"'Lecture' EEE d MMM"`,
+  `''` for a quote) or a strftime format (`"%Y-%m-%d %H:%M"`, `"Lecture %a %e %b"`:
+  any `%` outside quoted text makes it one, and its other characters are
+  literal; `%Y %y %m %B %b %d %e %j %A %a %u %H %I %k %l %M %S %p %F %R %T %D
+  %Z %z %%`, with `-` for no leading zero: `%-d`). A format the app's setting
+  would refuse (an unclosed quote, a letter that is no date field, an unknown
+  `%` directive, one that gives no text, over 200 characters) is refused with
+  the same reason and exit 2. Without one the title is the locale's medium date
+  and short time. `""` is an empty title.
 - `rename` sets the title (trimmed).
 - `tag` adds and removes tags in one delta. Tags match case-insensitively and
   merge per tag (`format.md` §5.4.1): `--add` writes an `addTag` unless the

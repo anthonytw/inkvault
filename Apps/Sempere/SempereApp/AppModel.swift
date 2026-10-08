@@ -136,7 +136,7 @@ final class AppModel {
     /// The title of a note created at a date with no title typed, as Settings
     /// → New Notes says (`NewNoteSettings`; "" for Blank: the note stays
     /// untitled). Tests replace it.
-    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.title(NewNoteSettings.titleFormat(), now: $0) }
+    @ObservationIgnored var defaultTitle: (Date) -> String = { NewNoteSettings.defaultTitle(now: $0) }
     /// Pause after typing before the search runs.
     @ObservationIgnored var searchDebounce = Duration.milliseconds(200)
     /// Reads handwriting on pages as they change and when notes open; nil = off.

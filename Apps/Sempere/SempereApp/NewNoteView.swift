@@ -22,7 +22,7 @@ struct NewNoteView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 Form {
-                    TextField(NewNoteSettings.title(NewNoteSettings.titleFormat()).isEmpty ? "Title" : NewNoteSettings.title(NewNoteSettings.titleFormat()), text: $title)
+                    TextField(NewNoteSettings.defaultTitle().isEmpty ? "Title" : NewNoteSettings.defaultTitle(), text: $title)
                     Button { choosingPaper = true } label: {
                         HStack(spacing: 12) {
                             Image(uiImage: PaperImage.image(for: paper, size: CGSize(width: 44, height: 57), scale: displayScale))
