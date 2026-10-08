@@ -2774,7 +2774,23 @@ kind does not verify. A reader verifies the tag (under the current secret's
 capture key, or the previous secret's during an unfinished rewrap, §3.3.1)
 before it parses anything after it, and treats a file that fails as
 untrusted input (§9): reported, kept, never adopted. The whole plaintext is at
-most 256 MiB.
+most 256 MiB for a `capture` and, for a `transcript`, 37 bytes plus one JSON
+line of at most 64 MiB (§8.3.2), `0x0A` and 64 hex digits; a reader checks
+the file's size against its kind's bound before decrypting. The tag covers
+everything after it, so a reader computes it while decrypting, as a stream,
+without keeping the plaintext, and reads a file whole only once its tag
+verified: a file nobody with the capture key wrote costs one pass in constant
+memory.
+
+A file that fails is kept (it may be a real capture this device cannot check
+yet, for example sealed under a secret whose `vault.json` has not arrived),
+but a reader need not decrypt it again at every unlock. The reference
+implementation keeps a per-device record outside the vault (like §10) of
+files that failed, by vault id, name, size and modification time, and does
+not read such a file again for an hour after its first failure, then twice
+as long after each further failure, up to a week, unless it changes; a read
+that verifies clears its record. Failures to read the file at all (I/O,
+iCloud) are not recorded.
 
 - **`capture`**: the JSON is the capture manifest and the payload is the
   audio, as recorded:

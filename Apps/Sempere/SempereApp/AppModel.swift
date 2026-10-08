@@ -168,6 +168,10 @@ final class AppModel {
     var capturesAdopted = 0
     /// Why the last inbox adoption failed, if it did.
     var inboxProblem: String?
+    /// Inbox files that failed to read, so they are not decrypted again at
+    /// every unlock (format.md §11.3, security review 2026-10, C5); next to
+    /// the device state.
+    let inboxBackoff: InboxBackoff
     @ObservationIgnored var inboxAdoption: Task<Void, Never>?
     /// Progress of "Recognise All Notes" (`AppModel+Search`).
     var recognitionProgress: RecognitionProgress?
@@ -452,6 +456,7 @@ final class AppModel {
         self.recipientsTrust = recipientsTrust ?? MemoryRecipientsTrustStore()
         self.deviceStateURL = deviceStateURL
         activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
+        inboxBackoff = InboxBackoff(fileURL: deviceStateURL.deletingLastPathComponent().appendingPathComponent("InboxBackoff.json"))
         self.automaticThinning = automaticThinning
         self.summaryCacheDirectory = summaryCacheDirectory
         self.drawingCacheRoot = drawingCacheRoot

@@ -410,12 +410,14 @@ final class QuickCapture {
     // MARK: - Delivery
 
     /// Writes `sealed` into the vault's inbox, or into the local queue when
-    /// the vault folder cannot be reached or is not the profile's vault.
+    /// the vault folder cannot be reached, is not the profile's vault, or is
+    /// read-only (a newer format: this version writes nothing into its
+    /// `inbox/`, format.md §7.3; security review 2026-10, N2).
     func deliver(_ sealed: SealedCapture, _ stored: StoredCaptureProfile) throws -> Delivery {
         if let url = Self.resolve(stored.bookmark) {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            if (try? Vault.open(at: url))?.vaultId == stored.profile.vaultId {
+            if Self.acceptsCaptures(at: url, vaultId: stored.profile.vaultId) {
                 let inbox = url.appendingPathComponent(CaptureFile.folderName, isDirectory: true)
                 do {
                     try CloudVault.coordinatedWrite(CloudVault.isUbiquitous(url) ? inbox : nil) {
@@ -431,6 +433,15 @@ final class QuickCapture {
         return .queued
     }
 
+    /// True when the folder at `url` is vault `vaultId` and this version may
+    /// write into its inbox: not one marked as written by a newer version
+    /// (its `format` or `features`, format.md §7.3). Checked from `vault.json`
+    /// alone, without a key.
+    nonisolated static func acceptsCaptures(at url: URL, vaultId: UUID) -> Bool {
+        guard let vault = try? Vault.open(at: url) else { return false }
+        return vault.vaultId == vaultId && !vault.isReadOnly
+    }
+
     func queueFolder(_ vault: UUID) -> URL { queueRoot.appendingPathComponent(vault.uuidString.lowercased(), isDirectory: true) }
 
     /// The vault folder a bookmark names (nil when it cannot be resolved).
@@ -440,16 +451,19 @@ final class QuickCapture {
     }
 
     /// Moves queued captures of `vaultId` into the vault at `vaultURL`
-    /// (sealed already: plain file moves). Returns how many moved.
+    /// (sealed already: plain file moves). Returns how many moved. Nothing
+    /// moves into a read-only vault (format.md §7.3): they stay queued.
     @discardableResult
     func flushQueue(into vaultURL: URL, vaultId: UUID, coordinated: Bool) -> Int {
+        guard Self.acceptsCaptures(at: vaultURL, vaultId: vaultId) else { return 0 }
         let dir = queueFolder(vaultId)
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { CaptureFile.parse(name: $0) != nil }
         let inbox = vaultURL.appendingPathComponent(CaptureFile.folderName, isDirectory: true)
         var moved = 0
         for name in names {
             let file = dir.appendingPathComponent(name)
-            guard let data = try? BoundedRead.contents(of: file, maxBytes: CaptureFile.maxBytes + (1 << 20)) else { continue }
+            guard let kind = CaptureFile.parse(name: name)?.kind,
+                  let data = try? BoundedRead.contents(of: file, maxBytes: CaptureFile.maxSealedBytes(kind)) else { continue }
             do {
                 try CloudVault.coordinatedWrite(coordinated ? inbox : nil) {
                     try CaptureWriter.store(SealedCapture(name: name, data: data), in: inbox)
@@ -469,7 +483,6 @@ final class QuickCapture {
         guard let stored = (try? store.load()) ?? nil, let url = Self.resolve(stored.bookmark) else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard (try? Vault.open(at: url))?.vaultId == stored.profile.vaultId else { return }
         flushQueue(into: url, vaultId: stored.profile.vaultId, coordinated: CloudVault.isUbiquitous(url))
     }
 

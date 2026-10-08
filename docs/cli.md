@@ -1336,7 +1336,7 @@ sempere inbox enable [--notebook NAME] [--profile PATH]          (needs the key 
 sempere inbox capture FILE [--title T] [--started TIME] [--type MEDIA] [--transcript JSON] [--profile PATH]
 sempere inbox transcript CAPTURE JSON --audio FILE [--profile PATH]
 sempere inbox list
-sempere inbox import [CAPTURE...] [--dry-run]                    (needs the key)
+sempere inbox import [CAPTURE...] [--dry-run] [--retry]          (needs the key)
 ```
 
 Voice notes without the key (`format.md` §11, `docs/quick-capture.md`), the
@@ -1361,7 +1361,14 @@ ids and file kinds without a key, titles and whether each verifies with one.
 titled from its date: the audio and transcript as blobs, then one delta as this
 machine, then the inbox files are deleted. The note, page and recording ids
 derive from the capture id, so importing on two machines gives one note. A
-capture that does not verify is reported (exit 1) and kept. `--json`:
+capture that does not verify is reported (exit 1) and kept. Each file's tag
+is checked as it is decrypted, before the file is read whole, and a
+`transcript` file over about 64 MiB is refused from its size. A file that
+failed is recorded in `$XDG_STATE_HOME/sempere/inbox-backoff.json` and not
+read again for an hour, then twice as long after each failure (up to a
+week), while it does not change: `import` reports it as `failed N time(s)
+…; not read again before TIME`. Naming the capture, or `--retry`, reads it
+now. `--json`:
 `capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
 [{capture, note, title, created, transcript, file, removed, error}]}`.
 
