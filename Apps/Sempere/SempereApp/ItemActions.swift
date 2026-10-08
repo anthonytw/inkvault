@@ -52,7 +52,7 @@ final class ItemActions {
     }
 
     /// Moves or resizes an item to `frame`.
-    func setFrame(_ id: UUID, to frame: Rect, on page: UUID, name: String = "Move") {
+    func setFrame(_ id: UUID, to frame: Rect, on page: UUID, name: String = String(localized: "Move", comment: "Undo action name (Edit menu: Undo …)")) {
         guard let old = editor.setItemFrame(id, to: frame, on: page) else { return }
         register(name) { $0.setFrame(id, to: old, on: page, name: name) }
     }
@@ -60,14 +60,14 @@ final class ItemActions {
     /// Sets a text box's text and frame (an edit in its editor).
     func setText(_ id: UUID, to content: TextContent, frame: Rect, on page: UUID) {
         guard let old = editor.setItemText(id, to: content, frame: frame, on: page) else { return }
-        register("Typing") { $0.setText(id, to: old.content, frame: old.frame, on: page) }
+        register(String(localized: "Typing", comment: "Undo action name (Edit menu: Undo …)")) { $0.setText(id, to: old.content, frame: old.frame, on: page) }
     }
 
     /// Adds a new text box. Returns it (nil for an empty one).
     @discardableResult
     func addText(_ content: TextContent, frame: Rect, on page: UUID) -> Item? {
         guard let item = editor.addTextBox(content, frame: frame, on: page) else { return nil }
-        return added([item], on: page, name: "Add Text").first
+        return added([item], on: page, name: String(localized: "Add Text", comment: "Undo action name (Edit menu: Undo …)")).first
     }
 
     /// Deletes items. Returns the ones deleted.
@@ -75,7 +75,7 @@ final class ItemActions {
     func delete(_ ids: [UUID], on page: UUID) -> [Item] {
         let gone = editor.removeItems(ids, from: page)
         guard !gone.isEmpty else { return [] }
-        register("Delete") { $0.restore(gone, on: page) }
+        register(String(localized: "Delete", comment: "Undo action name (Edit menu: Undo …)")) { $0.restore(gone, on: page) }
         return gone
     }
 
@@ -84,26 +84,48 @@ final class ItemActions {
     func restore(_ items: [Item], on page: UUID) -> [Item] {
         let back = editor.restoreItems(items, on: page)
         guard !back.isEmpty else { return [] }
-        register("Delete") { $0.delete(back.map(\.id), on: page) }
+        register(String(localized: "Delete", comment: "Undo action name (Edit menu: Undo …)")) { $0.delete(back.map(\.id), on: page) }
         return back
     }
 
     /// Duplicates items on their page. Returns the copies.
     @discardableResult
     func duplicate(_ ids: [UUID], on page: UUID) -> [Item] {
-        added(editor.duplicateItems(ids, on: page), on: page, name: "Duplicate")
+        added(editor.duplicateItems(ids, on: page), on: page, name: String(localized: "Duplicate", comment: "Undo action name (Edit menu: Undo …)"))
+    }
+
+    /// Registers the undo of a replacement made elsewhere (Replace Image:
+    /// `old` was replaced by `new`, already written).
+    func replaced(_ old: Item, by new: Item, on page: UUID) {
+        register("Replace Image") { $0.swap(new.id, back: old, on: page) }
+    }
+
+    /// Puts `content` back in place of the item `current` (undo or redo of
+    /// a replacement): one delta, the item under a new id whose `parent`
+    /// names `content` (tombstones are permanent, format.md §8.2.2). Returns
+    /// the item put back.
+    @discardableResult
+    func swap(_ current: UUID, back content: Item, on page: UUID) -> Item? {
+        var back = content
+        back.id = UUID()
+        back.parent = content.id
+        back.origin = nil
+        back.clocks = nil
+        guard let was = editor.replaceItem(current, with: back, on: page) else { return nil }
+        register("Replace Image") { $0.swap(back.id, back: was, on: page) }
+        return back
     }
 
     /// Draws an item above the others of its layer.
     func bringToFront(_ id: UUID, on page: UUID) {
         guard let old = editor.bringItemToFront(id, on: page) else { return }
-        register("Bring to Front") { $0.setZ(id, to: old, on: page) }
+        register(String(localized: "Bring to Front", comment: "Undo action name (Edit menu: Undo …)")) { $0.setZ(id, to: old, on: page) }
     }
 
     /// Sets an item's order key (undo and redo of `bringToFront`).
     func setZ(_ id: UUID, to z: String, on page: UUID) {
         guard let now = editor.item(id, on: page)?.z, editor.setItemZ(id, to: z, on: page) else { return }
-        register("Bring to Front") { $0.setZ(id, to: now, on: page) }
+        register(String(localized: "Bring to Front", comment: "Undo action name (Edit menu: Undo …)")) { $0.setZ(id, to: now, on: page) }
     }
 
     /// Pastes the clipboard onto the page (copying blobs from another note
@@ -113,7 +135,7 @@ final class ItemActions {
                prepare: @escaping @Sendable (BlobRef) async throws -> Void = { _ in }) async throws -> [Item] {
         let pasted = try await editor.pasteItems(entry.items, from: entry.note, on: page, dx: offset, dy: offset,
                                                  prepare: prepare)
-        return added(pasted, on: page, name: "Paste")
+        return added(pasted, on: page, name: String(localized: "Paste", comment: "Undo action name (Edit menu: Undo …)"))
     }
 
     /// Registers the undo of adding `items` (removing them; redo restores).

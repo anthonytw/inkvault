@@ -350,7 +350,7 @@ export class NoteView {
         const shown = intersect(crop, { x: 0, y: 0, w: eff.w, h: eff.h });
         if (!shown) throw new Error("the crop lies outside the PDF page");
         const scale = this.pdfScale(p);
-        const canvas = await this.pdfs.render(page, shown, scale);
+        const canvas = await this.pdfs.render(page, shown, scale, d.math !== undefined);
         const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
         if (!png) throw new Error("the PDF page cannot be drawn");
         url = this.url(png);
@@ -377,6 +377,11 @@ export class NoteView {
         return;
       }
       p.scale = undefined;
+      // An equation whose render cannot be drawn shows its source (§8.2.8).
+      if (d.kind === "pdf" && d.math) {
+        p.g.replaceChildren(svgTree(textNode(d.it, d.math.content, d.math.layout)));
+        return;
+      }
       p.g.replaceChildren(...placeholderNodes(d.it).map(svgTree));
       this.report(slot, d.it, why(e));
     }

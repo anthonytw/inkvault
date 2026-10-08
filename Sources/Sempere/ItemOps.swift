@@ -139,6 +139,23 @@ extension NoteOps {
         try addItems(items.map { NoteOps.moved($0, id: newID(), by: 0, parent: $0.id) }, to: page)
     }
 
+    /// Replaces the item `id` with `replacement` in one delta: `removeItem`
+    /// of the old one, then `addItem` of the new one, as given (`z` and
+    /// `parent` included: the caller names the item it replaces, §8.2.1).
+    /// For a change of an immutable field, such as an image's blob.
+    ///
+    /// - Throws: `ItemEditError.invalidItem` when the page has no item `id`
+    ///   or the replacement would not encode, `.duplicateID` for a
+    ///   replacement whose id is on the page.
+    public static func replaceItem(_ id: UUID, with replacement: Item, on page: Page) throws -> ItemEdit {
+        guard let removed = removeItems([id], from: page) else {
+            throw ItemEditError.invalidItem("no item \(id.uuidString.lowercased()) on the page")
+        }
+        if replacement.id == id { throw ItemEditError.duplicateID(id) }
+        let added = try addItems([replacement], to: removed.page)
+        return ItemEdit(ops: removed.ops + added.ops, page: added.page, added: added.added)
+    }
+
     /// Copies of `items` (from this note or another) on `page`: new ids, no
     /// `parent` (a copy replaces nothing), frames shifted by `dx`, `dy`, drawn
     /// above everything in their layer in the order given. The caller copies
@@ -163,7 +180,7 @@ extension NoteOps {
     /// before the delta that adds the copies).
     public static func blobs(of items: [Item]) -> [BlobRef] {
         var seen: Set<String> = []
-        return items.flatMap { [$0.blob, $0.poster].compactMap { $0 } }.filter { seen.insert($0.sha256).inserted }
+        return items.flatMap(\.blobReferences).filter { seen.insert($0.sha256).inserted }
     }
 }
 
@@ -262,6 +279,66 @@ public enum ItemFrames {
         }
     }
 
+    /// The middle of a side of the frame, for resizing along one axis.
+    public enum Edge: Int, CaseIterable, Sendable {
+        case top, right, bottom, left
+
+        /// The side across the frame (it stays put while this one is dragged).
+        var opposite: Edge { Edge(rawValue: (rawValue + 2) % 4) ?? .top }
+        /// Unit signs of this side's middle relative to the centre, in frame axes.
+        var signs: (x: Double, y: Double) {
+            switch self {
+            case .top: return (0, -1)
+            case .right: return (1, 0)
+            case .bottom: return (0, 1)
+            case .left: return (-1, 0)
+            }
+        }
+    }
+
+    /// A resize handle of a selected item: a corner, or the middle of a side.
+    public enum Handle: Hashable, Sendable {
+        case corner(Corner)
+        case edge(Edge)
+
+        /// Unit signs of the handle relative to the centre, in frame axes (0: that axis is not dragged).
+        var signs: (x: Double, y: Double) {
+            switch self {
+            case .corner(let c): return c.signs
+            case .edge(let e): return e.signs
+            }
+        }
+
+        /// The handle across the frame.
+        var opposite: Handle {
+            switch self {
+            case .corner(let c): return .corner(c.opposite)
+            case .edge(let e): return .edge(e.opposite)
+            }
+        }
+    }
+
+    /// The resize handles a selected item of `kind` offers, the same for
+    /// every way of selecting it. A text box's height follows its lines
+    /// (format.md §8.2.4), so it has its left and right sides (its wrapping
+    /// width); every other kind (images, PDF pages, video posters, math and
+    /// kinds this reader does not know) its four corners.
+    public static func handles(for kind: ItemKind) -> [Handle] {
+        kind == .text ? [.edge(.left), .edge(.right)] : Corner.allCases.map { .corner($0) }
+    }
+
+    /// Whether resizing an item of `kind` keeps its proportions: everything
+    /// drawn from a picture (a crop's aspect is the frame's, §8.2.5) or of a
+    /// kind this reader cannot lay out; a text box re-wraps instead.
+    public static func keepsAspect(_ kind: ItemKind) -> Bool { kind != .text }
+
+    /// Where `handle` is on the page, the frame turned by `rotation`.
+    public static func point(of handle: Handle, _ frame: Rect, rotation: Double?) -> Point {
+        let s = handle.signs
+        return rotate(Point(x: frame.x + frame.w * (1 + s.x) / 2, y: frame.y + frame.h * (1 + s.y) / 2),
+                      about: centre(frame), degrees: rotation ?? 0)
+    }
+
     /// The frame after dragging `corner` by `dx`, `dy` (page coordinates):
     /// the opposite corner stays where it is on the page, the rotation is
     /// kept, and the size is at least `minSize` on each side. With
@@ -269,17 +346,29 @@ public enum ItemFrames {
     /// proportions, following the larger of the two changes.
     public static func resized(_ frame: Rect, rotation: Double?, corner: Corner, dx: Double, dy: Double,
                                keepAspect: Bool, minSize: Double = 8) -> Rect {
+        resized(frame, rotation: rotation, handle: .corner(corner), dx: dx, dy: dy, keepAspect: keepAspect, minSize: minSize)
+    }
+
+    /// The frame after dragging `handle` by `dx`, `dy` (page coordinates).
+    /// A corner works as `resized(_:rotation:corner:…)`. A side changes the
+    /// size along its own axis only: the middle of the opposite side stays
+    /// where it is on the page and, with `keepAspect`, the other axis scales
+    /// by the same factor about that middle. The size is at least `minSize`
+    /// on each side; a drag that is not finite leaves the frame as it is.
+    public static func resized(_ frame: Rect, rotation: Double?, handle: Handle, dx: Double, dy: Double,
+                               keepAspect: Bool, minSize: Double = 8) -> Rect {
         let d = rotation ?? 0
         // The drag in the frame's own axes.
         let local = rotate(Point(x: dx, y: dy), about: Point(x: 0, y: 0), degrees: -d)
-        let s = corner.signs
+        let s = handle.signs
         var w = frame.w + s.x * local.x
         var h = frame.h + s.y * local.y
         if keepAspect, frame.w > 0, frame.h > 0 {
             // The axis that changed more (relative to its size) sets the scale, so
-            // a corner dragged inward along one axis only shrinks the item too.
+            // a corner dragged inward along one axis only shrinks the item too; a
+            // side has one axis.
             let rw = w / frame.w, rh = h / frame.h
-            let k = abs(rw - 1) >= abs(rh - 1) ? rw : rh
+            let k = s.y == 0 ? rw : s.x == 0 ? rh : abs(rw - 1) >= abs(rh - 1) ? rw : rh
             w = frame.w * k
             h = frame.h * k
         }
@@ -291,12 +380,24 @@ public enum ItemFrames {
             w = max(w, floor); h = max(h, floor)
         }
         guard w.isFinite, h.isFinite else { return frame }
-        // The fixed corner on the page, and the new centre from it.
-        let fixed = corners(frame, rotation: d)[corner.opposite.rawValue]
-        let o = corner.opposite.signs
+        // The fixed point on the page (the opposite corner, or the opposite
+        // side's middle), and the new centre from it.
+        let fixed = point(of: handle.opposite, frame, rotation: d)
+        let o = handle.opposite.signs
         let half = rotate(Point(x: -o.x * w / 2, y: -o.y * h / 2), about: Point(x: 0, y: 0), degrees: d)
         let c = Point(x: fixed.x + half.x, y: fixed.y + half.y)
         return Rect(x: c.x - w / 2, y: c.y - h / 2, w: w, h: h)
+    }
+
+    /// `frame` fitted to an item of proportions `size` (`w` × `h`, both
+    /// positive): the largest such frame inside `frame`, centred on it.
+    /// The frame unchanged when either is empty or not finite.
+    public static func fitted(_ size: Size, into frame: Rect) -> Rect {
+        guard size.w.isFinite, size.h.isFinite, size.w > 0, size.h > 0, frame.hasPositiveSize,
+              [frame.x, frame.y, frame.w, frame.h].allSatisfy(\.isFinite) else { return frame }
+        let k = min(frame.w / size.w, frame.h / size.h)
+        let w = size.w * k, h = size.h * k
+        return Rect(x: frame.x + (frame.w - w) / 2, y: frame.y + (frame.h - h) / 2, w: w, h: h)
     }
 }
 

@@ -51,7 +51,28 @@ extension AppModel {
         } catch is CancellationError {
             return nil
         } catch {
-            errorMessage = "Could not add the image. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not add the image. \(Self.describe(error))")
+            return nil
+        }
+    }
+
+    /// Replaces the image `item` on `page` with picture bytes (Replace
+    /// Image), stored as the photo privacy setting says; one undo step on
+    /// `actions`. Returns the new image.
+    @discardableResult
+    func replaceImage(_ item: UUID, on page: UUID, with data: Data, in editor: NoteEditor, actions: ItemActions?,
+                      privacy: Bool = PhotoPrivacy.isOn()) async -> Item? {
+        do {
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                try ImagePreparation.prepare(data, privacy: privacy)
+            }.value
+            let (old, new) = try await editor.replaceImage(item, with: prepared, on: page)
+            actions?.replaced(old, by: new, on: page)
+            return new
+        } catch is CancellationError {
+            return nil
+        } catch {
+            errorMessage = String(localized: "Could not replace the image. \(Self.describe(error))")
             return nil
         }
     }
@@ -66,7 +87,7 @@ extension AppModel {
         do {
             copy = try await Task.detached(priority: .userInitiated) { try PDFPreparation.copyPicked(url) }.value
         } catch {
-            errorMessage = "Could not import the PDF. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not import the PDF. \(Self.describe(error))")
             return .failed
         }
         return await importPDF(copy: copy, to: destination, password: nil)
@@ -93,7 +114,7 @@ extension AppModel {
             return .needsPassword(PDFImportRequest(file: copy, destination: destination, wrongPassword: failure == .wrongPassword))
         } catch {
             PDFPreparation.discard(copy)
-            errorMessage = "Could not import the PDF. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not import the PDF. \(Self.describe(error))")
             return .failed
         }
         defer {
@@ -111,7 +132,7 @@ extension AppModel {
         } catch is CancellationError {
             return .failed
         } catch {
-            errorMessage = "Could not import the PDF. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not import the PDF. \(Self.describe(error))")
             return .failed
         }
     }
@@ -147,7 +168,7 @@ extension AppModel {
         case let e as ImagePreparation.Failure: return e.description
         case let e as PDFPreparation.Failure: return e.description
         case let e as AttachmentOpsError:
-            if case .pagelessNote = e { return "This note is pageless: switch it to pages first, or import the PDF as a new note." }
+            if case .pagelessNote = e { return String(localized: "This note is pageless: switch it to pages first, or import the PDF as a new note.") }
             return "\(e)"
         case let e as ImageIngestError: return e.description
         case let e as VideoPreparation.Failure: return e.description

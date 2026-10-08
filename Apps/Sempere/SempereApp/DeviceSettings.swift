@@ -36,7 +36,12 @@ struct RecordingSettings: Hashable, Sendable {
         case stereo = 2
 
         var id: Int { rawValue }
-        var title: String { self == .mono ? "Mono" : "Stereo" }
+        var title: String {
+            switch self {
+            case .mono: return String(localized: "Mono", comment: "Recording channels: one channel (Settings picker)")
+            case .stereo: return String(localized: "Stereo", comment: "Recording channels: two channels (Settings picker)")
+            }
+        }
     }
 
     static let defaultCodec = Codec.aacLC
@@ -128,15 +133,18 @@ struct RecordingSettings: Hashable, Sendable {
 
     /// "Quality" row label: "64 kbit/s".
     static func label(bitRate: Int) -> String { "\(bitRate / 1000) kbit/s" }
-    static func label(sampleRate: Int) -> String {
-        sampleRate % 1000 == 0 ? "\(sampleRate / 1000) kHz" : String(format: "%.2f kHz", Double(sampleRate) / 1000)
+    /// "48 kHz", "22.05 kHz" ("22,05 kHz" in Spanish): the number in `locale`'s format.
+    static func label(sampleRate: Int, locale: Locale = .current) -> String {
+        let khz = (Double(sampleRate) / 1000).formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        return "\(khz) kHz" // l10n:ignore: a number and a unit symbol
     }
 
     /// "About 29 MB per hour".
     func sizePerHourText(inputChannels: Int = 1) -> String {
         let f = ByteCountFormatter()
         f.countStyle = .file
-        return "About \(f.string(fromByteCount: bytesPerHour(inputChannels: inputChannels))) per hour"
+        let size = f.string(fromByteCount: bytesPerHour(inputChannels: inputChannels))
+        return String(localized: "About \(size) per hour", comment: "Settings ▸ Recording ▸ Size: estimated file size of one hour of audio, e.g. 28.8 MB")
     }
 }
 
@@ -191,12 +199,13 @@ enum TranscriptionSettings {
 
         var text: String {
             switch self {
-            case .unavailable: return "Not available on this device"
-            case .notDownloaded: return "Not downloaded"
+            case .unavailable: return String(localized: "Not available on this device", comment: "Transcription language model status")
+            case .notDownloaded: return String(localized: "Not downloaded", comment: "Transcription language model status")
             case .downloading(let f):
-                guard let f, f.isFinite else { return "Downloading…" }
-                return "Downloading… \(Int((min(max(f, 0), 1)) * 100)) %"
-            case .installed: return "Downloaded"
+                guard let f, f.isFinite else { return String(localized: "Downloading…", comment: "Transcription language model status") }
+                let percent = Int((min(max(f, 0), 1)) * 100)
+                return String(localized: "Downloading… \(percent) %", comment: "Transcription language model status with percent done")
+            case .installed: return String(localized: "Downloaded", comment: "Transcription language model status: installed on the device")
             }
         }
     }
@@ -239,7 +248,9 @@ enum RewrapSettings {
     static func needsConfirmation(forRemoval method: RewrapMethod) -> Bool { method == .headerOnly }
 
     static func title(_ m: RewrapMethod) -> String {
-        m == .headerOnly ? "Rewrite headers only" : "Re-encrypt everything"
+        m == .headerOnly
+            ? String(localized: "Rewrite headers only", comment: "Settings ▸ Device Keys: how attachments are rewrapped (picker choice)")
+            : String(localized: "Re-encrypt everything", comment: "Settings ▸ Device Keys: how attachments are rewrapped (picker choice)")
     }
 }
 
@@ -262,12 +273,12 @@ enum NewNoteSettings {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .dateAndTime: return "Date and Time"
-            case .dateOnly: return "Date"
-            case .isoDateTime: return "Year-Month-Day Time"
-            case .weekday: return "Weekday and Date"
-            case .custom: return "Custom"
-            case .blank: return "Untitled"
+            case .dateAndTime: return String(localized: "Date and Time", comment: "Settings ▸ New Notes ▸ Title: default title is the date and time")
+            case .dateOnly: return String(localized: "Date", comment: "Settings ▸ New Notes ▸ Title: default title is the date")
+            case .isoDateTime: return String(localized: "Year-Month-Day Time", comment: "Settings ▸ New Notes ▸ Title: 2026-10-07 14:30")
+            case .weekday: return String(localized: "Weekday and Date", comment: "Settings ▸ New Notes ▸ Title: Wednesday 7 October")
+            case .custom: return String(localized: "Custom", comment: "Settings ▸ New Notes ▸ Title: the user's own date pattern")
+            case .blank: return String(localized: "Untitled", comment: "Settings ▸ New Notes ▸ Title: new notes get no title (shown as Untitled)")
             }
         }
 
@@ -383,6 +394,7 @@ enum StorageText {
 
     /// "3 items, 12.3 MB".
     static func items(_ count: Int, bytes n: Int64) -> String {
-        "\(count) item\(count == 1 ? "" : "s"), \(bytes(n))"
+        let size = bytes(n)
+        return String(localized: "\(count) items, \(size)", comment: "Settings ▸ Storage: number of unused attachments and their total size")
     }
 }

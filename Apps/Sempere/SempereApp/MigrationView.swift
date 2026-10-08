@@ -24,7 +24,7 @@ struct MigrationView: View {
                     content(migration)
                 }
             }
-            .navigationTitle("Upgrade “\(model.vaultName ?? "Vault")”")
+            .navigationTitle("Upgrade “\(model.vaultName ?? String(localized: "Vault", comment: "Name shown for a vault that has none"))”")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close Vault") { model.close() }
@@ -41,20 +41,17 @@ struct MigrationView: View {
             if migration.finishingOnly {
                 Text("A change of this vault's keys was interrupted. Finish it to open your notes.")
             } else {
-                Text("This vault is encrypted to a classic key, which a future quantum computer could break. "
-                    + "Its notes stay locked until it is re-encrypted to a post-quantum key. This rewrites every "
-                    + "file of the vault; copies made earlier (backups, file version history) are not changed.")
+                Text("This vault is encrypted to a classic key, which a future quantum computer could break. Its notes stay locked until it is re-encrypted to a post-quantum key. This rewrites every file of the vault; copies made earlier (backups, file version history) are not changed.")
             }
         }
         if let key = migration.key, !migration.finishingOnly {
             if migration.keyIsNew {
                 Section {
-                    Text("Your new post-quantum secret key. Save it now: after the upgrade only this key (or a "
-                        + "passphrase-protected copy) opens the vault. Losing it means losing the vault.")
+                    Text("Your new post-quantum secret key. Save it now: after the upgrade only this key (or a passphrase-protected copy) opens the vault. Losing it means losing the vault.")
                     Text(key.string)
                         .font(.callout.monospaced())
                         .textSelection(.enabled)
-                    Button(copied ? "Copied" : "Copy Key", systemImage: "doc.on.doc") {
+                    Button(LocalizedStringKey(copied ? "Copied" : "Copy Key"), systemImage: "doc.on.doc") {
                         UIPasteboard.general.setItems([[UTType.plainText.identifier: key.string]],
                                                       options: [.localOnly: true,
                                                                 .expirationDate: Date().addingTimeInterval(120)])
@@ -67,8 +64,7 @@ struct MigrationView: View {
                 }
             } else {
                 Section("Key") {
-                    Text("The vault will be encrypted to your post-quantum key "
-                        + "\(String(key.recipient.string.prefix(16)))…\(String(key.recipient.string.suffix(8))).")
+                    Text("The vault will be encrypted to your post-quantum key \(String(key.recipient.string.prefix(16)))…\(String(key.recipient.string.suffix(8))).")
                 }
             }
             Section {
@@ -118,8 +114,10 @@ struct MigrationView: View {
     }
 
     private func buttonTitle(_ migration: VaultMigration) -> String {
-        if case .failed = migration.step { return "Try Again" }
-        return migration.finishingOnly ? "Finish" : "Upgrade Vault"
+        if case .failed = migration.step { return String(localized: "Try Again", comment: "Button: retry the vault upgrade") }
+        return migration.finishingOnly
+            ? String(localized: "Finish", comment: "Button: finish an interrupted change of the vault's keys")
+            : String(localized: "Upgrade Vault", comment: "Button: move the vault to a post-quantum key")
     }
 
     private func canStart(_ migration: VaultMigration) -> Bool {

@@ -83,20 +83,27 @@ final class MemoryCaptureProfileStore: CaptureProfileStore, @unchecked Sendable 
     func delete() throws { lock.withLock { value = nil } }
 }
 
-enum QuickCaptureError: Error, Equatable, CustomStringConvertible {
+enum QuickCaptureError: Error, Equatable, CustomStringConvertible, CustomLocalizedStringResourceConvertible {
     case notSetUp
     case microphoneDenied
+    /// iOS ends a recording started by an intent (widget, Control Center, Action
+    /// button) that shows no Live Activity, so none starts while they are off.
+    case liveActivitiesOff
     case alreadyRecording
     case notRecording
 
     var description: String {
         switch self {
-        case .notSetUp: return "Quick Voice Notes is not set up: open Sempere, unlock the vault and turn it on in Settings."
+        case .notSetUp: return String(localized: "Quick Voice Notes is not set up: open Sempere, unlock the vault and turn it on in Settings.")
         case .microphoneDenied: return RecordingError.microphoneDenied.description
-        case .alreadyRecording: return "A voice note is already being recorded."
-        case .notRecording: return "No voice note is being recorded."
+        case .liveActivitiesOff: return String(localized: "Live Activities are off for Sempere, and iOS needs one to record a voice note: turn them on in Settings → Sempere → Live Activities.")
+        case .alreadyRecording: return String(localized: "A voice note is already being recorded.")
+        case .notRecording: return String(localized: "No voice note is being recorded.")
         }
     }
+
+    /// What Siri, Shortcuts and the widgets show when an intent fails.
+    var localizedStringResource: LocalizedStringResource { LocalizedStringResource(stringLiteral: description) }
 }
 
 /// Quick voice notes (docs/quick-capture.md): one tap (Siri, Shortcuts, the
@@ -117,7 +124,7 @@ enum QuickCaptureError: Error, Equatable, CustomStringConvertible {
 final class QuickCapture {
     static let shared = QuickCapture()
 
-    enum State: Equatable { case idle, recording, saving }
+    enum State: Equatable { case idle, starting, recording, saving }
 
     enum Delivery: Equatable, Sendable { case vault, queued }
 
@@ -162,9 +169,18 @@ final class QuickCapture {
     }
 
     /// Hooks the intents (Siri, Shortcuts, widgets, Control Center) up to the shared instance.
+    /// Also ends Live Activities left by an earlier process (killed, crashed or
+    /// rebooted while recording): nothing of theirs is recording any more, and
+    /// their Stop button would reach a process that knows nothing of them.
     static func register() {
         VoiceNoteActions.start = { try await QuickCapture.shared.start() }
-        VoiceNoteActions.stop = { _ = try await QuickCapture.shared.stop() }
+        VoiceNoteActions.stop = {
+            do { _ = try await QuickCapture.shared.stop() } catch QuickCaptureError.notRecording {
+                // Stop on an orphaned Live Activity: it is gone now (stop ended it); nothing to report.
+            }
+        }
+        let launched = Date()
+        Task { await endActivities(startedBefore: launched) }
     }
 
     /// Whether quick voice notes are set up on this device.
@@ -175,8 +191,18 @@ final class QuickCapture {
     /// Starts a voice note. Needs only the stored profile: no vault, no key.
     func start() async throws {
         guard state == .idle else { throw QuickCaptureError.alreadyRecording }
+        // Claimed before the first suspension: a second tap (widget and Control Center at
+        // once) used to pass the idle check too and start a second, unstoppable recording.
+        state = .starting
+        var started = false
+        defer { if !started { state = .idle } }
         guard ((try? store.load()) ?? nil) != nil else { throw QuickCaptureError.notSetUp }
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        if showsActivity, !ActivityAuthorizationInfo().areActivitiesEnabled { throw QuickCaptureError.liveActivitiesOff }
+        #endif
         guard await microphoneAllowed() else { throw QuickCaptureError.microphoneDenied }
+        // Nothing records here yet, so any Live Activity still shown is an orphan.
+        await Self.endActivities(startedBefore: .distantFuture)
         // Read back and sealed on stop, often with the device still locked: `completeUnlessOpen`
         // files cannot be reopened then once closed, so this class (readable after the first unlock).
         let s = RecordingSession(noteID: UUID(), format: RecordingPreference.format(), root: root,
@@ -189,13 +215,18 @@ final class QuickCapture {
         try s.start()
         session = s
         state = .recording
+        started = true
         startActivity(started: s.timeline.started ?? Date())
     }
 
     /// Stops the voice note and seals it (and its transcript, when that is on).
     @discardableResult
     func stop() async throws -> Outcome {
-        guard let s = session, s.isActive else { throw QuickCaptureError.notRecording }
+        guard let s = session, s.isActive else {
+            // Stop pressed on a Live Activity this process did not start: end it.
+            if state == .idle { await Self.endActivities(startedBefore: .distantFuture) }
+            throw QuickCaptureError.notRecording
+        }
         s.stop()
         return try await finish(s)
     }
@@ -370,6 +401,17 @@ final class QuickCapture {
                 await a.end(nil, dismissalPolicy: .immediate)
             }
         }
+        #endif
+    }
+
+    /// Ends every voice note Live Activity that started before `cutoff`.
+    nonisolated static func endActivities(startedBefore cutoff: Date) async {
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        await Task.detached {
+            for a in Activity<VoiceNoteAttributes>.activities where a.content.state.started < cutoff {
+                await a.end(nil, dismissalPolicy: .immediate)
+            }
+        }.value
         #endif
     }
 }

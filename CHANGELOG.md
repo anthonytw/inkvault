@@ -21,7 +21,31 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 - iPhone and iPad: an iCloud sync in flight when the device locks or the app leaves the screen finishes
   in the background time iOS gives, and scheduled background tasks continue it when iOS allows
   (`docs/io.md` "Background sync" lists the limits).
-
+- Web viewer opens fast on every visit (`docs/web-viewer.md` "Opening fast"). A `config.json` next to
+  the viewer lets the server fix the vault (straight to the key prompt; no URL field, folder picker or
+  `?vault=`). The note list comes at once from the vault's published summaries, `sempere-summaries.sealed`
+  (`format.md` §12: sealed under a key derived from the vault secret, entries keyed by revision file
+  names, a hint never trusted over the revisions); only notes that changed are decrypted. Encrypted
+  vault files are cached in IndexedDB (write-once, so never fetched twice; evicted when gone from the
+  listing; 512 MiB LRU; "Clear cached data"); nothing decrypted is stored. CLI: `sempere vault
+  summaries`; unlocked commands keep an existing file current; `sync webdav` keeps the server's copy
+  current and `--web-viewer` creates it and `sempere-index.json` there. On 200 synthetic notes over a
+  40 ms link: 7.3 s to a listed vault before, 0.3 s with summaries and the index.
+- App Store submission preparation (`docs/release/`): export compliance answers with sources,
+  privacy manifests for the app and the widget extension, App Privacy and age rating answers, App
+  Review notes, listing drafts, the Mac App Store (universal purchase) steps, and a privacy policy page
+  for GitHub Pages (`docs/privacy/`). `scripts/release-check.sh` (run by CI) fails on mismatched
+  version or build numbers, a committed signing team, a missing or incomplete privacy manifest, or an
+  entitlement outside the allow-list.
+- Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
+  A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
+  into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to
+  IndexedDB. "Unlock with passkey" is one prompt; "Forget this key" deletes the record. Without PRF the
+  viewer explains why and stores nothing. App: Settings → Device Keys → "Save Key…" exports this device's
+  key after Face ID to Files or the share sheet (for a password manager), with its paper recovery kit;
+  "New Key…" makes a key for another device, encrypts the vault to it and offers the same. Key files are
+  the CLI's format (`keys generate`), written only where the user chooses; the share sheet's copy is
+  deleted when it closes.
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
@@ -36,11 +60,26 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   never changes the vault (a compromised server cannot feed an attacker's recipient back). Files only the server
   has and nothing explains are reported as `extraneous` (new in `--json`, with `overwritten`) and removed with
   `--delete-extraneous`.
+- The app's interface in Spanish (task L). Every interface string lives in String Catalogs
+  (`Apps/Sempere/Localization/`), with plural forms, iPhone/iPad/Mac wording, the permission prompts, the
+  Siri phrases and the Lock Screen widget, Control Center control and Live Activity text. Notes, notebook
+  and tag names and the CLI's messages are not translated. Rules, the Spanish glossary and a guide to adding
+  a language: `docs/localization.md`, `CONTRIBUTING.md`. `scripts/app.sh pseudo` checks the layouts in the
+  double-length, right-to-left and Spanish languages; `LocalizationCatalogTests` keeps the catalogs
+  complete.
 - A note open in the app picks up what another device writes to it (iCloud Drive, any sync, the CLI)
   without being reopened: the new revisions are downloaded and merged into the open canvas, pages,
   items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink
   changed are redrawn, at the same scroll and zoom; nothing is written back for the merge. A small
   "Updated from another device" notice shows for a few seconds.
+- Equations (task G1, `format.md` §8.2.8): `math` items hold LaTeX source, display or inline style,
+  size, colour and a typeset PDF rendering. App: Insert → Equation… and "Edit Equation…" open a sheet
+  with a live SwiftMath preview; the rendering is stored, so exports, the CLI and the web viewer draw
+  the equation without a typesetter. CLI: `sempere attach math --latex '…'` (`--inline`, `--size`,
+  `--color`, `--render FILE.pdf`), `sempere items math`, equations in `items list`, `notes show` and
+  `search`; exports embed the rendering (PDF form; SVG/PNG via Poppler), else draw the source with a
+  warning, and Markdown/HTML keep the source as `$$…$$`. LaTeX sources are bounded (8 KiB, 4 096
+  symbols, 64 levels) before anything parses them.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed

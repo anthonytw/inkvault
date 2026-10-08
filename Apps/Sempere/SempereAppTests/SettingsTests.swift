@@ -26,6 +26,14 @@ struct SettingsTests {
         #expect(s.channels == .mono)
     }
 
+    /// Sample rates are numbers in the device's format (docs/localization.md rule 8).
+    @Test func sampleRateLabelsFollowTheLocale() {
+        #expect(RecordingSettings.label(sampleRate: 48_000, locale: Locale(identifier: "en_US")) == "48 kHz")
+        #expect(RecordingSettings.label(sampleRate: 22_050, locale: Locale(identifier: "en_US")) == "22.05 kHz")
+        #expect(RecordingSettings.label(sampleRate: 22_050, locale: Locale(identifier: "es_ES")) == "22,05 kHz")
+        #expect(RecordingSettings.label(sampleRate: 44_100, locale: Locale(identifier: "es_ES")) == "44,1 kHz")
+    }
+
     @Test func recordingSettingsRoundTrip() {
         let d = scratch()
         RecordingSettings(codec: .heAAC, bitRate: 32_000, sampleRate: 44_100, channels: .stereo).save(to: d)

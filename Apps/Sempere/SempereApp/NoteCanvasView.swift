@@ -39,8 +39,7 @@ struct NoteCanvasView: View {
                 } else if let download = model.noteDownload, download.id == note.id {
                     VStack(spacing: 10) {
                         ProgressView(value: download.progress.fractionCompleted).frame(width: 240)
-                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of "
-                             + "\(download.progress.total) file\(download.progress.total == 1 ? "" : "s")")
+                        Text("Downloading this note from iCloud: \(download.progress.downloaded) of \(String(localized: "\(download.progress.total) files"))")
                             .font(.callout).monospacedDigit().foregroundStyle(.secondary)
                     }
                 } else if model.pendingNoteIDs.contains(note.id) {
@@ -96,12 +95,12 @@ struct NoteCanvasView: View {
             if !Platform.isPhone {   // the stack's back button is the way to the list
                 ToolbarItem(placement: .topBarLeading) {
                     let full = ColumnLayout.visibility(from: storedColumns) == .detailOnly
-                    Button(full ? "Show Notes" : "Hide Notes",
+                    Button(LocalizedStringKey(full ? "Show Notes" : "Hide Notes"),
                            systemImage: full ? "list.bullet" : "arrow.up.left.and.arrow.down.right") {
                         withAnimation { storedColumns = ColumnLayout.toggled(storedColumns) }
                     }
                     .disabled(!full && model.selectedNote == nil)
-                    .help(full ? "Show the note list" : "Hide the note list for a full-width canvas")
+                    .help(LocalizedStringKey(full ? "Show the note list" : "Hide the note list for a full-width canvas"))
                 }
             }
         }
@@ -333,9 +332,21 @@ struct EditorView: View {
         commands.crop = { item, page, actions in
             state.cropping = CropRequest(item: item, page: page, note: note, actions: actions)
         }
+        commands.replace = { item, page, actions, source, done in
+            state.replacing = ReplaceRequest(item: item, page: page, actions: actions, done: done)
+            switch source {
+            case .photos: state.pickingReplacementPhoto = true
+            case .files:
+                state.fileImport = .image
+                state.pickingFile = true
+            }
+        }
         let editor = self.editor
         commands.play = { item, page in
             state.playing = VideoPlayRequest(item: item, page: page, editor: editor)
+        }
+        commands.editMath = { item, page, actions in
+            state.editingMath = MathRequest(editor: editor, page: page, item: item, actions: actions, visible: nil)
         }
         return commands
     }
@@ -345,16 +356,17 @@ struct EditorView: View {
     }
 
     private var insertMenu: some View {
-        InsertMenu(editor: editor, state: insert) { providers in
+        InsertMenu(editor: editor, state: insert, onAddText: { addingText = true }) { providers in
             EditorInsert.add(providers, to: editor, page: editor.currentPage?.id, at: nil, model: model, ui: ui, state: insert)
         }
     }
 
-    /// Whether the Select Items toggle is offered: the note can be edited and
-    /// the page has items (or there are copied items to paste).
+    /// Whether the Select toggle is offered: whenever the note can be edited
+    /// (always in the same place: a toggle that comes and goes with the
+    /// current page's items cannot be found; on a paged note the current page
+    /// is the one at the top of the screen, not the one with the photo).
     private var showsItemSelection: Bool {
-        guard !editor.isReadOnly, let page = editor.currentPage else { return false }
-        return !page.items.isEmpty || model.itemClipboard.entry != nil || selectingItems
+        !editor.isReadOnly && editor.currentPage != nil
     }
 
     private var textToolToggle: some View {
@@ -364,13 +376,13 @@ struct EditorView: View {
     }
 
     private var itemSelectionToggle: some View {
-        Toggle("Select Items", systemImage: "cursorarrow.rays", isOn: $selectingItems)
+        Toggle("Select", systemImage: "cursorarrow.rays", isOn: $selectingItems)
             .toggleStyle(.button)
-            .help("Select, move, resize and delete images, text boxes and PDF pages")
+            .help("Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. While drawing: tap one with the lasso, hold a finger on it, or right-click it")
     }
 
     private var pageCounter: some View {
-        Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+        Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
             .monospacedDigit()
     }
 
@@ -426,7 +438,7 @@ struct EditorView: View {
                     Menu {
                         Toggle("Compact Palette", systemImage: "rectangle.compress.vertical", isOn: $paletteCompact)
                     } label: {
-                        Label(paletteVisible ? "Hide Tools" : "Show Tools",
+                        Label(LocalizedStringKey(paletteVisible ? "Hide Tools" : "Show Tools"),
                               systemImage: paletteVisible ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
                     } primaryAction: {
                         paletteVisible.toggle()
@@ -466,7 +478,7 @@ struct EditorView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
                         .disabled(editor.pageIndex == 0)
-                    Text(editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
+                    Text(verbatim: editor.pages.isEmpty ? "–" : "\(editor.pageIndex + 1) / \(editor.pages.count)")
                         .monospacedDigit()
                     Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
                         .disabled(editor.pageIndex + 1 >= editor.pages.count)
@@ -475,6 +487,12 @@ struct EditorView: View {
                         Menu {
                             Button("Add Page After This One", systemImage: "doc.badge.plus") { editor.addPageAfterCurrent() }
                             Button("Add Page at End", systemImage: "arrow.down.to.line") { editor.addPage() }
+                            Button(InsertOptions.pdfPagesTitle(pageless: false, pageIndex: editor.pageIndex,
+                                                               pageCount: editor.pages.count),
+                                   systemImage: "doc.richtext") {
+                                insert.fileImport = .pdf
+                                insert.pickingFile = true
+                            }
                             if let page = editor.currentPage {
                                 Button("Duplicate Page", systemImage: "plus.square.on.square") { editor.duplicatePage(page.id) }
                                 Button("Delete Page", systemImage: "trash", role: .destructive) { editor.deletePage(page.id) }
@@ -490,7 +508,7 @@ struct EditorView: View {
                         }
                     }
                     if !editor.isPageless {
-                        Button(stripVisible ? "Hide Pages" : "Show Pages", systemImage: "sidebar.right") {
+                        Button(LocalizedStringKey(stripVisible ? "Hide Pages" : "Show Pages"), systemImage: "sidebar.right") {
                             stripVisible.toggle()
                         }
                         .help("Page thumbnails: tap to go to a page, drag to reorder")
@@ -511,7 +529,8 @@ struct SearchMatchBar: View {
 
     /// "3 of 12 matches", "1 match".
     static func label(position: Int, count: Int) -> String {
-        count == 1 ? "1 match" : "\(position) of \(count) matches"
+        count == 1 ? String(localized: "1 match", comment: "Search highlights: the only match")
+            : String(localized: "\(position) of \(count) matches", comment: "Search highlights: current match of the count (never 1)")
     }
 
     var body: some View {
@@ -541,7 +560,7 @@ struct SearchMatchBar: View {
 /// canvas for a few seconds after a merge brought another device's changes
 /// (`NoteEditor.mergeRevisions`). It takes no touches.
 struct RemoteUpdateNotice: View {
-    static let text = "Updated from another device"
+    static let text = String(localized: "Updated from another device", comment: "Notice over the canvas after another device's changes were merged into the open note")
     static let duration = Duration.seconds(3)
 
     var body: some View {
@@ -576,6 +595,6 @@ private struct Banner: View {
 enum NoteTitle {
     static func display(_ title: String) -> String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? "Untitled" : t
+        return t.isEmpty ? String(localized: "Untitled", comment: "Shown for a note without a title") : t
     }
 }

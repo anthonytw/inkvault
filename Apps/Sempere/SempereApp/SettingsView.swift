@@ -92,7 +92,7 @@ private struct NewNoteSettingsSection: View {
                 HStack {
                     Text("Paper").foregroundStyle(.primary)
                     Spacer()
-                    Text(paper.kind.title).foregroundStyle(.secondary)
+                    Text(paper.kind.localizedTitle).foregroundStyle(.secondary)
                     Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
             }
@@ -118,7 +118,7 @@ private struct NewNoteSettingsSection: View {
 
     private var sample: String {
         let t = NewNoteSettings.title(format, pattern: NewNoteSettings.titlePattern())
-        return t.isEmpty ? "“Untitled”" : "“\(t)”"
+        return t.isEmpty ? String(localized: "“Untitled”", comment: "Settings ▸ New Notes footer: how a note with no title is shown, in quotes") : "“\(t)”"
     }
 
     private func commitNotebook() {
@@ -174,10 +174,14 @@ struct TitlePatternField: View {
 
     /// The fields the Insert menu offers.
     static let fields: [Field] = [
-        Field(name: "Year", pattern: "yyyy"), Field(name: "Month", pattern: "MMMM"),
-        Field(name: "Month (number)", pattern: "MM"), Field(name: "Day", pattern: "d"),
-        Field(name: "Weekday", pattern: "EEEE"), Field(name: "Time", pattern: "HH:mm"),
-        Field(name: "Time (12-hour)", pattern: "h:mm a"), Field(name: "Text", pattern: "'Note'"),
+        Field(name: String(localized: "Year", comment: "Title pattern Insert menu: the year field"), pattern: "yyyy"),
+        Field(name: String(localized: "Month", comment: "Title pattern Insert menu: the month name"), pattern: "MMMM"),
+        Field(name: String(localized: "Month (number)", comment: "Title pattern Insert menu: the month as a number"), pattern: "MM"),
+        Field(name: String(localized: "Day", comment: "Title pattern Insert menu: the day of the month"), pattern: "d"),
+        Field(name: String(localized: "Weekday", comment: "Title pattern Insert menu: the weekday name"), pattern: "EEEE"),
+        Field(name: String(localized: "Time", comment: "Title pattern Insert menu: 24-hour time"), pattern: "HH:mm"),
+        Field(name: String(localized: "Time (12-hour)", comment: "Title pattern Insert menu: 12-hour time"), pattern: "h:mm a"),
+        Field(name: String(localized: "Text", comment: "Title pattern Insert menu: literal text in quotes"), pattern: "'Note'"),
     ]
 
     enum Status: Equatable {
@@ -185,12 +189,37 @@ struct TitlePatternField: View {
         case problem(String)
     }
 
+    /// `problem` for the screen (`DefaultTitle.Problem.description` is the CLI's English).
+    static func message(_ problem: DefaultTitle.Problem) -> String {
+        switch problem {
+        case .tooLong:
+            let limit = String(DefaultTitle.maxFormatLength)
+            return String(localized: "The format is too long: at most \(limit) characters.",
+                          comment: "Title pattern field: the pattern is too long; the limit is always 200 [not-plural]")
+        case .unclosedQuote:
+            return String(localized: "A quote (') opens text that is never closed. Put literal text in single quotes, and write '' for a quote.",
+                          comment: "Title pattern field: unbalanced single quote")
+        case .unknownLetter(let c):
+            let letter = String(c)
+            return String(localized: "“\(letter)” is not a date field. Put literal text in single quotes, e.g. 'Lecture' d MMM.",
+                          comment: "Title pattern field: a letter outside quotes that is no date field")
+        case .unknownDirective(let d):
+            return String(localized: "“\(d)” is not a strftime directive.",
+                          comment: "Title pattern field: an unknown % directive")
+        case .blank:
+            return String(localized: "The format gives no text.", comment: "Title pattern field: the pattern produces only spaces")
+        }
+    }
+
     /// What the field shows under `pattern` at `now`. Pure, tested.
     static func status(of pattern: String, now: Date = Date(), locale: Locale = .current,
                        timeZone: TimeZone = .current) -> Status {
-        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .problem("Type a pattern, e.g. \(NewNoteSettings.defaultTitlePattern).") }
+        if pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .problem(String(localized: "Type a pattern, e.g. \(NewNoteSettings.defaultTitlePattern).",
+                                   comment: "Title pattern field: the field is empty"))
+        }
         if let problem = DefaultTitle.check(pattern, at: now, locale: locale, timeZone: timeZone) {
-            return .problem(problem.description)
+            return .problem(message(problem))
         }
         return .preview(DefaultTitle.title(at: now, format: pattern, locale: locale, timeZone: timeZone))
     }
@@ -257,14 +286,18 @@ private struct TranscriptionSettingsSection: View {
                 .onChange(of: locale) { TranscriptionSettings.setLocaleIdentifier(locale) }
                 LabeledContent("Language Model", value: status.text)
                 if status == .notDownloaded, TranscriptionSettings.downloader != nil {
-                    Button(downloading ? "Downloading…" : "Download Language Model") { Task { await download() } }
+                    Button(LocalizedStringKey(downloading ? "Downloading…" : "Download Language Model")) { Task { await download() } }
                         .disabled(downloading)
                 }
             }
         } header: {
             Text("Transcription")
         } footer: {
-            Text(failure ?? "Off by default. Transcripts are made on this device and stored encrypted in the note; no audio or text is sent anywhere.")
+            if let failure {
+                Text(failure)
+            } else {
+                Text("Off by default. Transcripts are made on this device and stored encrypted in the note; no audio or text is sent anywhere.")
+            }
         }
         .task(id: "\(enabled)|\(locale ?? "")") { await refresh() }
     }
@@ -279,7 +312,10 @@ private struct TranscriptionSettingsSection: View {
         downloading = true
         failure = nil
         defer { downloading = false }
-        do { try await download(locale) } catch { failure = "The language model could not be downloaded: \(error)" }
+        do { try await download(locale) } catch {
+            failure = String(localized: "The language model could not be downloaded: \(String(describing: error))",
+                             comment: "Settings ▸ Transcription; the error text follows (English)")
+        }
         await refresh()
     }
 }
@@ -295,9 +331,11 @@ private struct PhotoSettingsSection: View {
         } header: {
             Text("Photos")
         } footer: {
-            Text(photoPrivacy
-                 ? "Photos you add are stored without location and camera data, and HEIC photos are converted to JPEG. Exports never include location data."
-                 : "Photos are stored as picked, with their location and camera data, and HEIC photos stay HEIC. Exports still leave location data out.")
+            if photoPrivacy {
+                Text("Photos you add are stored without location and camera data, and HEIC photos are converted to JPEG. Exports never include location data.")
+            } else {
+                Text("Photos are stored as picked, with their location and camera data, and HEIC photos stay HEIC. Exports still leave location data out.")
+            }
         }
     }
 }
@@ -320,21 +358,27 @@ private struct HistorySettingsSection: View {
             } header: {
                 Text("Version History")
             } footer: {
-                Text(days > 0
-                     ? "Once a day, autosaves older than \(ThinningPreference.label(days)) are removed from this vault on every device. Saved versions and the last autosave of each editing session are always kept, and stay restorable. This setting is for this device only."
-                     : "Autosaves are never removed by this device. Another device with thinning on still thins the vault.")
+                if days > 0 {
+                    Text("Once a day, autosaves older than \(ThinningPreference.label(days)) are removed from this vault on every device. Saved versions and the last autosave of each editing session are always kept, and stay restorable. This setting is for this device only.")
+                } else {
+                    Text("Autosaves are never removed by this device. Another device with thinning on still thins the vault.")
+                }
             }
             Section {
                 Button {
                     Task { await makePreview(.olderThan(days: days)) }
                 } label: {
-                    Text(days > 0 ? "\(ThinningRule.olderThan(days: days).title)…" : "Thin Now…")
+                    if days > 0 {
+                        Text(ThinningRule.olderThan(days: days).localizedButtonTitle)
+                    } else {
+                        Text("Thin Now…")
+                    }
                 }
                 .disabled(days <= 0 || working || model.phase != .unlocked)
                 Button(role: .destructive) {
                     Task { await makePreview(.allButCheckpoints) }
                 } label: {
-                    Text("\(ThinningRule.allButCheckpoints.title)…")
+                    Text(ThinningRule.allButCheckpoints.localizedButtonTitle)
                 }
                 .disabled(working || model.phase != .unlocked)
                 if let progress = model.thinningProgress {
@@ -347,9 +391,7 @@ private struct HistorySettingsSection: View {
             } header: {
                 Text("Thin Now")
             } footer: {
-                Text("The first applies the setting above; the second ignores it and removes every autosave except "
-                     + "the newest save of each editing session. Both keep every saved and imported version, and "
-                     + "show what they would remove before anything is.")
+                Text("The first applies the setting above; the second ignores it and removes every autosave except the newest save of each editing session. Both keep every saved and imported version, and show what they would remove before anything is.")
             }
         }
         .sheet(item: $preview) { box in
@@ -374,7 +416,8 @@ private struct HistorySettingsSection: View {
             preview = PreviewBox(report: try await model.thinVault(rule: rule, dryRun: true))
         } catch is CancellationError {
         } catch {
-            outcome = "Could not check the vault: \(error)"
+            outcome = String(localized: "Could not check the vault: \(String(describing: error))",
+                             comment: "Settings alert; the error text follows (English)")
         }
     }
 
@@ -387,7 +430,8 @@ private struct HistorySettingsSection: View {
             outcome = ThinningPreviewView.sentence(done, done: true)
         } catch is CancellationError {
         } catch {
-            outcome = "Could not thin the vault: \(error)"
+            outcome = String(localized: "Could not thin the vault: \(String(describing: error))",
+                             comment: "Settings alert; the error text follows (English)")
         }
     }
 
@@ -400,12 +444,19 @@ private struct HistorySettingsSection: View {
 // MARK: - Device keys
 
 private struct DeviceKeySettingsSection: View {
+    @Environment(AppModel.self) private var model
     @State private var onAdd = RewrapSettings.onAdd()
     @State private var onRemove = RewrapSettings.onRemoveOrUpgrade()
     @State private var confirming = false
+    @State private var savingKey = false
+    @State private var creatingKey = false
 
     var body: some View {
         Section {
+            Button("Save Key…", systemImage: "key") { savingKey = true }
+                .disabled(model.phase != .unlocked || model.heldIdentity == nil)
+            Button("New Key…", systemImage: "key.badge.plus") { creatingKey = true }
+                .disabled(model.phase != .unlocked)
             Picker("When Adding a Device", selection: $onAdd) {
                 ForEach(RewrapMethod.allCases, id: \.self) { Text(RewrapSettings.title($0)).tag($0) }
             }
@@ -425,8 +476,10 @@ private struct DeviceKeySettingsSection: View {
         } header: {
             Text("Device Keys")
         } footer: {
-            Text("Devices here are the keys this vault is encrypted to (this iPad, that Mac, the paper backup), not people: to share a note, export it. “Rewrite headers only” is fast but leaves old copies of an attachment openable with a key that was removed. “Re-encrypt everything” takes longer in a vault with many attachments.")
+            Text("Save Key exports this device's key, after Face ID, to Files or a password manager, with its paper recovery kit. New Key makes a key for another device and encrypts the vault to it. Devices here are the keys this vault is encrypted to (this iPad, that Mac, the paper backup), not people: to share a note, export it. “Rewrite headers only” is fast but leaves old copies of an attachment openable with a key that was removed. “Re-encrypt everything” takes longer in a vault with many attachments.")
         }
+        .sheet(isPresented: $savingKey) { SaveKeyView() }
+        .sheet(isPresented: $creatingKey) { NewKeyView() }
         .confirmationDialog("Rewrite headers only after a removal?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Rewrite Headers Only", role: .destructive) {
                 onRemove = .headerOnly
@@ -484,9 +537,11 @@ private struct StorageSettingsSection: View {
     }
 
     private var footer: String {
-        var s = "Unused attachments are files no version of their note refers to. Checking only lists them; a collection (sempere blobs gc) deletes them, and only 30 days after it first found them unused. Caches speed up opening notes and can be rebuilt from the vault."
+        var s = String(localized: "Unused attachments are files no version of their note refers to. Checking only lists them; a collection (sempere blobs gc) deletes them, and only 30 days after it first found them unused. Caches speed up opening notes and can be rebuilt from the vault.",
+                       comment: "Settings ▸ Storage footer; “sempere blobs gc” is a command, not translated")
         if let n = unused?.skippedNotes, n > 0 {
-            s += " \(n) note\(n == 1 ? " was" : "s were") not checked (unreadable, or not downloaded)."
+            s += " " + String(localized: "\(n) notes were not checked (unreadable, or not downloaded).",
+                              comment: "Settings ▸ Storage footer, after the main text")
         }
         return s
     }
@@ -496,7 +551,10 @@ private struct StorageSettingsSection: View {
         failure = nil
         defer { scanning = false }
         do { unused = try await model.scanUnusedAttachments() } catch is CancellationError {
-        } catch { failure = "Could not check the vault: \(error)" }
+        } catch {
+            failure = String(localized: "Could not check the vault: \(String(describing: error))",
+                             comment: "Settings alert; the error text follows (English)")
+        }
     }
 }
 
@@ -513,7 +571,7 @@ struct UnusedAttachmentsView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(NoteTitle.display(item.title)).lineLimit(1)
-                        Text(item.kind.rawValue).font(.caption).foregroundStyle(.secondary)
+                        Text(item.kind.localizedName).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text(StorageText.bytes(item.bytes)).foregroundStyle(.secondary).monospacedDigit()
@@ -534,20 +592,29 @@ struct ThinningPreviewView: View {
     /// "Removes 120 old autosaves (1.2 MB) from 4 notes and adds 6 snapshots (3.4 MB) …".
     static func sentence(_ r: ThinningReport, done: Bool) -> String {
         guard !r.isEmpty else {
-            if case .allButCheckpoints = r.rule { return "Nothing to remove: every note keeps only checkpoints and the newest save of each editing session." }
-            return "Nothing to remove: no autosave is old enough to be thinned."
+            if case .allButCheckpoints = r.rule {
+                return String(localized: "Nothing to remove: every note keeps only checkpoints and the newest save of each editing session.")
+            }
+            return String(localized: "Nothing to remove: no autosave is old enough to be thinned.")
         }
         let bytes = ByteCountFormatter()
-        let files = "\(r.deletions) old autosave\(r.deletions == 1 ? "" : "s") (\(bytes.string(fromByteCount: Int64(r.bytesDeleted))))"
-        let notes = "\(r.notes.count) note\(r.notes.count == 1 ? "" : "s")"
-        var s = done ? "Removed \(files) from \(notes)." : "Removes \(files) from \(notes)."
+        // Two counts in one sentence: each is its own (plural) noun phrase.
+        let deletedSize = bytes.string(fromByteCount: Int64(r.bytesDeleted))
+        let files = String(localized: "\(r.deletions) old autosaves (\(deletedSize))",
+                           comment: "Thinning summary: noun phrase, number of autosaves removed and their size; used in “Removes %@ from %@.”")
+        let notes = String(localized: "\(r.notes.count) notes",
+                           comment: "Thinning summary: noun phrase, number of notes; used in “Removes %@ from %@.”")
+        var s = done
+            ? String(localized: "Removed \(files) from \(notes).", comment: "Thinning done: “Removed 120 old autosaves (1.2 MB) from 4 notes.”")
+            : String(localized: "Removes \(files) from \(notes).", comment: "Thinning preview: “Removes 120 old autosaves (1.2 MB) from 4 notes.”")
         if r.snapshots > 0 {
-            s += " To keep saved versions and the last autosave of each session restorable, "
-                + "\(r.snapshots) snapshot\(r.snapshots == 1 ? "" : "s") (\(bytes.string(fromByteCount: Int64(r.bytesAdded)))) "
-                + (done ? "were" : "will be") + " added."
+            let addedSize = bytes.string(fromByteCount: Int64(r.bytesAdded))
+            s += " " + (done
+                ? String(localized: "To keep saved versions and the last autosave of each session restorable, \(r.snapshots) snapshots (\(addedSize)) were added.")
+                : String(localized: "To keep saved versions and the last autosave of each session restorable, \(r.snapshots) snapshots (\(addedSize)) will be added."))
         }
         if !r.skipped.isEmpty {
-            s += " \(r.skipped.count) note\(r.skipped.count == 1 ? " was" : "s were") left as they are (open, not downloaded or unreadable)."
+            s += " " + String(localized: "\(r.skipped.count) notes were left as they are (open, not downloaded or unreadable).")
         }
         return s
     }
@@ -558,7 +625,7 @@ struct ThinningPreviewView: View {
                 Section {
                     Text(Self.sentence(report, done: false))
                 } footer: {
-                    Text(report.rule.explanation)
+                    Text(report.rule.localizedExplanation)
                 }
                 if !report.notes.isEmpty {
                     Section("Notes") {
@@ -566,14 +633,14 @@ struct ThinningPreviewView: View {
                             HStack {
                                 Text(NoteTitle.display(n.title)).lineLimit(1)
                                 Spacer()
-                                Text("\(n.deletions) autosave\(n.deletions == 1 ? "" : "s")")
+                                Text("\(n.deletions) autosaves", comment: "Thinning preview: autosaves removed from one note")
                                     .foregroundStyle(.secondary).monospacedDigit()
                             }
                         }
                     }
                 }
             }
-            .navigationTitle(report.rule.title)
+            .navigationTitle(report.rule.localizedTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: cancel) }
@@ -581,6 +648,56 @@ struct ThinningPreviewView: View {
                     Button("Thin", role: .destructive, action: thin).disabled(report.isEmpty)
                 }
             }
+        }
+    }
+}
+
+/// The thinning rules' wording in the interface language (`ThinningRule.title`
+/// and `explanation` are the library's English, also printed by the CLI).
+extension ThinningRule {
+    /// "Thin versions older than 30 days" / "Thin everything except checkpoints".
+    var localizedTitle: String {
+        switch self {
+        case .olderThan(let days):
+            let age = ThinningPreference.label(days)
+            return String(localized: "Thin versions older than \(age)", comment: "Thinning rule; the value is “30 days”, “1 year”…")
+        case .allButCheckpoints:
+            return String(localized: "Thin everything except checkpoints", comment: "Thinning rule")
+        }
+    }
+
+    /// `localizedTitle` as a button that opens a preview ("…").
+    var localizedButtonTitle: String {
+        switch self {
+        case .olderThan(let days):
+            let age = ThinningPreference.label(days)
+            return String(localized: "Thin versions older than \(age)…", comment: "Button; the value is “30 days”, “1 year”…")
+        case .allButCheckpoints:
+            return String(localized: "Thin everything except checkpoints…", comment: "Button")
+        }
+    }
+
+    /// The rule and what it keeps, in one sentence.
+    var localizedExplanation: String {
+        switch self {
+        case .olderThan(let days):
+            let age = ThinningPreference.label(days)
+            return String(localized: "Removes autosaves older than \(age). Keeps every checkpoint (saved and imported versions), the newest save of each editing session, the note's newest version and everything from the last \(age).",
+                          comment: "Thinning rule explanation; both values are the same age, “30 days”, “1 year”…")
+        case .allButCheckpoints:
+            return String(localized: "Removes every autosave, however recent, except the newest save of each editing session. Keeps every checkpoint (saved and imported versions) and the note's newest version.")
+        }
+    }
+}
+
+extension BlobKind {
+    /// The attachment kind as the Unused Attachments list shows it; other kinds keep their stored name.
+    var localizedName: String {
+        switch self {
+        case .image: return String(localized: "Image", comment: "Attachment kind in the unused attachments list")
+        case .pdf: return String(localized: "PDF", comment: "Attachment kind in the unused attachments list")
+        case .audio: return String(localized: "Audio", comment: "Attachment kind in the unused attachments list")
+        default: return rawValue
         }
     }
 }

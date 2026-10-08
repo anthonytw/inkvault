@@ -19,7 +19,9 @@ struct DeviceKey: Identifiable, Equatable, Sendable {
 
     /// `age1pq1abcdefg…` (1959 characters in full) with its SHA-256 fingerprint,
     /// as printed on the recovery kit.
-    var summary: String {
+    var summary: String { Self.abbreviated(recipient) }
+
+    static func abbreviated(_ recipient: String) -> String {
         recipient.count > 40 ? "\(recipient.prefix(14))…  SHA-256 \(PaperKey.fingerprint(recipient))" : recipient
     }
 }
@@ -49,16 +51,16 @@ extension AppModel {
 
         var description: String {
             switch self {
-            case .notUnlocked: return "Unlock the vault first."
-            case .notPostQuantum: return "That is not a post-quantum key. It must start with age1pq1…; create a new key on the other device."
-            case .alreadyListed: return "The vault is already encrypted to that key."
-            case .notListed: return "That key is not one of the vault's keys."
-            case .lastKey: return "The vault needs at least one key. Add another before removing this one."
-            case .inUse: return "That is the key this vault was unlocked with. Unlock with another key to remove it."
+            case .notUnlocked: return String(localized: "Unlock the vault first.")
+            case .notPostQuantum: return String(localized: "That is not a post-quantum key. It must start with age1pq1…; create a new key on the other device.")
+            case .alreadyListed: return String(localized: "The vault is already encrypted to that key.")
+            case .notListed: return String(localized: "That key is not one of the vault's keys.")
+            case .lastKey: return String(localized: "The vault needs at least one key. Add another before removing this one.")
+            case .inUse: return String(localized: "That is the key this vault was unlocked with. Unlock with another key to remove it.")
             case .incomplete(let n):
-                return "\(n) file\(n == 1 ? "" : "s") could not be re-encrypted. The change is saved and finishes the next time you try again."
-            case .noIdentity: return "This window does not hold a key of the vault, so it cannot print a recovery kit."
-            case .vaultChanged: return "Another vault was opened meanwhile. Nothing was changed."
+                return String(localized: "\(n) files could not be re-encrypted. The change is saved and finishes the next time you try again.")
+            case .noIdentity: return String(localized: "This window does not hold a key of the vault, so it cannot print a recovery kit.")
+            case .vaultChanged: return String(localized: "Another vault was opened meanwhile. Nothing was changed.")
             }
         }
     }
@@ -85,6 +87,8 @@ extension AppModel {
     struct GeneratedKey: Sendable {
         var secret: String
         var problem: String?
+        /// The key as a file (`sempere keys generate`), with its label.
+        var file: KeyFile
     }
 
     /// Encrypts the vault to another device's public key. `expectedVault`:
@@ -124,11 +128,11 @@ extension AppModel {
                 .contains { $0.key == recipient.string } ?? false)
             guard listed else { throw error }
             let problem = error is CancellationError
-                ? "The vault was closed before the change finished. It finishes when the vault is opened and its keys are changed again."
+                ? String(localized: "The vault was closed before the change finished. It finishes when the vault is opened and its keys are changed again.")
                 : "\(error)"
-            return GeneratedKey(secret: identity.string, problem: problem)
+            return GeneratedKey(secret: identity.string, problem: problem, file: KeyFile(identity: identity, label: name))
         }
-        return GeneratedKey(secret: identity.string)
+        return GeneratedKey(secret: identity.string, file: KeyFile(identity: identity, label: name))
     }
 
     /// Stops encrypting the vault to `recipient` and re-encrypts every note
@@ -148,14 +152,18 @@ extension AppModel {
     /// The recovery kit (docs/cli.md "Keys"): the key this vault was unlocked
     /// with as a QR code and checked text. The PDF holds the secret key.
     func recoveryKitPDF(a4: Bool = false) throws -> Data {
-        guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
-        let listed = Set(vault.recipients.map(\.key))
-        guard let identity = unlockIdentities.compactMap({ $0 as? NativeIdentity })
-            .first(where: { $0.isPostQuantum && listed.contains($0.recipient.string) }) else { throw KeyError.noIdentity }
+        guard vault != nil, phase == .unlocked else { throw KeyError.notUnlocked }
+        guard let identity = heldIdentity else { throw KeyError.noIdentity }
+        return try recoveryKit(secret: identity.string, recipient: identity.recipient.string, a4: a4)
+    }
+
+    /// The recovery kit PDF of one of the open vault's keys.
+    func recoveryKit(secret: String, recipient: String, a4: Bool) throws -> Data {
+        guard let vault else { throw KeyError.notUnlocked }
         var info = RecoveryKit.VaultInfo(name: vaultName ?? "vault", id: vault.vaultId.uuidString.lowercased(),
                                          created: vault.manifest.created, recipientCount: vault.recipients.count)
         info.name = vaultName ?? info.name
-        var kit = RecoveryKit(secret: .identity(identity.string), recipient: identity.recipient.string,
+        var kit = RecoveryKit(secret: .identity(secret), recipient: recipient,
                               vault: info, printed: Date())
         if a4 {
             kit.pageWidth = 595.28

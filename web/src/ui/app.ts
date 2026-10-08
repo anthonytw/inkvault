@@ -4,7 +4,10 @@
 import { type NoteState } from "../format/model.ts";
 import { type NotebookNode, type SearchHit, canonicalNotebook, isWithinNotebook, notebookTree, search } from "../format/search.ts";
 import { tagKey } from "../format/tags.ts";
-import { type LoadedNote, type NoteSummary, loadNote, mapLimited, summarize } from "../vault/library.ts";
+import { type LoadedNote, type NoteSummary, loadNote, summarize } from "../vault/library.ts";
+import { CachingSource } from "../vault/cache.ts";
+import { type ViewerConfig, loadConfig } from "../vault/config.ts";
+import { type ListingProgress, listVault } from "../vault/listing.ts";
 import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional } from "../vault/source.ts";
 import { type RecipientsStatus, UnlockedVault, VaultError, limits, parseIdentity, parseManifest, readOnlyReasons,
   recipientsWarningText, type VaultManifest } from "../vault/vault.ts";
@@ -15,6 +18,8 @@ import { RecordingsPanel } from "./recordings.ts";
 import { VideosPanel } from "./videos.ts";
 import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
+import { clearCacheButton, fileCache } from "./caching.ts";
+import { passkeyVault, rememberOption, rememberScreen, rememberedCard } from "./passkey.ts";
 
 type Filter =
   | { kind: "all" } | { kind: "favorites" } | { kind: "deleted" } | { kind: "problems" }
@@ -29,7 +34,9 @@ export class App {
   private manifest?: VaultManifest;
   private vault?: UnlockedVault;
   private notes = new Map<string, NoteSummary>();
-  private loading = { done: 0, total: 0 };
+  private loading: ListingProgress & { listed: boolean } = { checked: 0, total: 0, read: 0, toRead: 0, listed: false };
+  /** The deployment's `config.json` (docs/web-viewer.md "Hosting"), if any. */
+  private config?: ViewerConfig;
   private filter: Filter = { kind: "all" };
   private query = "";
   private hits?: Map<string, SearchHit>;
@@ -49,15 +56,36 @@ export class App {
   constructor(private readonly root: HTMLElement) {}
 
   start(): void {
-    this.showOpen();
+    void loadConfig(location.href).then((config) => {
+      this.config = config;
+      if (config && !config.allowOtherVaults) {
+        // The server decides: straight to the key prompt for its vault.
+        void this.openSource(new HTTPSource(config.vault, config.listing));
+      } else {
+        this.showOpen();
+      }
+    }, (e: unknown) => this.showFatal(message(e)));
+  }
+
+  /** A deployment whose config cannot be read: nothing else is offered (fail closed). */
+  private showFatal(error: string): void {
+    clear(this.root);
+    this.root.append(h("div", { class: "welcome" }, h("h1", { text: "Sempere viewer" }),
+      h("p", { class: "error", text: error, attrs: { role: "alert" } })));
+  }
+
+  /** True when the deployment allows only its own vault. */
+  private get locked(): boolean {
+    return this.config !== undefined && !this.config.allowOtherVaults;
   }
 
   // MARK: - Open
 
   private showOpen(error?: string): void {
+    if (this.locked) return this.showFatal(error ?? "This viewer opens only its configured vault.");
     const params = new URLSearchParams(location.search);
     const url = h("input", { attrs: { type: "url", placeholder: "https://example.org/Notes.sempere/", autocomplete: "url", spellcheck: "false" } });
-    url.value = params.get("vault") ?? "";
+    url.value = this.config?.vault ?? params.get("vault") ?? "";
     const mode = h("select", { attrs: { "aria-label": "Listing" } },
       h("option", { text: "Index file or WebDAV", attrs: { value: "auto" } }),
       h("option", { text: "Index file (sempere-index.json)", attrs: { value: "index" } }),
@@ -117,7 +145,8 @@ export class App {
         h("button", { text: "Open", attrs: { type: "submit" } }),
         h("p", { class: "hint", text: "A static server needs sempere-index.json (sempere vault index); a WebDAV share needs nothing. The URL must be allowed by this page's connect-src (docs/web-viewer.md)." })),
       h("div", { class: "card" },
-        h("h2", { text: "From this computer" }), pickButton, dirInput, drop)));
+        h("h2", { text: "From this computer" }), pickButton, dirInput, drop),
+      h("p", { class: "hint" }, clearCacheButton())));
   }
 
   private async openSource(src: VaultSource): Promise<void> {
@@ -129,7 +158,8 @@ export class App {
       this.showOpen(e instanceof SourceError && e.notFound ? `${src.label} has no vault.json: is it a Sempere vault?` : message(e));
       return;
     }
-    this.source = src;
+    // Encrypted revisions and blobs fetched over HTTP are kept in the browser (write-once files).
+    this.source = src instanceof HTTPSource ? new CachingSource(src, await fileCache(), `${src.label}\n${manifest.vaultId}`) : src;
     this.manifest = manifest;
     this.showUnlock();
   }
@@ -143,30 +173,52 @@ export class App {
       attrs: { rows: "4", placeholder: "AGE-SECRET-KEY-PQ-1…", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-label": "Key" },
     });
     const button = h("button", { text: "Unlock", attrs: { type: "submit" } });
+    const unlock = async (text: string): Promise<string> => {
+      const identity = parseIdentity(text);
+      const journal = await readOptional(src, "rewrap-journal.json", limits.manifestBytes);
+      this.vault = await UnlockedVault.unlock(m, identity, journal);
+      return identity;
+    };
+    const failed = (err: unknown) =>
+      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message : `Unlocking failed: ${message(err)}`);
+    const remember = rememberOption();
     const submit = async (e: Event) => {
       e.preventDefault();
       button.disabled = true;
       button.textContent = "Unlocking…";
       try {
-        const identity = parseIdentity(key.value);
+        const text = key.value;
         key.value = "";
-        const journal = await readOptional(src, "rewrap-journal.json", limits.manifestBytes);
-        this.vault = await UnlockedVault.unlock(m, identity, journal);
-        this.showMain();
+        const identity = await unlock(text);
+        const pv = passkeyVault();
+        if (remember.checked() && pv) {
+          clear(this.root);
+          this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+        } else {
+          this.showMain();
+        }
       } catch (err) {
-        this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message : `Unlocking failed: ${message(err)}`);
+        failed(err);
       }
     };
+    const pv = passkeyVault();
+    const remembered = pv ? rememberedCard(pv, m.vaultId,
+      (text) => unlock(text).then(() => this.showMain(), (err: unknown) =>
+        failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err)),
+      (msg) => this.showUnlock(msg), () => this.showUnlock()) : null;
     clear(this.root);
     this.root.append(h("div", { class: "welcome" },
       h("h1", { text: "Unlock vault" }),
       h("p", { class: "lede" }, "Vault ", h("code", { text: src.label }), ` · ${m.recipients.length} key${m.recipients.length === 1 ? "" : "s"}`),
       error ? h("p", { class: "error", text: error, attrs: { role: "alert" } }) : null,
+      remembered,
       h("form", { class: "card", on: { submit: (e) => void submit(e) } },
         h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, or the whole key file)" }, key),
+        remember.element,
         h("div", { class: "row" }, button,
-          h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
-        h("p", { class: "hint", text: "The key is kept in this tab's memory only: not stored, not sent. Closing the tab or Lock forgets it." }))));
+          this.locked ? null : h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
+        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). Closing the tab or Lock forgets it." })),
+      h("p", { class: "hint" }, clearCacheButton())));
     key.focus();
   }
 
@@ -189,6 +241,7 @@ export class App {
     this.root.append(h("div", { class: "app" },
       h("header", { class: "topbar" },
         h("strong", { text: "Sempere" }), h("span", { class: "vault-label", text: src.label, title: src.label }), this.status,
+        clearCacheButton(),
         h("button", { text: "Lock", class: "secondary", attrs: { type: "button" }, title: "Forget the key and close the vault", on: { click: () => this.lock() } })),
       ...recipientsWarning(this.vault?.recipientsStatus),
       h("div", { class: "columns" }, this.sidebar,
@@ -213,45 +266,51 @@ export class App {
     const src = this.source, vault = this.vault;
     if (!src || !vault) return;
     const gen = ++this.generation;
-    let ids: string[];
+    let lastRender = 0;
+    const render = (force = false) => {
+      if (!force && performance.now() - lastRender < 250) return;
+      lastRender = performance.now();
+      this.updateStatus();
+      this.runSearch();
+      this.renderSidebar();
+      this.renderList();
+    };
+    this.updateStatus();
     try {
-      ids = await src.listNotes();
+      // The published summaries first (format.md §12), then only the notes that changed.
+      await listVault(src, vault, {
+        provisional: (rows) => {
+          for (const r of rows) this.notes.set(r.id, r);
+          render(true);
+        },
+        row: (r) => {
+          this.notes.set(r.id, r);
+          render();
+        },
+        gone: (id) => this.notes.delete(id),
+        progress: (p) => {
+          this.loading = { ...p, listed: false };
+          render();
+        },
+        current: () => gen === this.generation,
+      });
     } catch (e) {
-      this.status.textContent = `Cannot list notes: ${message(e)}`;
+      if (gen === this.generation) this.status.textContent = `Cannot list notes: ${message(e)}`;
       return;
     }
-    this.loading = { done: 0, total: ids.length };
-    this.updateStatus();
-    let lastRender = 0;
-    await mapLimited(ids, 4, async (id) => {
-      let note: LoadedNote;
-      try {
-        note = await loadNote(src, vault, id);
-      } catch (e) {
-        note = { id, error: message(e), failures: [], revisionCount: 0, hasAttachments: false };
-      }
-      if (gen !== this.generation) return;
-      this.notes.set(id, summarize(note));
-      this.loading.done++;
-      if (performance.now() - lastRender > 250 || this.loading.done === this.loading.total) {
-        lastRender = performance.now();
-        this.updateStatus();
-        this.runSearch();
-        this.renderSidebar();
-        this.renderList();
-      }
-    });
     if (gen !== this.generation) return;
-    this.updateStatus();
-    this.renderSidebar();
-    this.renderList();
+    this.loading.listed = true;
+    render(true);
   }
 
   private updateStatus(): void {
-    const { done, total } = this.loading;
+    const { checked, total, read, toRead, listed } = this.loading;
     const problems = [...this.notes.values()].filter((n) => n.error !== undefined || n.failures > 0).length;
-    this.status.textContent = done < total ? `Decrypting ${done} of ${total} notes…`
-      : `${total} note${total === 1 ? "" : "s"}${problems ? ` · ${problems} with problems` : ""}`;
+    const count = listed ? total : this.notes.size;
+    this.status.textContent = listed
+      ? `${count} note${count === 1 ? "" : "s"}${problems ? ` · ${problems} with problems` : ""}`
+      : read < toRead ? `Decrypting ${read} of ${toRead} changed notes… (${checked} of ${total} checked)`
+        : total > 0 ? `Checking ${checked} of ${total} notes…` : "Listing notes…";
     // Content of a newer format version (format.md §7.3): shown as far as understood.
     const newer = (this.manifest ? readOnlyReasons(this.manifest) : []).length > 0
       || [...this.notes.values()].some((n) => n.newer);
@@ -329,7 +388,7 @@ export class App {
     }
     clear(this.list);
     if (notes.length === 0) {
-      this.list.append(h("p", { class: "empty", text: this.loading.done < this.loading.total ? "Loading…" : hits ? "No matches." : "No notes here." }));
+      this.list.append(h("p", { class: "empty", text: !this.loading.listed ? "Loading…" : hits ? "No matches." : "No notes here." }));
       return;
     }
     this.list.append(h("ul", {}, ...notes.map((n) => {
@@ -388,6 +447,11 @@ export class App {
       }
       this.cache.set(id, note);
       while (this.cache.size > 8) this.cache.delete(this.cache.keys().next().value ?? "");
+      // What the revisions say wins over a published summary (format.md §12.3).
+      if (gen === this.generation && this.notes.has(id)) {
+        this.notes.set(id, summarize(note));
+        this.renderSidebar();
+      }
     }
     if (gen !== this.generation || this.selected !== id) return;
     this.renderNote(note, page);

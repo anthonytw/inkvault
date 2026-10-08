@@ -1110,6 +1110,7 @@ extension Op: Codable {
             case .text(let v): try c.encode(v, forKey: .value)
             case .crop(let v): try c.encode(v, forKey: .value)
             case .poster(let v): try c.encode(v, forKey: .value)
+            case .math(let v): try c.encode(v, forKey: .value)
             case .other(_, let v): try c.encode(v, forKey: .value)
             }
         case .addRecording(let recording):

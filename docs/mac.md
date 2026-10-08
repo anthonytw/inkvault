@@ -91,6 +91,12 @@ canvas's range. Tool commands select the tool in the system palette
 (`PageCanvasHost.select(tool:)`); the compact palette has no pencil, so that
 command does nothing there.
 
+Placed items (images, text boxes, PDF pages, videos): the mouse always draws,
+so a right-click (or two-finger click) on an item selects it and shows its
+menu (Crop…, Replace Image, Delete…) without leaving the drawing tool; a click
+with the lasso does the same, and Select in the toolbar turns selection mode
+on (`docs/attachments.md` §13 "Selecting items").
+
 ## Windows and state restoration
 
 * **Library window** (`WindowGroup` id `library`): the sidebar, the note list
@@ -209,7 +215,9 @@ mark on the key that unlocked the vault. From it:
   vault already lists the key, even if the rest of the change failed or the
   vault was closed meanwhile. Classic X25519 keys are refused
   (`docs/post-quantum.md`). The sheet and the Remove dialog act only on the
-  vault they were opened for (`KeyError.vaultChanged`).
+  vault they were opened for (`KeyError.vaultChanged`). A generated key can
+  also be saved to a file, shared or printed as a kit there (`KeyFileActions`,
+  as in Settings → Device Keys → New Key…).
 * **Remove…** drops a key. The key that unlocked the vault, and the last key,
   cannot be removed. Removal rotates the vault secret and re-encrypts every
   note (`Vault.removeRecipient`, `docs/io.md` "Recipient changes").

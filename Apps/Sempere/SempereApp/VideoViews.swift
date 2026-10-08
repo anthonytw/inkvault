@@ -52,10 +52,13 @@ struct VideoPlayerSheet: View {
     }
 
     private var title: String {
-        guard let d = request.item.duration, d.isFinite, d >= 0 else { return "Video" }
+        guard let d = request.item.duration, d.isFinite, d >= 0 else {
+            return String(localized: "Video", comment: "Title of the video player when the clip's length is unknown")
+        }
         let t = Int(d.rounded())
-        return t >= 3600 ? String(format: "Video · %d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
-            : String(format: "Video · %d:%02d", t / 60, t % 60)
+        let length = t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
+            : String(format: "%d:%02d", t / 60, t % 60)
+        return String(localized: "Video · \(length)", comment: "Title of the video player; the value is the clip's length, such as 1:05")
     }
 
     private func load() async {
@@ -64,7 +67,7 @@ struct VideoPlayerSheet: View {
         do {
             url = try await model.acquireVideo(request.item, note: note)
         } catch {
-            if !gone { failure = "The video could not be read. \(AppModel.describe(error))" }
+            if !gone { failure = String(localized: "The video could not be read. \(AppModel.describe(error))", comment: "The value is a sentence saying why") }
             return
         }
         guard !gone else {
@@ -147,4 +150,9 @@ struct PickedMovie: Transferable {
 /// Which file the editor's file importer is choosing.
 enum EditorFileImport {
     case pdf, video
+    /// A picture to replace an image with (Replace Image from Files).
+    case image
+    /// PDF pages for a pageless note: the note is switched to pages only
+    /// once a PDF is picked, so cancelling the picker changes nothing.
+    case pdfSwitchingToPages
 }
