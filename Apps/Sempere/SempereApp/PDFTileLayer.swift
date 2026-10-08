@@ -141,7 +141,7 @@ final class PDFTileLayer: CATiledLayer {
         let size = CGSize(width: frame.w, height: frame.h)
         if bounds.size != size { bounds = CGRect(origin: .zero, size: size) }
         position = CGPoint(x: (frame.x + frame.w / 2) * Double(zoom), y: (frame.y + frame.h / 2) * Double(zoom))
-        setAffineTransform(CGAffineTransform(rotationAngle: CGFloat((item.rotation ?? 0) * .pi / 180)).scaledBy(x: zoom, y: zoom))
+        setAffineTransform(CGAffineTransform(rotationAngle: CGFloat(ItemFrames.radians(item.rotation))).scaledBy(x: zoom, y: zoom))
         // A view not in a window yet may report a display scale of 0: tiles of no size.
         let scale = screenScale > 0 ? screenScale : 1
         let rescaled = contentsScale != scale

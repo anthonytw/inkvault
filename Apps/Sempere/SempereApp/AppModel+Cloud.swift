@@ -315,9 +315,13 @@ extension AppModel {
         let clock = ContinuousClock()
         let started = clock.now
         while true {
-            let items = try await offMain { try CloudScan.noteItems(inVault: url, id: id) }
+            // Each file's state is a file-system query (resource values): with
+            // hundreds of revisions, asked on the main actor it was a visible hitch.
+            let (items, missing) = try await offMain {
+                let items = try CloudScan.noteItems(inVault: url, id: id)
+                return (items, items.filter { !hooks.state($0).isSettled })
+            }
             try ensureCurrent(gen)
-            let missing = items.filter { !hooks.state($0).isSettled }
             #if DEBUG
             NSLog("SempereProbe downloadNote %@ listed=%d missing=%d", String(id.uuidString.prefix(8)), items.count, missing.count)
             #endif

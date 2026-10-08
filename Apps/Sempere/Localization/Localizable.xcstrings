@@ -11091,6 +11091,18 @@
         }
       }
     },
+    "The note took too long to get ready to export. Try dragging it again." : {
+      "comment" : "Error when a note dragged out of the app as a PDF could not be prepared in time",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La nota ha tardado demasiado en prepararse para exportarla. Vuelve a arrastrarla."
+          }
+        }
+      }
+    },
     "The note was restored." : {
       "extractionState" : "manual",
       "localizations" : {

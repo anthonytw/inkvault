@@ -172,7 +172,8 @@ public struct AudioCard: Hashable, Sendable {
     /// (`x`, `y`) turned by `degrees` clockwise (y down) about the frame's centre.
     private func turned(x: Double, y: Double, degrees: Double) -> (x: Double, y: Double) {
         guard degrees != 0, degrees.isFinite else { return (x, y) }
-        let r = degrees * .pi / 180, c = cos(r), s = sin(r)
+        // Reduced to one turn first: `1e308 * .pi` is infinite and its cos and sin NaN.
+        let r = ItemFrames.radians(degrees), c = cos(r), s = sin(r)
         let mx = frame.x + frame.w / 2, my = frame.y + frame.h / 2
         let dx = x - mx, dy = y - my
         return (mx + dx * c - dy * s, my + dx * s + dy * c)

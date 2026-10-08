@@ -193,7 +193,7 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         tv.transform = .identity
         tv.bounds = CGRect(x: 0, y: 0, width: w, height: h)
         tv.center = CGPoint(x: (CGFloat(session.frame.x) + w / 2) * z, y: (CGFloat(session.frame.y) + h / 2) * z)
-        tv.transform = CGAffineTransform(rotationAngle: CGFloat((session.rotation ?? 0) * .pi / 180)).scaledBy(x: z, y: z)
+        tv.transform = CGAffineTransform(rotationAngle: CGFloat(ItemFrames.radians(session.rotation))).scaledBy(x: z, y: z)
         tv.layer.borderWidth = 1 / z
         // Sharp text at any zoom: the text view draws at the zoomed resolution.
         let scale = z * max(tv.traitCollection.displayScale, 1)
