@@ -3,7 +3,7 @@
 Where every feature sits, by component. Status: ✅ done on `main` (with the PR number) · 🚧 in progress (open PR number) ·
 📋 planned (next) · 💡 future. A note "not yet tried on the iPad" means it is on `main` and
 passed CI, but nobody has used it on a device. Statuses last checked against `main` at
-`dab1ffe` (#105) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
+`2144cc1` (#106) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
 details in `docs/attachments.md` §14. `docs/HANDOFF.md` has the current
 working state.
 
@@ -145,7 +145,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Attachments | Images (E1): Photos, camera, paste, drag-in, the photo privacy setting (on: HEIC → JPEG, no location or camera data), orientation, crop. PDFs (E3): import as a new note or insert pages into the open note (one finite page per PDF page), encrypted PDFs unlocked and stored without the password, backgrounds drawn in tiles by Core Graphics | ✅ #81 (not yet tried on the iPad) |
 | Attachments | Text boxes (E2): text tool (tap to add or edit), selection's Edit Text, style bar (bold, italic, underline, strikethrough, size, colour, font, alignment, direction), any script incl. right to left, Scribble; `breaks` from TextKit stored with every edit and resize; CoreText layout on the canvas and in the app's PDF/SVG/PNG (`CoreTextShaper`, glyph outlines embedded); same lines as `sempere export` (shared fixtures) | ✅ #82 (not yet tried on the iPad) |
 | Attachments | Audio recording (codec and quality settings, interruptions, 10-minute segments with crash recovery), playback with ink sync (tap ink to play, strokes highlighted as the recording plays), on-device transcription (opt-in, SpeechTranscriber → SFSpeechRecognizer on device) with a read-back transcript view; export sheet "PDF" / "PDF + attachments" (E4, E5) | ✅ #87 (not yet tried on the iPad; recordings tried on an iPhone and a Mac in build 7, feedback in 🚧 #103) |
-| Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | ✅ #89; tried on an iPhone in build 7, fixes 🚧 #106, #107 |
+| Capture | Quick voice notes without unlocking: Lock Screen / Home Screen widget, Control Center control, Action button, Siri and Shortcuts; sealed to the vault's inbox with a capture key (`format.md` §11, `docs/quick-capture.md`), queued when the vault folder is out of reach, transcribed on device, adopted into the inbox notebook on unlock | ✅ #89; tried on an iPhone in build 7, fixes ✅ #106, 🚧 #107 |
 | Attachments | Unused-attachment index (E7): Settings → Storage "Unused Attachments" list | 🚧 #95 |
 | Attachments | Selecting images, text boxes and PDFs on the canvas, Replace Image, text colour swatches, Insert menu sections (build 7 feedback) | 🚧 #104 |
 | Attachments | Audio items on the page, Recordings list on the Mac (build 7 feedback) | 🚧 #103 |
@@ -175,7 +175,7 @@ behaviour and testing on a real Mac.
 | App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
 | Multiple windows (one note per window), state restoration | ✅ #46 (`docs/mac.md`); note windows checked on Catalyst in CI; restoration needs a hand test; double-click opens a window 🚧 #101 |
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
-| Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); the CLI also has it |
+| Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); notes, a notebook or the vault to a folder (resumable) or a zip, shared with `export --all`: 🚧 #109 |
 | Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions 🚧 #99 |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing 💡 |
 | Mac App Store build (same bundle, universal purchase) | 📋 with the App Store submission |
