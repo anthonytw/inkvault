@@ -74,7 +74,7 @@ struct EraserPreferenceTests {
     @Test func thePixelTypeIsOneThePickerKeeps() {
         for candidate in EraserPreference.pixelCandidates {
             let kept = EraserPreference.eraserType(in: EraserPreference.picker(eraserItem: candidate))
-            print("ERASER-PROBE item \(EraserPreference.name(of: candidate)) kept as \(kept.map(EraserPreference.name(of:)) ?? "none") (raw \(kept?.rawValue ?? -1))")
+            print("ERASER-PROBE item \(String(describing: candidate)) kept as \(kept.map { String(describing: $0) } ?? "none")")
         }
         guard let pixel = EraserPreference.pixelPickerType() else {
             // The documented fallback: no pixel eraser item survives, the picker starts with the object eraser.
@@ -97,7 +97,7 @@ struct EraserPreferenceTests {
             let shown = erasers.first?.eraserTool.eraserType
             // The chosen mode, as this platform's picker shows it.
             let expected = EraserPreference.isPixel(mode) && pixelKept
-            #expect(shown.map(EraserPreference.isPixel) == expected, "mode \(mode.rawValue) shown as \(shown?.rawValue ?? -1)")
+            #expect(shown.map(EraserPreference.isPixel) == expected, "mode \(String(describing: mode)) shown as \(shown.map { String(describing: $0) } ?? "none")")
             // Every other tool is still offered, in the same order.
             let kinds = picker.toolItems.map { String(describing: type(of: $0)) }
             #expect(kinds == system.map { String(describing: type(of: $0)) })
