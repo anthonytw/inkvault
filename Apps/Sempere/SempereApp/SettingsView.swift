@@ -12,21 +12,32 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     /// False in the Mac window, which has its own close button.
     var showsDone = true
+    /// A section to scroll to when the panel opens (`QuickCaptureSettingsSection.anchor`).
+    var scrollTo: String?
 
     var body: some View {
         NavigationStack {
-            Form {
-                GeneralSettings()
-                NewNoteSettingsSection()
-                RecordingSettingsSection()
-                TranscriptionSettingsSection()
-                QuickCaptureSettingsSection()
-                PhotoSettingsSection()
-                HistorySettingsSection()
-                BackupSettingsSection()
-                DeviceKeySettingsSection()
-                StorageSettingsSection()
+            ScrollViewReader { proxy in
+                Form {
+                    GeneralSettings()
+                    NewNoteSettingsSection()
+                    RecordingSettingsSection()
+                    TranscriptionSettingsSection()
+                    QuickCaptureSettingsSection()
+                    PhotoSettingsSection()
+                    HistorySettingsSection()
+                    BackupSettingsSection()
+                    DeviceKeySettingsSection()
+                    StorageSettingsSection()
+                }
+                .task {
+                    guard let scrollTo else { return }
+                    // After the first layout, or the Form has no rows to scroll to yet.
+                    try? await Task.sleep(for: .milliseconds(150))
+                    withAnimation { proxy.scrollTo(scrollTo, anchor: .top) }
+                }
             }
+            .voiceNoteBanner()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
