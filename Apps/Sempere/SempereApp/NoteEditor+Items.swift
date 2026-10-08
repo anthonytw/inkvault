@@ -160,6 +160,17 @@ extension NoteEditor {
         return edit.page.items.filter { edit.added.contains($0.id) }
     }
 
+    /// Replaces item `id` with `replacement` (one delta: `removeItem`, then
+    /// `addItem` as given, `parent` included: `NoteOps.replaceItem`), whose
+    /// blobs are already in this note. Returns what was there, for undo; nil
+    /// when nothing changed.
+    @discardableResult
+    func replaceItem(_ id: UUID, with replacement: Item, on pageID: UUID) -> Item? {
+        guard let page = try? page(pageID), let old = page.items.first(where: { $0.id == id }),
+              let edit = try? NoteOps.replaceItem(id, with: replacement, on: page), applyItemEdit(edit) else { return nil }
+        return old
+    }
+
     /// Copies of items of this page, shifted by `dx`, `dy`, on top. One delta.
     @discardableResult
     func duplicateItems(_ ids: [UUID], on pageID: UUID, dx: Double = 20, dy: Double = 20) -> [Item] {

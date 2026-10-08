@@ -155,6 +155,108 @@ final class ItemOpsTests: XCTestCase {
         }
     }
 
+    /// Side handles (a text box's width): the opposite side's middle stays on
+    /// the page, only the side's axis changes (or both by one factor, keeping
+    /// proportions), rotated or not.
+    func testSideHandlesKeepTheOppositeSideOnThePage() {
+        for rotation in [0.0, 30, 90, 215] {
+            let frame = Rect(x: 100, y: 100, w: 80, h: 40)
+            for edge in ItemFrames.Edge.allCases {
+                let handle = ItemFrames.Handle.edge(edge)
+                let fixedBefore = ItemFrames.point(of: .edge(edge.opposite), frame, rotation: rotation)
+                for keep in [false, true] {
+                    let r = ItemFrames.resized(frame, rotation: rotation, handle: handle, dx: 13, dy: -7, keepAspect: keep)
+                    let fixedAfter = ItemFrames.point(of: .edge(edge.opposite), r, rotation: rotation)
+                    XCTAssertEqual(fixedAfter.x, fixedBefore.x, accuracy: 1e-9, "r\(rotation) \(edge) aspect \(keep)")
+                    XCTAssertEqual(fixedAfter.y, fixedBefore.y, accuracy: 1e-9, "r\(rotation) \(edge) aspect \(keep)")
+                    if keep { XCTAssertEqual(r.w / r.h, 2, accuracy: 1e-9) }
+                    if !keep, edge == .left || edge == .right { XCTAssertEqual(r.h, 40, accuracy: 1e-9, "height stays") }
+                    if !keep, edge == .top || edge == .bottom { XCTAssertEqual(r.w, 80, accuracy: 1e-9, "width stays") }
+                }
+            }
+        }
+        let frame = Rect(x: 0, y: 0, w: 80, h: 40)
+        XCTAssertEqual(ItemFrames.resized(frame, rotation: nil, handle: .edge(.right), dx: 20, dy: 99, keepAspect: false),
+                       Rect(x: 0, y: 0, w: 100, h: 40), "a side ignores the other axis of the drag")
+        XCTAssertEqual(ItemFrames.resized(frame, rotation: nil, handle: .edge(.left), dx: 30, dy: 0, keepAspect: false),
+                       Rect(x: 30, y: 0, w: 50, h: 40))
+        XCTAssertEqual(ItemFrames.resized(frame, rotation: nil, handle: .edge(.left), dx: 500, dy: 0, keepAspect: false).w, 8,
+                       "floor")
+        XCTAssertEqual(ItemFrames.resized(frame, rotation: nil, handle: .edge(.right), dx: 40, dy: 0, keepAspect: true),
+                       Rect(x: 0, y: -10, w: 120, h: 60), "proportions kept about the fixed side's middle")
+        XCTAssertEqual(ItemFrames.resized(frame, rotation: nil, handle: .edge(.right), dx: .nan, dy: 0, keepAspect: false),
+                       frame, "a drag that is not finite changes nothing")
+        // Corners through the handle API are the corner API.
+        for c in ItemFrames.Corner.allCases {
+            XCTAssertEqual(ItemFrames.resized(frame, rotation: 30, handle: .corner(c), dx: 5, dy: 9, keepAspect: true),
+                           ItemFrames.resized(frame, rotation: 30, corner: c, dx: 5, dy: 9, keepAspect: true))
+            let p = ItemFrames.point(of: .corner(c), frame, rotation: 30), q = ItemFrames.corners(frame, rotation: 30)[c.rawValue]
+            XCTAssertEqual(p.x, q.x, accuracy: 1e-9)
+            XCTAssertEqual(p.y, q.y, accuracy: 1e-9)
+        }
+    }
+
+    /// Every kind offers the same handles whichever way it is selected: text
+    /// boxes their sides (the height follows the text), the rest its corners.
+    func testHandlesPerKind() {
+        XCTAssertEqual(ItemFrames.handles(for: .text), [.edge(.left), .edge(.right)])
+        for kind in [ItemKind.image, .pdfPage, .video, .math, ItemKind(rawValue: "future")] {
+            XCTAssertEqual(ItemFrames.handles(for: kind), ItemFrames.Corner.allCases.map { .corner($0) }, "\(kind)")
+            XCTAssertTrue(ItemFrames.keepsAspect(kind), "\(kind)")
+        }
+        XCTAssertFalse(ItemFrames.keepsAspect(.text))
+    }
+
+    func testFittedIsTheLargestFrameOfTheProportionsCentred() {
+        let box = Rect(x: 10, y: 20, w: 200, h: 100)
+        XCTAssertEqual(ItemFrames.fitted(Size(w: 100, h: 100), into: box), Rect(x: 60, y: 20, w: 100, h: 100))
+        XCTAssertEqual(ItemFrames.fitted(Size(w: 400, h: 100), into: box), Rect(x: 10, y: 45, w: 200, h: 50))
+        XCTAssertEqual(ItemFrames.fitted(Size(w: 0, h: 100), into: box), box)
+        XCTAssertEqual(ItemFrames.fitted(Size(w: .infinity, h: 100), into: box), box)
+    }
+
+    /// Replace Image: one delta (remove + add), the new image in the old
+    /// one's place (fitted into its frame, same rotation, layer and z), with
+    /// `parent`; the reducer agrees, and only images can be replaced.
+    func testReplaceImageIsOneDeltaInTheOldPlace() throws {
+        var old = image(frame: Rect(x: 10, y: 20, w: 100, h: 50), z: "m", rotation: 30)
+        old.crop = Rect(x: 0, y: 0, w: 200, h: 100)
+        old.rec = RecordingLink(id: UUID(), at: 3)
+        let t = text("hi", z: "n")
+        let page = Page(id: pageID, order: "a", items: [old, t])
+        let newBlob = BlobRef(sha256: String(repeating: "cd", count: 32), size: 9, type: "image/jpeg")
+        let newID = UUID()
+        let edit = try NoteOps.replaceImage(old.id, blob: newBlob, pixelSize: Size(w: 300, h: 300), orientation: 6,
+                                            on: page, newID: newID)
+        XCTAssertEqual(edit.ops.count, 2)
+        guard case .removeItem(_, let gone) = edit.ops[0], case .addItem(_, let added) = edit.ops[1] else {
+            return XCTFail("\(edit.ops)")
+        }
+        XCTAssertEqual(gone, old.id)
+        XCTAssertEqual(added.id, newID)
+        XCTAssertEqual(added.parent, old.id)
+        XCTAssertEqual(added.frame, Rect(x: 35, y: 20, w: 50, h: 50), "square picture fitted into the old frame")
+        XCTAssertEqual(added.rotation, 30)
+        XCTAssertEqual(added.z, "m")
+        XCTAssertEqual(added.layer, old.layer)
+        XCTAssertEqual(added.blob, newBlob)
+        XCTAssertEqual(added.orientation, 6)
+        XCTAssertNil(added.crop)
+        XCTAssertNil(added.rec)
+        XCTAssertEqual(edit.added, [newID])
+        XCTAssertEqual(Set(edit.page.items.map(\.id)), [newID, t.id])
+        let add = try NoteOps.addItems([old, t], to: Page(id: pageID, order: "a"))
+        let reduced = try self.reduced([add.ops, edit.ops])
+        XCTAssertEqual(strip(reduced.items), edit.page.items)
+        XCTAssertThrowsError(try NoteOps.replaceImage(t.id, blob: newBlob, pixelSize: Size(w: 1, h: 1), on: page)) {
+            XCTAssertEqual($0 as? AttachmentOpsError, .noSuchImage(t.id.uuidString.lowercased()))
+        }
+        XCTAssertThrowsError(try NoteOps.replaceImage(UUID(), blob: newBlob, pixelSize: Size(w: 1, h: 1), on: page))
+        XCTAssertThrowsError(try NoteOps.replaceImage(old.id, blob: newBlob, pixelSize: Size(w: 0, h: 1), on: page))
+        // The generic builder refuses a replacement under the same id.
+        XCTAssertThrowsError(try NoteOps.replaceItem(old.id, with: old, on: page))
+    }
+
     func testResizeFollowsTheDragAndHasAFloor() {
         let frame = Rect(x: 0, y: 0, w: 80, h: 40)
         let r = ItemFrames.resized(frame, rotation: nil, corner: .bottomRight, dx: 20, dy: 10, keepAspect: false)

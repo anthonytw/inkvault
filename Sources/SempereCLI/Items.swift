@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Sempere
+import SempereRender
 
 // The app's item gestures (format.md §8.2, docs/attachments.md §13) from the
 // command line: one delta each, built by the same `NoteOps` item builders
@@ -10,15 +11,15 @@ import Sempere
 struct ItemsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "items",
-        abstract: "List, move, resize, rotate, crop, reorder, delete, duplicate and copy a note's placed items; set a video's poster; change an equation.",
+        abstract: "List, move, resize, rotate, crop, replace, reorder, delete, duplicate and copy a note's placed items; set a video's poster; change an equation.",
         discussion: """
             Placed items are text boxes, images, PDF pages, video clips, equations and recordings shown on the page \
             (audio; format.md §8.2; `recordings place` adds one). An item is named by its
             id or an id prefix of at least 4 characters, as `items list` prints it. Each edit writes one
             delta, as the app's gesture does; nothing when the item already is that way.
             """,
-        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsPoster.self, ItemsMath.self, ItemsFront.self,
-                      ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
+        subcommands: [ItemsList.self, ItemsMove.self, ItemsRotate.self, ItemsCrop.self, ItemsReplace.self, ItemsPoster.self, ItemsMath.self,
+                      ItemsFront.self, ItemsDelete.self, ItemsDuplicate.self, ItemsCopy.self]
     )
 }
 
@@ -248,6 +249,78 @@ struct ItemsCrop: ParsableCommand {
             }
         }
         try reportEdit(vault, id, r, output: output, done: clear ? "Uncropped" : "Cropped", unchanged: "The item already has that crop.")
+    }
+}
+
+struct ItemsReplace: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "replace",
+        abstract: "Replace an image with another JPEG or PNG (one delta), as the app's Replace Image.",
+        discussion: """
+            An image's picture cannot change in place (format.md §8.2.2): the old image is removed and a new one \
+            added whose parent names it, in one delta, after the new picture is stored. The new image takes the \
+            old one's place: the largest frame of its proportions inside the old frame, centred on it, with the \
+            same rotation and stacking; it shows the whole picture (no crop). The picture is stored without its \
+            location and camera metadata unless --keep-metadata. Prints the new item's id.
+            """
+    )
+
+    @Argument(help: ArgumentHelp("Note id or title.", valueName: "id|title"))
+    var note: String
+
+    @Argument(help: ArgumentHelp("Image item id or prefix.", valueName: "item"))
+    var item: String
+
+    @Argument(help: ArgumentHelp("A JPEG or PNG file.", valueName: "file"))
+    var file: String
+
+    @Flag(name: .customLong("keep-metadata"), help: "Store the file as it is, with its EXIF/XMP/GPS metadata.")
+    var keepMetadata = false
+
+    @OptionGroup var access: AccessOptions
+    @OptionGroup var output: OutputOptions
+
+    func run() throws {
+        let vault = try access.openVault(.required)
+        let id = try vault.resolveNote(note)
+        let data = try readInput(file, limit: ImageLimits.maxBlobBytes, what: "image (exports draw larger ones as placeholders)")
+        let image = try translating { try ImageIngest.prepare(data, keepMetadata: keepMetadata) }
+        let ref = BlobRef(content: image.data, type: image.mediaType)
+        // Refuse before anything is written: the item must be an image.
+        let (page, found) = try findItem(item, in: try liveState(vault, id))
+        _ = try translating {
+            try NoteOps.replaceImage(found.id, blob: ref, pixelSize: image.pixelSize, orientation: image.orientation, on: page)
+        }
+        let stored = try translating { try vault.writeBlob(note: id, image.data, type: image.mediaType) }
+        guard stored == ref else { throw CLIError.failure("internal error: the stored blob differs from its reference") }
+        let newID = UUID()
+        let r = try editNote(vault, id) { state in
+            try requireLive(state)
+            let (current, old) = try findItem(found.id.uuidString, in: state)
+            return try translating {
+                try NoteOps.replaceImage(old.id, blob: ref, pixelSize: image.pixelSize, orientation: image.orientation,
+                                         on: current, newID: newID).ops
+            }
+        }
+        guard let r else { throw CLIError.failure("internal error: nothing was written") }
+        let newName = newID.uuidString.lowercased()
+        if output.json {
+            try output.emitJSON(ReplaceJSON(note: NoteJSON(try vault.summary(of: id)), changed: true, file: r.name.filename,
+                                            item: newName, replaced: found.id.uuidString.lowercased(), blob: ref))
+        } else {
+            print(newName)
+            if !output.quiet { printStderr("Replaced image \(found.id.uuidString.lowercased().prefix(8)) (\(id.uuidString.lowercased())/\(r.name.filename))") }
+        }
+    }
+
+    /// `--json` output: the edit, the new image's id and the one it replaced.
+    struct ReplaceJSON: Encodable {
+        var note: NoteJSON
+        var changed: Bool
+        var file: String
+        var item: String
+        var replaced: String
+        var blob: BlobRef
     }
 }
 

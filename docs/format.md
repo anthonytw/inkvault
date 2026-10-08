@@ -1788,7 +1788,9 @@ plus the fields of its kind (§8.2.4–§8.2.9).
 - `rotation`: degrees, clockwise about the frame's centre; absent means 0.
 - `z`: order key within the layer, compared like page `order` (§5.5).
 - `parent`: optional, the item this one replaces (moved to another page or
-  note, restored from history).
+  note, restored from history, or an image whose picture was replaced:
+  `removeItem` of the old one and `addItem` of the new one in one delta,
+  since `blob` is immutable, §8.2.2).
 - `rec`: optional, as on strokes (§5.6, §8.3.3).
 - `origin`: snapshots only, as on strokes (§5.5).
 - `clocks`: snapshots only, maps each register (§8.2.2) to the

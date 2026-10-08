@@ -127,6 +127,23 @@ struct AudioItemAppTests {
         #expect(controls.shownButtons.isEmpty)
     }
 
+    @Test func aCardsMenuPlaysPausesAndShowsTheTranscript() {
+        let card = Item.audio(recording: UUID(), frame: Rect(x: 0, y: 0, w: 300, h: 96), z: "a")
+        func entries(_ audio: ItemMenu.AudioState?, editable: Bool = true) -> [ItemMenu.Entry] {
+            ItemMenu.entries(for: card, editable: editable, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
+                             audio: audio)
+        }
+        #expect(entries(.init(canToggle: true, isPlaying: false, hasTranscript: true))
+                == [.playRecording, .showTranscript, .copy, .duplicate, .bringToFront, .delete])
+        #expect(entries(.init(canToggle: true, isPlaying: true, hasTranscript: false), editable: false)
+                == [.pauseRecording, .copy])
+        #expect(entries(nil) == [.copy, .duplicate, .bringToFront, .delete], "a missing recording: nothing to play")
+        let video = Item(kind: .video, frame: Rect(x: 0, y: 0, w: 10, h: 10), z: "a")
+        #expect(!ItemMenu.entries(for: video, editable: false, canPlay: true, canCrop: false, canReplace: false, canPaste: false,
+                                  audio: .init(canToggle: true, isPlaying: false, hasTranscript: true))
+            .contains(.playRecording), "only audio items play recordings")
+    }
+
     @Test func recordingsListIsANoteMenuCommand() {
         var c = MenuCommand.Context(window: .note, vault: .unlocked)
         #expect(!MenuCommand.showRecordings.isEnabled(in: c))
