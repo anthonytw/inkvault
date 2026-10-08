@@ -20,6 +20,8 @@ import XCTest
 final class LaunchSmokeUITests: XCTestCase {
     private static let passphrase = "smoke test passphrase"
     private static let noteTitle = "Cellular Respiration"
+    /// Whether this run launched the app once already (`warmUp`).
+    @MainActor private static var warmedUp = false
 
     override func setUp() {
         continueAfterFailure = false
@@ -153,6 +155,7 @@ final class LaunchSmokeUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         #endif
         app.launchEnvironment = env
+        Self.warmUp(env: env)
         app.launch()
 
         let field = app.secureTextFields["Passphrase"].firstMatch
@@ -176,6 +179,24 @@ final class LaunchSmokeUITests: XCTestCase {
         }
         requireRunning(app, "unlock")
         return app
+    }
+
+    /// The first launch after the app is installed is slow on a CI simulator
+    /// (setting up the automation session took 16 s), and an accessibility
+    /// query during it timed out ("Failed to get matching snapshots"). So the
+    /// first test launches the app once without querying it and quits it;
+    /// the next launch starts fresh again (`SEMPERE_DEBUG_FRESH`).
+    @MainActor
+    private static func warmUp(env: [String: String]) {
+        guard !warmedUp else { return }
+        warmedUp = true
+        let app = XCUIApplication()
+        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
+        app.launchEnvironment = env
+        app.launch()
+        _ = app.wait(for: .runningForeground, timeout: 60)
+        Thread.sleep(forTimeInterval: 10)
+        app.terminate()
     }
 
     // MARK: - Checks
