@@ -181,23 +181,39 @@ export async function readBlob(source: VaultSource, vault: UnlockedVault, noteId
   const kind = blobKind(ref.type);
   for (const name of names) {
     const path = `notes/${noteId}/att/${name}.${kind}.age`;
-    let file: ReadableStream<Uint8Array>;
     try {
-      file = await openStream(source, path, maxFileBytes(ref.size));
+      return await readBlobFile(source, vault, path, ref);
     } catch (e) {
-      if (e instanceof SourceError && e.notFound) continue;
-      if (e instanceof SourceError) throw new BlobError("unreadable", e.message);
-      throw e;
+      if (e instanceof BlobError && e.code === "missing") continue;
+      // A cached copy that fails is dropped and downloaded once more.
+      if (!(e instanceof BlobError) || e.code === "tooLarge" || !source.evict || !(await source.evict(path))) throw e;
+      try {
+        return await readBlobFile(source, vault, path, ref);
+      } catch (again) {
+        if (again instanceof BlobError && again.code === "missing") continue;
+        throw again;
+      }
     }
-    let plain: ReadableStream<Uint8Array>;
-    try {
-      plain = await vault.decryptStream(file);
-    } catch (e) {
-      throw new BlobError("undecryptable", e instanceof Error ? e.message : String(e));
-    }
-    return verifyPlaintext(plain, ref);
   }
   throw new BlobError("missing", "attachment file is missing");
+}
+
+async function readBlobFile(source: VaultSource, vault: UnlockedVault, path: string, ref: BlobRef): Promise<Blob> {
+  let file: ReadableStream<Uint8Array>;
+  try {
+    file = await openStream(source, path, maxFileBytes(ref.size));
+  } catch (e) {
+    if (e instanceof SourceError && e.notFound) throw new BlobError("missing", "attachment file is missing");
+    if (e instanceof SourceError) throw new BlobError("unreadable", e.message);
+    throw e;
+  }
+  let plain: ReadableStream<Uint8Array>;
+  try {
+    plain = await vault.decryptStream(file);
+  } catch (e) {
+    throw new BlobError("undecryptable", e instanceof Error ? e.message : String(e));
+  }
+  return await verifyPlaintext(plain, ref);
 }
 
 /**

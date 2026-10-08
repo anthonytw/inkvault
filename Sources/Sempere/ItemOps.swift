@@ -329,8 +329,10 @@ public enum ItemFrames {
 
     /// Whether resizing an item of `kind` keeps its proportions: everything
     /// drawn from a picture (a crop's aspect is the frame's, §8.2.5) or of a
-    /// kind this reader cannot lay out; a text box re-wraps instead.
-    public static func keepsAspect(_ kind: ItemKind) -> Bool { kind != .text }
+    /// kind this reader cannot lay out; a text box re-wraps instead, and an
+    /// audio card lays its label out in whatever frame it gets (§8.2.9), so a
+    /// taller card shows more of the transcript.
+    public static func keepsAspect(_ kind: ItemKind) -> Bool { kind != .text && kind != .audio }
 
     /// Where `handle` is on the page, the frame turned by `rotation`.
     public static func point(of handle: Handle, _ frame: Rect, rotation: Double?) -> Point {

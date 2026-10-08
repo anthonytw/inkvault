@@ -263,13 +263,14 @@ export function kindFields(kind: string): string[] {
     case "pdfPage": return ["blob", "pageIndex", "pageSize", "crop"];
     case "video": return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"];
     case "math": return ["math"];
+    case "audio": return ["recording"];
     default: return [];
   }
 }
 
 /** Fields `setItem` may not name (§8.2.2): immutable fields of every kind, and `origin`, `clocks`. */
 export const immutableItemFields: ReadonlySet<string> = new Set(["id", "kind", "layer", "parent", "rec", "origin", "clocks",
-  "blob", "pixelSize", "orientation", "pageIndex", "pageSize", "duration", "videoRotation", "codec"]);
+  "blob", "pixelSize", "orientation", "pageIndex", "pageSize", "duration", "videoRotation", "codec", "recording"]);
 
 /** The `videoRotation` values §8.2.7 allows. */
 const videoRotations: ReadonlySet<number> = new Set([0, 90, 180, 270]);
@@ -307,9 +308,10 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
   // `poster: null` is the reset register (absent).
   if (has("poster")) optWith(o, "poster", path, (b, p) => blobRef(b, p, fc));
   const math = has("math") ? optWith(o, "math", path, (m, p) => mathContent(m, p, fc)) : undefined;
+  const recording = has("recording") ? optWith(o, "recording", path, uuid) : undefined;
   extra(o, new Set([...commonItemFields, ...mine]), path, c.depth, budget);
 
-  // `Item.validationError` (§8.2.1, §8.2.4–§8.2.8).
+  // `Item.validationError` (§8.2.1, §8.2.4–§8.2.9).
   if (!positive(frame.w, frame.h)) fail(path, "frame width and height must be positive");
   if (crop && !positive(crop.w, crop.h)) fail(path, "crop width and height must be positive");
   switch (kind) {
@@ -334,6 +336,9 @@ export function decodeItem(v: unknown, path: string, budget: Budget): JSONObject
       break;
     case "math":
       if (!math) fail(path, "math item without math");
+      break;
+    case "audio":
+      if (recording === undefined) fail(path, "audio item without recording");
       break;
   }
   return o;

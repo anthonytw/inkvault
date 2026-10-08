@@ -127,12 +127,19 @@ struct PageCanvasView: UIViewRepresentable {
             host.drawingSuspended = content.drawingSuspended
             host.apply(paper: content.paper, pageSize: content.pageSize)
             let pageItems = editor.items(on: pageID)
-            host.itemLayer.show(pageItems, note: editor.noteID, paper: content.paper, source: content.itemSource)
+            // Audio items show the note's recordings (format.md §8.2.9).
+            host.itemLayer.show(pageItems, note: editor.noteID, paper: content.paper, source: content.itemSource,
+                                recordings: editor.recordings)
             let overText = MarkerOrder.textOverlay(pageItems, meta: editor.meta)
             host.textOverlay.isHidden = overText.isEmpty
             host.textOverlay.show(overText, note: editor.noteID, paper: content.paper, source: content.itemSource)
             host.itemSelection.reset(editor: editor, pageID: pageID, undoManager: host.canvas.undoManager)
             host.itemSelection.commands = content.itemCommands
+            // The cards' play/pause buttons: pause on the one the player plays.
+            host.itemSelection.recordings = editor.recordings
+            host.itemSelection.playing = editor.player.flatMap { p in
+                p.recording.map { AudioPlayState(recording: $0.id, isPlaying: p.isPlaying) }
+            }
             host.onItemSelectionEnded = content.onSelectingItemsEnded
             host.itemSelectionActive = content.selectingItems && !editor.isReadOnly && !content.drawingSuspended
             if let onDrop = content.onDrop {

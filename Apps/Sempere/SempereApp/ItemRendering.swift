@@ -42,14 +42,22 @@ struct ItemRenderKey: Hashable, Sendable {
     var scale: Double
     /// Background items are filled with the paper (format.md §8.2.3).
     var paper: Paper?
+    /// An `audio` item: the recording it shows (title, duration and
+    /// transcript are drawn, format.md §8.2.9); nil when it is missing.
+    var recording: Recording?
 
-    init(_ item: Item, scale: Double, paper: Paper) {
+    init(_ item: Item, scale: Double, paper: Paper, recording: Recording? = nil) {
         var plain = item
         plain.origin = nil
         plain.clocks = nil
         self.item = plain
         self.scale = scale
         self.paper = item.layer.isBackground ? paper : nil
+        if item.kind == .audio, var r = recording {
+            r.origin = nil
+            r.clocks = nil
+            self.recording = r
+        }
     }
 }
 
@@ -75,6 +83,7 @@ enum ItemRendering {
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
         }
+        if item.kind == .audio { return await audioPicture(key, note: note, cache: cache) }
         // An equation no typesetter has rendered yet (the CLI's): typeset here (format.md §8.2.8 step 2).
         if item.kind == .math, let math = item.math, math.render == nil {
             return MathTypesetter.picture(math, frame: item.frame, rotation: item.rotation, scale: key.scale)
@@ -125,6 +134,41 @@ enum ItemRendering {
                 let picture = RenderCache.Picture(image: cg, bounds: bounds)
                 Task.detached(priority: .utility) { renders.store(picture, label: label) }
             }
+            return .image(cg, bounds: bounds)
+        case .failed(let why):
+            return .placeholder(.unavailable(why))
+        }
+    }
+
+    /// An `audio` item's card (format.md §8.2.9), drawn as exports draw it:
+    /// SempereRender's card and icon, the label laid out by CoreText. The
+    /// transcript comes from the cache; while it cannot be had (iCloud), the
+    /// card is drawn without it. A missing recording is a placeholder.
+    @MainActor
+    static func audioPicture(_ key: ItemRenderKey, note: UUID, cache: BlobCache?) async -> ItemPicture {
+        guard let recording = key.recording else { return .placeholder(.unavailable("recording missing")) }
+        var files: [String: URL] = [:]
+        let transcript = recording.transcript
+        if let cache, let transcript, let url = try? await cache.acquire(note: note, ref: transcript) {
+            files[transcript.sha256] = url
+        }
+        let source = CachedBlobSource(files: files)
+        let item = key.item
+        let outcome = await Task.detached(priority: .userInitiated) { () -> Outcome in
+            let options = RenderOptions(paper: false, blobs: source, shaper: CoreTextShaper())
+            do {
+                let r = try ItemRaster.render(item, scale: key.scale, maxPixels: ItemRendering.maxPixels, options: options,
+                                              recordings: [recording])
+                if let reason = r.placeholder { return .failed(reason.description) }
+                return .pixels(r.image, r.bounds)
+            } catch {
+                return .failed("\(error)")
+            }
+        }.value
+        if let cache, let transcript, files[transcript.sha256] != nil { await cache.release(note: note, ref: transcript) }
+        switch outcome {
+        case .pixels(let image, let bounds):
+            guard let cg = cgImage(image) else { return .placeholder(.unavailable("cannot be drawn")) }
             return .image(cg, bounds: bounds)
         case .failed(let why):
             return .placeholder(.unavailable(why))

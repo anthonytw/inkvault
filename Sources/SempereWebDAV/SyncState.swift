@@ -39,6 +39,11 @@ struct SyncState: Codable, Equatable {
     /// Temporary upload names (paths below the collection) this device
     /// created on the server and has not removed yet; the next run deletes them.
     var remoteTemps: [String]?
+    /// SHA-256 (hex) of the server listing (`sempere-index.json` bytes, then
+    /// 0 and the manifest's sealed vault secret) the server's published
+    /// summaries were last written for by this device,
+    /// when every note there got an entry (else nil: try again next run).
+    var publishedSummaries: String?
 
     /// The default state file for one (remote, local vault) pair.
     static func defaultURL(remote: URL, vault: URL,

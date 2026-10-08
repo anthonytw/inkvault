@@ -25,10 +25,15 @@ struct ItemLayerSource {
 /// note opens and launches), so a PDF note opened before shows its pages at
 /// once, sharpening as the tiles are drawn; image pictures come from the
 /// same cache.
+/// A recording on the page (format.md §8.2.9) is its card, drawn like the
+/// other items from the note's recordings; its play/pause control is a
+/// button over the card (`AudioCardControls`).
 /// Not interactive: selection is `ItemSelectionController`'s.
 final class ItemLayerView: UIView {
     private(set) var noteID: UUID?
     private(set) var items: [Item] = []
+    /// The note's recordings, for its audio items' cards.
+    private(set) var recordings: [Recording] = []
     private var source = ItemLayerSource()
     private var paper = Paper.blank
     private var zoom: CGFloat = 1
@@ -76,13 +81,15 @@ final class ItemLayerView: UIView {
     /// Items on screen, by id (for tests and the selection overlay).
     var shownItemIDs: [UUID] { items.map(\.id) }
 
-    /// Shows `items` of note `note` (in any order) over `paper`.
-    func show(_ items: [Item], note: UUID, paper: Paper, source: ItemLayerSource) {
+    /// Shows `items` of note `note` (in any order) over `paper`; audio items
+    /// show their recording from `recordings`.
+    func show(_ items: [Item], note: UUID, paper: Paper, source: ItemLayerSource, recordings: [Recording] = []) {
         // A frame that overflows to NaN would make Core Animation raise (format.md §9).
         let sorted = items.filter { ItemFrames.isDrawable($0.frame, rotation: $0.rotation) }.sorted(by: Item.drawsBefore)
         let changedNote = note != noteID
-        let changed = changedNote || sorted != self.items || paper != self.paper
+        let changed = changedNote || sorted != self.items || paper != self.paper || recordings != self.recordings
         self.source = source
+        self.recordings = recordings
         guard changed else { return }
         if changedNote {
             for task in tasks.values { task.cancel() }
@@ -111,6 +118,7 @@ final class ItemLayerView: UIView {
         previews = previews.filter { newIDs.contains($0.key) }
         layout()
     }
+
 
     /// The canvas zoom changed.
     func setZoom(_ zoom: CGFloat) {
@@ -150,6 +158,7 @@ final class ItemLayerView: UIView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let step = scaleStep
+        let shown = NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)), pages: [], recordings: recordings)
         var wanted: Set<ItemRenderKey> = []
         var wantedDocuments: Set<String> = []
         var wantedPreviews: Set<String> = []
@@ -171,7 +180,8 @@ final class ItemLayerView: UIView {
             }
             sub.zPosition = CGFloat(index)
             sub.isHidden = item.id == hiddenItem
-            let key = ItemRenderKey(item, scale: step, paper: paper)
+            let recording = item.kind == .audio ? shown.recording(shownBy: item) : nil
+            let key = ItemRenderKey(item, scale: step, paper: paper, recording: recording)
             wanted.insert(key)
             if pictures[key] == nil, let label = RenderCache.pictureLabel(key),
                let hit = source.renders?.pictureInMemory(label) {

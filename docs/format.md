@@ -21,6 +21,7 @@ Notes.sempere/
   inbox/
     <captureId>.capture.age               a voice note sealed without the vault's key (§11), until adopted
     <captureId>.transcript.age            its transcript, sealed the same way (§11)
+  sempere-summaries.sealed                optional published note summaries, a hint for listing (§12)
 ```
 
 Everything under `notes/` (revisions and `att/` blobs alike) is written once
@@ -1754,8 +1755,9 @@ is missing, `od -An -v -tx1 | tr -d ' \n'` prints the same hex.
 
 ### 8.2 Placed items
 
-A page's `items` (§5.5) are text boxes, images, PDF page backgrounds and
-video clips, placed in page coordinates (points, origin top-left, y down).
+A page's `items` (§5.5) are text boxes, images, PDF page backgrounds, video
+clips, equations and recordings placed on the page, in page coordinates
+(points, origin top-left, y down).
 
 #### 8.2.1 Common fields
 
@@ -1774,11 +1776,11 @@ video clips, placed in page coordinates (points, origin top-left, y down).
 }
 ```
 
-plus the fields of its kind (§8.2.4–§8.2.8).
+plus the fields of its kind (§8.2.4–§8.2.9).
 
 - `id`: UUID.
-- `kind`: `text`, `image`, `pdfPage`, `video` (§8.2.7) or `math`
-  (§8.2.8); others per §7.5.
+- `kind`: `text`, `image`, `pdfPage`, `video` (§8.2.7), `math` (§8.2.8) or
+  `audio` (§8.2.9); others per §7.5.
 - `layer`: integer z-layer, 0 to 65 535 (§8.2.3). Defined: `0` background,
   `100` content. Absent means `100`. Writers write only defined values;
   readers order by any value in range and treat a value out of range or not
@@ -1798,13 +1800,14 @@ plus the fields of its kind (§8.2.4–§8.2.8).
 
 Numbers are rounded to at most 3 decimals by writers.
 
-The fields of a defined kind (§8.2.4–§8.2.8) are required unless that section
+The fields of a defined kind (§8.2.4–§8.2.9) are required unless that section
 says what their absence means (`rotation`, `crop`, `orientation`, `family`,
 `lang`, `poster`, …). An item of a defined kind that lacks one, holds one of the wrong
 type or out of its stated range (a frame, crop, `pixelSize` or `pageSize`
 side not positive, `orientation` outside 1–8, a negative `pageIndex`, a text
 `size` outside its range, a `duration` negative or not finite, a
-`videoRotation` other than 0, 90, 180 or 270) is invalid like a bad common field: the revision is
+`videoRotation` other than 0, 90, 180 or 270, a `recording` that is not a
+UUID) is invalid like a bad common field: the revision is
 rejected. A field of another kind on an item (an image with `pageIndex`) is
 an unknown field there and kept (§7.5); so are all fields beyond the common ones
 on an item of an unknown kind.
@@ -1823,6 +1826,7 @@ and never changed.
 | `pdfPage` | `crop`, `pageText` | `blob`, `pageIndex`, `pageSize` |
 | `video` | `poster` | `blob`, `pixelSize`, `duration`, `videoRotation`, `codec` |
 | `math` | `math` | |
+| `audio` | | `recording` |
 
 - `addItem` sets every field; its register values carry the op's stamp.
 - `setItem` with `field` naming an immutable field of any kind, or the
@@ -2180,6 +2184,76 @@ Readers that predate this section keep a `math` item as an unknown kind
 (§7.5): `math` is then an unknown field and register on it, `render` is found
 by collection (§8.1.6), and they draw a placeholder.
 
+#### 8.2.9 Audio
+
+*New: recordings on the page (build 7 feedback).* A recording belongs to the
+note (§8.3.1); an `audio` item shows one on a page, where it can be played
+from, moved, resized and deleted like any item.
+
+```json
+{ "kind": "audio", "layer": 100, "frame": [72, 144, 300, 96], "z": "a3",
+  "recording": "0d9e5c1a-…" }
+```
+
+- `recording` (immutable): the id of a recording of the same note (a UUID,
+  written lowercase). The item shows the recording with that id; if it is not
+  present, the present recording whose `parent` names it (one re-created by a
+  restore, §5.7; the first by `(started, id)` if several), as for `rec`
+  (§8.3.3); otherwise the recording is *missing*. Any number of items may
+  show one recording, on any pages.
+- The item has no registers of its own: its title, duration and transcript
+  are the recording's (§8.3.1, §8.3.2), so renaming or transcribing the
+  recording changes every item that shows it.
+
+Writers: an app that stops a recording should place one `audio` item on the
+page the user was looking at, in the same delta as the `addRecording`, so
+the recording is never off the page. Removing an `audio` item (`removeItem`)
+removes only the item: the recording stays in the note (a reader lists the
+note's recordings, §5.4, and can place it again). Removing a recording
+(`removeRecording`) should remove, in the same delta, the `audio` items of
+its note that show it; an item left showing a missing recording (a
+concurrent removal, an older writer) is drawn as below and may be removed by
+any writer.
+
+Drawing (renderers, exports, and readers before they play): with the frame
+`[fx, fy, fw, fh]`, `m = min(fw, fh)`, the padding `p = min(8, 0.1 · m)` and
+the icon size `d = min(24, m − 2p)`, everything below in frame coordinates
+and then turned with the item's `rotation` about the frame's centre:
+
+1. the *card*: the frame filled `#F1F3F4FF` and outlined 1 pt in
+   `#DADCE0FF`;
+2. the *icon*, when `d > 0`: a disc of diameter `d` filled `#1A73E8FF`
+   centred at `(cx, cy) = (fx + p + d/2, fy + p + d/2)`, and over it, in
+   `#FFFFFFFF`, a microphone: a capsule (a rectangle with semicircular ends)
+   filled, from `(cx − 0.12 d, cy − 0.3 d)` to `(cx + 0.12 d, cy + 0.08 d)`;
+   and stroked `0.06 d` wide with round caps, the lower half of a circle of
+   radius `0.2 d` centred at `(cx, cy − 0.04 d)`, a line from
+   `(cx, cy + 0.16 d)` to `(cx, cy + 0.3 d)` and a line from
+   `(cx − 0.12 d, cy + 0.3 d)` to `(cx + 0.12 d, cy + 0.3 d)`;
+3. the *label*: a text box (§8.2.4, laid out by §8.5.3) with the frame
+   `[fx + 2p + d, fy + p, fw − 3p − d, fh − 2p]` (nothing when its width or
+   height is not positive), `font` `sans`, `color` `#202124FF`, `align`
+   `start`, `dir` `auto`, no `breaks`, and the runs: the recording's
+   `title`, or `Recording` when it is empty or absent, bold, size 12; when
+   the recording has a finite `duration`, ` · ` and the duration as `m:ss`
+   (`h:mm:ss` from an hour), size 12; when it has a valid transcript (§8.3.2),
+   a line break and the text of its segments joined by single spaces, size
+   10, `color` `#5F6368FF`, `lang` the transcript's `language`, cut to its
+   first 2 000 Unicode scalar values. Unlike a text item the label is
+   clipped: a line whose bottom is below `fy + fh − p` is not drawn, nor
+   any after it.
+
+An item whose recording is missing is drawn as a placeholder (§8.5.2) and
+reported as "recording missing". A transcript that is missing, unreadable or
+invalid is left out of the label (reported); the card is still drawn. An
+`audio` item counts toward an infinite page's extent and is cut across
+export pages like an image.
+
+Playing: a reader that plays audio plays the recording (§8.3.1) when the
+item is tapped or its play control used, and may show the position and the
+transcript as it plays (§8.3.2). A reader that cannot play shows the card.
+A `pdf` export with attachments embeds the recording once however many
+items show it (`docs/attachments.md` §10).
 
 ### 8.3 Recordings
 
@@ -2337,8 +2411,9 @@ point `(a, b)` in PDF user space, with the visible box (CropBox ∩ MediaBox)
 #### 8.5.2 Missing and unknown content
 
 An item whose blob is missing, unreadable, invalid (§8.1.4) or of a type the
-renderer cannot draw, and an item of an unknown kind (§7.5), is drawn as a
-placeholder (a `math` item falls back to its source first, §8.2.8): its frame (rotated) outlined 1 pt in
+renderer cannot draw, an `audio` item whose recording is missing (§8.2.9),
+and an item of an unknown kind (§7.5), is drawn as a placeholder (a `math`
+item falls back to its source first, §8.2.8): its frame (rotated) outlined 1 pt in
 `#9AA0A6FF` with both diagonals. A background placeholder still fills its
 frame (§8.2.3). The export goes on and reports each placeholder; it never
 fails because of one.
@@ -2454,6 +2529,7 @@ where the table says how they degrade.
 | PDF attachment (export, `SemperePDF`) | 1 GiB file; 10⁶ objects; 256 MiB per decoded stream, 1 GiB decoded per file; nesting and page-tree depth 64; 32 reference hops; 4 096 cross-reference sections; 16 filters per stream; encrypted files refused | `PDFLimits` |
 | PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
+| published summaries (§12) | 64 MiB on disk, 256 MiB after gunzip; unknown fields skipped, not kept; any failure ignores the file, a bad entry only that entry | `PublishedSummaries.maxFileBytes` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
 on Linux, `PropertyListSerialization` crashes on a binary plist holding a
@@ -2680,3 +2756,130 @@ Afterwards the capture file is deleted once the note exists, and the
 transcript file once the recording has a transcript (or is gone). A
 transcript file whose capture has not arrived yet stays.
 
+
+## 12. Published summaries
+
+*New: web viewer.* A vault may hold, at its root, `sempere-summaries.sealed`:
+the summary of each note (title, tags, notebook, flags, page count and the
+searchable text of each page) together with the names of the revision files
+it was made from, so that a reader can list and search the vault without
+decrypting every revision. It exists for readers that start cold on every
+visit, such as the web viewer (`docs/web-viewer.md`), and is published next
+to a copy of the vault (a WebDAV mirror) rather than kept per device like
+the cache of §10.
+
+The file is **a hint**. It is derived from the revisions, never needed to
+read the vault, and never trusted over them: a reader that does not
+implement this section ignores it (§1), and a missing, stale, damaged or
+foreign file is never an error, only a slower listing. It is not under
+`notes/` and is not write-once: a writer replaces it whole (atomically, or
+with one `PUT`). It needs no `features` entry (§2).
+
+### 12.1 Key and file
+
+```
+key = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 published summaries key", L = 32)
+```
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| 0 | 4 | ASCII `SMPU` |
+| 4 | 1 | version `0x01` |
+| 5 | 12 | nonce, random per write |
+| 17 | rest | AES-256-GCM ciphertext under `key`, then its 16-byte tag |
+
+The associated data is the first 5 bytes ‖ `"sempere/1"` ‖ `0x00` ‖ the
+vault's `vaultId` (§2, lowercase, ASCII). The plaintext is `gzip(JSON)`
+(UTF-8). AES-GCM rather than the ChaCha20-Poly1305 of §10 because browsers
+provide it (WebCrypto); with a random 96-bit nonce per write and one write per
+change of the vault's listing, nonce reuse is not a concern. Only holders of
+the vault secret (the vault's recipients) can write or read the file. A
+vault whose secret rotates (§3.3) derives another key, so its old file no
+longer opens and is ignored until rewritten; during an unfinished rewrap a
+reader may also try the previous secret's key.
+
+Test vector (`vaultSecret` = 32 bytes `0x00 0x01 … 0x1f`, `vaultId`
+`0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c`, nonce 12 bytes `0xa0 0xa1 … 0xab`,
+plaintext the ASCII bytes `{}` (not gzip, to keep the vector short)):
+
+```
+key  = 4ffd10840df4dc46092a2c424919f611c1bcc355fe7526a19e25a1489bf5510a
+file = 534d505501a0a1a2a3a4a5a6a7a8a9aaabb466bcf027fe45b94f3fe195f6e0b57d9c6e
+```
+
+### 12.2 Content
+
+```json
+{
+  "format": "sempere-summaries/1",
+  "vaultId": "0d1c6a1e-9a44-4a6c-8a6b-0e2a0e9b1f3c",
+  "notes": {
+    "6f1c2b9e-0a43-4f6e-9a51-2c8d7e3b4a10": {
+      "revisions": ["17596320000000000-a1b2c3d4-1.delta.age",
+                    "17596952000000000-a1b2c3d4-2.delta.age"],
+      "title": "Groceries",
+      "tags": ["home"],
+      "notebook": "Personal/Lists",
+      "favorite": false,
+      "deleted": false,
+      "created": "2026-10-04T16:20:00.000Z",
+      "modified": "2026-10-06T09:12:44.512Z",
+      "pages": 2,
+      "pageTexts": [{ "page": 1, "text": "milk eggs" }]
+    }
+  }
+}
+```
+
+- `format` is `sempere-summaries/1` and `vaultId` the vault's; a file with
+  another value of either is ignored.
+- `notes` maps a note id (a lowercase UUID, the note's directory name) to its
+  entry. A writer includes only notes whose listed revisions it read
+  completely and could reconstruct (§5.3); a note with an unreadable revision,
+  or with content of a newer format version it does not understand (§7.4),
+  has no entry.
+- `revisions`: the file names of every revision of the note the summary was
+  made from (canonical names, §5), sorted, at least one.
+- The rest describes the note's state (§5.4) merged from exactly those
+  revisions: `title`; `tags` (the current tags, §5.4.1); `notebook`, absent
+  when the note has none; `favorite`; `deleted`; `created`; `modified`, the
+  greatest `wall` (§5.1) among the revisions; `pages`, the number of pages;
+  `pageTexts`, for each page with searchable text, its 1-based position and
+  that text: the page's recognised text (§5.5), then the text of each text
+  item (§8.2.4), the `pageText` of each PDF page item (§8.2.6) and the LaTeX
+  source of each math item (§8.2.8) in drawing order (§8.2.3), the non-empty
+  ones joined by `\n`, in page order. Pages
+  without such text are left out. Dates are as in §6.
+
+Unknown fields are ignored. Writers emit no others under `format`
+`sempere-summaries/1`; a change readers must not misread changes `format`.
+
+### 12.3 Reading
+
+A reader uses an entry only when the note's revision file names in its own
+listing of the vault are exactly the entry's `revisions`. Revision files are
+write-once and named by `(hlc, device, seq)` (§5), so the same names are the
+same revisions and the same summary. For any other note (a new, compacted or
+removed revision, no entry, or an entry that does not validate) it reads the
+revisions as usual; entries of notes the listing does not have are ignored.
+A reader may show the entries before its listing is complete, as long as it
+replaces each one that turns out not to match.
+
+The whole file is ignored when it is missing, larger than its limit (§9),
+does not start with `SMPU` `0x01`, fails to authenticate, does not gunzip or
+parse, or has another `format` or `vaultId`. An entry whose id, `revisions`
+or any field above is malformed is ignored alone.
+
+Trust. The file is authenticated under the vault secret, so a storage server
+cannot forge or alter an entry; it can withhold the file or serve an older
+one, whose entries then either still match (unchanged notes) or are read
+again. A malicious recipient, who can also write revisions, can write
+entries that disagree with the revisions; a reader shows what the revisions
+say once it opens a note, and prefers that summary from then on.
+
+### 12.4 Writing
+
+`sempere vault summaries` writes the file (docs/cli.md); `sempere sync
+webdav` keeps the server's copy current, computed from what the server holds
+after the sync. The file is never copied between the two sides of a sync:
+each writer computes it from its own listing. The app does not write it.

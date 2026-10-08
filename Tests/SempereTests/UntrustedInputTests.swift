@@ -425,4 +425,17 @@ final class UntrustedInputTests: VaultTestCase {
         XCTAssertNotNil(RecordingSync.box(of: stroke([(0, 0), (10, 10)])))
         XCTAssertTrue(RecordingSync.hit(x: 0, y: 0, in: [stroke([(-1.7e308, 0), (1.7e308, 10)])]).isEmpty)
     }
+
+    /// An audio card turned by 1e308 degrees put its play badge at NaN
+    /// (`1e308 * .pi` is infinite), and the app's button with it.
+    func testAHugeRotationLeavesTheAudioBadgeFinite() {
+        let card = AudioCard(frame: Rect(x: 0, y: 0, w: 300, h: 96))
+        let plain = card.badge(rotation: nil), turned = card.badge(rotation: 1e308)
+        XCTAssertTrue(turned.center.x.isFinite && turned.center.y.isFinite)
+        XCTAssertEqual(turned.diameter, plain.diameter)
+        XCTAssertFalse(card.controlContains(x: .nan, y: 0, rotation: 1e308))
+        let c = card.badge(rotation: 360 * 1e10 + 90).center, q = card.badge(rotation: 90).center
+        XCTAssertEqual(c.x, q.x, accuracy: 1e-6)
+        XCTAssertEqual(c.y, q.y, accuracy: 1e-6)
+    }
 }

@@ -131,6 +131,8 @@ enum EditorCommands {
         switch command {
         case .changePaper:
             ui.choosingPaper = true
+        case .showRecordings:
+            if editor != nil { ui.showingRecordings = true }
         case .previousPage:
             if let editor { editor.selectPage(editor.pageIndex - 1) }
         case .nextPage:
@@ -182,6 +184,8 @@ final class WindowUI {
     /// The note a version is being saved of (the Save Version alert).
     var saveVersionNoteID: UUID?
     var choosingPaper = false
+    /// The open note's Recordings list (`RecordingsListView`).
+    var showingRecordings = false
     var searchPresented = false
     /// A PDF being imported that needs its password (`PDFImportRequest`).
     var pdfPassword: PDFImportRequest?

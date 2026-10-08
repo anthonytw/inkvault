@@ -1718,6 +1718,18 @@
         }
       }
     },
+    "Actions" : {
+      "comment" : "Recordings list: menu of a recording's actions (icon only)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acciones"
+          }
+        }
+      }
+    },
     "Actual Size" : {
       "comment" : "View menu: zoom to 100%",
       "extractionState" : "manual",
@@ -1975,6 +1987,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Todas las notas"
+          }
+        }
+      }
+    },
+    "All Recordings…" : {
+      "comment" : "Recordings menu: open the list of every recording of the note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas las grabaciones…"
           }
         }
       }
@@ -5049,6 +5073,18 @@
         }
       }
     },
+    "No Recordings" : {
+      "comment" : "Recordings list: empty state title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin grabaciones"
+          }
+        }
+      }
+    },
     "No Transcript" : {
       "comment" : "Title when a transcript cannot be read",
       "extractionState" : "manual",
@@ -5196,6 +5232,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No exportadas"
+          }
+        }
+      }
+    },
+    "Not on a page" : {
+      "comment" : "Recordings list: no card shows the recording",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En ninguna página"
           }
         }
       }
@@ -5430,6 +5478,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En este dispositivo"
+          }
+        }
+      }
+    },
+    "On page %@" : {
+      "comment" : "Recordings list: the page with its card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En la página %@"
+          }
+        }
+      }
+    },
+    "On pages %@" : {
+      "comment" : "Recordings list: the pages with its cards, e.g. 1, 3",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En las páginas %@"
           }
         }
       }
@@ -6161,6 +6233,18 @@
         }
       }
     },
+    "Pause %@" : {
+      "comment" : "Audio card button (VoiceOver, tooltip): pause the recording named",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausar %@"
+          }
+        }
+      }
+    },
     "Paused" : {
       "comment" : "Recording bar status",
       "extractionState" : "manual",
@@ -6291,6 +6375,18 @@
         }
       }
     },
+    "Place on This Page" : {
+      "comment" : "Recordings list: put the recording's card on the page being looked at",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar en esta página"
+          }
+        }
+      }
+    },
     "Play" : {
       "comment" : "Button: play a recording",
       "extractionState" : "manual",
@@ -6299,6 +6395,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reproducir"
+          }
+        }
+      }
+    },
+    "Play %@" : {
+      "comment" : "Audio card button (VoiceOver, tooltip): play the recording named",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reproducir %@"
           }
         }
       }
@@ -6841,6 +6949,17 @@
         }
       }
     },
+    "Record with the microphone button in the toolbar." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graba con el botón del micrófono de la barra de herramientas."
+          }
+        }
+      }
+    },
     "Recording" : {
       "comment" : "Settings section header (audio recordings)",
       "extractionState" : "manual",
@@ -6891,6 +7010,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grabaciones"
+          }
+        }
+      }
+    },
+    "Recordings…" : {
+      "comment" : "Note menu and toolbar: the note's recordings list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabaciones…"
           }
         }
       }
@@ -7752,6 +7883,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Las versiones guardadas aparecen primero en el historial de versiones y nunca se quitan al reducir los guardados automáticos antiguos."
+          }
+        }
+      }
+    },
+    "Save…" : {
+      "comment" : "Export sheet on a Mac: save the exported files with the save panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar…"
           }
         }
       }
@@ -9664,6 +9807,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta nota aún no tiene páginas."
+          }
+        }
+      }
+    },
+    "This note has no recordings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta nota no tiene grabaciones."
           }
         }
       }

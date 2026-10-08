@@ -27,6 +27,14 @@ public struct WebDAVSyncOptions: Sendable {
     /// Push-only: also remove from the server what the local vault does not
     /// have and nothing explains (reported in `SyncReport.extraneous` either way).
     public var deleteExtraneous = false
+    /// Create the server's `sempere-index.json` and `sempere-summaries.sealed`
+    /// (format.md §12), what the web viewer lists a vault from, when it has
+    /// none; existing ones are kept current either way (the summaries need the
+    /// vault unlocked).
+    public var publishForWebViewer = false
+    /// Where notes are summarised for that file through the summary cache
+    /// (format.md §10); nil reads every changed note.
+    public var summaryCacheDirectory: URL?
 
     /// Blob downloads are made of `Range` requests of this size, so memory
     /// stays bounded by one of them however fast the server is.
@@ -148,10 +156,13 @@ public final class WebDAVSync {
             }
         }
         if options.pushOnly { deleteRemoteJunk() }
-        if !options.dryRun, let entry = remoteRoot[WebIndex.fileName], !entry.isCollection {
+        if !options.dryRun, options.publishForWebViewer || remoteRoot[WebIndex.fileName].map({ !$0.isCollection }) ?? false {
             do { try refreshRemoteWebIndex() } catch {
                 report.errors.append(.init(path: WebIndex.fileName, message: Self.describe(error)))
             }
+        }
+        if !options.dryRun {
+            refreshRemoteSummaries(exists: remoteRoot[PublishedSummaries.fileName].map { !$0.isCollection } ?? false)
         }
         if !options.dryRun {
             do { try state.save(stateURL) } catch {

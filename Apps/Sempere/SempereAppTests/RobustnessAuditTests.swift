@@ -152,4 +152,24 @@ struct RobustnessAuditTests {
         #expect(ContinuousClock.now - start < .seconds(3), "failed at the timeout, not when the preparation ended")
         #expect(stuck.isCancelled)
     }
+
+    /// An audio card whose frame overflows gets no play button (its centre
+    /// would be NaN, which Core Animation raises on); a huge rotation still
+    /// turns the button by a finite angle.
+    @Test func anAudioCardWhoseFrameOverflowsGetsNoButton() throws {
+        let canvas = UIScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        let controls = AudioCardControls()
+        controls.attach(to: canvas)
+        let recording = Recording(blob: BlobRef(content: Data("x".utf8), type: "audio/mp4"), started: Date(), title: "Talk")
+        let overflowing = Item.audio(recording: recording.id, frame: Rect(x: 1.7e308, y: 0, w: 1.7e308, h: 96), z: "a")
+        var spun = Item.audio(recording: recording.id, frame: Rect(x: 0, y: 200, w: 300, h: 96), z: "b")
+        spun.rotation = 1e308
+        controls.layout([overflowing, spun], recordings: [recording], playing: nil, zoom: 2, hidden: nil) { _ in }
+        #expect(controls.shownButtons[overflowing.id] == nil)
+        let button = try #require(controls.shownButtons[spun.id])
+        let t = button.transform
+        let finite = [t.a, t.b, t.c, t.d, t.tx, t.ty].allSatisfy { $0.isFinite }
+        #expect(finite)
+        #expect(!button.center.x.isNaN && !button.center.y.isNaN)
+    }
 }
