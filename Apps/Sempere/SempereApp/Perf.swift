@@ -75,6 +75,8 @@ enum Perf {
         case pdfOpen = "pdf.open"
         /// A PDF page's preview (detail: `hit`, or `drawn`).
         case pdfPreview = "pdf.preview"
+        /// Back Up Now: download (iCloud), then `Backup.run` (detail: files copied, replaced, failed).
+        case backup = "backup"
     }
 
     /// An interval in progress; pass it to `end`.

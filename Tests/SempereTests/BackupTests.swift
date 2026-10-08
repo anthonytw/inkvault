@@ -160,6 +160,26 @@ final class BackupTests: VaultTestCase {
         XCTAssertTrue(Backup.verify(at: dest, identities: [id]).isHealthy)
     }
 
+    func testProblemLinesNameEveryProblemAndNothingElse() throws {
+        _ = try Backup.run(source: vault, to: dest)
+        XCTAssertEqual(Backup.verify(at: dest, identities: [id]).problemLines, [])
+        let files = try Backup.formatFiles(in: dest).filter { $0.hasPrefix("notes/") }
+        try flipByte(Backup.url(dest, files[0]), at: 40)
+        try FileManager.default.removeItem(at: Backup.url(dest, files[1]))
+        let report = Backup.verify(at: dest, identities: [id])
+        XCTAssertFalse(report.isHealthy)
+        let lines = report.problemLines
+        XCTAssertTrue(lines.contains { $0.hasPrefix("modified  \(files[0])") }, "\(lines)")
+        XCTAssertTrue(lines.contains { $0.hasPrefix("missing  \(files[1])") }, "\(lines)")
+        XCTAssertTrue(lines.allSatisfy { !$0.hasPrefix("ok") && !$0.hasPrefix("unindexed") })
+        // A folder that is no backup says so.
+        let empty = tmp.appendingPathComponent("nothing")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let none = Backup.verify(at: empty).problemLines
+        XCTAssertTrue(none.contains { $0.hasPrefix("backup.json:") }, "\(none)")
+        XCTAssertTrue(none.contains { $0.hasPrefix("vault:") }, "\(none)")
+    }
+
     func testVerifyWithoutKeyStillChecksEveryHash() throws {
         _ = try Backup.run(source: vault, to: dest)
         try flipByte(dest.appendingPathComponent("vault.json"), at: 3)

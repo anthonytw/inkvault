@@ -23,6 +23,7 @@ struct SettingsView: View {
                 QuickCaptureSettingsSection()
                 PhotoSettingsSection()
                 HistorySettingsSection()
+                BackupSettingsSection()
                 DeviceKeySettingsSection()
                 StorageSettingsSection()
             }

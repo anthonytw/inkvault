@@ -156,6 +156,26 @@ public struct BackupVerifyReport: Hashable, Sendable {
             && files.allSatisfy { $0.status == .ok || $0.status == .unindexed }
             && (vault?.isHealthy ?? false)
     }
+    /// Every problem `isHealthy` counts, one line each ("modified  notes/…
+    /// (detail)"): `backup.json`, the mirrored vault, its `vault.json` and
+    /// rewrap journal, then files. Unindexed files are not problems. Empty
+    /// for a healthy backup; for display (the app's Verify Backup).
+    public var problemLines: [String] {
+        func line(_ status: String, _ path: String, _ detail: String?) -> String {
+            "\(status)  \(path)" + (detail.map { "  (\($0))" } ?? "")
+        }
+        var out = backupProblems.map { "backup.json: \($0)" }
+        if let vaultProblem { out.append("vault: \(vaultProblem)") }
+        if let vault {
+            out += vault.manifestProblems.map { "vault.json: \($0)" }
+            if let j = vault.journalProblem { out.append("rewrap journal: \(j)") }
+        }
+        out += files.filter { $0.status != .ok && $0.status != .unindexed }
+            .map { line($0.status.rawValue, $0.path, $0.detail) }
+        out += (vault?.files ?? []).filter { ![.ok, .unknownFile, .notChecked, .unreferenced, .newer].contains($0.status) }
+            .map { line($0.status.rawValue, $0.path, $0.detail) }
+        return out
+    }
 }
 
 /// What `Backup.restore` did.

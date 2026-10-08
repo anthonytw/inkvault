@@ -19,7 +19,8 @@ struct SempereApp: App {
                                         blobCacheRoot: BlobCache.folder,
                                         renderCacheRoot: AppModel.drawingCacheEnabled ? RenderCache.defaultRoot : nil,
                                         automaticThinning: true,
-                                        recipientsTrust: AppModel.defaultRecipientsTrust)
+                                        recipientsTrust: AppModel.defaultRecipientsTrust,
+                                        backupNotifier: UserNotificationBackupNotifier())
     @State private var library = VaultLibrary()
     @State private var keys = RememberedKeys()
 
@@ -54,6 +55,7 @@ struct SempereApp: App {
         WindowGroup("Settings", id: "settings") {
             SettingsView(showsDone: false)
                 .environment(model)
+                .environment(library)
         }
         WindowGroup("Vault Keys", id: "keys") {
             KeysWindowView()
