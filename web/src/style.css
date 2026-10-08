@@ -90,6 +90,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .sidebar button .count { color: var(--muted); font-size: 0.85em; }
 .sidebar button.active, .note-list button.active { background: var(--accent-soft); }
 .search { padding: 8px; border-bottom: 1px solid var(--line); }
+.transcript-search { margin-top: 6px; font-size: 0.85em; }
+.transcript-search label.check { display: inline-flex; gap: 6px; align-items: baseline; cursor: pointer; }
+.transcript-search details { margin-top: 4px; }
+.spoken-hits { border-bottom: 1px solid var(--line); padding: 0 12px 8px !important; margin-top: -4px !important; }
+.note-list button.spoken-hit {
+  display: block; width: 100%; text-align: left; background: transparent; color: var(--text); padding: 2px 0; border-radius: 0;
+}
+.note-list button.spoken-hit:hover { text-decoration: underline; }
 .note-list { overflow: auto; flex: 1; }
 .note-list ul { list-style: none; margin: 0; padding: 0; }
 .note-list button.note {
@@ -154,6 +162,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .seg-time {
   background: transparent; color: var(--accent); padding: 0 4px; font-variant-numeric: tabular-nums; flex: none;
 }
+.transcript .segments li.found { background: var(--accent-soft); border-radius: 4px; }
 .doubtful { text-decoration: underline dotted; text-decoration-color: var(--muted); }
 
 /* Video clips (format.md §8.2.7): one player under the list. */
