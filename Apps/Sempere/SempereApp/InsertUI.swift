@@ -181,6 +181,7 @@ struct InsertMenu: View {
     /// Turns the text tool on.
     var onAddText: () -> Void = {}
     let onPaste: ([NSItemProvider]) -> Void
+    @AppStorage(MathRecognitionPreference.key) private var mathRecognition = MathRecognitionPreference.defaultValue
 
     var body: some View {
         Menu {
@@ -211,6 +212,10 @@ struct InsertMenu: View {
                     guard let page = editor.currentPage?.id else { return }
                     state.editingMath = MathRequest(editor: editor, page: page, item: nil, actions: nil,
                                                     visible: editor.canvasTarget?.visibleRect(ofPage: page))
+                }
+                // Settings ▸ Handwritten Math, with a model on this device (docs/attachments.md §14 G1 part 2).
+                if mathRecognition && MathModels.shared.isAvailable {
+                    Button("Equation from Handwriting…", systemImage: "pencil.and.scribble") { editor.beginMathLasso() }
                 }
             }
         } label: {
@@ -280,6 +285,13 @@ struct EditorInsert: ViewModifier {
             }
             .sheet(item: $state.editingMath) { request in
                 MathEditorView(request: request)
+            }
+            .sheet(item: Binding(get: { editor.mathConversion }, set: { editor.mathConversion = $0 })) { conversion in
+                MathEditorView(request: MathRequest(editor: editor, page: conversion.page, item: nil, actions: nil,
+                                                    visible: nil, conversion: conversion))
+            }
+            .overlay(alignment: .top) {
+                if editor.mathLassoActive { MathLassoBanner(editor: editor).padding(.top, 8) }
             }
     }
 
@@ -599,5 +611,26 @@ private struct CropShade: View {
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+
+/// The hint shown while "Convert to Math" picks ink, with Cancel.
+struct MathLassoBanner: View {
+    let editor: NoteEditor
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lasso").accessibilityHidden(true)
+            Text(editor.mathLassoMessage ?? String(localized: "Circle the handwritten equation to convert it.",
+                                                   comment: "Convert to Math: the lasso's hint"))
+                .font(.callout)
+            Button("Cancel") { editor.endMathLasso() }
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .accessibilityIdentifier("mathLassoBanner")
     }
 }
