@@ -78,6 +78,12 @@ public protocol WebDAVTransport: Sendable {
 /// the request is cancelled once one exceeds `maxResponseBytes`, so a server
 /// cannot make the client buffer more than that.
 public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
+    /// TLS server-trust challenges go to the system's default handling;
+    /// only HTTP authentication challenges are answered by the transport.
+    static func isServerTrust(_ method: String) -> Bool {
+        method == NSURLAuthenticationMethodServerTrust
+    }
+
     private let session: URLSession
     private let delegate = Delegate()
 
@@ -230,8 +236,13 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
 
         /// Credentials are sent preemptively in the header; a challenge is
         /// answered with the 401 itself, never with a stored credential.
+        /// Server trust (TLS) is left to the system: Apple platforms deliver it
+        /// here, and cancelling it fails every HTTPS request.
         func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            if URLSessionTransport.isServerTrust(challenge.protectionSpace.authenticationMethod) {
+                return completionHandler(.performDefaultHandling, nil)
+            }
             if let r = challenge.failureResponse as? HTTPURLResponse { lookup(task.taskIdentifier)?.set(challenged: r) }
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
