@@ -347,6 +347,11 @@ enum StorageText {
         return String(localized: "\(count) items, \(size)", comment: "Settings ▸ Storage: number of unused attachments and their total size")
     }
 
+    /// "in 3 versions": how many versions of its note still show a held attachment.
+    static func versions(_ count: Int) -> String {
+        String(localized: "in \(count) versions", comment: "Settings ▸ Storage ▸ Held by History: how many versions of the note show it")
+    }
+
     /// "12 Oct 2026" (the day, in this device's calendar and language).
     static func day(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .omitted)
@@ -355,8 +360,9 @@ enum StorageText {
     /// Where an unused attachment stands in the 30-day window at `now`:
     /// "Unused since 7 Oct 2026" plus "can be deleted from 6 Nov 2026" until then.
     static func window(_ item: AttachmentStorageReport.Unused, now: Date) -> String {
-        let since = "Unused since \(day(item.firstSeen))"
-        return item.isEligible(at: now) ? since : since + "; can be deleted from \(day(item.deletableFrom))"
+        let since = day(item.firstSeen)
+        return item.isEligible(at: now) ? String(localized: "Unused since \(since)")
+            : String(localized: "Unused since \(since); can be deleted from \(day(item.deletableFrom))")
     }
 
     /// "Recording, 0:24" / "Image" / "PDF": what an attachment is, with an
@@ -364,12 +370,12 @@ enum StorageText {
     static func describe(kind: BlobKind, lastUse: AttachmentIndexEntry.LastUse?) -> String {
         let name: String
         switch kind {
-        case .image: name = "Image"
-        case .pdf: name = "PDF"
-        case .audio: name = "Recording"
-        case .video: name = "Video"
-        case .transcript: name = "Transcript"
-        default: name = "File"
+        case .image: name = String(localized: "Image", comment: "Attachment kind in the unused attachments list")
+        case .pdf: name = String(localized: "PDF", comment: "Attachment kind in the unused attachments list")
+        case .audio: name = String(localized: "Recording")
+        case .video: name = String(localized: "Video")
+        case .transcript: name = String(localized: "Transcript")
+        default: name = String(localized: "File", comment: "Attachment kind in the unused attachments list: anything else")
         }
         var parts = [name]
         if kind == .audio || kind == .video, let d = lastUse?.duration, d.isFinite, d >= 0, d < 1e7 {
@@ -377,7 +383,7 @@ enum StorageText {
             parts.append(s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
                                    : String(format: "%d:%02d", s / 60, s % 60))
         }
-        if let title = lastUse?.title, !title.isEmpty { parts.append("“\(title)”") }
+        if let title = lastUse?.title, !title.isEmpty { parts.append(String(localized: "“\(title)”", comment: "A recording's title in quotes")) }
         return parts.joined(separator: ", ")
     }
 }

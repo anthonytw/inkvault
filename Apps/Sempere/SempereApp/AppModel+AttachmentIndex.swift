@@ -225,7 +225,7 @@ extension AppModel {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    result.problems.append("\(noteTitleOrID(note)): not downloaded: \(error)")
+                    result.problems.append(String(localized: "\(noteTitleOrID(note)): not downloaded: \(String(describing: error))", comment: "Delete result; the note's title, then the error (English)"))
                     continue
                 }
                 try ensureCurrent(gen)
@@ -255,7 +255,7 @@ extension AppModel {
             result.bytes += report.deleted.reduce(0) { $0 + (sizes[$1] ?? 0) }
             if let blocked = report.blocked { result.problems.append("\(noteTitleOrID(note)): \(blocked)") }
             for (name, why) in report.failures.sorted(by: { $0.key < $1.key }) where names.contains(name) {
-                result.problems.append("\(noteTitleOrID(note)): a file does not verify and was kept: \(why)")
+                result.problems.append(String(localized: "\(noteTitleOrID(note)): a file does not verify and was kept: \(why)", comment: "Delete result; the note's title, then the reason (English)"))
             }
             // Collection's look is the newest: keep its records, then refresh the entry.
             var entry = attachmentIndex[note] ?? AttachmentIndexEntry(note: note)
