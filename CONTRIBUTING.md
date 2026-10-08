@@ -34,6 +34,24 @@ the XCTest `Executed N tests` line is the one that matters.
 Style: Swift 6 strict concurrency, `Sendable` value types for the model, typed error enums per
 module, no force-unwraps outside tests, `///` on public API, XCTest for tests.
 
+## Adding a language
+
+The app's interface lives in String Catalogs (`Apps/Sempere/Localization/*.xcstrings`); Spanish is
+complete. Interface text only: note content, the CLI's messages and the on-disk format are not
+localized. Full rules and the Spanish glossary: [docs/localization.md](docs/localization.md).
+
+1. Open `Localizable.xcstrings` and `InfoPlist.xcstrings` (and `AppShortcuts.xcstrings` for the Siri
+   phrases) in Xcode 26, add your language, and translate every entry. Plurals need the forms of
+   your language's CLDR plural categories; keep `%lld`, `%@` and `%1$@`; “Sempere” stays.
+2. Add the language code to `knownRegions` in `Apps/Sempere/Sempere.xcodeproj/project.pbxproj` and to
+   `LocalizationCatalogTests.languages` (and its `pluralCategories`).
+3. Add a short glossary for your language to `docs/localization.md` first (vault, notebook, tag,
+   page) and use it throughout.
+4. `swift test --filter LocalizationCatalogTests` must pass (it runs on Linux), and
+   `scripts/app.sh pseudo` should show no clipped labels. Do not translate the identifiers in
+   `Sources/` or what the app writes into a vault.
+5. Open the pull request. A native speaker reviewing the glossary choices helps most.
+
 ## Licence and sign-off
 
 Sempere is licensed **GPL-3.0-or-later with an App Store exception** (`LICENSE`,

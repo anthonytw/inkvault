@@ -41,10 +41,10 @@ enum PDFPreparation {
 
         var description: String {
             switch self {
-            case .needsPassword: return "This PDF is protected with a password."
-            case .wrongPassword: return "That password does not open this PDF."
-            case .unreadable(let why): return "This PDF cannot be read: \(why)."
-            case .tooLarge: return "This PDF is larger than 1 GB."
+            case .needsPassword: return String(localized: "This PDF is protected with a password.")
+            case .wrongPassword: return String(localized: "That password does not open this PDF.")
+            case .unreadable(let why): return String(localized: "This PDF cannot be read: \(why).", comment: "The value is the reason, in lower case")
+            case .tooLarge: return String(localized: "This PDF is larger than 1 GB.")
             case .pages(let why): return why.prefix(1).uppercased() + why.dropFirst() + "."
             }
         }
@@ -95,12 +95,12 @@ enum PDFPreparation {
     static func prepare(_ url: URL, password: String? = nil) throws -> PreparedPDF {
         let name = url.deletingPathExtension().lastPathComponent
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values?.isRegularFile == true else { throw Failure.unreadable("not a file") }
+        guard values?.isRegularFile == true else { throw Failure.unreadable(String(localized: "not a file", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)")) }
         guard (values?.fileSize ?? 0) <= maxBytes else { throw Failure.tooLarge }
         guard let document = CGPDFDocument(url as CFURL) else {
             // Core Graphics cannot open it; the format's reader may still say why.
             _ = try inspect(url)
-            throw Failure.unreadable("not a PDF")
+            throw Failure.unreadable(String(localized: "not a PDF", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)"))
         }
         if document.isEncrypted {
             if !document.isUnlocked, !document.unlockWithPassword("") {
@@ -125,7 +125,7 @@ enum PDFPreparation {
         // Mapped, not read: a work copy of up to 1 GiB, checked as a regular file above.
         let data: Data
         do { data = try Data(contentsOf: url, options: .alwaysMapped) } catch {
-            throw Failure.unreadable("the file cannot be read")
+            throw Failure.unreadable(String(localized: "the file cannot be read", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)"))
         }
         do {
             // Each page's text for search (format.md §8.2.6 `pageText`), read by PDFKit.
@@ -144,18 +144,20 @@ enum PDFPreparation {
     /// renderers use (`PDFPageGeometry`). No password, so no `/Encrypt`.
     static func redraw(_ document: CGPDFDocument, next: URL) throws -> URL {
         let count = document.numberOfPages
-        guard count > 0 else { throw Failure.pages("the PDF has no pages") }
+        guard count > 0 else { throw Failure.pages(String(localized: "the PDF has no pages", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)")) }
         guard count <= NoteOps.Limits.pdfPages else {
-            throw Failure.pages("the PDF has \(count) pages; at most \(NoteOps.Limits.pdfPages) are accepted")
+            let limit = NoteOps.Limits.pdfPages
+            throw Failure.pages(String(localized: "the PDF has \(count) pages; at most \(limit) are accepted",
+                                       comment: "[not-plural] Both numbers are always above 1 (the PDF has more pages than the limit). Lower case, no final period"))
         }
         let out = next.deletingLastPathComponent().appendingPathComponent("redrawn-\(UUID().uuidString).pdf")
-        guard let context = CGContext(out as CFURL, mediaBox: nil, nil) else { throw Failure.unreadable("cannot write a copy") }
+        guard let context = CGContext(out as CFURL, mediaBox: nil, nil) else { throw Failure.unreadable(String(localized: "cannot write a copy", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)")) }
         for i in 1...count {
             try autoreleasepool {
-                guard let page = document.page(at: i) else { throw Failure.pages("page \(i) of the PDF cannot be read") }
+                guard let page = document.page(at: i) else { throw Failure.pages(String(localized: "page \(i) of the PDF cannot be read", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)")) }
                 let box = page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox))
                 guard !box.isNull, box.width > 0, box.height > 0, box.width.isFinite, box.height.isFinite else {
-                    throw Failure.pages("page \(i) of the PDF has no usable size")
+                    throw Failure.pages(String(localized: "page \(i) of the PDF has no usable size", comment: "Why a PDF cannot be added: lower case, no final period (shown inside a sentence)"))
                 }
                 let rotation = ((Int(page.rotationAngle) % 360) + 360) % 360
                 let turned = rotation % 180 != 0
