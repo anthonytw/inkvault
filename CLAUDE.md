@@ -446,6 +446,10 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   the Catalyst build runs on `main` only (or `gh workflow run CI --ref <branch>`).
   Only the `.commands` line and the entitlements/scene build settings are
   Catalyst-only.
+- Every `WindowGroup` gets `appEnvironment(model:library:keys:)` and every
+  non-library window's root is a `RestoredScene` (`SceneRestoration.swift`): the
+  iPad build on a Mac shares the Catalyst build's container and is handed its
+  saved windows. A new window scene gets both and a `SceneRestoration.Kind`.
 - The Mac menu bar starts from UIKit's own (New Window ⌘N, Open… ⌘O, Find…
   ⌘F, document commands). UIKit drops a whole SwiftUI command group if one of
   its shortcuts is taken (log: "Replacement elements conflict"), so a new

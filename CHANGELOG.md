@@ -18,6 +18,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   first) and Insert → Equation from Handwriting…: circle the ink, check the LaTeX the model read (with the
   SwiftMath preview), then replace the ink or place the equation beside it, with undo.
   `tools/math-model/convert.py` converts a Hugging Face image-to-LaTeX model into the model folder format.
+- Web viewer: transcript search and passphrase-wrapped keys (`docs/web-viewer.md`). "Also search
+  recording transcripts" (off by default, like `sempere search --transcripts`) reads and decrypts every
+  transcript in the tab and lists the matching segments under their notes; a match opens the recording
+  with its segment marked and the audio cued there. Matching follows `sempere search` (case and accents
+  ignored, full case folding, no width folding), checked against the CLI by shared goldens in CI. The
+  unlock screen opens the vault's passphrase-wrapped key file (`keys/`, `format.md` §3.2) and a recovery
+  kit's passphrase-locked copy (pasted or chosen as a file); scrypt runs in a worker, work factors up to
+  20, the passphrase is never stored, and the key can then be remembered with a passkey.
 - Signed secret links (security review 2026-10, R2): a secret rotation's `secretLink` is now an Ed25519
   and an ML-DSA-65 (FIPS 204) signature by keys derived from the outgoing secret, valid only when both
   verify, and each device's trust record keeps only the two public keys, so reading a record (or a backup

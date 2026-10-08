@@ -73,7 +73,7 @@ struct NoteWindowView: View {
         .task {
             // Restored without the library window: bring it up to open and unlock the vault.
             try? await Task.sleep(for: .seconds(1))
-            if model.phase == .noVault, model.shouldOpenLibraryWindow() { openWindow(id: "library") }
+            if model.phase == .noVault, model.shouldOpenLibraryWindow() { openWindow(id: SceneRestoration.librarySceneID) }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active, let editor { Task { await editor.flush() } }
@@ -113,7 +113,7 @@ struct NoteWindowView: View {
             } description: {
                 Text("Open and unlock the vault in the library window.")
             } actions: {
-                Button("Show Library") { if model.shouldOpenLibraryWindow() { openWindow(id: "library") } }
+                Button("Show Library") { if model.shouldOpenLibraryWindow() { openWindow(id: SceneRestoration.librarySceneID) } }
             }
         } else if ready || model.isBusy {
             ProgressView("Opening…")
