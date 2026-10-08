@@ -277,6 +277,15 @@ struct EditorView: View {
         .onChange(of: selectingItems) { if selectingItems { addingText = false } }
         .onChange(of: addingText) { if addingText { selectingItems = false } }
         .sheet(item: $showingTranscript) { TranscriptView(editor: editor, recording: $0) }
+        // The note's recordings, on or off its pages (Recordings…, Note > Recordings… on the Mac).
+        .sheet(isPresented: $ui.showingRecordings) {
+            RecordingsListView(editor: editor) { r in
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))   // after the list's sheet is gone
+                    showingTranscript = r
+                }
+            }
+        }
         .sheet(item: $renamingRecording) { RenameRecordingSheet(editor: editor, recording: $0) }
         .toolbar {
             if Platform.isPhone { phoneToolbar } else { fullToolbar }
@@ -301,6 +310,7 @@ struct EditorView: View {
             }
             ToolbarItem(placement: .secondaryAction) { insertMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsMenu }
+            ToolbarItem(placement: .secondaryAction) { recordingsListButton }
             if annotating {
                 ToolbarItem(placement: .secondaryAction) { textToolToggle }
                 ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
@@ -337,7 +347,16 @@ struct EditorView: View {
         commands.play = { item, page in
             state.playing = VideoPlayRequest(item: item, page: page, editor: editor)
         }
+        // A recording's card on the page (format.md §8.2.8): its button plays or pauses it.
+        let model = self.model
+        commands.toggleRecording = { id in model.toggleRecording(id, in: editor) }
+        let transcript = $showingTranscript
+        commands.showTranscript = { id in transcript.wrappedValue = editor.recording(id) }
         return commands
+    }
+
+    private var recordingsListButton: some View {
+        Button("Recordings…", systemImage: "waveform") { ui.showingRecordings = true }
     }
 
     private var recordingsMenu: some View {
@@ -442,6 +461,8 @@ struct EditorView: View {
             if !editor.isReadOnly || !editor.recordings.isEmpty {
                 ToolbarItem(placement: .primaryAction) { recordingsMenu }
             }
+            // The note's menu ("…"): every recording, whether or not it is on a page.
+            ToolbarItem(placement: .secondaryAction) { recordingsListButton }
             if showsItemSelection {
                 ToolbarItem(placement: .primaryAction) { itemSelectionToggle }
             }

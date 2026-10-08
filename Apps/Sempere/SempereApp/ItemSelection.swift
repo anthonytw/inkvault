@@ -119,6 +119,11 @@ struct ItemCommands {
     var crop: (@MainActor (_ item: Item, _ page: UUID, _ actions: ItemActions) -> Void)?
     /// Plays a video item (format.md §8.2.7); nil: no Play in the menu, and a tap on a clip does nothing.
     var play: (@MainActor (_ item: Item, _ page: UUID) -> Void)?
+    /// Plays the recording an audio item shows, or pauses it when it plays (format.md §8.2.8); nil: the
+    /// card's control and its Play in the menu do nothing.
+    var toggleRecording: (@MainActor (_ recording: UUID) -> Void)?
+    /// Opens a recording's transcript; nil: no Show Transcript in the menu.
+    var showTranscript: (@MainActor (_ recording: UUID) -> Void)?
 }
 
 /// Selecting, moving, resizing and deleting items on the canvas while
@@ -138,6 +143,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     private let pan = UIPanGestureRecognizer()
     /// Outside selection mode: a finger tap on a video item plays it, when fingers do not draw.
     private let videoTap = UITapGestureRecognizer()
+    /// The play/pause buttons of the page's audio cards (format.md §8.2.8).
+    private let audioControls = AudioCardControls()
+    /// The note's recordings and what the player plays, for the cards' buttons (`PageCanvasView.Coordinator.apply`).
+    var recordings: [Recording] = []
+    var playing: AudioPlayState?
     private var menu: UIEditMenuInteraction?
     private var model = ItemSelectionModel()
     private var drag: (ItemSelectionModel.Drag, Item)?
@@ -173,6 +183,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         videoTap.cancelsTouchesInView = false
         videoTap.delegate = self
         canvas.addGestureRecognizer(videoTap)
+        audioControls.attach(to: canvas)
         let menu = UIEditMenuInteraction(delegate: self)
         canvas.addInteraction(menu)
         self.menu = menu
@@ -215,10 +226,23 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         refresh()
     }
 
+    /// The recording audio item `item` shows (format.md §8.2.8: by id, else a restored copy), if the note has it.
+    private func shownRecording(_ item: Item) -> UUID? {
+        NoteState(meta: NoteMeta(created: Date(timeIntervalSince1970: 0)), pages: [], recordings: recordings)
+            .recording(shownBy: item)?.id
+    }
+
     /// Redraws the outline (the zoom, the item or the selection changed).
     func refresh() {
         overlay.frame = CGRect(origin: .zero, size: canvas?.contentSize ?? .zero)
         canvas?.bringSubviewToFront(overlay)
+        let shown = items.map { item -> Item in
+            var shown = item
+            if let frame = itemLayer?.shownFrame(of: item.id) { shown.frame = frame }
+            return shown
+        }
+        audioControls.layout(shown, recordings: recordings, playing: playing, zoom: zoom,
+                             hidden: itemLayer?.hiddenItem, toggle: isActive ? nil : commands.toggleRecording)
         guard let id = model.selected, let item = items.first(where: { $0.id == id }) else {
             if model.selected != nil, drag == nil { model.selected = nil }
             overlay.show(frame: nil, rotation: nil, zoom: zoom, handles: false)
@@ -242,18 +266,27 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         g === videoTap
     }
 
-    /// The video under a finger tap in drawing mode: only when Play is wired, selection mode is
-    /// off, and fingers do not draw on this canvas (else the tap is ink).
+    /// The video (or audio card) under a finger tap in drawing mode: only when Play is wired,
+    /// selection mode is off, and fingers do not draw on this canvas (else the tap is ink). A tap on a
+    /// card's button is the button's (UIKit gives a control's tap to it, not to this recognizer).
     private func videoUnderFingerTap(_ g: UIGestureRecognizer) -> Item? {
-        guard commands.play != nil, !isActive, let canvas = canvas as? PKCanvasView,
-              !ObjectEraserController.fingersDraw(canvas) else { return nil }
-        guard let hit = ItemSelectionModel.hit(pagePoint(g), items: items, zoom: Double(zoom)), hit.kind == .video else { return nil }
-        return hit
+        guard !isActive, let canvas = canvas as? PKCanvasView, !ObjectEraserController.fingersDraw(canvas) else { return nil }
+        let p = pagePoint(g)
+        guard let hit = ItemSelectionModel.hit(p, items: items, zoom: Double(zoom)) else { return nil }
+        switch hit.kind {
+        case .video: return commands.play == nil ? nil : hit
+        case .audio: return commands.toggleRecording == nil ? nil : hit
+        default: return nil
+        }
     }
 
     @objc private func videoTapped(_ g: UITapGestureRecognizer) {
         guard let item = videoUnderFingerTap(g), let pageID else { return }
-        commands.play?(item, pageID)
+        if item.kind == .audio {
+            if let recording = shownRecording(item) { commands.toggleRecording?(recording) }
+        } else {
+            commands.play?(item, pageID)
+        }
     }
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
@@ -331,6 +364,16 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         if let id = model.selected, let pageID, let editor, let item = editor.item(id, on: pageID) {
             if item.kind == .video, let play = commands.play {
                 elements.append(UIAction(title: "Play", image: UIImage(systemName: "play.fill")) { _ in play(item, pageID) })
+            }
+            if item.kind == .audio, let recording = shownRecording(item) {
+                if let toggle = commands.toggleRecording {
+                    let playing = editor.player?.recording?.id == recording && editor.player?.isPlaying == true
+                    elements.append(UIAction(title: playing ? "Pause" : "Play",
+                                             image: UIImage(systemName: playing ? "pause.fill" : "play.fill")) { _ in toggle(recording) })
+                }
+                if let show = commands.showTranscript, editor.recording(recording)?.transcript != nil {
+                    elements.append(UIAction(title: "Show Transcript", image: UIImage(systemName: "text.quote")) { _ in show(recording) })
+                }
             }
             elements.append(UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
                 self?.commands.copy([item], editor.noteID)
