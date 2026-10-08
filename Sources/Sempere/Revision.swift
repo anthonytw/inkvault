@@ -387,6 +387,10 @@ public struct Revision: Hashable, Sendable {
     /// (format.md §5.8.3). Whether it is valid is decided against the other
     /// revisions (`NoteHistory.positions`).
     public var asOf: RevisionKey?
+    /// Set when the revision was written by a newer version (its `format` or
+    /// `features`, format.md §7.1) and so was decoded leniently: what was
+    /// skipped (§7.4). Such a revision must never be written back.
+    public var newer: NewerContent?
 
     public init(noteId: UUID, device: DeviceID, seq: Int, hlc: HLC, wall: Date, app: String, body: Body,
                 session: String? = nil, checkpoint: Checkpoint? = nil, asOf: RevisionKey? = nil) {
@@ -410,6 +414,7 @@ public struct Revision: Hashable, Sendable {
 extension Revision: Codable {
     enum CodingKeys: String, CodingKey {
         case type, noteId, device, seq, hlc, wall, app, ops, included, state, session, checkpoint, asOf
+        case format, features
     }
 
     public init(from decoder: Decoder) throws {
@@ -424,10 +429,32 @@ extension Revision: Codable {
         hlc = try c.decode(HLC.self, forKey: .hlc)
         wall = try c.decode(Date.self, forKey: .wall)
         app = try c.decode(String.self, forKey: .app)
+        // Version markers (format.md §7.1): a newer revision decodes leniently (§7.4).
+        let markers = try RevisionMarkers(from: decoder)
+        let context = NewerDecoding.of(decoder)
+        let isNewer: Bool
+        do { isNewer = try markers.isNewer() } catch {
+            throw DecodingError.dataCorruptedError(forKey: .format, in: c, debugDescription: "\(error)")
+        }
+        if isNewer {
+            var found = NewerContent()
+            found.revisions = 1
+            if let f = markers.format, SempereFormat.isNewer(f) { NewerContent.count(f, in: &found.formats) }
+            for f in markers.features ?? [] where !VaultManifest.knownFeatures.contains(f) {
+                NewerContent.count(f, in: &found.features)
+            }
+            context?.lenient = true
+            context?.content = found
+            newer = found
+        }
         let type = try c.decode(String.self, forKey: .type)
         switch type {
         case "delta":
-            body = .delta(ops: try c.decode([Op].self, forKey: .ops))
+            if isNewer {
+                body = .delta(ops: try c.decode([LenientOp].self, forKey: .ops).compactMap(\.op))
+            } else {
+                body = .delta(ops: try c.decode([Op].self, forKey: .ops))
+            }
             // Optional history fields: a malformed value is ignored, never fatal (§5.1).
             if let s = (try? c.decodeIfPresent(String.self, forKey: .session)) ?? nil, EditingSession.isValid(s) {
                 session = s
@@ -442,6 +469,7 @@ extension Revision: Codable {
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown revision type \(type)")
         }
+        if isNewer { newer = context?.content ?? newer }
     }
 
     public func encode(to encoder: Encoder) throws {

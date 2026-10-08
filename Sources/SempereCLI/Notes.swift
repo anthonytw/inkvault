@@ -28,8 +28,15 @@ struct NoteJSON: Encodable {
     /// The handwriting language (format.md §5.4), when set.
     var lang: String?
     var markersBehindText: Bool
+    /// True when the note cannot be changed by this version: the vault is
+    /// read-only, or the note holds content a newer version wrote (format.md §7.3).
+    var readOnly: Bool
+    /// What a newer version wrote and what could not be shown (format.md §7.4).
+    var newer: NewerContent?
 
-    init(_ s: NoteSummary) {
+    init(_ s: NoteSummary, vaultReadOnly: Bool = false) {
+        readOnly = vaultReadOnly || s.newer != nil
+        newer = s.newer
         id = s.id.uuidString.lowercased(); title = s.title; tags = s.tags; notebook = s.notebook
         deleted = s.deleted; pages = s.pages; strokes = s.strokes
         recognizedPages = s.recognizedPages; items = s.items; recordings = s.recordings
@@ -66,12 +73,13 @@ struct NotesList: ParsableCommand {
         let notes = try vault.summaries(of: nil, cache: cache.cache(for: vault)).filter { n in
             (deleted || !n.deleted) && (tag.map { t in n.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } } ?? true) && (notebook.map { NotebookPath.name(n.notebook, isWithin: $0) } ?? true)
         }
-        if output.json { try output.emitJSON(notes.map(NoteJSON.init)); return }
+        let readOnly = vault.isReadOnly
+        if output.json { try output.emitJSON(notes.map { NoteJSON($0, vaultReadOnly: readOnly) }); return }
         if notes.isEmpty { output.info("No notes."); return }
         var rows = output.quiet ? [] : [["ID", "TITLE", "PAGES", "STROKES", "MODIFIED"]]
         for n in notes {
             let title = (n.title.isEmpty ? "(untitled)" : n.title) + (n.deleted ? " [deleted]" : "")
-                + (n.problem != nil ? " [!]" : "")
+                + (n.problem != nil ? " [!]" : "") + (n.newer != nil ? " [newer]" : "")
             rows.append([n.id.uuidString.lowercased(), title, String(n.pages), String(n.strokes), Format.local(n.modified)])
         }
         print(Format.table(rows))
@@ -108,9 +116,12 @@ struct NotesShow: ParsableCommand {
             struct Rev: Encodable { var name: String; var kind: String; var wall: Date?; var app: String?; var error: String? }
             struct Out: Encodable {
                 var note: NoteJSON; var items: [AttachmentListing.PlacedItem]; var recordings: [Recording]
-                var revisions: [Rev]
+                var readOnly: Bool; var readOnlyReasons: [String]; var revisions: [Rev]
             }
-            try output.emitJSON(Out(note: NoteJSON(summary), items: placed, recordings: recordings, revisions: history.map {
+            let reasons = vault.readOnlyReasons
+            try output.emitJSON(Out(note: NoteJSON(summary, vaultReadOnly: !reasons.isEmpty), items: placed,
+                                    recordings: recordings, readOnly: !reasons.isEmpty,
+                                    readOnlyReasons: reasons.descriptions, revisions: history.map {
                 Rev(name: $0.name.filename, kind: $0.name.kind.rawValue, wall: $0.wall, app: $0.app,
                     error: $0.error.map { "\($0)" })
             }))
@@ -125,6 +136,8 @@ struct NotesShow: ParsableCommand {
         print("Text:     \(summary.recognizedPages) of \(summary.pages) page(s) with recognised text")
         print("Modified: \(Format.local(summary.modified))")
         if let p = summary.problem { print("Problem:  \(p)") }
+        if let n = summary.newer { print("Newer:    \(n.summary); shown as far as this version understands it") }
+        if vault.isReadOnly { print("Read-only: " + vault.readOnlyReasons.descriptions.joined(separator: "; ")) }
         if !placed.isEmpty {
             print("\nItems (\(placed.count)):")
             print(Format.table(placed.map(AttachmentListing.row)))

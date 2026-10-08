@@ -8,8 +8,8 @@ import Foundation
 /// revisions. Files under `notes/` are write-once and named by
 /// `(hlc, device, seq)`, so the same names mean the same revisions and the
 /// same summary; any added, compacted or removed file is a miss. Only
-/// summaries without a `problem` are stored, so an unreadable note is read
-/// again next time.
+/// summaries without a `problem` or `newer` content are stored, so an
+/// unreadable note, or one a newer version wrote, is read again next time.
 ///
 /// The file holds titles, tags and notebooks, so it is encrypted
 /// (ChaCha20-Poly1305) under a key derived from the vault secret with HKDF;
@@ -23,7 +23,7 @@ import Foundation
 public final class SummaryCache: @unchecked Sendable {
     /// Bumped whenever `NoteSummary` or how it is computed changes, so older
     /// files are ignored instead of serving stale fields.
-    public static let schemaVersion = 5   // 4: page texts include PDF page text (format.md §8.2.6); 5: and LaTeX (§8.2.8)
+    public static let schemaVersion = 6   // 6: page texts include LaTeX (format.md §8.2.8); 5: `newer` (§7.4); 4: PDF page text (§8.2.6)
     /// The largest cache file read (about 50 000 notes' summaries).
     public static let maxFileBytes = 64 << 20
     /// HKDF `info` for the encryption key (format.md §10).
@@ -158,7 +158,9 @@ public final class SummaryCache: @unchecked Sendable {
         // Metadata of other files than the summary's is never stored.
         let history = history.flatMap { h in h.map(\.name.filename).sorted() == names ? h.sorted { $0.name < $1.name } : nil }
         lock.lock(); defer { lock.unlock() }
-        if summary.problem != nil || names.isEmpty {
+        // A note with newer content is read again every time, so reading it
+        // keeps the vault read-only (format.md §7.3).
+        if summary.problem != nil || summary.newer != nil || names.isEmpty {
             if entries.removeValue(forKey: summary.id) != nil { dirty = true }
             return
         }

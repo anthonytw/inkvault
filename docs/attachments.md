@@ -1200,7 +1200,7 @@ public struct BlobRef: Hashable, Sendable, Codable { var sha256: String; var siz
 public struct RecordingLink: Hashable, Sendable, Codable { var id: UUID; var at: Double }        // "rec"
 public struct TextRun: Hashable, Sendable, Codable { var t: String; var b, i, u, s: Bool; var color: Color?; var size: Double?; var lang: String?; var extra: [String: JSONValue] }
 public struct TextContent: Hashable, Sendable, Codable { var font: Font; var family: String?; var size: Double; var color: Color; var align: Alignment?; var dir: Direction?; var lang: String?; var runs: [TextRun]; var breaks: [Int]?; var extra: [String: JSONValue]; var string: String; var validBreaks: [Int]? }  // Font/Alignment/Direction: open sets with `.effective`
-public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable { static let text, image, pdfPage; static let math, video /* reserved */ }   // open set
+public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable { static let text, image, pdfPage; static let math, video }   // open set
 public struct ItemLayer: RawRepresentable, Hashable, Sendable, Codable, Comparable { var rawValue: Int; static let background = 0, content = 100 }  // open set
 public struct Item: Hashable, Sendable, Codable, Identifiable {
     var id: UUID; var kind: ItemKind; var layer: ItemLayer; var frame: Rect; var rotation: Double?; var z: String

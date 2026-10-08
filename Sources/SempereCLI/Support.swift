@@ -21,6 +21,7 @@ enum ExitStatus {
     static let cannotDecrypt: Int32 = 4
     static let legacyVault: Int32 = 5
     static let untrustedRecipients: Int32 = 6
+    static let readOnly: Int32 = 7
 }
 
 /// A failure with its exit code. Messages are one line.
@@ -38,11 +39,14 @@ enum CLIError: Error {
     /// Exit 6: vault.json's recipients list does not check (format.md §2.1):
     /// nothing is written until it is repaired.
     case untrustedRecipients(String)
+    /// Exit 7: the vault holds content of a newer format version, so this
+    /// version may read it but not change it (format.md §7.3).
+    case readOnly(String)
 
     var message: String {
         switch self {
         case .failure(let m), .usage(let m), .unhealthy(let m), .cannotDecrypt(let m), .legacyVault(let m),
-             .untrustedRecipients(let m): return m
+             .untrustedRecipients(let m), .readOnly(let m): return m
         }
     }
 
@@ -54,6 +58,7 @@ enum CLIError: Error {
         case .cannotDecrypt: return ExitStatus.cannotDecrypt
         case .legacyVault: return ExitStatus.legacyVault
         case .untrustedRecipients: return ExitStatus.untrustedRecipients
+        case .readOnly: return ExitStatus.readOnly
         }
     }
 
@@ -72,6 +77,8 @@ enum CLIError: Error {
             return .legacyVault(text)
         case VaultError.untrustedRecipients:
             return .untrustedRecipients(text)
+        case VaultError.readOnly:
+            return .readOnly(text)
         case VaultError.rewrapIncomplete:
             return .unhealthy(text + "; run `sempere vault rewrap-resume`")
         case let e as NoteSummary.LookupError:
@@ -343,6 +350,7 @@ extension AccessOptions {
         let locked = try Vault.open(at: url)
         OpenedVaults.shared.record(url)
         if !migration { try locked.requireMigrated() }
+        ReadOnlyNotice.warnOnce(locked)
         var ids: [any AgeIdentity] = try explicitIdentities()
         if ids.isEmpty {
             switch unlock {
@@ -397,5 +405,22 @@ final class UntaggedVaults: @unchecked Sendable {
                 + "\(recipients.count) recipient(s), check them with `sempere vault info`: "
                 + recipients.map { abbreviateKey($0.key) + ($0.label.isEmpty ? "" : " (\($0.label))") }.joined(separator: ", "))
         }
+    }
+}
+
+// MARK: - Read-only vaults (format.md §7.3)
+
+/// What `--json` outputs say about a read-only vault.
+enum ReadOnlyNotice {
+    nonisolated(unsafe) private static var warned = false
+
+    /// One stderr line, once per run, when the vault is read-only from its
+    /// manifest (a later `format` or unknown `features`). Writes then fail
+    /// with exit 7.
+    static func warnOnce(_ vault: Vault) {
+        guard !warned, vault.isReadOnly else { return }
+        warned = true
+        printStderr("sempere: warning: read-only: " + vault.readOnlyReasons.descriptions.joined(separator: "; ")
+            + "; this version can read it but not change it")
     }
 }

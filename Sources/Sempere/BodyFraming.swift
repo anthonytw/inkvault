@@ -118,7 +118,7 @@ public enum BodyFraming {
     }
 
     private static func message(gzip: Data, noteId: String, filename: String) -> Data {
-        var m = Data(SempereFormat.identifier.utf8)
+        var m = Data(SempereFormat.tagLabel.utf8)
         m.append(0)
         m += Data(noteId.utf8)
         m.append(0)
