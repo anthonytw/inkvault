@@ -46,7 +46,7 @@ public enum PNGWriter {
                               png: PNGOptions = PNGOptions(), report: inout RenderReport) throws -> [Data] {
         guard png.scale.isFinite, png.scale > 0 else { throw RenderError.invalidScale }
         let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
-        let store = ImageStore(options: options, blobs: options.blobs)
+        let store = ImageStore(options: options, blobs: options.blobs, recordings: note.recordings)
         var images: [Data] = []
         for (i, page) in note.pages.enumerated() {
             images += try render(page: page, meta: note.meta, options: options, png: png, pageNumber: i + 1,
@@ -115,16 +115,11 @@ public enum PNGWriter {
             }
             switch draws[it.item.id] {
             case .text(let shaped, let rotation)?:
-                for c in shaped.decorationCommands(rotation) {
-                    paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy)
-                }
-                let device = Affine(a: sx, d: sy).after(.translate(0, -yOffset)).after(rotation)
-                for line in shaped.lines {
-                    for run in line.runs {
-                        let (fill, stroke) = glyphs.polygons(run, transform: device)
-                        raster.fill(fill, paint: quantized(Paint(run.color)))
-                        if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
-                    }
+                drawText(shaped, rotation: rotation, yOffset: yOffset, sx: sx, sy: sy, glyphs: &glyphs, into: &raster)
+            case .card(let card)?:
+                for c in card.shapes { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
+                if let label = card.label {
+                    drawText(label, rotation: card.rotation, yOffset: yOffset, sx: sx, sy: sy, glyphs: &glyphs, into: &raster)
                 }
             case .image(let p)?:
                 let toDevice = Affine(a: sx, d: sy).after(.translate(0, -yOffset))
@@ -138,6 +133,23 @@ public enum PNGWriter {
                 for c in it.placeholder { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
             }
             for c in it.overlay { paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy) }
+        }
+    }
+
+    /// Draws laid-out text turned by `rotation`, page coordinates shifted up
+    /// by `yOffset` and scaled by `sx`, `sy`.
+    private static func drawText(_ shaped: ShapedText, rotation: Affine, yOffset: Double, sx: Double, sy: Double,
+                                 glyphs: inout GlyphRasterizer, into raster: inout Raster) {
+        for c in shaped.decorationCommands(rotation) {
+            paint(c.translated(dy: -yOffset), into: &raster, sx: sx, sy: sy)
+        }
+        let device = Affine(a: sx, d: sy).after(.translate(0, -yOffset)).after(rotation)
+        for line in shaped.lines {
+            for run in line.runs {
+                let (fill, stroke) = glyphs.polygons(run, transform: device)
+                raster.fill(fill, paint: quantized(Paint(run.color)))
+                if !stroke.isEmpty { raster.fill(stroke, paint: quantized(Paint(run.color))) }
+            }
         }
     }
 

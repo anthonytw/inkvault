@@ -189,16 +189,18 @@ extension NoteEditor {
     func pasteItems(_ items: [Item], from source: UUID, on pageID: UUID, dx: Double = 0, dy: Double = 0,
                     prepare: @Sendable (BlobRef) async throws -> Void = { _ in }) async throws -> [Item] {
         _ = try page(pageID)
-        guard !items.isEmpty else { return [] }
+        // A recording belongs to its note: its cards cannot show it in another one (format.md §8.2.9).
+        let copied = source == noteID ? items : NoteOps.copyableToOtherNote(items)
+        guard !copied.isEmpty else { return [] }
         if source != noteID {
             guard let writer = attachmentWriter else { throw ItemError.notEditable }
-            for ref in NoteOps.blobs(of: items) {
+            for ref in NoteOps.blobs(of: copied) {
                 try await prepare(ref)
                 try await prepareBlobWrite?(ref)   // this note's own copy, if iCloud has one
                 try await writer.copyBlob(ref, from: source)
             }
         }
-        let edit = try NoteOps.copyItems(items, to: try page(pageID), dx: dx, dy: dy)
+        let edit = try NoteOps.copyItems(copied, to: try page(pageID), dx: dx, dy: dy)
         guard applyItemEdit(edit) else { throw ItemError.notEditable }
         return edit.page.items.filter { edit.added.contains($0.id) }
     }

@@ -85,6 +85,30 @@ final class EmbeddedRecordingsTests: XCTestCase {
         XCTAssertFalse(contains(pdf, "/EmbeddedFiles"))
     }
 
+    /// A recording over 16 MiB is streamed into the file when it is written,
+    /// not read up front; one that is not available is left out.
+    func testLongRecordingsAreStreamed() throws {
+        let long = Data((0..<(17 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ ($0 >> 16)) })
+        var state = note()
+        state.recordings[0].blob = BlobRef(content: long, type: "audio/mp4")
+        var options = RenderOptions(compress: false, blobs: MemoryBlobSource([long]))
+        options.embedRecordings = true
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("long-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        var report = RenderReport()
+        try PDFWriter.write(note: state, options: options, report: &report, to: url)
+        XCTAssertEqual(report.recordingsAttached, 1)
+        let pdf = try Data(contentsOf: url)
+        XCTAssertNotNil(pdf.range(of: long.prefix(4096)))
+        XCTAssertTrue(contains(pdf, "/Params << /Size \(long.count) >>"))
+
+        options.blobs = MemoryBlobSource([])
+        report = RenderReport()
+        try PDFWriter.write(note: state, options: options, report: &report, to: url)
+        XCTAssertEqual(report.recordingsOmitted, 1)
+        XCTAssertEqual(report.recordingsAttached, 0)
+    }
+
     func testPDFNameEscaping() {
         XCTAssertEqual(PDFNames.name("audio/mp4"), "audio#2Fmp4")
         XCTAssertEqual(PDFNames.name("a b#"), "a#20b#23")

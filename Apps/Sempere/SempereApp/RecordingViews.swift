@@ -107,6 +107,7 @@ struct RecordingsMenu: View {
     @Environment(AppModel.self) private var model
     @Binding var showingTranscript: Recording?
     @Binding var renaming: Recording?
+    @Environment(WindowUI.self) private var ui
 
     var body: some View {
         Menu {
@@ -139,6 +140,8 @@ struct RecordingsMenu: View {
                         }
                     }
                 }
+                Divider()
+                Button("All Recordings…", systemImage: "list.bullet") { ui.showingRecordings = true }
             }
         } label: {
             Label("Recordings", systemImage: editor.recordingSession?.isActive == true ? "mic.fill" : "mic")
@@ -337,5 +340,112 @@ struct WordFlow: Layout {
             x += size.width + spacing
             line = max(line, size.height)
         }
+    }
+}
+
+/// The open note's recordings as a list (the note's Recordings… command,
+/// Note > Recordings… on the Mac, docs/mac.md): each with its title, start,
+/// length, transcript and the pages that show it (format.md §8.2.9), and
+/// Play or Pause, Place on Page, Show Transcript, Transcribe, Rename and
+/// Delete. Reachable whether or not a recording is on a page.
+struct RecordingsListView: View {
+    let editor: NoteEditor
+    /// Opens a recording's transcript (after this list is dismissed).
+    let showTranscript: (Recording) -> Void
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var renaming: Recording?
+    @State private var newTitle = ""
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if editor.recordings.isEmpty {
+                    ContentUnavailableView("No Recordings", systemImage: "waveform",
+                                           description: editor.isReadOnly ? Text("This note has no recordings.")
+                                               : Text("Record with the microphone button in the toolbar."))
+                } else {
+                    List(editor.recordings) { r in row(r) }
+                }
+            }
+            .navigationTitle("Recordings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .alert("Rename Recording", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("Title", text: $newTitle)
+                Button("Rename") {
+                    if let r = renaming {
+                        let t = newTitle
+                        Task { await editor.renameRecording(r.id, to: t) }
+                    }
+                    renaming = nil
+                }
+                Button("Cancel", role: .cancel) { renaming = nil }
+            }
+        }
+        .accessibilityIdentifier("recordingsList")
+    }
+
+    private func isPlaying(_ r: Recording) -> Bool {
+        editor.player?.recording?.id == r.id && editor.player?.isPlaying == true
+    }
+
+    /// "On pages 1, 3" / "Not on a page".
+    private func placement(_ r: Recording) -> String {
+        let pages = editor.audioItems(showing: r.id).compactMap { hit in editor.pages.firstIndex { $0.id == hit.page } }
+        let numbers = Array(Set(pages)).sorted().map { String($0 + 1) }
+        if numbers.isEmpty { return String(localized: "Not on a page", comment: "Recordings list: no card shows the recording") }
+        let list = numbers.joined(separator: ", ")
+        return numbers.count == 1 ? String(localized: "On page \(list)", comment: "Recordings list: the page with its card")
+            : String(localized: "On pages \(list)", comment: "Recordings list: the pages with its cards, e.g. 1, 3")
+    }
+
+    private func row(_ r: Recording) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                model.toggleRecording(r.id, in: editor)
+            } label: {
+                Image(systemName: isPlaying(r) ? "pause.circle.fill" : "play.circle.fill").font(.title)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(isPlaying(r) ? "Pause" : "Play")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AudioCard.title(r)).font(.headline).lineLimit(1)
+                Text([r.started.formatted(date: .abbreviated, time: .shortened), AudioCard.duration(r),
+                      r.transcript == nil ? nil : String(localized: "Transcript"), placement(r)].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Spacer()
+            Menu {
+                if !editor.isReadOnly {
+                    Button("Place on This Page", systemImage: "rectangle.badge.plus") { editor.placeRecording(r.id) }
+                        .disabled(editor.currentPage == nil)
+                }
+                if r.transcript != nil {
+                    Button("Show Transcript", systemImage: "text.quote") {
+                        dismiss()
+                        showTranscript(r)
+                    }
+                }
+                if !editor.isReadOnly {
+                    Button(r.transcript == nil ? "Transcribe" : "Transcribe Again", systemImage: "waveform.and.mic") {
+                        Task { await model.transcribe(r, in: editor) }
+                    }
+                    .disabled(model.transcribing.contains(r.id))
+                    Button("Rename…", systemImage: "pencil") {
+                        newTitle = r.title ?? ""
+                        renaming = r
+                    }
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        Task { await editor.removeRecording(r.id) }
+                    }
+                }
+            } label: {
+                Label("Actions", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }

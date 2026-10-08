@@ -9,7 +9,9 @@
 // without Poppler; the viewer draws them with pdf.js, so only their rotated
 // frames are compared here. Video items (§8.2.7) are their poster, placed
 // like an image (or a placeholder without one), under the play mark, which
-// is compared element for element.
+// is compared element for element. Audio items (§8.2.9) are their card and
+// icon, element for element, and their label's lines (title, duration and
+// the transcript, read from its blob) like a text box's.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +20,11 @@ import { loadNote } from "../src/vault/library.ts";
 import { NoteBlobs } from "../src/vault/blobs.ts";
 import { UnlockedVault, parseManifest } from "../src/vault/vault.ts";
 import { PreparedPage } from "../src/render/page.ts";
-import { playMarkNodes, resolveItems, textTransform } from "../src/render/itemsvg.ts";
+import { audioCardNodes, audioDraw, playMarkNodes, resolveItems, textTransform } from "../src/render/itemsvg.ts";
+import { audioCardLayout } from "../src/render/audio.ts";
+import { decodeTranscript } from "../src/format/transcript.ts";
+import { asBlobRef } from "../src/vault/blobs.ts";
+import { rotate } from "../src/render/items.ts";
 import { imageInfo } from "../src/render/images.ts";
 import { type Affine, identity, imageTransform, pointsAttr, posterTransform, svgMatrix } from "../src/render/items.ts";
 import { fmt, paint, paintHex } from "../src/render/primitives.ts";
@@ -34,6 +40,8 @@ interface Structure {
   transforms: string[];
   /** Play marks: the disc and triangle elements, as the SVG writes them. */
   marks: string[];
+  /** Audio cards: the card and the five elements of its icon, as the SVG writes them. */
+  cards: string[];
 }
 
 function attr(line: string, name: string): string | undefined {
@@ -46,13 +54,20 @@ function unescape(s: string): string {
 
 /** The structure of the Swift export's `<g id="items">`, given the page's paper colour. */
 function parseGolden(svg: string, paper: string): Structure {
-  const out: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [], marks: [] };
+  const out: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [], marks: [], cards: [] };
   const m = /<g id="items">\n([\s\S]*?)<\/g>\n<g id="strokes">/.exec(svg);
   if (!m) return out;
   const clips = new Map<string, string>();
   for (const c of (m[1] ?? "").matchAll(/<clipPath id="([^"]+)"><polygon points="([^"]+)"\/><\/clipPath>/g)) clips.set(c[1] ?? "", c[2] ?? "");
   let mark = false;
+  let card = 0;
   for (const line of (m[1] ?? "").split("\n")) {
+    if (line.startsWith("<path ") && attr(line, "fill") === "#f1f3f4") card = 6;
+    if (card > 0) {
+      out.cards.push(line);
+      card -= 1;
+      continue;
+    }
     if (line.startsWith("<circle ")) {
       out.marks.push(line);
       mark = true;
@@ -93,9 +108,11 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
   const source = new NodeDirSource(dir);
   const vault = await UnlockedVault.unlock(parseManifest(await source.read("vault.json", 1 << 24)), sampleIdentity());
   const ids = (await source.listNotes()).filter((id) => id.startsWith("7") || id.startsWith("8"));
+  const audioNote = "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c";
 
   it("has notes with items", () => {
     expect(ids.length).toBeGreaterThanOrEqual(2);
+    expect(ids).toContain(audioNote);
   });
 
   for (const id of ids) {
@@ -108,8 +125,8 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
       for (const [i, page] of state.pages.entries()) {
         const prepared = new PreparedPage(page, state.meta);
         const want = parseGolden(readFileSync(join(golden, "render", id, files[i] ?? ""), "utf8"), paintHex(paint(prepared.drawnPaper.background)));
-        const got: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [], marks: [] };
-        for (const r of resolveItems(prepared)) {
+        const got: Structure = { fills: [], placeholders: [], images: [], lines: [], transforms: [], marks: [], cards: [] };
+        for (const r of resolveItems(prepared, undefined, state.recordings)) {
           if (r.fill) got.fills.push(r.fill.attrs.find(([k]) => k === "d")?.[1] ?? "");
           const d = r.draw;
           const corners = pointsAttr(d.it.corners);
@@ -156,6 +173,20 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
               for (const n of playMarkNodes(d.it)) got.marks.push(`<${n.tag} ${n.attrs.map(([k, v]) => `${k}="${v}"`).join(" ")}/>`);
               break;
             }
+            case "audio": {
+              for (const n of audioCardNodes(d.it)) got.cards.push(`<${n.tag} ${n.attrs.map(([k, v]) => `${k}="${v}"`).join(" ")}/>`);
+              const ref = asBlobRef(d.recording.transcript);
+              const t = ref ? decodeTranscript(new Uint8Array(await (await blobs.get(ref)).arrayBuffer()), String(d.recording.id)) : undefined;
+              const full = audioDraw(d.it, d.recording, undefined, t);
+              const frame = audioCardLayout(d.it.frame).labelFrame;
+              if (!frame || !full.layout) break;
+              if (d.it.rotation !== 0) got.transforms.push(svgMatrix(rotate(d.it.frame, d.it.rotation)));
+              for (const line of full.layout.lines) {
+                if (line.text.trim().length === 0) continue;
+                got.lines.push({ y: fmt(line.baseline), size: fmt(line.size), text: line.text, rtl: line.rtl, x: fmt(frame.x) });
+              }
+              break;
+            }
             case "text": {
               const m = textTransform(d.it);
               if (m !== identity) got.transforms.push(svgMatrix(m));
@@ -174,6 +205,8 @@ describe.runIf(existsSync(dir))("items cross-check", async () => {
         expect(got.placeholders).toEqual(want.placeholders);
         expect(got.transforms).toEqual(want.transforms);
         expect(got.marks).toEqual(want.marks);
+        expect(got.cards).toEqual(want.cards);
+        if (id === audioNote) expect(got.cards.length).toBe(4 * 6);
         expect(got.images.map((x) => x.clip)).toEqual(want.images.map((x) => x.clip));
         got.images.forEach((img, k) => {
           const w = want.images[k]?.matrix ?? [];
