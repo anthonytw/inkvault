@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Keys (2026-10-07 request). Web viewer: an opt-in "Remember this key on this device with a passkey".
+  A WebAuthn passkey with the PRF extension (user verification required) yields a secret that HKDF turns
+  into an AES-256-GCM key; only the encrypted key, its nonce, the PRF salt and the credential id go to
+  IndexedDB. "Unlock with passkey" is one prompt; "Forget this key" deletes the record. Without PRF the
+  viewer explains why and stores nothing. App: Settings → Device Keys → "Save Key…" exports this device's
+  key after Face ID to Files or the share sheet (for a password manager), with its paper recovery kit;
+  "New Key…" makes a key for another device, encrypts the vault to it and offers the same. Key files are
+  the CLI's format (`keys generate`), written only where the user chooses; the share sheet's copy is
+  deleted when it closes.
 - Read-only access to vaults of a newer format version (`format.md` §7). A vault whose `vault.json`
   names a later `format` (`sempere/2`) or an unknown extension, and revisions marked as written by a
   newer version, no longer stop this version: it shows everything it understands (unknown ops, fields
@@ -28,6 +37,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   items, text boxes and recordings. Ink not saved yet is saved first and kept; only pages whose ink
   changed are redrawn, at the same scroll and zoom; nothing is written back for the merge. A small
   "Updated from another device" notice shows for a few seconds.
+- Equations (task G1, `format.md` §8.2.8): `math` items hold LaTeX source, display or inline style,
+  size, colour and a typeset PDF rendering. App: Insert → Equation… and "Edit Equation…" open a sheet
+  with a live SwiftMath preview; the rendering is stored, so exports, the CLI and the web viewer draw
+  the equation without a typesetter. CLI: `sempere attach math --latex '…'` (`--inline`, `--size`,
+  `--color`, `--render FILE.pdf`), `sempere items math`, equations in `items list`, `notes show` and
+  `search`; exports embed the rendering (PDF form; SVG/PNG via Poppler), else draw the source with a
+  warning, and Markdown/HTML keep the source as `$$…$$`. LaTeX sources are bounded (8 KiB, 4 096
+  symbols, 64 levels) before anything parses them.
 - App polish round 1 (TestFlight build 4 feedback). The notebook field of a new note and of Move to
   Notebook is a combo box: type a new `/`-separated path or pick an existing notebook from a list that
   narrows as you type. "Recognize All Notes" ends with "Recognized N notes" and keeps the notes it changed
