@@ -34,7 +34,7 @@ finger annotation behind a button, tests at iPhone sizes, 6.9" screenshots. Stat
 
 Same target via Catalyst: menus, keyboard shortcuts, multi-window, drag and
 drop export, key management, pointer input (`docs/mac.md`). Status: ✅ #46, #85 (bulk export from the app: #42); several items
-need a hand test on a real Mac (`docs/mac.md` "To try by hand"), and build 7 polish is 🚧 #101.
+need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish ✅ #101 and the launch fixes ✅ #116, #120 are not yet tried on a Mac; launch smoke tests 🚧 #119.
 
 ## Phase 3 — nice to have
 
@@ -56,7 +56,7 @@ Done from this list:
   `DESIGN.md` "Recovery"): `sempere keys paper` prints the key (or the
   passphrase-wrapped key file) as a QR code and checked text with stock-tool
   recovery steps; `sempere backup` (incremental folder or tar), `backup
-  verify`, `restore`. The app's Backups (🚧 #110, Settings → Backups): Back
+  verify`, `restore`. The app's Backups (✅ #110, not yet tried on a device; Settings → Backups): Back
   Up Now, Verify Backup, reminder, Restore from Backup into a new vault, on
   the same core (`backup status` and `restore --dry-run` added for it); its
   footer points to Settings → Device Keys → Save Key… (the kit, ✅ #99).
@@ -75,12 +75,12 @@ Design: `docs/attachments.md` (rationale, task details and acceptance
 criteria) and `docs/format.md` §8 (normative). Status: **decisions final**
 (`docs/attachments.md` §16); no task starts before the design PR merges. A0
 goes first; after it, the rest run in parallel along the dependencies in
-`docs/attachments.md` §14. G1 (part 1) and G2 are done and L is in review; none blocks anything.
+`docs/attachments.md` §14. G1 (both parts; part 2 has no model yet), G2, E7 and L are done; none blocks anything.
 
 Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `9594c34` (#104) on 2026-10-08. Beyond this table, the
-build 7 follow-ups are open (selecting items and Replace Image, #104, is ✅ merged): audio items on the page (#103),
-sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#107; #106 ✅ merged), bulk export (#109) and backups in the app (#110).
+💡 future. Checked against `main` at `b1a4a58` (#118) on 2026-10-08. Beyond this table, the
+build 7 follow-ups are all ✅ merged, none yet tried on a device: selecting items and Replace Image (#104), audio items on the page (#103),
+sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#106, #107), bulk export (#109) and backups in the app (#110).
 
 | # | Task | Owner target | Depends on | Done when (summary) |
 | --- | --- | --- | --- | --- |
@@ -92,7 +92,7 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | C1 ✅ | Export images (DCT passthrough with metadata stripped, PNG/JPEG decoders, SVG data URIs, HEIC placeholder). ✅ **Done (#62)**: `JPEG.swift`, `PNGDecoder.swift`, `Items.swift`, writers; blobs through B2's `BlobSource` (`MemoryBlobSource` for tests) | `Sources/SempereRender` | A0 | golden tests for orientations/crops/rotation; decoder fixtures; fuzz |
 | C2 ✅ | Export text: full Unicode (Noto + optional font packs, OpenType reader, UAX #9/#14/#29, small shaper, stored `breaks`, font **subsets** in PDF/SVG, missing-script report). ✅ **Done (#64)**: `Sources/SempereRender/Text/`, `Sources/SempereFonts` | `Sources/SempereRender` | A0 | layout tests incl. RTL; CJK via font pack in `pdftotext`; subset-only fonts; goldens |
 | C3 ✅ | `SemperePDF` minimal reader + PDF backgrounds as Form XObjects; SVG/PNG via optional Poppler (`pdftoppm`) process, else placeholder + warning. ✅ **Done (#61)**: `Sources/SemperePDF`, `SempereRender` (`Items.swift`, `PDFBackgrounds.swift`), CLI `PopplerRasterizer.swift`; reads blobs through B2's `BlobSource` | `Sources/SemperePDF`, `Sources/SempereRender`, CLI | A0 | xref/objstm/incremental/repair fixtures; poppler pixel check; hung/crashing renderer handled; fuzz |
-| C4 | 🚧 Recordings in exports. **Partly done (#87)**: `--recordings attach` embeds recordings and transcripts in the PDF; `--recordings list` and `--format media` are 📋 | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
+| C4 | Recordings in exports. **Partly done (✅ #87)**: `--recordings attach` embeds recordings and transcripts in the PDF; `--recordings list` and `--format media` are 📋 | `Sources/SempereRender`, CLI | C2 | `pdfdetach` lists audio |
 | D1 ✅ | Notability PDF backgrounds. ✅ **Done (#70)**: `NotabilityAttachments.swift`, `NotabilityMedia.swift`; CLI `--no-attachments` | `Sources/SempereImport` | C3 | 26 PDF notes import with their pages; `dropped.pdfPages` 0 |
 | D2 ✅ | Notability images. ✅ **Done (#70)**: media objects read without a schema (field names unconfirmed, reported); `SempereRender.ImageImport`; CLI `--keep-image-metadata` | `Sources/SempereImport` | A0, B2 | 4 image notes match thumbnails |
 | D3 ✅ | Notability typed text. ✅ **Done (#73)**: `NotabilityText.swift` (both archive shapes, blocks, runs, `lang`) | `Sources/SempereImport` | A0 | styled synthetic fixture maps to runs |
@@ -104,11 +104,11 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | E4 ✅ | App recording (configurable codec/quality) + playback + ink sync; export sheet "PDF" / "PDF + attachments". ✅ **Done (#87)**: core `RecordingSupport.swift` (format, timeline, sync); app `AudioRecorder` (session, segments, recovery), `RecordingPlayer`, `NoteEditor+Recordings`, `RecordingViews`; `ShareOptions.pdfAttachments`, CLI `export --recordings attach` | `Apps/` | E0 | interruption test; tested on the user's iPad |
 | E5 ✅ | App on-device transcription (segments + word timings/confidence, read-back highlighting). ✅ **Done (#87)**: `Sources/SempereSpeech` (SpeechTranscriber → SFSpeechRecognizer on device), core `TranscriptBuilder`, app `AppModel+Recordings`, `TranscriptView`; CLI `transcribe` (macOS) | `Apps/` | E4 | availability matrix on the user's iPad recorded |
 | E6 ✅ | ✅ **Done (#86)**: App **Settings panel**: recording format, photo privacy, transcription, device-key rewrap modes (add; remove/PQ), storage | `Apps/` | E0 (E7 for storage) | defaults match `docs/attachments.md` §15; each setting tested |
-| E7 🚧 | 🚧 **In review (#95)**: App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days): core `AttachmentIndex.swift` (`AttachmentIndexer`, `AttachmentStorageReport`, `BlobRetention`), `AttachmentIndexStore.swift`, `collectBlobs(note:records:only:)`; app `AppModel+AttachmentIndex`, `UnusedAttachmentsView` (SettingsView), `AttachmentThumbnail`; CLI `blobs unused`/`gc` | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested |
+| E7 ✅ | ✅ **Done (#95)**: App **attachment index** + "Unused attachments: N items, X MB" browsable list (preview, note history, delete after 30 days): core `AttachmentIndex.swift` (`AttachmentIndexer`, `AttachmentStorageReport`, `BlobRetention`), `AttachmentIndexStore.swift`, `collectBlobs(note:records:only:)`; app `AppModel+AttachmentIndex`, `UnusedAttachmentsView` (SettingsView), `AttachmentThumbnail`; CLI `blobs unused`/`gc` | `Apps/` | E0, A1, B2 | per-note updates only; 30-day window and reset tested |
 | F ✅ | ✅ **Done (#69)**: CLI: `notes show`, `search` (text, transcripts), `import pdf`, `attach`, export wiring | `Sources/SempereCLI` | A1, B2, C* | end-to-end CLI test |
-| G1 ✅ | `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob). ✅ **Done (#96)**: `format.md` §8.2.8; core `MathItems.swift` (`MathContent`, `MathSource` limits, `NoteOps.placeMath`/`setMath`); render `MathRendering.swift`; CLI `attach math`, `items math`; app `MathTypesetter`, `MathEditor`; web viewer. Handwriting→LaTeX (part 2) 🚧 #118: researched in `docs/research/handwriting-to-latex.md`; the pipeline is built behind a setting (CLI `recognize-math`, app Convert to Math), no model offered until the training-data question is settled | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
+| G1 ✅ | `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob). ✅ **Done (#96)**: `format.md` §8.2.8; core `MathItems.swift` (`MathContent`, `MathSource` limits, `NoteOps.placeMath`/`setMath`); render `MathRendering.swift`; CLI `attach math`, `items math`; app `MathTypesetter`, `MathEditor`; web viewer. Handwriting→LaTeX (part 2) ✅ #118: researched in `docs/research/handwriting-to-latex.md`; the pipeline is built behind a setting (CLI `recognize-math`, app Convert to Math), no model offered until the training-data question is settled | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
 | G2 ✅ | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); ✅ **done (#93)**: format §8.2.7, CLI, exports, sync, app, web viewer | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
-| L 🚧 | 🚧 **In review (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
+| L ✅ | ✅ **Done (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
 
 ## Working agreements
 
