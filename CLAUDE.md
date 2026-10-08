@@ -428,6 +428,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
 - The object eraser must list `indirectPointer` among its touch types on a Mac
   (`ObjectEraserController.pressTouchTypes`), or the default eraser ignores
   the mouse; PencilKit's own gesture is off while it is active.
+- Bulk export ("Export Notes…", `sempere export --all --format pdf|png`) is one
+  shared core in SempereRender (`BulkExportPlan`, `BulkExportSession`,
+  `ZipWriter`; docs/io.md "Bulk export"): one note in memory at a time, never
+  load every state first. The folder's `.sempere-export-bulk.json` is
+  untrusted (it may only cause a skip). App: `AppModel.runBulkExport`,
+  `BulkExportRun`, `BulkExportSheet`; zips stage under `tmp/SempereBulkExports`.
 - Dragging a note out writes a plaintext PDF under `$TMPDIR/SempereExport/`
   (`NotePDFExport`); keep it per model and purge it when the vault closes.
 - Attachment blobs (`Sources/Sempere/Blob*.swift`, `format.md` §8.1): write with
