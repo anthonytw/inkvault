@@ -212,6 +212,36 @@ struct SidebarDropDelegate: DropDelegate {
     }
 }
 
+/// `NotebookDragStyle.transferable`: notebooks dropped through `dropDestination`.
+private struct TransferDropDestination: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let target: DropTarget
+    let undoManager: UndoManager?
+
+    func body(content: Content) -> some View {
+        if NotebookDragStyle.current == .transferable {
+            content.dropDestination(for: NotebookTransfer.self) { items, _ in
+                #if DEBUG
+                DropTrace.note("perform-transfer target=\(target) items=\(items.map(\.path))")
+                #endif
+                guard let path = items.first?.path, let canonical = NotebookPath.canonical(path) else { return false }
+                let payload = DragPayload.notebook(canonical)
+                guard SidebarDrop.accepts(payload, on: target, notes: model.notes) else { return false }
+                let model = model, target = target, undo = UndoBox(undoManager)
+                Task { @MainActor in await model.move(payload, to: target, undoManager: undo.manager) }
+                return true
+            } isTargeted: { on in
+                #if DEBUG
+                DropTrace.note("targeted-transfer \(on) target=\(target)")
+                #endif
+                if on { model.setDropTarget(target) } else if model.dropTarget == target { model.setDropTarget(nil) }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// Carries a window's undo manager across an item provider's callback (it is
 /// only read on the main actor); weak, so a closed window's is not kept.
 private final class UndoBox: @unchecked Sendable {
@@ -242,6 +272,7 @@ private struct SidebarDropRow: ViewModifier {
                 }
                 .onDrop(of: [.sempereNotes, .sempereNotebook],
                         delegate: SidebarDropDelegate(model: model, target: target, undoManager: undoManager))
+                .modifier(TransferDropDestination(target: target, undoManager: undoManager))
         } else {
             content
         }

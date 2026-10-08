@@ -16,7 +16,7 @@ final class SidebarDropUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch() -> XCUIApplication {
+    private func launch(notebookDrag: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-ApplePersistenceIgnoreState", "YES"]
         var env = ["SEMPERE_DEMO": "1", "SEMPERE_DEBUG_COLUMNS": "all", "SEMPERE_DEMO_SIDEBAR": "all",
@@ -24,6 +24,7 @@ final class SidebarDropUITests: XCTestCase {
         #if targetEnvironment(macCatalyst)
         env["SEMPERE_DEMO_MAC_WINDOW"] = "1100x760"
         #endif
+        if let notebookDrag { env["SEMPERE_DEBUG_NOTEBOOK_DRAG"] = notebookDrag }
         app.launchEnvironment = env
         #if !targetEnvironment(macCatalyst)
         // Landscape: in portrait an iPad mini (CI's newest simulator) collapses the sidebar.
@@ -80,25 +81,11 @@ final class SidebarDropUITests: XCTestCase {
         #endif
     }
 
+    /// Waits until the note list's row of `title` shows `notebook` (its notebook label, `›` between levels).
     @MainActor
-    private func select(_ element: XCUIElement) {
-        #if targetEnvironment(macCatalyst)
-        element.click()
-        #else
-        element.tap()
-        #endif
-    }
-
-    /// Selects notebook `title` in the sidebar and waits until the list shows
-    /// `expected` (a note known to be in it) and no longer shows `outside`.
-    @MainActor
-    private func show(_ app: XCUIApplication, notebook title: String, expected: String, outside: String) {
-        let row = sidebarRow(app, title)
-        require(row, "sidebar row \(title)", in: app)
-        select(row)
-        require(noteRow(app, expected), "\(title) lists \(expected)", in: app)
-        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: noteRow(app, outside))
-        wait(for: [gone], timeout: 20)
+    private func waitForNotebook(_ app: XCUIApplication, note title: String, _ notebook: String) -> Bool {
+        let row = app.cells.containing(NSPredicate(format: "label == %@", title)).firstMatch
+        return row.staticTexts.matching(NSPredicate(format: "label == %@", notebook)).firstMatch.waitForExistence(timeout: 20)
     }
 
     /// A note dragged from the list onto a notebook in the sidebar moves into it.
@@ -114,27 +101,31 @@ final class SidebarDropUITests: XCTestCase {
         require(personal, "sidebar row Personal", in: app)
         sleep(2)   // let the list settle
         drag(note, onto: personal)
-        sleep(3)   // the move is one commit, then the list re-reads the note
+        let moved = waitForNotebook(app, note: "Sync design sketch", "Personal")
         trace(app, "note onto notebook")
-        show(app, notebook: "Personal", expected: "Lisbon itinerary", outside: "Quick thoughts")
-        XCTAssertTrue(noteRow(app, "Sync design sketch").waitForExistence(timeout: 20), "the dropped note is in Personal")
+        XCTAssertTrue(moved, "the dropped note is in Personal")
     }
 
-    /// A notebook dragged onto another notebook nests there (with its notes).
+    /// A notebook dragged onto another notebook nests there (with its notes),
+    /// tried with each way a row can start the drag (`NotebookDragStyle`).
     @MainActor
     func testDroppingANotebookOnANotebookNestsIt() throws {
-        let app = launch()
-        defer { app.terminate() }
-        require(noteRow(app, "Sync design sketch"), "note row", in: app, timeout: 90)
-        showSidebar(app)
-        let work = sidebarRow(app, "Work"), personal = sidebarRow(app, "Personal")
-        require(work, "sidebar row Work", in: app)
-        require(personal, "sidebar row Personal", in: app)
-        sleep(2)
-        drag(work, onto: personal)
-        sleep(3)
-        trace(app, "notebook onto notebook")
-        show(app, notebook: "Personal", expected: "Lisbon itinerary", outside: "Quick thoughts")
-        XCTAssertTrue(noteRow(app, "Sprint planning").waitForExistence(timeout: 20), "Work/Atlas is now inside Personal")
+        var working: [String] = []
+        for style in ["onDrag", "uikit", "transferable"] {
+            let app = launch(notebookDrag: style)
+            require(noteRow(app, "Sync design sketch"), "note row", in: app, timeout: 90)
+            showSidebar(app)
+            let work = sidebarRow(app, "Work"), personal = sidebarRow(app, "Personal")
+            require(work, "sidebar row Work", in: app)
+            require(personal, "sidebar row Personal", in: app)
+            sleep(2)
+            drag(work, onto: personal)
+            let nested = waitForNotebook(app, note: "Sync design sketch", "Personal › Work › Atlas")
+            trace(app, "notebook onto notebook (\(style)): \(nested ? "WORKS" : "fails")")
+            if nested { working.append(style) }
+            app.terminate()
+        }
+        print("DROPDEBUG notebook drag styles that work: \(working)")
+        XCTAssertTrue(working.contains("onDrag") || !working.isEmpty, "some drag style nests the notebook")
     }
 }

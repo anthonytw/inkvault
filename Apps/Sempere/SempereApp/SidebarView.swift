@@ -39,10 +39,7 @@ struct SidebarView: View {
                             .tag(SidebarItem.notebook(node.path))
                             .accessibilityIdentifier("sidebar-notebook-\(node.path)")
                             .sidebarDropTarget(.notebook(node.path))
-                            .onDrag {
-                                // Dropped on another notebook it nests there; on All Notes it goes to the top level.
-                                model.beginDrag(.notebook(node.path), provider: DragPayload.notebook(node.path).provider())
-                            }
+                            .notebookDragSource(node.path)
                             .contextMenu {
                                 Button("Rename or Move…", systemImage: "pencil") { newName = node.path; renaming = node.path }
                                 Button("Move Notebook To…", systemImage: "folder") { movingNotebook = MovingNotebook(path: node.path) }
