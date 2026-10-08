@@ -126,6 +126,26 @@ final class SidebarDropUITests: XCTestCase {
             app.terminate()
         }
         print("DROPDEBUG notebook drag styles that work: \(working)")
-        XCTAssertTrue(working.contains("onDrag") || !working.isEmpty, "some drag style nests the notebook")
+        // The shipped style (`NotebookDragStyle.shipped`); the others are measured, not required.
+        XCTAssertTrue(working.contains("uikit"), "the shipped drag style nests the notebook")
+    }
+
+    /// The notebook rows' context menu lives on the drag handle now: it still opens.
+    @MainActor
+    func testNotebookRowsKeepTheirContextMenu() throws {
+        let app = launch()
+        defer { app.terminate() }
+        require(noteRow(app, "Sync design sketch"), "note row", in: app, timeout: 90)
+        showSidebar(app)
+        let work = sidebarRow(app, "Work")
+        require(work, "sidebar row Work", in: app)
+        sleep(1)
+        #if targetEnvironment(macCatalyst)
+        work.rightClick()
+        #else
+        work.press(forDuration: 1.5)
+        #endif
+        let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Move Notebook To…")).firstMatch
+        require(item, "context menu item Move Notebook To…", in: app, timeout: 10)
     }
 }
