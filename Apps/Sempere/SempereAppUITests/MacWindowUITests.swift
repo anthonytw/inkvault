@@ -66,6 +66,18 @@ final class MacWindowUITests: XCTestCase {
         assertOneNoteWindow(app, "context menu")
     }
 
+    /// A double-click on a row of the note list opens the note in its own
+    /// window, as the context menu does (TestFlight build 7: it did nothing).
+    @MainActor
+    func testADoubleClickOpensANoteWindow() throws {
+        let app = launch()
+        defer { app.terminate() }
+        let row = app.cells.containing(NSPredicate(format: "label == %@", "Cellular Respiration")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 60))
+        row.doubleClick()
+        assertOneNoteWindow(app, "double-click")
+    }
+
     /// The File menu has no system New Window or Open… beside the app's commands.
     @MainActor
     func testTheFileMenuHasNoSystemDuplicates() throws {
@@ -84,6 +96,11 @@ final class MacWindowUITests: XCTestCase {
         XCTAssertTrue(titles.contains("New Note…"))
         XCTAssertTrue(titles.contains("Open Vault…"))
         XCTAssertTrue(titles.contains("Open Note in New Window"))
+        // Build 7: import, insert and export, the same paths as the toolbars.
+        for title in ["Import PDF as New Note…", "Import from Notability…", "Insert PDF Pages…", "Insert Photo…", "Export…"] {
+            XCTAssertTrue(titles.contains(title), "File has \(title): \(titles)")
+        }
+        XCTAssertEqual(titles.filter { $0.hasPrefix("Export") }.count, 1, "one Export item, not the iPad's submenu too")
         XCTAssertFalse(identifiers.contains("new_window"), "no system New Window")
         XCTAssertFalse(identifiers.contains("duplicate:"), "no document commands")
         XCTAssertFalse(identifiers.contains("open:"), "no system Open…")

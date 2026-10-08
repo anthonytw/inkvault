@@ -217,7 +217,7 @@ final class WindowUI {
     var pdfPassword: PDFImportRequest?
     /// The file importer for a PDF to import as a new note.
     var importingPDF = false
-    /// The file importer for Notability notes or backups to import (`NotabilityImportView`).
+    /// The file importer for Notability notes or backups to import (`WindowSheets`, `AppModel+NotabilityImport`).
     var importingNotability = false
     /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
     var insertRequest: InsertRequest?

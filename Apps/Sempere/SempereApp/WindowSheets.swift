@@ -48,7 +48,7 @@ struct WindowSheets: ViewModifier {
                 Text(model.notabilitySummary?.message ?? "")
             }
             // PDFs opened from the Finder or the share sheet (`AppModel+OpenedFiles`).
-            .sheet(isPresented: Binding(get: { isFront && [.ready, .readOnly].contains(model.openedPDFStage) },
+            .sheet(isPresented: Binding(get: { isFront && [OpenedFile.Stage.ready, .readOnly].contains(model.openedPDFStage) },
                                         set: { _ in })) {
                 OpenedPDFsView(ui: ui)
             }
