@@ -25,6 +25,9 @@ import { foldTerm, occurrences, prepare, swiftCompare, trimTerm } from "../forma
 import { readBlob } from "../vault/blobs.ts";
 import { TranscriptSearch, maxHitsShown } from "./transcriptsearch.ts";
 import { formatDuration } from "./recordings.ts";
+import { KeyFileError, looksArmored, looksWrapped, maxKeyFileBytes, wrappedBytes } from "../vault/keyfile.ts";
+import { unwrapKeyInWorker } from "./keyunwrap.ts";
+import { PassphraseField, keyFileMessage, storedKeyCard } from "./passphrase.ts";
 
 type Filter =
   | { kind: "all" } | { kind: "favorites" } | { kind: "deleted" } | { kind: "problems" }
@@ -188,23 +191,80 @@ export class App {
       return identity;
     };
     const failed = (err: unknown) =>
-      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message : `Unlocking failed: ${message(err)}`);
+      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message
+        : err instanceof KeyFileError ? keyFileMessage(err) : `Unlocking failed: ${message(err)}`);
+    // The identity unlocked the vault: remember it with a passkey if asked (never the passphrase), then open.
+    const opened = (identity: string, remember: boolean) => {
+      const pv = passkeyVault();
+      if (remember && pv) {
+        clear(this.root);
+        this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+      } else {
+        this.showMain();
+      }
+    };
     const remember = rememberOption();
+    // A locked key: pasted (a paper kit's armored passphrase copy) or chosen as a file.
+    const passphrase = new PassphraseField();
+    let chosen: { name: string; file: Uint8Array } | undefined;
+    const fileName = h("span", { class: "hint" });
+    const lockedPaste = (): Uint8Array | undefined => {
+      if (!looksArmored(key.value)) return undefined;
+      try {
+        return wrappedBytes(key.value);
+      } catch {
+        return new Uint8Array(0);
+      }
+    };
+    key.addEventListener("input", () => {
+      if (key.value.trim() !== "") {
+        chosen = undefined;
+        fileName.textContent = "";
+      }
+      passphrase.show(chosen?.file ?? lockedPaste());
+    });
+    const fileInput = h("input", { attrs: { type: "file", accept: ".age,.txt,.key,text/plain" }, class: "visually-hidden" });
+    fileInput.addEventListener("change", () => {
+      const f = fileInput.files?.[0];
+      fileInput.value = "";
+      if (!f) return;
+      if (f.size > maxKeyFileBytes) return this.showUnlock(`${f.name} is not a key file (larger than 64 KiB).`);
+      void f.arrayBuffer().then((buf) => {
+        const bytes = new Uint8Array(buf);
+        if (looksWrapped(bytes)) {
+          chosen = { name: f.name, file: wrappedBytes(bytes) };
+          key.value = "";
+          fileName.textContent = ` ${f.name} (locked with a passphrase)`;
+          passphrase.show(chosen.file);
+          passphrase.focus();
+        } else {
+          chosen = undefined;
+          fileName.textContent = "";
+          key.value = new TextDecoder().decode(bytes);
+          passphrase.show(undefined);
+        }
+      }).catch((err: unknown) => failed(err));
+    });
+    const chooseFile = h("button", {
+      text: "Choose a key file…", class: "secondary", attrs: { type: "button" }, on: { click: () => fileInput.click() },
+    });
     const submit = async (e: Event) => {
       e.preventDefault();
       button.disabled = true;
       button.textContent = "Unlocking…";
       try {
-        const text = key.value;
-        key.value = "";
-        const identity = await unlock(text);
-        const pv = passkeyVault();
-        if (remember.checked() && pv) {
-          clear(this.root);
-          this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+        // A damaged armored paste throws here, with the hint to check the kit's lines.
+        const locked = chosen?.file ?? (looksArmored(key.value) ? wrappedBytes(key.value) : undefined);
+        let text: string;
+        if (locked) {
+          const pass = passphrase.take();
+          key.value = "";
+          text = await unwrapKeyInWorker(locked, pass);
         } else {
-          this.showMain();
+          text = key.value;
+          key.value = "";
         }
+        opened(await unlock(text), remember.checked());
       } catch (err) {
         failed(err);
       }
@@ -214,18 +274,28 @@ export class App {
       (text) => unlock(text).then(() => this.showMain(), (err: unknown) =>
         failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err)),
       (msg) => this.showUnlock(msg), () => this.showUnlock()) : null;
+    const stored = storedKeyCard(src, m, async (identity, rememberIt) => {
+      try {
+        opened(await unlock(identity), rememberIt);
+      } catch (err) {
+        failed(err);
+      }
+    }, (msg) => this.showUnlock(msg));
     clear(this.root);
     this.root.append(h("div", { class: "welcome" },
       h("h1", { text: "Unlock vault" }),
       h("p", { class: "lede" }, "Vault ", h("code", { text: src.label }), ` · ${m.recipients.length} key${m.recipients.length === 1 ? "" : "s"}`),
       error ? h("p", { class: "error", text: error, attrs: { role: "alert" } }) : null,
       remembered,
+      stored,
       h("form", { class: "card", on: { submit: (e) => void submit(e) } },
-        h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, or the whole key file)" }, key),
+        h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, the whole key file, or a recovery kit's passphrase-locked copy)" }, key),
+        h("div", { class: "row" }, chooseFile, fileName, fileInput),
+        passphrase.element,
         remember.element,
         h("div", { class: "row" }, button,
           this.locked ? null : h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
-        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). Closing the tab or Lock forgets it." })),
+        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). A passphrase is used once and never stored. Closing the tab or Lock forgets the key." })),
       h("p", { class: "hint" }, clearCacheButton())));
     key.focus();
   }
