@@ -132,6 +132,20 @@ final class InsertState {
     var editingMath: MathRequest?
     /// Something is being added (a spinner in the menu's place).
     var working = 0
+
+    /// Opens the picker for `request`: the Insert menu's items and the File
+    /// menu's Insert Photo… and Insert PDF Pages… (`WindowUI.insertRequest`).
+    /// A pageless note's PDF pick switches it to pages once a PDF is chosen
+    /// (`InsertOptions.pdfImport`), as the Insert menu's entry does.
+    func open(_ request: InsertRequest, pageless: Bool = false) {
+        switch request {
+        case .photos:
+            pickingPhotos = true
+        case .pdfPages:
+            fileImport = InsertOptions.pdfImport(pageless: pageless)
+            pickingFile = true
+        }
+    }
 }
 
 /// What the camera is for.
@@ -171,7 +185,7 @@ struct InsertMenu: View {
     var body: some View {
         Menu {
             Section("Pictures and Video") {
-                Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.pickingPhotos = true }
+                Button("Photos and Videos…", systemImage: "photo.on.rectangle") { state.open(.photos) }
                 if InsertOptions.camera {
                     Button("Take Photo…", systemImage: "camera") { state.camera = .photo }
                     Button("Record Video…", systemImage: "video") { state.camera = .video }
@@ -189,8 +203,7 @@ struct InsertMenu: View {
                 Button(InsertOptions.pdfPagesTitle(pageless: editor.isPageless, pageIndex: editor.pageIndex,
                                                    pageCount: editor.pages.count),
                        systemImage: "doc.badge.plus") {
-                    state.fileImport = InsertOptions.pdfImport(pageless: editor.isPageless)
-                    state.pickingFile = true
+                    state.open(.pdfPages, pageless: editor.isPageless)
                 }
             }
             Section("Equation") {

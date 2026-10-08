@@ -106,7 +106,7 @@ struct RootView: View {
             case .ignore:
                 break   // another `sempere:` link: not a vault
             case .file:
-                Task { await open(url) }   // a vault tapped in Files
+                Task { await open(url) }   // a vault tapped in Files, or a PDF opened with Sempere (imported as a new note)
             }
         }
         .onChange(of: model.quickCapture.pendingLink, initial: true) { _, link in
@@ -123,6 +123,11 @@ struct RootView: View {
             }
         }
         .voiceNoteBanner()
+        .safeAreaInset(edge: .bottom) {
+            if model.openedPDFStage == .needsVault || model.openedPDFStage == .needsUnlock {
+                OpenedPDFsWaitingBar()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // iCloud may have delivered files while the app was away; no
             // polling while it is in the background.
@@ -282,23 +287,24 @@ struct RootView: View {
         context.editingText = ui.searchPresented || ui.renameNoteID != nil || ui.tagsNoteID != nil
             || ui.saveVersionNoteID != nil
         EditorCommands.fill(&context, from: shown)
+        let exportIDs = model.exportTargetIDs
+        WindowCommands.fill(&context, model: model, exportIDs: exportIDs)
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
-                             paletteVisible: paletteVisible, exportIDs: model.exportTargetIDs, windowID: ui.id,
-                             perform: { command in perform(command, editor: shown) },
+                             paletteVisible: paletteVisible, exportIDs: exportIDs, windowID: ui.id,
+                             perform: { command in perform(command, editor: shown, exportIDs: exportIDs) },
                              openRecent: { id in
                                  if let entry = library.recents.first(where: { $0.id == id }) { Task { await reopen(entry) } }
                              })
     }
 
-    private func perform(_ command: MenuCommand, editor: NoteEditor?) {
+    private func perform(_ command: MenuCommand, editor: NoteEditor?, exportIDs: [UUID]) {
         if EditorCommands.perform(command, editor: editor, ui: ui) { return }
+        if WindowCommands.perform(command, model: model, ui: ui, exportIDs: exportIDs) { return }
         let selected = model.selectedNoteID
         switch command {
         case .newNote: ui.creatingNote = true
         case .openNoteInWindow:
-            if let selected, let vault = model.vault?.vaultId {
-                openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: selected))
-            }
+            if let value = model.noteWindowValue(for: selected) { openWindow(id: NoteWindowValue.sceneID, value: value) }
         case .newVault: creatingVault = true
         case .openVault: pickingVault = true
         case .reopenVault:
@@ -331,7 +337,7 @@ struct RootView: View {
     }
 
     private func open(_ url: URL) async {
-        await model.report { try await model.open(picked: url, library: library) }
+        await model.handleOpened(url, library: library)
     }
 
     /// Reopens a recent vault; on failure explains and falls back to the picker.

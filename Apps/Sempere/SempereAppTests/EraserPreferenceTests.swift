@@ -25,14 +25,31 @@ struct EraserPreferenceTests {
     }
 
 
+    /// Two modes are remembered, object and pixel: any pixel type reads back as `pixelType`
+    /// (the platforms' pickers keep different pixel types), and older stored names still read.
     @Test func remembersTheLastMode() {
         let d = scratchDefaults()
-        for mode in [PKEraserTool.EraserType.bitmap, .fixedWidthBitmap, .vector] {
-            EraserPreference.save(mode, to: d)
-            #expect(EraserPreference.load(from: d) == mode)
+        EraserPreference.save(.vector, to: d)
+        #expect(EraserPreference.load(from: d) == .vector)
+        for pixel in [PKEraserTool.EraserType.bitmap, .fixedWidthBitmap] {
+            EraserPreference.save(pixel, to: d)
+            #expect(EraserPreference.load(from: d) == EraserPreference.pixelType)
+        }
+        for (stored, mode) in [("pixel", EraserPreference.pixelType), ("pixelFixedWidth", EraserPreference.pixelType),
+                               ("object", PKEraserTool.EraserType.vector)] {
+            d.set(stored, forKey: EraserPreference.defaultsKey)
+            #expect(EraserPreference.load(from: d) == mode, "stored \(stored)")
         }
         d.set("garbage", forKey: EraserPreference.defaultsKey)
         #expect(EraserPreference.load(from: d) == .vector)
+    }
+
+    @Test func pixelAndObjectAreTheOnlyModes() {
+        #expect(EraserPreference.canonical(.vector) == .vector)
+        #expect(EraserPreference.canonical(.bitmap) == EraserPreference.pixelType)
+        #expect(EraserPreference.canonical(.fixedWidthBitmap) == EraserPreference.pixelType)
+        #expect(!EraserPreference.isPixel(.vector))
+        #expect(EraserPreference.isPixel(.bitmap) && EraserPreference.isPixel(.fixedWidthBitmap))
     }
 
     /// PencilKit's saved eraser (which restores the pixel eraser over the
@@ -51,16 +68,36 @@ struct EraserPreferenceTests {
         #expect(!EraserPreference.forgetPencilKitEraser(in: d))
     }
 
+    /// What the platform's picker keeps for each eraser item type (printed for the CI and
+    /// Catalyst logs: iPadOS 26 keeps a pixel eraser as `.fixedWidthBitmap`; macOS 27
+    /// Catalyst does not keep a `.fixedWidthBitmap` item).
+    @Test func thePixelTypeIsOneThePickerKeeps() {
+        for candidate in EraserPreference.pixelCandidates {
+            let kept = EraserPreference.eraserType(in: EraserPreference.picker(eraserItem: candidate))
+            print("ERASER-PROBE item \(String(describing: candidate)) kept as \(kept.map { String(describing: $0) } ?? "none")")
+        }
+        guard let pixel = EraserPreference.pixelPickerType() else {
+            // The documented fallback: no pixel eraser item survives, the picker starts with the object eraser.
+            #expect(EraserPreference.eraserType(in: EraserPreference.makeToolPicker(eraser: .bitmap)) == .vector)
+            return
+        }
+        #expect(EraserPreference.pixelCandidates.contains(pixel))
+        let kept = EraserPreference.eraserType(in: EraserPreference.picker(eraserItem: pixel))
+        #expect(kept.map(EraserPreference.isPixel) == true, "the probed type survives the picker")
+    }
+
     @Test func pickerKeepsTheSystemToolsAndStartsWithTheChosenEraser() {
         let system = PKToolPicker().toolItems
-        // The picker's pixel eraser is the fixed-width one on iPadOS 26 (a
-        // `.bitmap` item comes back as `.fixedWidthBitmap`).
-        for mode in [PKEraserTool.EraserType.vector, .fixedWidthBitmap] {
+        let pixelKept = EraserPreference.pixelPickerType() != nil
+        for mode in [PKEraserTool.EraserType.vector, .fixedWidthBitmap, .bitmap] {
             let picker = EraserPreference.makeToolPicker(eraser: mode)
             #expect(picker.toolItems.count == system.count)
             let erasers = eraserItems(picker)
             #expect(erasers.count == 1)
-            #expect(erasers.first?.eraserTool.eraserType == mode)
+            let shown = erasers.first?.eraserTool.eraserType
+            // The chosen mode, as this platform's picker shows it.
+            let expected = EraserPreference.isPixel(mode) && pixelKept
+            #expect(shown.map(EraserPreference.isPixel) == expected, "mode \(String(describing: mode)) shown as \(shown.map { String(describing: $0) } ?? "none")")
             // Every other tool is still offered, in the same order.
             let kinds = picker.toolItems.map { String(describing: type(of: $0)) }
             #expect(kinds == system.map { String(describing: type(of: $0)) })
@@ -78,19 +115,29 @@ struct EraserPreferenceTests {
         let fresh = PageCanvasHost()
         #expect(eraserItems(fresh.toolPicker).first?.eraserTool.eraserType == .vector)
 
-        // The user switches to the pixel eraser in the picker.
+        // The user switches to the pixel eraser in the picker (the platform's pixel type).
         let host = PageCanvasHost()
-        let pixel = PKToolPickerEraserItem(type: .fixedWidthBitmap)
+        let pixelType = EraserPreference.pixelPickerType() ?? .bitmap
+        let pixel = PKToolPickerEraserItem(type: pixelType)
         let picker = PKToolPicker(toolItems: host.toolPicker.toolItems.map { $0 is PKToolPickerEraserItem ? pixel : $0 })
         picker.selectedToolItem = pixel
+        let reported = pixel.eraserTool.eraserType
         host.toolPickerSelectedToolItemDidChange(picker)
-        #expect(EraserPreference.load() == .fixedWidthBitmap)
-        #expect(eraserItems(PageCanvasHost().toolPicker).first?.eraserTool.eraserType == .fixedWidthBitmap)
+        // Whatever pixel type the item reports, the pixel mode is what is remembered.
+        #expect(EraserPreference.load() == EraserPreference.canonical(reported))
+        if EraserPreference.isPixel(reported) {
+            #expect(EraserPreference.load() == EraserPreference.pixelType)
+            if EraserPreference.pixelPickerType() != nil {
+                let next = eraserItems(PageCanvasHost().toolPicker).first?.eraserTool.eraserType
+                #expect(next.map(EraserPreference.isPixel) == true, "the next canvas starts with the pixel eraser")
+            }
+        }
 
         // Choosing a pen does not change the remembered eraser.
+        let before = EraserPreference.load()
         let pen = try #require(picker.toolItems.first { $0 is PKToolPickerInkingItem })
         picker.selectedToolItem = pen
         host.toolPickerSelectedToolItemDidChange(picker)
-        #expect(EraserPreference.load() == .fixedWidthBitmap)
+        #expect(EraserPreference.load() == before)
     }
 }

@@ -5,6 +5,13 @@ import UniformTypeIdentifiers
 /// The notes matching the sidebar selection, with title search, sorting and
 /// per-note actions.
 struct NoteListView: View {
+    /// Whether the list's import buttons (PDF, Notability) can be used: the
+    /// same rule as File > Import… (`MenuCommand.importPDF`), an unlocked vault
+    /// that can be written.
+    static func importsEnabled(_ model: AppModel) -> Bool {
+        model.phase == .unlocked && !model.isVaultReadOnly
+    }
+
     @Environment(AppModel.self) private var model
     @Environment(WindowUI.self) private var ui
     @Environment(\.openWindow) private var openWindow
@@ -73,6 +80,7 @@ struct NoteListView: View {
                         ForEach(NoteSort.allCases) { Text($0.title).tag($0) }
                     }
                 }
+                .help("Sort the notes by date or title")
             }
             ToolbarItem(placement: secondary) {
                 Menu("Handwriting", systemImage: "text.viewfinder") {
@@ -85,26 +93,25 @@ struct NoteListView: View {
                     .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil || model.isVaultReadOnly)
                     Text("Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it.")
                 }
+                .help("Handwriting recognition: read notes so their handwriting can be searched")
             }
             ToolbarItem(placement: secondary) {
                 Button("Import PDF…", systemImage: "doc.richtext") { ui.importingPDF = true }
-                    .disabled(model.phase != .unlocked || model.isVaultReadOnly)
+                    .disabled(!Self.importsEnabled(model))
                     .help("Make a note from a PDF: one page per PDF page, to write on")
+            }
+            // The iPad has no File menu: the Notability importer is here too (the Mac's File menu has it as well).
+            ToolbarItem(placement: secondary) {
+                Button("Import from Notability…", systemImage: "square.and.arrow.down.on.square") {
+                    ui.importingNotability = true
+                }
+                .disabled(!Self.importsEnabled(model) || model.isImportingNotability)
+                .help("Import Notability notes or a Notability backup (.note, .ntb, folders or zips) into this vault")
             }
             ToolbarItem {
                 Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
                     .disabled(model.phase != .unlocked || model.isVaultReadOnly)
-            }
-        }
-        .fileImporter(isPresented: $ui.importingPDF, allowedContentTypes: [.pdf]) { result in
-            guard case .success(let url) = result else { return }
-            var notebook: String?
-            if case .notebook(let n)? = model.sidebarSelection { notebook = n }
-            let target = notebook
-            Task {
-                if case .needsPassword(let request) = await model.importPDF(picked: url, to: .newNote(notebook: target)) {
-                    ui.pdfPassword = request
-                }
+                    .help("New note (⌘N)")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -149,6 +156,10 @@ struct NoteListView: View {
                     recognized: model.sidebarSelection == .recentlyRecognized ? model.recognizedEntry(of: note) : nil)
                 .modifier(NoteDragOut(note: note, enabled: model.phase == .unlocked
                                       && !model.placeholderNoteIDs.contains(note.id)))
+                // Mac: a double-click opens the note in its own window, like the context menu's item.
+                .modifier(OpenOnDoubleClick(enabled: Platform.isMac) {
+                    if let value = model.noteWindowValue(for: note.id) { openWindow(id: NoteWindowValue.sceneID, value: value) }
+                })
                 // A placeholder's summary is empty: nothing to act on until it arrives
                 // (the model downloads a note before any edit anyway).
                 .contextMenu { if !model.placeholderNoteIDs.contains(note.id) { actions(for: note) } }
@@ -242,15 +253,17 @@ struct NoteListView: View {
         Task { await model.report(action) }
     }
 
+    /// The row's context menu (titles shown).
     @ViewBuilder
+    // help-lint: titled
     private func actions(for note: NoteSummary) -> some View {
         if note.deleted {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }
             ExportMenu(ids: exportIDs(for: note))
         } else {
-            if Platform.isMac, let vault = model.vault?.vaultId {
+            if Platform.isMac, let value = model.noteWindowValue(for: note.id) {
                 Button("Open in New Window", systemImage: "macwindow") {
-                    openWindow(id: NoteWindowValue.sceneID, value: NoteWindowValue(vaultID: vault, noteID: note.id))
+                    openWindow(id: NoteWindowValue.sceneID, value: value)
                 }
             }
             Button("Rename…", systemImage: "pencil") {
@@ -299,6 +312,22 @@ private struct NoteDragOut: ViewModifier {
             guard Platform.isMac else { return }
             NoteFileDrag.register(on: provider, title: note.title, prepare: NoteFileDrag.prepare(note.id, model: model))
         })
+    }
+}
+
+/// A double-click on a row runs `action` (`DoubleClickAttacher`, on the
+/// row's cell, alongside the list's own selection). Attached on the Mac only;
+/// the iPad's rows keep exactly their touch handling.
+private struct OpenOnDoubleClick: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.background(DoubleClickAttacher(action: action))
+        } else {
+            content
+        }
     }
 }
 

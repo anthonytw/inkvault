@@ -36,6 +36,7 @@ struct VoiceNoteBanner: View {
                         Image(systemName: "xmark").font(.footnote.weight(.bold))
                     }
                     .accessibilityLabel("Dismiss")
+                    .help("Dismiss this message")
                 }
             }
         }
