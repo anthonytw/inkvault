@@ -127,6 +127,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Notes | Drops on the sidebar fixed on iPadOS 26 (the drop no longer depends on the released item provider) | 🔀 #84 (not yet tried on the iPad) |
 | Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | 🔀 #84 |
 | App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
+| App | Import from Notability in the app (File menu on the Mac): `.note`/`.ntb` files, folders or backup zips through the CLI's importer (`NotabilityImporter`, same defaults: folder tags, attachments, existing notes skipped), filed in the sidebar's notebook, result alert | 🔀 #101 |
+| App | PDFs opened with Sempere (iPad share sheet / Open In; Mac Finder Open With) become new notes of the open vault, waiting for a vault to be opened and unlocked; Sempere is a PDF Viewer at rank Alternate, never the default | 🔀 #101 |
 | App | History browser: restore points, read-only preview, restore through `NoteWriter`, compaction notice | ✅ #41 |
 | App | Version history round 2: Save Version (note toolbar, Mac Note menu ⌥⌘S), history grouped into checkpoints and collapsed editing sessions, thinning setting (default 30 days, or never) in a minimal Settings sheet with "Thin Now" preview, automatic thinning once a day | ✅ #74 (not yet tried on the iPad) |
 | Search | Recognition in the note's language (`meta.lang`); PDF page text searched; the app's PDF import stores each page's text from PDFKit | 🔀 #79 |
@@ -158,7 +160,11 @@ behaviour and testing on a real Mac.
 | Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
 | Saved folder access in a sandboxed Mac build | 🔀 access check, entitlements and a DEBUG probe done; the plain bookmark under the sandbox is unverified until a signed build is tried (`docs/io.md`) |
 | Menus and keyboard shortcuts | 🔀 `docs/mac.md`; File/Edit commands restored after build 6 (UIKit shortcut clashes), checked on Catalyst in CI |
-| Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`); acts on the focused window's notes since build 6 |
+| Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`); acts on the focused window's notes since build 6; File > Export… (⇧⌘E, the sheet picks the format) replaces the submenu on the Mac 🔀 #101 |
+| File menu: Import PDF as New Note… (⇧⌘I), Import from Notability…, Insert PDF Pages…, Insert Photo… (⌥⌘I), Export… (⇧⌘E), same paths as the toolbars | 🔀 #101 |
+| Double-click a note in the list opens it in its own window | 🔀 #101 (`MacWindowUITests`) |
+| Tooltips (`.help`) on every icon-only control, enforced by `scripts/check-help.py` in the `app` job | 🔀 #101 |
+| Finder Open With on a PDF: imported as a new note (vault chosen, unlocked first) | 🔀 #101; needs a hand test on a Mac |
 | PDF page attachments on the canvas | 🔀 blank in build 6; tile redraw on scale change fixed, checked on Catalyst in CI; iCloud vault needs a hand test |
 | App tests on Mac Catalyst (`scripts/app.sh test-mac`, `test-mac-ui`) | ✅ CI on `main` and dispatch |
 | Multiple windows (one note per window), state restoration | 🔀 `docs/mac.md`; note windows checked on Catalyst in CI; restoration needs a hand test |

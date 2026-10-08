@@ -50,9 +50,21 @@ built menu bar on Catalyst (the app's File and Edit commands are there,
 UIKit's duplicates are not, no shortcut twice), and `MacWindowUITests` checks
 it in the running app.
 
-File > Export acts on the focused window's notes (`CommandRouter.exportIDs`:
+File > Export… (⇧⌘E) acts on the focused window's notes (`CommandRouter.exportIDs`:
 the list's selection in a library window, its note in a note window), and its
-sheet opens in that window (`ExportRequest.window`). With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
+sheet opens in that window (`ExportRequest.window`) with PDF chosen; the sheet
+picks the format. (The iPad keeps the Export submenu, `ExportMenuCommands`, in
+its keyboard menu.)
+
+The File menu's import and insert commands (TestFlight build 7) open the same
+pickers as the toolbars: Import PDF as New Note… sets the flag the note list's
+Import PDF… button sets (`WindowUI.importingPDF`), Import from Notability… the
+Notability importer's (`importingNotability`); both importers live in
+`WindowSheets`, so they work with the note list hidden and in note windows.
+Insert Photo… and Insert PDF Pages… send `WindowUI.insertRequest` to the
+window's editor, which opens its Insert menu's picker (`InsertState.open`);
+they follow the Insert menu's enabling (an editable note with a page; PDF pages
+need a paged note). Imports file new notes under the sidebar's notebook. With no window, only View > Library is enabled (`CommandGroupPlacement.windowList`, the natural home, is macOS-only).
 
 | Menu | Command | Shortcut |
 | --- | --- | --- |
@@ -63,6 +75,11 @@ sheet opens in that window (`ExportRequest.window`). With no window, only View >
 | File | Open Recent | submenu of the recent vaults |
 | File | Reopen Last Vault | ⇧⌘T |
 | File | Close Vault | ⇧⌘W |
+| File | Import PDF as New Note… | ⇧⌘I |
+| File | Import from Notability… | (none) |
+| File | Insert PDF Pages… | (none) |
+| File | Insert Photo… | ⌥⌘I |
+| File | Export… | ⇧⌘E |
 | File | Reload Vault | ⌘R |
 | Edit | Undo, Redo | ⌘Z, ⇧⌘Z (the system's: the canvas's undo manager, or the text field being edited) |
 | Edit | Find Notes (focuses the title search) | ⌘F |
@@ -132,8 +149,48 @@ others): two canvases on one editor would each report a drawing without the
 other's new strokes, which the ledger takes as erasures. A window's editor reads
 handwriting like the pane's (the model's `recognizer` reaches it), and notes
 open in a window are left out of "Recognize N Notes Now". Restored note windows
-ask for at most one library window (`shouldOpenLibraryWindow`). Note > Move to
+ask for at most one library window (`shouldOpenLibraryWindow`). A double-click
+on a row of the note list opens the note's window too (`OpenOnDoubleClick`, a
+gesture simultaneous with the list's selection, attached on the Mac only), for
+the same notes as the menu (`AppModel.noteWindowValue`: listed, downloaded,
+not in Recently Deleted). Note > Move to
 Recently Deleted (⌘⌫) is off while a search, rename or tag field may have focus.
+
+## Tooltips
+
+Toolbar buttons show no title on a Mac, so every icon-only control has a
+`.help("…")` tooltip (TestFlight build 7). `scripts/check-help.py` (run by the
+`app` CI job, with `--self-test` for its own cases) fails on a `Button`,
+`Menu`, `Toggle`, `ShareLink` or `PhotosPicker` that shows an icon outside a
+menu, list, form, picker or dialog and has no `.help`. A view builder whose
+controls only appear in menus is marked `// help-lint: titled`; a deliberate
+exception carries `// help-lint: ignore (why)`. The scan cannot see a
+`.labelStyle(.iconOnly)` set on a container, so give those buttons `.help` by
+hand (the recording bar's do).
+
+## Opening PDFs from the Finder
+
+Sempere declares PDFs (`com.adobe.pdf`) as a document type it can view, at rank
+Alternate (`SempereInfo.plist`): it is offered under Open With (and on an
+iPad in the share sheet and Files' Open In), never made the default PDF app.
+An opened PDF is not a vault (before build 8 it was opened as one): `onOpenURL`
+(library and note windows, `AppModel.handleOpened`) copies it into the work
+folder at once, since its security scope ends with the call, and queues it
+(`openedPDFs`, app state, not the vault's). Then (`OpenedFile.stage`):
+
+* no vault open: a bar under the welcome screen says the PDFs wait for one
+  (Discard drops them);
+* a vault opening, locked or migrating: the same bar, until it is unlocked;
+* unlocked: a sheet in the window with the canvas, "Import PDF" into the
+  named vault, with the notebook (the sidebar's by default). Import makes one
+  note per PDF through `importPDF(copy:to:password:)`, the Import PDF path
+  (a protected PDF asks for its password); Choose Another Vault… closes the
+  vault and the PDFs wait for the next one; Cancel discards them;
+* a read-only vault (`format.md` §7.3): the sheet says so and offers only
+  another vault or Cancel.
+
+Work copies are plaintext: they are removed after the import, on Discard or
+Cancel, and at launch (`PDFPreparation.purge`).
 
 ## Drag a note out as PDF
 
@@ -274,3 +331,11 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 6. New Note: type part of a notebook name; open the list with the chevron.
 7. Add a key (paste and generate), remove it, print the recovery kit.
 8. Draw with the mouse and trackpad, with each tool; erase with the object eraser.
+9. Double-click a note in the list: its window opens. Hover over every toolbar
+   button: each shows a tooltip.
+10. File > Import PDF as New Note…, Import from Notability… (a `.note` and a
+    backup zip), Insert Photo…, Insert PDF Pages… (disabled on a pageless
+    note), Export…, with and without an open note.
+11. In the Finder, right-click a PDF > Open With > Sempere: with the app quit,
+    with no vault open, with the vault locked, and unlocked. Sempere must not
+    become the default app for PDFs.

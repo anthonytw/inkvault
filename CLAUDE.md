@@ -425,6 +425,15 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   signed and sandboxed) and `test-mac-ui` (`MacWindowUITests`), run by CI on
   `main` and on dispatch. A test that needs pixels on a Mac puts its view in a
   window of the host app's scene (a window without one is never drawn there).
+- Every icon-only control in the app has `.help("…")` (Mac tooltips);
+  `scripts/check-help.py` fails the `app` CI job otherwise (`docs/mac.md`
+  "Tooltips"). Menu-only view builders are marked `// help-lint: titled`.
+- PDFs opened with the app (`onOpenURL`) are imported as new notes, never
+  opened as vaults (`AppModel+OpenedFiles`, `OpenedFile.kind`). The app's
+  Notability import (`AppModel+NotabilityImport`) is the one app write that
+  does not go through `NoteWriter`: it runs the CLI's `NotabilityImporter`
+  on the model's `DeviceClock` (`withClock`) under the edit gate, never with
+  overwrite, so no open note changes under its editor.
 - The object eraser must list `indirectPointer` among its touch types on a Mac
   (`ObjectEraserController.pressTouchTypes`), or the default eraser ignores
   the mouse; PencilKit's own gesture is off while it is active.
