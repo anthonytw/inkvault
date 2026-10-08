@@ -162,9 +162,11 @@ private struct HistoryPreviewView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Previous Page", systemImage: "chevron.up") { preview.selectPage(preview.pageIndex - 1) }
                         .disabled(preview.pageIndex == 0)
+                        .help("Previous page of this version")
                     Text("\(preview.pageIndex + 1) / \(preview.pages.count)").monospacedDigit()
                     Button("Next Page", systemImage: "chevron.down") { preview.selectPage(preview.pageIndex + 1) }
                         .disabled(preview.pageIndex + 1 >= preview.pages.count)
+                        .help("Next page of this version")
                 }
             }
             ToolbarItem(placement: .bottomBar) {

@@ -58,8 +58,10 @@ struct PageStripView: View {
                 VStack(spacing: 6) {
                     if !editor.deletedPages.isEmpty {
                         Button("Undo Delete Page", systemImage: "arrow.uturn.backward") { editor.undoDeletePage() }
+                            .help("Bring back the page deleted last")
                     }
                     Button("Add Page at End", systemImage: "doc.badge.plus") { editor.addPage() }
+                        .help("Add a page at the end of the note")
                 }
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)

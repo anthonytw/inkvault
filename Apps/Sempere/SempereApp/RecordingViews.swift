@@ -53,11 +53,14 @@ struct RecordingBar: View {
             Spacer()
             if session.state == .recording {
                 Button("Pause", systemImage: "pause.fill") { session.pauseByUser() }
+                    .help("Pause the recording")
             } else {
                 Button("Resume", systemImage: "record.circle") { session.resumeByUser() }
+                    .help("Resume the recording")
             }
             Button("Stop", systemImage: "stop.fill") { Task { await editor.stopRecording() } }
                 .buttonStyle(.borderedProminent).tint(.red)
+                .help("Stop and save the recording")
         }
         .labelStyle(.iconOnly)
         .padding(.horizontal).padding(.vertical, 6)
@@ -71,6 +74,7 @@ struct RecordingBar: View {
             Button(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill") {
                 player.toggle()
             }
+            .help("Play or pause the recording")
             Text(RecordingClock.text(player.position)).monospacedDigit().font(.callout)
             Slider(value: Binding(get: { player.position }, set: { player.seek(to: $0) }),
                    in: 0...max(player.duration, 0.1))
@@ -81,12 +85,14 @@ struct RecordingBar: View {
                 .help("Tap something you wrote during the recording to hear that moment")
             if recording.transcript != nil {
                 Button("Transcript", systemImage: "text.quote") { showingTranscript = recording }
+                    .help("Show the recording's transcript")
             }
             Button("Close Player", systemImage: "xmark") {
                 editor.listeningToInk = false
                 player.stop()
                 editor.player = nil
             }
+            .help("Close the player")
         }
         .labelStyle(.iconOnly)
         .padding(.horizontal).padding(.vertical, 6)

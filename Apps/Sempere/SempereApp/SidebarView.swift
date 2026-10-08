@@ -66,9 +66,11 @@ struct SidebarView: View {
         .toolbar {
             ToolbarItem {
                 Button("Close Vault", systemImage: "xmark.circle") { model.close() }
+                    .help("Close the vault (⇧⌘W)")
             }
             ToolbarItem {
                 Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                    .help("Settings for this device")
             }
             ToolbarItem {
                 Menu("Vault Key", systemImage: "key") {
@@ -81,6 +83,7 @@ struct SidebarView: View {
                         Text("The key is not saved. Unlock with a passphrase or pasted key to save it.")
                     }
                 }
+                .help("This vault's key on this device: forget it or keep it in iCloud Keychain")
             }
         }
         .sheet(item: $movingNotebook) { MoveNotebookView(path: $0.path) }

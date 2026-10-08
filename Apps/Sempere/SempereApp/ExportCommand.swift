@@ -70,6 +70,7 @@ struct ExportMenu: View {
             }
         }
         .disabled(ids.isEmpty || model.phase != .unlocked)
+        .help("Export as PDF, PNG pages or text")
     }
 }
 

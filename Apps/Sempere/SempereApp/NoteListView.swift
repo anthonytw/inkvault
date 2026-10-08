@@ -73,6 +73,7 @@ struct NoteListView: View {
                         ForEach(NoteSort.allCases) { Text($0.rawValue).tag($0) }
                     }
                 }
+                .help("Sort the notes by date or title")
             }
             ToolbarItem(placement: secondary) {
                 Menu("Handwriting", systemImage: "text.viewfinder") {
@@ -85,6 +86,7 @@ struct NoteListView: View {
                     .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil || model.isVaultReadOnly)
                     Text("Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it.")
                 }
+                .help("Handwriting recognition: read notes so their handwriting can be searched")
             }
             ToolbarItem(placement: secondary) {
                 Button("Import PDF…", systemImage: "doc.richtext") { ui.importingPDF = true }
@@ -94,6 +96,7 @@ struct NoteListView: View {
             ToolbarItem {
                 Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
                     .disabled(model.phase != .unlocked || model.isVaultReadOnly)
+                    .help("New note (⌘N)")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -235,7 +238,9 @@ struct NoteListView: View {
         Task { await model.report(action) }
     }
 
+    /// The row's context menu (titles shown).
     @ViewBuilder
+    // help-lint: titled
     private func actions(for note: NoteSummary) -> some View {
         if note.deleted {
             Button("Restore", systemImage: "arrow.uturn.backward") { run { try await model.restoreNote(note.id) } }

@@ -52,10 +52,10 @@ jobs:
           # scripts/screenshots.sh only drives the manual screenshots job.
           pkgfiles="$(printf '%s\n' "$files" | grep -v '^scripts/screenshots\.sh$' || true)"
           package=$(printf '%s\n' "$pkgfiles" | grep -Eq '^(Sources/|Tests/|Package\.(swift|resolved)$|scripts/|\.github/workflows/ci\.yml$)' && echo true || echo false)
-          # The app links Age, Sempere and SempereRender (and CZlib under them), and its
-          # tests open the package's fixture vault; CLI, importer and WebDAV changes
-          # cannot affect it.
-          app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/app\.sh$|\.github/workflows/ci\.yml$)')
+          # The app links Age, Sempere, SempereRender, SempereSpeech and the importer
+          # (SempereImport, SemperePDF; CZlib under them), and its tests open the
+          # package's fixture vault; CLI and WebDAV changes cannot affect it.
+          app=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|SempereSpeech|SempereImport|SemperePDF|CZlib)/|Tests/SempereTests/Fixtures/|Package\.(swift|resolved)$|scripts/(app\.sh|check-help\.py)$|\.github/workflows/ci\.yml$)')
           # Web viewer (web/): its own job; app changes do not run it.
           web=$(has '^(web/|\.github/workflows/ci\.yml$)')
           # The goldens are the CLI's JSON and SVG export of the fixture vaults: a
@@ -193,6 +193,9 @@ jobs:
           path: .build/xcode
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
           restore-keys: ${{ steps.cachekey.outputs.key }}-
+      # Every icon-only control has a tooltip on the Mac (TestFlight build 7).
+      - name: Tooltips on icon-only controls
+        run: scripts/check-help.py --self-test && scripts/check-help.py
       - name: Test on an iPad simulator
         shell: bash
         run: mkdir -p build && scripts/app.sh test 2>&1 | tee build/app-test.log

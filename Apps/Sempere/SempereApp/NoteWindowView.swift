@@ -40,13 +40,16 @@ struct NoteWindowView: View {
                     if let note {
                         ToolbarItem(placement: .secondaryAction) {
                             Button("Rename…", systemImage: "pencil") { ui.renameNoteID = note.id }
+                                .help("Rename the note")
                         }
                         ToolbarItem(placement: .secondaryAction) {
                             Button("Save Version…", systemImage: "bookmark") { ui.saveVersionNoteID = note.id }
                                 .disabled(note.deleted)
+                                .help("Save this version of the note under a name; saved versions are never thinned")
                         }
                         ToolbarItem(placement: .primaryAction) {
                             Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
+                                .help("Edit the note's tags")
                         }
                     }
                 }
