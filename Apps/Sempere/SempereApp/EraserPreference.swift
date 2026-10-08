@@ -123,7 +123,8 @@ enum EraserPreference {
     }
 
     /// The pixel eraser types tried, in order, for a pixel eraser item.
-    static let pixelCandidates: [PKEraserTool.EraserType] = [.fixedWidthBitmap, .bitmap]
+    /// (Computed: `PKEraserTool.EraserType` is not `Sendable`, so no stored static.)
+    static var pixelCandidates: [PKEraserTool.EraserType] { [.fixedWidthBitmap, .bitmap] }
 
     @MainActor private static var probedPixelType: PKEraserTool.EraserType??
 
