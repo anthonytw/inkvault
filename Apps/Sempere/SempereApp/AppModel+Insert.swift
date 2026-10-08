@@ -72,7 +72,7 @@ extension AppModel {
         } catch is CancellationError {
             return nil
         } catch {
-            errorMessage = "Could not replace the image. \(Self.describe(error))"
+            errorMessage = String(localized: "Could not replace the image. \(Self.describe(error))")
             return nil
         }
     }

@@ -378,8 +378,7 @@ struct EditorView: View {
     private var itemSelectionToggle: some View {
         Toggle("Select", systemImage: "cursorarrow.rays", isOn: $selectingItems)
             .toggleStyle(.button)
-            .help("Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. "
-                  + "While drawing: tap one with the lasso, hold a finger on it, or right-click it")
+            .help("Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. While drawing: tap one with the lasso, hold a finger on it, or right-click it")
     }
 
     private var pageCounter: some View {

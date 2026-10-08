@@ -22,10 +22,10 @@ enum InsertOptions {
     /// current page (`pageIndex`, 0-based) of a paged note; a pageless note
     /// is switched to pages first (its one page stays the first).
     static func pdfPagesTitle(pageless: Bool, pageIndex: Int, pageCount: Int) -> String {
-        if pageless { return "Switch to Pages and Insert PDF…" }
-        if pageCount <= 0 { return "Insert PDF Pages…" }
+        if pageless { return String(localized: "Switch to Pages and Insert PDF…") }
+        if pageCount <= 0 { return String(localized: "Insert PDF Pages…") }
         let n = min(max(pageIndex, 0), pageCount - 1) + 1
-        return n == pageCount ? "Insert PDF Pages at the End…" : "Insert PDF Pages After Page \(n)…"
+        return n == pageCount ? String(localized: "Insert PDF Pages at the End…") : String(localized: "Insert PDF Pages After Page \(n)…")
     }
 
     /// The camera on this device.
@@ -299,7 +299,7 @@ struct EditorInsert: ViewModifier {
                 guard let data = try await picked.loadTransferable(type: Data.self) else { return }
                 await replace(request, with: data)
             } catch {
-                model.errorMessage = "Could not load the photo: \(error.localizedDescription)"
+                model.errorMessage = String(localized: "Could not load the photo: \(error.localizedDescription)")
             }
         }
     }
@@ -319,7 +319,7 @@ struct EditorInsert: ViewModifier {
                 }.value
                 await replace(request, with: data)
             } catch {
-                model.errorMessage = "Could not read the picture. \(AppModel.describe(error))"
+                model.errorMessage = String(localized: "Could not read the picture. \(AppModel.describe(error))")
             }
         }
     }
@@ -397,7 +397,7 @@ struct EditorInsert: ViewModifier {
             defer { state.working -= 1 }
             if switchingToPages {
                 guard await Self.preparePages(editor) else {
-                    model.errorMessage = "Could not switch the note to pages, so the PDF was not inserted."
+                    model.errorMessage = String(localized: "Could not switch the note to pages, so the PDF was not inserted.")
                     return
                 }
             }

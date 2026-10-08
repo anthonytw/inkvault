@@ -1883,6 +1883,18 @@
         }
       }
     },
+    "Add photos, videos, a picture from the clipboard, a text box, pages of a PDF, or an equation" : {
+      "comment" : "Tooltip of the Insert menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir fotos, vídeos, una imagen del portapapeles, un cuadro de texto, páginas de un PDF o una ecuación"
+          }
+        }
+      }
+    },
     "Add photos, videos, a picture from the clipboard, or pages of a PDF" : {
       "comment" : "Help text of the editor's Insert menu",
       "extractionState" : "manual",
@@ -2668,6 +2680,18 @@
         }
       }
     },
+    "Could not read the picture. %@" : {
+      "comment" : "Error; %@ is the reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido leer la imagen. %@"
+          }
+        }
+      }
+    },
     "Could not read the recording: %@" : {
       "comment" : "The value is the error, in English",
       "extractionState" : "manual",
@@ -2740,6 +2764,18 @@
         }
       }
     },
+    "Could not replace the image. %@" : {
+      "comment" : "Error; %@ is the reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido sustituir la imagen. %@"
+          }
+        }
+      }
+    },
     "Could not restore: %@" : {
       "comment" : "The value is the error, in English",
       "extractionState" : "manual",
@@ -2784,6 +2820,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido guardar: %@"
+          }
+        }
+      }
+    },
+    "Could not switch the note to pages, so the PDF was not inserted." : {
+      "comment" : "Error when inserting PDF pages into a pageless note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido cambiar la nota a disposición paginada, así que no se ha insertado el PDF."
           }
         }
       }
@@ -3444,6 +3492,18 @@
         }
       }
     },
+    "Equation" : {
+      "comment" : "Insert menu section",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ecuación"
+          }
+        }
+      }
+    },
     "Equation…" : {
       "comment" : "Insert menu: add a LaTeX equation",
       "extractionState" : "manual",
@@ -3748,6 +3808,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Formato"
+          }
+        }
+      }
+    },
+    "From Files…" : {
+      "comment" : "Replace Image submenu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desde Archivos…"
+          }
+        }
+      }
+    },
+    "From Photos…" : {
+      "comment" : "Replace Image submenu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desde Fotos…"
           }
         }
       }
@@ -4130,6 +4214,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Insertar"
+          }
+        }
+      }
+    },
+    "Insert PDF Pages After Page %lld…" : {
+      "comment" : "[not-plural] Insert menu; the number is the current page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar páginas de PDF tras la página %lld…"
+          }
+        }
+      }
+    },
+    "Insert PDF Pages at the End…" : {
+      "comment" : "Insert menu, the current page is the last",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar páginas de PDF al final…"
+          }
+        }
+      }
+    },
+    "Insert PDF Pages…" : {
+      "comment" : "Insert menu, a note with no pages yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insertar páginas de PDF…"
           }
         }
       }
@@ -4530,6 +4650,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Monoespaciada"
+          }
+        }
+      }
+    },
+    "More Colours" : {
+      "comment" : "VoiceOver: opens the system colour picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Más colores"
           }
         }
       }
@@ -6065,6 +6197,18 @@
         }
       }
     },
+    "Pen Colour" : {
+      "comment" : "VoiceOver: the swatch of the pen's current colour",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color del bolígrafo"
+          }
+        }
+      }
+    },
     "Pencil" : {
       "comment" : "Tools menu: select the pencil tool (not Apple Pencil)",
       "extractionState" : "manual",
@@ -6131,6 +6275,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fotos…"
+          }
+        }
+      }
+    },
+    "Pictures and Video" : {
+      "comment" : "Insert menu section",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imágenes y vídeo"
           }
         }
       }
@@ -7134,6 +7290,18 @@
         }
       }
     },
+    "Replace Image" : {
+      "comment" : "Selection menu of an image: submenu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir imagen"
+          }
+        }
+      }
+    },
     "Replace the saved key for “%@”" : {
       "comment" : "Face ID prompt; the value is the vault name",
       "extractionState" : "manual",
@@ -7632,6 +7800,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seleccionar elementos"
+          }
+        }
+      }
+    },
+    "Select images, text boxes, PDF pages and videos to move, resize, crop, replace or delete them. While drawing: tap one with the lasso, hold a finger on it, or right-click it" : {
+      "comment" : "Tooltip of the item selection toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleccionar imágenes, cuadros de texto, páginas PDF y vídeos para moverlos, redimensionarlos, recortarlos, sustituirlos o eliminarlos. Mientras dibujas: toca uno con el lazo, mantén un dedo sobre él o haz clic secundario en él"
           }
         }
       }
@@ -8330,6 +8510,18 @@
         }
       }
     },
+    "Switch to Pages and Insert PDF…" : {
+      "comment" : "Insert menu in a pageless note: the note is switched to pages first",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar a páginas e insertar PDF…"
+          }
+        }
+      }
+    },
     "Tag" : {
       "comment" : "Text field placeholder: a tag name",
       "extractionState" : "manual",
@@ -8608,6 +8800,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Texto (Markdown)…"
+          }
+        }
+      }
+    },
+    "Text Box" : {
+      "comment" : "Insert menu: add a text box",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuadro de texto"
           }
         }
       }
@@ -10518,6 +10722,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Contraseña incorrecta"
+          }
+        }
+      }
+    },
+    "Yellow" : {
+      "comment" : "Text colour",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Amarillo"
           }
         }
       }
