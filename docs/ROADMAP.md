@@ -76,6 +76,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
 | `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | ✅ #72 | ✅ #72 |
 | Items: `items crop` (the app's Crop: the visible part stays in place) | 🔀 #81 | 🔀 #81 |
+| Items: `items replace` (the app's Replace Image: one delta, the new picture fitted into the old frame, `parent`) | 🔀 #104 | 🔀 #104 |
 | `recognize` (Vision on rendered pages, the app's selection, image plan and mapping) and `import notability --recognize missing`; Linux gives a clear error (`--dry-run` works) | — (error) | ✅ #78 |
 | `notes search`: the app's ranked search over titles, tags, notebooks and recognised text | ✅ #78 | ✅ #78 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | 🔀 #87 |
