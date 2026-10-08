@@ -652,8 +652,17 @@ can draw annotation appearances into a new page).
 ### Recording item
 
 A recording belongs to the note (`format.md` §8.3.1), not to a page:
-Notability shows recordings per note, a recording usually spans many pages,
-and nothing is drawn for it.
+Notability shows recordings per note, and a recording usually spans many
+pages. *Changed after TestFlight build 7:* a recording that was only in a
+menu could not be found (on the Mac not at all), so an **audio item**
+(`format.md` §8.2.9) shows a recording on a page: a card with a microphone
+icon, the title and length, and the transcript, which the app plays from a
+play/pause button on it. The app places one on the page being looked at when
+a recording stops, in the same delta as the recording. The item only names
+the recording (immutable `recording`), so title, length and transcript stay
+the recording's; deleting the card keeps the recording (the Recordings list
+offers it again), deleting the recording removes its cards. A new item kind,
+not a new op: older readers draw a placeholder for it (§7.5) and keep it.
 
 ### Codec (decided: AAC-LC default, configurable)
 
@@ -926,7 +935,8 @@ the real characters for selection and search.
 
 ### Audio in exports
 
-Pages never show recordings. Options for the PDF (decided):
+Pages show a recording only where an audio item places it: its card
+(`format.md` §8.2.9), drawn by every exporter. Options for the PDF (decided):
 
 - default: nothing; the export report says "2 recordings not exported";
 - app: the export sheet has **PDF** and, next to it, **PDF + attachments**,
@@ -1227,8 +1237,9 @@ is picked (build 7 feedback, PR #104; `ItemSelection.swift`, pure logic in
 - **Selected state.** A solid outline over a faint tint, white handles and
   the item's menu next to it. A text box's height follows its lines
   (format.md §8.2.4), so it has side handles that set its wrapping width;
-  every other kind has corner handles and keeps its proportions
-  (`ItemFrames.handles`, `keepsAspect`). A drag inside moves the item, a drag
+  every other kind has corner handles and keeps its proportions, except an
+  audio card, whose label is laid out in its frame (a taller card shows more
+  transcript), so it resizes freely (`ItemFrames.handles`, `keepsAspect`). A drag inside moves the item, a drag
   on a handle resizes it; one delta and one undo step per gesture.
 - **Taps.** The first tap selects; a tap on the selected item shows its menu
   again, or types in it for a text box, so a double tap edits a box from

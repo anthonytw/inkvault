@@ -25,13 +25,15 @@ public enum ItemRaster {
     /// Draws `item` alone at `scale` pixels per point (lowered so the image
     /// has at most `maxPixels`), transparent around it. A background item
     /// (layer below `content`) is first filled with `paper`'s colour when
-    /// given, as on the page (format.md §8.2.3).
+    /// given, as on the page (format.md §8.2.3). An `audio` item is drawn
+    /// with the note's `recordings` (format.md §8.2.9); without them it is a
+    /// placeholder.
     ///
     /// - Throws: `RenderError.invalidGeometry` for a non-finite or empty
     ///   frame or rotation, `.extentTooLarge` beyond `RenderLimits.maxExtent`,
     ///   `.invalidScale` for a scale that is not finite and positive.
     public static func render(_ item: Item, scale: Double, maxPixels: Int = defaultMaxPixels, paper: Paper? = nil,
-                              options: RenderOptions = RenderOptions()) throws -> Rendered {
+                              options: RenderOptions = RenderOptions(), recordings: [Recording]? = nil) throws -> Rendered {
         guard scale.isFinite, scale > 0, maxPixels > 0 else { throw RenderError.invalidScale }
         let placed = try PreparedItem(item, pageNumber: 1)   // checks the frame and rotation
         let bounds = ItemFrames.bounds(item.frame, rotation: item.rotation)
@@ -45,7 +47,7 @@ public enum ItemRaster {
         let prepared = try PreparedItem(shifted, pageNumber: 1)
         var report = RenderReport()
         let backgrounds = PDFBackgrounds(blobs: options.blobs, rasterizer: options.pdfRasterizer)
-        let images = ImageStore(options: options, blobs: options.blobs)
+        let images = ImageStore(options: options, blobs: options.blobs, recordings: recordings)
         let draws = RasterItems.resolve([prepared], backgrounds: backgrounds, images: images, shaper: options.shaper,
                                         scale: s, maxPixels: options.maxBackgroundPixels, report: &report)
         var raster = Raster(width: width, height: height)

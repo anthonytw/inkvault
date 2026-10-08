@@ -475,9 +475,11 @@ public struct ItemKind: RawRepresentable, Hashable, Sendable, Codable, CustomStr
     public static let math = ItemKind(rawValue: "math")
     /// A video clip with a poster frame (format.md §8.2.7).
     public static let video = ItemKind(rawValue: "video")
+    /// A recording of the note shown on the page (format.md §8.2.9).
+    public static let audio = ItemKind(rawValue: "audio")
 
     /// The kinds the format defines; everything else is read as unknown.
-    public static let defined: [ItemKind] = [.text, .image, .pdfPage, .video, .math]
+    public static let defined: [ItemKind] = [.text, .image, .pdfPage, .video, .math, .audio]
 
     /// True for a kind this reader can draw.
     public var isDefined: Bool { Self.defined.contains(self) }
@@ -528,7 +530,8 @@ public struct ItemLayer: RawRepresentable, Hashable, Sendable, Comparable, Codab
 }
 
 /// A placed item on a page (format.md §8.2): a text box, an image, a PDF page
-/// background, a video clip, or a kind this reader does not know.
+/// background, a video clip, a recording shown on the page, or a kind this
+/// reader does not know.
 ///
 /// The common fields are typed. Each defined kind's own fields are typed too,
 /// and read only for that kind: a field that is not one of the item's kind
@@ -579,6 +582,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
     public var poster: BlobRef?
     /// `math`: the equation (register).
     public var math: MathContent?
+    /// `audio`: the recording of the note the item shows (format.md §8.2.9).
+    public var recording: UUID?
 
     /// Fields this reader does not know, re-emitted unchanged.
     public var extra: [String: JSONValue]
@@ -588,13 +593,15 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
                 clocks: [String: String]? = nil, text: TextContent? = nil, blob: BlobRef? = nil,
                 pixelSize: Size? = nil, orientation: Int? = nil, crop: Rect? = nil, pageIndex: Int? = nil,
                 pageSize: Size? = nil, duration: Double? = nil, videoRotation: Int? = nil, codec: String? = nil,
-                poster: BlobRef? = nil, math: MathContent? = nil, extra: [String: JSONValue] = [:]) {
+                poster: BlobRef? = nil, math: MathContent? = nil, recording: UUID? = nil,
+                extra: [String: JSONValue] = [:]) {
         self.id = id; self.kind = kind; self.layer = layer; self.frame = frame; self.rotation = rotation; self.z = z
         self.parent = parent; self.rec = rec; self.origin = origin; self.clocks = clocks
         self.text = text; self.blob = blob; self.pixelSize = pixelSize; self.orientation = orientation
         self.crop = crop; self.pageIndex = pageIndex; self.pageSize = pageSize
         self.duration = duration; self.videoRotation = videoRotation; self.codec = codec; self.poster = poster
         self.math = math
+        self.recording = recording
         self.extra = extra
     }
 
@@ -628,6 +635,12 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
              duration: duration, videoRotation: videoRotation == 0 ? nil : videoRotation, codec: codec, poster: poster)
     }
 
+    /// A recording of the note placed on the page (format.md §8.2.9).
+    public static func audio(id: UUID = UUID(), recording: UUID, frame: Rect, z: String,
+                             layer: ItemLayer = .content, rec: RecordingLink? = nil) -> Item {
+        Item(id: id, kind: .audio, layer: layer, frame: frame, z: z, rec: rec, recording: recording)
+    }
+
     /// The `videoRotation` values format.md §8.2.7 allows.
     public static let videoRotations: Set<Int> = [0, 90, 180, 270]
 
@@ -653,6 +666,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         case .pdfPage: return ["blob", "pageIndex", "pageSize", "crop"]
         case .video: return ["blob", "pixelSize", "duration", "videoRotation", "codec", "poster"]
         case .math: return ["math"]
+        case .audio: return ["recording"]
         default: return []
         }
     }
@@ -661,7 +675,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
     /// of every defined kind, plus the snapshot-only `origin` and `clocks`.
     public static let immutableFields: Set<String> = ["id", "kind", "layer", "parent", "rec", "origin", "clocks",
                                                       "blob", "pixelSize", "orientation", "pageIndex", "pageSize",
-                                                      "duration", "videoRotation", "codec"]
+                                                      "duration", "videoRotation", "codec", "recording"]
 
     /// The reason the item is invalid (format.md §8.2), or nil: a common field
     /// out of range, a field of its kind missing or out of range, or a typed
@@ -675,7 +689,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
                                      ("pageIndex", pageIndex != nil), ("pageSize", pageSize != nil),
                                      ("duration", duration != nil), ("videoRotation", videoRotation != nil),
                                      ("codec", codec != nil), ("poster", poster != nil),
-                                     ("math", math != nil)]
+                                     ("math", math != nil), ("recording", recording != nil)]
         for (field, isSet) in set where isSet && !mine.contains(field) {
             return "\(kind) item has no field \(field)"
         }
@@ -698,6 +712,8 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         case .math:
             guard let math else { return "math item without math" }
             if let why = math.validationError { return why }
+        case .audio:
+            guard recording != nil else { return "audio item without recording" }
         default: break
         }
         return nil
@@ -729,6 +745,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         duration = try field("duration", Double.self)
         videoRotation = try field("videoRotation", Int.self)
         codec = try field("codec", String.self)
+        recording = try field("recording", LowercaseUUID.self)?.uuid
         // `poster: null` is a reset register (absent).
         if mine.contains("poster"), c.contains(AnyKey("poster")), try !c.decodeNil(forKey: AnyKey("poster")) {
             poster = try c.decode(BlobRef.self, "poster")
@@ -769,6 +786,7 @@ public struct Item: Hashable, Sendable, Codable, Identifiable {
         try c.encodeIfPresent(codec, "codec")
         try c.encodeIfPresent(poster, "poster")
         try c.encodeIfPresent(math, "math")
+        try c.encodeIfPresent(recording.map(LowercaseUUID.init), "recording")
         try c.encodeExtra(extra, excluding: Self.commonFields.union(Self.kindFields(kind)))
     }
 }
