@@ -13,15 +13,22 @@ struct NotabilityImportSummary: Equatable, Sendable {
     /// Nothing to import was found in what was picked.
     var nothingFound = false
 
+    /// `failures` are (source path, why); only the file name is kept.
+    init(imported: Int, skipped: Int, failed: Int, failures: [(source: String, why: String)], nothingFound: Bool = false) {
+        self.imported = imported
+        self.skipped = skipped
+        self.failed = failed
+        self.failures = failures.map { "\(($0.source as NSString).lastPathComponent): \($0.why)" }
+        self.nothingFound = nothingFound
+    }
+
     init(_ report: NotabilityImporter.ImportReport) {
-        imported = report.imported
-        skipped = report.skipped
-        failed = report.failed
-        nothingFound = report.notes.isEmpty
-        failures = report.notes.compactMap { note in
-            guard case .failed(let why) = note.status else { return nil }
-            return "\((note.source as NSString).lastPathComponent): \(why)"
-        }
+        self.init(imported: report.imported, skipped: report.skipped, failed: report.failed,
+                  failures: report.notes.compactMap { note in
+                      guard case .failed(let why) = note.status else { return nil }
+                      return (note.source, why)
+                  },
+                  nothingFound: report.notes.isEmpty)
     }
 
     var title: String { failed > 0 ? "Import Finished with Errors" : "Notability Import" }

@@ -10,6 +10,7 @@ to its recipient.**
 | `sample.sempere/` | A small vault in the format of `docs/format.md` |
 | `sample.sempere/keys/age1pq-<sha256>.key.age` | The same identity, passphrase-wrapped: passphrase `sempere-test`, scrypt work factor 15 |
 | `legacy.key`, `legacy.sempere/` | The same notes in a **legacy** X25519 vault (classic key, `keys/<recipient>.key.age`, same passphrase): migrate-only (format.md §3.3.2), the input of the migration tests |
+| `notability/synthetic.note` | The importer tests' synthetic Notability note (`SyntheticNote.package()` in `Tests/SempereImportTests`): no personal data. The app's Notability import tests read it |
 
 `*.key` is git-ignored repository-wide; `sample.key` and `legacy.key` were
 added with `git add -f`.
