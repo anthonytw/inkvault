@@ -16,6 +16,9 @@ public enum BackupError: Error, Hashable, Sendable, CustomStringConvertible {
     case targetNotEmpty(String)
     /// The folder holds neither `backup.json` nor `vault.json`.
     case nothingToRestore(String)
+    /// The restore target is, holds or lies inside a folder that must not be
+    /// written to (the vault the caller has open).
+    case protectedTarget(String)
 
     public var description: String {
         switch self {
@@ -25,6 +28,8 @@ public enum BackupError: Error, Hashable, Sendable, CustomStringConvertible {
         case .overlapping(let why): return why
         case .targetNotEmpty(let p): return "\(p) exists and is not empty (and is not an unfinished restore)"
         case .nothingToRestore(let p): return "\(p) holds no backup.json or vault.json"
+        case .protectedTarget(let p):
+            return "\(p) is, holds or is inside the open vault; restore into a new folder elsewhere"
         }
     }
 }
@@ -160,6 +165,53 @@ public struct RestoreReport: Hashable, Sendable {
     public var errors: [BackupReport.FileError] = []
     /// The restored vault's check.
     public var verify: VerifyReport?
+}
+
+/// A backup folder's state, read from its `backup.json` alone (no key, and
+/// no other file is read): when it was last brought up to date and how much
+/// it holds. `Backup.verify` is what checks the files themselves.
+public struct BackupStatus: Encodable, Hashable, Sendable {
+    public var vaultId: String
+    /// The first run into this folder.
+    public var created: Date
+    /// The last run that wrote `backup.json` (every run does, changed or not).
+    public var updated: Date
+    /// Note folders with at least one file in the backup.
+    public var notes: Int
+    /// Files of the vault itself (outside `versions/`) and their bytes.
+    public var files: Int
+    public var bytes: Int
+    /// Previous copies kept under `versions/` and their bytes.
+    public var versionFiles: Int
+    public var versionBytes: Int
+    /// Everything the index records, in bytes.
+    public var totalBytes: Int
+}
+
+/// What restoring from a folder would bring back, read from the files on
+/// disk without a key: shown before anything is written.
+public struct RestorePreview: Encodable, Hashable, Sendable {
+    /// The folder read.
+    public var source: String
+    public var vaultId: String
+    /// True when the folder is a backup (`backup.json`), false for a plain vault folder.
+    public var isBackup: Bool
+    /// The backup's last run (`backup.json`), when it is one.
+    public var backupUpdated: Date?
+    /// Note folders with at least one revision.
+    public var notes: Int
+    public var revisions: Int
+    public var attachments: Int
+    public var keyFiles: Int
+    /// Bytes of every file a restore copies.
+    public var bytes: Int
+    /// The newest revision's time, from its file name's clock (format.md §4):
+    /// the device's clock when it was written, so a device whose clock ran
+    /// ahead can make it lie in the future.
+    public var newestRevision: Date?
+    /// A legacy vault (classic X25519 recipient): restoring it is refused
+    /// until the backup itself is migrated (format.md §3.3.2).
+    public var legacy: Bool
 }
 
 /// What `Backup.writeArchive` wrote.
@@ -606,32 +658,20 @@ public enum Backup {
     /// that does not match is not restored and is reported. `vault.json` is
     /// written last, so an interrupted restore is not mistaken for a vault;
     /// rerunning the same restore resumes it.
-    public static func restore(from backup: URL, to target: URL, identities: [any AgeIdentity] = []) throws
-        -> RestoreReport
+    ///
+    /// - Parameter protecting: folders the restore must not touch (the vault
+    ///   the caller has open): a target that is one of them, lies inside one
+    ///   or holds one throws `BackupError.protectedTarget` before anything is
+    ///   written.
+    public static func restore(from backup: URL, to target: URL, identities: [any AgeIdentity] = [],
+                               protecting: [URL] = []) throws -> RestoreReport
     {
-        guard target.lastPathComponent.hasSuffix(".sempere"), target.lastPathComponent.count > ".sempere".count else {
-            throw VaultError.invalidVaultName(target.lastPathComponent)
-        }
-        guard !overlaps(backup, target) else {
-            throw BackupError.overlapping("the restore target and the backup overlap: \(target.path), \(backup.path)")
-        }
+        let vaultId = try checkRestoreTarget(target, from: backup, protecting: protecting)
         let manifestURL = backup.appendingPathComponent(BackupManifest.fileName)
         let manifest = FileIO.exists(manifestURL) ? try BackupManifest.read(manifestURL) : nil
-        guard manifest != nil || FileIO.exists(backup.appendingPathComponent(Vault.manifestName)) else {
-            throw BackupError.nothingToRestore(backup.path)
-        }
-        let source = try Vault.open(at: backup)   // validates vault.json
-        let vaultId = source.vaultId.uuidString.lowercased()
 
         let marker = target.appendingPathComponent(restoreMarker)
-        if FileIO.exists(marker) {
-            let data = try FileIO.read(marker, maxBytes: BoundedRead.maxSmallFileBytes)
-            let recorded = (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["vaultId"]
-            guard recorded == vaultId else { throw BackupError.targetNotEmpty(target.path) }
-        } else {
-            guard try FileIO.entries(target).filter({ !$0.hasPrefix(".") }).isEmpty else {
-                throw BackupError.targetNotEmpty(target.path)
-            }
+        if !FileIO.exists(marker) {
             try FileIO.createDirectory(target)
             try FileIO.writeAtomically(Data("{\"vaultId\": \"\(vaultId)\"}\n".utf8), to: marker, replacing: true)
         }
@@ -674,6 +714,112 @@ public enum Backup {
             report.verify = restored.verify()
         }
         return report
+    }
+
+    /// Checks that `backup` can be restored into `target` without writing
+    /// anything: `target` ends in `.sempere`, overlaps neither `backup` nor
+    /// any of `protecting`, and is new, empty or an unfinished restore of the
+    /// same vault; `backup` holds a backup or a vault. Returns the vault id.
+    ///
+    /// - Throws: `VaultError.invalidVaultName`, `BackupError.overlapping`,
+    ///   `.protectedTarget`, `.nothingToRestore`, `.targetNotEmpty`, or what
+    ///   opening `backup`'s `vault.json` throws.
+    @discardableResult
+    public static func checkRestoreTarget(_ target: URL, from backup: URL, protecting: [URL] = []) throws -> String {
+        guard target.lastPathComponent.hasSuffix(".sempere"), target.lastPathComponent.count > ".sempere".count else {
+            throw VaultError.invalidVaultName(target.lastPathComponent)
+        }
+        if protecting.contains(where: { overlaps($0, target) }) {
+            throw BackupError.protectedTarget(target.path)
+        }
+        guard !overlaps(backup, target) else {
+            throw BackupError.overlapping("the restore target and the backup overlap: \(target.path), \(backup.path)")
+        }
+        guard FileIO.exists(backup.appendingPathComponent(BackupManifest.fileName))
+                || FileIO.exists(backup.appendingPathComponent(Vault.manifestName)) else {
+            throw BackupError.nothingToRestore(backup.path)
+        }
+        let vaultId = try Vault.open(at: backup).vaultId.uuidString.lowercased()   // validates vault.json
+        let marker = target.appendingPathComponent(restoreMarker)
+        if FileIO.exists(marker) {
+            let data = try FileIO.read(marker, maxBytes: BoundedRead.maxSmallFileBytes)
+            let recorded = (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["vaultId"]
+            guard recorded == vaultId else { throw BackupError.targetNotEmpty(target.path) }
+        } else if try !FileIO.entries(target).filter({ !$0.hasPrefix(".") }).isEmpty {
+            throw BackupError.targetNotEmpty(target.path)
+        }
+        return vaultId
+    }
+
+    // MARK: - Status and preview
+
+    /// `a + b`, clamped at `Int.max` (sizes come from files that may be hostile).
+    static func saturatingAdd(_ a: Int, _ b: Int) -> Int {
+        let (sum, overflow) = max(a, 0).addingReportingOverflow(max(b, 0))
+        return overflow ? Int.max : sum
+    }
+
+    /// The state of the backup folder `dir` from its `backup.json`: last
+    /// run, notes, files and bytes. Reads nothing else and needs no key.
+    ///
+    /// - Throws: `BackupError.notABackupDirectory` without a `backup.json`,
+    ///   `.manifestUnreadable` for one that cannot be read.
+    public static func status(at dir: URL) throws -> BackupStatus {
+        let manifestURL = dir.appendingPathComponent(BackupManifest.fileName)
+        guard FileIO.exists(manifestURL) else { throw BackupError.notABackupDirectory(dir.path) }
+        let m = try BackupManifest.read(manifestURL)
+        var s = BackupStatus(vaultId: m.vaultId, created: m.created, updated: m.updated, notes: 0, files: 0, bytes: 0,
+                             versionFiles: 0, versionBytes: 0, totalBytes: 0)
+        var notes = Set<Substring>()
+        for (path, entry) in m.files {
+            if path.hasPrefix(versionsName + "/") {
+                s.versionFiles += 1
+                s.versionBytes = saturatingAdd(s.versionBytes, entry.size)
+                continue
+            }
+            s.files += 1
+            s.bytes = saturatingAdd(s.bytes, entry.size)
+            let parts = path.split(separator: "/")
+            if parts.count >= 3, parts[0] == Vault.notesName[...] { notes.insert(parts[1]) }
+        }
+        s.notes = notes.count
+        s.totalBytes = saturatingAdd(s.bytes, s.versionBytes)
+        return s
+    }
+
+    /// What `restore(from: dir, …)` would bring back, from the files in
+    /// `dir` (a backup folder, or any vault folder) without a key: notes,
+    /// revisions, attachments, bytes and the newest revision's time. Reads
+    /// `vault.json` and `backup.json`, and only lists the rest.
+    ///
+    /// - Throws: `BackupError.nothingToRestore` for a folder that holds
+    ///   neither file, `.manifestUnreadable`, or what opening `vault.json` throws.
+    public static func preview(of dir: URL) throws -> RestorePreview {
+        let manifestURL = dir.appendingPathComponent(BackupManifest.fileName)
+        guard FileIO.exists(manifestURL) || FileIO.exists(dir.appendingPathComponent(Vault.manifestName)) else {
+            throw BackupError.nothingToRestore(dir.path)
+        }
+        let manifest = FileIO.exists(manifestURL) ? try BackupManifest.read(manifestURL) : nil
+        let vault = try Vault.open(at: dir)
+        var p = RestorePreview(source: dir.path, vaultId: vault.vaultId.uuidString.lowercased(),
+                               isBackup: manifest != nil, backupUpdated: manifest?.updated, notes: 0, revisions: 0,
+                               attachments: 0, keyFiles: 0, bytes: 0, newestRevision: nil, legacy: vault.isLegacy)
+        var notes = Set<Substring>()
+        var newest: Int64?
+        for path in try formatFiles(in: dir) {
+            p.bytes = saturatingAdd(p.bytes, fileSize(url(dir, path)) ?? 0)
+            let parts = path.split(separator: "/")
+            if parts.first == Vault.keysName[...] { p.keyFiles += 1; continue }
+            guard parts.count >= 3, parts[0] == Vault.notesName[...] else { continue }
+            if isBlobPath(path) { p.attachments += 1; continue }
+            guard let name = RevisionName(String(parts[2])) else { continue }
+            p.revisions += 1
+            notes.insert(parts[1])
+            newest = max(newest ?? name.hlc.millis, name.hlc.millis)
+        }
+        p.notes = notes.count
+        p.newestRevision = newest.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+        return p
     }
 
     // MARK: - Archive
