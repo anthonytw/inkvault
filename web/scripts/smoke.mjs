@@ -50,7 +50,7 @@ for (const mount of ["static", "dav"]) {
   await page.fill("input[type=url]", `${base}/${mount}/`);
   await page.click("form button[type=submit]");
   await page.fill("textarea", key);
-  await page.click("form button[type=submit]");
+  await page.click("form:has(textarea) button[type=submit]");
   await page.waitForFunction(() => /\d+ notes?( ·|$)/.test(document.querySelector(".status")?.textContent ?? ""), null, { timeout: 30000 });
   const status = await page.textContent(".status");
   const titles = await page.$$eval(".note-list .title", (els) => els.map((e) => e.textContent));
