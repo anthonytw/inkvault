@@ -334,16 +334,16 @@ final class BlobStoreTests: VaultTestCase {
                         { _ = try newer.writeBlob(note: testNote, Data("z".utf8), type: "image/png") },
                         { try newer.copyBlob(ref, from: testNote, to: otherNote) }] as [() throws -> Void] {
             XCTAssertThrowsError(try attempt()) {
-                XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+                XCTAssertEqual($0 as? VaultError, .readOnly(ReadOnlyReasons(unknownFeatures: ["holograms"])))
             }
         }
         // Compaction deletes revisions, which is writing too.
         XCTAssertThrowsError(try newer.compact(noteId: testNote, retention: 0)) {
-            XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+            XCTAssertEqual($0 as? VaultError, .readOnly(ReadOnlyReasons(unknownFeatures: ["holograms"])))
         }
         var changing = newer
         XCTAssertThrowsError(try changing.addRecipient(pqIdentity().recipient, label: "x")) {
-            XCTAssertEqual($0 as? VaultError, .unsupportedFeatures(["holograms"]))
+            XCTAssertEqual($0 as? VaultError, .readOnly(ReadOnlyReasons(unknownFeatures: ["holograms"])))
         }
     }
 

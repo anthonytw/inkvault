@@ -48,6 +48,7 @@ The code mirrors the Swift reader and is tested against it (see "Tests").
 | text lines: stored `breaks`, line metrics, alignment, direction (§8.5.3) | `web/src/render/text.ts` | `TextLayout.swift` |
 | PDF pages (§8.2.6) | pdf.js 6.4.299 (`web/src/ui/pdf.ts`) | `SemperePDF`, Poppler / PDFKit |
 | transcripts (§8.3.2) | `web/src/format/transcript.ts` | `Transcript` |
+| newer format versions: `sempere/<major>`, revision markers, lenient decoding of newer revisions, bounded report (§7) | `web/src/format/newer.ts`, `model.ts`, `vault.ts` | `NewerContent.swift`, `Revision.swift` |
 
 Typage 0.3.1 implements the age v1.3 hybrid recipient (`mlkem768x25519`,
 HPKE with X-Wing) with `@noble/post-quantum`; the viewer has no cryptography
@@ -57,6 +58,16 @@ Unreadable revisions (wrong tag, undecryptable, undecodable) are reported in
 the note view and the list ("N unreadable revisions", a "Problems" filter);
 the note is shown merged from the rest, marked as such (§4: report, never
 silently drop).
+
+A vault of a later format version (`sempere/2`, unknown `features`) opens
+like any other, and the status line says it was written partly by a newer
+Sempere (the reasons in its tooltip). In a revision marked newer (§7.4)
+unknown ops and fields and undecodable snapshot elements are skipped; the note
+view says what was skipped, the list marks the note "newer version", and a
+revision with a later body version is reported as written by a newer
+version. The viewer never writes, so it needs nothing else to be read-only
+(§7.3). `test/newer.test.ts` checks this against the committed
+`newer.sempere` fixture and its CLI export (`test/golden/newer`).
 
 ## Attachments
 

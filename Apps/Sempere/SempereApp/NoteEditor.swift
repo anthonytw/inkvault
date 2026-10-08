@@ -223,6 +223,10 @@ final class NoteEditor {
         var readings: [HLC]
         /// Every revision file name read or failed, sorted.
         var names: [String]
+        /// What a newer version wrote in this note (format.md §7.4).
+        var newer: NewerContent?
+        /// Why the vault is read-only, as of this read (format.md §7.3).
+        var vaultReadOnly: ReadOnlyReasons
     }
 
     /// Loads and reconstructs a note off the main actor. A note with
@@ -323,15 +327,31 @@ final class NoteEditor {
             let names = (loaded.revisions.map(\.name.filename) + loaded.failures.keys.map(\.filename)).sorted()
             return Loaded(state: state, failures: loaded.failures.count,
                           nextSeq: Vault.nextSeq(from: loaded.revisions, device: device),
-                          readings: loaded.revisions.map(\.hlc), names: names)
+                          readings: loaded.revisions.map(\.hlc), names: names, newer: loaded.newer,
+                          vaultReadOnly: vault.readOnlyReasons)
         }.value
     }
 
     /// Why a note in Recently Deleted cannot be edited.
     static let deletedReason = String(localized: "This note is in Recently Deleted.") // compared by value, so one string for the process
 
+    /// Why the note is read-only because of content a newer version wrote, in
+    /// the note or anywhere in the vault (format.md §7.3); nil when none was seen.
+    private static func newerReason(_ loaded: Loaded) -> String? {
+        if let newer = loaded.newer {
+            return "Parts of this note were written by a newer version of Sempere (\(newer.summary)). "
+                + "It is shown as far as this version understands it, read-only: update Sempere to edit it."
+        } else if !loaded.vaultReadOnly.isEmpty {
+            return AppModel.readOnlyText(loaded.vaultReadOnly)
+        }
+        return nil
+    }
+
     private static func readOnlyReason(_ loaded: Loaded) -> String? {
-        if loaded.failures > 0 {
+        // A newer version's content first: it is why other revisions may be unreadable (format.md §7.4).
+        if let reason = newerReason(loaded) {
+            return reason
+        } else if loaded.failures > 0 {
             let count = loaded.failures
             return String(localized: "\(count) revisions of this note could not be read, so it opens read-only.")
         } else if loaded.state.deleted {
@@ -1039,6 +1059,12 @@ extension NoteEditor {
                                              coordinated: coordinated, verify: verify)
             await clock.observe(loaded.readings)
             guard !isShutDown else { return .skipped }
+            if let reason = Self.newerReason(loaded) {
+                // A newer version wrote to this note (or the vault) meanwhile: from now on this
+                // editor writes nothing (format.md §7.3). Its own ink was saved above.
+                readOnlyReason = reason
+                writer = nil
+            }
             guard loaded.failures == 0 else { return .unreadable }
             await writer?.raiseNextSeq(to: loaded.nextSeq)
             guard !isShutDown else { return .skipped }

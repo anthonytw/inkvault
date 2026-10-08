@@ -154,6 +154,7 @@ extension AppModel {
     /// on its recording (checked against the note on disk at write time).
     func storeTranscript(_ transcript: Transcript, note: UUID) async throws -> BlobRef {
         guard let vault, let clock = try? deviceClockForWriting() else { throw ModelError.noVaultOpen }
+        try requireWritableVault()   // format.md §7.3
         let content = try transcript.encoded()
         let ref = BlobRef(content: content, type: BlobRef.transcriptType)
         if let prepare = blobWritePreparer(note: note) { try await prepare(ref) }

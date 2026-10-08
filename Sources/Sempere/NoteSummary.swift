@@ -46,6 +46,9 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var lang: String?
     /// Marker strokes drawn below content items (format.md §5.4).
     public var markersBehindText = false
+    /// What the note holds that a newer version wrote, and what could not be
+    /// shown (format.md §7.4); nil when nothing. The vault is then read-only.
+    public var newer: NewerContent?
 
     public init(id: UUID, title: String, tags: [String], notebook: String?, deleted: Bool, pages: Int,
                 strokes: Int, modified: Date?, problem: String?) {
@@ -198,6 +201,7 @@ extension Vault {
         if !loaded.failures.isEmpty {
             s.problem = "\(loaded.failures.count) unreadable revision(s)"
         }
+        s.newer = loaded.newer
         do {
             let state = try NoteReducer.reconstruct(loaded.revisions)
             s.title = state.meta.title

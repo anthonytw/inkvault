@@ -252,6 +252,7 @@ extension AppModel {
         defer { editGate.release() }
         guard let vault else { throw ModelError.noVaultOpen }
         guard vault.canRead else { throw vault.isLocked ? VaultError.locked : VaultError.noIdentities }
+        try requireWritableVault()   // format.md §7.3
         let clock = try deviceClockForWriting()
         isEditing = true
         defer { isEditing = false }

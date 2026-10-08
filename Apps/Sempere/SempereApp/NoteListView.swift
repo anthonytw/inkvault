@@ -82,18 +82,18 @@ struct NoteListView: View {
                     Button("Recognize \(waiting) Notes Now", systemImage: "wand.and.stars") {
                         model.startRecognizingNotes()
                     }
-                    .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil)
+                    .disabled(waiting == 0 || model.recognizer == nil || model.recognitionProgress != nil || model.isVaultReadOnly)
                     Text("Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it.")
                 }
             }
             ToolbarItem(placement: secondary) {
                 Button("Import PDF…", systemImage: "doc.richtext") { ui.importingPDF = true }
-                    .disabled(model.phase != .unlocked)
+                    .disabled(model.phase != .unlocked || model.isVaultReadOnly)
                     .help("Make a note from a PDF: one page per PDF page, to write on")
             }
             ToolbarItem {
                 Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
-                    .disabled(model.phase != .unlocked)
+                    .disabled(model.phase != .unlocked || model.isVaultReadOnly)
             }
         }
         .fileImporter(isPresented: $ui.importingPDF, allowedContentTypes: [.pdf]) { result in
@@ -169,8 +169,20 @@ struct NoteListView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if model.sidebarSelection == .recentlyRecognized {
-                RecognitionResultsHeader(results: model.recognitionResults, running: model.recognitionProgress != nil)
+            VStack(spacing: 0) {
+                if let banner = model.readOnlyBanner {
+                    // A vault of a newer format version (format.md §7.3): shown, never changed.
+                    Label(banner, systemImage: "lock")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                        .padding(.vertical, 6)
+                        .background(.bar)
+                }
+                if model.sidebarSelection == .recentlyRecognized {
+                    RecognitionResultsHeader(results: model.recognitionResults, running: model.recognitionProgress != nil)
+                }
             }
         }
     }
