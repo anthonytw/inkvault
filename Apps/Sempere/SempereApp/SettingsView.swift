@@ -285,6 +285,7 @@ private struct TranscriptionSettingsSection: View {
     @State private var enabled = TranscriptionSettings.isEnabled()
     @State private var locale = TranscriptionSettings.localeIdentifier()
     @State private var status = TranscriptionSettings.ModelStatus.unavailable
+    @State private var engines: [TranscriptionSettings.EngineLine] = []
     @State private var downloading = false
     @State private var failure: String?
 
@@ -301,6 +302,13 @@ private struct TranscriptionSettingsSection: View {
                 }
                 .onChange(of: locale) { TranscriptionSettings.setLocaleIdentifier(locale) }
                 LabeledContent("Language Model", value: status.text)
+                LabeledContent("Engine in Use", value: engines.first(where: \.isUsed)?.title
+                               ?? String(localized: "None available", comment: "Settings ▸ Transcription: no speech engine can transcribe the chosen language"))
+                ForEach(engines, id: \.title) { engine in
+                    LabeledContent(engine.title, value: engine.state)
+                        .font(.footnote)
+                        .foregroundStyle(engine.available ? Color.primary : Color.secondary)
+                }
                 if TranscriptionSettings.offersDownload(status, hasDownloader: TranscriptionSettings.downloader != nil) {
                     Button(LocalizedStringKey(downloading ? "Downloading…" : "Download Language Model")) { Task { await download() } }
                         .disabled(downloading)
@@ -321,6 +329,7 @@ private struct TranscriptionSettingsSection: View {
     private func refresh() async {
         guard enabled else { return }
         status = await TranscriptionSettings.statusProvider(locale)
+        engines = await TranscriptionSettings.enginesProvider(locale)
     }
 
     private func download() async {

@@ -214,6 +214,18 @@ enum TranscriptionSettings {
     /// The transcription feature installs the real lookup at launch; until
     /// then the Settings panel shows `unavailable`.
     @MainActor static var statusProvider: @Sendable (String?) async -> ModelStatus = { _ in .unavailable }
+    /// One speech engine as the panel lists it: its name, what it says for the chosen language, and
+    /// whether transcription would use it (the first available one, as `SpeechTranscription.transcribe` tries them).
+    struct EngineLine: Equatable, Sendable {
+        var title: String
+        var state: String
+        var available: Bool
+        var isUsed: Bool
+    }
+
+    /// Asks the engines for their status for a locale (nil: the device's), for the panel's engine list.
+    @MainActor static var enginesProvider: @Sendable (String?) async -> [EngineLine] = { _ in [] }
+
     /// Starts downloading the model; nil when no engine is installed
     /// (`TranscriptionPreference.installSettingsHooks` sets it at launch).
     @MainActor static var downloader: (@Sendable (String?) async throws -> Void)?

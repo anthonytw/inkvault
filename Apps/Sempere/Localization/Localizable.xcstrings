@@ -2907,6 +2907,78 @@
         }
       }
     },
+    "Available" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible"
+          }
+        }
+      }
+    },
+    "Available, asks for permission on first use" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, pide permiso la primera vez"
+          }
+        }
+      }
+    },
+    "Available, but speech recognition is not allowed" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, pero el reconocimiento de voz no está permitido"
+          }
+        }
+      }
+    },
+    "Available, language model downloads on first use" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, el modelo de idioma se descarga al usarlo por primera vez"
+          }
+        }
+      }
+    },
+    "Available, language model installed" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, modelo de idioma instalado"
+          }
+        }
+      }
+    },
+    "Available, permission granted" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, permiso concedido"
+          }
+        }
+      }
+    },
     "Back Up Now" : {
       "comment" : "Settings ▸ Backups: button",
       "extractionState" : "manual",
@@ -5083,6 +5155,18 @@
         }
       }
     },
+    "Engine in Use" : {
+      "comment" : "Settings ▸ Transcription: the speech engine transcription would use",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Motor en uso"
+          }
+        }
+      }
+    },
     "Equation" : {
       "comment" : "Insert menu section",
       "extractionState" : "manual",
@@ -6559,6 +6643,18 @@
         }
       }
     },
+    "Language not supported" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma no admitido"
+          }
+        }
+      }
+    },
     "Large" : {
       "comment" : "Object eraser size",
       "extractionState" : "manual",
@@ -7501,6 +7597,18 @@
         }
       }
     },
+    "No on-device model for this language" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin modelo en el dispositivo para este idioma"
+          }
+        }
+      }
+    },
     "No pages" : {
       "comment" : "Page counter in the Pages menu when the note has none",
       "extractionState" : "manual",
@@ -7577,6 +7685,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ninguno"
+          }
+        }
+      }
+    },
+    "None available" : {
+      "comment" : "Settings ▸ Transcription: no speech engine can transcribe the chosen language",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ninguno disponible"
           }
         }
       }
@@ -10798,6 +10918,18 @@
         }
       }
     },
+    "SFSpeechRecognizer (on device)" : {
+      "comment" : "Settings ▸ Transcription: the older speech engine (a product name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SFSpeechRecognizer (en el dispositivo)"
+          }
+        }
+      }
+    },
     "Same as Device" : {
       "comment" : "Settings ▸ Transcription ▸ Language: use the device's language",
       "extractionState" : "manual",
@@ -11740,6 +11872,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Espaciado"
+          }
+        }
+      }
+    },
+    "SpeechTranscriber (on device)" : {
+      "comment" : "Settings ▸ Transcription: the speech engine of iPadOS 26 (a product name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpeechTranscriber (en el dispositivo)"
           }
         }
       }
