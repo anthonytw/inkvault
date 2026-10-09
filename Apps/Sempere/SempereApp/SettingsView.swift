@@ -20,6 +20,7 @@ struct SettingsView: View {
             ScrollViewReader { proxy in
                 Form {
                     GeneralSettings()
+                    AppIconSettingsSection()
                     NewNoteSettingsSection()
                     RecordingSettingsSection()
                     TranscriptionSettingsSection()
