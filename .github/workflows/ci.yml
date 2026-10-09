@@ -357,6 +357,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Smoke test (cache and config.json, Chromium)
         run: node scripts/smoke-cache.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
+      - name: Smoke test (no sideways pan unless zoomed in, top level and iframe, Chromium)
+        run: node scripts/smoke-pan.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
       # Passphrase-wrapped keys (scrypt in the key worker, under the CSP and Trusted Types) and transcript search.
       - name: Smoke test (passphrase keys and transcript search, Chromium)
         run: node scripts/smoke-search-keys.mjs

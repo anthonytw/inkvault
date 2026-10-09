@@ -36,7 +36,10 @@ What it does:
   transcripts").
 - **Read** a note: pages stacked vertically, or one tall infinite page, with
   pan and zoom (wheel or trackpad, Ctrl/⌘-wheel or pinch to zoom, drag,
-  arrow keys, `+` `-` `0` `1`). Paper (every kind of §5.4.2, page-level paper,
+  arrow keys, `+` `-` `0` `1`). Panning sideways is possible only while the page at the
+  current zoom is wider than the viewport; a note that fits stays centred, so
+  scrolling it with a trackpad or a finger (also in an iframe) only moves it
+  vertically (`web/scripts/smoke-pan.mjs`). Paper (every kind of §5.4.2, page-level paper,
   unknown kinds drawn blank) and ink are drawn by a port of `SempereRender`, so
   a page in the viewer is the SVG that `sempere export --format svg` writes.
 - **Attachments** (§8, "Attachments" below): images, text boxes and PDF pages
