@@ -25,7 +25,7 @@ working state.
 | Crypto | age v1: X25519, scrypt, armor, STREAM; CCTV vectors | ✅ |
 | Crypto | Post-quantum ML-KEM-768 + X25519 recipients; vaults post-quantum only, legacy vaults open only to migrate | ✅ #33 |
 | Crypto | Streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt (B1) | ✅ #43 |
-| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations (signed, Ed25519 + ML-DSA-65, ✅ #115), per-device trust records (public keys only, ✅ #115); writes, rewraps and capture profiles refuse a tampered list; repair and confirm; untagged vaults tagged by their first writer | ✅ #98 |
+| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations (signed, Ed25519 + ML-DSA-65, ✅ #115), per-device trust records (public keys only, ✅ #115); writes, rewraps and capture profiles refuse a tampered list; repair and confirm (in the app too, with the keys to keep chosen by the user, ✅ #135); untagged vaults tagged by their first writer | ✅ #98 |
 | Crypto | Asymmetric hybrid `secretLink` (security review R2, `format.md` §2.1): Ed25519 + ML-DSA-65 signatures by keys derived from the outgoing secret, both must verify; trust records `sempere-trust/2` hold only the public keys, a legacy `sempere-trust/1` record is replaced at the first write; shared vectors (`Fixtures/secret-link-vectors.json`) mirrored in the web viewer | ✅ #115 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
@@ -108,7 +108,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | ✅ #98 | ✅ #98 |
 | Signed secret links (`format.md` §2.1, security review R2): `secretLink` = Ed25519 + ML-DSA-65 signatures, trust records hold public keys only; `vault link [status]` and `vault link upgrade` (one-time migration, `--json`); the app upgrades after unlock | ✅ #115 | ✅ #115 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
-| `backup status DIR` (last run, notes, files, bytes from `backup.json`), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | ✅ #110 | ✅ #110 |
+| `backup status DIR` (last run, notes, files, bytes from `backup.json`; `--max-age DAYS` exits 3 when no run completed in DAYS days, ✅ #135), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | ✅ #110 | ✅ #110 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | ✅ #26 | ✅ #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | ✅ #60 | ✅ #60 |
@@ -210,7 +210,7 @@ behaviour and testing on a real Mac.
 | Multiple windows (one note per window), state restoration | ✅ #46 (`docs/mac.md`); note windows checked on Catalyst in CI; restoration needs a hand test; double-click opens a window ✅ #101 |
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): ✅ #109 (not yet tried on a Mac) |
-| Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
+| Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99; replace a device key ✅ #135 |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) 🚧 #123 |
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
@@ -249,8 +249,8 @@ Existing rows were not touched.
 | Recording | Live transcript while recording; faded ink playback mode | L | GA-12 | 💡 |
 | Mac | Shortcuts for item actions and recording; Note menu entries for toolbar-only commands | M | GA-13, GA-14 | 📋 |
 | iPhone | Page layout switch, page duplicate/delete/add-after, insert PDF at page, thumbnail strip, swipe to turn pages | M | GA-15, GA-16 | 📋 |
-| Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) | M | GA-17 | 📋 |
-| Backup | CLI reminder (overdue check) for the app's "Remind Me" | S | GA-18 | 📋 |
+| Keys | Recipient `repair --keep` and replace-recipient in the app: the alert's Choose Devices to Keep… and the key window's Replace… | M | GA-17 | ✅ #135 |
+| Backup | CLI reminder (overdue check) for the app's "Remind Me": `backup status --max-age DAYS` (exit 3), `backup.json` records the last complete run; `--prune`/`--archive` stay CLI-only (`docs/cli.md` "The app's Backups") | S | GA-18 | ✅ #135 |
 | Math | Ship a handwriting model: pick one, settle the training-data question, pin the manifest hash (then `network.client` for the Mac build and the privacy answers) | L | GA-22, GA-40 | 💡 (needs the maintainer) |
 | Capture | Mac menu-bar item for quick capture; adopting captures from a key that no longer verifies | M / L | GA-23, GA-24 | 💡 |
 | Web viewer | Ink linked to audio (`rec`) and search highlights | M | GA-25, GA-26 | 📋 |

@@ -675,7 +675,8 @@ would make readers drop the new delta).
 `notes/<id>/att/<blob>`;
 nothing else) with the same atomic-write helper, then reads each copy back
 and compares SHA-256. The backup folder is a vault plus `backup.json`
-(`format: sempere-backup/1`, `vaultId`, and `files`: path → `sha256`, `size`)
+(`format: sempere-backup/1`, `vaultId`, `created`, `updated`, `completed`,
+and `files`: path → `sha256`, `size`)
 and `versions/<UTC time>/` (previous copies of files a run replaced or, for
 the journal, removed). Revisions are copied first and `vault.json` last, so a
 run cut short never leaves a manifest newer than its notes; `restore` writes
@@ -689,7 +690,12 @@ does for deletions. The tar writer is POSIX ustar (names up to 255 bytes via
 the prefix field); the archive is verified with a small reader before it is
 renamed into place.
 
-`Backup.status` reads `backup.json` alone (last run, notes, files, bytes,
+`updated` is written by every run (also one with file errors, and the
+periodic saves of one cut short); `completed`, optional, only at the end of a
+run without a file error, so it is what an overdue check counts from (readers
+of folders written before it existed see none, and a run of an older version,
+which rewrites `backup.json` without it, drops it until the next complete run). `Backup.status` reads
+`backup.json` alone (last run, last complete run, notes, files, bytes,
 sizes summed with saturation since the index may be hostile);
 `Backup.preview` lists a backup or vault folder without a key (notes,
 revisions, attachments, bytes, newest revision from the file names' clocks);
@@ -733,7 +739,11 @@ maps each control to its command.
   after the reminder was switched on when there is none, but never sooner than
   an hour from now. It is rescheduled after every backup, every change of the
   setting and every unlock; Settings shows an overdue backup in red even when
-  notifications are not allowed. The text names the vault, never a note.
+  notifications are not allowed. The text names the vault, never a note. The
+  due rule is `BackupSchedule` (core), shared with `sempere backup status
+  --max-age`, which counts from `backup.json`'s `completed` instead of this
+  device's record; a last backup dated more than a day ahead of the clock
+  counts as overdue.
 - **Restore from Backup** (Settings, and the welcome screen when no vault is
   open): pick a backup folder, a folder holding one, or any vault folder
   (`BackupLocation.restoreSource`); the sheet shows `Backup.preview` (notes,

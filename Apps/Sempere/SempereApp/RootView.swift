@@ -210,7 +210,14 @@ struct RootView: View {
                 }
             }
             if model.recipientsAlert?.canChoose == true {
-                Button("Choose Devices to Keep…") { repairChoice = model.recipientsRepairChoice() }
+                Button("Choose Devices to Keep…") {
+                    // Taken now (the alert's dismissal clears it); shown once the alert is gone.
+                    let choice = model.recipientsRepairChoice()
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(400))
+                        repairChoice = choice
+                    }
+                }
             }
             Button("Cancel", role: .cancel) { model.dismissRecipientsAlert() }
         } message: {

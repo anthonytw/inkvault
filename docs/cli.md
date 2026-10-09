@@ -167,9 +167,10 @@ sempere keys paper --out KIT.pdf [--identity FILE] [--vault V] [--passphrase [--
   whatever the file name, so the hash-named key files of post-quantum recipients
   (`age1pq-<64 hex>.key.age`) are included.
 
-**The app's key actions and the CLI.** Settings → Device Keys in the app
-does the same with the same code (`IdentityFile.render`, `RecoveryKit`,
-`Vault.addRecipient`):
+**The app's key actions and the CLI.** Settings → Device Keys, the Vault
+Keys window and the recipients alert in the app do the same with the same
+code (`IdentityFile.render`, `RecoveryKit`, `Vault.addRecipient`,
+`replaceRecipient`, `repairRecipients`, `confirmRecipients`):
 
 | App | CLI |
 | --- | --- |
@@ -177,6 +178,19 @@ does the same with the same code (`IdentityFile.render`, `RecoveryKit`,
 | Save Key… → Print Recovery Kit / Save as PDF | `sempere keys paper --identity key.txt --vault V --out kit.pdf` |
 | New Key… (label) | `sempere keys generate --out new.txt`, then `sempere vault recipients add --vault V "$(sempere keys show new.txt)" --label LABEL` |
 | New Key… → Save to Files / Share / Recovery Kit | `new.txt` itself; `sempere keys paper --identity new.txt --vault V --out kit.pdf` |
+| Vault Keys → Replace… (paste a public key, or generate one) | `sempere vault recipients replace --vault V OLD NEW [--label LABEL]` (`sempere keys generate --out new.txt` first to generate) |
+| Recipients alert → Remove | `sempere vault recipients repair --vault V` |
+| Recipients alert → Choose Devices to Keep… | `sempere vault recipients repair --vault V --keep KEY ...` |
+| Recipients alert → Trust This List | `sempere vault recipients confirm --vault V` |
+
+The app adds two rules to the CLI's `repair --keep`, since a wrong pick
+cannot be undone from the device that made it: the key the app unlocked with
+is always kept (and a repair is refused when that key is in neither the list
+nor this device's record), and keeping a key this device never confirmed asks
+for the owner check first (Face ID, Touch ID or the passcode), as adding a key does. Replace… refuses the key
+the app unlocked with (add a key for this device, unlock with it, then remove
+the old one): replacing it would lock the app out, and an interrupted replace
+of it can only be finished with both keys.
 
 The app's key file is the CLI's (`age-keygen` style: `# created`, `# public
 key`, the `AGE-SECRET-KEY-PQ-1…` line), named `Sempere key - <label>.txt`.
@@ -621,7 +635,7 @@ however many cards show it.
 sempere backup [V] --to DIR [--prune] [--checksum]
 sempere backup [V] --archive FILE.tar
 sempere backup verify DIR [--identity FILE]
-sempere backup status DIR
+sempere backup status DIR [--max-age DAYS]
 sempere restore DIR --to NEWPATH.sempere [--identity FILE] [--dry-run]
 ```
 
@@ -677,11 +691,25 @@ for `--prune` and for a full `verify`.
   statuses `ok`, `missing`, `modified`, `unindexed`, plus the vault check's
   problem statuses).
 - `backup status DIR` reads `DIR/backup.json` only (no key, no other file)
-  and prints the vault id, the first (`created`) and last (`updated`) run, and
-  the `notes`, `files` and `bytes` it records, previous copies under
-  `versions/` apart (`versionFiles`, `versionBytes`; `totalBytes` is both).
-  It checks nothing: `backup verify` does. Exit 0, or 1 when `DIR` is not a
-  backup or its `backup.json` cannot be read. `--json` emits those fields.
+  and prints the vault id, the first (`created`) and last (`updated`) run, the
+  last run that finished without a file error (`completed`; absent, or
+  `never` in text, until one does, and in folders written before this field
+  existed), and the `notes`, `files` and `bytes` it records, previous copies
+  under `versions/` apart (`versionFiles`, `versionBytes`; `totalBytes` is
+  both). `updated` moves with every run, failed or cut short ones too, so
+  only `completed` says a backup worked. It checks nothing: `backup verify`
+  does. Exit 0, or 1 when `DIR` is not a backup or its `backup.json` cannot
+  be read. `--json` emits those fields.
+- `backup status DIR --max-age DAYS` (1 to 3650) is the app's "Remind Me"
+  for scripts: the backup is overdue when no run completed in the last DAYS
+  days, counted from `completed`, else from `created` (a folder whose runs
+  all failed, or one written before `completed` existed, is overdue DAYS
+  days after its first run: one complete run clears it). A `completed` more
+  than a day in the future (a clock that ran ahead, an edited file) counts as
+  overdue rather than postponing the check. Overdue exits 3 and prints
+  `OVERDUE` on the `due` line; `--json` adds `maxAgeDays`, `due` and
+  `overdue`. The rule is the app's (`BackupSchedule`), with "last complete
+  run" for the app's "last backup".
 - `restore DIR --to NEWPATH` copies `vault.json`, `keys/` and `notes/` (not
   `versions/` or `backup.json`) into a new or empty folder ending in
   `.sempere`, checking every file against `backup.json`; a file that does not
@@ -706,11 +734,14 @@ A backup run is cheap when nothing changed (it lists and compares sizes), so
 run it often. Use absolute paths; no key is needed (do not put one in a
 scheduled job unless you use `--prune`).
 
-cron (Linux, macOS), every hour, plus a weekly check:
+cron (Linux, macOS), every hour, plus a weekly check and a daily reminder
+when no run has completed for a week (cron mails what a job prints, so only
+an overdue backup produces mail):
 
 ```cron
 0 * * * *  /usr/local/bin/sempere backup /home/me/Sync/notes.sempere --to /mnt/backup/notes -q
 30 3 * * 0 /usr/local/bin/sempere backup verify /mnt/backup/notes -q
+0 9 * * *  /usr/local/bin/sempere backup status /mnt/backup/notes --max-age 7 >/dev/null || echo "notes: no complete backup for 7 days"
 ```
 
 launchd (macOS), `~/Library/LaunchAgents/io.github.anthonytw.sempere-backup.plist`,
@@ -780,10 +811,21 @@ CLI can each continue the other's folder, and everything above applies.
 | Last Backup, Contents | `backup status DIR` |
 | Restore from Backup: preview | `restore DIR --to NEW --dry-run` |
 | Restore from Backup | `restore DIR --to NEW` (never into the open vault) |
-| Remind Me | a scheduled job (above) |
+| Remind Me | `backup status DIR --max-age DAYS` (exit 3 when overdue) in a scheduled job (below) |
 
 The app never prunes (`--prune`) and does not write tar archives
-(`--archive`): do those with the CLI.
+(`--archive`): do those with the CLI. On purpose (gap audit GA-18):
+
+- **`--prune`** deletes revisions from the backup once the vault has
+  compacted them away. Keeping them is what a backup is for: it is the only
+  copy of history that thinning (the app's, or `compact --thin-older-than`)
+  or a mistaken compaction removed, and nothing in the app can bring that back.
+  The cost is space in the backup folder only. Whoever wants the backup to
+  shrink with the vault decides it once, with the key, in the CLI.
+- **`--archive`** writes one tar next to the backup; on an iPad that is a
+  second full copy of the vault in local storage before it can be moved
+  anywhere, and the backup folder is already a complete vault that Files can
+  copy or compress (Files → Compress) as it is.
 
 ### Notes
 

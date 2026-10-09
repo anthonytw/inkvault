@@ -9,6 +9,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Device list repair and key replacement in the app (GA-17): the "device list was changed without
+  its key" alert offers Choose Devices to Keep… (the CLI's `vault recipients repair --keep`), which
+  always keeps this device's key and asks for Face ID or Touch ID before keeping a key this device
+  never confirmed; the Vault Keys window has Replace… (`vault recipients replace`) for another
+  device's key, pasted or generated.
+- `sempere backup status DIR --max-age DAYS` exits 3 when no backup run completed in DAYS days, the
+  app's Remind Me for scripts (GA-18). `backup.json` records the last run without file errors
+  (`completed`), which the check counts from; the app and the CLI share the rule.
 - Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
   pages, duration, size of every recording, transcript and video clip), each row linked to its
   embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.
