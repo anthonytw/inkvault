@@ -28,7 +28,7 @@ audits no longer apply). Statuses in `docs/ROADMAP.md` were not trusted while au
 
 Scope (maintainer, 2026-10-09): everything here is in scope for the first release and is
 planned in `docs/ROADMAP.md`, where each row was folded into its component section with its
-GA id and size; GA-12, GA-22, GA-24, GA-25 and GA-26 are dropped (marked below).
+GA id and size; GA-11, GA-12, GA-22, GA-24, GA-25 and GA-26 are dropped (marked below).
 
 Size: S = under a day, one PR, little design; M = a PR with design choices or app and
 CLI work; L = a design question, a format change or an outside decision.
@@ -47,7 +47,7 @@ CLI work; L = a design question, a format change or an outside decision.
 | GA-08 | Import | The app's Notability import hides the report (`dropped.*`, warnings) and has no option for `--no-attachments`, `--keep-image-metadata`, `--recognize missing`, `--pdf-text` | `import-notability.md` "Not imported" (counted with a warning); ROADMAP "same defaults" | partial in the app | `AppModel+NotabilityImport.swift:25-31` (`NotabilityImportSummary` keeps imported/skipped/failed only) | M |
 | GA-09 | Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`) | `attachments.md` §11 Recordings ("if any") | missing | no "transcript" in `Sources/SempereImport/*.swift` | S |
 | GA-10 | Import | GIF, TIFF and WebP images in a Notability bundle: doc says counted in `dropped.media`; code classifies them as images but `ImageIngest` refuses non-JPEG/PNG | `import-notability.md:947` | unclear; trace and fix doc or code | `NotabilityBundleAttachments.swift:23`; `AttachmentIngest.swift:13` | S |
-| GA-11 | Transcription | `DictationTranscriber` step of the fallback chain | `attachments.md` §14 E5 | missing (doc admits) | no hit in `Sources/SempereSpeech` | S |
+| GA-11 | Transcription | `DictationTranscriber` step of the fallback chain | `attachments.md` §14 E5 | dropped (maintainer, 2026-10-09) | no hit in `Sources/SempereSpeech` | S |
 | GA-12 | Recording | Live transcript while recording; "ink appears as it was written" playback mode | `attachments.md` §14 E4 ("Not done") | dropped (maintainer, 2026-10-09) | no `AVAudioEngine` in `Apps/` | L |
 | GA-13 | Mac | Keyboard shortcuts for item actions (duplicate, front, delete) and for recording | `attachments.md` §14 E0, E4 | partial: only `.showRecordings` | `Apps/Sempere/SempereApp/MenuCommand.swift:148` | S |
 | GA-14 | Mac | Menu parity: Version History, page duplicate/delete/undo-delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size, Compact Palette are toolbar-only; the menu's Add Page only appends | `mac.md` (menu table) | partial | `MenuCommand.swift:11-24` vs `NoteCanvasView.swift:458-560`; `AppCommands.swift:~138` | M |

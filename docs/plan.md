@@ -120,7 +120,9 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 
 The gap audit (`docs/research/gap-audit-2026-10.md`) rows are not tasks here: they sit in their
 component sections of `docs/ROADMAP.md` with their `GA-nn` ids, all planned for the first release
-except the ones the maintainer dropped (GA-12, GA-22, GA-24, GA-25, GA-26).
+except the ones the maintainer dropped (GA-11, GA-12, GA-22, GA-24, GA-25, GA-26). The "First release" section there (one public
+"Initial commit" with the history archived privately, the project website at
+`sempere.anthonywertz.com`, a legal review of the Notability importer) is the maintainer's.
 
 ## Working agreements
 
