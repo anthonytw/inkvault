@@ -1,11 +1,16 @@
 # Roadmap
 
 Where every feature sits, by component. Status: ✅ done on `main` (with the PR number) · 🚧 in progress (open PR number) ·
-📋 planned (next) · 💡 future. A note "not yet tried on the iPad" means it is on `main` and
+📋 planned for the first release. A note "not yet tried on the iPad" means it is on `main` and
 passed CI, but nobody has used it on a device. Statuses last checked against `main` at
 `ecc62ec` (#119) on 2026-10-08. Task ids (A0, E2, …) are in `docs/plan.md`, with
 details in `docs/attachments.md` §14. `docs/HANDOFF.md` has the current
-working state.
+working state. Everything here is in scope for the first release (maintainer,
+2026-10-09), so 📋 means planned, "(needs the maintainer)" marks what only the maintainer can do
+(device hand tests, an account), and nothing is parked as future. Rows with a `GA-nn` id come from
+`docs/research/gap-audit-2026-10.md` (evidence and `file:line` there); size S under a day · M a PR with
+choices · L a design question or a format change. Dropped by the maintainer, not planned: GA-12,
+GA-22, GA-24, GA-25, GA-26.
 
 ## Order of work
 
@@ -39,7 +44,7 @@ working state.
 | Vault | Per-note blob store, rewrap policy, GC, repair (B2) | ✅ |
 | Vault | Attachment merge (A1): items and recordings in merge, snapshots, history/restore, summaries | ✅ #66 |
 | Vault | Video items (G2, `format.md` §8.2.7): `VideoProbe` (pure-Swift MP4/MOV reader, fuzzed), location metadata blanked in place, clips streamed into blobs (never in memory), `poster` register | ✅ #93 |
-| Vault | Concurrent replacements of one stroke (`format.md` §5.6.1): two devices slicing, moving or recolouring the same stroke keep the later edit, not both sets of pieces; property-tested (any order, compaction, snapshots), snapshots keep `replaces` / `lineage` / `superseded`; web viewer ported (shared vectors); app links moved and recoloured strokes to their originals | 🚧 #126 |
+| Vault | Concurrent replacements of one stroke (`format.md` §5.6.1): two devices slicing, moving or recolouring the same stroke keep the later edit, not both sets of pieces; property-tested (any order, compaction, snapshots), snapshots keep `replaces` / `lineage` / `superseded`; web viewer ported (shared vectors); app links moved and recoloured strokes to their originals | ✅ #126 |
 | Vault | Read-only access to newer format versions (`format.md` §7): vaults and revisions of a later `format` open read-only, unknown ops, fields and snapshot elements are skipped and reported, every write refused; CLI exit 7, app banner, web viewer | ✅ #94 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | ✅ #52 |
@@ -64,6 +69,16 @@ working state.
 | Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2.9) | ✅ #103 |
 | Vault | Recently Recognized shared across devices (stored in the vault) | ✅ #102 |
 | Render | Video in exports: poster with a play mark in PDF/SVG/PNG, clips embedded in "PDF + attachments" streamed from the vault (`PDFWriter.write(to:)`), clips written next to Markdown/HTML and linked | ✅ #93 |
+| Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`) (GA-09, S) | 📋 |
+| Import | GIF, TIFF and WebP images in a Notability bundle: the doc says counted in `dropped.media`, `ImageIngest` refuses them; trace it and fix the doc or the code (GA-10, S) | 📋 |
+| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes imported solid, highlighter behind a PDF, pages of two heights (GA-27, M–L) | 📋 |
+| Transcription | `DictationTranscriber` step in the `SempereSpeech` fallback chain (GA-11, S) | 📋 |
+| Capture | C2: a forged capture's attribution (the capturing device is not stored, the notebook comes from the manifest) (GA-31, M) | 📋 |
+| Crypto | C3: a removed device's captures are adopted while its rewrap is unfinished; needs an authenticated names list (format change) (GA-32, L) | 📋 |
+| Crypto | N3: `format` and `features` in `vault.json` are not covered by `recipientsTag` (format change) (GA-33, L) | 📋 |
+| CI | Run the WebDAV integration tests against a server container (GA-50, M) | 📋 |
+| CI | Fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt` and macOS poppler (GA-61, S) | 📋 |
+| Tests | Fixture vault with a note that has items (GA-63, S) | 📋 |
 
 ## CLI (`sempere`; one codebase for both platforms)
 
@@ -75,7 +90,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | ✅ #52 | ✅ #52 |
-| `notes dedupe (ID… \| --all) [--dry-run]`: strokes left over by concurrent edits of one stroke (`format.md` §5.6.1), check and repair | 🚧 #126 | 🚧 #126 |
+| `notes dedupe (ID… \| --all) [--dry-run]`: strokes left over by concurrent edits of one stroke (`format.md` §5.6.1), check and repair | ✅ #126 | ✅ #126 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | ✅ #74 | ✅ #74 |
 | `compact --thin-all [--dry-run]` (thin everything except checkpoints), imports written as checkpoints, thinning from indexed revision metadata | ✅ #88 | ✅ #88 |
@@ -123,6 +138,11 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `vault summaries` | ✅ #100 | ✅ #100 |
 | Handwritten math (G1 part 2): `recognize-math` (`--strokes`/`--rect`/`--lasso`/`--all-ink`, `--model DIR` on Core ML, `--latex` anywhere, `--place replace\|beside`, `--save-image`) | ✅ #118 (`--model`: macOS only) | ✅ #118 |
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | ✅ #94 | ✅ #94 |
+| `notes favorite` / `unfavorite` (nothing sets `meta.favorite` today; the app follows) (GA-01, M) | 📋 | 📋 |
+| `items text` (edit a text box's text and style, on `NoteOps.setText`) (GA-03, M) | 📋 | 📋 |
+| `backup` overdue check for the app's "Remind Me" (GA-18, S) | 📋 | 📋 |
+| `vault summaries --plaintext --out` writes the file mode 0600 (P5) (GA-30, S) | 📋 | 📋 |
+| Tests: exit 7 for every write command (GA-65, M); documented flags never exercised (GA-66, S–M); Linux errors of `recognize` and `attach video --from-clip` (GA-53, S); `sync webdav --retry-quarantined` and the restore resume marker through the commands (GA-60, S) | 📋 | 📋 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
 
@@ -182,6 +202,20 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Release | TestFlight | ✅ builds 6 and 7 (internal group) |
 | Release | App Store submission prep (export compliance, privacy manifests for the app and widget, App Privacy / age rating / review notes / listing, privacy policy page, `scripts/release-check.sh` in CI; `docs/release/`) | ✅ #113; the submission itself is 📋 (the maintainer submits) |
 | Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | ✅ #53 |
+| Notes | Favorites in the app: set and clear `meta.favorite` once `notes favorite` exists in the CLI (GA-01, M) | 📋 |
+| Items | Rotate an item (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) (GA-02, M) | 📋 |
+| Settings | "Notebook for quick voice notes" in New Notes does nothing; one field should drive capture (GA-04, S) | 📋 |
+| Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) (GA-05, M) | 📋 |
+| Search | Transcripts in the app's search (GA-06, M); highlights on text boxes (GA-07, M) | 📋 |
+| Import | App Notability import: show the report (`dropped.*`, warnings) and offer the CLI's options (`--no-attachments`, `--keep-image-metadata`, `--recognize missing`, `--pdf-text`) (GA-08, M) | 📋 |
+| Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) (GA-17, M) | 📋 |
+| Capture | C8: stale `completeUnlessOpen` comments in `QuickCapture.swift` (GA-34, S) | 📋 |
+| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network" while the app holds a model downloader; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest and version pin (GA-40 to GA-42, M) | 📋 |
+| Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 📋 |
+| Export | HTML and SVG export (`ShareFormat.html` is never offered), `--clean` and `--breaks` in the app; today CLI-only (GA-19, S) | 📋 |
+| Release | App Store review notes and listing draft claim highlighted words on the page; check against the iPhone, which has none yet (GA-43, S) | 📋 |
+| Tests | Pseudo-language layout test (double-length, right to left, Spanish) in CI, at iPhone width and on Catalyst (GA-51, S–M) | 📋 |
+| Device | Hand tests of the "not yet tried on the iPad" rows, in particular background sync, remote merge, page scrolling and sidebar drops (GA-72, M) | 📋 (needs the maintainer) |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
 
@@ -195,7 +229,7 @@ behaviour and testing on a real Mac.
 | Builds and launches under Catalyst (CI `app` job) | ✅ |
 | Launch without trapping: every window gets the whole environment and survives scenes restored from the other build (the iPad build on a Mac) (#116); views read the model through `@AppModelEnvironment` / `@AppEnvironmentObject` and, outside their window's environment, fall back to the app's instance and log a fault instead of trapping (the Mac launch crash of macOS build 5) (#120) | ✅ #116, #120 (not yet tried on a Mac) |
 | Everything in the iPad table | same status as the iPad |
-| Tested by hand on a Mac (vault open, iCloud, Keychain) | 📋 |
+| Tested by hand on a Mac (vault open, iCloud, Keychain; the `docs/mac.md` list, GA-70, L; reopen of a bookmarked vault in the sandboxed Catalyst build, GA-73, M) | 📋 (needs the maintainer) |
 | Saved folder access in a sandboxed Mac build | ✅ #46, #85: access check, entitlements and a DEBUG probe on main; reopen after relaunch under the sandbox is on the by-hand list (`docs/mac.md`), not confirmed here |
 | Menus and keyboard shortcuts | ✅ #46, #85 (`docs/mac.md`); File/Edit commands restored after build 6 (UIKit shortcut clashes), checked on Catalyst in CI; File menu import/export ✅ #101 |
 | Export menu (File ▸ Export) | ✅ #42 (`ExportMenuCommands`); acts on the focused window's notes since build 6; File > Export… (⇧⌘E, the sheet picks the format) replaces the submenu on the Mac ✅ #101 |
@@ -211,11 +245,15 @@ behaviour and testing on a real Mac.
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): ✅ #109 (not yet tried on a Mac) |
 | Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
-| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) 🚧 #123 |
+| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) ✅ #123 |
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
+| Keyboard shortcuts for item actions (duplicate, front, delete) and for recording (GA-13, S) | 📋 |
+| Menu parity: Version History, page duplicate / delete / undo delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size and Compact Palette as Note / Tools / View entries (GA-14, M) | ✅ #136 (not yet tried on a Mac) |
+| CI: run the Mac Catalyst app suites on PRs, not only on `main` and dispatch (GA-62, S; a decision on macOS runner time) | 📋 (needs the maintainer) |
+| Menu-bar item for quick capture: File > Start/Stop Voice Note (⇧⌘M); Catalyst has no status-bar icon (GA-23, M) | ✅ #136 (not yet tried on a Mac) |
 
-## Future: iPhone and web
+## iPhone and web
 
 | Feature | Status | Notes |
 | --- | --- | --- |
@@ -224,44 +262,11 @@ behaviour and testing on a real Mac.
 | Web viewer with in-browser decryption | ✅ #63; attachments ✅ #75 | `web/` (TypeScript, Vite, no backend; `docs/web-viewer.md`): opens a vault from a static or WebDAV URL or a local folder, decrypts with typage (MLKEM768-X25519) in the page, merges and draws notes exactly as the CLI's JSON and SVG exports (cross-checked in CI), notebooks, tags, search, pan and zoom. Key pasted, memory only; strict CSP. Attachments (#75): images, text boxes (stored `breaks`), PDF pages (pinned pdf.js), placeholders, recordings with playback and transcripts; blobs fetched lazily and verified (hash and keyed name). Newer-format vaults and revisions (`format.md` §7) open and show what this version understands (✅ #94). Opt-in passkey (WebAuthn PRF) to remember the key on a device ✅ #99. Fast opening with `config.json`, published summaries and a ciphertext cache ✅ #100. Transcript search (CLI rules, shared goldens) and passphrase-wrapped keys (stored `keys/` file or a recovery kit's locked copy, scrypt in a worker) ✅ #117. Hosted in the maintainer's home lab behind the existing Caddy/TLS. |
 | Web viewer: transcript search (the CLI's rules, shared goldens) and passphrase-wrapped keys (a stored `keys/` file or a recovery kit's locked copy, scrypt in a worker) | ✅ #117 | `docs/web-viewer.md`. |
 | WebDAV mirror for the viewer | ✅ CLI part #97 (`sync webdav --push-only`); the push-only mirror and Caddy are set up on the maintainer's side | A WebDAV share on the NAS behind Caddy, plus a macOS `launchd` agent running `sempere sync webdav --push-only` every few minutes from the iCloud vault, so the NAS can never feed back a changed recipient list. #63 documents the Caddy + `sync webdav` setup (`docs/web-viewer.md`); static hosts use `sempere vault index`. The setup itself lives in the sysadmin repo, outside this one. |
-| WebDAV as a vault location in the app | 💡 low priority | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
-| Other Files-app providers (Google Drive, Proton Drive, Dropbox, OneDrive, Nextcloud) | 💡 test on demand | They probably already work through the folder picker. The download checks are tuned for iCloud, so each provider needs a test pass. |
-
-## Gap audit (2026-10-09)
-
-Promised-but-missing behaviour found by `docs/research/gap-audit-2026-10.md` (ids `GA-nn`
-are its rows, with evidence and `file:line`). Size: S under a day · M a PR with choices ·
-L a design question or an outside decision. Not repeated here: #122 (recordings list page,
-`--format media`), #123 (mouse smoothing), and the stale-document fixes (audit section F).
-Existing rows were not touched.
-
-| Area | Gap | Size | Audit | Status |
-| --- | --- | --- | --- | --- |
-| Notes | Favorites can be read (summaries, web viewer list) but nothing sets `meta.favorite`: `notes favorite` in the CLI first, then the app | M | GA-01 | 📋 |
-| Items | Rotate an item in the app (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) | M | GA-02 | 📋 |
-| Items | CLI edit of a text box's text and style (`items text`, on `NoteOps.setText`) | M | GA-03 | 📋 |
-| Settings | Notebook for quick voice notes in New Notes does nothing; one field should drive capture | S | GA-04 | 📋 |
-| Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) | M | GA-05 | 📋 |
-| Search | Transcripts in the app's search; highlights on text boxes | M | GA-06, GA-07 | 📋 |
-| Import | App Notability import: show the report and the CLI's options | M | GA-08 | 📋 |
-| Import | Notability transcripts as transcript blobs; GIF/TIFF/WebP handling checked against the doc | S | GA-09, GA-10 | 📋 |
-| Transcription | `DictationTranscriber` step in the fallback chain | S | GA-11 | 📋 |
-| Recording | Live transcript while recording; faded ink playback mode | L | GA-12 | 💡 |
-| Mac | Shortcuts for item actions and recording | S | GA-13 | 📋 |
-| Mac | Note/Tools/View menu entries for toolbar-only commands | M | GA-14 | 🔀 #136 (not yet tried on a Mac) |
-| iPhone | Page layout switch, page duplicate/delete/add-after, insert PDF at page, thumbnail strip, swipe to turn pages, paper picker layout | M | GA-15, GA-16 | 🔀 #136 (not yet tried on an iPhone) |
-| Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) | M | GA-17 | 📋 |
-| Backup | CLI reminder (overdue check) for the app's "Remind Me" | S | GA-18 | 📋 |
-| Math | Ship a handwriting model: pick one, settle the training-data question, pin the manifest hash (then `network.client` for the Mac build and the privacy answers) | L | GA-22, GA-40 | 💡 (needs the maintainer) |
-| Capture | Mac menu-bar item for quick capture (File > Start/Stop Voice Note) | M | GA-23 | 🔀 #136 |
-| Capture | Adopting captures from a key that no longer verifies | L | GA-24 | 💡 |
-| Web viewer | Ink linked to audio (`rec`) and search highlights | M | GA-25, GA-26 | 📋 |
-| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes | M–L | GA-27 | 💡 |
-| Security | Open review findings: P3, P4 (web), P5 (`vault summaries` file mode), C2, C8 | S–M | GA-28, GA-30, GA-31, GA-34 | 📋 |
-| Security | Open review findings needing a format change: C3 (removed device's captures), N3 (`format`/`features` outside `recipientsTag`) | L | GA-32, GA-33 | 💡 |
-| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network"; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest | M | GA-40 to GA-42 | 📋 |
-| CI | Run the WebDAV integration tests (a server container); the pseudo-language layout test; all web smoke scripts; fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt`, macOS poppler | M | GA-50 to GA-52, GA-61 | 📋 |
-| Tests | CLI: exit 7 for every write command, untested flags, Linux errors for `recognize` and `attach video --from-clip` | M | GA-53, GA-65, GA-66 | 📋 |
-| Tests | App: `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers, iPhone toolbar, key export, PDF-drag purge | M | GA-54 to GA-59 | 📋 |
-| Tests | Library-level only: `--retry-quarantined`, restore resume marker, fixture vault with items, settings confirmations | S | GA-60, GA-63, GA-64 | 📋 |
-| Device | Hand tests still owed: Mac list in `docs/mac.md`, a physical iPhone, the "not yet tried on the iPad" rows, sandboxed bookmark reopen on Catalyst | M | GA-70 to GA-73 | 📋 (needs devices) |
+| WebDAV as a vault location in the app | 📋 | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
+| Proton Drive in the Files app | 📋 (needs the maintainer) | It probably already works through the folder picker. The download checks are tuned for iCloud, so it needs a test pass with a Proton Drive account. Google Drive, Dropbox, OneDrive and Nextcloud are not planned. |
+| iPhone: page layout switch, Duplicate / Delete / Undo Delete Page, Add Page After This One, Insert PDF at page and the thumbnail strip on the phone toolbar (GA-15, M) | ✅ #136 (not yet tried on an iPhone) | The overflow menu's Pages submenu (`docs/iphone.md`). |
+| iPhone: swipe to turn pages, search-hit highlights on the phone, paper picker layout pass (GA-16, M) | ✅ #136 (not yet tried on an iPhone) | Highlights already worked on the phone (shared canvas code); #136 adds a test. |
+| iPhone: tests of the overflow menu and Annotate, the "wide landscape ignores the stored column" and pageless one-screen rules at phone size (GA-58, M) | 📋 | `PhoneLayoutTests.swift`. |
+| iPhone: hand test on a physical iPhone (Face ID, folder picker, finger annotation) (GA-71, M) | 📋 (needs the maintainer) | Needs a phone. |
+| Web viewer: cache ciphertext from before a rewrap stays openable by a removed key (P4); passkey record keyed by an unauthenticated vault id (P3) (GA-28, S each) | 📋 | `web/src/vault/cache.ts`, `passkey.ts`; `security-review-2026-10.md`. |
+| Web viewer CI: run all 7 browser smoke scripts (2 run today), give `smoke-cache` a fixture with summaries and an index (GA-52, M) | 📋 | `ci.yml`, `web/scripts/`. |
