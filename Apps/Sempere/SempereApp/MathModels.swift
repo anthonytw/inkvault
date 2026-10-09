@@ -9,6 +9,8 @@ import SempereRender
 enum MathRecognitionPreference {
     static let key = "Sempere.mathRecognition"
     static let defaultValue = false
+    /// The id of the installed model to read with (nothing: the first installed).
+    static let modelKey = "Sempere.mathModelID"
 
     static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: key) as? Bool ?? defaultValue
@@ -38,6 +40,15 @@ final class MathModels {
     /// The models offered, best first.
     let catalog: [MathModelCatalogEntry]
     private(set) var status: [String: Status] = [:]
+    /// Every model in the store that is not a catalogue download: the ones added from Files
+    /// (`importModel`), shown in Settings to choose from or remove.
+    private(set) var added: [InstalledMathModel] = []
+    /// The id of the model used for reading (`MathRecognitionPreference.modelKey`); nil: the first installed.
+    private(set) var selectedID: String?
+    /// "Add Model from Files" in progress, and why the last one failed.
+    private(set) var importing = false
+    private(set) var importFailure: String?
+    @ObservationIgnored private let defaults: UserDefaults
     /// Tests: used instead of loading a model.
     @ObservationIgnored var recognizerOverride: (any MathRecognizing)?
     /// A model folder used as is (DEBUG `SEMPERE_DEBUG_MATH_MODEL`; checked like a download).
@@ -47,7 +58,10 @@ final class MathModels {
     @ObservationIgnored private let session: MathModelFetching
 
     init(root: URL = MathModels.defaultRoot, catalog: [MathModelCatalogEntry] = MathModelCatalog.entries,
-         localFolder: URL? = MathModels.debugFolder, session: MathModelFetching = URLSessionModelFetcher()) {
+         localFolder: URL? = MathModels.debugFolder, session: MathModelFetching = URLSessionModelFetcher(),
+         defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.selectedID = defaults.string(forKey: MathRecognitionPreference.modelKey)
         self.root = root
         self.catalog = catalog
         self.localFolder = localFolder
@@ -73,7 +87,7 @@ final class MathModels {
 
     /// Whether a model can read ink now (installed, or the test override).
     var isAvailable: Bool {
-        recognizerOverride != nil || localFolder != nil || status.values.contains(.installed)
+        recognizerOverride != nil || localFolder != nil || status.values.contains(.installed) || !added.isEmpty
     }
 
     /// Looks at what is installed.
@@ -81,6 +95,56 @@ final class MathModels {
         for entry in catalog where downloads[entry.id] == nil {
             status[entry.id] = MathModelStore.installed(entry, root: root) == nil ? .notInstalled : .installed
         }
+        let catalogIDs = Set(catalog.map(\.id))
+        added = MathModelStore.installedModels(root: root).filter { !catalogIDs.contains($0.id) }
+    }
+
+    /// Adds the model in `url` (a folder or a zip picked in Files): checked against its manifest,
+    /// copied into the store and, if it is the only one, used. Reads the files off the main actor.
+    func importModel(from url: URL) {
+        guard !importing else { return }
+        importing = true
+        importFailure = nil
+        let root = self.root
+        Task { [weak self] in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let outcome: Result<InstalledMathModel, Error> = await Task.detached(priority: .userInitiated) {
+                Result { try MathModelImport.install(from: url, root: root) }
+            }.value
+            guard let self else { return }
+            self.importing = false
+            switch outcome {
+            case .success(let model):
+                if self.loaded?.id == model.id { self.loaded = nil }
+                try? FileManager.default.removeItem(at: root.appendingPathComponent(".compiled/\(model.manifestSHA256)"))
+                self.refresh()
+                if self.selectedID == nil || self.added.count == 1 { self.select(model.id) }
+            case .failure(let error):
+                self.importFailure = String(localized: "That model cannot be added: \(String(describing: error))",
+                                            comment: "Settings ▸ Handwritten Math: Add Model from Files failed; the reason follows (English)")
+            }
+        }
+    }
+
+    /// Uses model `id` for reading from now on.
+    func select(_ id: String) {
+        selectedID = id
+        defaults.set(id, forKey: MathRecognitionPreference.modelKey)
+        loaded = nil
+    }
+
+    /// Deletes a model added from Files.
+    func remove(_ model: InstalledMathModel) {
+        if loaded?.id == model.id { loaded = nil }
+        if selectedID == model.id {
+            // Back to "the first installed", which is what reading falls back to (and Settings shows in use).
+            selectedID = nil
+            defaults.removeObject(forKey: MathRecognitionPreference.modelKey)
+        }
+        try? MathModelStore.remove(id: model.id, root: root)
+        try? FileManager.default.removeItem(at: root.appendingPathComponent(".compiled/\(model.manifestSHA256)"))
+        refresh()
     }
 
     /// Downloads `entry` into the store: its manifest (which must hash to the
@@ -134,9 +198,9 @@ final class MathModels {
     func recognizer() async throws -> any MathRecognizing {
         if let recognizerOverride { return recognizerOverride }
         if let loaded { return loaded.recognizer }
-        let root = self.root, catalog = self.catalog, local = localFolder
+        let root = self.root, catalog = self.catalog, local = localFolder, preferred = selectedID
         let made: (String, any MathRecognizing) = try await Task.detached(priority: .userInitiated) {
-            try Self.load(root: root, catalog: catalog, local: local)
+            try Self.load(root: root, catalog: catalog, local: local, preferred: preferred)
         }.value
         loaded = made
         return made.1
@@ -156,19 +220,25 @@ final class MathModels {
     }
 
     nonisolated private static func load(root: URL, catalog: [MathModelCatalogEntry],
-                                         local: URL?) throws -> (String, any MathRecognizing) {
+                                         local: URL?, preferred: String?) throws -> (String, any MathRecognizing) {
         #if canImport(CoreML)
         if let local {
             let m = try MathModelStore.manifest(in: local)
             try MathModelStore.verify(m, in: local)
             return (m.id, try CoreMLMathRecognizer(folder: local, manifest: m))
         }
+        // Catalogue models must still match the catalogue's pin; models added from Files are checked
+        // when added (the store's marker holds the manifest hash) and their sizes again here.
+        var candidates: [InstalledMathModel] = []
         for entry in catalog {
             guard let (folder, m) = MathModelStore.installed(entry, root: root) else { continue }
-            let compiled = root.appendingPathComponent(".compiled", isDirectory: true).appendingPathComponent(entry.manifestSHA256)
-            return (entry.id, try CoreMLMathRecognizer(folder: folder, manifest: m, compiledCache: compiled))
+            candidates.append(InstalledMathModel(manifest: m, manifestSHA256: entry.manifestSHA256, folder: folder))
         }
-        throw Failure.noModel
+        let catalogIDs = Set(catalog.map(\.id))
+        candidates += MathModelStore.installedModels(root: root).filter { !catalogIDs.contains($0.id) }
+        guard let model = candidates.first(where: { $0.id == preferred }) ?? candidates.first else { throw Failure.noModel }
+        let compiled = root.appendingPathComponent(".compiled", isDirectory: true).appendingPathComponent(model.manifestSHA256)
+        return (model.id, try CoreMLMathRecognizer(folder: model.folder, manifest: model.manifest, compiledCache: compiled))
         #else
         throw Failure.unsupported
         #endif
