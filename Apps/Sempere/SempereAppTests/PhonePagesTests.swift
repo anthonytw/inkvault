@@ -53,7 +53,7 @@ struct PhoneSwipeTests {
 }
 
 @MainActor
-struct PhoneStackTests {
+struct PhonePageSwipeStackTests {
     static let phone = CGSize(width: 390, height: 844)
 
     @Test func theStackTurnsPagesBySwipeOnAPhoneOnly() async throws {
