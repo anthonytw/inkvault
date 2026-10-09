@@ -14,6 +14,14 @@ struct ImportOptions: Equatable, Sendable {
     var pdfText = true
     /// Read the handwriting of pages the source app never indexed, afterwards (`--recognize missing`).
     var recognizeMissing = false
+
+    /// The values passed to `importer`: only the options the app offers (`appTitle`) may be set; every other
+    /// option (`--overwrite`, `--tag`) keeps the importer's default, so an import from the app never replaces a
+    /// note that is already in the vault (and may be open in an editor).
+    func appValues(for importer: any VaultImporter) -> ImporterOptionValues {
+        let offered = Set(importer.options.filter { $0.appTitle != nil }.map(\.id))
+        return ImporterOptionValues(values.values.filter { offered.contains($0.key) })
+    }
 }
 
 /// The report of an import as the app shows it: totals of what was imported and of what the importer left
@@ -199,7 +207,7 @@ extension AppModel {
             let device = clock.device
             let notes = isCloudVault ? vault.url.appendingPathComponent("notes", isDirectory: true) : nil
             let extractor: (any PDFTextExtracting)? = importer.usesPDFText && options.pdfText ? PDFKitTextExtractor() : nil
-            let request = ImporterRequest(paths: urls, vault: vault, device: device, options: options.values,
+            let request = ImporterRequest(paths: urls, vault: vault, device: device, options: options.appValues(for: importer),
                                           pdfText: extractor, notebook: NotebookPath.canonical(notebook))
             let scoped = urls.map { $0.startAccessingSecurityScopedResource() }
             defer { for (url, s) in zip(urls, scoped) where s { url.stopAccessingSecurityScopedResource() } }

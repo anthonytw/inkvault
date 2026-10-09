@@ -168,6 +168,32 @@ final class CLIImportSearchTests: CLITestCase {
         XCTAssertEqual(try cli(["import", "notability"] + vaultArgs(vault)).status, 2)
     }
 
+    /// The importer's own flags are parsed by `ParsedImport` (not ArgumentParser): `--flag=value` and
+    /// `--flag value`, repeated lists, `--` before paths, and usage errors for what it does not know.
+    func testImporterFlagsParsing() throws {
+        let vault = try copyFixtureVault()
+        let r = try cli(["import", "notability"] + vaultArgs(vault)
+                        + ["--tag=alpha", "--tag", "beta", "--no-folder-tags", "--", Self.zipNote])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("1 imported, 0 skipped, 0 failed"), r.out)
+        for tag in ["alpha", "beta"] {
+            let listed = try cli(["notes", "list", "--tag", tag, "--json"] + vaultArgs(vault))
+            XCTAssertEqual((listed.json as? [[String: Any]])?.count, 1, "tag \(tag): \(listed.out)")
+        }
+        let usage: [([String], String)] = [
+            (["--bogus"], "Unknown option '--bogus'"),
+            (["--no-attachments=yes"], "does not take a value"),
+            (["--tag"], "Missing value for '--tag <tag>'"),
+        ]
+        for (flags, message) in usage {
+            let bad = try cli(["import", "notability", Self.zipNote] + vaultArgs(vault) + flags)
+            XCTAssertNotEqual(bad.status, 0, flags.joined(separator: " "))
+            XCTAssertTrue(bad.err.contains(message), "\(flags): \(bad.err)")
+        }
+        // The refused commands wrote nothing: the one note is still the only one tagged.
+        XCTAssertEqual((try cli(["notes", "list", "--tag", "alpha", "--json"] + vaultArgs(vault)).json as? [Any])?.count, 1)
+    }
+
     /// PDF pages and images import as items with blobs; the report counts
     /// them, the vault verifies, and a PDF export carries the pages.
     func testImportAttachments() throws {

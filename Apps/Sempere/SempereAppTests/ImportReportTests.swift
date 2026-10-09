@@ -37,6 +37,20 @@ struct ImportReportTests {
         #expect(o.values.values.isEmpty, "the importer's own defaults apply")
     }
 
+    @Test func theAppSetsOnlyTheOptionsItOffers() {
+        var importer = FakeImporter()
+        importer.options.append(.init(id: "overwrite", kind: .flag(defaultOn: false), cliName: "overwrite", help: "x"))
+        importer.options.append(.init(id: "tag", kind: .list(valueName: "tag"), cliName: "tag", help: "x"))
+        let options = ImportOptions(values: ImporterOptionValues([
+            "overwrite": .bool(true), "tag": .list(["x"]), "attachments": .bool(false), "unknown": .bool(true),
+        ]))
+        let passed = options.appValues(for: importer)
+        #expect(!passed.bool("overwrite", default: false), "an app import never overwrites a note in the vault")
+        #expect(passed.list("tag").isEmpty)
+        #expect(!passed.bool("attachments", default: true), "an offered switch is passed on")
+        #expect(passed.values.keys.sorted() == ["attachments"])
+    }
+
     @Test func theReportListsWhatWasImportedAndLeftOut() {
         let result = ImporterResult(
             notes: [ImporterNoteOutcome(source: "/Users/x/Backup/Lecture.note", noteID: UUID(), status: .imported, warnings: ["placed by a guess"])],
