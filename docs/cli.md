@@ -1198,7 +1198,9 @@ note made from a PDF become `pdfPage` backgrounds at the bands where
 Notability showed them, backed by the original PDF as one blob of the note,
 images become `image` items, typed text becomes `text` items (styles mapped
 to runs), and recordings become the note's recordings with their audio
-(strokes get `rec` where `eventTokens` read as times in the one recording);
+(strokes get `rec` where `eventTokens` read as times in the one recording; a transcript
+Notability kept with a recording becomes its transcript blob, `engine` `notability-<version>`,
+counted as `transcripts`);
 blobs are written before the note's delta.
 JPEG and PNG metadata (camera, location) is stripped unless
 `--keep-image-metadata`; HEIC is stored as is; GIF (first frame) and baseline

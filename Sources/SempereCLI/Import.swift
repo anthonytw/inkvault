@@ -47,7 +47,7 @@ struct ImportNoteJSON: Encodable {
 
     struct Attachments: Encodable {
         var pdfs: Int, pdfPages: Int, templatePages: Int, images: Int, textItems: Int, textCharacters: Int
-        var recordings: Int, recLinkedStrokes: Int, blobs: Int, blobBytes: Int64
+        var recordings: Int, recLinkedStrokes: Int, transcripts: Int, blobs: Int, blobBytes: Int64
         var pdfTextPages: Int, pdfTextFromIndex: Int, pdfTextExtracted: Int
         var bundlePDFRecords: Int, bundleMediaRecords: Int, bundleFiles: Int, bundleFilesImported: Int
     }
@@ -61,7 +61,7 @@ struct ImportNoteJSON: Encodable {
         let a = r.attachments
         attachments = Attachments(pdfs: a.pdfs, pdfPages: a.pdfPages, templatePages: a.templatePages, images: a.images,
                                   textItems: a.textItems, textCharacters: a.textCharacters, recordings: a.recordings,
-                                  recLinkedStrokes: a.recLinkedStrokes, blobs: a.blobs, blobBytes: a.blobBytes,
+                                  recLinkedStrokes: a.recLinkedStrokes, transcripts: a.transcripts, blobs: a.blobs, blobBytes: a.blobBytes,
                                   pdfTextPages: a.pdfTextPages, pdfTextFromIndex: a.pdfTextFromIndex,
                                   pdfTextExtracted: a.pdfTextExtracted, bundlePDFRecords: a.bundlePDFRecords,
                                   bundleMediaRecords: a.bundleMediaRecords, bundleFiles: a.bundleFiles,
@@ -216,7 +216,7 @@ struct ImportNotability: ParsableCommand {
             struct Summary: Encodable {
                 var dryRun: Bool, notes: Int, imported: Int, skipped: Int, failed: Int, strokes: Int
                 var ntb: Int, extraVersions: Int
-                var pdfPages: Int, images: Int, textItems: Int, recordings: Int, recLinkedStrokes: Int
+                var pdfPages: Int, images: Int, textItems: Int, recordings: Int, recLinkedStrokes: Int, transcripts: Int
                 var blobs: Int, blobBytes: Int64, droppedPDFPages: Int, droppedMedia: Int
                 /// Counts to compare with a backup (docs/import-notability.md "Report").
                 var pdfs: Int, ntbPDFPages: Int, ntbImages: Int, ntbDroppedPDFs: Int
@@ -235,6 +235,7 @@ struct ImportNotability: ParsableCommand {
                                                      textItems: written.reduce(0) { $0 + $1.attachments.textItems },
                                                      recordings: written.reduce(0) { $0 + $1.attachments.recordings },
                                                      recLinkedStrokes: written.reduce(0) { $0 + $1.attachments.recLinkedStrokes },
+                                                     transcripts: written.reduce(0) { $0 + $1.attachments.transcripts },
                                                      blobs: written.reduce(0) { $0 + $1.attachments.blobs },
                                                      blobBytes: written.reduce(0) { $0 + $1.attachments.blobBytes },
                                                      droppedPDFPages: written.reduce(0) { $0 + $1.dropped.pdfPages },

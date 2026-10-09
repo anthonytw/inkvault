@@ -1050,7 +1050,8 @@ drops today (`Dropped`). Every mapping below keeps the existing geometry
   presumed to map a curve to a playback event; map to the stroke's `rec`
   once decoded. Newer formats (8–9) must store sync elsewhere.
 - Notability's own transcripts, if any (newer versions transcribe), map to
-  transcript blobs with `engine: notability-<version>`.
+  transcript blobs with `engine: notability-<version>` (implemented; the
+  library layout is a hypothesis, `import-notability.md` "Recordings").
 
 ### Unknowns to investigate (with the user's backup, never committing it)
 

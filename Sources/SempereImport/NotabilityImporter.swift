@@ -69,6 +69,8 @@ public enum NotabilityImporter {
         public var recordings = 0
         /// Strokes written with `rec` (linked to a recording).
         public var recLinkedStrokes = 0
+        /// Recordings that got Notability's own transcript as a transcript blob.
+        public var transcripts = 0
         /// Blobs written (distinct contents).
         public var blobs = 0
         /// Their total size in bytes.
@@ -274,7 +276,11 @@ public enum NotabilityImporter {
             return ha != hb ? ha : a < b
         }
         var recordings = attachments?.recordings ?? []
-        for r in recordings.indices { recordings[r].id = UUID.derived(from: key + ":recording:\(r)") }
+        let transcriptBlobs = attachments?.transcriptBlobs(key: key) ?? [:]
+        for r in recordings.indices {
+            recordings[r].id = NotabilityAttachments.recordingID(key: key, index: r)
+            if let t = transcriptBlobs[r] { recordings[r].transcript = t.ref }
+        }
         var strokes: [Stroke] = []
         strokes.reserveCapacity(note.curves.count)
         var maxY = 0.0
@@ -980,7 +986,10 @@ public enum NotabilityImporter {
             // Blobs first: a delta never references a blob that is not
             // written yet (format.md §8.1.4).
             var imported = attachments?.imported ?? ImportedAttachments()
-            for (_, blob) in (attachments?.blobs ?? [:]).sorted(by: { $0.key < $1.key }) {
+            let transcriptBlobs = (attachments?.transcriptBlobs(key: "sempere-notability:" + (key) + (salt.map { ":gen:" + $0 } ?? "")) ?? [:])
+            let allBlobs = (attachments?.blobs ?? [:]).sorted(by: { $0.key < $1.key }).map(\.value)
+                + transcriptBlobs.sorted(by: { $0.key < $1.key }).map { (ref: $0.value.ref, data: $0.value.data) }
+            for blob in allBlobs {
                 try vault.writeBlob(note: id, blob.data, type: blob.ref.type)
                 imported.blobs += 1
                 imported.blobBytes += blob.ref.size

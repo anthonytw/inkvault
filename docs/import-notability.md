@@ -674,6 +674,27 @@ listening"); otherwise no `rec` is written, the strokes are counted in
 `dropped.recLinks` and the warning gives the tokens' range. Format 8–9 notes
 keep their sync elsewhere (not known); they import without `rec`.
 
+**Notability's transcripts (GA-09).** A library entry field whose name holds
+`transcript` (the entry's own or one level down) is read as the recording's
+transcript: a string (one segment over the whole recording), an array of
+strings or of dictionaries, or a dictionary holding such an array under
+`segments`, `results`, `items` or `entries`. A dictionary's text is its first
+string among `text`, `string`, `substring`, `content`, `value`; its start the
+first number among `start`, `startTime`, `timestamp`, `time`, `offset`,
+`begin`; its end `end`/`endTime`, else start plus `duration`/`length`. Times
+are seconds, or milliseconds when that reading keeps them inside the recording
+(and the seconds one does not). Items are sorted by start when all have one,
+made non-overlapping, empty text dropped, at most 20 000 segments of 8 192
+characters. The result is a `sempere-transcript/1` blob
+(`format.md` §8.3.2) named by the recording's `transcript` register, with
+`engine` `notability-<bundle version>` (`notability-unknown` without one),
+`created` the note's modification date, and `language` from the entry's
+`locale`/`language` (else `und`). **The layout is a hypothesis**: no public
+fixture holds a real Notability transcript, so a field that looks like one
+but reads as nothing is reported in the warnings and nothing is written.
+Counted in the report as `attachments.transcripts`. `--no-attachments` skips it
+with the recordings.
+
 **Report.** Per note `attachments` (`pdfs`, `pdfPages`, `templatePages`,
 `images`, `textItems`, `textCharacters`, `recordings`, `recLinkedStrokes`,
 `blobs`, `blobBytes`, `pdfTextPages`, `pdfTextFromIndex`, `pdfTextExtracted`,
