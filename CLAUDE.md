@@ -466,6 +466,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   signed and sandboxed) and `test-mac-ui` (`MacWindowUITests`), run by CI on
   `main` and on dispatch. A test that needs pixels on a Mac puts its view in a
   window of the host app's scene (a window without one is never drawn there).
+- Launch smoke tests (`LaunchSmokeUITests`; `scripts/app.sh test-mac-smoke` on
+  every CI run, the iPad layouts in `test-ui`) start from fresh state
+  (`SEMPERE_DEBUG_FRESH`), unlock the demo vault through the unlock sheet
+  (`SEMPERE_DEMO_PASSPHRASE`) and open every column layout, window and sheet.
+  A new window, sheet or column layout gets a step there; a new scene must
+  inject the app environment, which `AppSceneEnvironmentTests` (Linux) checks,
+  along with the wrapper rule above: no view reads the three with a plain `@Environment`.
 - Every icon-only control in the app has `.help("…")` (Mac tooltips);
   `scripts/check-help.py` fails the `app` CI job otherwise (`docs/mac.md`
   "Tooltips"). Menu-only view builders are marked `// help-lint: titled`.

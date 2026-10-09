@@ -61,6 +61,7 @@ struct BulkExportSheet: View {
                     Section { Button("Try Again") { run.discard() } }
                 }
             }
+            .accessibilityIdentifier("bulkExportSheet")
             .navigationTitle("Export \(request.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
