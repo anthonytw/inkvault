@@ -77,6 +77,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
+.language { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85em; }
+.language select { padding: 2px 6px; }
+.welcome > .language { margin-top: 16px; }
 .vault-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 .status { color: var(--muted); font-size: 0.9em; margin-left: auto; white-space: nowrap; }
 .columns { display: grid; grid-template-columns: 220px 320px 1fr; flex: 1; min-height: 0; }
