@@ -949,6 +949,10 @@ public enum NotabilityImporter {
                                             pdfText: options.pdfText) : nil
         result.dropped = dropped(note, attachments: attachments)
         result.warnings = attachments?.warnings ?? []
+        if !note.unsupportedKinds.isEmpty {
+            result.warnings.append(".ntb: not converted: " + note.unsupportedKinds.sorted { $0.key < $1.key }
+                .map { "\($0.value) \($0.key)" }.joined(separator: ", "))
+        }
         do {
             var ops: [Op] = []
             var seq = 1

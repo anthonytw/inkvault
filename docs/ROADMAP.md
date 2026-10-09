@@ -254,7 +254,7 @@ Existing rows were not touched.
 | Math | Ship a handwriting model: pick one, settle the training-data question, pin the manifest hash (then `network.client` for the Mac build and the privacy answers) | L | GA-22, GA-40 | 💡 (needs the maintainer) |
 | Capture | Mac menu-bar item for quick capture; adopting captures from a key that no longer verifies | M / L | GA-23, GA-24 | 💡 |
 | Web viewer | Ink linked to audio (`rec`) and search highlights | M | GA-25, GA-26 | 📋 |
-| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes | M–L | GA-27 | 💡 |
+| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes: feasibility done (`docs/research/ntb-undecoded-kinds.md`); the report now names each unconverted kind; decoding needs samples from the backup, dashes a format change | M–L | GA-27 | 🚧 (feasibility, #134) |
 | Security | Open review findings: P3, P4 (web), P5 (`vault summaries` file mode), C2, C8 | S–M | GA-28, GA-30, GA-31, GA-34 | 📋 |
 | Security | Open review findings needing a format change: C3 (removed device's captures), N3 (`format`/`features` outside `recipientsTag`) | L | GA-32, GA-33 | 💡 |
 | Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network"; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest | M | GA-40 to GA-42 | 📋 |
