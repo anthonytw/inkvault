@@ -104,19 +104,19 @@ struct CanvasSelectionTests {
         func entries(_ item: Item?, editable: Bool = true, paste: Bool = false) -> [ItemMenu.Entry] {
             ItemMenu.entries(for: item, editable: editable, canPlay: true, canCrop: true, canReplace: true, canPaste: paste)
         }
-        #expect(entries(image) == [.copy, .duplicate, .crop, .replaceImage, .bringToFront, .delete])
-        #expect(entries(text) == [.editText, .copy, .duplicate, .bringToFront, .delete])
-        #expect(entries(pdf) == [.copy, .duplicate, .crop, .bringToFront, .delete])
-        #expect(entries(video) == [.play, .copy, .duplicate, .bringToFront, .delete])
+        #expect(entries(image) == [.copy, .duplicate, .crop, .replaceImage, .rotateLeft, .rotateRight, .bringToFront, .delete])
+        #expect(entries(text) == [.editText, .copy, .duplicate, .rotateLeft, .rotateRight, .bringToFront, .delete])
+        #expect(entries(pdf) == [.copy, .duplicate, .crop, .rotateLeft, .rotateRight, .bringToFront, .delete])
+        #expect(entries(video) == [.play, .copy, .duplicate, .rotateLeft, .rotateRight, .bringToFront, .delete])
         #expect(entries(image, editable: false, paste: true) == [.copy])
         let math = Item.math(MathContent(latex: "x^2", display: true, size: 20, color: Sempere.Color(r: 0, g: 0, b: 0)),
                              frame: Rect(x: 0, y: 0, w: 40, h: 20), z: "a")
         #expect(ItemMenu.entries(for: math, editable: true, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
-                                 canEditMath: true) == [.copy, .duplicate, .editMath, .bringToFront, .delete])
-        #expect(entries(math) == [.copy, .duplicate, .bringToFront, .delete], "no equation sheet wired")
+                                 canEditMath: true) == [.copy, .duplicate, .editMath, .rotateLeft, .rotateRight, .bringToFront, .delete])
+        #expect(entries(math) == [.copy, .duplicate, .rotateLeft, .rotateRight, .bringToFront, .delete], "no equation sheet wired")
         #expect(entries(nil, paste: true) == [.paste])
         #expect(ItemMenu.entries(for: image, editable: true, canPlay: false, canCrop: false, canReplace: false, canPaste: false)
-                == [.copy, .duplicate, .bringToFront, .delete])
+                == [.copy, .duplicate, .rotateLeft, .rotateRight, .bringToFront, .delete])
         #expect(ItemMenu.entries(for: math, editable: false, canPlay: true, canCrop: true, canReplace: true, canPaste: false,
                                  canEditMath: true) == [.copy], "read-only")
     }
