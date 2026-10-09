@@ -25,6 +25,12 @@ enum VoiceNoteMenu {
         }
     }
 
+    /// The Mac menu opens the Settings window itself (`AppCommands`) rather than the
+    /// model's `pendingLink`, which only the library window answers (with a sheet).
+    static func opensSettingsWindow(setUp: Bool, state: QuickCapture.State) -> Bool {
+        action(setUp: setUp, state: state) == .openSetup
+    }
+
     /// What the menu item does for a recorder in `state`, set up or not.
     static func action(setUp: Bool, state: QuickCapture.State) -> Action {
         switch state {

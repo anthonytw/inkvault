@@ -117,6 +117,11 @@ struct AppCommands: Commands {
         case .showKeys: openWindow(id: SceneRestoration.keysSceneID)
         case .showLibrary: openWindow(id: SceneRestoration.librarySceneID)
         case .showSettings: openWindow(id: MenuRouting.settingsSceneID)
+        case .toggleVoiceNote where VoiceNoteMenu.opensSettingsWindow(setUp: QuickCapture.shared.isSetUp,
+                                                                      state: QuickCapture.shared.state):
+            // Not set up: the Settings window (Quick Voice Notes is in it). The model's way, a sheet
+            // over the library window, shows nothing when the menu is used from a note window.
+            openWindow(id: MenuRouting.settingsSceneID)
         default: router?.perform(command)
         }
     }
@@ -194,6 +199,8 @@ enum EditorCommands {
         context.pageCount = editor?.pages.count ?? 0
         context.canDeletePage = editor?.canDeletePage ?? false
         context.hasDeletedPages = !(editor?.deletedPages.isEmpty ?? true)
+        // Typing in a text box on the canvas: its keys (⌘⌫, ⌥⌘⌫) must not delete the note or a page.
+        if editor?.typingInTextBox == true { context.editingText = true }
     }
 }
 

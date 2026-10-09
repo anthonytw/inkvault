@@ -64,6 +64,8 @@ struct NoteWindowView: View {
         .accessibilityIdentifier("noteWindow")
         .environment(ui)
         .windowSheets(ui)
+        // File > Start Voice Note works from a note window as well: show it recording here too.
+        .voiceNoteBanner()
         .focusedSceneValue(\.commandRouter, router)
         .menuRouter(router)
         // A URL opened while this window is in front: routed as in the library window
