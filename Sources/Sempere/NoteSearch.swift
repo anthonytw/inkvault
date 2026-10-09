@@ -196,10 +196,21 @@ public struct SearchMatch: Hashable, Sendable, Codable {
     public var pageId: UUID
     /// 1-based position of the page in the note.
     public var page: Int
-    /// The recognised word.
+    /// The recognised word, or the matched text of a text box.
     public var text: String
     public var box: Recognition.Box
+    /// The text box the match is in; nil for recognised handwriting.
+    public var item: UUID?
+
+    public init(pageId: UUID, page: Int, text: String, box: Recognition.Box, item: UUID? = nil) {
+        self.pageId = pageId; self.page = page; self.text = text; self.box = box; self.item = item
+    }
 }
+
+/// Where the words fall in a text box, in page points (needs text layout, so the caller supplies it:
+/// `TextMatchBoxes` in SempereRender with the CLI's or the app's shaper). Only called for boxes whose text
+/// contains one of the words.
+public typealias TextBoxMatcher = @Sendable (_ words: [String], _ item: Item) -> [(text: String, box: Recognition.Box)]
 
 /// Where a query's words are on a note's pages.
 public enum SearchMatches {
@@ -213,9 +224,9 @@ public enum SearchMatches {
     /// page order and, within a page, in the order the words are stored
     /// (reading order). Pages without word boxes give none, so a page
     /// found by text alone has no match here. Cost: O(Σ words × query words).
-    public static func matches(_ query: String, in pages: [Page]) -> [SearchMatch] {
+    public static func matches(_ query: String, in pages: [Page], textBoxes: TextBoxMatcher? = nil) -> [SearchMatch] {
         let words = NoteSearch.words(query).filter { !$0.tagOnly }.map(\.text)
-        return matches(words: words, in: pages)
+        return matches(words: words, in: pages, textBoxes: textBoxes)
     }
 
     /// Largest coordinate or size of a box that is highlighted (points).
@@ -229,8 +240,9 @@ public enum SearchMatches {
         [box.x, box.y, box.w, box.h].allSatisfy { $0.isFinite && abs($0) <= maxBoxCoordinate } && box.w >= 0 && box.h >= 0
     }
 
-    /// `matches(_:in:)` for already split words (any of them matches).
-    public static func matches(words: [String], in pages: [Page]) -> [SearchMatch] {
+    /// `matches(_:in:)` for already split words (any of them matches). With `textBoxes`, the words found in
+    /// the page's text boxes follow the page's recognised words (text boxes in drawing order, each in reading order).
+    public static func matches(words: [String], in pages: [Page], textBoxes: TextBoxMatcher? = nil) -> [SearchMatch] {
         guard !words.isEmpty else { return [] }
         var out: [SearchMatch] = []
         for (index, page) in pages.enumerated() {
@@ -239,6 +251,16 @@ public enum SearchMatches {
                 out.append(SearchMatch(pageId: page.id, page: index + 1, text: word.text, box: word.box))
                 if out.count >= maxMatches { return out }
             }
+            guard let textBoxes else { continue }
+            for item in page.items.sorted(by: Item.drawsBefore) where item.kind == .text {
+                // Laying a text out is the costly part: only boxes that contain a word.
+                guard let string = item.text.map(MarkdownText.searchText),
+                      words.contains(where: { string.range(of: $0, options: NoteSearch.options) != nil }) else { continue }
+                for found in textBoxes(words, item) where isDrawable(found.box) {
+                    out.append(SearchMatch(pageId: page.id, page: index + 1, text: found.text, box: found.box, item: item.id))
+                    if out.count >= maxMatches { return out }
+                }
+            }
         }
         return out
     }
@@ -246,22 +268,33 @@ public enum SearchMatches {
 
 /// Steps through the matches of a search in one note (across its pages): the
 /// canvas highlights them and shows "3 of 12" with next and previous buttons.
-public struct SearchMatchCursor: Hashable, Sendable {
+public struct SearchMatchCursor: Sendable, Hashable {
     /// Page order, then reading order (`SearchMatches`).
     public private(set) var matches: [SearchMatch]
     /// Index of the current match in `matches`.
     public private(set) var index: Int
     /// The words being looked for, kept so the list can be rebuilt after the pages change.
     public let words: [String]
+    /// How text boxes are searched (nil: only recognised handwriting); kept for `refreshed`.
+    private let textBoxes: TextBoxMatcher?
+
+    public static func == (a: SearchMatchCursor, b: SearchMatchCursor) -> Bool {
+        a.matches == b.matches && a.index == b.index && a.words == b.words
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(matches); hasher.combine(index); hasher.combine(words)
+    }
 
     /// The cursor for `query` over `pages`, on the first match of
     /// `preferredPage` when it has one (the page a search result named), else
     /// on the first match; nil when no word has a box.
-    public init?(query: String, pages: [Page], preferredPage: UUID? = nil) {
+    public init?(query: String, pages: [Page], preferredPage: UUID? = nil, textBoxes: TextBoxMatcher? = nil) {
         let words = NoteSearch.words(query).filter { !$0.tagOnly }.map(\.text)
-        let found = SearchMatches.matches(words: words, in: pages)
+        let found = SearchMatches.matches(words: words, in: pages, textBoxes: textBoxes)
         guard !found.isEmpty else { return nil }
         self.words = words
+        self.textBoxes = textBoxes
         matches = found
         index = preferredPage.flatMap { p in found.firstIndex { $0.pageId == p } } ?? 0
     }
@@ -286,7 +319,7 @@ public struct SearchMatchCursor: Hashable, Sendable {
     /// current match when it is still there, else the first one after it
     /// (by page and position); nil when nothing matches any more.
     public func refreshed(pages: [Page]) -> SearchMatchCursor? {
-        let found = SearchMatches.matches(words: words, in: pages)
+        let found = SearchMatches.matches(words: words, in: pages, textBoxes: textBoxes)
         guard !found.isEmpty else { return nil }
         var copy = self
         copy.matches = found

@@ -14,6 +14,7 @@
 | 0.8 ✅ | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
 | 0.9 ✅ | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); page add/move/delete/duplicate and `notes layout` (done in #52); `recognize`, `import notability --recognize missing`, `notes search` (#78) | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
 | 0.10 ✅ | CLI for attachments (done, `docs/cli.md`): `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over typed text and transcripts | `Sources/SempereCLI`, `Sources/Sempere` | end-to-end CLI tests in `Tests/CLITests/CLIAttachTests.swift` |
+| 0.11 🚧 | Gap audit, search and import (#134, `docs/research/gap-audit-2026-10.md`): GA-06 transcripts in the app's search (`TranscriptSearch`), GA-07 highlights inside text boxes (`TextMatchBoxes`, `search --show-boxes`), GA-08 the app's Notability import options and report, GA-09 Notability transcripts as blobs, GA-10 GIF and TIFF converted to PNG, GA-27 feasibility (`docs/research/ntb-undecoded-kinds.md`) | `Sources/Sempere`, `Sources/SempereRender`, `Sources/SempereImport`, `Apps/` | CLI and core tests green; the app job on CI |
 
 ## Phase 1 — iPad app
 
@@ -53,6 +54,13 @@ access to vaults of a newer format version~~ (done in #94: `format.md` §7,
 `Vault.readOnlyReasons`, CLI exit 7, app banner, web viewer).
 
 Done from this list:
+
+- **Security review and gap audit follow-ups** (`docs/security-review-2026-10.md`,
+  `docs/research/gap-audit-2026-10.md`): P3 (web passkey records bound to the vault's
+  location) and P5 (`vault summaries --plaintext` written 0600) ✅ #130; release hygiene
+  GA-40 to GA-42 (exact network statements, the `release-check.sh` networking rule and
+  SwiftMath pin and checkout scan, the CHANGELOG `TODO(user)` guard) ✅ #130. C2, C3, N3,
+  P4 and C8 are #125's; the other `GA-nn` rows are in the ROADMAP's tables by area.
 
 - **Recovery kit and backups** (`docs/cli.md` "Keys" and "Backup and restore",
   `DESIGN.md` "Recovery"): `sempere keys paper` prints the key (or the

@@ -59,6 +59,13 @@ public struct NotabilityAttachments: Sendable {
     /// Recordings of the note, in Notability's order (`id` is set by `convert`
     /// from the note's key and the index).
     public var recordings: [Recording] = []
+    /// Notability's own transcripts by index into `recordings` (GA-09): `convert` turns each into a
+    /// transcript blob (`transcriptBlobs`) and sets the recording's `transcript` register.
+    public var transcripts: [Int: TranscriptRead] = [:]
+    /// `engine` of those transcripts: `notability-<bundle version>`.
+    public var transcriptEngine = "notability-unknown"
+    /// `created` of those transcripts: the note's modification date (else its creation date).
+    public var transcriptCreated = Date(timeIntervalSince1970: 0)
     /// Curve index → (index into `recordings`, seconds into it): the strokes'
     /// `rec` (format.md §8.3.3).
     public var strokeLinks: [Int: StrokeLink] = [:]
@@ -538,5 +545,24 @@ extension NotabilityNote {
         let session = pkg.paths.first { $0 == "Session.plist" }
             ?? pkg.paths.first { $0.hasSuffix("/Session.plist") && $0.split(separator: "/").count == 2 }
         return session.map { String($0.dropLast("Session.plist".count)) }
+    }
+}
+
+
+extension NotabilityAttachments {
+    /// The id of recording `index`, derived from the note's key (as `convert` does).
+    static func recordingID(key: String, index: Int) -> UUID { UUID.derived(from: key + ":recording:\(index)") }
+
+    /// The transcript blobs of the note's recordings by recording index, each naming the recording
+    /// it belongs to (format.md §8.3.2). Deterministic: the same note gives the same bytes.
+    public func transcriptBlobs(key: String) -> [Int: (ref: BlobRef, data: Data)] {
+        var out: [Int: (ref: BlobRef, data: Data)] = [:]
+        for (i, t) in transcripts.sorted(by: { $0.key < $1.key }) where recordings.indices.contains(i) {
+            let transcript = Transcript(recording: Self.recordingID(key: key, index: i), engine: transcriptEngine,
+                                        language: t.language ?? "und", created: transcriptCreated, segments: t.segments)
+            guard let data = try? transcript.encoded() else { continue }
+            out[i] = (BlobRef(content: data, type: BlobRef.transcriptType), data)
+        }
+        return out
     }
 }

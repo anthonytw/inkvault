@@ -87,8 +87,16 @@ enum AttachmentFixtures {
         return Data(out[0..<Int(bound)])
     }
 
-    /// A GIF signature (a format the vault does not store).
+    /// A GIF signature with no image in it (unreadable).
     static let gif = Data("GIF89a\u{1}\0\u{1}\0\0\0\0;".utf8)
+
+    /// A WebP signature (a format the importer leaves out).
+    static let webp = Data("RIFF".utf8) + Data([0, 0, 0, 0]) + Data("WEBPVP8 ".utf8) + Data(count: 16)
+
+    /// A real GIF: 2 × 1 pixels, red and blue, opaque.
+    static let realGIF = Data([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 2, 0, 1, 0, 0x80, 0, 0,
+                               255, 0, 0, 0, 0, 255,
+                               0x2C, 0, 0, 0, 0, 2, 0, 1, 0, 0, 2, 2, 0x44, 0x54, 0, 0x3B])
 
     /// An image media object shaped as real Notability notes store one
     /// (confirmed on the maintainer's backup, values here synthetic):
