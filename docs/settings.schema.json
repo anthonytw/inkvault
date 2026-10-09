@@ -149,13 +149,6 @@
           "minLength" : 1,
           "type" : "string"
         },
-        "newNote.voiceNotebook" : {
-          "default" : "Inbox",
-          "description" : "Notebook of voice notes.",
-          "maxLength" : 1024,
-          "minLength" : 1,
-          "type" : "string"
-        },
         "photos.removeMetadata" : {
           "default" : true,
           "description" : "Remove location and camera data from photos.",

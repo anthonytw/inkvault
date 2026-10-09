@@ -226,7 +226,6 @@ which devices use it. Any key may also appear in a type block.
 | `handwriting.recognize` | General ▸ Recognize Handwriting | `true`, `false` | `true` |
 | `newNote.titleFormat` | New Notes ▸ Title | `dateAndTime`, `dateOnly`, `isoDateTime`, `weekday`, `custom`, `blank` | `dateAndTime` |
 | `newNote.titlePattern` | New Notes ▸ Title ▸ Pattern (custom) | a pattern `notes new --title-format` accepts | `yyyy-MM-dd HH:mm` |
-| `newNote.voiceNotebook` | New Notes ▸ Voice Notes | a notebook path (`format.md` §5.4) | `Inbox` |
 | `editor.defaultPaper` | New Notes ▸ Paper | a paper object (`format.md` §5.4.2) | ruled |
 | `editor.defaultLayout` | New Notes ▸ Layout (also the new-note sheet) | `letter`, `a4`, `pagelessLetter`, `pagelessA4` | `letter` |
 | `editor.compactPalette` | Compact Palette (editor) | `true`, `false` | `false` |

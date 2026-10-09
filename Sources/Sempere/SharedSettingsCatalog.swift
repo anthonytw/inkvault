@@ -147,7 +147,6 @@ public enum SharedSettingsCatalog {
               default: .string("dateAndTime"), "Title of a new note left untitled"),
         .init("newNote.titlePattern", .titlePattern, default: .string("yyyy-MM-dd HH:mm"),
               "Custom title pattern (newNote.titleFormat custom)"),
-        .init("newNote.voiceNotebook", .notebook, default: .string("Inbox"), "Notebook of voice notes"),
         .init("editor.defaultPaper", .paper, default: (try? JSONValue(encoding: Paper.ruled)) ?? .object(["kind": .string("ruled")]),
               "Paper of new notes"),
         .init("editor.defaultLayout", .choice(["letter", "a4", "pagelessLetter", "pagelessA4"]), default: .string("letter"),

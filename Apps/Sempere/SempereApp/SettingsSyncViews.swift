@@ -171,7 +171,6 @@ enum SettingsSyncText {
         case "handwriting.recognize": return String(localized: "Recognize Handwriting")
         case "newNote.titleFormat": return String(localized: "Title", comment: "Settings ▸ New Notes: the default title of new notes")
         case "newNote.titlePattern": return String(localized: "Title pattern")
-        case "newNote.voiceNotebook": return String(localized: "Voice Notes")
         case "editor.defaultPaper": return String(localized: "Paper")
         case "editor.defaultLayout": return String(localized: "Layout", comment: "Settings ▸ New Notes: pages or pageless, and the paper size")
         case "editor.compactPalette": return String(localized: "Compact Palette")

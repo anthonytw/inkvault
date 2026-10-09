@@ -58,7 +58,6 @@ enum SettingsSyncBridge {
         case "handwriting.recognize": return .bool(RecognitionPreference.isEnabled(d))
         case "newNote.titleFormat": return .string(NewNoteSettings.titleFormat(d).rawValue)
         case "newNote.titlePattern": return .string(NewNoteSettings.titlePattern(d))
-        case "newNote.voiceNotebook": return .string(NewNoteSettings.voiceNotebook(d))
         case "editor.defaultPaper": return try? JSONValue(encoding: PaperPreference.load(from: d))
         case "editor.defaultLayout": return .string(NewNoteLayout.load(from: d).rawValue)
         case "editor.compactPalette": return .bool(d.bool(forKey: ToolPalette.compactKey))
@@ -109,7 +108,6 @@ enum SettingsSyncBridge {
             case ("newNote.titleFormat", .string(let s)):
                 if let f = NewNoteSettings.TitleFormat(rawValue: s) { NewNoteSettings.setTitleFormat(f, in: d) }
             case ("newNote.titlePattern", .string(let s)): NewNoteSettings.setTitlePattern(s, in: d)
-            case ("newNote.voiceNotebook", .string(let s)): NewNoteSettings.setVoiceNotebook(s, in: d)
             case ("editor.defaultPaper", _): if let p = try? value.decode(Paper.self) { PaperPreference.save(p, to: d) }
             case ("editor.defaultLayout", .string(let s)): if let l = NewNoteLayout(rawValue: s) { NewNoteLayout.save(l, to: d) }
             case ("editor.compactPalette", .bool(let b)): d.set(b, forKey: ToolPalette.compactKey)
