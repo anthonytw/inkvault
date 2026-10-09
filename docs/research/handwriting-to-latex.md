@@ -91,9 +91,69 @@ LBH1024/CAN, harvardnlp/im2markup) and READMEs (TAMER, ICAL, CoMER, PosFormer), 
 
 ## 4. Measurements made here
 
-The research VM cannot reach Hugging Face, so no real weights were converted or evaluated here,
-and there is no Apple hardware: **accuracy on the user's handwriting and A12Z latency remain to be
-measured** (§6). What was measured, on the VM's CPU (Intel Xeon 2.1 GHz, 4 threads, PyTorch 2.7,
+Two parts. 4.1 is the real thing: the published weights of UniMERNet-T and Texo, converted with
+`tools/math-model/convert.py`, run on an Apple-silicon Mac (macOS 27, Core ML, `cpuAndGPU`) through
+`sempere recognize-math --model`. 4.2 is what the research VM could measure before it had weights
+(random weights of the same shapes, Intel CPU). The iPad (A12Z) is still unmeasured: the Mac numbers
+are an upper bound on speed, not a prediction.
+
+### 4.1 Real weights on a Mac
+
+**Winner: UniMERNet-T on accuracy; Texo on everything else.** On ink (our pipeline), UniMERNet-T
+reads 15 % of MathWriting test expressions exactly right against Texo's 8.5 %, and on CROHME 2019
+images 50.7 % against 45.1 %. Texo is 5 to 10× smaller, 10× faster and uses a seventh of the memory.
+Neither reaches the 50 % bar of §6.3 on handwriting from a different source than CROHME. Accuracy
+decides first, so UniMERNet-T is the better model to try; Texo is the one that is realistic on an
+A12Z. Try both (§4.4).
+
+| | Texo (20 M) | Texo 8-bit | UniMERNet-T (107 M) | UniMERNet-T 8-bit |
+| --- | --- | --- | --- | --- |
+| Model size on disk | 40.3 MB | 20.4 MB | 218.7 MB | 111.3 MB |
+| Image the model reads | 384 × 384 | same | 192 × 672 | same |
+| **CROHME 2019 test images** (n = 1 199 fp16; 400 for 8-bit, first 400 of the same set), expression exact match | 45.1 % (49.3 % first 400) | 48.5 % (400) | **50.7 %** (53.8 % first 400) | **53.3 %** (400) |
+| same, token edit distance (per reference token) | 0.138 | 0.129 | 0.134 | 0.120 |
+| **MathWriting test ink, through the CLI** (n = 200), exact match | 8.5 % | not run | **15.0 %** | not run |
+| same, token edit distance | 0.290 | | 0.294 | |
+| same, within one token of right | 20.5 % | | 28.0 % | |
+| Encoder, per image (Python Core ML, cpuAndGPU) | 4.7 ms | 4.5 ms | 9.3 ms | 41.9 ms |
+| Decoder step, token input padded to 16 / 64 / 256 | 2.0 / 4.4 / 18.1 ms | same | 12.4 / 27.9 / 104.1 ms | same |
+| Greedy decode, median CROHME expression (14 / 28 tokens) | 37 ms | 42 ms | 529 ms | 588 ms |
+| `sempere recognize-math` end to end, beam 3, median (process start, model load, read) | 0.64 s | | 3.97 s | |
+| Peak memory of that CLI process | 1.7 GB | | 10.1 GB | |
+| Load (Python Core ML) | 0.4 s | 0.5 s | 1.6 s | 2.3 s |
+
+Notes on the numbers:
+
+- **8-bit** (per-channel symmetric linear quantisation of the weights, `convert.py --int8`) halves the
+  download and changes accuracy by less than the noise (CROHME first 400: Texo 49.3 → 48.5 %,
+  UniMERNet-T 53.8 → 53.3 %). It does **not** make Core ML faster: weights are decompressed to fp16 when
+  run (UniMERNet-T's encoder got slower, 9 → 42 ms). It is a download-size lever only.
+- The two exact-match rows differ by source and are not comparable with each other. CROHME 2019 images
+  are *rendered* from the ink (Hugging Face `Kitajiang/test2_CROHME2019`, 1 199 images), in the style the
+  models trained on; both models were trained on CROHME, so those numbers are friendly (the 2019 test
+  set may be in UniMER-1M, unverified). MathWriting test ink (CC BY-NC-SA 4.0, evaluation only) is
+  drawn by the app's own renderer from the real strokes, as in the app: the honest figure for what a
+  user would get. The gap is large (45 → 8.5 %, 51 → 15 %): ink from other writers, longer and
+  stranger expressions (Wikipedia LaTeX), and a different drawing style.
+- Texo's published figures are on printed and mixed sets; its CROHME number here (45 %) is below the
+  ~60 % of dedicated CROHME models in §3.
+- Scoring is by token (`eval.py score`): `\left`, `\right`, sizing and spacing commands are dropped
+  and a few synonyms (`\le`/`\leq`) are merged before comparing; "lenient" additionally ignores braces.
+  Strict and lenient differ by less than 1 point, so only strict is quoted. MathWriting labels are
+  normalised LaTeX, so a correct reading can still differ (`\vec` against `\overline`, `.` against `\cdot`).
+- The cause of UniMERNet-T's memory (10 GB peak) was not isolated. The Python process peaks at 14 GB,
+  so it is the Core ML runtime planning the 8-layer decoder at several enumerated lengths with
+  `cpuAndGPU`, not the Swift side. This must be re-measured on the iPad: a 6 GB device would not survive
+  it, and it is the strongest argument against UniMERNet-T unless a cached decoder (§4.2) removes it.
+- Image preparation matters less than expected: with Texo, drawing the ink on white at the app's width,
+  or on black padding as the reference preprocessing does, or with strokes 2 to 5 px wide, moved exact
+  match on 200 samples between 6 % and 10.5 %. The app's current rendering is within that band.
+  Centring the ink (the manifests here use `alignLeft: false`) is what both models were trained with;
+  `convert.py` defaults to left-aligned, so pass `--centre`.
+
+### 4.2 Before the weights: random-weight shapes on a VM
+
+What was measured, on the VM's CPU (Intel Xeon 2.1 GHz, 4 threads, PyTorch 2.7,
 random weights of the same shapes):
 
 | Shape (encoder / decoder) | Params | fp16 | Encoder | Decoder step, padded to 16 / 64 / 256 tokens | 64 tokens, beam 3: padded to 256 | with length buckets | with a KV cache |
@@ -117,6 +177,86 @@ random weights of the same shapes):
 - Pure-Swift costs around the model are small: `MathInkImage.render` draws a few dozen strokes
   into a 384 × 384 image in milliseconds; beam search bookkeeping is O(width × vocabulary) per step.
 
+### 4.3 Commands and conversion gotchas
+
+Everything lives outside the repository (`~/Library/Caches/sempere-math-eval`); nothing downloaded or
+converted is committed. Scripts: `tools/math-model/convert.py`, `texo_loader.py`, `unimernet_loader.py`,
+`eval.py`, `eval-vault/` (a small Swift package that builds a throwaway vault of notes from ink).
+
+```sh
+cd ~/Library/Caches/sempere-math-eval
+# Weights (Hugging Face): Texo = alephpi/FormulaNet (model.safetensors, tokenizer.json, config.json);
+# UniMERNet-T = wanderkid/unimernet_tiny (unimernet_tiny.pth, config.json, tokenizer.json, preprocessor_config.json)
+git clone --depth 1 https://github.com/alephpi/Texo texo-src
+git clone --depth 1 https://github.com/opendatalab/UniMERNet unimernet-src
+C=$PWD/../../dev/sempere/tools/math-model        # this repository's tools/math-model
+IMG="--channels 3 --mean 0.7931 0.7931 0.7931 --std 0.1738 0.1738 0.1738 --max-length 256 --centre"
+
+TEXO_SRC=$PWD/texo-src uv run --python 3.12 --with torch==2.7.0 --with transformers==4.40.0 \
+  --with "numpy<2" --with coremltools --with safetensors python -I $C/convert.py \
+  --model texo-hf --loader $C/texo_loader.py --out models/texo-fp16 --id texo-eval --name Texo \
+  --licence AGPL-3.0-only --source https://huggingface.co/alephpi/FormulaNet --height 384 --width 384 $IMG
+#   add --int8 for the 8-bit model
+
+UNIMERNET_SRC=$PWD/unimernet-src uv run --python 3.12 --with torch==2.7.0 --with transformers==4.42.4 \
+  --with "numpy<2" --with ftfy --with pillow --with torchvision==0.22.0 --with coremltools python -I \
+  $C/convert.py --model unimernet-t --loader $C/unimernet_loader.py --out models/unimernet-t-fp16 \
+  --id unimernet-t-eval --name UniMERNet-T --licence Apache-2.0 \
+  --source https://huggingface.co/wanderkid/unimernet_tiny --height 192 --width 672 $IMG
+
+# Ink: MathWriting 2024 (CC BY-NC-SA 4.0; evaluation only), 3.1 GB; only test/ is needed.
+curl -LO https://storage.googleapis.com/mathwriting_data/mathwriting-2024.tgz
+mkdir mw && tar -xzf mathwriting-2024.tgz -C mw mathwriting-2024/test
+python3 $C/eval.py samples mw/mathwriting-2024/test run --n 200
+(cd $C/eval-vault && swift build -c release)
+$C/eval-vault/.build/release/eval-vault run/samples.jsonl run/vault.sempere run/key
+python3 $C/eval.py cli run run/vault.sempere run/key models/texo-fp16     # runs sempere recognize-math per note
+python3 $C/eval.py score run run/pred-texo-fp16.json
+
+# CROHME 2019 test images (Hugging Face Kitajiang/test2_CROHME2019), the model's own preprocessing
+curl -L -o crohme2019.parquet https://huggingface.co/datasets/Kitajiang/test2_CROHME2019/resolve/main/CROHME2019/test-00000-of-00001.parquet
+uv run --python 3.12 --with coremltools --with "numpy<2" --with pillow --with tokenizers \
+  --with pyarrow==17.0.0 python $C/eval.py crohme models/texo-fp16 crohme2019.parquet
+uv run ... python $C/eval.py bench models/texo-fp16        # encoder / decoder-step latency, memory
+
+# Package for the app's "Add Model from Files" (a stored zip: Finder's Compress deflates, which is refused)
+(cd models/texo-fp16 && zip -0 -r -q ../texo-fp16.zip . -x '.*')
+```
+
+Gotchas, in the order they bit:
+
+1. **Neither model is a plain Hugging Face `VisionEncoderDecoderModel`.** Texo's encoder is its own HGNetV2
+   (`model_type: my_hgnetv2`, registered by importing the Texo repository); UniMERNet's weights are a
+   `.pth` state dict for its own Swin-like encoder and an mBART decoder with a "counting" head. Hence
+   `convert.py --loader FILE` (a `load(model_dir)` function). The UniMERNet loader stubs the package
+   `__init__` (which imports training-only dependencies) and loads `encoder_decoder.py` directly.
+2. **Pin `transformers`**: Texo needs 4.40.0, UniMERNet 4.42.4 (it imports `PILImageResampling` from
+   `transformers.image_utils`, gone in later releases). `torch` 2.7 with `torch.export` converts both with
+   coremltools unchanged; Python 3.12 (3.14 has no wheels for this set); `numpy<2` for coremltools (and
+   `pyarrow==17.0.0` next to it).
+3. **Preprocessing is part of the model.** Both read 3-channel grey images normalised with mean 0.7931,
+   std 0.1738 (not ImageNet's, whatever `preprocessor_config.json` says), the ink cropped, fitted and
+   centred, with *black* padding in the reference code. Texo reads 384 × 384, UniMERNet-T 192 × 672 (a
+   wide strip). The manifest carries all of it; none of it was a conversion problem.
+4. **No KV cache**: the decoders are converted whole, one pass per step at the smallest enumerated
+   length that holds the prefix (16, 32, 64, 128, 256). That costs UniMERNet-T 12 to 104 ms per step (a
+   cached step was not measured on real weights); its decoder (8 layers, d = 512) is the cost, and
+   probably the memory problem. A stateful decoder (§4.2, §6.5) is the next engineering step if it wins.
+5. One `RuntimeWarning: overflow encountered in cast` appears while converting the decoder to fp16
+   (probably the causal mask's `-inf`, not isolated); the converted models match the reference accuracy
+   (Texo ≈ its published ranking), so it is harmless.
+6. 8-bit weights: `coremltools.optimize.coreml.linear_quantize_weights` after `ct.convert`; the encoder
+   gets slower to run, see 4.1.
+7. The CLI prints Core ML diagnostics on standard output; use `--json` and parse that.
+
+### 4.4 Trying the models in the app
+
+Settings ▸ Handwritten Math ▸ **Add Model from Files…** picks a model folder or a stored zip, checks every
+file against the manifest's SHA-256 and size and installs it into the model store (no network, no
+catalogue entry; `MathModelCatalog.entries` stays empty). Several models can be installed; **Use This
+Model** chooses which reads. The packaged zips of the four variants above are in iCloud Drive under
+`Sempere Models/` (not in the repository).
+
 ## 5. What this branch builds
 
 Design: the model is an implementation detail behind `MathRecognizing`; everything else is
@@ -133,6 +273,7 @@ shared, pure Swift and tested on Linux, and the app and the CLI do the same thin
 | Verified store: install only after every file matches; a catalogue entry pins the manifest's SHA-256; loads re-check sizes and a marker | `MathModelStore`, `MathModelCatalogEntry`, `MathModelCatalog` (empty) | idem |
 | Core ML inference: encoder once, decoder per step at the bucket length, beam search | `CoreMLMathRecognizer` (`#if canImport(CoreML)`) | runs a tiny random model (`Fixtures/math-tiny`, 0.6 MB) in the macOS CI job |
 | Converter: Hugging Face `VisionEncoderDecoderModel` (TrOCR, Pix2Text, UniMERNet, Texo's FormulaNet, TexTeller) → two `.mlpackage`s, tokenizer, manifest; `--tiny` for a pipeline check | `tools/math-model/convert.py` | the fixture was made with it |
+| Add Model from Files (app) | Settings ▸ Handwritten Math: pick a folder or stored zip, verified like a download, installed, selectable | `MathModelImportTests`, `MathConversionTests` |
 | CLI | `sempere recognize-math NOTE --strokes/--rect/--lasso/--all-ink [--model DIR \| --latex SRC] [--place replace\|beside] [--save-image]` | `CLIRecognizeMathTests` |
 | App | Settings ▸ Handwritten Math (off by default; model list with size before download, progress, remove); Insert ▸ Equation from Handwriting… (only with a model) → lasso on the canvas → the equation sheet reads the ink, offers the readings, the LaTeX stays editable with the SwiftMath preview → Convert (Replace Ink / Place Beside), one delta, one undo step | `MathConversionTests` |
 

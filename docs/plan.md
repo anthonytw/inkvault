@@ -39,13 +39,15 @@ need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish 
 ## Phase 3 — nice to have
 
 Built-in WebDAV client (`sempere sync webdav`, `docs/io.md`; the iPad app UI
-is still open 💡); compaction UI (✅ #74 thinning setting and "Thin Now");
+is still open 📋, planned for the first release); compaction UI (✅ #74 thinning setting and "Thin Now");
 ~~PNG export~~ (done: `sempere export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/SempereRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper; now designed with text boxes and audio,
-see "Attachments" below); stroke
-dedupe after concurrent slicing; ~~post-quantum recipient type~~ (done:
+see "Attachments" below); ~~stroke
+dedupe after concurrent slicing~~ (done in #126: `format.md` §5.6.1, the later of two
+concurrent replacements of a stroke wins; `sempere notes dedupe` checks and repairs vaults
+written before); ~~post-quantum recipient type~~ (done:
 MLKEM768-X25519, `docs/post-quantum.md`); ~~read-only
 access to vaults of a newer format version~~ (done in #94: `format.md` §7,
 `Vault.readOnlyReasons`, CLI exit 7, app banner, web viewer).
@@ -77,8 +79,7 @@ criteria) and `docs/format.md` §8 (normative). Status: **decisions final**
 goes first; after it, the rest run in parallel along the dependencies in
 `docs/attachments.md` §14. G1 (both parts; part 2 has no model yet), G2, E7 and L are done; none blocks anything.
 
-Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
+Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned for the first release. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
 build 7 follow-ups are all ✅ merged, none yet tried on a device: selecting items and Replace Image (#104), audio items on the page (#103),
 sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#106, #107), bulk export (#109) and backups in the app (#110).
 
@@ -110,6 +111,12 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | G2 ✅ | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); ✅ **done (#93)**: format §8.2.7, CLI, exports, sync, app, web viewer | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
 | L ✅ | ✅ **Done (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
 | E8 🚧 | 🚧 **#129**: **Markdown text boxes with LaTeX math** (maintainer request 2026-10-09: Markdown over the font-styling bar). Format `format.md` §8.2.4 "Markdown text", §8.5.4 (source as the box's text, `markup`, hash-tied `layout`, typeset `math` entries); core `Markdown.swift`, `MarkdownPlan.swift`, `MarkdownText.swift`, `MarkdownEditing.swift`; render `MarkdownLayout.swift`, `MarkdownItems.swift`, `MarkdownHTML.swift`; CLI `attach text --markdown`, `items text`; app Markdown bar, `NoteEditor+Markdown`; web `format/markdown.ts`, `render/markdown.ts` | `Sources/`, CLI, `Apps/`, `web/` | E2, G1 | same lines in the CLI, the app and the web viewer (`Tests/SempereTests/Fixtures/text/markdown.json`, web goldens) |
+
+The gap audit (`docs/research/gap-audit-2026-10.md`) rows are not tasks here: they sit in their
+component sections of `docs/ROADMAP.md` with their `GA-nn` ids, all planned for the first release
+except the ones the maintainer dropped (GA-11, GA-12, GA-22, GA-24, GA-25, GA-26). The "First release" section there (one public
+"Initial commit" with the history archived privately, the project website at
+`sempere.anthonywertz.com`, a legal review of the Notability importer) is the maintainer's.
 
 ## Working agreements
 

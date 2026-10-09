@@ -39,7 +39,7 @@ export function cmpUTF8(a: string, b: string): number {
   }
 }
 
-function cmpNum(a: number, b: number): number {
+export function cmpNum(a: number, b: number): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 

@@ -197,7 +197,7 @@ describe("merge scenarios", () => {
     expect(strokes[1]?.origin).toBe(originString(originOf(revisionName(d), 0)));
   });
 
-  it("keeps both piece sets of a concurrent slice", () => {
+  it("keeps one piece set of a concurrent slice (format.md §5.6.1)", () => {
     const log = new LogBuilder();
     const x = stroke();
     const a1 = stroke(newUUID(), x.id), a2 = stroke(newUUID(), x.id);
@@ -206,9 +206,32 @@ describe("merge scenarios", () => {
     const sliceA = log.delta(devA, 100, [op.removeStroke(p1, x.id), op.addStroke(p1, a1), op.addStroke(p1, a2)]);
     const sliceB = log.delta(devB, 100, [op.removeStroke(p1, x.id), op.addStroke(p1, b1), op.addStroke(p1, b2)]);
     const state = reconstruct([sliceB, d0, sliceA]);
-    expect(strokeIds(state)).toEqual([[a1.id, a2.id, b1.id, b2.id]]);
-    expect(state.pages[0]?.strokes.every((s) => s.parent === x.id)).toBe(true);
-    expect(state.tombstones).toBeUndefined();
+    // Same hlc: B's greater device id wins; A's pieces are superseded.
+    expect(strokeIds(state)).toEqual([[b1.id, b2.id]]);
+    expect(state.pages[0]?.strokes.every((s) => s.parent === x.id && s.replaces === true)).toBe(true);
+    expect(new Set(state.tombstones?.superseded)).toEqual(new Set([a1.id, a2.id]));
+    expect(state.tombstones?.strokes).toEqual([]);
+  });
+
+  it("lets the later of two concurrent replacements win, with what the loser did to its pieces", () => {
+    const log = new LogBuilder();
+    const x = stroke();
+    const a1 = stroke(newUUID(), x.id), a2 = stroke(newUUID(), x.id), a11 = stroke(newUUID(), a1.id);
+    const b1 = stroke(newUUID(), x.id);
+    const d0 = log.delta(devA, 0, [op.addPage(p1, "V"), op.addStroke(p1, x)]);
+    const sliceA = log.delta(devA, 100, [op.removeStroke(p1, x.id), op.addStroke(p1, a1), op.addStroke(p1, a2)]);
+    const againA = log.delta(devA, 150, [op.removeStroke(p1, a1.id), op.addStroke(p1, a11)]);
+    const sliceB = log.delta(devB, 200, [op.removeStroke(p1, x.id), op.addStroke(p1, b1)]);
+    expect(allStrokeIds(reconstruct([sliceB, againA, d0, sliceA]))).toEqual([b1.id]);
+    // A snapshot of A's side alone keeps a1's link, so B still wins once the deltas are gone.
+    const snap = log.snapshot(devA, 160, [d0, sliceA, againA]);
+    expect(snapshotParts(snap).state.tombstones?.lineage).toEqual(
+      [{ stroke: a1.id, parent: x.id, by: `${hlcString(baseMillis + 100)}-${devA}-2` }]);
+    expect(allStrokeIds(reconstruct([sliceB, snap]))).toEqual([b1.id]);
+    // A re-creation (undo of an erase: x already removed) is not a replacement.
+    const back = stroke(newUUID(), x.id);
+    const undo = log.delta(devC, 300, [op.addStroke(p1, back)]);
+    expect(new Set(allStrokeIds(reconstruct([d0, sliceA, againA, sliceB, undo])))).toEqual(new Set([b1.id, back.id]));
   });
 
   it("does not resurrect a stroke whose add arrives after its remove", () => {
@@ -221,7 +244,7 @@ describe("merge scenarios", () => {
     const snap = log.snapshot(devC, 300, [pg, remove]);
     const { included, state } = snapshotParts(snap);
     expect(included.covers(devA, 2)).toBe(false);
-    expect(state.tombstones).toEqual({ strokes: [s.id], pages: [], items: [], recordings: [] });
+    expect(state.tombstones).toEqual({ strokes: [s.id], pages: [], items: [], recordings: [], lineage: [], superseded: [] });
     // The add arrives late; the old remove still wins.
     expect(allStrokeIds(reconstruct([snap, add]))).toEqual([]);
     expect(allStrokeIds(reconstruct([add, pg, snap, remove]))).toEqual([]);

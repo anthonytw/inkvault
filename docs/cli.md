@@ -803,6 +803,7 @@ sempere notes history ID|TITLE [--sessions]
 sempere notes restore ID|TITLE --to REVISION [--dry-run]
 sempere notes checkpoint ID|TITLE [--name TEXT]
 sempere notes layout ID|TITLE paged|pageless [--dry-run]
+sempere notes dedupe (ID|TITLE ... | --all) [--dry-run]
 ```
 
 `list` prints id, title, pages, strokes and last modified; deleted notes are
@@ -992,6 +993,36 @@ sempere notes markers "Week 3" behind
 
 `notes list --json` (and the `note` of every edit's `--json`) includes `lang`
 (when set) and `markersBehindText`.
+
+#### Strokes left over by concurrent edits
+
+When two devices slice (pixel eraser), move or recolour the same stroke
+without seeing each other's edit, every reader keeps the later edit and hides
+the other one's strokes (`format.md` §5.6.1). `notes dedupe` lists, per note:
+
+- **superseded** strokes: hidden that way, but still added by revisions.
+  Readers that predate the rule (older app or CLI builds) still draw them;
+  removing them makes those agree.
+- **duplicates**: live strokes that descend from the same stroke as other
+  live strokes through another edit, which the merge cannot resolve: a stroke
+  brought back by undo or a restore while another device sliced it, or
+  vaults compacted by builds that predate the rule (their snapshots hold both
+  sets of pieces and nothing to tell them apart). The descendants of the
+  latest edit are kept.
+
+Without `--dry-run` it writes one delta per note that has any (one
+`removeStroke` per stroke, computed from the note as it is on disk; device id
+and clock as for `snapshot`); `--dry-run` is the check and writes nothing.
+Notes are named as for `notes show`, or `--all` for every note; with `--all` a
+note that cannot be read is reported on stderr, the others are still
+processed, and the exit code is 1. `--json` prints one object per note:
+`note`, `superseded` and `duplicates` (each `[{page, stroke}]`), and `file`
+(the delta written, null on a dry run or when there was nothing).
+
+```
+sempere notes dedupe --all --dry-run
+sempere notes dedupe "Week 3"
+```
 
 ### Notebooks and tags
 

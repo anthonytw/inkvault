@@ -73,7 +73,7 @@ describe("revisions", () => {
         created: Date.UTC(2026, 9, 4, 16, 20), paper: defaultPaper("ruled"), pageSize: letter },
       pages: [{ ...page(pageId, "a0"), orderClock: "17596320000000001-a1b2c3d4" }],
       clocks: { title: "17596320000000002-99ee00ff" },
-      tombstones: { strokes: [gone], pages: [], items: [], recordings: [] },
+      tombstones: { strokes: [gone], pages: [], items: [], recordings: [], lineage: [], superseded: [] },
       recordings: [],
     });
     expect(revisionFilename(revisionName(rev))).toBe("17596320000000009-a1b2c3d4-17.snapshot.age");
