@@ -129,6 +129,7 @@ extension AppModel {
                       authenticator: any OwnerAuthenticator = SystemOwnerAuthenticator()) async throws {
         let recipient = try Self.parseRecipient(text)
         guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        try requireLocalKeyChanges()   // before any prompt
         if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         guard !vault.recipients.contains(where: { $0.key == recipient.string }) else { throw KeyError.alreadyListed }
         try await requireOwner(authenticator, reason: String(localized: "Add a device key to “\(promptVaultName)”"),
@@ -148,6 +149,7 @@ extension AppModel {
                            authenticator: any OwnerAuthenticator = SystemOwnerAuthenticator()) async throws -> GeneratedKey {
         guard let start = vault, phase == .unlocked else { throw KeyError.notUnlocked }
         if let expectedVault, expectedVault != start.vaultId { throw KeyError.vaultChanged }
+        try requireLocalKeyChanges()   // before any prompt
         try await requireOwner(authenticator, reason: String(localized: "Create a device key for “\(promptVaultName)”"),
                                vault: start.vaultId)
         guard let vault else { throw KeyError.notUnlocked }
@@ -192,6 +194,7 @@ extension AppModel {
     /// already copied. `expectedVault`: the vault the request was made for.
     func removeDeviceKey(_ recipient: String, expectedVault: UUID? = nil) async throws {
         guard let vault, phase == .unlocked else { throw KeyError.notUnlocked }
+        try requireLocalKeyChanges()   // before any prompt
         if let expectedVault, expectedVault != vault.vaultId { throw KeyError.vaultChanged }
         guard vault.recipients.contains(where: { $0.key == recipient }) else { throw KeyError.notListed }
         guard vault.recipients.count > 1 else { throw KeyError.lastKey }
@@ -311,6 +314,7 @@ extension AppModel {
     func changeRecipients(_ change: @escaping @Sendable (inout Vault) throws -> Vault.RewrapReport,
                                   applied: () -> Void = {}) async throws {
         guard phase == .unlocked, let start = vault else { throw KeyError.notUnlocked }
+        try requireLocalKeyChanges()   // a WebDAV copy: the server would keep the old files
         isChangingKeys = true
         defer { isChangingKeys = false }
         await editGate.acquire()

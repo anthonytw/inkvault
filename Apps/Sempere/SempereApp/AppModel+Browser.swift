@@ -26,6 +26,13 @@ extension AppModel {
     ///   is dead (the entry is dropped); otherwise whatever opening throws,
     ///   with the entry kept.
     func open(recent entry: RecentVault, library: VaultLibrary) async throws {
+        if let location = entry.webdav {
+            guard webdavLocations.location(location) != nil else {
+                library.forget(entry)
+                throw VaultLibrary.LibraryError.cannotResolve(name: entry.name)
+            }
+            return try await openWebDAV(location, library: library)
+        }
         let url = try library.resolve(entry)
         try await openVault(at: url)
         remember(in: library)

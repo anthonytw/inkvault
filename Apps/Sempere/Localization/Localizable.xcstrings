@@ -321,6 +321,102 @@
         }
       }
     },
+    "%lld changes not uploaded yet" : {
+      "comment" : "WebDAV status; the number is a count of files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld change not uploaded yet"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld changes not uploaded yet"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld cambios sin subir todavía"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld cambio sin subir todavía"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld cambios sin subir todavía"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld changes on this device have not reached the server and will be lost. Open the vault and sync first to keep them." : {
+      "comment" : "The number is a count of files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld change on this device has not reached the server and will be lost. Open the vault and sync first to keep it."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld changes on this device have not reached the server and will be lost. Open the vault and sync first to keep them."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld cambios de este dispositivo no han llegado al servidor y se perderán. Abre la bóveda y sincroniza antes para conservarlos."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld cambio de este dispositivo no ha llegado al servidor y se perderá. Abre la bóveda y sincroniza antes para conservarlo."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld cambios de este dispositivo no han llegado al servidor y se perderán. Abre la bóveda y sincroniza antes para conservarlos."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld could not be read" : {
       "comment" : "A number of notes whose handwriting could not be read",
       "extractionState" : "manual",
@@ -2037,6 +2133,17 @@
         }
       }
     },
+    "A WebDAV folder (https://…) that holds a vault, or the folder above your vaults. The password is kept only in this device's Keychain. Sempere keeps a copy of the vault on this device and only uploads to the server: it never takes changes from it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta WebDAV (https://…) que contiene una bóveda, o la carpeta que está encima de tus bóvedas. La contraseña se guarda solo en el Llavero de este dispositivo. Sempere guarda una copia de la bóveda en este dispositivo y solo sube al servidor: nunca toma cambios de él."
+          }
+        }
+      }
+    },
     "A backup copies the encrypted vault to another place. It helps when a folder is lost or damaged; it does not replace the key." : {
       "comment" : "About Your Key",
       "extractionState" : "manual",
@@ -2982,6 +3089,54 @@
         }
       }
     },
+    "Another vault is now at this address, and this device has %lld changes of the vault that was there which were never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first." : {
+      "comment" : "Connect to WebDAV: the folder holds another vault; the count is files not uploaded",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Another vault is now at this address, and this device has %lld change of the vault that was there which was never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Another vault is now at this address, and this device has %lld changes of the vault that was there which were never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Ahora hay otra bóveda en esta dirección, y este dispositivo tiene %lld cambios de la bóveda que estaba allí que nunca se subieron. No se ha cambiado nada. Para empezar de nuevo, elimina primero esa bóveda WebDAV en la pantalla de bienvenida."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Ahora hay otra bóveda en esta dirección, y este dispositivo tiene %lld cambio de la bóveda que estaba allí que nunca se subió. No se ha cambiado nada. Para empezar de nuevo, elimina primero esa bóveda WebDAV en la pantalla de bienvenida."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Ahora hay otra bóveda en esta dirección, y este dispositivo tiene %lld cambios de la bóveda que estaba allí que nunca se subieron. No se ha cambiado nada. Para empezar de nuevo, elimina primero esa bóveda WebDAV en la pantalla de bienvenida."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Another vault was opened meanwhile. Nothing was changed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3635,6 +3790,17 @@
         }
       }
     },
+    "Certificate You Trusted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Certificado de confianza"
+          }
+        }
+      }
+    },
     "Change Backup Folder…" : {
       "comment" : "Settings ▸ Backups: button",
       "extractionState" : "manual",
@@ -4184,6 +4350,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Paleta compacta"
+          }
+        }
+      }
+    },
+    "Connected, but there is no vault at this address or in the folders directly below it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectado, pero no hay ninguna bóveda en esta dirección ni en las carpetas que hay justo debajo."
           }
         }
       }
@@ -5014,6 +5191,17 @@
         }
       }
     },
+    "Device keys of a WebDAV vault cannot be changed in the app: the server would keep files a removed key can read. Change them with the sempere command-line tool on a folder copy and upload that to a new server folder." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las claves de dispositivo de una bóveda WebDAV no se pueden cambiar en la app: el servidor conservaría archivos que una clave quitada puede leer. Cámbialas con la herramienta de línea de comandos sempere en una copia en carpeta y sube esa copia a una carpeta nueva del servidor."
+          }
+        }
+      }
+    },
     "Devices here are the keys this vault is encrypted to (this iPad, that Mac, the paper backup), not people: to share a note, export it. “Rewrite headers only” is fast but leaves old copies of an attachment openable with a key that was removed. “Re-encrypt everything” takes longer in a vault with many attachments." : {
       "comment" : "The quoted names are the picker choices “Rewrite headers only” and “Re-encrypt everything”: use the same translations",
       "extractionState" : "manual",
@@ -5193,6 +5381,28 @@
         }
       }
     },
+    "Download Again" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volver a descargar"
+          }
+        }
+      }
+    },
+    "Download Again…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volver a descargar…"
+          }
+        }
+      }
+    },
     "Download Language Model" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -5201,6 +5411,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Descargar modelo de idioma"
+          }
+        }
+      }
+    },
+    "Download and Open" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargar y abrir"
+          }
+        }
+      }
+    },
+    "Download the vault again?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Volver a descargar la bóveda?"
           }
         }
       }
@@ -5320,6 +5552,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Descargando esta nota de iCloud…"
+          }
+        }
+      }
+    },
+    "Downloading “%@” from the server…" : {
+      "comment" : "The value is the vault's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargando «%@» del servidor…"
           }
         }
       }
@@ -6741,6 +6985,17 @@
         }
       }
     },
+    "If your server uses a certificate you made yourself, compare this fingerprint with the one the server shows before trusting it. If you did not expect this, do not continue: someone may be intercepting the connection." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si tu servidor usa un certificado que creaste tú, compara esta huella con la que muestra el servidor antes de confiar en él. Si no esperabas esto, no continúes: alguien podría estar interceptando la conexión."
+          }
+        }
+      }
+    },
     "Image" : {
       "comment" : "Attachment kind in the unused attachments list",
       "extractionState" : "manual",
@@ -7630,6 +7885,18 @@
         }
       }
     },
+    "Last upload %@" : {
+      "comment" : "The value is a relative date (“5 minutes ago”)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Última subida %@"
+          }
+        }
+      }
+    },
     "Last used %@" : {
       "comment" : "Button opening the note's history; %@ is a day",
       "extractionState" : "manual",
@@ -8265,6 +8532,17 @@
         }
       }
     },
+    "New Password (leave empty to keep it)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contraseña nueva (vacía para mantenerla)"
+          }
+        }
+      }
+    },
     "New Vault" : {
       "comment" : "Title of the new-vault form",
       "extractionState" : "manual",
@@ -8627,6 +8905,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sin páginas"
+          }
+        }
+      }
+    },
+    "No password is saved for this server. Enter it again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ninguna contraseña guardada para este servidor. Vuelve a escribirla."
           }
         }
       }
@@ -9145,6 +9434,65 @@
         }
       }
     },
+    "Offline. %lld changes are kept on this device and uploaded when the server can be reached." : {
+      "comment" : "WebDAV status; the number is a count of files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Offline. %lld change is kept on this device and uploaded when the server can be reached."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Offline. %lld changes are kept on this device and uploaded when the server can be reached."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sin conexión. %lld cambios se guardan en este dispositivo y se suben cuando se pueda llegar al servidor."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sin conexión. %lld cambio se guarda en este dispositivo y se sube cuando se pueda llegar al servidor."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sin conexión. %lld cambios se guardan en este dispositivo y se suben cuando se pueda llegar al servidor."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Offline. Changes are kept on this device and uploaded when the server can be reached." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin conexión. Los cambios se guardan en este dispositivo y se suben cuando se pueda llegar al servidor."
+          }
+        }
+      }
+    },
     "On This Device" : {
       "comment" : "Where a vault lives: the app's own storage on this device (picker option and section header)",
       "extractionState" : "manual",
@@ -9505,6 +9853,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abre y desbloquea la bóveda a la que deben ir las notas de voz y luego activa esta opción."
+          }
+        }
+      }
+    },
+    "Open from WebDAV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir desde WebDAV"
+          }
+        }
+      }
+    },
+    "Open from WebDAV…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir desde WebDAV…"
           }
         }
       }
@@ -11498,6 +11868,17 @@
         }
       }
     },
+    "Remove from This Device…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar de este dispositivo…"
+          }
+        }
+      }
+    },
     "Remove restores the last checked list and re-encrypts every note with a new vault key, so no other device can read them." : {
       "comment" : "Device list alert: what its Remove button does",
       "extractionState" : "manual",
@@ -11542,6 +11923,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Quitar esta etiqueta de la nota"
+          }
+        }
+      }
+    },
+    "Remove this vault from this device?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Quitar esta bóveda de este dispositivo?"
           }
         }
       }
@@ -12966,6 +13358,39 @@
         }
       }
     },
+    "Server Folder URL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL de la carpeta del servidor"
+          }
+        }
+      }
+    },
+    "Server Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes del servidor"
+          }
+        }
+      }
+    },
+    "Server Settings…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes del servidor…"
+          }
+        }
+      }
+    },
     "Set Up Voice Notes" : {
       "comment" : "Widget and control title when quick voice notes are not set up",
       "extractionState" : "manual",
@@ -13417,6 +13842,29 @@
         }
       }
     },
+    "Some files could not be uploaded: %@" : {
+      "comment" : "The value lists file paths and errors (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algunos archivos no se pudieron subir: %@"
+          }
+        }
+      }
+    },
+    "Some folders could not be read or were not looked into." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algunas carpetas no se pudieron leer o no se revisaron."
+          }
+        }
+      }
+    },
     "Some notes are still loading or downloading from iCloud Drive. Try again once the list has finished loading." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13662,6 +14110,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Detener grabación"
+          }
+        }
+      }
+    },
+    "Stop Trusting This Certificate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dejar de confiar en este certificado"
           }
         }
       }
@@ -13948,6 +14407,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cambiar a páginas e insertar PDF…"
+          }
+        }
+      }
+    },
+    "Sync Now" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar ahora"
           }
         }
       }
@@ -14281,6 +14751,17 @@
         }
       }
     },
+    "Test Connection" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Probar conexión"
+          }
+        }
+      }
+    },
     "Text" : {
       "comment" : "Toolbar toggle: the text tool",
       "extractionState" : "manual",
@@ -14337,6 +14818,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cuadros de texto"
+          }
+        }
+      }
+    },
+    "That WebDAV vault is no longer set up on this device. Connect to it again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esa bóveda WebDAV ya no está configurada en este dispositivo. Vuelve a conectarte a ella."
           }
         }
       }
@@ -14670,6 +15162,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La copia ya estaba al día."
+          }
+        }
+      }
+    },
+    "The copy on this device and the saved password are deleted. The vault on the server is not changed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se borran la copia de este dispositivo y la contraseña guardada. La bóveda del servidor no cambia."
           }
         }
       }
@@ -15023,6 +15526,117 @@
         }
       }
     },
+    "The server folder is gone. Nothing was uploaded." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La carpeta del servidor ya no existe. No se subió nada."
+          }
+        }
+      }
+    },
+    "The server folder now holds another vault. Nothing was uploaded." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La carpeta del servidor contiene ahora otra bóveda. No se subió nada."
+          }
+        }
+      }
+    },
+    "The server has notes from another device. Download the vault again to see them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El servidor tiene notas de otro dispositivo. Vuelve a descargar la bóveda para verlas."
+          }
+        }
+      }
+    },
+    "The server redirects to %@. Connect to that address instead." : {
+      "comment" : "The value is a URL",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El servidor redirige a %@. Conéctate a esa dirección."
+          }
+        }
+      }
+    },
+    "The server refused the user name or password. Update the password." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El servidor rechazó el usuario o la contraseña. Actualiza la contraseña."
+          }
+        }
+      }
+    },
+    "The server sent no certificate." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El servidor no envió ningún certificado."
+          }
+        }
+      }
+    },
+    "The server's certificate changed since you trusted it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El certificado del servidor cambió desde que confiaste en él."
+          }
+        }
+      }
+    },
+    "The server's certificate is not trusted or changed. Check the server, then trust its certificate again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El certificado del servidor no es de confianza o ha cambiado. Comprueba el servidor y vuelve a confiar en su certificado."
+          }
+        }
+      }
+    },
+    "The system does not trust it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El sistema no confía en él."
+          }
+        }
+      }
+    },
+    "The system does not trust this server's certificate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El sistema no confía en el certificado de este servidor"
+          }
+        }
+      }
+    },
     "The transcript could not be read." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15030,6 +15644,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha podido leer la transcripción."
+          }
+        }
+      }
+    },
+    "The vault could not be downloaded again; this device's copy is unchanged: %@" : {
+      "comment" : "The value is the problem (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo volver a descargar la bóveda; la copia de este dispositivo no ha cambiado: %@"
           }
         }
       }
@@ -15102,6 +15728,18 @@
         }
       }
     },
+    "The vault was not completely downloaded: %@\n\nOpen it again to continue the download." : {
+      "comment" : "The value is the first problems (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bóveda no se descargó por completo: %@\n\nÁbrela de nuevo para continuar la descarga."
+          }
+        }
+      }
+    },
     "The vault will be encrypted to your post-quantum key %@…%@." : {
       "comment" : "The values are the start and the end of a public key",
       "extractionState" : "manual",
@@ -15121,6 +15759,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La lista de dispositivos de la bóveda es correcta o no se puede reparar desde este dispositivo. No se ha cambiado nada."
+          }
+        }
+      }
+    },
+    "The vault's device list on the server was changed elsewhere. It was kept; notes still upload. Download the vault again to get the change." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La lista de dispositivos de la bóveda en el servidor se cambió en otro sitio. Se ha conservado; las notas se siguen subiendo. Vuelve a descargar la bóveda para obtener el cambio."
           }
         }
       }
@@ -15416,6 +16065,17 @@
         }
       }
     },
+    "This can take a while the first time. If it stops, opening the vault again continues it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La primera vez puede tardar un rato. Si se detiene, al abrir de nuevo la bóveda continúa."
+          }
+        }
+      }
+    },
     "This device" : {
       "comment" : "History: a version saved on this device",
       "extractionState" : "manual",
@@ -15435,6 +16095,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este dispositivo no puede ejecutar el modelo de escritura."
+          }
+        }
+      }
+    },
+    "This device's changes are uploaded first. Then the vault is downloaded from the server, with the notes other devices uploaded, and replaces this device's copy. Open notes close meanwhile." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Primero se suben los cambios de este dispositivo. Después la bóveda se descarga del servidor, con las notas que subieron otros dispositivos, y sustituye a la copia de este dispositivo. Mientras tanto se cierran las notas abiertas."
+          }
+        }
+      }
+    },
+    "This device's changes could not all be uploaded first, so the vault was not downloaded again (nothing would be lost, but nothing changed): %@" : {
+      "comment" : "The value is the problem (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudieron subir antes todos los cambios de este dispositivo, así que la bóveda no se volvió a descargar (no se habría perdido nada, pero nada cambió): %@"
           }
         }
       }
@@ -15650,6 +16333,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta nota se muestra en su propia ventana."
+          }
+        }
+      }
+    },
+    "This server is trusted only with the certificate you chose: %@" : {
+      "comment" : "The value is a certificate fingerprint",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo se confía en este servidor con el certificado que elegiste: %@"
           }
         }
       }
@@ -16158,6 +16853,39 @@
         }
       }
     },
+    "Trust It" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confiar"
+          }
+        }
+      }
+    },
+    "Trust This Certificate?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Confiar en este certificado?"
+          }
+        }
+      }
+    },
+    "Trust This Certificate…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confiar en este certificado…"
+          }
+        }
+      }
+    },
     "Trust This List" : {
       "comment" : "Recipients alert button: record the vault's current device list as trusted on this device",
       "extractionState" : "manual",
@@ -16166,6 +16894,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Confiar en esta lista"
+          }
+        }
+      }
+    },
+    "Trust it only if this fingerprint is exactly the one your server shows. Anyone who can intercept the connection could present a certificate like this one, and would then see your password and encrypted files.\n\n%@\n%@" : {
+      "comment" : "The values are the certificate's subject and fingerprint",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confía en él solo si esta huella es exactamente la que muestra tu servidor. Cualquiera que pueda interceptar la conexión podría presentar un certificado como este y vería entonces tu contraseña y tus archivos cifrados.\n\n%@\n%@"
           }
         }
       }
@@ -16594,6 +17334,17 @@
         }
       }
     },
+    "Up to date on the server" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al día en el servidor"
+          }
+        }
+      }
+    },
     "Updated from another device" : {
       "comment" : "Notice over the canvas after another device's changes were merged into the open note",
       "extractionState" : "manual",
@@ -16650,6 +17401,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Actualizar «%@»"
+          }
+        }
+      }
+    },
+    "Upload failed: %@" : {
+      "comment" : "The value is an error message (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falló la subida: %@"
+          }
+        }
+      }
+    },
+    "Uploading to the server…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subiendo al servidor…"
           }
         }
       }
@@ -16726,6 +17500,17 @@
         }
       }
     },
+    "Use an https:// address (plain http only for this device itself), without a user name or password in it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa una dirección https:// (http simple solo para este mismo dispositivo), sin usuario ni contraseña dentro."
+          }
+        }
+      }
+    },
     "Use as Default for New Notes" : {
       "comment" : "Button: save the paper as the default for new notes",
       "extractionState" : "manual",
@@ -16734,6 +17519,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Usar por omisión en notas nuevas"
+          }
+        }
+      }
+    },
+    "User Name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usuario"
           }
         }
       }
@@ -16782,6 +17578,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Claves de la bóveda"
+          }
+        }
+      }
+    },
+    "Vaults" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bóvedas"
           }
         }
       }
@@ -16972,6 +17779,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Avisos"
+          }
+        }
+      }
+    },
+    "WebDAV" : {
+      "comment" : "Section title: a protocol name",
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
+    "WebDAV sync" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronización WebDAV"
           }
         }
       }

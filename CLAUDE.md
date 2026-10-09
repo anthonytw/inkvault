@@ -220,10 +220,10 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `SempereWidgets/`). A new entitlement, package product or API category means updating the
   script's tables, the manifest and `docs/release/app-store.md` in the same PR.
   It also fails on networking (`URLSession`, Network.framework, sockets, WebKit, …) in any
-  non-test folder of `Apps/Sempere` or a linked `Sources/` target outside `NETWORK_ALLOWED` (only
-  the dormant math-model downloader, `MathModels.swift`) and on a non-empty
-  `MathModelCatalog.entries`: the privacy policy says the app makes no connections (DESIGN.md
-  "Network"). The CLI release refuses a CHANGELOG section with `TODO(user)` or no date
+  non-test folder of `Apps/Sempere` or a linked `Sources/` target outside `NETWORK_ALLOWED` (the
+  WebDAV client: `WebDAVRemote.swift`, `SempereWebDAV`'s transport and client; and the dormant
+  math-model downloader, `MathModels.swift`) and on a non-empty `MathModelCatalog.entries`: the
+  privacy policy names the only connections (a WebDAV server the user sets up; DESIGN.md "Network"). The CLI release refuses a CHANGELOG section with `TODO(user)` or no date
   (`scripts/changelog-section.sh`); never fill in the release date yourself.
   `ITSAppUsesNonExemptEncryption` stays `NO` while France is excluded
   (`docs/release/export-compliance.md`). The privacy policy has two copies
@@ -724,6 +724,18 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `AppModel*` needs a `String(localized:)` shim (the Linux Foundation lacks the interpolated
   form and `comment:`). `scripts/app.sh pseudo` checks double-length, right-to-left and
   Spanish layouts.
+- WebDAV vaults in the app (`AppModel+WebDAV`, `WebDAVSession`, docs/io.md "WebDAV vaults in the
+  app"): a local copy in Application Support (`WebDAVLocalCopy`, `WebDAVLocationStore`) opened like any
+  folder, and a push-only sync (`WebDAVLocalCopy.push`: `pushOnly` + `keepServerChanges`) scheduled by
+  `WebDAVPushSchedule`; never take anything from the server except through a download into a new copy
+  (`download`, `redownload`). The password is only in the Keychain (`KeychainWebDAVPasswordStore`);
+  certificate pins are checked by `PinnedServerTrust` (Security, app only) behind the library's
+  `WebDAVServerTrust` hook, never by disabling evaluation. Key changes are refused for a WebDAV copy
+  (`requireLocalKeyChanges`): a rewrap in place never reaches the server. App tests use
+  `FakeWebDAVRemote` and `MemoryWebDAVPasswordStore`; the library's sync runs against wsgidav
+  (`scripts/test-webdav.sh`). A recent WebDAV vault is a `RecentVault` with `webdav` set and no bookmark.
+- Vaults in another app's provider storage (`StorageLocation`) are coordinated like iCloud ones
+  (`isCloudVault`), even when the provider does not report its files as ubiquitous.
 - Web viewer (`web/`, `docs/web-viewer.md`): a TypeScript port of the reader
   (`NoteReducer`, `SempereRender`, framing, decoding rules). A change to
   merging, decoding or rendering in Swift needs the same change in

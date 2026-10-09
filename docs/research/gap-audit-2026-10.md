@@ -130,7 +130,7 @@ the iPad); the sandboxed Catalyst bookmark question (`io.md:413-439`) — GA-73 
 | GA-83 | `docs/format.md:2815-2817` (§10.1) | The `activity` file no longer holds Recently Recognized (`meta.recognized`, `RecentActivity.swift:~33-37`) | S |
 | GA-84 | `docs/localization.md:24-31` | Two catalogs listed, a third (`AppShortcuts.xcstrings`) exists; `SempereInfo.plist` has no `es` (`knownRegions` is in the pbxproj) | S |
 | GA-85 | `docs/mac.md` | Settings can open in more than one window (`SempereApp.swift:74-77`); the list of features gated off on Mac (quick capture, background refresh, voice-note banner, video capture) is not stated; iPad keyboards get no shortcuts besides Export | S |
-| GA-86 | `DESIGN.md` | "Built-in WebDAV client (phase 3)" (app has none); "undecided" distribution and contributor-agreement text (exception exists, app in TestFlight); "X25519, ChaCha20-Poly1305" and "OpenPGP backend" (post-quantum only) | S |
+| GA-86 | `DESIGN.md` | "Built-in WebDAV client (phase 3)" (app has none; fixed with the app's WebDAV vaults, #137); "undecided" distribution and contributor-agreement text (exception exists, app in TestFlight); "X25519, ChaCha20-Poly1305" and "OpenPGP backend" (post-quantum only) | S |
 | GA-87 | `docs/security-review-2026-10.md` | Status lines contradict the table (W2, W5, C5, R5 still under "Open"); P2 listed unfixed but `SecretPasteboard` exists (`KeyExportViews.swift:240-246`); file:line refs are to the review branch | S |
 | GA-88 | `docs/web-viewer.md` | Threat model omits P3/P4; intro and key paragraph disagree on IndexedDB | S |
 | GA-89 | `docs/release/app-store.md` §2 | Line numbers in the required-reason table drift (`release-check.sh --list` regenerates) | S |

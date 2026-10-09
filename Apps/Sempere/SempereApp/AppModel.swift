@@ -267,8 +267,9 @@ final class AppModel {
     var thinningConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
     var cloudProgress: CloudProgress?
-    /// True when the open vault is in iCloud Drive: reads and writes are
-    /// coordinated and reloads fetch new files first.
+    /// True when the open vault is in iCloud Drive or another provider's
+    /// storage (`StorageLocation`): reads and writes are coordinated and
+    /// reloads fetch new files first (when the provider reports download states).
     var isCloudVault = false
     var cloudTask: Task<Bool, any Error>?
     /// Notes of an iCloud vault whose files are still downloading.
@@ -317,6 +318,23 @@ final class AppModel {
     var syncingInBackground = false
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
+    /// The WebDAV locations of this device (`AppModel+WebDAV`, docs/io.md
+    /// "WebDAV vaults in the app"). The app passes the default store; without
+    /// one (tests) a store in a folder of this model alone.
+    let webdavLocations: WebDAVLocationStore
+    /// The push-only sync of the open vault when it is a WebDAV location's
+    /// local copy; nil for any other vault.
+    var webdav: WebDAVSession?
+    /// The name of the WebDAV vault being downloaded, for the overlay; nil when none is.
+    var webdavDownloading: String?
+    /// The server calls (`LiveWebDAVRemote`); tests pass a fake.
+    @ObservationIgnored var webdavRemote: any WebDAVRemote = LiveWebDAVRemote()
+    /// WebDAV passwords (the Keychain); tests pass `MemoryWebDAVPasswordStore`.
+    @ObservationIgnored var webdavPasswords: any WebDAVPasswordStore = KeychainWebDAVPasswordStore()
+    /// How often a WebDAV session looks at its schedule, and how long after a
+    /// write it pushes (`WebDAVPushSchedule.writeDelay`); tests shorten both.
+    @ObservationIgnored var webdavTick = Duration.seconds(1)
+    @ObservationIgnored var webdavWriteDelay: TimeInterval = 10
     /// The running Back Up Now, Verify Backup or restore (`AppModel+Backup`),
     /// nil when none runs.
     var backupProgress: BackupProgress?
@@ -483,8 +501,14 @@ final class AppModel {
          automaticThinning: Bool = false,
          recipientsTrust: (any RecipientsTrustStore)? = nil,
          backupNotifier: (any BackupNotifying)? = nil,
+         webdavLocations: WebDAVLocationStore? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.recipientsTrust = recipientsTrust ?? MemoryRecipientsTrustStore()
+        let webdavScratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SempereWebDAV-\(UUID().uuidString)", isDirectory: true)
+        self.webdavLocations = webdavLocations
+            ?? WebDAVLocationStore(storeURL: webdavScratch.appendingPathComponent("webdav.json"),
+                                   root: webdavScratch.appendingPathComponent("WebDAV", isDirectory: true))
         self.deviceStateURL = deviceStateURL
         activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
         inboxBackoff = InboxBackoff(fileURL: deviceStateURL.deletingLastPathComponent().appendingPathComponent("InboxBackoff.json"))
@@ -611,8 +635,11 @@ final class AppModel {
                   (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil ? 1 : 0)
             #endif
             try FolderAccess.check(url, scoped: scoped)
-            let cloud = try await fetchFromICloud(url, scope: .essentials)
+            let ubiquitous = try await fetchFromICloud(url, scope: .essentials)
             try ensureCurrent(gen)
+            // Another app's provider that does not report its files as ubiquitous still
+            // fetches and uploads only what is read and written coordinated (`StorageLocation`).
+            let cloud = ubiquitous || StorageLocation.classify(url).needsCoordination
             let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             try ensureCurrent(gen)
             Perf.end(interval, "cloud=\(cloud)")
@@ -695,6 +722,7 @@ final class AppModel {
             return
         }
         phase = .unlocked
+        webdav?.vaultUnlocked()
         loadActivity()
         startLoadingNotes(reportErrors: !awaitNotes)
         if awaitNotes { try await notesLoaded() }
@@ -751,6 +779,7 @@ final class AppModel {
         unlockIdentities = identities
         migration = nil
         phase = .unlocked
+        webdav?.vaultUnlocked()
         loadActivity()
         refreshQuickCaptureProfile()   // the migration rotated the secret, and with it the capture key
         try await reload()
@@ -981,7 +1010,10 @@ final class AppModel {
         if let deviceClock { return deviceClock }
         // Every delta any `NoteWriter` writes with this clock updates that note's attachment index.
         let clock = try DeviceClock(url: deviceStateURL) { [weak self] id in
-            Task { @MainActor in self?.noteWritten(id) }
+            Task { @MainActor in
+                self?.noteWritten(id)
+                self?.webdav?.noteWrite()   // a WebDAV copy pushes shortly after a write
+            }
         }
         deviceClock = clock
         return clock
@@ -995,6 +1027,7 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        stopWebDAV()
         syncingInBackground = false
         endBackgroundTime()
         cancelRemoteMerges()
