@@ -28,6 +28,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   (bundled), acknowledgments and the links, and reopens both; on the Mac, Sempere ▸ About Sempere and
   Help ▸ Quick Tour / About Your Key. New `docs/security.md` says what the encryption protects and
   what it does not; `SECURITY.md` describes the advisory process.
+- Device list repair and key replacement in the app (GA-17): the "device list was changed without
+  its key" alert offers Choose Devices to Keep… (the CLI's `vault recipients repair --keep`), which
+  always keeps this device's key and asks for Face ID or Touch ID before keeping a key this device
+  never confirmed; the Vault Keys window has Replace… (`vault recipients replace`) for another
+  device's key, pasted or generated.
+- `sempere backup status DIR --max-age DAYS` exits 3 when no backup run completed in DAYS days, the
+  app's Remind Me for scripts (GA-18). `backup.json` records the last run without file errors
+  (`completed`), which the check counts from; the app and the CLI share the rule.
 - Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
   with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
   browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,
