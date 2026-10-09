@@ -17,12 +17,13 @@ struct MacPolishBuild7Tests {
 
     @Test func fileMenuListsTheImportInsertAndExportCommands() {
         let file = MenuLayout.file.flatMap { $0 }
-        for command in [MenuCommand.importPDF, .importNotability, .insertPDFPages, .insertPhoto, .exportNotes] {
+        for command in [MenuCommand.importPDF, .importFromApp, .insertPDFPages, .insertPhoto, .exportNotes] {
             #expect(file.contains(command), "\(command) is in File")
             #expect(command.provider == .app)
         }
         #expect(MenuCommand.importPDF.title == "Import PDF as New Note…")
-        #expect(MenuCommand.importNotability.title == "Import from Notability…")
+        // The registered importer's name, or the generic one when the build has none.
+        #expect(MenuCommand.importFromApp.title == (AppImporters.primary.map { "Import from \($0.displayName)…" } ?? "Import from Other App…"))
         #expect(MenuCommand.insertPDFPages.title == "Insert PDF Pages…")
         #expect(MenuCommand.insertPhoto.title == "Insert Photo…")
         #expect(MenuCommand.exportNotes.title == "Export…")
@@ -45,12 +46,12 @@ struct MacPolishBuild7Tests {
     @Test func importsNeedAWritableUnlockedVault() {
         var c = MenuCommand.Context(window: .library, vault: .none)
         #expect(!MenuCommand.importPDF.isEnabled(in: c))
-        #expect(!MenuCommand.importNotability.isEnabled(in: c))
+        #expect(!MenuCommand.importFromApp.isEnabled(in: c))
         c.vault = .locked
         #expect(!MenuCommand.importPDF.isEnabled(in: c))
         c.vault = .unlocked
         #expect(MenuCommand.importPDF.isEnabled(in: c), "no note needed: it makes a new one")
-        #expect(MenuCommand.importNotability.isEnabled(in: c))
+        #expect(MenuCommand.importFromApp.isEnabled(in: c))
         c.window = .note
         #expect(MenuCommand.importPDF.isEnabled(in: c), "a note window has the importer too (WindowSheets)")
         c.window = .other
@@ -58,7 +59,7 @@ struct MacPolishBuild7Tests {
         c.window = .library
         c.vaultReadOnly = true
         #expect(!MenuCommand.importPDF.isEnabled(in: c))
-        #expect(!MenuCommand.importNotability.isEnabled(in: c))
+        #expect(!MenuCommand.importFromApp.isEnabled(in: c))
     }
 
     @Test func insertsFollowTheInsertMenu() {
@@ -92,8 +93,8 @@ struct MacPolishBuild7Tests {
         let ui = WindowUI()
         #expect(WindowCommands.perform(.importPDF, model: model, ui: ui, exportIDs: []))
         #expect(ui.importingPDF, "the note list's Import PDF… sets the same flag")
-        #expect(WindowCommands.perform(.importNotability, model: model, ui: ui, exportIDs: []))
-        #expect(ui.importingNotability)
+        #expect(WindowCommands.perform(.importFromApp, model: model, ui: ui, exportIDs: []))
+        #expect(ui.importingFromApp)
         #expect(!WindowCommands.perform(.newNote, model: model, ui: ui, exportIDs: []))
 
         #expect(WindowCommands.perform(.exportNotes, model: model, ui: ui, exportIDs: [Self.lecture]))
@@ -240,47 +241,48 @@ struct MacPolishBuild7Tests {
         return copy
     }
 
-    @Test func notabilityNotesImportOnceThroughTheSharedImporter() async throws {
+    @Test(.enabled(if: AppImporters.primary != nil)) func notesImportOnceThroughTheSharedImporter() async throws {
         let (model, _) = try await NoteWindowTests.unlockedModel()
         let note = try Self.syntheticNote()
         defer { try? FileManager.default.removeItem(at: note.deletingLastPathComponent()) }
-        try await model.importNotability([note], notebook: "Imported")
-        let summary = try #require(model.notabilitySummary)
+        try await model.importFromApp(try #require(AppImporters.primary), urls: [note], notebook: "Imported")
+        let summary = try #require(model.importSummary)
         #expect(summary.imported == 1 && summary.skipped == 0 && summary.failed == 0)
-        #expect(!model.isImportingNotability)
+        #expect(!model.isImporting)
         let imported = try #require(model.notes.first { $0.title == "Synthetic note" })
         #expect(imported.notebook == "Imported")
         #expect(imported.strokes > 0)
         #expect(Set(imported.tags).isSuperset(of: ["alpha", "beta"]), "Notability's tags come along")
 
         // Again: already in the vault, skipped (never overwritten).
-        model.notabilitySummary = nil
-        try await model.importNotability([note], notebook: nil)
-        #expect(model.notabilitySummary?.imported == 0)
-        #expect(model.notabilitySummary?.skipped == 1)
+        model.importSummary = nil
+        try await model.importFromApp(try #require(AppImporters.primary), urls: [note], notebook: nil)
+        #expect(model.importSummary?.imported == 0)
+        #expect(model.importSummary?.skipped == 1)
         #expect(model.notes.filter { $0.title == "Synthetic note" }.count == 1)
         model.close()
     }
 
-    @Test func aFolderWithoutNotesSaysSo() async throws {
+    @Test(.enabled(if: AppImporters.primary != nil)) func aFolderWithoutNotesSaysSo() async throws {
         let (model, _) = try await NoteWindowTests.unlockedModel()
         let empty = FileManager.default.temporaryDirectory.appendingPathComponent("empty-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: empty) }
-        try await model.importNotability([empty], notebook: nil)
-        #expect(model.notabilitySummary?.nothingFound == true)
-        #expect(model.notabilitySummary?.message.contains("No Notability notes") == true)
+        try await model.importFromApp(try #require(AppImporters.primary), urls: [empty], notebook: nil)
+        #expect(model.importSummary?.nothingFound == true)
+        #expect(model.importSummary?.message.contains("No notes from") == true)
         model.close()
     }
 
-    @Test func importingNeedsAnUnlockedVault() async throws {
+    @Test(.enabled(if: AppImporters.primary != nil)) func importingNeedsAnUnlockedVault() async throws {
         let model = AppModel(deviceStateURL: TS.deviceStateURL())
+        let importer = try #require(AppImporters.primary)
         await #expect(throws: AppModel.ModelError.noVaultOpen) {
-            try await model.importNotability([URL(fileURLWithPath: "/tmp/x.note")], notebook: nil)
+            try await model.importFromApp(importer, urls: [URL(fileURLWithPath: "/tmp/x.note")], notebook: nil)
         }
     }
 
-    /// The note list's toolbar offers Import from Notability… (the iPad has no
+    /// The note list's toolbar offers Import from … (the iPad has no
     /// File menu), enabled like File > Import…: an unlocked vault that can be
     /// written, never a locked or read-only one.
     @Test func theListsImportButtonsFollowTheFileMenusRule() async throws {
@@ -297,12 +299,12 @@ struct MacPolishBuild7Tests {
         #expect(!NoteListView.importsEnabled(readOnly))
         var c = MenuCommand.Context(window: .library, vault: .unlocked)
         c.vaultReadOnly = true
-        #expect(!MenuCommand.importNotability.isEnabled(in: c), "the same rule as the menu")
+        #expect(!MenuCommand.importFromApp.isEnabled(in: c), "the same rule as the menu")
         readOnly.close()
     }
 
     @Test func theSummaryNamesFailuresByFileOnly() {
-        let summary = NotabilityImportSummary(imported: 1, skipped: 1, failed: 1,
+        let summary = ImportSummary(imported: 1, skipped: 1, failed: 1,
                                               failures: [("/a/b/Three.note", "not a Notability note")])
         #expect(summary.imported == 1 && summary.skipped == 1 && summary.failed == 1)
         #expect(summary.failures == ["Three.note: not a Notability note"])
@@ -312,8 +314,8 @@ struct MacPolishBuild7Tests {
         #expect(!summary.message.contains("/a/b"), "no folder paths")
     }
 
-    @Test func thePickerOffersNotesBundlesFoldersAndZips() {
-        let types = AppModel.notabilityTypes
+    @Test(.enabled(if: AppImporters.primary != nil)) func thePickerOffersNotesBundlesFoldersAndZips() throws {
+        let types = AppModel.importTypes(for: try #require(AppImporters.primary))
         #expect(types.contains(.zip))
         #expect(types.contains(.folder))
         #expect(types.contains { $0.preferredFilenameExtension == "note" || $0.tags[.filenameExtension]?.contains("note") == true })
