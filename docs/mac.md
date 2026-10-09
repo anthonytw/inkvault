@@ -97,14 +97,25 @@ the Insert menu's entry does (#104). Imports file new notes under the sidebar's 
 | Note | Edit Tags… | ⌥⌘T |
 | Note | Paper… | ⌥⌘P |
 | Note | Save Version… | ⌥⌘S |
+| Note | Version History… | ⇧⌘Y |
 | Note | Recordings… | ⌃⌘R |
 | Note | Previous Page, Next Page | ⌘[, ⌘] |
-| Note | Add Page | ⇧⌘A |
+| Note | Add Page After This One (the toolbar's Add Page) | ⇧⌘A |
+| Note | Add Page at End | ⌥⇧⌘A |
+| Note | Duplicate Page | ⇧⌘D |
+| Note | Delete Page (never the last) | ⌥⌘⌫ |
+| Note | Undo Delete Page | ⌃⌘Z |
+| Note | Switch to Pageless / Paged Layout | ⌃⌘L |
 | Note | Move to Recently Deleted | ⌘⌫ |
 | Note | Restore Note | (none) |
 | Tools | Pen, Marker, Pencil, Eraser, Lasso | ⌥⌘1 … ⌥⌘5 |
+| Tools | Text, Select (flip the toolbar toggles) | ⌥⌘6, ⌥⌘7 |
+| Tools | Smaller / Larger Object Eraser (steps through the presets) | ⌥⌘[, ⌥⌘] |
 | Tools | Ruler (straight lines with a mouse) | ⌥⌘R |
+| Tools | Use Compact / Full Palette | ⌥⇧⌘P |
 | Tools | Show or Hide Tool Palette | ⇧⌘P |
+| View | Show or Hide Pages (thumbnails) | ⌃⌘T |
+| File | Start / Stop Voice Note | ⇧⌘M |
 | View | Zoom In, Zoom Out | ⌘=, ⌘- |
 | View | Fit Page Width, Actual Size | ⌘0, ⌘1 |
 | View | Hide or Show Note List | ⌥⌘L |
@@ -525,3 +536,21 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
     mode, delete it; Note > Recordings… lists the recording, Place on This Page
     puts it back. Export the note as "PDF + attachments", then Share… and
     Save…: no crash, the PDF lists the audio in Preview's attachments.
+
+## Menu parity and the voice note item (gap audit GA-14, GA-23)
+
+Every toolbar-only note command has a menu entry (the table above); page commands act on paged
+notes (a pageless note is one page), enable like the toolbar (a note keeps its last page; ⌥⌘⌫ and ⌘⌫ are off
+while a text field or a text box on the canvas is being typed in, `NoteEditor.typingInTextBox`: a
+menu key equivalent wins over the text view, where both keys delete text) and the switches say what they do next ("Hide Pages", "Use Full
+Palette", "Switch to Paged Layout"). Version History opens from `WindowUI.historyNoteID`, so the
+library and note windows share one sheet. There is no Edit-menu entry: the Edit menu is UIKit's,
+and a group with a clashing shortcut is dropped whole, so the commands sit in Note, Tools and View.
+
+**Voice notes from the menu bar.** File > Start Voice Note (⇧⌘M) records through the same
+`QuickCapture` as Siri, Shortcuts and the widgets and seals into the vault's inbox without the
+vault being unlocked; the item then reads Stop Voice Note, and the library and note windows show the usual banner
+(`VoiceNoteBannerRule`, the same on every platform). Without a setup it opens the Settings window,
+where Quick Voice Notes is. A status-bar extra (an icon in the system
+menu bar) is not possible: SwiftUI's `MenuBarExtra` is macOS-only and Catalyst has no
+`NSStatusItem`, so this is the app's own menu bar, which works while the app runs.
