@@ -145,6 +145,7 @@ struct EditorView: View {
     @State private var selectingItems = false
     /// The text tool: a tap edits a text box or starts a new one (`TextBoxEditorController`).
     @State private var addingText = false
+    /// PencilKit's palette floats above sheets; it hides while a notice or the tour is up.
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
     @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
     @AppStorage(ObjectEraserSize.defaultsKey) private var eraserRadius = ObjectEraserSize.defaultRadius
@@ -195,7 +196,7 @@ struct EditorView: View {
                 // Paged: every page in one scroll (lazy canvases), the current page follows it.
                 PageStackView(editor: editor, pageIDs: editor.pages.map(\.id), pageSize: editor.pageSize,
                               pageJump: editor.pageJump,
-                              paletteVisible: paletteVisible,
+                              paletteVisible: paletteVisible && ui.expectations == nil,
                               paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),
                               drawingSuspended: PhoneReading.drawingSuspended(isPhone: Platform.isPhone, annotating: annotating),
                               generation: editor.canvasGeneration,
@@ -208,7 +209,7 @@ struct EditorView: View {
                     .ignoresSafeArea(.container, edges: .bottom)
             } else if let page = editor.currentPage {
                 PageCanvasView(editor: editor, pageID: page.id, paper: editor.displayedPaper(of: page), pageSize: editor.pageSize,
-                               paletteVisible: paletteVisible,
+                               paletteVisible: paletteVisible && ui.expectations == nil,
                                paletteCompact: PhoneReading.paletteCompact(isPhone: Platform.isPhone, stored: paletteCompact),
                                drawingSuspended: PhoneReading.drawingSuspended(isPhone: Platform.isPhone, annotating: annotating),
                                generation: editor.canvasGeneration,
