@@ -4787,6 +4787,18 @@
         }
       }
     },
+    "Draw" : {
+      "comment" : "Undo action name (Edit menu: Undo …) for a mouse stroke",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dibujar"
+          }
+        }
+      }
+    },
     "Draw on the page with a finger" : {
       "comment" : "Tooltip of the Annotate toggle",
       "extractionState" : "manual",
@@ -6567,6 +6579,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Biblioteca"
+          }
+        }
+      }
+    },
+    "Light" : {
+      "comment" : "Smooth Mouse Strokes setting: a little smoothing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ligero"
           }
         }
       }
@@ -11397,6 +11421,30 @@
         }
       }
     },
+    "Smooth Mouse Strokes" : {
+      "comment" : "Settings ▸ General (Mac): picker for smoothing strokes drawn with a mouse or trackpad",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suavizar trazos del ratón"
+          }
+        }
+      }
+    },
+    "Smooth Mouse Strokes evens out lines drawn with a mouse or trackpad; Strong rounds them more. Strokes drawn with the ruler are not smoothed." : {
+      "comment" : "Settings ▸ General footer (Mac)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suavizar trazos del ratón iguala las líneas dibujadas con un ratón o un trackpad; Fuerte las redondea más. Los trazos dibujados con la regla no se suavizan."
+          }
+        }
+      }
+    },
     "Snapshot" : {
       "comment" : "History: kind of a restore point (a compacted snapshot)",
       "extractionState" : "manual",
@@ -11760,6 +11808,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tachado"
+          }
+        }
+      }
+    },
+    "Strong" : {
+      "comment" : "Smooth Mouse Strokes setting: more smoothing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fuerte"
           }
         }
       }

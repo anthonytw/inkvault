@@ -146,6 +146,93 @@ final class MacWindowUITests: XCTestCase {
         XCTAssertGreaterThan(red, 2000, "the PDF page's red square is on screen")
     }
 
+    /// A mouse drag on the canvas draws a stroke (docs/mac.md "Mouse and
+    /// trackpad"): with "Smooth Mouse Strokes" at its default (Light) the app,
+    /// not PencilKit, draws pointer strokes, so this fails if its gesture never
+    /// gets the drag. The pen is picked first (the app tests, which share this
+    /// container, leave PencilKit's saved palette on another tool), the drags
+    /// go inside the visible part of a page's canvas, and the pixels that
+    /// changed there are counted.
+    @MainActor
+    func testAMouseDragDrawsASmoothedStroke() throws {
+        let app = launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.staticTexts["Cellular Respiration"].firstMatch.waitForExistence(timeout: 60))
+        let window = app.windows.firstMatch
+        let canvases = app.descendants(matching: .any).matching(identifier: "pageCanvas")
+        XCTAssertTrue(canvases.firstMatch.waitForExistence(timeout: 30), "a page canvas")
+        app.typeKey("1", modifierFlags: [.command, .option])   // Tools > Pen
+        Thread.sleep(forTimeInterval: 3)   // the page's ink and tiles settle
+        // The largest visible part of a page canvas, in screen points.
+        let frame = window.frame
+        var visible: CGRect?
+        for element in canvases.allElementsBoundByIndex {
+            let part: CGRect = element.frame.intersection(frame)
+            guard !part.isNull, part.width > 100, part.height > 100 else { continue }
+            let size: CGFloat = part.width * part.height
+            if let best = visible, best.width * best.height >= size { continue }
+            visible = part
+        }
+        guard let area = visible else {
+            dump(app, "mouse-stroke")
+            XCTFail("no page canvas on screen")
+            return
+        }
+        print("MACUIDEBUG mouse stroke window \(frame) canvas \(area)")
+        let origin = window.coordinate(withNormalizedOffset: .zero)
+        let left: CGFloat = area.minX - frame.minX
+        let top: CGFloat = area.minY - frame.minY
+        func at(_ fx: CGFloat, _ fy: CGFloat) -> XCUICoordinate {
+            let dx: CGFloat = left + area.width * fx
+            let dy: CGFloat = top + area.height * fy
+            return origin.withOffset(CGVector(dx: dx, dy: dy))
+        }
+        let before = window.screenshot().pngRepresentation
+        at(0.2, 0.55).press(forDuration: 0.1, thenDragTo: at(0.8, 0.6), withVelocity: 300, thenHoldForDuration: 0.1)
+        at(0.8, 0.65).press(forDuration: 0.1, thenDragTo: at(0.2, 0.7), withVelocity: 300, thenHoldForDuration: 0.1)
+        var changed = 0
+        for _ in 0..<5 {
+            Thread.sleep(forTimeInterval: 1)
+            changed = Self.changedPixels(before, window.screenshot().pngRepresentation)
+            if changed > 300 { break }
+        }
+        let shot = XCTAttachment(screenshot: window.screenshot())
+        shot.name = "mouse-stroke"
+        shot.lifetime = .keepAlways
+        add(shot)
+        print("MACUIDEBUG mouse stroke changed pixels: \(changed)")
+        XCTAssertGreaterThan(changed, 300, "the two drags drew ink")
+    }
+
+    /// RGBA pixels of a PNG, with its width and height.
+    static func pixels(_ png: Data) -> (data: [UInt8], w: Int, h: Int)? {
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let w = cg.width, h = cg.height
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return drawn ? (data, w, h) : nil
+    }
+
+    /// Pixels that differ clearly between two screenshots of one size.
+    static func changedPixels(_ a: Data, _ b: Data) -> Int {
+        guard let p = pixels(a), let q = pixels(b), p.w == q.w, p.h == q.h else { return 0 }
+        var count = 0
+        for i in stride(from: 0, to: p.data.count, by: 4) {
+            let r: Int = abs(Int(p.data[i]) - Int(q.data[i]))
+            let g: Int = abs(Int(p.data[i + 1]) - Int(q.data[i + 1]))
+            let b: Int = abs(Int(p.data[i + 2]) - Int(q.data[i + 2]))
+            if max(r, g, b) > 60 { count += 1 }
+        }
+        return count
+    }
+
     /// Pixels that are clearly red (the PDF's squares; nothing else in the demo is).
     static func redPixels(_ png: Data) -> Int {
         // From the PNG: on a Mac the screenshot's image is an NSImage behind a UIImage type.

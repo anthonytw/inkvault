@@ -57,6 +57,7 @@ private struct GeneralSettings: View {
     @AppModelEnvironment private var model
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
     @AppStorage(RecognitionPreference.key) private var recognize = RecognitionPreference.defaultValue
+    @AppStorage(MouseSmoothing.key) private var mouseSmoothing = MouseSmoothing.defaultLevel
 
     var body: some View {
         Section {
@@ -64,10 +65,23 @@ private struct GeneralSettings: View {
             Toggle("Recognize Handwriting", isOn: Binding(
                 get: { recognize },
                 set: { recognize = $0; model.setHandwritingRecognition($0) }))
+            if Platform.isMac {
+                Picker("Smooth Mouse Strokes", selection: $mouseSmoothing) {
+                    Text("Off").tag(StrokeSmoothing.Level.off)
+                    Text("Light", comment: "Smooth Mouse Strokes setting").tag(StrokeSmoothing.Level.light)
+                    Text("Strong", comment: "Smooth Mouse Strokes setting").tag(StrokeSmoothing.Level.strong)
+                }
+                .accessibilityIdentifier("mouseSmoothing")
+            }
         } header: {
             Text("General")
         } footer: {
-            Text("Keep Screen On stops the screen from locking while a note is open. Handwriting recognition makes handwriting searchable; it runs on this device and nothing leaves it.")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Keep Screen On stops the screen from locking while a note is open. Handwriting recognition makes handwriting searchable; it runs on this device and nothing leaves it.")
+                if Platform.isMac {
+                    Text("Smooth Mouse Strokes evens out lines drawn with a mouse or trackpad; Strong rounds them more. Strokes drawn with the ruler are not smoothed.")
+                }
+            }
         }
     }
 }

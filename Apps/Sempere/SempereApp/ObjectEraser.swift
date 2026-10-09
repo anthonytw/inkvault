@@ -253,7 +253,7 @@ final class ObjectEraserController: NSObject, UIGestureRecognizerDelegate {
 }
 
 /// A drawing held by the undo stack.
-private final class DrawingBox: @unchecked Sendable {
+final class DrawingBox: @unchecked Sendable {
     let drawing: PKDrawing
     init(_ drawing: PKDrawing) { self.drawing = drawing }
 }
