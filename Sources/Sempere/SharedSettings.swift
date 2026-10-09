@@ -150,7 +150,9 @@ public struct SharedSettings: Hashable, Sendable {
 
     /// Per slot, the one later in the merge order; commutative, associative and
     /// idempotent (format.md §13.3). `$schemaVersion` is the larger; unknown
-    /// top-level members are united, `self`'s winning on a clash.
+    /// top-level members are united, the greater canonical JSON winning on a
+    /// clash (so the result does not depend on which copy merges which, and two
+    /// devices holding different values converge instead of each writing its own back).
     public func merging(_ other: SharedSettings) -> SharedSettings {
         var out = self
         for (key, theirs) in other.slots {
@@ -159,7 +161,9 @@ public struct SharedSettings: Hashable, Sendable {
         }
         out.schemaVersion = max(schemaVersion, other.schemaVersion)
         out.minReaderVersion = max(minReaderVersion, other.minReaderVersion)
-        out.extra.merge(other.extra) { mine, _ in mine }
+        out.extra.merge(other.extra) { mine, theirs in
+            Self.canonical(mine).lexicographicallyPrecedes(Self.canonical(theirs)) ? theirs : mine
+        }
         return out
     }
 
@@ -475,6 +479,17 @@ extension Vault {
             throw SharedSettingsError.needsNewerReader(minReaderVersion: decoded.settings.minReaderVersion)
         }
         return decoded
+    }
+
+    /// True when `vault.json` on disk still lists this value's recipients and wraps the same
+    /// secret; false after another device changed the keys while this one stayed open (its
+    /// secret and recipients are then stale), or when the manifest cannot be read. A settings
+    /// file that does not verify is replaced only when this holds: a stale device must not
+    /// overwrite the current file with one encrypted to the old recipients (format.md §13.5).
+    public func keysMatchManifestOnDisk() -> Bool {
+        guard let data = try? FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes),
+              let onDisk = try? Self.readManifest(data) else { return false }
+        return onDisk.vaultSecret == manifest.vaultSecret && onDisk.recipients.map(\.key) == manifest.recipients.map(\.key)
     }
 
     /// Unframes under the current secret, or (a rewrap in progress) the previous one.

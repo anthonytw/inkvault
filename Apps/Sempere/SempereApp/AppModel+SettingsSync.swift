@@ -225,7 +225,13 @@ extension AppModel {
             return
         } catch let e as SharedSettingsError {
             // Not this vault's (an older app's copy after a key change, or damaged):
-            // this device's copy replaces it at the write below.
+            // this device's copy replaces it at the write below; unless this device's
+            // keys are the stale ones (another device changed them while the vault stayed
+            // open here), when the file is current and must not be overwritten.
+            guard (try? await offMain({ vault.keysMatchManifestOnDisk() })) == true else {
+                settingsLog.warning("settings.age does not verify and vault.json changed; not replaced until the vault is reopened")
+                return
+            }
             settingsLog.warning("settings.age unreadable, will be replaced: \(String(describing: e), privacy: .public)")
             file = nil
         } catch is CancellationError {

@@ -110,7 +110,26 @@ final class SharedSettingsTests: VaultTestCase {
             XCTAssertEqual(a.merging(b).merging(c).slots, a.merging(b.merging(c)).slots)
             XCTAssertEqual(a.merging(a), a)
             XCTAssertEqual(Set(a.merging(b).extra.keys), Set(a.extra.keys).union(b.extra.keys))
+            // The whole result, unknown members included (a clash must not depend on the order).
+            XCTAssertEqual(a.merging(b), b.merging(a))
+            XCTAssertEqual(a.merging(b).merging(c), a.merging(b.merging(c)))
         }
+    }
+
+    func testClashingUnknownMembersConverge() {
+        let a = SharedSettings(extra: ["$future": .number(1), "[odd]": .string("x")])
+        let b = SharedSettings(extra: ["$future": .number(2), "[odd]": .string("y")])
+        XCTAssertEqual(a.merging(b), b.merging(a), "the same result whichever copy merges")
+        XCTAssertEqual(a.merging(b).extra["$future"], .number(2), "the greater canonical JSON wins")
+        XCTAssertEqual(a.merging(b).extra["[odd]"], .string("y"))
+        // A device holding a different unknown value does not keep writing its own back.
+        var state = SettingsSyncState()
+        state.enabled = true
+        state.known = a
+        let pass = try? state.reconcile(local: [:], file: b, type: .mac, now: Date(timeIntervalSince1970: 100))
+        XCTAssertNotNil(pass)
+        XCTAssertNil(pass?.write, "the file's greater value is taken, not overwritten with this device's")
+        XCTAssertEqual(state.known.extra["$future"], .number(2))
     }
 
     func testOrderingOfSlots() {
@@ -388,6 +407,28 @@ final class SharedSettingsTests: VaultTestCase {
         XCTAssertTrue(removed.rewrapped.contains("settings.age"))
         XCTAssertEqual(try vault.readSharedSettings(), s, "re-tagged under the rotated secret")
         XCTAssertThrowsError(try AgeFile.decrypt(Data(contentsOf: vault.sharedSettingsURL), with: [second]))
+    }
+
+    /// A device that stayed open while another one changed the keys sees the rotated file as
+    /// unverifiable; it must notice its keys are stale before replacing the file (the app's pass).
+    func testAStaleVaultValueKnowsItsKeysChangedOnDisk() throws {
+        let id = pqIdentity(), second = pqIdentity()
+        var vault = try makeVault(id)
+        let stale = vault   // the other device's open vault: in-memory secret and recipients
+        XCTAssertTrue(stale.keysMatchManifestOnDisk())
+        var s = SharedSettings()
+        try s.set(SettingSlotKey("mouse.smoothing"), to: .string("off"), type: .mac, now: t0)
+        try vault.writeSharedSettings(s)
+        _ = try vault.addRecipient(second.recipient, label: "second")
+        _ = try vault.removeRecipient(second.recipient)   // rotates the secret
+        XCTAssertTrue(vault.keysMatchManifestOnDisk(), "the device that changed the keys is current")
+        XCTAssertFalse(stale.keysMatchManifestOnDisk(), "the stale value must not replace the file")
+        XCTAssertThrowsError(try stale.readSharedSettings(), "the rotated file does not verify under the stale secret")
+        XCTAssertEqual(try vault.readSharedSettings(), s)
+        // Adding a device alone also makes an open value stale (its recipients lack the new key).
+        let before = vault
+        _ = try vault.addRecipient(second.recipient, label: "second")
+        XCTAssertFalse(before.keysMatchManifestOnDisk())
     }
 
     func testAFileThatDoesNotVerifyIsSkippedAndDoesNotKeepTheJournal() throws {
