@@ -13,7 +13,8 @@ final class WebDAVSession {
     /// The vault's name, for the bar.
     let name: String
     /// When pushes run; the session tells it about writes, demands and runs.
-    private(set) var schedule = WebDAVPushSchedule()
+    /// Tests shorten its delays.
+    var schedule = WebDAVPushSchedule()
     /// A push is running.
     private(set) var isPushing = false
     /// What the last run (or the failure that stopped it) reported; empty: all is well.

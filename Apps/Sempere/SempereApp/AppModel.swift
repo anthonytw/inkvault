@@ -319,6 +319,10 @@ final class AppModel {
     @ObservationIgnored var webdavRemote: any WebDAVRemote = LiveWebDAVRemote()
     /// WebDAV passwords (the Keychain); tests pass `MemoryWebDAVPasswordStore`.
     @ObservationIgnored var webdavPasswords: any WebDAVPasswordStore = KeychainWebDAVPasswordStore()
+    /// How often a WebDAV session looks at its schedule, and how long after a
+    /// write it pushes (`WebDAVPushSchedule.writeDelay`); tests shorten both.
+    @ObservationIgnored var webdavTick = Duration.seconds(1)
+    @ObservationIgnored var webdavWriteDelay: TimeInterval = 10
     /// The running Back Up Now, Verify Backup or restore (`AppModel+Backup`),
     /// nil when none runs.
     var backupProgress: BackupProgress?

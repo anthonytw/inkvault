@@ -8,6 +8,8 @@ public struct SyncReport: Codable, Hashable, Sendable {
         public var side: String
         /// Path relative to the vault root.
         public var path: String
+
+        public init(side: String, path: String) { self.side = side; self.path = path }
     }
 
     /// A mutable file that changed on both sides.
@@ -17,12 +19,18 @@ public struct SyncReport: Codable, Hashable, Sendable {
         /// vault root; nil in a dry run or when an identical copy already existed.
         public var remoteCopy: String?
         public var detail: String
+
+        public init(path: String, remoteCopy: String?, detail: String) {
+            self.path = path; self.remoteCopy = remoteCopy; self.detail = detail
+        }
     }
 
     /// A path and a one-line message.
     public struct Issue: Codable, Hashable, Sendable {
         public var path: String
         public var message: String
+
+        public init(path: String, message: String) { self.path = path; self.message = message }
     }
 
     public var dryRun = false

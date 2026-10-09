@@ -146,6 +146,8 @@ extension AppModel {
             },
             countUnconfirmed: { await Task.detached(priority: .utility) { copy.unconfirmedChanges() }.value })
         session.onSuccess = { [weak store] date in store?.update(id) { $0.lastPush = date } }
+        session.tick = webdavTick
+        session.schedule.writeDelay = webdavWriteDelay
         webdav = session
         session.start()
     }
