@@ -437,6 +437,8 @@ final class NotabilityBackupTests: XCTestCase {
         XCTAssertEqual(note.paper.spacing ?? 0, 16.6, accuracy: 1e-4)
         XCTAssertEqual(note.pdfCount, 1)
         XCTAssertEqual(note.unsupportedStrokes, 1)
+        // The report says which kind it was (GA-27), so a backup survey shows what to decode next.
+        XCTAssertEqual(note.unsupportedKinds, ["stroke of geometry kind 7": 1])
         // s1, s2 in two pieces (the jump), then the line.
         XCTAssertEqual(note.curves.count, 4)
         XCTAssertEqual(note.shapeCount, 1)

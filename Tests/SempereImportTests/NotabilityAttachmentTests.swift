@@ -398,19 +398,34 @@ final class NotabilityAttachmentTests: XCTestCase {
 
     func testUnplaceableMediaIsReportedWithItsFieldNames() throws {
         let pkg = imagePackage({ a in
-            [AttachmentFixtures.imageObject(&a, file: "Images/anim.gif", origin: (0, 0), size: (10, 10)),
+            [AttachmentFixtures.imageObject(&a, file: "Images/anim.webp", origin: (0, 0), size: (10, 10)),
              AttachmentFixtures.imageObject(&a, file: "Images/gone.jpg", origin: (0, 0), size: (10, 10)),
              a.object("ImageMediaObject", [("mysteryKey", a.string(Self.pngPath))]),
              a.object("AudioMediaObject", [("duration", .real(3))])]
-        }, files: [("Images/anim.gif", AttachmentFixtures.gif), (Self.pngPath, AttachmentFixtures.png(width: 2, height: 2))])
+        }, files: [("Images/anim.webp", AttachmentFixtures.webp), (Self.pngPath, AttachmentFixtures.png(width: 2, height: 2))])
         let (r, state) = try importPackage(pkg, into: try makeVault())
         XCTAssertEqual(r.dropped.media, 4)
         XCTAssertEqual(r.attachments.images, 0)
         XCTAssertTrue(state.pages[0].items.isEmpty)
-        XCTAssertTrue(r.warnings.contains { $0.contains("GIF image") }, "\(r.warnings)")
+        XCTAssertTrue(r.warnings.contains { $0.contains("WEBP image") }, "\(r.warnings)")
         XCTAssertTrue(r.warnings.contains { $0.contains("media object 2") && $0.contains("no file") })
         XCTAssertTrue(r.warnings.contains { $0.contains("media object 3") && $0.contains("no frame") && $0.contains("mysteryKey") })
         XCTAssertTrue(r.warnings.contains { $0.contains("AudioMediaObject") && $0.contains("duration") })
+    }
+
+    /// GIF (and TIFF) images are converted to PNG on import; WebP is left out and counted (GA-10).
+    func testGIFIsStoredAsPNG() throws {
+        let pkg = imagePackage({ a in
+            [AttachmentFixtures.imageObject(&a, file: "Images/pic.gif", origin: (0, 0), size: (10, 5))]
+        }, files: [("Images/pic.gif", AttachmentFixtures.realGIF)])
+        let (note, a) = try resolve(pkg)
+        XCTAssertEqual(NotabilityImporter.dropped(note, attachments: a).media, 0)
+        XCTAssertEqual(a.imported.images, 1)
+        let blob = try XCTUnwrap(a.blobs.values.first)
+        XCTAssertEqual(blob.ref.type, "image/png")
+        XCTAssertEqual(ImageImport.format(of: blob.data), .png)
+        let again = try ImageImport.prepare(blob.data)
+        XCTAssertEqual([again.width, again.height], [2, 1])
     }
 
     func testHostileGeometryIsDropped() throws {
