@@ -104,7 +104,7 @@ struct PageCanvasView: UIViewRepresentable {
         var shownPageID: UUID? { pageID }
         var isUsingInk: Bool {
             guard let host else { return false }   // a canvas that went away draws nothing
-            return usingTool || host.isErasingInk
+            return usingTool || host.isErasingInk || host.isDrawingWithPointer
         }
 
         /// Shows page `pageID` of `editor` on `host`: its ink (loaded when the
@@ -422,6 +422,10 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     private var fittedWidth: CGFloat = 0
     /// The sized object eraser that replaces PencilKit's (`ObjectEraser.swift`).
     private let objectEraser = ObjectEraserController()
+    /// Smoothed mouse and trackpad strokes on a Mac (`MouseInk.swift`).
+    private let mouseInk = MouseInkController()
+    /// The "Smooth Mouse Strokes" level last applied (Mac; Off elsewhere).
+    private var smoothingLevel = StrokeSmoothing.Level.off
     /// Bottom of the ink on the page (page points), nil without ink.
     private(set) var inkMaxY: Double?
     /// The Add Page / Next Page button below a finite page.
@@ -504,6 +508,7 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         canvas.isOpaque = false
         // Ink colours are stored as drawn on light paper; never invert them.
         canvas.overrideUserInterfaceStyle = .light
+        canvas.accessibilityIdentifier = "pageCanvas"   // UI tests draw on it
         // A Mac has no Pencil: the mouse and trackpad always draw, whatever
         // the system's Pencil preference says (`.default` follows it).
         // An iPhone has no Pencil: a finger draws (once annotating is switched on).
@@ -531,6 +536,12 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
         toolPicker.addObserver(self)
         toolPicker.colorUserInterfaceStyle = .light
         objectEraser.attach(to: self, canvas: canvas)
+        mouseInk.attach(to: canvas)
+        mouseInk.onBegin = { [weak self] in
+            // As `canvasViewDidBeginUsingTool`: a page of the stack takes the focus.
+            guard let self, self.isEmbedded, !self.canvas.isFirstResponder else { return }
+            self.focus()
+        }
         mathLasso.attach(to: canvas)
         itemSelection.attach(to: canvas, itemLayer: itemLayer)
         textEditor.attach(to: canvas, itemLayer: itemLayer)
@@ -552,6 +563,9 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
             let pointer = UIPointerInteraction(delegate: self)
             addInteraction(pointer)
             cursorInteraction = pointer
+            // "Smooth Mouse Strokes" changed in Settings: PencilKit or the app draws the pointer.
+            NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged),
+                                                   name: UserDefaults.didChangeNotification, object: nil)
         }
         if isEmbedded {
             // The stack scrolls and zooms; the page shows a sheet with a shadow on the stack's background.
@@ -647,10 +661,35 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
 
     /// An object-eraser gesture is in progress.
     var isErasingInk: Bool { objectEraser.isErasing }
+    /// A smoothed mouse stroke is being drawn.
+    var isDrawingWithPointer: Bool { mouseInk.isDrawing }
+    /// Whether the app, not PencilKit, draws pointer strokes now (`MouseSmoothing.takesPointer`).
+    var pointerInkActive: Bool { mouseInk.isActive }
+    /// Whether ink can be drawn now: PencilKit's gesture, or on a Mac the app's pointer ink.
+    var drawsInk: Bool { canvas.drawingGestureRecognizer.isEnabled || mouseInk.isActive }
 
-    /// Drops an object-eraser gesture in progress (the drawing is being replaced).
+    /// Drops an object-eraser gesture or a mouse stroke in progress (the drawing is being replaced).
     func cancelErasing() {
         objectEraser.cancelGesture()
+        mouseInk.cancelStroke()
+    }
+
+    /// Any setting changed (possibly off the main thread): if "Smooth Mouse
+    /// Strokes" did, PencilKit or the app draws the pointer from now on. Other
+    /// settings (the eraser mode is saved during erasing) change nothing here.
+    @objc nonisolated private func defaultsChanged() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let level = MouseSmoothing.load()
+            guard level != self.smoothingLevel else { return }
+            self.smoothingLevel = level
+            self.updateEraser()
+        }
+    }
+
+    /// PencilKit's ruler snaps only its own strokes: while it shows, PencilKit draws the pointer.
+    func toolPickerIsRulerActiveDidChange(_ toolPicker: PKToolPicker) {
+        updateEraser()
     }
 
     /// Whether the picker's selected tool is the object eraser.
@@ -665,13 +704,19 @@ final class PageCanvasHost: UIView, PKToolPickerObserver, UIPointerInteractionDe
     }
 
     /// The app's sized object eraser stands in for PencilKit's `.vector` one;
-    /// every other tool (pixel eraser included) is PencilKit's.
+    /// every other tool (pixel eraser included) is PencilKit's. On a Mac with
+    /// "Smooth Mouse Strokes" on, the app draws the ink tools' pointer strokes.
     private func updateEraser() {
         let editable = drawingEditable
         let ours = editable && objectEraserSelected
         objectEraser.setActive(ours)
+        if Platform.isMac { smoothingLevel = MouseSmoothing.load() }
+        let pointer = !ours && MouseSmoothing.takesPointer(
+            isMac: Platform.isMac, level: smoothingLevel, editable: editable,
+            inkingTool: toolPicker.selectedToolItem is PKToolPickerInkingItem, rulerActive: canvas.isRulerActive)
+        mouseInk.setActive(pointer)
         mathLasso.setActive(mathLassoHandler != nil && !isReadOnly && !isPreparing && !drawingSuspended)
-        canvas.drawingGestureRecognizer.isEnabled = editable && !ours
+        canvas.drawingGestureRecognizer.isEnabled = editable && !ours && !pointer
     }
 
     /// Typing in a text box started or ended: nothing draws or selects
@@ -977,5 +1022,6 @@ extension PageCanvasHost: CanvasCommandTarget {
     func toggleRuler() {
         guard !isReadOnly else { return }
         canvas.isRulerActive.toggle()
+        updateEraser()
     }
 }

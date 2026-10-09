@@ -325,14 +325,15 @@ struct ExportTests {
 
     // MARK: Commands and targets
 
-    /// PDF, PNG and text; HTML stays in the CLI only.
+    /// PDF, PNG, text and media; HTML stays in the CLI only.
     @Test func commandsCoverTheAppFormatsOnce() {
-        #expect(ExportCommand.allCases.map(\.format) == [.pdf, .png, .markdown])
+        #expect(ExportCommand.allCases.map(\.format) == [.pdf, .png, .markdown, .media])
         #expect(!ExportCommand.formats.contains(.html))
         #expect(ExportCommand.markdown.title == "Text (Markdown)…")
         #expect(ShareFormat.markdown.title == "Text (Markdown)")
-        #expect(Set(ExportCommand.allCases.map(\.title)).count == 3)
-        #expect(Set(ExportCommand.allCases.map(\.systemImage)).count == 3)
+        #expect(Set(ExportCommand.allCases.map(\.title)).count == 4)
+        #expect(Set(ExportCommand.allCases.map(\.systemImage)).count == 4)
+        #expect(ShareFormat.media.localizedTitle == "Media")
         #expect(ShareOptions(format: .markdown).markdownPDF == false, "the PDF is opt-in")
     }
 
@@ -349,6 +350,22 @@ struct ExportTests {
         #expect(model.canExport(.markdown, ids: [Self.lecture, Self.deleted]))
         #expect(!model.canExport(.markdown, ids: [Self.deleted]))
         #expect(!model.canExport(.pdf, ids: []))
+        model.close()
+    }
+
+    /// The media export needs a note with a recording, video, image or PDF.
+    @Test func mediaExportNeedsMedia() async throws {
+        let model = try await BrowserTests.unlockedFixtureModel()
+        let i = try #require(model.notes.firstIndex { $0.id == Self.lecture })
+        model.notes[i].recordings = 0
+        model.notes[i].blobs = []
+        #expect(!model.canExport(.media, ids: [Self.lecture]))
+        model.notes[i].blobs = [BlobRef(content: Data("x".utf8), type: "image/png")]
+        #expect(model.canExport(.media, ids: [Self.lecture]))
+        model.notes[i].blobs = [BlobRef(content: Data("x".utf8), type: BlobRef.transcriptType)]
+        #expect(!model.canExport(.media, ids: [Self.lecture]), "a transcript alone is not media")
+        model.notes[i].recordings = 1
+        #expect(model.canExport(.media, ids: [Self.lecture]))
         model.close()
     }
 

@@ -609,6 +609,54 @@
         }
       }
     },
+    "%lld media files" : {
+      "comment" : "Export result: recordings, transcripts, videos, images and PDFs written as files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld media file"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld media files"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de archivos multimedia"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld archivo multimedia"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld archivos multimedia"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld note folders not listed yet" : {
       "comment" : "iCloud Drive has not listed these note folders yet",
       "extractionState" : "manual",
@@ -1041,6 +1089,54 @@
         }
       }
     },
+    "%lld notes without media" : {
+      "comment" : "Export result: notes that had no recordings, videos, images or PDFs",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld note without media"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notes without media"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de notas sin multimedia"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld nota sin multimedia"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notas sin multimedia"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld of %@" : {
       "comment" : "Download progress; %@ is a number of files, e.g. “212 of 277 files”",
       "extractionState" : "manual",
@@ -1226,6 +1322,54 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld grabaciones y sus transcripciones se adjuntan al PDF."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld recordings and their transcripts included." : {
+      "comment" : "Export sheet footer, media export",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld recording and its transcript included."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld recordings and their transcripts included."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Se incluyen %lld de grabaciones con sus transcripciones."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Se incluye %lld grabación con su transcripción."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Se incluyen %lld grabaciones con sus transcripciones."
                 }
               }
             }
@@ -1842,6 +1986,30 @@
         }
       }
     },
+    "A folder per note with its recordings, transcripts, videos, images and PDFs as files." : {
+      "comment" : "Export sheet footer, media export of several notes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta por nota con sus grabaciones, transcripciones, vídeos, imágenes y PDF como archivos."
+          }
+        }
+      }
+    },
+    "A folder per note with its recordings, transcripts, videos, images and PDFs as files; notes without them are left out." : {
+      "comment" : "Export Notes… footer: media export",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta por nota con sus grabaciones, transcripciones, vídeos, imágenes y PDF como archivos; las notas sin ellos se omiten."
+          }
+        }
+      }
+    },
     "A folder tree like your notebooks, one Markdown file and PDF per note, with the recognised text." : {
       "comment" : "Export sheet footer",
       "extractionState" : "manual",
@@ -1898,6 +2066,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Una carpeta con un archivo HTML independiente por nota y un índice."
+          }
+        }
+      }
+    },
+    "A folder with the note's recordings, transcripts, videos, images and PDFs as files." : {
+      "comment" : "Export sheet footer, media export of one note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta con las grabaciones, transcripciones, vídeos, imágenes y PDF de la nota como archivos."
           }
         }
       }
@@ -4607,6 +4787,18 @@
         }
       }
     },
+    "Draw" : {
+      "comment" : "Undo action name (Edit menu: Undo …) for a mouse stroke",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dibujar"
+          }
+        }
+      }
+    },
     "Draw on the page with a finger" : {
       "comment" : "Tooltip of the Annotate toggle",
       "extractionState" : "manual",
@@ -6343,6 +6535,18 @@
         }
       }
     },
+    "Left out or kept as stored" : {
+      "comment" : "Export sheets: section listing media files left out of a media export (not downloaded, unreadable) or written with their metadata",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omitidos o tal como se guardaron"
+          }
+        }
+      }
+    },
     "Left to Right" : {
       "comment" : "Writing direction",
       "extractionState" : "manual",
@@ -6375,6 +6579,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Biblioteca"
+          }
+        }
+      }
+    },
+    "Light" : {
+      "comment" : "Smooth Mouse Strokes setting: a little smoothing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ligero"
           }
         }
       }
@@ -6495,6 +6711,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Modo matemático, sin signos $: \\frac{a}{b}, x^{2}, \\sum_{i=1}^{n}, \\sqrt{x}"
+          }
+        }
+      }
+    },
+    "Media" : {
+      "comment" : "Export format: recordings, videos, images and PDFs as files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multimedia"
+          }
+        }
+      }
+    },
+    "Media…" : {
+      "comment" : "Export menu item: the notes' recordings, videos, images and PDFs as files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multimedia…"
           }
         }
       }
@@ -7675,6 +7915,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un PDF para todas las notas"
+          }
+        }
+      }
+    },
+    "One PDF per note, with its recordings, transcripts and videos attached and listed on a last page." : {
+      "comment" : "Export Notes… footer: PDF + attachments",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un PDF por nota, con sus grabaciones, transcripciones y vídeos adjuntos y enumerados en una última página."
           }
         }
       }
@@ -11180,6 +11432,30 @@
         }
       }
     },
+    "Smooth Mouse Strokes" : {
+      "comment" : "Settings ▸ General (Mac): picker for smoothing strokes drawn with a mouse or trackpad",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suavizar trazos del ratón"
+          }
+        }
+      }
+    },
+    "Smooth Mouse Strokes evens out lines drawn with a mouse or trackpad; Strong rounds them more. Strokes drawn with the ruler are not smoothed." : {
+      "comment" : "Settings ▸ General footer (Mac)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suavizar trazos del ratón iguala las líneas dibujadas con un ratón o un trackpad; Fuerte las redondea más. Los trazos dibujados con la regla no se suavizan."
+          }
+        }
+      }
+    },
     "Snapshot" : {
       "comment" : "History: kind of a restore point (a compacted snapshot)",
       "extractionState" : "manual",
@@ -11554,6 +11830,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tachado"
+          }
+        }
+      }
+    },
+    "Strong" : {
+      "comment" : "Smooth Mouse Strokes setting: more smoothing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fuerte"
           }
         }
       }
@@ -12438,6 +12726,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se han podido guardar antes los últimos cambios de la nota, así que no se ha restaurado nada. %@"
+          }
+        }
+      }
+    },
+    "The notes have no recordings, videos, images or PDFs." : {
+      "comment" : "Export failed: a media export found nothing to write",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas no tienen grabaciones, vídeos, imágenes ni PDF."
           }
         }
       }

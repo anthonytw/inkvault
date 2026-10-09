@@ -112,6 +112,7 @@ public enum PDFWriter {
         let catalog = doc.allocate(), pagesNum = doc.allocate(), infoNum = doc.allocate()   // 1, 2, 3
         struct OutPage {
             var width: Double; var height: Double; var content: Int; var alphas: [Int]; var xobjects: [Int]; var fonts: [Int]
+            var links: [AttachmentListLink] = []
         }
         var pages: [OutPage] = []
         var embedsForms = false
@@ -136,7 +137,10 @@ public enum PDFWriter {
         }
 
         var embedded = EmbeddedFiles(limit: embedLimit)
+        // Output pages (0-based) each recording's card and each clip appear on, for the attachment list.
+        var appearances: [String: Set<Int>] = [:]
         for (n, note) in notes.enumerated() {
+            let noteIndex = n
             let source: (any BlobSource)? = (blobs.flatMap { n < $0.count ? $0[n] : nil }) ?? options.blobs
             if options.embedRecordings {
                 embedded.add(recordingsOf: note, blobs: source, report: &report)
@@ -144,7 +148,7 @@ public enum PDFWriter {
                 report.recordingsOmitted += note.recordings.count
             }
             if options.embedVideos {
-                embedded.add(videosOf: note, blobs: source, report: &report)
+                embedded.add(videosOf: note, index: n, blobs: source, report: &report)
             } else {
                 report.videosOmitted += Set(note.pages.flatMap { $0.items.filter { $0.kind == .video }.compactMap(\.blob?.sha256) }).count
             }
@@ -191,6 +195,14 @@ public enum PDFWriter {
                     let under = PreparedPage.underIndex(chunkItems)
                     for (n, it) in chunkItems.enumerated() {
                         if n == under { for c in layers.under { cs.emit(c) } }
+                        if options.listAttachments {
+                            if it.item.kind == .audio, let r = images.audio?.recordings.recording(shownBy: it.item) {
+                                appearances[AttachmentList.recordingKey(r.id), default: []].insert(pages.count)
+                            } else if it.item.kind == .video, let ref = it.item.blob {
+                                appearances[AttachmentList.videoKey(note: noteIndex, sha256: ref.sha256), default: []]
+                                    .insert(pages.count)
+                            }
+                        }
                         if it.fillsBackground, options.paper {
                             cs.emit(it.backgroundFill(prepared.drawnPaper).translated(dy: -chunk.yOffset))
                         }
@@ -215,6 +227,19 @@ public enum PDFWriter {
                     for c in layers.strokes { cs.emit(c) }
                     try addPage(chunk, cs, xobjects: xobjects)
                 }
+            }
+        }
+        if options.listAttachments {
+            let rows = AttachmentList.rows(notes: notes, files: embedded.files, appearances: appearances,
+                                           embeddingRecordings: options.embedRecordings, embeddingVideos: options.embedVideos)
+            for list in AttachmentList.layout(rows, noteTitles: notes.map(\.meta.title), shaper: options.shaper,
+                                              report: &report) ?? [] {
+                var cs = ContentStream(height: list.height)
+                cs.begin()
+                for c in list.shapes { cs.emit(c) }
+                for t in list.texts { cs.text(t, transform: Affine.identity, fonts: &fonts) }
+                try addPage(PageChunk(yOffset: 0, yEnd: list.height, width: list.width, contentEnd: list.height), cs, xobjects: [])
+                pages[pages.count - 1].links = list.links
             }
         }
         if pages.isEmpty {
@@ -243,10 +268,10 @@ public enum PDFWriter {
         for (i, body) in try fonts.objects(base: fontBase, compress: options.compress).enumerated() {
             doc.set(fontNumbers[i], [UInt8](body))
         }
-        var kids: [Int] = []
-        for p in pages {
-            let num = doc.allocate()
-            kids.append(num)
+        let kids = pages.map { _ in doc.allocate() }
+        let specs = embedded.files.map { _ in doc.allocate() }
+        for (pageIndex, p) in pages.enumerated() {
+            let num = kids[pageIndex]
             var res = "<< "
             if !p.alphas.isEmpty {
                 res += "/ExtGState << " + p.alphas.compactMap { a in gsObj[a].map { "/GS\(a) \($0) 0 R" } }
@@ -259,14 +284,38 @@ public enum PDFWriter {
                 res += "/Font << " + p.fonts.map { "/T\($0) \(fontBase + 5 * $0) 0 R" }.joined(separator: " ") + " >> "
             }
             res += ">>"
+            var annots = ""
+            if !p.links.isEmpty {
+                var nums: [Int] = []
+                for link in p.links {
+                    // PDF rectangles are y up from the bottom of the page.
+                    let r = link.rect
+                    let rect = "[\(fmt(r.x)) \(fmt(p.height - r.y - r.h)) \(fmt(r.x + r.w)) \(fmt(p.height - r.y))]"
+                    let body: String
+                    switch link.target {
+                    case .file(let f) where specs.indices.contains(f):
+                        body = "<< /Type /Annot /Subtype /FileAttachment /Rect \(rect) /FS \(specs[f]) 0 R /Name /Paperclip "
+                            + "/Contents \(textString(embedded.files[f].name)) /F 4 >>"
+                    case .page(let target) where kids.indices.contains(target):
+                        body = "<< /Type /Annot /Subtype /Link /Rect \(rect) /Border [0 0 0] "
+                            + "/Dest [\(kids[target]) 0 R /XYZ null null null] >>"
+                    default:
+                        continue
+                    }
+                    let a = doc.allocate()
+                    doc.set(a, Array(body.utf8))
+                    nums.append(a)
+                }
+                if !nums.isEmpty { annots = " /Annots [\(nums.map { "\($0) 0 R" }.joined(separator: " "))]" }
+            }
             doc.set(num, Array(("<< /Type /Page /Parent \(pagesNum) 0 R /MediaBox [0 0 \(fmt(p.width)) \(fmt(p.height))] "
-                + "/Resources \(res) /Contents \(p.content) 0 R >>").utf8))
+                + "/Resources \(res) /Contents \(p.content) 0 R\(annots) >>").utf8))
         }
         var names = ""
         if !embedded.files.isEmpty {
             var entries: [String] = []
             for (i, f) in embedded.files.enumerated() {
-                let stream = doc.allocate(), spec = doc.allocate()
+                let stream = doc.allocate(), spec = specs[i]
                 switch f.content {
                 case .data(let data):
                     var body = data

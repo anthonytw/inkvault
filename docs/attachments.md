@@ -945,13 +945,19 @@ Pages show a recording only where an audio item places it: its card
   file attachment (`/Names /EmbeddedFiles`, PDF 1.4). Preview, Acrobat and
   most viewers list them and let the user save or play them;
 - CLI `--recordings attach`: the same embedded files;
-- CLI `--recordings list`: an appended page listing each recording's
-  title, start time, duration and its transcript text (when there is one);
-  `--recordings list,attach` does both.
+- CLI `--recordings list`: an appended page listing each recording (and
+  clip) with its title, the pages it appears on, duration and size;
+  `--recordings list,attach` does both. As built (#122) every PDF that embeds
+  files ends with that page, its rows linked to the embedded files
+  (FileAttachment annotations) and to their first page; transcripts are
+  linked as their `.txt` rather than printed on the page (docs/io.md "The
+  attachment list page").
 
 SVG and PNG exports omit recordings. A separate `sempere export --format
-media` writes the note's original blobs (images, PDFs, audio, transcripts) as
-files, named `<title>-<n>.<ext>`.
+media` (the app's "Media") writes the note's original blobs (images, PDFs,
+audio, transcripts as text, clips) as files, named
+`<title>-<Kind>-<n>[-<recording title>].<ext>`, with a `media.json` manifest
+(docs/io.md "Media export").
 
 ### Video in exports
 
@@ -1898,6 +1904,7 @@ Settings added since (same panel, same rules):
 | | Notebook for quick voice notes | Inbox | read by the voice-note feature via `NewNoteSettings.voiceNotebook()` |
 | General | Keep Screen On | off | |
 | | Recognize Handwriting | on | |
+| | Smooth Mouse Strokes (Mac only) | Light | Off, Light, Strong (`MouseSmoothing`, `docs/mac.md` "Mouse and trackpad"); pointer input only, nothing in the vault or the CLI |
 | History | Thin autosaves older than | 30 days (or never) | "Thin Now…" with a preview |
 | Device keys | Save Key… | — | actions, not settings: this device's key after Face ID (Touch ID, or the passcode only on a device without biometrics, never after a Face ID lockout) to Files or the share sheet, plus its paper kit; New Key… makes a key for another device, encrypts the vault to it and offers the same (`docs/cli.md` "Keys", app and CLI). New Key…, adding a pasted public key and the key window's Recovery Kit ask for the same owner check first (security review 2026-10, P1): each lets someone else read the vault |
 | Storage | Drawing and attachment cache sizes, Clear Caches | — | clearing keeps the vault, the list's summary cache and every setting |
