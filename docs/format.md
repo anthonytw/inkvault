@@ -2693,7 +2693,8 @@ lists and Pandoc's math, line based so that it parses in linear time:
      character and then only spaces or tabs, or the end of the container.
      Each content line loses up to as many leading spaces as the opening
      fence had.
-  2. *Display math*: `$$`. If the rest of the line, trimmed of spaces and
+  2. *Display math*: `$$`, with no other `$$` on the line except at its
+     end (trailing spaces and tabs aside). If the rest of the line, trimmed of spaces and
      tabs, ends with `$$` and is longer than that, the formula is what lies
      between the two marks. Otherwise the formula is the rest of the line,
      then every next line, until a line that, trimmed at its end, ends with

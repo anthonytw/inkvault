@@ -22,7 +22,7 @@ public struct PageText: Hashable, Sendable, Codable {
             if let text = p.recognition?.text, !text.isEmpty { parts.append(text) }
             for item in p.items.sorted(by: Item.drawsBefore) {
                 switch item.kind {
-                case .text: if let text = item.text?.string, !text.isEmpty { parts.append(text) }
+                case .text: if let text = item.text.map(MarkdownText.searchText), !text.isEmpty { parts.append(text) }
                 case .pdfPage: if let text = item.pageText?.text, !text.isEmpty { parts.append(text) }
                 case .math: if let latex = item.math?.latex, !latex.isEmpty { parts.append(latex) }
                 default: break
