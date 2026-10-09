@@ -334,6 +334,19 @@ final class ConcurrentSliceTests: XCTestCase {
 
     func checkRandomEdits(seed: UInt64, recreations: Bool) throws {
         var rng = SplitMix64(seed: seed &* 31 &+ (recreations ? 1 : 0))
+        let all = try randomEditLog(rng: &rng, recreations: recreations, steps: 120)
+        let tag = "seed \(seed) recreations \(recreations)"
+        let reference = try NoteReducer.reconstruct(all)
+        let refJSON = try InkJSON.encoder().encode(reference)
+        for i in 0..<30 {
+            let state = try NoteReducer.reconstruct(all.shuffled(using: &rng))
+            XCTAssertEqual(try InkJSON.encoder().encode(state), refJSON, "\(tag) permutation \(i)")
+        }
+        try checkInvariants(all, reference: reference, recreations: recreations, seed: seed, rng: &rng)
+    }
+
+    /// A log of conforming writers with partial views (see `testRandomConcurrentEditsConverge`).
+    func randomEditLog(rng: inout SplitMix64, recreations: Bool, steps: Int) throws -> [Revision] {
         let devices = [devA, devB, devC]
         var clocks = [HybridClock(), HybridClock(), HybridClock()]
         var seqs = [0, 0, 0]
@@ -360,7 +373,7 @@ final class ConcurrentSliceTests: XCTestCase {
         write(0, [.addPage(Page(id: p1, order: "V")), .addPage(Page(id: p2, order: "W"))]
                  + (0..<4).map { i in .addStroke(page: i < 2 ? p1 : p2, stroke: newInk()) })
 
-        for _ in 0..<120 {
+        for _ in 0..<steps {
             step += 1
             let di = Int.random(in: 0..<3, using: &rng)
             if seen[di].isEmpty || Double.random(in: 0..<1, using: &rng) < 0.15 {
@@ -405,13 +418,12 @@ final class ConcurrentSliceTests: XCTestCase {
             }
         }
 
+        return all
+    }
+
+    func checkInvariants(_ all: [Revision], reference: NoteState, recreations: Bool, seed: UInt64,
+                         rng: inout SplitMix64) throws {
         let tag = "seed \(seed) recreations \(recreations)"
-        let reference = try NoteReducer.reconstruct(all)
-        let refJSON = try InkJSON.encoder().encode(reference)
-        for i in 0..<30 {
-            let state = try NoteReducer.reconstruct(all.shuffled(using: &rng))
-            XCTAssertEqual(try InkJSON.encoder().encode(state), refJSON, "\(tag) permutation \(i)")
-        }
         let conflicts = try NoteReducer.strokeConflicts(all)
         if !recreations { XCTAssertEqual(conflicts.duplicates, [], tag) }
         // Something actually raced, or the test proves nothing.
@@ -449,6 +461,58 @@ final class ConcurrentSliceTests: XCTestCase {
             XCTAssertTrue(try NoteReducer.strokeConflicts(all + [fix]).isEmpty, tag)
             let removed = Set(conflicts.duplicates.map(\.stroke))
             XCTAssertEqual(fixed.allStrokeIds, reference.allStrokeIds.subtracting(removed), tag)
+        }
+    }
+
+    // MARK: Shared vectors (web/test/lineage.test.ts)
+
+    struct Vectors: Codable {
+        struct Case: Codable {
+            var name: String
+            var revisions: [Revision]
+            var state: NoteState
+        }
+        var cases: [Case]
+    }
+
+    /// Random logs of conforming writers, some with the deltas a snapshot
+    /// covers deleted, and the note each reconstructs to. The web viewer must
+    /// reconstruct the same JSON. `SEMPERE_WRITE_MERGE_VECTORS=1` rewrites
+    /// the file when the generator or the rule changes.
+    func makeVectors() throws -> Vectors {
+        var cases: [Vectors.Case] = []
+        for seed in UInt64(101)...104 {
+            var rng = SplitMix64(seed: seed)
+            let recreations = seed % 2 == 0
+            let all = try randomEditLog(rng: &rng, recreations: recreations, steps: 30)
+            cases.append(.init(name: "seed \(seed)\(recreations ? " re-creations" : "")", revisions: all,
+                               state: try NoteReducer.reconstruct(all)))
+            if let snap = all.last(where: { $0.kind == .snapshot }), case .snapshot(let included, _) = snap.body {
+                let rest = all.filter { $0.kind == .snapshot || !included.covers(device: $0.device, seq: $0.seq) }
+                cases.append(.init(name: "seed \(seed) compacted", revisions: rest,
+                                   state: try NoteReducer.reconstruct(rest)))
+            }
+        }
+        return Vectors(cases: cases)
+    }
+
+    func testSharedVectors() throws {
+        let made = try makeVectors()
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/concurrent-replacement-vectors.json")
+        if ProcessInfo.processInfo.environment["SEMPERE_WRITE_MERGE_VECTORS"] == "1" {
+            try (InkJSON.encoder().encode(made) + Data("\n".utf8)).write(to: source)
+        }
+        let url = try FixtureTests.bundled("concurrent-replacement-vectors.json")
+        let stored = try InkJSON.decoder().decode(Vectors.self, from: Data(contentsOf: url))
+        XCTAssertEqual(stored.cases.count, made.cases.count)
+        XCTAssertTrue(stored.cases.contains { $0.state.tombstones?.superseded.isEmpty == false })
+        XCTAssertTrue(stored.cases.contains { $0.state.tombstones?.lineage.isEmpty == false })
+        for (a, b) in zip(stored.cases, made.cases) {
+            XCTAssertEqual(try InkJSON.encoder().encode(a.revisions), try InkJSON.encoder().encode(b.revisions),
+                           "\(a.name): regenerate with SEMPERE_WRITE_MERGE_VECTORS=1")
+            XCTAssertEqual(try InkJSON.encoder().encode(NoteReducer.reconstruct(a.revisions)),
+                           try InkJSON.encoder().encode(a.state), a.name)
         }
     }
 }
