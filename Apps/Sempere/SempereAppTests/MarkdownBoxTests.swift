@@ -87,8 +87,11 @@ struct MarkdownBoxTests {
         #expect(prepared.content.layout?.of == MarkdownText.hash(content.string))
         #expect(try NoteEditorTests.myDeltas(vault, clock).count == deltas, "blobs only: no delta yet")
         // Written as one delta; drawn with its renders.
-        let actions = ItemActions(editor: editor, undoManager: AttachmentEditorTests.undoManager())
-        let item = try #require(actions.addText(prepared.content, frame: prepared.frame, on: page))
+        let undo = AttachmentEditorTests.undoManager()
+        let actions = ItemActions(editor: editor, undoManager: undo)
+        var added: Item?
+        AttachmentEditorTests.grouped(undo) { added = actions.addText(prepared.content, frame: prepared.frame, on: page) }
+        let item = try #require(added)
         await editor.flush()
         #expect(try NoteEditorTests.myDeltas(vault, clock).count == deltas + 1)
         let renders = Set(math.compactMap { formula in formula.math.render.map(\.sha256) })
@@ -128,10 +131,12 @@ struct MarkdownBoxTests {
         tv.selectedRange = NSRange(location: tv.text.utf16.count, length: 0)
         tv.insertText(" is $x^2$")
         controller.textViewDidChange(tv)
+        // The commit registers its undo step once the formulas are typeset: the group stays open until then
+        // (this undo manager does not group by event, and a registration outside a group raises).
         undo.beginUndoGrouping()
         controller.endEditing()
-        undo.endUndoGrouping()
         await controller.pendingCommit?.value
+        undo.endUndoGrouping()
         await editor.flush()
         #expect(try NoteEditorTests.myDeltas(vault, clock).count == deltas + 1)
         let box = try #require(editor.items(on: page).first { $0.text?.isMarkdown == true })
