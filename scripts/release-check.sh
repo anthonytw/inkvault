@@ -20,6 +20,8 @@
 #     (the privacy policy says the app makes no connections of its own);
 #   - MathModelCatalog.entries is not empty: that turns the allowed model
 #     downloader on, which the privacy documents say is inert;
+#   - an object id is defined twice in project.pbxproj (two branches that each
+#     picked the next free id merge cleanly into a project Xcode reads wrongly);
 #   - a package pinned with an exact version in project.pbxproj resolves to
 #     another version in the project's Package.resolved;
 #   - with --checkouts: a third-party package (SwiftMath) uses networking, or a
@@ -174,6 +176,12 @@ def setting_values(name):
     # `NAME = value;` and `"NAME[sdk=...]" = value;`
     pat = re.compile(r'^\s*"?' + re.escape(name) + r'(\[[^\]]*\])?"?\s*=\s*(.*?);\s*$', re.M)
     return [m.group(2).strip().strip('"') for m in pat.finditer(pbx)]
+
+# Objects are the entries two tabs deep (`\t\tID /* name */ = {`); a duplicate is a silent clash (one
+# definition wins, the other's references now point at it), which plutil does not report.
+object_ids = re.findall(r'^\t\t([0-9A-F]{24})\b[^\n]*= \{', pbx, re.M)
+for dup in sorted({i for i in object_ids if object_ids.count(i) > 1}):
+    errors.append(f"object id {dup} is defined more than once in project.pbxproj; give one of them a new id")
 
 for name in ("MARKETING_VERSION", "CURRENT_PROJECT_VERSION"):
     vals = setting_values(name)

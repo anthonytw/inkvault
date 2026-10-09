@@ -134,7 +134,8 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   (Xcode 16+): add or remove `.swift` files under `Apps/Sempere/SempereApp/` or
   `SempereAppTests/` without touching the project file. Only new targets,
   package products, build settings or resources need a pbxproj edit; keep object
-  ids as 24 hex digits and check with `plutil -lint`.
+  ids as 24 hex digits and check with `plutil -lint`. Two branches that each take the next
+  free id merge cleanly into a broken project: `release-check.sh` fails on a duplicate id.
 - App tests read the package's fixture vault through a folder reference to
   `Tests/SempereTests/Fixtures` (copied into the test bundle as `Fixtures/`);
   copy the vault to a temp dir before anything could write to it.
