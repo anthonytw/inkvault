@@ -5,6 +5,15 @@
 // the identity. IndexedDB holds the ciphertext, its nonce, the PRF salt and
 // the credential id, never the key or anything it can be derived from without
 // the authenticator. Without PRF nothing is stored: there is no weaker mode.
+//
+// A record is bound to where the vault was opened (its URL, or "a folder on
+// this computer"), not only to the vault id: `vault.json` is unauthenticated
+// before the unlock, so any server can claim a vault's id. A record is offered
+// for one-prompt unlock only at its own location (security review P3).
+// Records of version 1 (vault id only) are bound to the location of their
+// first unlock, and rewritten as version 2 then.
+
+import { HTTPSource, type VaultSource } from "./source.ts";
 
 /** Why a passkey could not remember or unlock the key. */
 export type PasskeyErrorCode =
@@ -13,6 +22,7 @@ export type PasskeyErrorCode =
   | "notVerified"     // the authenticator did not verify the user
   | "wrongPasskey"    // the PRF output does not open the stored key
   | "corrupt"         // the stored record is malformed
+  | "otherLocation"   // the record was remembered for this vault id at another location
   | "storage";        // IndexedDB failed
 
 export class PasskeyError extends Error {
@@ -24,9 +34,15 @@ export class PasskeyError extends Error {
 
 /** One remembered key: what IndexedDB holds for a vault. */
 export interface StoredKey {
-  version: 1;
+  /** 2: bound to `location`; 1 (older viewers): bound to the vault id only. */
+  version: 1 | 2;
   /** The vault (`vault.json`'s `vaultId`): one remembered key per vault. */
   vaultId: string;
+  /**
+   * Where the vault was opened when the key was remembered (`vaultLocation`):
+   * bound by HKDF and the AAD, and shown to the user. Absent in version 1.
+   */
+  location?: string;
   credentialId: Uint8Array;
   /** The PRF input, random per record. Not secret. */
   salt: Uint8Array;
@@ -52,16 +68,53 @@ export interface WebAuthn {
 }
 
 const label = "sempere-viewer/1";
+const labelV2 = "sempere-viewer/2";
 const encoder = new TextEncoder();
 
-/** HKDF info: binds the wrapping key to this purpose, the vault and the credential. */
-function info(vaultId: string, credentialId: Uint8Array): Uint8Array {
-  return concat(encoder.encode(`${label} passkey key-wrap`), Uint8Array.of(0), encoder.encode(vaultId), Uint8Array.of(0), credentialId);
+/** The longest location a record may carry (UTF-16 code units). */
+export const maxLocationLength = 4096;
+
+/** What a record is bound to: the vault id, and (version 2) where it was opened. */
+export interface Binding {
+  vaultId: string;
+  /** Undefined only for version 1 records. */
+  location?: string;
 }
 
-/** AES-GCM additional data: a record cannot be moved to another vault or credential. */
-function aad(vaultId: string, credentialId: Uint8Array): Uint8Array {
-  return concat(encoder.encode(label), Uint8Array.of(0), encoder.encode(vaultId), Uint8Array.of(0), credentialId);
+/** Each part prefixed with its length (32-bit big-endian), so no two bindings encode alike. */
+function framed(...parts: Uint8Array[]): Uint8Array {
+  return concat(...parts.flatMap((p) => {
+    const n = new Uint8Array(4);
+    new DataView(n.buffer).setUint32(0, p.length);
+    return [n, p];
+  }));
+}
+
+/** HKDF info: binds the wrapping key to this purpose, the vault, its location and the credential. */
+function info(b: Binding, credentialId: Uint8Array): Uint8Array {
+  if (b.location === undefined) {
+    return concat(encoder.encode(`${label} passkey key-wrap`), Uint8Array.of(0), encoder.encode(b.vaultId), Uint8Array.of(0), credentialId);
+  }
+  return concat(encoder.encode(`${labelV2} passkey key-wrap`), Uint8Array.of(0),
+    framed(encoder.encode(b.vaultId), encoder.encode(b.location), credentialId));
+}
+
+/** AES-GCM additional data: a record cannot be moved to another vault, location or credential. */
+function aad(b: Binding, credentialId: Uint8Array): Uint8Array {
+  if (b.location === undefined) {
+    return concat(encoder.encode(label), Uint8Array.of(0), encoder.encode(b.vaultId), Uint8Array.of(0), credentialId);
+  }
+  return concat(encoder.encode(labelV2), Uint8Array.of(0), framed(encoder.encode(b.vaultId), encoder.encode(b.location), credentialId));
+}
+
+/**
+ * How a record relates to the location the vault was opened from: its own
+ * (`same`), another (`other`: not offered), or unknown (`legacy`, version 1:
+ * bound to this location at its first unlock).
+ */
+export function recordPlace(record: StoredKey, location: string): "same" | "other" | "legacy" {
+  if (record.location === undefined) return "legacy";
+  return record.location === location ? "same" : "other";
 }
 
 function concat(...parts: Uint8Array[]): Uint8Array {
@@ -87,31 +140,38 @@ function bytes(v: unknown): Uint8Array | undefined {
 }
 
 /** The AES-256-GCM key for a PRF output (32 bytes from the authenticator). */
-export async function wrappingKey(prf: Uint8Array, vaultId: string, credentialId: Uint8Array): Promise<CryptoKey> {
+export async function wrappingKey(prf: Uint8Array, binding: Binding, credentialId: Uint8Array): Promise<CryptoKey> {
   if (prf.length < 32) throw new PasskeyError("unsupported", "the authenticator returned a short PRF output");
   const ikm = await crypto.subtle.importKey("raw", buf(prf), "HKDF", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: buf(info(vaultId, credentialId)) },
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: buf(info(binding, credentialId)) },
     ikm, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 
-/** Encrypts `identity` for a record. */
-export async function seal(identity: string, prf: Uint8Array, vaultId: string, credentialId: Uint8Array,
+/**
+ * Encrypts `identity` for a record bound to `binding` (version 2 with a
+ * location; version 1 without, which only tests write now). A fresh IV each
+ * time, so re-sealing under the same PRF output never reuses one.
+ */
+export async function seal(identity: string, prf: Uint8Array, binding: Binding, credentialId: Uint8Array,
   salt: Uint8Array, now = Date.now()): Promise<StoredKey> {
-  const key = await wrappingKey(prf, vaultId, credentialId);
+  const key = await wrappingKey(prf, binding, credentialId);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: buf(aad(vaultId, credentialId)) }, key, buf(encoder.encode(identity))));
-  return { version: 1, vaultId, credentialId, salt, iv, ciphertext, created: now };
+    { name: "AES-GCM", iv, additionalData: buf(aad(binding, credentialId)) }, key, buf(encoder.encode(identity))));
+  const { vaultId, location } = binding;
+  return location === undefined ? { version: 1, vaultId, credentialId, salt, iv, ciphertext, created: now }
+    : { version: 2, vaultId, location, credentialId, salt, iv, ciphertext, created: now };
 }
 
 /** Decrypts a record's identity. A wrong PRF output or an altered record fails. */
 export async function open(record: StoredKey, prf: Uint8Array): Promise<string> {
-  const key = await wrappingKey(prf, record.vaultId, record.credentialId);
+  const binding: Binding = { vaultId: record.vaultId, location: record.location };
+  const key = await wrappingKey(prf, binding, record.credentialId);
   let plain: ArrayBuffer;
   try {
     plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: buf(record.iv), additionalData: buf(aad(record.vaultId, record.credentialId)) },
+      { name: "AES-GCM", iv: buf(record.iv), additionalData: buf(aad(binding, record.credentialId)) },
       key, buf(record.ciphertext));
   } catch {
     throw new PasskeyError("wrongPasskey", "this passkey does not open the remembered key: forget it and paste the key");
@@ -127,12 +187,17 @@ export async function open(record: StoredKey, prf: Uint8Array): Promise<string> 
 export function validRecord(v: unknown, vaultId: string): StoredKey {
   const o = v as Partial<Record<keyof StoredKey, unknown>> | null;
   const credentialId = bytes(o?.credentialId), salt = bytes(o?.salt), iv = bytes(o?.iv), ciphertext = bytes(o?.ciphertext);
-  if (!o || o.version !== 1 || o.vaultId !== vaultId || !credentialId || credentialId.length === 0 || credentialId.length > 1023
+  const location = o?.location;
+  const locationOK = o?.version === 1 ? location === undefined
+    : o?.version === 2 && typeof location === "string" && location.length > 0 && location.length <= maxLocationLength;
+  if (!o || !locationOK || o.vaultId !== vaultId || !credentialId || credentialId.length === 0 || credentialId.length > 1023
     || !salt || salt.length !== 32 || !iv || iv.length !== 12 || !ciphertext || ciphertext.length < 17 || ciphertext.length > 4096
     || typeof o.created !== "number") {
     throw new PasskeyError("corrupt", "the remembered key's record is damaged: forget it and paste the key");
   }
-  return { version: 1, vaultId, credentialId, salt, iv, ciphertext, created: o.created };
+  return typeof location === "string"
+    ? { version: 2, vaultId, location, credentialId, salt, iv, ciphertext, created: o.created }
+    : { version: 1, vaultId, credentialId, salt, iv, ciphertext, created: o.created };
 }
 
 // MARK: - WebAuthn
@@ -211,10 +276,16 @@ export class PasskeyVault {
 
   /**
    * Creates a passkey with PRF (user verification required) and stores the
-   * identity encrypted under it, replacing any key remembered for the vault.
-   * Nothing is stored unless PRF works. `vaultName` labels the passkey.
+   * identity encrypted under it, bound to the vault id and `location`
+   * (`vaultLocation`), replacing any key remembered for the vault (whose
+   * passkey is then signalled unknown). Nothing is stored unless PRF works.
+   * `vaultName` labels the passkey.
    */
-  async remember(identity: string, vaultId: string, vaultName: string): Promise<StoredKey> {
+  async remember(identity: string, vaultId: string, location: string, vaultName: string): Promise<StoredKey> {
+    if (location.length === 0 || location.length > maxLocationLength) {
+      throw new PasskeyError("unsupported", "this vault's address is too long to remember a key for");
+    }
+    const previous = await this.stored(vaultId).catch(() => undefined);
     const salt = crypto.getRandomValues(new Uint8Array(32));
     let cred: Credential | null;
     try {
@@ -246,20 +317,42 @@ export class PasskeyVault {
       if (e instanceof PasskeyError && e.code === "unsupported") signalUnknown(credentialId);
       throw e;
     }
-    const record = await seal(identity, prf, vaultId, credentialId, salt);
+    const record = await seal(identity, prf, { vaultId, location }, credentialId, salt);
     try {
       await this.storage.put(record);
     } catch (e) {
       throw new PasskeyError("storage", `cannot write this browser's storage: ${String(e)}`);
     }
+    // The replaced record's passkey opens nothing now: let its provider drop it.
+    if (previous && !sameBytes(previous.credentialId, credentialId)) signalUnknown(previous.credentialId);
     return record;
   }
 
-  /** One passkey prompt: the identity text remembered for the vault. */
-  async unlock(vaultId: string): Promise<string> {
+  /**
+   * One passkey prompt: the identity text remembered for the vault, if it
+   * was remembered at `location`, handed to `use` (which unlocks the vault
+   * and throws if the key does not open it). A record of another location
+   * is refused before any prompt (`otherLocation`). A version 1 record (no
+   * location) is rewritten bound to `location` once `use` succeeded, under
+   * the same passkey and PRF output (no second prompt); if that write fails
+   * it is tried again at the next unlock.
+   */
+  async unlock(vaultId: string, location: string, use: (identity: string) => Promise<void> = () => Promise.resolve()): Promise<string> {
     const record = await this.stored(vaultId);
     if (!record) throw new PasskeyError("corrupt", "no key is remembered for this vault on this device");
-    return open(record, await this.assert(record.credentialId, record.salt));
+    const place = recordPlace(record, location);
+    if (place === "other") {
+      throw new PasskeyError("otherLocation",
+        `the key remembered for this vault belongs to ${describeLocation(record.location ?? "")}, not to this address: paste the key here`);
+    }
+    const prf = await this.assert(record.credentialId, record.salt);
+    const identity = await open(record, prf);
+    await use(identity);
+    if (place === "legacy" && location.length > 0 && location.length <= maxLocationLength) {
+      const bound = await seal(identity, prf, { vaultId, location }, record.credentialId, record.salt, record.created);
+      await this.storage.put(bound).catch(() => undefined);
+    }
+    return identity;
   }
 
   /** Forgets the vault's key here; the passkey left in the authenticator opens nothing. */
@@ -300,6 +393,28 @@ export class PasskeyVault {
   }
 }
 
+/**
+ * Where a vault was opened, as a record binds it: the vault's base URL for
+ * one opened over HTTP(S) (`HTTPSource.label`: no query, fragment or
+ * credentials, a trailing slash), `local:` for a folder opened from this
+ * computer (the user picked it; its name is not an identity). Call it with
+ * the source as opened, before any cache wraps it.
+ */
+export function vaultLocation(src: VaultSource): string {
+  return src instanceof HTTPSource ? src.label : localLocation;
+}
+
+const localLocation = "local:";
+
+/** A location for people: the URL, or "a folder on this computer". */
+export function describeLocation(location: string): string {
+  return location === localLocation ? "a folder opened from this computer" : location;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
 function isPublicKeyCredential(c: Credential | null): c is PublicKeyCredential {
   return c !== null && c.type === "public-key" && "rawId" in c && "getClientExtensionResults" in c;
 }
@@ -333,7 +448,7 @@ function request<T>(r: IDBRequest<T>): Promise<T> {
   });
 }
 
-/** Records in this origin's IndexedDB (`sempere-viewer` / `passkey-keys`, keyed by vault id). */
+/** Records in this origin's IndexedDB (`sempere-viewer` / `passkey-keys`, keyed by vault id; one per vault). */
 export class IndexedDBKeyStorage implements KeyStorage {
   private db?: Promise<IDBDatabase>;
 
