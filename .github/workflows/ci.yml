@@ -273,6 +273,7 @@ jobs:
       - name: Tooltips on icon-only controls
         run: scripts/check-help.py --self-test && scripts/check-help.py
       - name: Test on an iPad simulator
+        timeout-minutes: 40
         shell: bash
         run: mkdir -p build && scripts/app.sh test 2>&1 | tee build/app-test.log
       # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
