@@ -244,7 +244,8 @@ struct MenuHandlerTests {
         let editor = try #require(model.editor)
         let before = editor.pages.count
 
-        #expect(EditorCommands.perform(.addPage, editor: editor, ui: ui))
+        // Add Page at End (Add Page, ⇧⌘A, inserts after the current page since #136).
+        #expect(EditorCommands.perform(.addPageAtEnd, editor: editor, ui: ui))
         #expect(editor.pages.count == before + 1)
         #expect(editor.pageIndex == before, "the added page is shown")
         #expect(EditorCommands.perform(.previousPage, editor: editor, ui: ui))
