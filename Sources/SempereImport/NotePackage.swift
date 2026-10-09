@@ -1,7 +1,7 @@
 import Foundation
 import Sempere
 
-/// The files of one Notability `.note` package: a zip (the usual form) or
+/// The files of one package (an importer's `.note`, say): a zip (the usual form) or
 /// an unzipped package directory. Paths are `/`-separated and relative to the
 /// package root.
 public struct NotePackage {
@@ -15,7 +15,7 @@ public struct NotePackage {
         paths = files.map(\.path)
         let byPath = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
         reader = { path in
-            guard let e = byPath[path] else { throw ImportError.notability("no \(path) in package") }
+            guard let e = byPath[path] else { throw ImportError.package("no \(path) in package") }
             return try zip.read(e)
         }
     }

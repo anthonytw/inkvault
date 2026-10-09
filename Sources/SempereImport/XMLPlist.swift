@@ -2,20 +2,20 @@ import Foundation
 import Sempere
 
 /// A strict reader for XML property lists, the format of some small files
-/// inside Notability packages (`Recordings/library.plist`).
+/// inside packages (a recordings library, say).
 ///
 /// Like `BinaryPlist`, it avoids `PropertyListSerialization` for untrusted
 /// input. It accepts only Apple's plist vocabulary. It expands no entities
 /// beyond the five predefined ones and numeric character references, and it
 /// refuses a DOCTYPE with an internal subset, so nothing is fetched or
 /// expanded. Size and nesting are capped.
-enum XMLPlist {
-    /// Largest file accepted. The XML plists Notability writes are a few hundred bytes.
-    static let maxBytes = 4 << 20
+package enum XMLPlist {
+    /// Largest file accepted. The XML plists apps write here are a few hundred bytes.
+    package static let maxBytes = 4 << 20
     /// Deepest container nesting accepted.
-    static let maxDepth = 64
+    package static let maxDepth = 64
 
-    static func isXMLPlist(_ data: Data) -> Bool {
+    package static func isXMLPlist(_ data: Data) -> Bool {
         var s = data.prefix(256)
         if s.starts(with: [0xEF, 0xBB, 0xBF]) { s = s.dropFirst(3) }   // UTF-8 BOM
         guard let head = String(data: Data(s), encoding: .utf8)?.drop(while: \.isWhitespace) else { return false }
@@ -26,7 +26,7 @@ enum XMLPlist {
     ///
     /// - Throws: `ImportError.archive` for anything malformed or outside the
     ///   plist vocabulary.
-    static func parse(_ data: Data) throws -> PlistValue {
+    package static func parse(_ data: Data) throws -> PlistValue {
         guard data.count <= maxBytes else { throw bad("larger than \(maxBytes) bytes") }
         guard let text = String(data: data, encoding: .utf8) else { throw bad("not UTF-8") }
         var p = Parser(Array(text.unicodeScalars))
@@ -44,7 +44,7 @@ enum XMLPlist {
         return value
     }
 
-    static func bad(_ why: String) -> ImportError { ImportError.archive("XML plist: \(why)") }
+    package static func bad(_ why: String) -> ImportError { ImportError.archive("XML plist: \(why)") }
 
     private struct Tag { var name: String; var selfClosing: Bool }
 
