@@ -469,8 +469,12 @@ change can be finished by any device holding an identity of the new set:
    `previousVaultSecret`, and replace it atomically (temporary file in the
    same directory, then rename; blobs: §8.1.5). Files waiting in `inbox/`
    (§11) are rewritten the same way, re-tagged under the current secret's
-   capture key (§11.1); one that cannot be decrypted or verified is left as
-   it is, reported, and does not keep the journal.
+   key of the same kind (§11.1): a file tagged with a device capture key
+   under the current device capture key of that device, which must still
+   be listed, and one tagged with the vault capture key of the outgoing
+   secret only by the run that rotated it, never by a resumed one (a removed
+   device holds that key). One that cannot be decrypted or verified that way
+   is left as it is, reported, and does not keep the journal.
 4. Delete `rewrap-journal.json` once every file is complete. If any file
    could not be read or verified, keep the journal (it is the only copy of
    the outgoing secret), report those files, and retry step 3 later.
@@ -2483,6 +2487,16 @@ A recording belongs to the note, not to a page (`recordings`, §5.4):
 - `started`: RFC 3339 wall time of the first sample (sorting, display).
 - `duration` (seconds, 3 decimals), `codec`, `sampleRate`, `channels`,
   `bitRate` (bits per second, average): informational.
+- `captured` (*new: capture attribution*, optional, immutable): for a voice
+  note adopted from the inbox (§11.3), who captured it:
+  `{ "device": "a1b2c3d4", "recipient": "…(64 hex digits)…" }`. `device` is
+  the capturing device's id (§5) as its capture named it; `recipient` the
+  fingerprint (§11.1) of the vault recipient whose device capture key sealed
+  the capture, absent when the vault capture key did (the capture is then
+  **unattributed** and `device` only a claim). A reader that finds a value of
+  another shape treats it as absent; it never rejects the revision for it.
+  Readers show the recipient's `label` while it is listed, and that the
+  device is no longer in the vault otherwise.
 - Registers: `title` (string; absent means `""`) and `transcript` (a blob
   reference or `null`), changed with `setRecording` and merged LWW per
   (recording, field) like item registers (§8.2.2), with `clocks` in
@@ -2907,18 +2921,38 @@ is needed, since nothing under `notes/` changes. Rationale and threat model:
 ### 11.1 Capture key
 
 ```
-captureKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 capture key", L = 32)
+fingerprint(r)      = lowercase hex of SHA-256(UTF-8 of r)       r: a recipient key as written in vault.json
+captureKey          = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 capture key", L = 32)
+deviceCaptureKey(r) = HKDF-SHA256(ikm = vaultSecret, salt = "",
+                                  info = "sempere/1 device capture key" ‖ 0x00 ‖ fingerprint(r), L = 32)
 ```
 
-It authenticates inbox files and nothing else. It cannot decrypt anything,
+(the fingerprint is the one in the names of post-quantum key files, §3.2).
+*New: capture attribution* (security review 2026-10, C2, C3). A capture
+profile is made by a device that unlocked the vault with the identity of a
+listed recipient `r`, and holds `deviceCaptureKey(r)` and `fingerprint(r)`:
+only that profile can seal a capture that verifies as coming from `r`, so
+captures are **attributed** to a device of the authenticated list (§2.1),
+and a holder of another device's profile cannot impersonate it. The
+**vault capture key** `captureKey`, which every profile held before
+attribution, is still accepted for files sealed with it, as **unattributed**
+captures; writers make no new profile with it, and a device that unlocks
+replaces its old profile with an attributed one.
+
+Each of these keys authenticates inbox files and nothing else. It cannot decrypt anything,
 tag a revision (§4), name a blob (§8.1.2) or derive a per-device cache key
 (§10), and HKDF does not reveal the secret. It changes whenever the secret
 rotates (a recipient is removed, §3.3), which revokes every capture key handed
 out before. Inbox files already there when the secret rotates are not lost:
-the recipient change re-tags each one that verifies under the outgoing
-capture key and re-encrypts it to the new recipients (§3.3.1 step 3), as it
-does when a recipient is added; a file sealed with a revoked key after that
-never verifies. A capturing device stores the key and the recipients list (a
+the recipient change re-tags each one that verifies under an outgoing
+capture key, under the current key of the same kind (the same device's,
+which must still be listed), and re-encrypts it to the new recipients
+(§3.3.1 step 3), as it does when a recipient is added; a file sealed with a
+revoked key after that never verifies, and neither does one sealed by a
+device that was removed. A removed device that held the vault secret itself
+(not only a profile) still holds the outgoing secret, and can seal captures
+attributed to a listed device under it until the rewrap of its removal
+finishes, as it can tag revisions under it (§3.3.1). A capturing device stores the key and the recipients list (a
 *capture profile*); how it stores them is up to the implementation. The list
 comes from a vault whose recipients checked (§2.1) when the profile was made
 or refreshed; a tampered list is never put in a profile, and a capturing
@@ -2940,10 +2974,21 @@ plaintext is:
 | 37 | rest | one line of UTF-8 JSON (no `0x0A` inside), `0x0A`, then the payload |
 
 `filename` is the file's base name, so a file renamed to another capture id or
-kind does not verify. A reader verifies the tag (under the current secret's
-capture key, or the previous secret's during an unfinished rewrap, §3.3.1)
-before it parses anything after it, and treats a file that fails as
-untrusted input (§9): reported, kept, never adopted. The whole plaintext is at
+kind does not verify. A reader verifies the tag before it parses anything
+after it, under each key of its **key ring**, in the same streamed pass:
+the vault capture key and the device capture key of every recipient listed
+in a `vault.json` whose list checks (§2.1; a reader refuses to read
+captures against a tampered one), under the current secret, and, during an
+unfinished rewrap (§3.3.1), the device capture keys of the same listed
+recipients under the outgoing secret. The key that verifies attributes the
+file: to that recipient, or to none for the vault capture key. A recipient
+no longer listed has no key in the ring, so the captures of a removed device
+never verify, also while the rewrap of its removal is unfinished; nor do
+unattributed files sealed under the outgoing secret, which only the run
+that rotated it re-tags (§3.3.1 step 3). A file that fails is untrusted
+input (§9): reported, kept, never adopted. Hashing a file once per key, the
+work is bounded by the file's size times the length of an authenticated
+list. The whole plaintext is at
 most 256 MiB for a `capture` and, for a `transcript`, 37 bytes plus one JSON
 line of at most 64 MiB (§8.3.2), `0x0A` and 64 hex digits; a reader checks
 the file's size against its kind's bound before decrypting. The tag covers
@@ -2976,7 +3021,12 @@ iCloud) are not recorded.
 
   `id` must equal `<captureId>` and `vault` the vault's `vaultId`. `audio` is
   a blob reference (§8.1.1) of the payload: its size and SHA-256 must match.
-  `device` is the capturing device's id (§5). `title`, `notebook` (absent:
+  `device` is the capturing device's id (§5). `recipient` (*new: capture
+  attribution*, 64 lowercase hex digits) is `fingerprint(r)` of the profile's
+  recipient, absent in a capture sealed with the vault capture key; a reader
+  rejects a manifest whose `recipient` is not that of the key that verified
+  the file (present for the vault capture key, absent or another one for a
+  device capture key). `title`, `notebook` (absent:
   `Inbox`) and the informational fields become the note's; the title and
   the notebook as at most 300 characters (and 1200 Unicode scalars: one
   character may hold any number of combining marks), control characters replaced by
@@ -2988,9 +3038,12 @@ iCloud) are not recorded.
   a transcript to a voice note it never heard. A reader adds a transcript
   only to the recording whose blob has that hash, and never one whose
   payload is anything else (an empty payload was written before this rule):
-  such a transcript is deleted once its note exists, never adopted. The JSON
+  such a transcript is deleted once its note exists, never adopted. It is
+  also adopted only when it is attributed like its capture (the same
+  recipient, or both unattributed; for a capture adopted earlier, the
+  recording's `captured.recipient`, §8.3.1). The JSON
   is a transcript (§8.3.2) whose `recording` is the
-  capture's recording id (§11.3); the payload is empty.
+  capture's recording id (§11.3).
 
 Recovery without the app (the audio of a capture):
 
@@ -3019,12 +3072,20 @@ itself (its own device id and clock):
 
 - a note that does not exist yet gets `newNote` (title, notebook, one page
   with the derived page id, the reader's default paper and page size) and
-  `addRecording` (the derived recording id, the blob, `started` and the
-  informational fields), with `transcript` set when a transcript file is
-  there;
+  `addRecording` (the derived recording id, the blob, `started`, the
+  informational fields, and `captured`: the manifest's `device` and the
+  recipient the file is attributed to, §8.3.1), with `transcript` set when a
+  transcript file attributed like it is there;
 - a note that exists gets only `setRecording(transcript)`, and only when the
-  recording is there without a transcript and its blob is the audio the
-  transcript is bound to (§11.2).
+  recording is there without a transcript, its blob is the audio the
+  transcript is bound to, and the transcript is attributed like the
+  recording's `captured` (§11.2).
+
+The delta is the adopter's, not the capturing device's: revision names carry
+a per-device `seq` (§5) that two devices adopting the same capture, or the
+capturing device editing the note afterwards, would both use, and the
+capturing device holds no vault secret to tag a revision with. Attribution
+is therefore `captured`, which the adopter writes after verifying it.
 
 Afterwards the capture file is deleted once the note exists, and the
 transcript file once the recording has a transcript (or is gone, or holds
