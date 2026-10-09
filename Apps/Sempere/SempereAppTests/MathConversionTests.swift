@@ -218,4 +218,52 @@ struct MathConversionTests {
         #expect(!left.contains("fake"))
         #expect(!left.contains { $0.hasPrefix(".staging") })
     }
+
+    @Test func aModelAddedFromFilesIsInstalledChosenAndRemoved() async throws {
+        let (folder, _) = try fakeModel()
+        let (other, _) = try fakeModel()
+        // A second model with another id.
+        var manifest = try JSONDecoder().decode(MathModelManifest.self, from: Data(contentsOf: other.appendingPathComponent("manifest.json")))
+        manifest.id = "second"
+        manifest.name = "Second"
+        try JSONEncoder().encode(manifest).write(to: other.appendingPathComponent("manifest.json"))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("models-\(UUID().uuidString)")
+        let suite = "math-models-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let models = MathModels(root: root, catalog: [], localFolder: nil, defaults: defaults)
+        #expect(!models.isAvailable)
+        models.importModel(from: folder)
+        #expect(await TS.waitUntil { models.added.count == 1 })
+        #expect(models.isAvailable)
+        #expect(models.selectedID == "fake", "the first model added is used")
+        #expect(defaults.string(forKey: MathRecognitionPreference.modelKey) == "fake")
+        models.importModel(from: other)
+        #expect(await TS.waitUntil { models.added.count == 2 })
+        #expect(models.selectedID == "fake", "adding another does not change the choice")
+        let second = try #require(models.added.first { $0.id == "second" })
+        models.select("second")
+        #expect(models.selectedID == "second")
+        models.remove(second)
+        #expect(models.added.map(\.id) == ["fake"])
+        // The model in use was removed: the choice goes back to the first installed, which reading uses.
+        #expect(models.selectedID == nil)
+        #expect(defaults.string(forKey: MathRecognitionPreference.modelKey) == nil)
+        #expect(MathModelStore.installedModels(root: root).map(\.id) == ["fake"])
+        // A fresh instance sees the same.
+        #expect(MathModels(root: root, catalog: [], localFolder: nil, defaults: defaults).added.map(\.id) == ["fake"])
+    }
+
+    @Test func aModelThatDoesNotMatchItsManifestIsNotAdded() async throws {
+        let (folder, _) = try fakeModel(corrupt: true)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("models-\(UUID().uuidString)")
+        let suite = "math-models-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let models = MathModels(root: root, catalog: [], localFolder: nil, defaults: defaults)
+        models.importModel(from: folder)
+        #expect(await TS.waitUntil { models.importFailure != nil && !models.importing })
+        #expect(models.added.isEmpty)
+        #expect(!models.isAvailable)
+    }
 }
