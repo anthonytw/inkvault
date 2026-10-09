@@ -128,6 +128,11 @@ public final class URLSessionTransport: WebDAVTransport, @unchecked Sendable {
         session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
     }
 
+    deinit {
+        // A session keeps its delegate (and itself) alive until invalidated.
+        session.finishTasksAndInvalidate()
+    }
+
     public func send(_ request: WebDAVRequest) throws -> WebDAVResponse {
         var r = URLRequest(url: request.url)
         r.httpMethod = request.method

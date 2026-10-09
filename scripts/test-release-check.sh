@@ -92,8 +92,8 @@ expect "a linked package target counts for the app" fail "SempereApp uses NSPriv
 fresh; edit "$pbx" 's.replace("productName = SwiftMath;", "productName = Mystery;")'
 expect "unknown package product" fail "package product Mystery is linked but not in PRODUCT_SOURCES"
 
-fresh; edit "Apps/Sempere/Sempere.entitlements" 's.replace("</dict>", "\t<key>com.apple.security.network.client</key>\n\t<true/>\n</dict>")'
-expect "entitlement outside the allow-list" fail "com.apple.security.network.client is not in the allow-list"
+fresh; edit "Apps/Sempere/Sempere.entitlements" 's.replace("</dict>", "\t<key>com.apple.security.device.camera</key>\n\t<true/>\n</dict>")'
+expect "entitlement outside the allow-list" fail "com.apple.security.device.camera is not in the allow-list"
 
 fresh; edit "Apps/Sempere/SempereWidgets.entitlements" 's.replace("group.io.github.anthonytw.sempere", "group.io.github.other")'
 expect "App Group other than the app's own" fail "application-groups must be exactly"

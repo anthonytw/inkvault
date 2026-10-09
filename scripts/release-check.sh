@@ -57,6 +57,7 @@ ENTITLEMENTS_ALLOWED = {
     "com.apple.security.print",                          # printing the recovery kit
     "com.apple.security.device.audio-input",             # recording audio into notes
     "com.apple.security.application-groups",             # quick voice status for the widgets (iOS app + widget)
+    "com.apple.security.network.client",                 # WebDAV vaults: connections to the user's own server (Mac)
 }
 
 # The only value an entitlement on the allow-list may take, where it has one.
@@ -104,6 +105,8 @@ PRODUCT_SOURCES = {
     "SempereSpeech": ["SempereSpeech", "Sempere", "Age", "CZlib"],
     # The app's Notability import (`AppModel+NotabilityImport`).
     "SempereImport": ["SempereImport", "Sempere", "SemperePDF", "SempereRender", "Age", "CZlib"],
+    # WebDAV vaults (`AppModel+WebDAV`, docs/io.md "WebDAV vaults in the app").
+    "SempereWebDAV": ["SempereWebDAV", "Sempere", "Age", "CZlib"],
     # Third-party (app only, never in Sources/): ships its own manifest if it needs one;
     # check the archive's privacy report (docs/release/app-store.md).
     "SwiftMath": [],

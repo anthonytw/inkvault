@@ -122,6 +122,7 @@ struct NoteListView: View {
                     RecognitionBar(progress: progress) { model.cancelRecognizingNotes() }
                 }
                 VaultStatusBar(loading: model.loading, sync: model.cloudSync) { model.startCloudSync() }
+                if let session = model.webdav { WebDAVStatusBar(session: session) }
             }
         }
         .refreshable {

@@ -306,6 +306,19 @@ final class AppModel {
     var syncingInBackground = false
     /// The iCloud calls; tests replace them (`CloudVault.Hooks`).
     var cloudHooks = CloudVault.Hooks.live
+    /// The WebDAV locations of this device (`AppModel+WebDAV`, docs/io.md
+    /// "WebDAV vaults in the app"). The app passes the default store; without
+    /// one (tests) a store in a folder of this model alone.
+    let webdavLocations: WebDAVLocationStore
+    /// The push-only sync of the open vault when it is a WebDAV location's
+    /// local copy; nil for any other vault.
+    var webdav: WebDAVSession?
+    /// The name of the WebDAV vault being downloaded, for the overlay; nil when none is.
+    var webdavDownloading: String?
+    /// The server calls (`LiveWebDAVRemote`); tests pass a fake.
+    @ObservationIgnored var webdavRemote: any WebDAVRemote = LiveWebDAVRemote()
+    /// WebDAV passwords (the Keychain); tests pass `MemoryWebDAVPasswordStore`.
+    @ObservationIgnored var webdavPasswords: any WebDAVPasswordStore = KeychainWebDAVPasswordStore()
     /// The running Back Up Now, Verify Backup or restore (`AppModel+Backup`),
     /// nil when none runs.
     var backupProgress: BackupProgress?
@@ -469,8 +482,14 @@ final class AppModel {
          automaticThinning: Bool = false,
          recipientsTrust: (any RecipientsTrustStore)? = nil,
          backupNotifier: (any BackupNotifying)? = nil,
+         webdavLocations: WebDAVLocationStore? = nil,
          afterIO: (@Sendable () async -> Void)? = nil) {
         self.recipientsTrust = recipientsTrust ?? MemoryRecipientsTrustStore()
+        let webdavScratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SempereWebDAV-\(UUID().uuidString)", isDirectory: true)
+        self.webdavLocations = webdavLocations
+            ?? WebDAVLocationStore(storeURL: webdavScratch.appendingPathComponent("webdav.json"),
+                                   root: webdavScratch.appendingPathComponent("WebDAV", isDirectory: true))
         self.deviceStateURL = deviceStateURL
         activityRoot = deviceStateURL.deletingLastPathComponent().appendingPathComponent("Activity", isDirectory: true)
         inboxBackoff = InboxBackoff(fileURL: deviceStateURL.deletingLastPathComponent().appendingPathComponent("InboxBackoff.json"))
@@ -680,6 +699,7 @@ final class AppModel {
             return
         }
         phase = .unlocked
+        webdav?.vaultUnlocked()
         loadActivity()
         startLoadingNotes(reportErrors: !awaitNotes)
         if awaitNotes { try await notesLoaded() }
@@ -736,6 +756,7 @@ final class AppModel {
         unlockIdentities = identities
         migration = nil
         phase = .unlocked
+        webdav?.vaultUnlocked()
         loadActivity()
         refreshQuickCaptureProfile()   // the migration rotated the secret, and with it the capture key
         try await reload()
@@ -966,7 +987,10 @@ final class AppModel {
         if let deviceClock { return deviceClock }
         // Every delta any `NoteWriter` writes with this clock updates that note's attachment index.
         let clock = try DeviceClock(url: deviceStateURL) { [weak self] id in
-            Task { @MainActor in self?.noteWritten(id) }
+            Task { @MainActor in
+                self?.noteWritten(id)
+                self?.webdav?.noteWrite()   // a WebDAV copy pushes shortly after a write
+            }
         }
         deviceClock = clock
         return clock
@@ -980,6 +1004,7 @@ final class AppModel {
         generation += 1
         cancelCloudDownload()
         stopCloudSync()
+        stopWebDAV()
         syncingInBackground = false
         endBackgroundTime()
         cancelRemoteMerges()

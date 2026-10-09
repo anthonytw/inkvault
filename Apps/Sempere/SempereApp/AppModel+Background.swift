@@ -40,6 +40,7 @@ extension AppModel {
     func enterForeground() {
         syncingInBackground = false
         endBackgroundTime()
+        webdav?.demand()   // a WebDAV copy pushes when the app comes back
     }
 
     /// The loop found nothing pending while finishing in the background: it
