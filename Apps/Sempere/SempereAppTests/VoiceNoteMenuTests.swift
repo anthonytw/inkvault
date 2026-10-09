@@ -18,6 +18,25 @@ struct VoiceNoteMenuActionTests {
         #expect(VoiceNoteMenu.action(setUp: false, state: .recording) == .stop)
     }
 
+    /// Review fix: from a note window the model's `pendingLink` showed nothing (only the library
+    /// window answers it), so the Mac menu opens the Settings window when nothing is set up.
+    @Test func onlyAMissingSetupOpensTheSettingsWindow() {
+        #expect(VoiceNoteMenu.opensSettingsWindow(setUp: false, state: .idle))
+        #expect(!VoiceNoteMenu.opensSettingsWindow(setUp: true, state: .idle))
+        #expect(!VoiceNoteMenu.opensSettingsWindow(setUp: false, state: .recording), "Stop still stops")
+        #expect(!VoiceNoteMenu.opensSettingsWindow(setUp: false, state: .saving))
+    }
+
+    /// Review fix: the banner was hidden on a Mac, so a voice note started from the File menu
+    /// recorded with no sign in the window. The rule no longer depends on the platform.
+    @Test func theBannerShowsWhileRecordingSavingOrNoticing() {
+        #expect(VoiceNoteBannerRule.shows(state: .recording, hasNotice: false))
+        #expect(VoiceNoteBannerRule.shows(state: .saving, hasNotice: false))
+        #expect(VoiceNoteBannerRule.shows(state: .idle, hasNotice: true))
+        #expect(!VoiceNoteBannerRule.shows(state: .idle, hasNotice: false))
+        #expect(!VoiceNoteBannerRule.shows(state: .starting, hasNotice: false))
+    }
+
     @Test func theMenuContextMirrorsTheRecorder() {
         #expect(VoiceNoteMenu.phase(.idle) == .idle)
         #expect(VoiceNoteMenu.phase(.recording) == .recording)

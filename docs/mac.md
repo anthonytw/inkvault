@@ -540,15 +540,17 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 ## Menu parity and the voice note item (gap audit GA-14, GA-23)
 
 Every toolbar-only note command has a menu entry (the table above); page commands act on paged
-notes (a pageless note is one page), enable like the toolbar (a note keeps its last page; ⌥⌘⌫ is off
-while a text field has focus) and the switches say what they do next ("Hide Pages", "Use Full
+notes (a pageless note is one page), enable like the toolbar (a note keeps its last page; ⌥⌘⌫ and ⌘⌫ are off
+while a text field or a text box on the canvas is being typed in, `NoteEditor.typingInTextBox`: a
+menu key equivalent wins over the text view, where both keys delete text) and the switches say what they do next ("Hide Pages", "Use Full
 Palette", "Switch to Paged Layout"). Version History opens from `WindowUI.historyNoteID`, so the
 library and note windows share one sheet. There is no Edit-menu entry: the Edit menu is UIKit's,
 and a group with a clashing shortcut is dropped whole, so the commands sit in Note, Tools and View.
 
 **Voice notes from the menu bar.** File > Start Voice Note (⇧⌘M) records through the same
 `QuickCapture` as Siri, Shortcuts and the widgets and seals into the vault's inbox without the
-vault being unlocked; the item then reads Stop Voice Note, and the window shows the usual banner.
-Without a setup it opens Settings > Quick Voice Notes. A status-bar extra (an icon in the system
+vault being unlocked; the item then reads Stop Voice Note, and the library and note windows show the usual banner
+(`VoiceNoteBannerRule`, the same on every platform). Without a setup it opens the Settings window,
+where Quick Voice Notes is. A status-bar extra (an icon in the system
 menu bar) is not possible: SwiftUI's `MenuBarExtra` is macOS-only and Catalyst has no
 `NSStatusItem`, so this is the app's own menu bar, which works while the app runs.
