@@ -224,3 +224,40 @@ behaviour and testing on a real Mac.
 | WebDAV mirror for the viewer | ✅ CLI part #97 (`sync webdav --push-only`); the push-only mirror and Caddy are set up on the maintainer's side | A WebDAV share on the NAS behind Caddy, plus a macOS `launchd` agent running `sempere sync webdav --push-only` every few minutes from the iCloud vault, so the NAS can never feed back a changed recipient list. #63 documents the Caddy + `sync webdav` setup (`docs/web-viewer.md`); static hosts use `sempere vault index`. The setup itself lives in the sysadmin repo, outside this one. |
 | WebDAV as a vault location in the app | 💡 low priority | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
 | Other Files-app providers (Google Drive, Proton Drive, Dropbox, OneDrive, Nextcloud) | 💡 test on demand | They probably already work through the folder picker. The download checks are tuned for iCloud, so each provider needs a test pass. |
+
+## Gap audit (2026-10-09)
+
+Promised-but-missing behaviour found by `docs/research/gap-audit-2026-10.md` (ids `GA-nn`
+are its rows, with evidence and `file:line`). Size: S under a day · M a PR with choices ·
+L a design question or an outside decision. Not repeated here: #122 (recordings list page,
+`--format media`), #123 (mouse smoothing), and the stale-document fixes (audit section F).
+Existing rows were not touched.
+
+| Area | Gap | Size | Audit | Status |
+| --- | --- | --- | --- | --- |
+| Notes | Favorites can be read (summaries, web viewer list) but nothing sets `meta.favorite`: `notes favorite` in the CLI first, then the app | M | GA-01 | 📋 |
+| Items | Rotate an item in the app (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) | M | GA-02 | 📋 |
+| Items | CLI edit of a text box's text and style (`items text`, on `NoteOps.setText`) | M | GA-03 | 📋 |
+| Settings | Notebook for quick voice notes in New Notes does nothing; one field should drive capture | S | GA-04 | 📋 |
+| Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) | M | GA-05 | 📋 |
+| Search | Transcripts in the app's search; highlights on text boxes | M | GA-06, GA-07 | 📋 |
+| Import | App Notability import: show the report and the CLI's options | M | GA-08 | 📋 |
+| Import | Notability transcripts as transcript blobs; GIF/TIFF/WebP handling checked against the doc | S | GA-09, GA-10 | 📋 |
+| Transcription | `DictationTranscriber` step in the fallback chain | S | GA-11 | 📋 |
+| Recording | Live transcript while recording; faded ink playback mode | L | GA-12 | 💡 |
+| Mac | Shortcuts for item actions and recording; Note menu entries for toolbar-only commands | M | GA-13, GA-14 | 📋 |
+| iPhone | Page layout switch, page duplicate/delete/add-after, insert PDF at page, thumbnail strip, swipe to turn pages | M | GA-15, GA-16 | 📋 |
+| Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) | M | GA-17 | 📋 |
+| Backup | CLI reminder (overdue check) for the app's "Remind Me" | S | GA-18 | 📋 |
+| Math | Ship a handwriting model: pick one, settle the training-data question, pin the manifest hash (then `network.client` for the Mac build and the privacy answers) | L | GA-22, GA-40 | 💡 (needs the maintainer) |
+| Capture | Mac menu-bar item for quick capture; adopting captures from a key that no longer verifies | M / L | GA-23, GA-24 | 💡 |
+| Web viewer | Ink linked to audio (`rec`) and search highlights | M | GA-25, GA-26 | 📋 |
+| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes | M–L | GA-27 | 💡 |
+| Security | Open review findings: P3, P4 (web), P5 (`vault summaries` file mode), C2, C8 | S–M | GA-28, GA-30, GA-31, GA-34 | 📋 |
+| Security | Open review findings needing a format change: C3 (removed device's captures), N3 (`format`/`features` outside `recipientsTag`) | L | GA-32, GA-33 | 💡 |
+| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network"; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest | M | GA-40 to GA-42 | 📋 |
+| CI | Run the WebDAV integration tests (a server container); the pseudo-language layout test; all web smoke scripts; fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt`, macOS poppler | M | GA-50 to GA-52, GA-61 | 📋 |
+| Tests | CLI: exit 7 for every write command, untested flags, Linux errors for `recognize` and `attach video --from-clip` | M | GA-53, GA-65, GA-66 | 📋 |
+| Tests | App: `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers, iPhone toolbar, key export, PDF-drag purge | M | GA-54 to GA-59 | 📋 |
+| Tests | Library-level only: `--retry-quarantined`, restore resume marker, fixture vault with items, settings confirmations | S | GA-60, GA-63, GA-64 | 📋 |
+| Device | Hand tests still owed: Mac list in `docs/mac.md`, a physical iPhone, the "not yet tried on the iPad" rows, sandboxed bookmark reopen on Catalyst | M | GA-70 to GA-73 | 📋 (needs devices) |
