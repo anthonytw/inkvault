@@ -2183,6 +2183,18 @@
         }
       }
     },
+    "Add Model from Files…" : {
+      "comment" : "Settings ▸ Handwritten Math button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir modelo desde Archivos…"
+          }
+        }
+      }
+    },
     "Add Page" : {
       "comment" : "Button / menu: add a page",
       "extractionState" : "manual",
@@ -3199,6 +3211,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Comprobando notas: %lld de %lld"
+          }
+        }
+      }
+    },
+    "Checking the model…" : {
+      "comment" : "Settings ▸ Handwritten Math: a model is being checked and copied",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobando el modelo…"
           }
         }
       }
@@ -5880,6 +5904,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En Reconocidas recientemente"
+          }
+        }
+      }
+    },
+    "In Use" : {
+      "comment" : "Settings ▸ Handwritten Math: this model reads handwriting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En uso"
           }
         }
       }
@@ -8648,6 +8684,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fotos…"
+          }
+        }
+      }
+    },
+    "Pick a model folder, or a zip of one, from Files. It is checked against its manifest and kept on this device." : {
+      "comment" : "Settings ▸ Handwritten Math: explains Add Model from Files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige en Archivos la carpeta de un modelo, o un zip de ella. Se comprueba con su manifiesto y se guarda en este dispositivo."
           }
         }
       }
@@ -11980,6 +12028,18 @@
         }
       }
     },
+    "That model cannot be added: %@" : {
+      "comment" : "Settings ▸ Handwritten Math: Add Model from Files failed; the reason follows (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede añadir ese modelo: %@"
+          }
+        }
+      }
+    },
     "That note is no longer in the vault." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14023,6 +14083,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Usar esta clave en su lugar"
+          }
+        }
+      }
+    },
+    "Use This Model" : {
+      "comment" : "Settings ▸ Handwritten Math: choose the model that reads handwriting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar este modelo"
           }
         }
       }
