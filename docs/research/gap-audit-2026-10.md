@@ -92,7 +92,7 @@ Fixed items (R4/W1, W2–W5, C5, R5, N2, P1) each have code and a test.
 
 | ID | Item | Evidence | Size |
 | --- | --- | --- | --- |
-| GA-50 | WebDAV integration tests never run in CI (`SEMPERE_WEBDAV_TEST_URL`; only `scripts/test-webdav.sh`); run by the Linux job since #137 | `Tests/SempereWebDAVTests/IntegrationTests.swift:12,120`; `BlobIntegrationTests.swift:16`; `Tests/CLITests/CLIWebDAVTests.swift:62,85`; `ci.yml` (no match) | M |
+| GA-50 | WebDAV integration tests never run in CI (`SEMPERE_WEBDAV_TEST_URL`; only `scripts/test-webdav.sh`) | `Tests/SempereWebDAVTests/IntegrationTests.swift:12,120`; `BlobIntegrationTests.swift:16`; `Tests/CLITests/CLIWebDAVTests.swift:62,85`; `ci.yml` (no match) | M |
 | GA-51 | Pseudo-language layout test (double-length, RTL, Spanish) never runs in CI, and only on the iPad simulator, not at iPhone width or on Catalyst | `PseudoLanguageUITests.swift:22-25,49`; `scripts/app.sh:7,72` | S–M |
 | GA-52 | Web CI runs 2 of 7 browser smoke scripts; `smoke-cache` skips the summaries and index scenarios because the fixture has neither file | `ci.yml:358-362`; `web/scripts/smoke-cache.mjs:118,127` | M |
 | GA-53 | No Linux assertion for `sempere recognize` without Vision (exit 1, nothing changed) or for `attach video --from-clip` without AVFoundation ✔ | `Sources/SempereCLI/Recognize.swift:15-18,111,116`; `AttachVideo.swift:211`; `Tests/CLITests/CLIRecognizeTests.swift:134` (`#if`, no `#else`) | S |

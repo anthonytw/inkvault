@@ -2,7 +2,7 @@
 # Runs the WebDAV integration tests against a local wsgidav server.
 #   pip install wsgidav cheroot      (once)
 #   scripts/test-webdav.sh
-# CI runs this (Linux job); plain `swift test` skips the tests, which need SEMPERE_WEBDAV_TEST_URL.
+# CI skips them: they only run when SEMPERE_WEBDAV_TEST_URL is set.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${PORT:-8765}"

@@ -75,7 +75,7 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Capture | C2: a forged capture's attribution (the capturing device is not stored, the notebook comes from the manifest) (GA-31, M) | 📋 |
 | Crypto | C3: a removed device's captures are adopted while its rewrap is unfinished; needs an authenticated names list (format change) (GA-32, L) | 📋 |
 | Crypto | N3: `format` and `features` in `vault.json` are not covered by `recipientsTag` (format change) (GA-33, L) | 📋 |
-| CI | Run the WebDAV integration tests against a server container (GA-50, M) | 🔀 #137 (Linux job: `scripts/test-webdav.sh` with wsgidav) |
+| CI | Run the WebDAV integration tests against a server container (GA-50, M) | 📋 |
 | CI | Fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt` and macOS poppler (GA-61, S) | 📋 |
 | Tests | Fixture vault with a note that has items (GA-63, S) | 📋 |
 

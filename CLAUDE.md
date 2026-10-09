@@ -680,7 +680,7 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   certificate pins are checked by `PinnedServerTrust` (Security, app only) behind the library's
   `WebDAVServerTrust` hook, never by disabling evaluation. Key changes are refused for a WebDAV copy
   (`requireLocalKeyChanges`): a rewrap in place never reaches the server. App tests use
-  `FakeWebDAVRemote` and `MemoryWebDAVPasswordStore`; the library's sync runs against wsgidav in CI
+  `FakeWebDAVRemote` and `MemoryWebDAVPasswordStore`; the library's sync runs against wsgidav
   (`scripts/test-webdav.sh`). A recent WebDAV vault is a `RecentVault` with `webdav` set and no bookmark.
 - Vaults in another app's provider storage (`StorageLocation`) are coordinated like iCloud ones
   (`isCloudVault`), even when the provider does not report its files as ubiquitous.

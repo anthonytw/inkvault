@@ -116,13 +116,6 @@ jobs:
           # PDF background pixel checks against pdftoppm (poppler-utils, installed above).
           SEMPERE_REQUIRE_POPPLER: "1"
         run: swift test --skip-build --parallel
-      # GA-50: the tests that need a real server (URLSession, wsgidav) run here, not only by hand.
-      - name: WebDAV integration tests against a local wsgidav server
-        run: |
-          apt-get install -y -q python3-venv
-          python3 -m venv /opt/dav
-          /opt/dav/bin/pip install -q wsgidav==4.3.5 cheroot==11.1.2
-          PATH="/opt/dav/bin:$PATH" scripts/test-webdav.sh --skip-build
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main'
         with:

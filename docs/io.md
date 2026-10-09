@@ -1093,9 +1093,7 @@ the next run a first sync: nothing is deleted, nothing overwritten.
 
 **Testing.** `scripts/test-webdav.sh` starts a local wsgidav
 (`pip install wsgidav cheroot`) and runs the integration tests, which are
-skipped unless `SEMPERE_WEBDAV_TEST_URL` is set. CI's Linux job runs the
-script (pinned wsgidav and cheroot in a venv), so they run on every PR that
-touches the package.
+skipped unless `SEMPERE_WEBDAV_TEST_URL` is set (a CI job for them is #133, GA-50).
 
 ## WebDAV vaults in the app
 
