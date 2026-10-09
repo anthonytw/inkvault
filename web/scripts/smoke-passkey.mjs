@@ -100,7 +100,7 @@ const records = (page) => page.evaluate(() => new Promise((resolve, reject) => {
   check(true, "pasted key unlocked, passkey created");
   const stored = await records(page);
   check(stored.length === 1, `one record stored (${stored.length})`);
-  check(JSON.stringify(stored[0]?.keys) === JSON.stringify(["ciphertext", "created", "credentialId", "iv", "salt", "vaultId", "version"]), `record fields ${JSON.stringify(stored[0]?.keys)}`);
+  check(JSON.stringify(stored[0]?.keys) === JSON.stringify(["ciphertext", "created", "credentialId", "iv", "location", "salt", "vaultId", "version"]), `record fields ${JSON.stringify(stored[0]?.keys)}`);
   check(!stored[0]?.text.includes(secretLine.slice(0, 24)) && !stored[0]?.text.includes("AGE-SECRET"), "no key text in IndexedDB");
   const { credentials } = await cdp.send("WebAuthn.getCredentials", { authenticatorId });
   check(credentials.length === 1, `one passkey in the authenticator (${credentials.length})`);

@@ -112,6 +112,21 @@ share sheet. Providers see UUID file names, keyed-hash blob names with their
 kind (image, pdf, audio, …), sizes (blobs padded to a size class) and times,
 nothing else.
 
+## Network
+
+The app opens no connections of its own: files move through the system's
+Files and iCloud services, and on-device speech models are the system's
+downloads. Network code lives in `Sources/SempereWebDAV` (the CLI's WebDAV
+sync; the app does not link it) and in exactly one app file, the
+handwritten-math model downloader (`Apps/Sempere/SempereApp/MathModels.swift`),
+which is inert: it runs only from a Download button per catalogue entry, and
+the catalogue (`MathModelCatalog.entries`) is empty until the maintainer
+settles which model may ship. `scripts/release-check.sh` fails on networking
+anywhere else in the shipping app and on a non-empty catalogue; shipping a
+model means updating the privacy policy, the App Store answers
+(`docs/release/app-store.md` §3) and the Mac entitlements first. The web
+viewer (`web/`) fetches only the vault's files and its own assets.
+
 ## Append-only note log
 
 A note is a folder of immutable encrypted revision files. Every save appends
