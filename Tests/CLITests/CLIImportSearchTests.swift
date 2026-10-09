@@ -237,7 +237,9 @@ final class CLIImportSearchTests: CLITestCase {
         XCTAssertEqual(summary["textItems"] as? Int, 1)
         XCTAssertEqual(summary["recordings"] as? Int, 1)
         XCTAssertEqual(summary["recLinkedStrokes"] as? Int, 3)
+        XCTAssertEqual(summary["transcripts"] as? Int, 0)   // the fixture's library holds none
         let note = try XCTUnwrap((out["notes"] as? [[String: Any]])?.first)
+        XCTAssertEqual((note["attachments"] as? [String: Any])?["transcripts"] as? Int, 0)
         let dropped = try XCTUnwrap(note["dropped"] as? [String: Any])
         XCTAssertEqual(dropped["typedTextCharacters"] as? Int, 0)
         XCTAssertEqual(dropped["recordings"] as? Int, 0)

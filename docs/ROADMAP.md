@@ -69,9 +69,9 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2.9) | ✅ #103 |
 | Vault | Recently Recognized shared across devices (stored in the vault) | ✅ #102 |
 | Render | Video in exports: poster with a play mark in PDF/SVG/PNG, clips embedded in "PDF + attachments" streamed from the vault (`PDFWriter.write(to:)`), clips written next to Markdown/HTML and linked | ✅ #93 |
-| Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`) (GA-09, S) | 📋 |
-| Import | GIF, TIFF and WebP images in a Notability bundle: the doc says counted in `dropped.media`, `ImageIngest` refuses them; trace it and fix the doc or the code (GA-10, S) | 📋 |
-| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes imported solid, highlighter behind a PDF, pages of two heights (GA-27, M–L) | 📋 |
+| Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`); the library layout is a hypothesis, no real sample (GA-09, S) | 🚧 #134 |
+| Import | GIF (first frame) and baseline TIFF in a Notability bundle are converted to PNG; WebP, BMP and AVIF stay counted in `dropped.media` (GA-10, S) | 🚧 #134 |
+| Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes imported solid, highlighter behind a PDF, pages of two heights (GA-27, M–L): feasibility in `docs/research/ntb-undecoded-kinds.md`; the report now names each unconverted kind; decoding needs samples from the backup, dashes a format change | 🚧 #134 (feasibility) |
 | Capture | C2: a forged capture's attribution (the capturing device is not stored, the notebook comes from the manifest) (GA-31, M) | 📋 |
 | Crypto | C3: a removed device's captures are adopted while its rewrap is unfinished; needs an authenticated names list (format change) (GA-32, L) | 📋 |
 | Crypto | N3: `format` and `features` in `vault.json` are not covered by `recipientsTag` (format change) (GA-33, L) | 📋 |
@@ -140,7 +140,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `notes favorite` / `unfavorite` (nothing sets `meta.favorite` today; the app follows) (GA-01, M) | 📋 | 📋 |
 | `items text` (edit a text box's text and style, on `NoteOps.setText`) (GA-03, M) | 📋 | 📋 |
 | `backup` overdue check for the app's "Remind Me" (GA-18, S) | 📋 | 📋 |
-| `vault summaries --plaintext --out` writes the file mode 0600 (P5) (GA-30, S) | 📋 | 📋 |
+| `vault summaries --plaintext --out` writes the file mode 0600 (P5) (GA-30, S) | ✅ #130 | — |
 | Tests: exit 7 for every write command (GA-65, M); documented flags never exercised (GA-66, S–M); Linux errors of `recognize` and `attach video --from-clip` (GA-53, S); `sync webdav --retry-quarantined` and the restore resume marker through the commands (GA-60, S) | 📋 | 📋 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
@@ -205,11 +205,11 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items | Rotate an item (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) (GA-02, M) | 📋 |
 | Settings | "Notebook for quick voice notes" in New Notes does nothing; one field should drive capture (GA-04, S) | 📋 |
 | Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) (GA-05, M) | 📋 |
-| Search | Transcripts in the app's search (GA-06, M); highlights on text boxes (GA-07, M) | 📋 |
-| Import | App Notability import: show the report (`dropped.*`, warnings) and offer the CLI's options (`--no-attachments`, `--keep-image-metadata`, `--recognize missing`, `--pdf-text`) (GA-08, M) | 📋 |
+| Search | Transcripts in the app's search (`TranscriptSearch`, shared with `search --transcripts`) (GA-06, M); highlights inside text boxes (`TextMatchBoxes`; CLI `search --show-boxes` too) (GA-07, M) | 🚧 #134 (not yet tried on the iPad) |
+| Import | App Notability import: an options sheet (attachments, photo metadata, PDF page text, folder tags, read handwriting) and the full report (`dropped.*`, warnings) (GA-08, M) | 🚧 #134 (not yet tried on the iPad) |
 | Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) (GA-17, M) | 📋 |
 | Capture | C8: stale `completeUnlessOpen` comments in `QuickCapture.swift` (GA-34, S) | 📋 |
-| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network" while the app holds a model downloader; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest and version pin (GA-40 to GA-42, M) | 📋 |
+| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` describe the dormant model downloader exactly; `release-check.sh` fails on networking in the app outside it and on a non-empty catalogue, checks the SwiftMath pin and (CI `app` job) scans its checkout; the CLI release refuses a CHANGELOG section with `TODO(user)` or no date (GA-40 to GA-42, M) | ✅ #130 (the 0.5.0 date itself is the maintainer's) |
 | Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 📋 |
 | Export | HTML and SVG export (`ShareFormat.html` is never offered), `--clean` and `--breaks` in the app; today CLI-only (GA-19, S) | 📋 |
 | Release | App Store review notes and listing draft claim highlighted words on the page; check against the iPhone, which has none yet (GA-43, S) | 📋 |
@@ -267,7 +267,8 @@ behaviour and testing on a real Mac.
 | iPhone: swipe to turn pages, search-hit highlights on the phone, paper picker layout pass (GA-16, M) | 📋 | `iphone.md:104-106` admits them missing. |
 | iPhone: tests of the overflow menu and Annotate, the "wide landscape ignores the stored column" and pageless one-screen rules at phone size (GA-58, M) | 📋 | `PhoneLayoutTests.swift`. |
 | iPhone: hand test on a physical iPhone (Face ID, folder picker, finger annotation) (GA-71, M) | 📋 (needs the maintainer) | Needs a phone. |
-| Web viewer: cache ciphertext from before a rewrap stays openable by a removed key (P4); passkey record keyed by an unauthenticated vault id (P3) (GA-28, S each) | 📋 | `web/src/vault/cache.ts`, `passkey.ts`; `security-review-2026-10.md`. |
+| Web viewer: cache ciphertext from before a rewrap stays openable by a removed key (P4) (GA-28, S) | 📋 (#125) | `web/src/vault/cache.ts`; `security-review-2026-10.md`. |
+| Web viewer: passkey record bound to the vault's location, not only its (unauthenticated) id; version 1 records migrated; no IndexedDB database before opting in (P3) (GA-28, S) | ✅ #130 | `web/src/vault/passkey.ts`; `docs/web-viewer.md` "The location". |
 | Web viewer CI: run all 7 browser smoke scripts (2 run today), give `smoke-cache` a fixture with summaries and an index (GA-52, M) | 📋 | `ci.yml`, `web/scripts/`. |
 
 ## First release
